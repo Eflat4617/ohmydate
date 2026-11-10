@@ -48,6 +48,8 @@ interface Placement {
   startMs: number;
   endMs: number;
   slotId: number;
+  /** Local wall-clock hour at the placement midpoint (for preferred windows). */
+  localHour: number;
   /** True when the placement was seeded from a still-valid existing block. */
   seeded: boolean;
 }
@@ -94,6 +96,9 @@ interface BuildContext {
   horizonEndMs: number;
   nowMs: number;
   riskLevel: 'p50' | 'p90';
+  taskById: Map<string, Task>;
+  dueMsByTask: Map<string, number>;
+  bufferMsByTask: Map<string, number>;
 }
 
 interface Position {
@@ -356,6 +361,16 @@ function buildContext(input: ScheduleInput): BuildContext {
   const historyIntervals = toIntervals(historyBlocks);
   const historyByTask = groupIntervalsByTask(historyIntervals);
 
+  const taskById = new Map(input.tasks.map((task) => [task.id, task]));
+  const dueMsByTask = new Map<string, number>();
+  const bufferMsByTask = new Map<string, number>();
+  for (const task of input.tasks) {
+    if (task.dueAt !== undefined) {
+      dueMsByTask.set(task.id, parseInstant(task.dueAt));
+    }
+    bufferMsByTask.set(task.id, (task.bufferBeforeDueMin ?? 0) * MINUTE_MS);
+  }
+
   return {
     input,
     slotsByStart,
@@ -373,6 +388,9 @@ function buildContext(input: ScheduleInput): BuildContext {
     horizonEndMs,
     nowMs,
     riskLevel: input.prefs.riskLevel,
+    taskById,
+    dueMsByTask,
+    bufferMsByTask,
   };
 }
 
@@ -545,6 +563,11 @@ function buildReplanSeeds(
         startMs: item.startMs,
         endMs: item.endMs,
         slotId: slot.id,
+        localHour: localHourOf(
+          item.startMs,
+          item.endMs,
+          context.input.timeZone,
+        ),
         seeded: true,
       };
       addPlacement(state, placement);
@@ -1060,6 +1083,11 @@ function runPlacementAttempt(
           startMs: position.startMs,
           endMs: position.endMs,
           slotId: position.slotId,
+          localHour: localHourOf(
+            position.startMs,
+            position.endMs,
+            context.input.timeZone,
+          ),
           seeded: false,
         };
         addPlacement(state, placement);
@@ -1126,6 +1154,14 @@ function stateFromPlacements(
     addPlacement(state, { ...placement });
   }
   return state;
+}
+
+function localHourOf(
+  startMs: number,
+  endMs: number,
+  timeZone: string,
+): number {
+  return instantToZoned(Math.floor((startMs + endMs) / 2), timeZone).hour;
 }
 
 function blocksFromPlacements(placements: Placement[]): Block[] {
@@ -1786,6 +1822,11 @@ function improvePlacements(
         startMs: position.startMs,
         endMs: position.endMs,
         slotId: position.slotId,
+        localHour: localHourOf(
+          position.startMs,
+          position.endMs,
+          context.input.timeZone,
+        ),
       };
       addPlacement(state, moved);
       const movedScore = objectiveScore(context, state, policy);
@@ -1895,17 +1936,16 @@ function objectiveScore(
   }
   const s2 = totalLoad > 0 ? 1 - maxLoad / totalLoad : 0;
 
-  const taskById = new Map(context.input.tasks.map((task) => [task.id, task]));
   let preferredTotal = 0;
   let preferredFit = 0;
   for (const placement of state.placements) {
-    const task = taskById.get(placement.taskId);
+    const task = context.taskById.get(placement.taskId);
     const windows = task?.preferredWindows ?? [];
     if (windows.length === 0) {
       continue;
     }
     preferredTotal += placement.durationMin;
-    if (matchesPreferredWindow(placement, windows, state.timeZone)) {
+    if (matchesPreferredWindow(placement, windows)) {
       preferredFit += placement.durationMin;
     }
   }
@@ -1955,13 +1995,8 @@ function objectiveScore(
 function matchesPreferredWindow(
   placement: Placement,
   windows: string[],
-  timeZone: string,
 ): boolean {
-  const local = instantToZoned(
-    Math.floor((placement.startMs + placement.endMs) / 2),
-    timeZone,
-  );
-  const hour = local.hour;
+  const hour = placement.localHour;
   for (const window of windows) {
     if (window === 'morning' && hour >= 6 && hour < 12) {
       return true;
@@ -1988,16 +2023,15 @@ function minSlackMinutes(context: BuildContext, state: PlanState): number {
   let minimum = Number.POSITIVE_INFINITY;
   let sawDeadline = false;
   for (const task of context.input.tasks) {
-    if (task.dueAt === undefined) {
+    const dueMs = context.dueMsByTask.get(task.id);
+    if (dueMs === undefined) {
       continue;
     }
     sawDeadline = true;
     const lastEnd =
       lastEndByTask.get(task.id) ?? context.horizonStartMs;
     const slack =
-      (parseInstant(task.dueAt) -
-        (task.bufferBeforeDueMin ?? 0) * MINUTE_MS -
-        lastEnd) /
+      (dueMs - (context.bufferMsByTask.get(task.id) ?? 0) - lastEnd) /
       MINUTE_MS;
     minimum = Math.min(minimum, slack);
   }
