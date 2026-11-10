@@ -1,5 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import pg from 'pg';
+import { vi } from 'vitest';
+
+// DB-backed suites migrate schemas and can exceed the 5 s default under load.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
 const { Client } = pg;
 
