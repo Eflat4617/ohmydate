@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
+import { isAbsolute, relative } from 'node:path';
 import type { Id } from '@ohmydate/domain';
 import { VikunjaClient } from '@ohmydate/provider-vikunja';
 import type { Kysely } from 'kysely';
@@ -46,11 +47,14 @@ export async function listReconcilerOwnerIds(db: Kysely<Database>): Promise<read
 
 /**
  * Token files are JSON objects of ownerId -> API token (`{ "tokens": {...} }`
- * is also accepted). The file path may come from the account's
- * `token_secret_ref` (`file:<path>` or a bare path) or from the configured
- * `VIKUNJA_TOKEN_FILE` when the ref is `default`. `env:<NAME>` reads a single
- * token from the environment. Cleartext tokens never touch PostgreSQL and are
- * never included in error messages.
+ * is also accepted). Supported references are:
+ * - `env:VIKUNJA_TOKEN_*` — only names under that prefix are accepted, so a
+ *   writable account row cannot exfiltrate an unrelated env secret.
+ * - `file:<path>` — the path must realpath-resolve to VIKUNJA_TOKEN_FILE or
+ *   inside VIKUNJA_SECRETS_DIR; traversal and symlink escapes are rejected.
+ * - `default` — use the configured VIKUNJA_TOKEN_FILE.
+ * Bare paths are intentionally unsupported. Cleartext tokens never touch
+ * PostgreSQL, logs or error messages, and file errors never echo foreign keys.
  */
 export async function loadVikunjaClients(options: {
   readonly db: Kysely<Database>;
@@ -67,6 +71,23 @@ export async function loadVikunjaClients(options: {
   const fileCache = new Map<string, ReadonlyMap<string, string>>();
   const accounts = await listVikunjaOwnerAccounts(options.db);
   const clients = new Map<Id, VikunjaClient>();
+
+  const assertAllowedFile = async (path: string): Promise<void> => {
+    const resolved = await realpath(path);
+    const defaultFile = options.config.vikunjaTokenFile;
+    if (defaultFile !== null) {
+      const resolvedDefault = await realpath(defaultFile).catch(() => null);
+      if (resolvedDefault !== null && resolvedDefault === resolved) return;
+    }
+    const secretsDir = options.config.vikunjaSecretsDir;
+    if (secretsDir === null) {
+      throw new Error('VIKUNJA_SECRETS_DIR is required for file token references');
+    }
+    const dir = await realpath(secretsDir);
+    const inside = relative(dir, resolved);
+    if (inside === '' || (!inside.startsWith('..') && !isAbsolute(inside))) return;
+    throw new Error('Vikunja token file reference escapes VIKUNJA_SECRETS_DIR');
+  };
 
   const tokenFromFile = async (path: string, ownerId: Id): Promise<string> => {
     let tokens = fileCache.get(path);
@@ -87,6 +108,11 @@ export async function loadVikunjaClients(options: {
     let token: string;
     if (ref.startsWith('env:')) {
       const name = ref.slice('env:'.length);
+      if (!/^VIKUNJA_TOKEN_[A-Z0-9_]+$/.test(name)) {
+        throw new Error(
+          `Vikunja token env reference for owner ${account.ownerId} must be env:VIKUNJA_TOKEN_*`,
+        );
+      }
       const value = env[name];
       if (value === undefined || value.length === 0) {
         throw new Error(`Vikunja token env var ${name} is not set for owner ${account.ownerId}`);
@@ -100,9 +126,14 @@ export async function loadVikunjaClients(options: {
       }
       token = await tokenFromFile(options.config.vikunjaTokenFile, account.ownerId);
     } else if (ref.startsWith('file:')) {
-      token = await tokenFromFile(ref.slice('file:'.length), account.ownerId);
+      const path = ref.slice('file:'.length);
+      await assertAllowedFile(path);
+      token = await tokenFromFile(path, account.ownerId);
     } else {
-      token = await tokenFromFile(ref, account.ownerId);
+      throw new Error(
+        `unsupported vikunja token_secret_ref for owner ${account.ownerId} ` +
+          '(expected env:VIKUNJA_TOKEN_*, file:<path>, or default)',
+      );
     }
     clients.set(account.ownerId, new VikunjaClient({ baseUrl, token }));
   }
@@ -128,7 +159,9 @@ function parseTokenFile(path: string, text: string): ReadonlyMap<string, string>
   const tokens = new Map<string, string>();
   for (const [ownerId, value] of Object.entries(candidate)) {
     if (typeof value !== 'string' || value.length === 0) {
-      throw new Error(`Vikunja token file ${path} has an invalid token for owner ${ownerId}`);
+      // Deliberately do not echo the foreign key: a mistyped path must not
+      // leak the shape/keys of an unrelated JSON file into logs.
+      throw new Error(`Vikunja token file ${path} contains a non-string token entry`);
     }
     tokens.set(ownerId, value);
   }

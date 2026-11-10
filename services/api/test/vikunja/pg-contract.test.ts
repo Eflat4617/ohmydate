@@ -48,8 +48,8 @@ if (!live) {
       const ownerA = ids.next();
       const ownerB = ids.next();
       const mappings = new PgMappingStore(store.db);
-      const plannerFields = new PgPlannerFieldStore(store.db);
-      const journal = new PgChangeJournalStore(store.db);
+      const plannerFields = new PgPlannerFieldStore(store.db, clock);
+      const journal = new PgChangeJournalStore(store.db, clock);
       const clients = new Map<Id, LiveUser['client']>([
         [ownerA, userA.client],
         [ownerB, userB.client],
@@ -96,8 +96,8 @@ if (!live) {
         const first = new VikunjaTaskRepository({
           clients: new Map<Id, LiveUser['client']>([[ownerId, user.client]]),
           mappings: new PgMappingStore(store.db),
-          plannerFields: new PgPlannerFieldStore(store.db),
-          journal: new PgChangeJournalStore(store.db),
+          plannerFields: new PgPlannerFieldStore(store.db, clock),
+          journal: new PgChangeJournalStore(store.db, clock),
           clock,
           ids,
         });
@@ -112,8 +112,8 @@ if (!live) {
         const second = new VikunjaTaskRepository({
           clients: new Map<Id, LiveUser['client']>([[ownerId, user.client]]),
           mappings: new PgMappingStore(store.db),
-          plannerFields: new PgPlannerFieldStore(store.db),
-          journal: new PgChangeJournalStore(store.db),
+          plannerFields: new PgPlannerFieldStore(store.db, clock),
+          journal: new PgChangeJournalStore(store.db, clock),
           clock,
           ids,
         });

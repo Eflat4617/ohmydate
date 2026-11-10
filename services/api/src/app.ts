@@ -17,7 +17,7 @@ import { PgUserRepository } from './adapters/pg-user-repository.js';
 import { createVikunjaRepositories } from './adapters/vikunja/composition.js';
 import { listReconcilerOwnerIds } from './adapters/vikunja/owner-accounts.js';
 import {
-  createPgAdvisoryLeaderLock,
+  createPgSessionLeaderLock,
   VikunjaReconciler,
 } from './adapters/vikunja/reconciler.js';
 import type { Database } from './db/types.js';
@@ -236,11 +236,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   registerRoutes(app, runtime);
 
-  if (config.provider === 'vikunja') {
+  if (config.provider === 'vikunja' && config.reconcileIntervalMs > 0) {
+    const connectionString = process.env['DATABASE_URL'];
+    if (connectionString === undefined || connectionString.length === 0) {
+      throw new Error('DATABASE_URL is required when VIKUNJA_RECONCILE_INTERVAL_MS > 0');
+    }
     const reconciler = new VikunjaReconciler({
       taskRepository: repos.tasks,
       ownerIds: () => listReconcilerOwnerIds(db),
-      leaderLock: createPgAdvisoryLeaderLock(db),
+      leaderLock: createPgSessionLeaderLock({ connectionString }),
       clock,
       intervalMs: config.reconcileIntervalMs,
       logger: {
@@ -249,7 +253,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       },
     });
     app.addHook('onClose', async () => {
-      reconciler.stop();
+      await reconciler.stop();
     });
     reconciler.start();
   }

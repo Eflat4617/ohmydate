@@ -44,8 +44,8 @@ export async function createVikunjaRepositories(
   options: VikunjaCompositionOptions,
 ): Promise<VikunjaRepositories> {
   const mappings = options.mappings ?? new PgMappingStore(options.db);
-  const plannerFields = options.plannerFields ?? new PgPlannerFieldStore(options.db);
-  const journal = options.journal ?? new PgChangeJournalStore(options.db);
+  const plannerFields = options.plannerFields ?? new PgPlannerFieldStore(options.db, options.clock);
+  const journal = options.journal ?? new PgChangeJournalStore(options.db, options.clock);
   const clients = await loadVikunjaClients({ db: options.db, config: options.config });
   const tasks = new VikunjaTaskRepository({
     clients,

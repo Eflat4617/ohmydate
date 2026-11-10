@@ -1,4 +1,4 @@
-import type { Id, SessionWindow, TaskPriority, TaskStatus } from '@ohmydate/domain';
+import type { Clock, Id, SessionWindow, TaskPriority, TaskStatus } from '@ohmydate/domain';
 import type { PlannerFieldStore, PlannerTaskFields } from '@ohmydate/provider-vikunja';
 import type { Kysely } from 'kysely';
 import { jsonb, type Database, type JsonValue } from '../../db/types.js';
@@ -67,9 +67,11 @@ function fromJson(value: JsonValue): PlannerTaskFields {
  */
 export class PgPlannerFieldStore implements PlannerFieldStore {
   readonly #db: Kysely<Database>;
+  readonly #clock: Clock;
 
-  constructor(db: Kysely<Database>) {
+  constructor(db: Kysely<Database>, clock: Clock) {
     this.#db = db;
+    this.#clock = clock;
   }
 
   async getTask(entityId: Id): Promise<PlannerTaskFields | null> {
@@ -103,7 +105,7 @@ export class PgPlannerFieldStore implements PlannerFieldStore {
         conflict.column('task_id').doUpdateSet({
           owner_id: values.owner_id,
           fields: values.fields,
-          updated_at: new Date(),
+          updated_at: new Date(Date.parse(this.#clock.now())),
         }),
       )
       .execute();

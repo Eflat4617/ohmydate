@@ -5,7 +5,13 @@ export interface LoginRateLimitConfig {
 
 export type ProviderKind = 'memory' | 'vikunja';
 
-export const DEFAULT_RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+/**
+ * Background reconciliation is OFF by default: enabling it before FU-22 wires
+ * `expectedLocalVersion` into the adapter's non-create mapping puts lets a
+ * scheduled sweep race request handlers and reuse planner versions. Set
+ * VIKUNJA_RECONCILE_INTERVAL_MS (e.g. 300000) only after that wiring lands.
+ */
+export const DEFAULT_RECONCILE_INTERVAL_MS = 0;
 
 export interface AppConfig {
   /**
@@ -22,8 +28,14 @@ export interface AppConfig {
    * never stored in PostgreSQL. Required when any owner uses the default ref.
    */
   readonly vikunjaTokenFile: string | null;
-  /** Background reconciliation interval; 0 disables the timer. */
+  /** Background reconciliation interval; 0 (default) disables the timer. */
   readonly reconcileIntervalMs: number;
+  /**
+   * Directory that may contain token files referenced as `file:<path>`. Any
+   * such file must realpath-resolve inside this directory (or be exactly
+   * VIKUNJA_TOKEN_FILE); traversal and symlink escapes are rejected.
+   */
+  readonly vikunjaSecretsDir: string | null;
   /**
    * Dev runs over plain HTTP on the loopback interface, so the session cookie's
    * Secure attribute is configurable. Production must keep this true.
@@ -52,6 +64,7 @@ export const defaultConfig: AppConfig = {
   vikunjaUrl: null,
   vikunjaTokenFile: null,
   reconcileIntervalMs: DEFAULT_RECONCILE_INTERVAL_MS,
+  vikunjaSecretsDir: null,
   cookieSecure: true,
   sessionTtlMs: DEFAULT_SESSION_TTL_MS,
   idempotencyTtlMs: DEFAULT_IDEMPOTENCY_TTL_MS,
@@ -81,6 +94,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     vikunjaUrl: env['VIKUNJA_URL'] ?? null,
     vikunjaTokenFile: env['VIKUNJA_TOKEN_FILE'] ?? null,
     reconcileIntervalMs,
+    vikunjaSecretsDir: env['VIKUNJA_SECRETS_DIR'] ?? null,
   });
 }
 
