@@ -369,6 +369,123 @@ export interface AgentProposalTable {
   version: Col<'integer', false, true>;
 }
 
+export interface CommitmentEventTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  title: Col<'text', false, false>;
+  start_at: Col<'timestamptz', false, false>;
+  end_at: Col<'timestamptz', false, false>;
+  rrule: Col<'text', true, false>;
+  time_zone: Col<'text', false, false>;
+  source: Col<'text', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+  deleted_at: Col<'timestamptz', true, false>;
+}
+
+export interface AvailabilityRuleTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  weekday: Col<'integer', false, false>;
+  start_local: Col<'text', false, false>;
+  end_local: Col<'text', false, false>;
+  time_zone: Col<'text', false, false>;
+  kind: Col<'text', false, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface AvailabilityExceptionTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  date: Col<'date', false, false>;
+  kind: Col<'text', false, false>;
+  start_local: Col<'text', true, false>;
+  end_local: Col<'text', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface UserAvailabilityVersionTable {
+  owner_id: Col<'uuid', false, false>;
+  version: Col<'integer', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+}
+
+export interface PlanTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  scope: Col<'jsonb', false, false>;
+  status: Col<'text', false, true>;
+  current_version_id: Col<'uuid', true, false>;
+  availability_version: Col<'integer', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+  deleted_at: Col<'timestamptz', true, false>;
+}
+
+export interface PlanCandidateTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  plan_id: Col<'uuid', false, false>;
+  policy: Col<'text', false, false>;
+  blocks: Col<'jsonb', false, true>;
+  metrics: Col<'jsonb', false, true>;
+  explanation: Col<'jsonb', false, true>;
+  diversity_note: Col<'text', true, false>;
+  feasible: Col<'boolean', false, false>;
+  deficit_min: Col<'integer', false, true>;
+  input_hash: Col<'text', false, false>;
+  generator_version: Col<'text', false, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface PlanVersionTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  plan_id: Col<'uuid', false, false>;
+  seq: Col<'integer', false, false>;
+  candidate_id: Col<'uuid', true, false>;
+  reason: Col<'text', true, false>;
+  created_by: Col<'text', false, true>;
+  availability_version: Col<'integer', false, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface ScheduleBlockTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  plan_version_id: Col<'uuid', false, false>;
+  task_id: Col<'uuid', false, false>;
+  start_at: Col<'timestamptz', false, false>;
+  end_at: Col<'timestamptz', false, false>;
+  locked: Col<'boolean', false, true>;
+  status: Col<'text', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface ScheduleApprovalTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  plan_version_id: Col<'uuid', false, false>;
+  approved_at: Col<'timestamptz', false, true>;
+  idempotency_key: Col<'text', false, false>;
+  availability_version: Col<'integer', false, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
 export interface VikunjaMappingTable {
   entity_type: Col<'text', false, false>;
   entity_id: Col<'uuid', false, false>;
@@ -441,6 +558,15 @@ export interface Database {
   estimate_evidence: EstimateEvidenceTable;
   agent_run: AgentRunTable;
   agent_proposal: AgentProposalTable;
+  commitment_event: CommitmentEventTable;
+  availability_rule: AvailabilityRuleTable;
+  availability_exception: AvailabilityExceptionTable;
+  user_availability_version: UserAvailabilityVersionTable;
+  plan: PlanTable;
+  plan_candidate: PlanCandidateTable;
+  plan_version: PlanVersionTable;
+  schedule_block: ScheduleBlockTable;
+  schedule_approval: ScheduleApprovalTable;
   vikunja_mapping: VikunjaMappingTable;
   vikunja_planner_fields: VikunjaPlannerFieldsTable;
   vikunja_change_journal: VikunjaChangeJournalTable;
@@ -712,6 +838,114 @@ export const databaseTables = {
     updated_at: col('timestamptz', false, true),
     version: col('integer', false, true),
   },
+  commitment_event: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    title: col('text', false, false),
+    start_at: col('timestamptz', false, false),
+    end_at: col('timestamptz', false, false),
+    rrule: col('text', true, false),
+    time_zone: col('text', false, false),
+    source: col('text', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+    deleted_at: col('timestamptz', true, false),
+  },
+  availability_rule: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    weekday: col('integer', false, false),
+    start_local: col('text', false, false),
+    end_local: col('text', false, false),
+    time_zone: col('text', false, false),
+    kind: col('text', false, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  availability_exception: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    date: col('date', false, false),
+    kind: col('text', false, false),
+    start_local: col('text', true, false),
+    end_local: col('text', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  user_availability_version: {
+    owner_id: col('uuid', false, false),
+    version: col('integer', false, true),
+    updated_at: col('timestamptz', false, true),
+  },
+  plan: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    scope: col('jsonb', false, false),
+    status: col('text', false, true),
+    current_version_id: col('uuid', true, false),
+    availability_version: col('integer', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+    deleted_at: col('timestamptz', true, false),
+  },
+  plan_candidate: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    plan_id: col('uuid', false, false),
+    policy: col('text', false, false),
+    blocks: col('jsonb', false, true),
+    metrics: col('jsonb', false, true),
+    explanation: col('jsonb', false, true),
+    diversity_note: col('text', true, false),
+    feasible: col('boolean', false, false),
+    deficit_min: col('integer', false, true),
+    input_hash: col('text', false, false),
+    generator_version: col('text', false, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  plan_version: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    plan_id: col('uuid', false, false),
+    seq: col('integer', false, false),
+    candidate_id: col('uuid', true, false),
+    reason: col('text', true, false),
+    created_by: col('text', false, true),
+    availability_version: col('integer', false, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  schedule_block: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    plan_version_id: col('uuid', false, false),
+    task_id: col('uuid', false, false),
+    start_at: col('timestamptz', false, false),
+    end_at: col('timestamptz', false, false),
+    locked: col('boolean', false, true),
+    status: col('text', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  schedule_approval: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    plan_version_id: col('uuid', false, false),
+    approved_at: col('timestamptz', false, true),
+    idempotency_key: col('text', false, false),
+    availability_version: col('integer', false, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
   vikunja_mapping: {
     entity_type: col('text', false, false),
     entity_id: col('uuid', false, false),
@@ -819,6 +1053,30 @@ type TableAssertions = {
   estimate_evidence: AssertTableColumns<EstimateEvidenceTable, typeof databaseTables.estimate_evidence>;
   agent_run: AssertTableColumns<AgentRunTable, typeof databaseTables.agent_run>;
   agent_proposal: AssertTableColumns<AgentProposalTable, typeof databaseTables.agent_proposal>;
+  commitment_event: AssertTableColumns<
+    CommitmentEventTable,
+    typeof databaseTables.commitment_event
+  >;
+  availability_rule: AssertTableColumns<
+    AvailabilityRuleTable,
+    typeof databaseTables.availability_rule
+  >;
+  availability_exception: AssertTableColumns<
+    AvailabilityExceptionTable,
+    typeof databaseTables.availability_exception
+  >;
+  user_availability_version: AssertTableColumns<
+    UserAvailabilityVersionTable,
+    typeof databaseTables.user_availability_version
+  >;
+  plan: AssertTableColumns<PlanTable, typeof databaseTables.plan>;
+  plan_candidate: AssertTableColumns<PlanCandidateTable, typeof databaseTables.plan_candidate>;
+  plan_version: AssertTableColumns<PlanVersionTable, typeof databaseTables.plan_version>;
+  schedule_block: AssertTableColumns<ScheduleBlockTable, typeof databaseTables.schedule_block>;
+  schedule_approval: AssertTableColumns<
+    ScheduleApprovalTable,
+    typeof databaseTables.schedule_approval
+  >;
   vikunja_mapping: AssertTableColumns<
     VikunjaMappingTable,
     typeof databaseTables.vikunja_mapping

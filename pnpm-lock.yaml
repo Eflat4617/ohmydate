@@ -245,6 +245,9 @@ importers:
       '@ohmydate/domain':
         specifier: workspace:*
         version: link:../domain
+      '@ohmydate/scheduler':
+        specifier: workspace:*
+        version: link:../scheduler
       '@sinclair/typebox':
         specifier: 0.34.52
         version: 0.34.52

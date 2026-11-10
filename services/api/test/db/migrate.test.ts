@@ -32,6 +32,7 @@ const MIGRATION_FILES = [
   '0003_vikunja_durable_stores.sql',
   '0004_inbox_mapping_column.sql',
   '0005_intake_estimation_agent.sql',
+  '0007_planning_core.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -67,6 +68,19 @@ const M2_TABLES = [
   'intake_session',
   'task_template',
   'task_type_fingerprint',
+];
+
+// 0007_planning_core.sql.
+const PLANNING_TABLES = [
+  'availability_exception',
+  'availability_rule',
+  'commitment_event',
+  'plan',
+  'plan_candidate',
+  'plan_version',
+  'schedule_approval',
+  'schedule_block',
+  'user_availability_version',
 ];
 
 describe.skipIf(!hasDatabase)('migration runner', () => {
@@ -105,7 +119,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
       );
       const names = tables.rows.map((row) => row.table_name).sort();
       expect(names).toEqual(
-        [...M1_TABLES, ...VIKUNJA_TABLES, ...M2_TABLES, 'schema_migrations'].sort(),
+        [...M1_TABLES, ...VIKUNJA_TABLES, ...M2_TABLES, ...PLANNING_TABLES, 'schema_migrations'].sort(),
       );
     } finally {
       await client.end();
@@ -394,6 +408,18 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
             [schema],
           );
           expect(constraint.rowCount).toBe(0);
+        } else if (migration === '0007_planning_core.sql') {
+          for (const table of PLANNING_TABLES) {
+            const gone = await client.query<{ name: string | null }>(
+              `SELECT to_regclass($1)::text AS name`,
+              [table],
+            );
+            expect({ table, name: gone.rows[0]?.name }).toEqual({ table, name: null });
+          }
+          const stillThere = await client.query<{ name: string | null }>(
+            `SELECT to_regclass('"user"')::text AS name`,
+          );
+          expect(stillThere.rows[0]?.name).not.toBeNull();
         } else if (migration === '0005_intake_estimation_agent.sql') {
           for (const table of M2_TABLES) {
             const gone = await client.query<{ name: string | null }>(

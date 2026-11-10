@@ -6,6 +6,8 @@ export const UUID_V7_PATTERN =
 
 export const IfMatchPattern = '^W/"[1-9][0-9]*"$';
 
+export const IfMatchAvailabilityPattern = '^W/"availability:[1-9][0-9]*"$';
+
 export const IdSchema = Type.String({ format: 'uuid', pattern: UUID_V7_PATTERN });
 
 export const InstantSchema = Type.String({ format: 'date-time' });
@@ -13,6 +15,8 @@ export const InstantSchema = Type.String({ format: 'date-time' });
 export const VersionSchema = Type.Integer({ minimum: 1 });
 
 export const IfMatchHeaderSchema = Type.String({ pattern: IfMatchPattern });
+
+export const IfMatchAvailabilityHeaderSchema = Type.String({ pattern: IfMatchAvailabilityPattern });
 
 export const IdempotencyKeyHeaderSchema = Type.String({ format: 'uuid' });
 
