@@ -8,7 +8,7 @@ import {
 } from '../../src/adapters/vikunja/reconciler.js';
 import { requireDatabaseUrl } from '../db/helpers.js';
 import { hasDatabase } from './pg-support.js';
-import { startBlackholeProxy } from './tcp-proxy.js';
+import { startBlackholeProxy, startSilentProxy } from './tcp-proxy.js';
 
 const { Client } = pg;
 
@@ -204,4 +204,198 @@ describe.skipIf(!hasDatabase)('Vikunja reconciler leadership liveness', () => {
     expect(calls).toHaveLength(1);
     expect(reconciler.lastRunAt).toBeUndefined();
   });
+
+  test('lock connect is bounded by the query timeout when the server never answers', async () => {
+    const proxy = await startSilentProxy(requireDatabaseUrl());
+    const logged: string[] = [];
+    const lock = createPgSessionLeaderLock({
+      connectionString: proxy.connectionString,
+      key: uniqueLockKey(),
+      queryTimeoutMs: 200,
+      logger: {
+        warn: (message) => logged.push(`warn:${message}`),
+        error: (message) => logged.push(`error:${message}`),
+      },
+    });
+
+    try {
+      const started = Date.now();
+      let ran = false;
+      await expect(
+        lock(async () => {
+          ran = true;
+        }),
+      ).rejects.toThrow(/timeout expired/);
+      const elapsed = Date.now() - started;
+
+      expect(ran).toBe(false);
+      expect(elapsed).toBeLessThan(3_000);
+      // No sweep started, so a failed connect must not claim to abort one.
+      expect(logged).toEqual([]);
+    } finally {
+      await proxy.close();
+    }
+  });
+
+  test('lock session requests server keepalives through startup options', async () => {
+    const applicationName = `fu33-keepalive-${randomUUID()}`;
+    const lockUrl = new URL(requireDatabaseUrl());
+    lockUrl.searchParams.set('application_name', applicationName);
+    const seen: string[] = [];
+    const originalQuery = pg.Client.prototype.query as unknown as (
+      this: pg.Client,
+      text: string,
+    ) => Promise<{ rows: Array<Record<string, string>> }>;
+    pg.Client.prototype.query = async function (
+      this: pg.Client,
+      ...args: unknown[]
+    ): Promise<unknown> {
+      const parameters = (
+        this as unknown as { connectionParameters?: { application_name?: string } }
+      ).connectionParameters;
+      if (
+        parameters?.application_name === applicationName &&
+        typeof args[0] === 'string' &&
+        args[0].includes('pg_try_advisory_lock')
+      ) {
+        const shown = await originalQuery.call(this, 'SHOW tcp_keepalives_idle');
+        seen.push(shown.rows[0]?.tcp_keepalives_idle ?? 'missing');
+      }
+      return (originalQuery as unknown as (...args: unknown[]) => unknown).apply(this, args);
+    } as unknown as typeof pg.Client.prototype.query;
+    try {
+      const defaults = createPgSessionLeaderLock({
+        connectionString: lockUrl.toString(),
+        key: uniqueLockKey(),
+      });
+      expect(await defaults(async () => undefined)).toBe(true);
+      expect(seen).toEqual(['30']);
+
+      seen.length = 0;
+      const custom = createPgSessionLeaderLock({
+        connectionString: lockUrl.toString(),
+        key: uniqueLockKey(),
+        serverKeepalives: { idleSeconds: 45, intervalSeconds: 7, count: 2 },
+      });
+      expect(await custom(async () => undefined)).toBe(true);
+      expect(seen).toEqual(['45']);
+    } finally {
+      pg.Client.prototype.query = originalQuery as unknown as typeof pg.Client.prototype.query;
+    }
+  });
+
+  test('a server FATAL during end() after a completed sweep is not uncaught', async () => {
+    const outcome = await withTerminationDuringEnd(async (applicationName) => {
+      const lockUrl = new URL(requireDatabaseUrl());
+      lockUrl.searchParams.set('application_name', applicationName);
+      const lock = createPgSessionLeaderLock({
+        connectionString: lockUrl.toString(),
+        key: uniqueLockKey(),
+      });
+      let ran = false;
+      const result = await lock(async () => {
+        ran = true;
+      });
+      return { result, ran };
+    });
+    expect(outcome.result.result).toBe(true);
+    expect(outcome.result.ran).toBe(true);
+    expect(outcome.errors).toEqual([]);
+  });
+
+  test('a server FATAL during end() on the non-leader path is not uncaught', async () => {
+    const lockKey = uniqueLockKey();
+    const holder = new Client({ connectionString: requireDatabaseUrl() });
+    await holder.connect();
+    await holder.query('SELECT pg_advisory_lock($1)', [lockKey]);
+    try {
+      const outcome = await withTerminationDuringEnd(async (applicationName) => {
+        const lockUrl = new URL(requireDatabaseUrl());
+        lockUrl.searchParams.set('application_name', applicationName);
+        const lock = createPgSessionLeaderLock({
+          connectionString: lockUrl.toString(),
+          key: lockKey,
+        });
+        let ran = false;
+        const result = await lock(async () => {
+          ran = true;
+        });
+        return { result, ran };
+      });
+      expect(outcome.result.result).toBe(false);
+      expect(outcome.result.ran).toBe(false);
+      expect(outcome.errors).toEqual([]);
+    } finally {
+      await holder
+        .query('SELECT pg_advisory_unlock($1)', [lockKey])
+        .catch(() => undefined);
+      await holder.end();
+    }
+  });
 });
+
+async function terminateBackend(applicationName: string): Promise<void> {
+  const killer = new Client({ connectionString: requireDatabaseUrl() });
+  await killer.connect();
+  try {
+    await killer.query(
+      `SELECT pg_terminate_backend(pid) AS terminated
+         FROM pg_stat_activity
+        WHERE application_name = $1 AND pid <> pg_backend_pid()`,
+      [applicationName],
+    );
+  } finally {
+    await killer.end().catch(() => undefined);
+  }
+}
+
+/**
+ * Runs `scenario` with pg Client.end() patched so the lock session's backend is
+ * terminated ~300 ms before `end()` completes: the window where a FATAL error
+ * event arrives with no active query. Returns the scenario result plus any
+ * uncaught exception seen while the window is open.
+ */
+async function withTerminationDuringEnd<T>(
+  scenario: (applicationName: string) => Promise<T>,
+): Promise<{ result: T; errors: unknown[] }> {
+  const applicationName = `fu33-end-${randomUUID()}`;
+  const errors: unknown[] = [];
+  const onUncaught = (error: unknown): void => {
+    errors.push(error);
+  };
+  const originalEnd = pg.Client.prototype.end as unknown as (
+    this: pg.Client,
+    callback?: (error: Error) => void,
+  ) => Promise<void> | void;
+  let terminated = false;
+  pg.Client.prototype.end = function (this: pg.Client, callback?: (error: Error) => void) {
+    const parameters = (this as unknown as { connectionParameters?: { application_name?: string } })
+      .connectionParameters;
+    if (parameters?.application_name !== applicationName) {
+      return callback === undefined ? originalEnd.call(this) : originalEnd.call(this, callback);
+    }
+    const finish = async (): Promise<void> => {
+      if (!terminated) {
+        terminated = true;
+        await terminateBackend(applicationName);
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      if (callback === undefined) {
+        await originalEnd.call(this);
+      } else {
+        originalEnd.call(this, callback);
+      }
+    };
+    return finish();
+  } as unknown as typeof pg.Client.prototype.end;
+  process.on('uncaughtException', onUncaught);
+  try {
+    const result = await scenario(applicationName);
+    // Give a late FATAL a chance to surface before we stop listening.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return { result, errors };
+  } finally {
+    process.removeListener('uncaughtException', onUncaught);
+    pg.Client.prototype.end = originalEnd as unknown as typeof pg.Client.prototype.end;
+  }
+}
