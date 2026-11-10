@@ -108,5 +108,5 @@
 
 ## ADR-018 Inbox 프로젝트 식별
 - **맥락:** FU-09R: 웹이 제목 'inbox'로 Inbox를 찾고 실패 시 범위 없는 목록으로 대체 → 잘못된 표시·누락. 계약에 Inbox 표식 없음, task.project_id nullable.
-- **결정:** `Project.kind: 'inbox' | 'normal'`(계약·도메인·DB `project.kind text not null default 'normal'` + owner당 inbox 1개 partial unique). 사용자 생성 시 Inbox 프로젝트 자동 생성. `createTask`에 projectId 없으면 owner의 Inbox로 배정(task.project_id는 NOT NULL로 강화). Vikunja 어댑터는 Vikunja의 기본 프로젝트를 Inbox로 매핑. 웹은 `kind==='inbox'`로만 찾고, 없으면 명시적 오류 상태(범위 없는 목록 대체 금지).
+- **결정:** `Project.kind: 'inbox' | 'normal'`(계약·도메인·DB `project.kind text not null default 'normal'` + owner당 inbox 1개 partial unique). 서빙 중인 ProjectRepository가 첫 읽기/쓰기에서 Inbox를 보장(getInbox, 멱등; FU-18R2에 따라 '사용자 생성 시 생성'에서 수정). `createTask`에 projectId 없으면 owner의 Inbox로 배정(task.project_id는 NOT NULL로 강화). Vikunja 어댑터는 Vikunja의 기본 프로젝트를 Inbox로 매핑. 웹은 `kind==='inbox'`로만 찾고, 없으면 명시적 오류 상태(범위 없는 목록 대체 금지).
 - **영향:** contracts(Project schema), domain(Project), migrations(0002), provider-native/in-memory, provider-vikunja, api(user create), web. → FU-18 단일 Task로 계약 우선 구현 후 소비자 반영.
