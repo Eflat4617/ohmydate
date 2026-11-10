@@ -35,6 +35,12 @@ export interface ExternalMapping {
    * (ADR-016 §1, FU-16).
    */
   readonly contentFingerprint?: string;
+  /**
+   * ADR-018 + FU-29: durable Inbox identity. At most one project mapping per
+   * owner may set this (enforced by a partial unique index in PostgreSQL); the
+   * adapter moves it atomically with `markInbox`.
+   */
+  readonly inbox?: boolean;
   readonly localVersion: Version;
   readonly createdAt: Instant;
   readonly updatedAt: Instant;
@@ -73,6 +79,18 @@ export interface MappingStore {
   ): Promise<ExternalMapping | null>;
   put(mapping: ExternalMapping, options?: MappingPutOptions): Promise<void>;
   listByOwner(ownerId: Id): Promise<readonly ExternalMapping[]>;
+  /**
+   * The owner's current Inbox mapping, or null. Includes a row whose remote
+   * project was trashed (the adapter checks `deletedAt`), so the marker can be
+   * moved atomically to its replacement.
+   */
+  getInboxMapping(ownerId: Id): Promise<ExternalMapping | null>;
+  /**
+   * Atomically makes `entityId` the owner's single Inbox mapping and clears the
+   * flag from every other project mapping of the same owner. A partial unique
+   * index rejects a concurrent writer losing the race; callers re-read.
+   */
+  markInbox(ownerId: Id, entityId: Id): Promise<void>;
 }
 
 function entityKey(entityType: MappingEntityType, entityId: Id): string {
@@ -117,20 +135,58 @@ export class InMemoryMappingStore implements MappingStore {
     ) {
       throw new VersionConflictError(options.expectedLocalVersion, previous?.localVersion);
     }
+    this.#replace(mapping, previous);
+  }
+
+  async listByOwner(ownerId: Id): Promise<readonly ExternalMapping[]> {
+    return [...this.#byEntity.values()].filter((mapping) => mapping.ownerId === ownerId);
+  }
+
+  async getInboxMapping(ownerId: Id): Promise<ExternalMapping | null> {
+    let found: ExternalMapping | null = null;
+    for (const mapping of this.#byEntity.values()) {
+      if (
+        mapping.ownerId === ownerId &&
+        mapping.entityType === 'project' &&
+        mapping.inbox === true &&
+        (found === null || mapping.updatedAt > found.updatedAt)
+      ) {
+        found = mapping;
+      }
+    }
+    return found;
+  }
+
+  async markInbox(ownerId: Id, entityId: Id): Promise<void> {
+    const target = this.#byEntity.get(entityKey('project', entityId));
+    if (target === undefined || target.ownerId !== ownerId) {
+      throw new Error(`no project mapping ${entityId} for owner ${ownerId}`);
+    }
+    for (const mapping of [...this.#byEntity.values()]) {
+      if (mapping.entityType !== 'project' || mapping.ownerId !== ownerId) continue;
+      const shouldBeInbox = mapping.entityId === entityId;
+      if ((mapping.inbox === true) === shouldBeInbox) continue;
+      if (shouldBeInbox) {
+        this.#replace({ ...mapping, inbox: true }, mapping);
+      } else {
+        const { inbox: _inbox, ...rest } = mapping;
+        void _inbox;
+        this.#replace(rest, mapping);
+      }
+    }
+  }
+
+  #replace(mapping: ExternalMapping, previous: ExternalMapping | undefined): void {
     if (previous !== undefined) {
       this.#byExternal.delete(
         externalKey(previous.provider, previous.entityType, previous.externalId),
       );
     }
-    this.#byEntity.set(key, mapping);
+    this.#byEntity.set(entityKey(mapping.entityType, mapping.entityId), mapping);
     this.#byExternal.set(
       externalKey(mapping.provider, mapping.entityType, mapping.externalId),
       mapping,
     );
-  }
-
-  async listByOwner(ownerId: Id): Promise<readonly ExternalMapping[]> {
-    return [...this.#byEntity.values()].filter((mapping) => mapping.ownerId === ownerId);
   }
 
   /** Test/cleanup helper; not part of the store contract used by the adapter. */

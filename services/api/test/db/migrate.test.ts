@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { readdirSync } from 'node:fs';
 import { copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -29,6 +30,7 @@ const MIGRATION_FILES = [
   '0001_init.sql',
   '0002_inbox_project.sql',
   '0003_vikunja_durable_stores.sql',
+  '0004_inbox_mapping_column.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -91,6 +93,179 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
       expect(names).toEqual([...M1_TABLES, ...VIKUNJA_TABLES, 'schema_migrations'].sort());
     } finally {
       await client.end();
+    }
+  });
+
+  test('0004 adds the dedicated inbox column, check and partial unique index', async () => {
+    await runMigrations();
+
+    const client = await connect(schema);
+    try {
+      const column = await client.query<{
+        data_type: string;
+        is_nullable: string;
+        column_default: string | null;
+      }>(
+        `SELECT data_type, is_nullable, column_default
+           FROM information_schema.columns
+          WHERE table_schema = $1 AND table_name = 'vikunja_mapping'
+            AND column_name = 'is_inbox'`,
+        [schema],
+      );
+      expect(column.rows[0]).toEqual({
+        data_type: 'boolean',
+        is_nullable: 'NO',
+        column_default: 'false',
+      });
+
+      const index = await client.query<{ indexdef: string }>(
+        `SELECT indexdef FROM pg_indexes
+          WHERE schemaname = $1 AND indexname = 'vikunja_mapping_owner_inbox_unique'`,
+        [schema],
+      );
+      expect(index.rows[0]?.indexdef).toMatch(
+        /UNIQUE INDEX .*\(owner_id\).*WHERE is_inbox/,
+      );
+
+      const constraint = await client.query<{ definition: string }>(
+        `SELECT pg_get_constraintdef(c.oid) AS definition
+           FROM pg_constraint AS c
+           JOIN pg_class AS t ON t.oid = c.conrelid
+           JOIN pg_namespace AS n ON n.oid = t.relnamespace
+          WHERE n.nspname = $1 AND t.relname = 'vikunja_mapping'
+            AND c.conname = 'vikunja_mapping_inbox_project_only'`,
+        [schema],
+      );
+      expect(constraint.rows[0]?.definition).toMatch(/CHECK/);
+      expect(constraint.rows[0]?.definition).toMatch(/is_inbox/);
+    } finally {
+      await client.end();
+    }
+  });
+
+  test('0004 backfills one live inbox per owner and clears project fingerprints', async () => {
+    const tmpRoot = await mkdtemp(join(tmpdir(), 'ohmydate-migrations-'));
+    const copyDir = join(tmpRoot, 'migrations');
+    try {
+      await mkdir(copyDir, { recursive: true });
+      const earlier = [
+        '0001_init.sql',
+        '0001_init.down.sql',
+        '0002_inbox_project.sql',
+        '0002_inbox_project.down.sql',
+        '0003_vikunja_durable_stores.sql',
+        '0003_vikunja_durable_stores.down.sql',
+      ];
+      for (const name of earlier) {
+        await copyFile(join(migrationsDir, name), join(copyDir, name));
+      }
+      expect((await runMigrations(schema, copyDir)).applied).toEqual([
+        '0001_init.sql',
+        '0002_inbox_project.sql',
+        '0003_vikunja_durable_stores.sql',
+      ]);
+
+      const owner = randomUUID();
+      const client = await connect(schema);
+      try {
+        const rows: readonly [string, string, string, string | null][] = [
+          ['project', '1', 'inbox', null],
+          ['project', '2', 'inbox', null],
+          ['project', '3', 'inbox', '2026-01-05T00:00:00Z'],
+          ['project', '4', 'other-fingerprint', null],
+          ['task', '5', 'inbox', null],
+        ];
+        for (const [entityType, externalId, fingerprint, deletedAt] of rows) {
+          const updatedAt =
+            externalId === '2'
+              ? '2026-01-03T00:00:00Z'
+              : externalId === '3'
+                ? '2026-01-04T00:00:00Z'
+                : '2026-01-01T00:00:00Z';
+          await client.query(
+            `INSERT INTO vikunja_mapping
+               (entity_type, entity_id, owner_id, external_id, local_version,
+                content_fingerprint, created_at, updated_at, deleted_at)
+             VALUES ($1, $2, $3, $4, 1, $5, $6, $6, $7)`,
+            [
+              entityType,
+              randomUUID(),
+              owner,
+              externalId,
+              fingerprint,
+              updatedAt,
+              deletedAt,
+            ],
+          );
+        }
+      } finally {
+        await client.end();
+      }
+
+      for (const name of ['0004_inbox_mapping_column.sql', '0004_inbox_mapping_column.down.sql']) {
+        await copyFile(join(migrationsDir, name), join(copyDir, name));
+      }
+      expect((await runMigrations(schema, copyDir)).applied).toEqual([
+        '0004_inbox_mapping_column.sql',
+      ]);
+
+      const check = await connect(schema);
+      try {
+        const applied = await check.query<{
+          external_id: string;
+          is_inbox: boolean;
+          content_fingerprint: string | null;
+        }>(
+          `SELECT external_id, is_inbox, content_fingerprint
+             FROM vikunja_mapping
+            ORDER BY external_id`,
+        );
+        expect(applied.rows).toEqual([
+          { external_id: '1', is_inbox: false, content_fingerprint: null },
+          { external_id: '2', is_inbox: true, content_fingerprint: null },
+          { external_id: '3', is_inbox: false, content_fingerprint: null },
+          { external_id: '4', is_inbox: false, content_fingerprint: null },
+          { external_id: '5', is_inbox: false, content_fingerprint: 'inbox' },
+        ]);
+      } finally {
+        await check.end();
+      }
+
+      const rolledBack = await rollbackLatest({
+        databaseUrl: requireDatabaseUrl(),
+        schema,
+        migrationsDir: copyDir,
+      });
+      expect(rolledBack).toBe('0004_inbox_mapping_column.sql');
+
+      const after = await connect(schema);
+      try {
+        const column = await after.query<{ name: string | null }>(
+          `SELECT column_name AS name
+             FROM information_schema.columns
+            WHERE table_schema = $1 AND table_name = 'vikunja_mapping'
+              AND column_name = 'is_inbox'`,
+          [schema],
+        );
+        expect(column.rows[0]?.name).toBeUndefined();
+        const restored = await after.query<{
+          external_id: string;
+          content_fingerprint: string | null;
+        }>(
+          `SELECT external_id, content_fingerprint
+             FROM vikunja_mapping
+            WHERE external_id IN ('2', '4')
+            ORDER BY external_id`,
+        );
+        expect(restored.rows).toEqual([
+          { external_id: '2', content_fingerprint: 'inbox' },
+          { external_id: '4', content_fingerprint: null },
+        ]);
+      } finally {
+        await after.end();
+      }
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
     }
   });
 
@@ -179,6 +354,30 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
             [schema],
           );
           expect(index.rowCount).toBe(0);
+        } else if (migration === '0004_inbox_mapping_column.sql') {
+          const column = await client.query<{ name: string | null }>(
+            `SELECT column_name AS name
+               FROM information_schema.columns
+              WHERE table_schema = $1 AND table_name = 'vikunja_mapping' AND column_name = 'is_inbox'`,
+            [schema],
+          );
+          expect(column.rows[0]?.name).toBeUndefined();
+          const index = await client.query<{ name: string | null }>(
+            `SELECT indexname AS name FROM pg_indexes
+              WHERE schemaname = $1 AND indexname = 'vikunja_mapping_owner_inbox_unique'`,
+            [schema],
+          );
+          expect(index.rowCount).toBe(0);
+          const constraint = await client.query<{ name: string | null }>(
+            `SELECT c.conname AS name
+               FROM pg_constraint AS c
+               JOIN pg_class AS t ON t.oid = c.conrelid
+               JOIN pg_namespace AS n ON n.oid = t.relnamespace
+              WHERE n.nspname = $1 AND t.relname = 'vikunja_mapping'
+                AND c.conname = 'vikunja_mapping_inbox_project_only'`,
+            [schema],
+          );
+          expect(constraint.rowCount).toBe(0);
         } else if (migration === '0003_vikunja_durable_stores.sql') {
           const gone = await client.query<{ name: string | null }>(
             `SELECT to_regclass('vikunja_mapping')::text AS name`,

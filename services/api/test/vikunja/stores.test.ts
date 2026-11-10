@@ -128,6 +128,58 @@ describe.skipIf(!hasDatabase)('durable Vikunja stores (PostgreSQL)', () => {
     ).rejects.toThrow(/vikunja_mapping_external_unique/);
   });
 
+  test('round-trips the inbox marker and moves it between projects atomically', async () => {
+    const mappings = new PgMappingStore(store.db);
+    const ownerId = randomUUID() as Id;
+    const first = randomUUID() as Id;
+    const second = randomUUID() as Id;
+    await mappings.put(
+      mappingFor({ ownerId, entityType: 'project', entityId: first, externalId: '51' }),
+    );
+    await mappings.put(
+      mappingFor({ ownerId, entityType: 'project', entityId: second, externalId: '52' }),
+    );
+
+    expect(await mappings.getInboxMapping(ownerId)).toBeNull();
+
+    const markedFirst = mappingFor({
+      ownerId,
+      entityType: 'project',
+      entityId: first,
+      externalId: '51',
+      inbox: true,
+    });
+    await mappings.put(markedFirst);
+    expect(await mappings.getInboxMapping(ownerId)).toEqual(markedFirst);
+
+    await mappings.markInbox(ownerId, second);
+    expect((await mappings.get('project', first))?.inbox).toBeUndefined();
+    expect((await mappings.get('project', second))?.inbox).toBe(true);
+    expect((await mappings.getInboxMapping(ownerId))?.entityId).toBe(second);
+
+    // The partial unique index rejects a second marker even behind the store.
+    await expect(
+      store.db
+        .updateTable('vikunja_mapping')
+        .set({ is_inbox: true })
+        .where('entity_id', '=', first)
+        .execute(),
+    ).rejects.toThrow(/vikunja_mapping_owner_inbox_unique/);
+
+    // And the CHECK constraint keeps tasks out of the inbox slot.
+    const taskId = randomUUID() as Id;
+    await mappings.put(
+      mappingFor({ ownerId, entityType: 'task', entityId: taskId, externalId: '53' }),
+    );
+    await expect(
+      store.db
+        .updateTable('vikunja_mapping')
+        .set({ is_inbox: true })
+        .where('entity_id', '=', taskId)
+        .execute(),
+    ).rejects.toThrow(/vikunja_mapping_inbox_project_only/);
+  });
+
   test('stores planner-only fields and resolves the owner from the task mapping', async () => {
     const mappings = new PgMappingStore(store.db);
     const plannerFields = new PgPlannerFieldStore(store.db, new FakeClock());

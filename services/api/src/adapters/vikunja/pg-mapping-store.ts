@@ -90,6 +90,7 @@ export class PgMappingStore implements MappingStore {
         mapping.externalUpdatedAt === undefined ? null : toDate(mapping.externalUpdatedAt),
       local_version: mapping.localVersion,
       content_fingerprint: mapping.contentFingerprint ?? null,
+      is_inbox: mapping.inbox === true,
       needs_reconcile: mapping.needsReconcile === true,
       pending_completion:
         mapping.pendingCompletion === undefined
@@ -106,6 +107,7 @@ export class PgMappingStore implements MappingStore {
       external_updated_at: values.external_updated_at,
       local_version: values.local_version,
       content_fingerprint: values.content_fingerprint,
+      is_inbox: values.is_inbox,
       needs_reconcile: values.needs_reconcile,
       pending_completion: values.pending_completion,
       updated_at: values.updated_at,
@@ -158,6 +160,42 @@ export class PgMappingStore implements MappingStore {
       .execute();
     return rows.map(toMapping);
   }
+
+  async getInboxMapping(ownerId: Id): Promise<ExternalMapping | null> {
+    const row = await this.#db
+      .selectFrom('vikunja_mapping')
+      .selectAll()
+      .where('owner_id', '=', ownerId)
+      .where('entity_type', '=', 'project')
+      .where('is_inbox', '=', true)
+      .executeTakeFirst();
+    return row === undefined ? null : toMapping(row);
+  }
+
+  async markInbox(ownerId: Id, entityId: Id): Promise<void> {
+    await this.#db.transaction().execute(async (trx) => {
+      // Clear first so the partial unique index never sees two inbox rows,
+      // even inside one transaction.
+      await trx
+        .updateTable('vikunja_mapping')
+        .set({ is_inbox: false })
+        .where('owner_id', '=', ownerId)
+        .where('entity_type', '=', 'project')
+        .where('is_inbox', '=', true)
+        .where('entity_id', '<>', entityId)
+        .execute();
+      const result = await trx
+        .updateTable('vikunja_mapping')
+        .set({ is_inbox: true })
+        .where('owner_id', '=', ownerId)
+        .where('entity_type', '=', 'project')
+        .where('entity_id', '=', entityId)
+        .executeTakeFirst();
+      if (Number(result.numUpdatedRows) === 0) {
+        throw new Error(`no project mapping ${entityId} for owner ${ownerId}`);
+      }
+    });
+  }
 }
 
 type MappingRow = {
@@ -169,6 +207,7 @@ type MappingRow = {
   readonly external_updated_at: Date | null;
   readonly local_version: number;
   readonly content_fingerprint: string | null;
+  readonly is_inbox: boolean;
   readonly needs_reconcile: boolean;
   readonly pending_completion: JsonValue;
   readonly created_at: Date;
@@ -195,6 +234,7 @@ function toMapping(row: MappingRow): ExternalMapping {
     ...(row.content_fingerprint === null
       ? {}
       : { contentFingerprint: row.content_fingerprint }),
+    ...(row.is_inbox ? { inbox: true } : {}),
     localVersion: row.local_version as Version,
     createdAt: toInstant(row.created_at),
     updatedAt: toInstant(row.updated_at),

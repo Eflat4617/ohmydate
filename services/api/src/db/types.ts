@@ -236,6 +236,7 @@ export interface VikunjaMappingTable {
   external_updated_at: Col<'timestamptz', true, false>;
   local_version: Col<'integer', false, true>;
   content_fingerprint: Col<'text', true, false>;
+  is_inbox: Col<'boolean', false, true>;
   needs_reconcile: Col<'boolean', false, true>;
   pending_completion: Col<'jsonb', true, false>;
   created_at: Col<'timestamptz', false, true>;
@@ -451,6 +452,7 @@ export const databaseTables = {
     external_updated_at: col('timestamptz', true, false),
     local_version: col('integer', false, true),
     content_fingerprint: col('text', true, false),
+    is_inbox: col('boolean', false, true),
     needs_reconcile: col('boolean', false, true),
     pending_completion: col('jsonb', true, false),
     created_at: col('timestamptz', false, true),
