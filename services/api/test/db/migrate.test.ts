@@ -202,6 +202,42 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
     }
   });
 
+  test('refuses when an applied migration file is missing', async () => {
+    const tmpRoot = await mkdtemp(join(tmpdir(), 'ohmydate-migrations-'));
+    const copyDir = join(tmpRoot, 'migrations');
+    try {
+      await cp(migrationsDir, copyDir, { recursive: true });
+      await runMigrations(schema, copyDir);
+
+      await rm(join(copyDir, '0001_init.sql'));
+      await rm(join(copyDir, '0001_init.down.sql'));
+      await writeFile(join(copyDir, '0002_other.sql'), 'SELECT 1;', 'utf8');
+
+      await expect(runMigrations(schema, copyDir)).rejects.toThrow(/missing from/);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('rollbackLatest refuses after a forward checksum tamper', async () => {
+    const tmpRoot = await mkdtemp(join(tmpdir(), 'ohmydate-migrations-'));
+    const copyDir = join(tmpRoot, 'migrations');
+    try {
+      await cp(migrationsDir, copyDir, { recursive: true });
+      await runMigrations(schema, copyDir);
+
+      const migrationFile = join(copyDir, '0001_init.sql');
+      const original = await readFile(migrationFile, 'utf8');
+      await writeFile(migrationFile, `${original}\n-- tampered after apply\n`, 'utf8');
+
+      await expect(
+        rollbackLatest({ databaseUrl: requireDatabaseUrl(), schema, migrationsDir: copyDir }),
+      ).rejects.toBeInstanceOf(MigrationChecksumMismatchError);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
   test('rolls back the whole batch when a later migration fails', async () => {
     const tmpRoot = await mkdtemp(join(tmpdir(), 'ohmydate-migrations-'));
     const copyDir = join(tmpRoot, 'migrations');

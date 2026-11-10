@@ -1,4 +1,4 @@
-import type { ColumnType } from 'kysely';
+import { sql, type ColumnType, type RawBuilder } from 'kysely';
 
 /**
  * Hand-written Kysely view of the M1 planner schema
@@ -28,6 +28,25 @@ export type ColumnKind =
   | 'integer'
   | 'boolean';
 
+declare const jsonbParamBrand: unique symbol;
+
+/**
+ * Branded JSONB write parameter. Only `jsonb()` can produce it, so raw
+ * objects/arrays/scalars are compile errors for every JSONB insert/update.
+ */
+export interface JsonbParam extends RawBuilder<JsonValue> {
+  readonly [jsonbParamBrand]: true;
+}
+
+/**
+ * Serializes a JsonValue exactly once and casts the text parameter to jsonb.
+ * node-pg would otherwise send top-level arrays as PostgreSQL array literals
+ * and scalar strings unchanged, causing 22P02 or silent type changes.
+ */
+export function jsonb(value: JsonValue): JsonbParam {
+  return sql`${JSON.stringify(value)}::jsonb` as unknown as JsonbParam;
+}
+
 type Scalar<K extends ColumnKind> = K extends 'uuid'
   ? string
   : K extends 'text'
@@ -44,10 +63,11 @@ type Scalar<K extends ColumnKind> = K extends 'uuid'
 
 // A NOT NULL jsonb column still needs a non-null, non-undefined insert type so
 // Kysely's Insertable keeps the key required (JSON null is not a SQL NULL).
+// JSONB writes always go through JsonbParam so node-pg receives valid JSON text.
 type InsertScalar<K extends ColumnKind> = K extends 'timestamptz'
   ? Date | string
   : K extends 'jsonb'
-    ? Exclude<JsonValue, null>
+    ? JsonbParam
     : Scalar<K>;
 
 type Selected<K extends ColumnKind, N extends boolean> = N extends true
