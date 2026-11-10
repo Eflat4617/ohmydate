@@ -1,5 +1,11 @@
 import type { AvailabilityRule, Block, ExceptionRule, ScheduleInput, Task } from '../src/index.js';
-import { computeAvailableSlots, slotTotalMin, validate, validateInput } from '../src/index.js';
+import {
+  computeAvailableSlots,
+  MAX_INPUT_MINUTES,
+  slotTotalMin,
+  validate,
+  validateInput,
+} from '../src/index.js';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -575,6 +581,83 @@ describe('hard constraint validator', () => {
         .sort(),
     ).toContain('invalid_precision');
   });
+});
 
+describe('minute input hardening', () => {
+  function issueCodes(input: ScheduleInput): string[] {
+    return validateInput(input)
+      .map((issue) => issue.code)
+      .sort();
+  }
 
+  it('rejects NaN, Infinity and 1e400-derived Infinity estimates', () => {
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.parseFloat('1e400')]) {
+      const input = makeInput({
+        task: makeTask({ estimate: { p50Min: value, p90Min: 60 } }),
+      });
+      expect(issueCodes(input)).toContain('invalid_estimate');
+    }
+    expect(Number.parseFloat('1e400')).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('rejects non-finite and non-integer remainingMin and session bounds', () => {
+    expect(
+      issueCodes(
+        makeInput({
+          task: makeTask({ remainingMin: Number.POSITIVE_INFINITY }),
+        }),
+      ),
+    ).toContain('invalid_estimate');
+    expect(
+      issueCodes(
+        makeInput({
+          task: makeTask({ remainingMin: 60.5 }),
+        }),
+      ),
+    ).toContain('invalid_estimate');
+    expect(
+      issueCodes(
+        makeInput({
+          task: makeTask({ minSessionMin: 30.5 }),
+        }),
+      ),
+    ).toContain('invalid_estimate');
+    expect(
+      issueCodes(
+        makeInput({
+          task: makeTask({ maxSessionMin: Number.NaN }),
+        }),
+      ),
+    ).toContain('invalid_estimate');
+  });
+
+  it('rejects non-finite, non-integer and above-cap preference minutes', () => {
+    for (const override of [
+      { maxDailyFocusMin: Number.POSITIVE_INFINITY },
+      { maxDailyFocusMin: Number.NaN },
+      { breakAfterMin: 120.5 },
+      { breakMin: 15.5 },
+      { breakAfterMin: MAX_INPUT_MINUTES + 5 },
+    ]) {
+      const input = makeInput();
+      input.prefs = { ...input.prefs, ...override };
+      expect(issueCodes(input)).toContain('invalid_input');
+    }
+  });
+
+  it('accepts whole minutes at the documented upper cap and rejects one above it', () => {
+    const atCap = makeInput({
+      task: makeTask({
+        estimate: { p50Min: MAX_INPUT_MINUTES, p90Min: MAX_INPUT_MINUTES },
+      }),
+    });
+    expect(issueCodes(atCap)).not.toContain('invalid_estimate');
+
+    const aboveCap = makeInput({
+      task: makeTask({
+        estimate: { p50Min: MAX_INPUT_MINUTES + 5, p90Min: MAX_INPUT_MINUTES },
+      }),
+    });
+    expect(issueCodes(aboveCap)).toContain('invalid_estimate');
+  });
 });

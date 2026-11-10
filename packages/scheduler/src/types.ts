@@ -44,6 +44,11 @@ export interface Task {
   maxSessionMin: number;
   priority: 1 | 2 | 3 | 4;
   dependsOn: Id[];
+  /**
+   * Minutes reserved before `dueAt`. Must be a whole number in
+   * `[0, 100000]` like every other minute field; invalid values are rejected
+   * before scheduling rather than bypassing the deadline.
+   */
   bufferBeforeDueMin?: number;
   preferredWindows?: WindowKind[];
 }
@@ -91,6 +96,11 @@ export interface Preferences {
 
 export interface Horizon {
   start: Instant;
+  /**
+   * End of the planning horizon. The supported span is at most 366 days;
+   * longer horizons (and occupied blocks longer than 366 days) are rejected as
+   * `invalid_input` before transition enumeration or cell allocation.
+   */
   end: Instant;
 }
 
@@ -105,8 +115,9 @@ export interface ScheduleInput {
   lockedBlocks: Block[];
   /**
    * Previous plan blocks. Entries whose start is before `now` are history:
-   * they occupy time for H1/H6 but are not audited for H2/H4/H5 and do not
-   * reduce `remainingMin` (06 §7.1).
+   * they occupy time for H1/H6, but history-only collisions are exempt from
+   * H1 and history-only days/runs are exempt from H6 (06 §7.1). They are not
+   * audited for H2/H4/H5 and do not reduce `remainingMin`.
    */
   existingBlocks?: Block[];
   prefs: Preferences;
@@ -150,8 +161,11 @@ export interface Violation {
 export interface ValidateOptions {
   riskLevel: RiskLevel;
   /**
-   * Past/in-progress history blocks: included in H1 overlap and H6
-   * daily-load/break checks, but exempt from H2, H4, H5 and H7 (06 §7.1).
+   * Past/in-progress history blocks: audited for H1 only against candidate
+   * blocks, and counted for H6 only on days/runs that contain an audited
+   * minute. History-vs-history, history-vs-commitment and history-vs-locked
+   * collisions are exempt, as are history-only days/runs; history is also
+   * exempt from H2, H4, H5 and H7 (06 §7.1).
    */
   historyBlocks?: Block[];
 }
@@ -195,6 +209,10 @@ export type PolicyName = 'front_loaded' | 'balanced' | 'focus_blocked';
  * past/in-progress fixed blocks are excluded. `deficitMin` is the candidate's
  * own H7 shortfall, while `capacityDeficitMin` is the pre-generation capacity
  * upper bound from `deficit()`.
+ *
+ * When every attempt is infeasible, the generator picks the attempt with the
+ * smallest `deficitMin`, then the fewest violations, then the most retained
+ * seeds, so a partial plan still favours placed work before plan continuity.
  */
 export interface PlanMetrics {
   totalFocusMin: number;
@@ -219,7 +237,11 @@ export interface PlanCandidate {
   blocks: Block[];
   metrics: PlanMetrics;
   feasible: boolean;
-  /** This candidate's own H7 shortfall in minutes (unplaced work). */
+  /**
+   * This candidate's own H7 shortfall in minutes (unplaced work). When every
+   * attempt is infeasible the smallest shortfall wins before violation count
+   * and retained seeds.
+   */
   deficitMin: number;
   /** Capacity upper bound from `deficit()` before generation. */
   capacityDeficitMin: number;
