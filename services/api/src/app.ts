@@ -55,6 +55,12 @@ export interface BuildAppOptions {
   readonly loggerInstance?: LoggerInstanceOption;
   /** Test override for forcing idempotency-store failures. */
   readonly idempotency?: IdempotencyStore;
+  /**
+   * Test override for the reconciler's advisory-lock key. Production uses the
+   * stable VIKUNJA_RECONCILE_ADVISORY_LOCK_KEY; a distinct key lets parallel
+   * test workers avoid contending on the shared planner database.
+   */
+  readonly reconcileLockKey?: number;
 }
 
 /**
@@ -237,20 +243,30 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   registerRoutes(app, runtime);
 
   if (config.provider === 'vikunja' && config.reconcileIntervalMs > 0) {
-    const connectionString = process.env['DATABASE_URL'];
-    if (connectionString === undefined || connectionString.length === 0) {
-      throw new Error('DATABASE_URL is required when VIKUNJA_RECONCILE_INTERVAL_MS > 0');
+    const connectionString = config.databaseUrl;
+    if (connectionString === null || connectionString.length === 0) {
+      throw new Error(
+        'DATABASE_URL is required when VIKUNJA_RECONCILE_INTERVAL_MS > 0 ' +
+          '(set config.databaseUrl)',
+      );
     }
+    const reconcilerLogger = {
+      warn: (message: string, details?: Readonly<Record<string, unknown>>) =>
+        app.log.warn(details ?? {}, message),
+      error: (message: string, details?: Readonly<Record<string, unknown>>) =>
+        app.log.error(details ?? {}, message),
+    };
     const reconciler = new VikunjaReconciler({
       taskRepository: repos.tasks,
       ownerIds: () => listReconcilerOwnerIds(db),
-      leaderLock: createPgSessionLeaderLock({ connectionString }),
+      leaderLock: createPgSessionLeaderLock({
+        connectionString,
+        ...(options.reconcileLockKey === undefined ? {} : { key: options.reconcileLockKey }),
+        logger: reconcilerLogger,
+      }),
       clock,
       intervalMs: config.reconcileIntervalMs,
-      logger: {
-        warn: (message, details) => app.log.warn(details ?? {}, message),
-        error: (message, details) => app.log.error(details ?? {}, message),
-      },
+      logger: reconcilerLogger,
     });
     app.addHook('onClose', async () => {
       await reconciler.stop();

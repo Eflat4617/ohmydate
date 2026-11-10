@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Id } from '@ohmydate/domain';
@@ -216,5 +216,115 @@ describe.skipIf(!hasDatabase)('Vikunja owner account token resolution', () => {
     }).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(Error);
     expect(String(error)).toMatch(/VIKUNJA_TOKEN_MISSING/);
+  });
+
+  test('rejects env:VIKUNJA_TOKEN_FILE because it holds a path, not a token', async () => {
+    const ownerId = randomUUID() as Id;
+    await insertAccount(ownerId, 'env:VIKUNJA_TOKEN_FILE');
+
+    await expect(
+      loadVikunjaClients({
+        db: store.db,
+        config: createConfig({ provider: 'vikunja', vikunjaUrl: 'http://127.0.0.1:3456' }),
+        env: { VIKUNJA_TOKEN_FILE: '/run/secrets/tokens.json' },
+      }),
+    ).rejects.toThrow(/VIKUNJA_TOKEN_FILE is a path/);
+  });
+
+  test('rejects a prefix-sibling secrets directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ohmydate-tokens-'));
+    tempDirs.push(root);
+    const secrets = join(root, 'secrets');
+    const sibling = join(root, 'secrets-evil');
+    await mkdir(secrets, { recursive: true });
+    await mkdir(sibling, { recursive: true });
+    const outside = join(sibling, 'tokens.json');
+    await writeFile(outside, '{}', 'utf8');
+    const ownerId = randomUUID() as Id;
+    await insertAccount(ownerId, `file:${outside}`);
+
+    await expect(
+      loadVikunjaClients({
+        db: store.db,
+        config: createConfig({
+          provider: 'vikunja',
+          vikunjaUrl: 'http://127.0.0.1:3456',
+          vikunjaSecretsDir: secrets,
+        }),
+      }),
+    ).rejects.toThrow(/escapes VIKUNJA_SECRETS_DIR/);
+  });
+
+  test('allows a symlinked VIKUNJA_SECRETS_DIR', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ohmydate-tokens-'));
+    tempDirs.push(root);
+    const realSecrets = join(root, 'real-secrets');
+    const linkedSecrets = join(root, 'linked-secrets');
+    await mkdir(realSecrets, { recursive: true });
+    await symlink(realSecrets, linkedSecrets);
+    const ownerId = randomUUID() as Id;
+    const tokenFile = join(linkedSecrets, 'tokens.json');
+    await writeFile(join(realSecrets, 'tokens.json'), '{}', 'utf8');
+    await insertAccount(ownerId, `file:${tokenFile}`);
+
+    const clients = await loadVikunjaClients({
+      db: store.db,
+      config: createConfig({
+        provider: 'vikunja',
+        vikunjaUrl: 'http://127.0.0.1:3456',
+        vikunjaSecretsDir: linkedSecrets,
+      }),
+      readTextFile: async () => JSON.stringify({ [ownerId]: 'tk-linked' }),
+    });
+    expect([...clients.keys()]).toEqual([ownerId]);
+  });
+
+  test('rejects a file reference when VIKUNJA_SECRETS_DIR is unset', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'ohmydate-tokens-'));
+    tempDirs.push(root);
+    const tokenFile = join(root, 'tokens.json');
+    await writeFile(tokenFile, '{}', 'utf8');
+    const ownerId = randomUUID() as Id;
+    await insertAccount(ownerId, `file:${tokenFile}`);
+
+    await expect(
+      loadVikunjaClients({
+        db: store.db,
+        config: createConfig({ provider: 'vikunja', vikunjaUrl: 'http://127.0.0.1:3456' }),
+      }),
+    ).rejects.toThrow(/VIKUNJA_SECRETS_DIR is required/);
+  });
+
+  test('reads the resolved path so a post-check symlink swap cannot redirect it', async () => {
+    const { root, secrets } = await secretLayout();
+    const inside = join(secrets, 'inside.json');
+    const outside = join(root, 'outside.json');
+    const link = join(secrets, 'link.json');
+    const ownerId = randomUUID() as Id;
+    await writeFile(inside, JSON.stringify({ [ownerId]: 'tk-inside' }), 'utf8');
+    await writeFile(outside, JSON.stringify({ [ownerId]: 'tk-outside' }), 'utf8');
+    await symlink(inside, link);
+    await insertAccount(ownerId, `file:${link}`);
+    const resolvedInside = await realpath(inside);
+
+    const readPaths: string[] = [];
+    const clients = await loadVikunjaClients({
+      db: store.db,
+      config: createConfig({
+        provider: 'vikunja',
+        vikunjaUrl: 'http://127.0.0.1:3456',
+        vikunjaSecretsDir: secrets,
+      }),
+      readTextFile: async (path) => {
+        readPaths.push(path);
+        // Simulate an attacker swapping the symlink after the containment check.
+        await rm(link);
+        await symlink(outside, link);
+        return readFile(path, 'utf8');
+      },
+    });
+
+    expect(readPaths).toEqual([resolvedInside]);
+    expect([...clients.keys()]).toEqual([ownerId]);
   });
 });
