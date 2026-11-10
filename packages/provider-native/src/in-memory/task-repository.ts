@@ -39,10 +39,24 @@ interface ChangeRecord {
   readonly deletedAt?: Instant;
 }
 
-interface IdempotencyRecord {
+type CreateOutcome =
+  | { readonly ok: true; readonly task: Task }
+  | { readonly ok: false; readonly error: unknown };
+
+interface PendingIdempotencyRecord {
+  readonly status: 'pending';
+  readonly requestHash: string;
+  readonly promise: Promise<CreateOutcome>;
+  readonly settle: (outcome: CreateOutcome) => void;
+}
+
+interface CommittedIdempotencyRecord {
+  readonly status: 'committed';
   readonly requestHash: string;
   readonly response: Task;
 }
+
+type IdempotencyRecord = PendingIdempotencyRecord | CommittedIdempotencyRecord;
 
 const CAPABILITIES: RepositoryCapabilities = {
   strictConcurrency: true,
@@ -77,44 +91,70 @@ export class InMemoryTaskRepository implements TaskRepository {
     const existing = this.#idempotency.get(idempotencyId);
     if (existing !== undefined) {
       if (existing.requestHash !== requestHash) throw new IdempotencyMismatchError();
-      return cloneTask(existing.response);
+      if (existing.status === 'committed') return cloneTask(existing.response);
+      const outcome = await existing.promise;
+      if (!outcome.ok) throw outcome.error;
+      return cloneTask(outcome.task);
     }
 
-    const id = this.#ids.next();
-    this.#assertDependencies(ownerId, normalized.dependsOn);
-    this.#assertAcyclic(ownerId, { id, dependsOn: normalized.dependsOn });
-
-    const projectId =
-      normalized.projectId === undefined
-        ? (await this.#projects.ensureInbox(ownerId)).id
-        : await this.#requireProject(ownerId, normalized.projectId);
-
-    const now = this.#clock.now();
-    const task: Task = {
-      id,
-      ownerId,
-      projectId,
-      title: normalized.title,
-      ...(normalized.description === undefined ? {} : { description: normalized.description }),
-      status: normalized.status,
-      ...(normalized.dueAt === undefined ? {} : { dueAt: normalized.dueAt }),
-      splittable: normalized.splittable,
-      ...(normalized.session === undefined ? {} : { session: { ...normalized.session } }),
-      priority: normalized.priority,
-      dependsOn: [...normalized.dependsOn],
-      version: 1 as Version,
-      createdAt: now,
-      updatedAt: now,
-      external: [],
-    };
-
-    this.#tasks.set(id, task);
-    this.#idempotency.set(idempotencyId, {
-      requestHash,
-      response: cloneTask(task),
+    let settle!: (outcome: CreateOutcome) => void;
+    const promise = new Promise<CreateOutcome>((resolve) => {
+      settle = resolve;
     });
-    this.#recordChange(ownerId, task);
-    return cloneTask(task);
+    const pending: PendingIdempotencyRecord = {
+      status: 'pending',
+      requestHash,
+      promise,
+      settle,
+    };
+    this.#idempotency.set(idempotencyId, pending);
+
+    try {
+      const projectId =
+        normalized.projectId === undefined
+          ? (await this.#projects.ensureInbox(ownerId)).id
+          : await this.#requireProject(ownerId, normalized.projectId);
+
+      const id = this.#ids.next();
+      this.#assertDependencies(ownerId, normalized.dependsOn);
+      this.#assertAcyclic(ownerId, { id, dependsOn: normalized.dependsOn });
+
+      const now = this.#clock.now();
+      const task: Task = {
+        id,
+        ownerId,
+        projectId,
+        title: normalized.title,
+        ...(normalized.description === undefined ? {} : { description: normalized.description }),
+        status: normalized.status,
+        ...(normalized.dueAt === undefined ? {} : { dueAt: normalized.dueAt }),
+        splittable: normalized.splittable,
+        ...(normalized.session === undefined ? {} : { session: { ...normalized.session } }),
+        priority: normalized.priority,
+        dependsOn: [...normalized.dependsOn],
+        version: 1 as Version,
+        createdAt: now,
+        updatedAt: now,
+        external: [],
+      };
+
+      const response = cloneTask(task);
+      this.#tasks.set(id, task);
+      this.#idempotency.set(idempotencyId, {
+        status: 'committed',
+        requestHash,
+        response,
+      });
+      this.#recordChange(ownerId, task);
+      pending.settle({ ok: true, task: response });
+      return cloneTask(response);
+    } catch (error) {
+      if (this.#idempotency.get(idempotencyId) === pending) {
+        this.#idempotency.delete(idempotencyId);
+      }
+      pending.settle({ ok: false, error });
+      throw error;
+    }
   }
 
   async get(ownerId: Id, id: Id): Promise<Task | null> {
@@ -157,20 +197,16 @@ export class InMemoryTaskRepository implements TaskRepository {
     patch: TaskPatch,
     expectedVersion: Version,
   ): Promise<Task> {
-    const current = this.#requireOwned(ownerId, id);
-    this.#assertVersion(current, expectedVersion);
     const normalized = validateTaskPatch(patch);
-    const dependsOn = normalized.dependsOn ?? current.dependsOn;
-
-    if (normalized.dependsOn !== undefined) {
-      this.#assertDependencies(ownerId, dependsOn);
-      this.#assertAcyclic(ownerId, { id, dependsOn });
-    }
-
-    const projectId =
+    const resolvedProjectId =
       normalized.projectId === undefined
-        ? current.projectId
+        ? undefined
         : await this.#requireProject(ownerId, normalized.projectId);
+
+    const current = this.#requireForUpdate(ownerId, id, expectedVersion);
+    const dependsOn = normalized.dependsOn ?? current.dependsOn;
+    this.#assertDependencies(ownerId, dependsOn);
+    this.#assertAcyclic(ownerId, { id, dependsOn });
 
     const description =
       normalized.description === null
@@ -184,7 +220,7 @@ export class InMemoryTaskRepository implements TaskRepository {
     const task: Task = {
       id,
       ownerId,
-      projectId,
+      projectId: resolvedProjectId ?? current.projectId,
       title: normalized.title ?? current.title,
       ...(description === undefined ? {} : { description }),
       status: normalized.status ?? current.status,
@@ -257,6 +293,18 @@ export class InMemoryTaskRepository implements TaskRepository {
     if (task === undefined || task.ownerId !== ownerId || task.deletedAt !== undefined) {
       throw new NotFoundError('task', id);
     }
+    return task;
+  }
+
+  #requireForUpdate(ownerId: Id, id: Id, expectedVersion: Version): Task {
+    const task = this.#tasks.get(id);
+    if (task === undefined || task.ownerId !== ownerId) {
+      throw new NotFoundError('task', id);
+    }
+    if (task.version !== expectedVersion) {
+      throw new VersionConflictError(expectedVersion, task.version);
+    }
+    if (task.deletedAt !== undefined) throw new NotFoundError('task', id);
     return task;
   }
 
