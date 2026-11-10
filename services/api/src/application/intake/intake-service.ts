@@ -64,6 +64,7 @@ import {
   type AgentRunRepository,
   type AgentRunStatus,
   type IntakeAnswerRecord,
+  type IntakeApprovalLock,
   type IntakeApprovalStore,
   type IntakeSessionRecord,
   type IntakeSessionRepository,
@@ -92,6 +93,8 @@ export interface IntakeServiceOptions {
   readonly agentRuns: AgentRunRepository;
   readonly tasks: TaskRepository;
   readonly approvals: IntakeApprovalStore;
+  /** ADR-020 §1: session-level lock held for the whole approval. */
+  readonly approvalLock: IntakeApprovalLock;
   /** `null` means no provider is configured: LLM-dependent steps notify manual mode. */
   readonly llm: LlmPort | null;
   readonly budgetGuard: BudgetGuard;
@@ -419,6 +422,7 @@ export class IntakeService {
   readonly #agentRuns: AgentRunRepository;
   readonly #tasks: TaskRepository;
   readonly #approvals: IntakeApprovalStore;
+  readonly #approvalLock: IntakeApprovalLock;
   readonly #llm: LlmPort | null;
   readonly #budgetGuard: BudgetGuard;
   readonly #config: IntakeAgentConfig;
@@ -431,6 +435,7 @@ export class IntakeService {
     this.#agentRuns = options.agentRuns;
     this.#tasks = options.tasks;
     this.#approvals = options.approvals;
+    this.#approvalLock = options.approvalLock;
     this.#llm = options.llm;
     this.#budgetGuard = options.budgetGuard;
     this.#config = options.config ?? INTAKE_AGENT_CONFIG;
@@ -459,6 +464,10 @@ export class IntakeService {
     const goalId = body.goalId === undefined ? this.#ids.next() : (body.goalId as Id);
     if (body.goalId === undefined) {
       await this.#sessions.createGoal(ownerId, goalId, body.input.title);
+    } else if (!(await this.#sessions.goalExists(ownerId, goalId))) {
+      throw new ValidationFailedError([
+        { path: '/goalId', message: 'goal not found for this owner' },
+      ]);
     }
     let session = await this.#sessions.create({
       id: this.#ids.next(),
@@ -580,9 +589,14 @@ export class IntakeService {
         return;
       }
       const schema = properties[field];
-      const validShape = schema !== undefined && Value.Check(schema, answer.value);
-      const validInstant = field !== 'dueAt' || (typeof answer.value === 'string' && isInstant(answer.value));
-      if (!validShape || !validInstant) {
+      // TypeBox's `date-time` format is not registered in this process (Fastify
+      // registers it only on its AJV instance), so validate instants with the
+      // domain guard, exactly like the merged-input pass below.
+      const valid =
+        field === 'dueAt'
+          ? typeof answer.value === 'string' && isInstant(answer.value)
+          : schema !== undefined && Value.Check(schema, answer.value);
+      if (!valid) {
         issues.push({
           path: `/answers/${index}/value`,
           message: `invalid value for ${field}`,
@@ -776,44 +790,17 @@ export class IntakeService {
     expectedVersion: number,
     idempotencyKey: string,
   ): Promise<ApprovalResult> {
-    const session = await this.#requireSession(ownerId, id);
-    this.#assertVersion(session, expectedVersion);
-    if (session.state !== 'decomposition') {
-      throw IntakeError.illegalTransition(session.state, 'draft_approved');
-    }
-    const stored = await this.#agentRuns.loadDraft(ownerId, id);
-    if (stored === null) throw new NotFoundError('decomposition draft', id);
-
-    const validation = validateDecomposition(stored.draft as DecompositionDraft);
-    const blocking = validation.issues.filter((issue) => issue.code !== 'hallucinated_ref');
-    if (blocking.length > 0) {
-      throw new ValidationFailedError(
-        blocking.map((issue) => ({ path: issue.stepKey ?? '/steps', message: issue.message })),
-      );
+    // Ownership/404 before locking so one owner cannot contend on another's
+    // session. The lock is acquired before re-reading the version: whichever
+    // of approval and a session mutation reaches the lock first wins.
+    const initial = await this.#requireSession(ownerId, id);
+    this.#assertVersion(initial, expectedVersion);
+    if (initial.state !== 'decomposition') {
+      throw IntakeError.illegalTransition(initial.state, 'draft_approved');
     }
 
-    const ordered = topoSortSteps(validation.draft.steps);
-    const plannedSteps = ordered.map((step) => ({
-      stepKey: step.key,
-      plannedTaskId: this.#ids.next(),
-    }));
-
-    const begun = await this.#approvals.begin({
-      ownerId,
-      sessionId: id,
-      expectedVersion,
-      idempotencyKey,
-      leaseMs: 60_000,
-      steps: plannedSteps,
-    });
-    if (begun.kind === 'not_found') throw new NotFoundError('intake session', id);
-    if (begun.kind === 'version_conflict') {
-      throw new VersionConflictError(expectedVersion as Version, begun.actualVersion as Version);
-    }
-    if (begun.kind === 'illegal_state') {
-      throw IntakeError.illegalTransition(begun.state, 'draft_approved');
-    }
-    if (begun.kind === 'in_progress') {
+    const lock = await this.#approvalLock.tryAcquire(ownerId, id);
+    if (lock === null) {
       throw new IntakeError(
         409,
         'approval_in_progress',
@@ -821,127 +808,179 @@ export class IntakeService {
         'another approval for this intake session is in progress',
       );
     }
-    if (begun.kind === 'completed') {
-      const approval = await this.#approvals.load(ownerId, id);
-      const tasks: { id: Id; version: Version }[] = [];
-      for (const approvalStep of approval?.steps ?? []) {
-        if (approvalStep.taskId === undefined) continue;
-        const task = await this.#tasks.get(ownerId, approvalStep.taskId);
-        if (task !== null) tasks.push({ id: task.id, version: task.version });
-      }
-      return { session: await this.#toDto(begun.session), tasks };
-    }
-
-    const approvalSteps = new Map(
-      begun.approval.steps.map((step) => [step.stepKey, step] as const),
-    );
-    const taskIds = new Map<string, Id>();
-    const created: { id: Id; version: Version }[] = [];
-    const plannedIdByKey = new Map(
-      plannedSteps.map((step) => [step.stepKey, step.plannedTaskId] as const),
-    );
-    const priority = (session.input.priority ?? 3) as TaskPriority;
-    const maxFocus = session.input.maxFocusMinutes;
 
     try {
-      for (const step of ordered) {
-        const plannedTaskId = plannedIdByKey.get(step.key);
-        if (plannedTaskId === undefined) continue;
-        const existingStep = approvalSteps.get(step.key);
-        if (existingStep?.state === 'created' && existingStep.taskId !== undefined) {
-          taskIds.set(step.key, existingStep.taskId);
-          created.push({ id: existingStep.taskId, version: 1 as Version });
-          continue;
-        }
+      const session = await this.#requireSession(ownerId, id);
+      this.#assertVersion(session, expectedVersion);
+      if (session.state !== 'decomposition') {
+        throw IntakeError.illegalTransition(session.state, 'draft_approved');
+      }
+      const stored = await this.#agentRuns.loadDraft(ownerId, id);
+      if (stored === null) throw new NotFoundError('decomposition draft', id);
 
-        const existing = await this.#tasks.get(ownerId, plannedTaskId);
-        if (existing !== null) {
+      const validation = validateDecomposition(stored.draft as DecompositionDraft);
+      const blocking = validation.issues.filter((issue) => issue.code !== 'hallucinated_ref');
+      if (blocking.length > 0) {
+        throw new ValidationFailedError(
+          blocking.map((issue) => ({ path: issue.stepKey ?? '/steps', message: issue.message })),
+        );
+      }
+
+      const ordered = topoSortSteps(validation.draft.steps);
+      const proposedSteps = ordered.map((step) => ({
+        stepKey: step.key,
+        plannedTaskId: this.#ids.next(),
+      }));
+
+      const begun = await this.#approvals.begin({
+        ownerId,
+        sessionId: id,
+        expectedVersion,
+        idempotencyKey,
+        leaseMs: 60_000,
+        steps: proposedSteps,
+      });
+      if (begun.kind === 'not_found') throw new NotFoundError('intake session', id);
+      if (begun.kind === 'version_conflict') {
+        throw new VersionConflictError(expectedVersion as Version, begun.actualVersion as Version);
+      }
+      if (begun.kind === 'illegal_state') {
+        throw IntakeError.illegalTransition(begun.state, 'draft_approved');
+      }
+      if (begun.kind === 'in_progress') {
+        throw new IntakeError(
+          409,
+          'approval_in_progress',
+          'Approval in progress',
+          'another approval for this intake session is in progress',
+        );
+      }
+      if (begun.kind === 'completed') {
+        const approval = await this.#approvals.load(ownerId, id);
+        const tasks: { id: Id; version: Version }[] = [];
+        for (const approvalStep of approval?.steps ?? []) {
+          if (approvalStep.taskId === undefined) continue;
+          const task = await this.#tasks.get(ownerId, approvalStep.taskId);
+          if (task !== null) tasks.push({ id: task.id, version: task.version });
+        }
+        return { session: await this.#toDto(begun.session), tasks };
+      }
+
+      const approvalSteps = new Map(
+        begun.approval.steps.map((step) => [step.stepKey, step] as const),
+      );
+      const taskIds = new Map<string, Id>();
+      const created: { id: Id; version: Version }[] = [];
+      // ADR-020 §3: the ledger's persisted planned_task_id is authoritative on
+      // every retry; never substitute the freshly generated proposal above.
+      const plannedIdByKey = new Map(
+        begun.approval.steps.map((step) => [step.stepKey, step.plannedTaskId] as const),
+      );
+      const priority = (session.input.priority ?? 3) as TaskPriority;
+      const maxFocus = session.input.maxFocusMinutes;
+
+      try {
+        for (const step of ordered) {
+          const plannedTaskId = plannedIdByKey.get(step.key);
+          if (plannedTaskId === undefined) continue;
+          const existingStep = approvalSteps.get(step.key);
+          if (existingStep?.state === 'created' && existingStep.taskId !== undefined) {
+            taskIds.set(step.key, existingStep.taskId);
+            created.push({ id: existingStep.taskId, version: 1 as Version });
+            continue;
+          }
+
+          const existing = await this.#tasks.get(ownerId, plannedTaskId);
+          if (existing !== null) {
+            await this.#approvals.markStep(ownerId, id, step.key, {
+              state: 'created',
+              taskId: existing.id,
+            });
+            taskIds.set(step.key, existing.id);
+            created.push({ id: existing.id, version: existing.version });
+            continue;
+          }
+
+          const dependsOn = step.dependsOn
+            .map((ref) => taskIds.get(ref))
+            .filter((taskId): taskId is Id => taskId !== undefined);
+          const dependencyState =
+            dependsOn.length === step.dependsOn.length
+              ? 'satisfied'
+              : `missing:${step.dependsOn.filter((ref) => !taskIds.has(ref)).join(',')}`;
+
+          await this.#approvals.markStep(ownerId, id, step.key, {
+            state: 'pending',
+            dependencyState,
+          });
+          if (dependsOn.length !== step.dependsOn.length) {
+            throw new ValidationFailedError(
+              step.dependsOn
+                .filter((ref) => !taskIds.has(ref))
+                .map((ref) => ({ path: step.key, message: `missing dependency ${ref}` })),
+            );
+          }
+
+          const input: TaskCreate = {
+            title: step.title,
+            description: truncate(
+              `Goal: ${session.input.title}\n\n${step.deliverable}\n\nDone when: ${step.doneCriteria}`,
+              2_000,
+            ),
+            priority,
+            splittable: step.splittable,
+            dependsOn,
+            ...(session.input.dueAt === undefined
+              ? {}
+              : { dueAt: session.input.dueAt as Instant }),
+            ...(maxFocus === undefined
+              ? {}
+              : { session: { minMinutes: Math.min(15, maxFocus), maxMinutes: maxFocus } }),
+          };
+          const task = await this.#tasks.create(
+            ownerId,
+            input,
+            `intake-approval:${id}:${step.key}`,
+            { plannedId: plannedTaskId },
+          );
           await this.#approvals.markStep(ownerId, id, step.key, {
             state: 'created',
-            taskId: existing.id,
+            taskId: task.id,
+            dependencyState,
           });
-          taskIds.set(step.key, existing.id);
-          created.push({ id: existing.id, version: existing.version });
-          continue;
+          taskIds.set(step.key, task.id);
+          created.push({ id: task.id, version: task.version });
         }
-
-        const dependsOn = step.dependsOn
-          .map((ref) => taskIds.get(ref))
-          .filter((taskId): taskId is Id => taskId !== undefined);
-        const dependencyState =
-          dependsOn.length === step.dependsOn.length
-            ? 'satisfied'
-            : `missing:${step.dependsOn.filter((ref) => !taskIds.has(ref)).join(',')}`;
-
-        await this.#approvals.markStep(ownerId, id, step.key, {
-          state: 'pending',
-          dependencyState,
-        });
-        if (dependsOn.length !== step.dependsOn.length) {
-          throw new ValidationFailedError(
-            step.dependsOn
-              .filter((ref) => !taskIds.has(ref))
-              .map((ref) => ({ path: step.key, message: `missing dependency ${ref}` })),
-          );
+      } catch (error) {
+        if (error instanceof ValidationFailedError) {
+          await this.#approvals.fail(ownerId, id);
+          throw error;
         }
-
-        const input: TaskCreate = {
-          title: step.title,
-          description: truncate(
-            `Goal: ${session.input.title}\n\n${step.deliverable}\n\nDone when: ${step.doneCriteria}`,
-            2_000,
-          ),
-          priority,
-          splittable: step.splittable,
-          dependsOn,
-          ...(session.input.dueAt === undefined
-            ? {}
-            : { dueAt: session.input.dueAt as Instant }),
-          ...(maxFocus === undefined
-            ? {}
-            : { session: { minMinutes: Math.min(15, maxFocus), maxMinutes: maxFocus } }),
-        };
-        const task = await this.#tasks.create(
-          ownerId,
-          input,
-          `intake-approval:${id}:${step.key}`,
-          { plannedId: plannedTaskId },
-        );
-        await this.#approvals.markStep(ownerId, id, step.key, {
-          state: 'created',
-          taskId: task.id,
-          dependencyState,
-        });
-        taskIds.set(step.key, task.id);
-        created.push({ id: task.id, version: task.version });
-      }
-    } catch (error) {
-      if (error instanceof ValidationFailedError) {
+        const stepKey = ordered.find((step) => !taskIds.has(step.key))?.key;
+        if (stepKey !== undefined) {
+          await this.#approvals.markStep(ownerId, id, stepKey, { state: 'unknown' });
+        }
         await this.#approvals.fail(ownerId, id);
-        throw error;
+        throw error instanceof IntakeError
+          ? error
+          : new IntakeError(
+              503,
+              'provider_unavailable',
+              'Provider unavailable',
+              'task creation failed; approval can be retried',
+            );
       }
-      const stepKey = ordered.find((step) => !taskIds.has(step.key))?.key;
-      if (stepKey !== undefined) {
-        await this.#approvals.markStep(ownerId, id, stepKey, { state: 'unknown' });
-      }
-      await this.#approvals.fail(ownerId, id);
-      throw error instanceof IntakeError
-        ? error
-        : new IntakeError(
-            503,
-            'provider_unavailable',
-            'Provider unavailable',
-            'task creation failed; approval can be retried',
-          );
-    }
 
-    const updated = await this.#approvals.complete({
-      ownerId,
-      sessionId: id,
-      expectedSessionVersion: session.version,
-      outboxId: this.#ids.next(),
-    });
-    return { session: await this.#toDto(updated), tasks: created };
+      const updated = await this.#approvals.complete({
+        ownerId,
+        sessionId: id,
+        expectedSessionVersion: session.version,
+        outboxId: this.#ids.next(),
+      });
+      return { session: await this.#toDto(updated), tasks: created };
+    } finally {
+      await lock.release().catch(() => undefined);
+    }
   }
 
   async pause(ownerId: Id, id: Id, expectedVersion: number): Promise<IntakeSessionDto> {
@@ -979,14 +1018,6 @@ export class IntakeService {
   async cancel(ownerId: Id, id: Id, expectedVersion: number): Promise<IntakeSessionDto> {
     const session = await this.#requireSession(ownerId, id);
     this.#assertVersion(session, expectedVersion);
-    if (await this.#approvals.hasActive(ownerId, id)) {
-      throw new IntakeError(
-        409,
-        'approval_in_progress',
-        'Approval in progress',
-        'the intake draft is already being approved',
-      );
-    }
     let state: IntakeState;
     try {
       state = transition(session.state, { type: 'user_cancelled' }).state;
@@ -1002,14 +1033,6 @@ export class IntakeService {
     this.#assertVersion(session, expectedVersion);
     if (session.state === 'cancelled' || session.state === 'failed') {
       throw IntakeError.illegalTransition(session.state, 'enter_manual_mode');
-    }
-    if (await this.#approvals.hasActive(ownerId, id)) {
-      throw new IntakeError(
-        409,
-        'approval_in_progress',
-        'Approval in progress',
-        'the intake draft is already being approved',
-      );
     }
     let updated = await this.#sessions.update(
       ownerId,

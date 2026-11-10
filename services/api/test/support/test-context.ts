@@ -111,6 +111,8 @@ export async function createTestContext(
   const ids = createSeededIdGenerator(Math.floor(Math.random() * 1_000_000), clock);
   const repos = options.repos ?? createInMemoryRepositories({ clock, ids });
   const config = createConfig({
+    // The intake approval lock needs a dedicated connection to this database.
+    databaseUrl: requireDatabaseUrl(),
     cookieSecure: false,
     logLevel: 'silent',
     loginRateLimit: { limit: 1_000, windowMs: 60_000 },

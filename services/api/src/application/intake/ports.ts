@@ -48,6 +48,8 @@ export interface IntakeSessionRepository {
   create(record: IntakeSessionRecord): Promise<IntakeSessionRecord>;
   /** FU-40: sessions without a goal get one named from the intake title. */
   createGoal(ownerId: Id, goalId: Id, title: string): Promise<void>;
+  /** Owner-scoped check before accepting a caller-supplied goal reference. */
+  goalExists(ownerId: Id, goalId: Id): Promise<boolean>;
   get(ownerId: Id, id: Id): Promise<IntakeSessionRecord | null>;
   update(
     ownerId: Id,
@@ -220,5 +222,18 @@ export interface IntakeApprovalStore {
     readonly expectedSessionVersion: number;
     readonly outboxId: Id;
   }): Promise<IntakeSessionRecord>;
-  hasActive(ownerId: Id, sessionId: Id): Promise<boolean>;
+}
+
+/**
+ * ADR-020 §1: a session-level PostgreSQL advisory lock held on a dedicated
+ * connection for the whole approval. Process death closes the connection and
+ * releases the lock, so there is no time-based takeover.
+ */
+export interface IntakeApprovalLockHandle {
+  release(): Promise<void>;
+}
+
+export interface IntakeApprovalLock {
+  /** Returns `null` when another live approver holds this session's lock. */
+  tryAcquire(ownerId: Id, sessionId: Id): Promise<IntakeApprovalLockHandle | null>;
 }

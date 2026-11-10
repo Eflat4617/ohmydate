@@ -234,6 +234,12 @@ export class VikunjaTaskRepository implements TaskRepository {
       }
       // ADR-016 §2: recover an upstream task whose marker already carries the
       // planned planner id before attempting a re-create.
+      //
+      // knownLimitation (ADR-020 §3): if a user edits the orphan's description
+      // and removes/alters the marker before the retry, the orphan cannot be
+      // found and the retry creates a duplicate. Single-user intake tasks are
+      // not exposed before an approval completes, so this is accepted; the
+      // behaviour is pinned by a live regression test.
       const candidates = await client.listAllProjectTasks(projectMapping.externalId);
       const orphan = candidates.find(
         (candidate) => extractMarker(candidate.description) === plannedId,
@@ -376,6 +382,37 @@ export class VikunjaTaskRepository implements TaskRepository {
     } catch {
       // Keep the list payload; a later get/list refreshes the ETag.
     }
+
+    // ADR-020 §4: an adopted orphan must actually have its intended dependency
+    // relations upstream before the step is reported as created. Resolve the
+    // current relation set first so a retry after a partial write only adds
+    // what is still missing.
+    const dependencyExternalIds: string[] = [];
+    for (const dependencyId of normalized.dependsOn) {
+      const dependency = await this.#requireMapping(ownerId, 'task', dependencyId);
+      dependencyExternalIds.push(dependency.externalId);
+    }
+    const present = new Set(
+      (full.related_tasks?.[DEPENDENCY_RELATION_KIND] ?? []).map((task) =>
+        String(task.id),
+      ),
+    );
+    for (const externalId of dependencyExternalIds) {
+      if (present.has(externalId)) continue;
+      await client.createRelation(String(full.id), externalId, DEPENDENCY_RELATION_KIND);
+    }
+    if (dependencyExternalIds.length > 0) {
+      // Refresh so the persisted fingerprint reflects the relations just
+      // written (including ones added by an earlier partial attempt).
+      try {
+        const refreshed = await client.getTask(String(full.id));
+        full = refreshed.data;
+        etag = refreshed.etag;
+      } catch {
+        // Keep the payload; the fingerprint below records the intended ids.
+      }
+    }
+
     const now = this.#clock.now();
     const remoteUpdatedAt = normalizeRemoteInstant(full.updated);
     const mapping: ExternalMapping = {
@@ -386,7 +423,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       ownerId,
       ...(etag === null ? {} : { externalEtag: etag }),
       ...(remoteUpdatedAt === undefined ? {} : { externalUpdatedAt: remoteUpdatedAt }),
-      contentFingerprint: contentFingerprint(full),
+      contentFingerprint: contentFingerprint(full, dependencyExternalIds),
       localVersion: 1 as Version,
       createdAt: now,
       updatedAt: now,

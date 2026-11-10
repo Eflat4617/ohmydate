@@ -69,9 +69,6 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
         .forUpdate()
         .executeTakeFirst();
       if (session === undefined) return { kind: 'not_found' };
-      if (session.state !== 'decomposition') {
-        return { kind: 'illegal_state', state: session.state as never };
-      }
 
       const now = new Date(this.#clock.now());
       const existing = await trx
@@ -80,19 +77,18 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
         .where('session_id', '=', input.sessionId)
         .forUpdate()
         .executeTakeFirst();
-      if (existing !== undefined) {
-        if (existing.state === 'completed') {
-          return { kind: 'completed', session: mapSession(session) };
-        }
-        const active =
-          existing.state === 'in_progress' && existing.lease_expires_at.getTime() > now.getTime();
-        if (active && existing.idempotency_key !== input.idempotencyKey) {
-          return { kind: 'in_progress' };
-        }
+      if (existing !== undefined && existing.state === 'completed') {
+        return { kind: 'completed', session: mapSession(session) };
       }
 
+      // ADR-020: the caller holds the session-level advisory lock, so any
+      // in-progress row here is a crashed/previous attempt for this same
+      // session and may be resumed. Never take over based on a lease clock.
       if (session.version !== input.expectedVersion) {
         return { kind: 'version_conflict', actualVersion: session.version };
+      }
+      if (session.state !== 'decomposition') {
+        return { kind: 'illegal_state', state: session.state as never };
       }
 
       const lease = new Date(now.getTime() + input.leaseMs);
@@ -286,17 +282,5 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
         .execute();
       return mapSession(updated);
     });
-  }
-
-  async hasActive(ownerId: Id, sessionId: Id): Promise<boolean> {
-    const row = await this.#db
-      .selectFrom('intake_approval')
-      .select('session_id')
-      .where('session_id', '=', sessionId)
-      .where('owner_id', '=', ownerId)
-      .where('state', '=', 'in_progress')
-      .where('lease_expires_at', '>', new Date(this.#clock.now()))
-      .executeTakeFirst();
-    return row !== undefined;
   }
 }

@@ -54,6 +54,9 @@ export interface TaskRepository {
    * `opts.plannedId` lets the caller supply the planner UUID (UUIDv7) before the
    * provider call so a retried create can be resolved by id/marker instead of
    * duplicating the upstream task. HTTP `POST /tasks` never sets it.
+   *
+   * Callers must serialize creates for the same `plannedId` (ADR-020 §5); the
+   * intake approval path does this with a per-session PostgreSQL advisory lock.
    */
   create(
     ownerId: Id,

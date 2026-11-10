@@ -2,6 +2,7 @@ import type { Id, Version } from '@ohmydate/domain';
 import {
   VikunjaProjectRepository,
   VikunjaTaskRepository,
+  appendMarker,
   type ExternalMapping,
 } from '@ohmydate/provider-vikunja';
 import { PgChangeJournalStore } from '../../src/adapters/vikunja/pg-change-journal-store.js';
@@ -137,6 +138,95 @@ if (!live) {
         await user.client
           .permanentDeleteProject(String(remoteProject.id))
           .catch(() => undefined);
+        await store.close();
+      }
+    });
+  });
+
+  describe('Orphan adoption dependencies with durable stores (live)', () => {
+    test('writes missing dependency relations and survives reread/restart', async () => {
+      const [user] = await users();
+      const store = await createPgTestStore();
+      const clock = new FakeClock();
+      const ids = createSeededIdGenerator(515151, clock);
+      const ownerId = ids.next();
+      const clients = new Map<Id, LiveUser['client']>([[ownerId, user.client]]);
+      const mappings = new PgMappingStore(store.db);
+      const plannerFields = new PgPlannerFieldStore(store.db, clock);
+      const journal = new PgChangeJournalStore(store.db, clock);
+      const projects = new VikunjaProjectRepository({ clients, mappings, clock, ids });
+      const makeRepo = () =>
+        new VikunjaTaskRepository({
+          clients,
+          mappings,
+          plannerFields,
+          journal,
+          projects,
+          clock,
+          ids,
+        });
+      const repo = makeRepo();
+      const plannedId = ids.next();
+      let remoteTaskIds: string[] = [];
+      try {
+        const dependencyOne = await repo.create(ownerId, { title: 'Dependency one' }, 'dep-1');
+        const dependencyTwo = await repo.create(ownerId, { title: 'Dependency two' }, 'dep-2');
+        const externalOne = dependencyOne.external?.[0]?.externalId;
+        const externalTwo = dependencyTwo.external?.[0]?.externalId;
+        if (externalOne === undefined || externalTwo === undefined) {
+          throw new Error('dependency mapping missing external id');
+        }
+
+        const inbox = await projects.getInbox(ownerId);
+        const inboxMapping = await mappings.get('project', inbox.id);
+        if (inboxMapping === null) throw new Error('inbox mapping missing');
+
+        // Simulate a crash after the first remote create but before the
+        // mapping/relations were persisted: only the marker survives. One of
+        // the two relations was already written (partial relation write).
+        const orphan = await user.client.createTask(inboxMapping.externalId, {
+          title: 'Adopted orphan',
+          description: appendMarker('created before crash', plannedId),
+        });
+        await user.client.createRelation(
+          String(orphan.id),
+          externalOne,
+          'blocked',
+        );
+
+        const adopted = await repo.create(
+          ownerId,
+          {
+            title: 'Adopted orphan',
+            dependsOn: [dependencyOne.id, dependencyTwo.id],
+          },
+          'orphan-adoption-retry',
+          { plannedId },
+        );
+        remoteTaskIds = [String(orphan.id)];
+        expect(new Set(adopted.dependsOn)).toEqual(
+          new Set([dependencyOne.id, dependencyTwo.id]),
+        );
+
+        const reread = await repo.get(ownerId, plannedId);
+        expect(reread).not.toBeNull();
+        expect(new Set(reread?.dependsOn)).toEqual(
+          new Set([dependencyOne.id, dependencyTwo.id]),
+        );
+
+        // Repository restart: same durable stores, new adapter instance.
+        const restarted = makeRepo();
+        const afterRestart = await restarted.get(ownerId, plannedId);
+        expect(afterRestart).not.toBeNull();
+        expect(new Set(afterRestart?.dependsOn)).toEqual(
+          new Set([dependencyOne.id, dependencyTwo.id]),
+        );
+      } finally {
+        for (const externalId of remoteTaskIds) {
+          await user.client.deleteTask(externalId).catch(() => undefined);
+          await user.client.permanentDeleteTask(externalId).catch(() => undefined);
+        }
+        await purgeUserData(user.client, mappings, ownerId);
         await store.close();
       }
     });

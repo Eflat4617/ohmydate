@@ -50,14 +50,13 @@ function mapSteps(value: unknown): DecompositionStepDto[] {
     const dependsOn = Array.isArray(step['dependsOn'])
       ? step['dependsOn'].filter((ref): ref is string => typeof ref === 'string')
       : [];
+    const kind = asString(step['kind'], 'work');
     return {
       key: asString(step['key'], 's1'),
       title: asString(step['title'], 'Untitled step'),
       deliverable: asString(step['deliverable'], ''),
       doneCriteria: asString(step['doneCriteria'], ''),
-      kind: STEP_KINDS.has(asString(step['kind'], 'work'))
-        ? (step['kind'] as DecompositionStepDto['kind'])
-        : 'work',
+      kind: STEP_KINDS.has(kind) ? (kind as DecompositionStepDto['kind']) : 'work',
       estimate: {
         p50Minutes: asNumber(estimate['p50Minutes'], 5),
         p90Minutes: asNumber(estimate['p90Minutes'], 5),

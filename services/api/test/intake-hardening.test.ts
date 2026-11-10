@@ -1,5 +1,5 @@
 import { Writable } from 'node:stream';
-import type { IntakeInput, IntakeSessionDto } from '@ohmydate/contracts';
+import { routes, type IntakeInput, type IntakeSessionDto } from '@ohmydate/contracts';
 import {
   ProviderUnavailableError,
   type Id,
@@ -15,12 +15,15 @@ import {
 import { createInMemoryRepositories } from '@ohmydate/provider-native/in-memory';
 import { FakeClock, createSeededIdGenerator } from '@ohmydate/testkit';
 import pino from 'pino';
+import pg from 'pg';
 import { defaultLoggerOptions } from '../src/app.js';
 import { createConfig } from '../src/config.js';
+import { intakeSessionLockKey } from '../src/adapters/intake-session-advisory.js';
 import type { AppRepositories } from '../src/application/ports.js';
 import {
   authHeaders,
   createTestContext,
+  databaseUrl,
   hasDatabase,
   login,
   newIdempotencyKey,
@@ -674,4 +677,424 @@ describe.skipIf(!hasDatabase)('M2-03 hardening', () => {
       await ctx.close();
     }
   });
-});
+
+  test('dueAt answers accept the contract instant and reject an invalid date', async () => {
+    const ctx = await createTestContext({});
+    await ctx.seedUser({ email: 'h3-dueat@example.com', password: 'correct-horse' });
+    const session = await login(ctx, 'h3-dueat@example.com', 'correct-horse');
+    try {
+      const createSession = async () => {
+        const created = await ctx.app.inject({
+          method: 'POST',
+          url: '/api/v1/intake-sessions',
+          headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+          payload: { input: { title: 'Review goal', deliverable: 'Ship' } },
+        });
+        expect(created.statusCode).toBe(201);
+        return created.json() as IntakeSessionDto;
+      };
+
+      const valid = await createSession();
+      const answered = await ctx.app.inject({
+        method: 'POST',
+        url: `/api/v1/intake-sessions/${valid.id}/answers`,
+        headers: authHeaders(session, {
+          'if-match': `W/"${valid.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: {
+          answers: [
+            { questionKey: 'dueAt', action: 'answer', value: '2026-12-01T00:00:00.000Z' },
+          ],
+        },
+      });
+      expect(answered.statusCode).toBe(200);
+      const after = answered.json() as IntakeSessionDto;
+      expect(after.state).toBe('clarification');
+      expect(after.answers?.[0]?.value).toBe('2026-12-01T00:00:00.000Z');
+      expect(after.input.dueAt).toBe('2026-12-01T00:00:00.000Z');
+
+      const invalid = await createSession();
+      const rejected = await ctx.app.inject({
+        method: 'POST',
+        url: `/api/v1/intake-sessions/${invalid.id}/answers`,
+        headers: authHeaders(session, {
+          'if-match': `W/"${invalid.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: {
+          answers: [{ questionKey: 'dueAt', action: 'answer', value: '2026-13-99T00:00:00Z' }],
+        },
+      });
+      expect(rejected.statusCode).toBe(422);
+      expect((rejected.json() as { errors: { path: string }[] }).errors[0]?.path).toBe(
+        '/answers/0/value',
+      );
+      const read = await ctx.app.inject({
+        method: 'GET',
+        url: `/api/v1/intake-sessions/${invalid.id}`,
+        headers: authHeaders(session),
+      });
+      expect(read.statusCode).toBe(200);
+      expect((read.json() as IntakeSessionDto).state).toBe('clarification');
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('goalId references are owner-scoped and return 422 instead of 500', async () => {
+    const ctx = await createTestContext({});
+    await ctx.seedUser({ email: 'goal-owner@example.com', password: 'correct-horse' });
+    const otherOwner = await ctx.seedUser({
+      email: 'goal-other@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'goal-owner@example.com', 'correct-horse');
+    const otherGoalId = ctx.ids.next();
+    await ctx.db
+      .insertInto('goal')
+      .values({ id: otherGoalId, owner_id: otherOwner, title: 'Other goal' })
+      .execute();
+    try {
+      const cases = [ctx.ids.next(), otherGoalId];
+      for (const goalId of cases) {
+        const response = await ctx.app.inject({
+          method: 'POST',
+          url: '/api/v1/intake-sessions',
+          headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+          payload: { input: { title: 'Unknown goal' }, goalId },
+        });
+        expect(response.statusCode).toBe(422);
+        expect((response.json() as { errors: { path: string }[] }).errors[0]?.path).toBe(
+          '/goalId',
+        );
+      }
+      const sessions = await ctx.db.selectFrom('intake_session').selectAll().execute();
+      expect(sessions).toHaveLength(0);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('stalled approver keeps the lock: second approval is 409, resume creates six', async () => {
+    const { script, repos } = scriptedRepos();
+    const ctx = await createTestContext({ repos });
+    await ctx.seedUser({ email: 'lock-stall@example.com', password: 'correct-horse' });
+    const session = await login(ctx, 'lock-stall@example.com', 'correct-horse');
+    try {
+      const current = await createManualDecomposing(ctx, session, true);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let entered!: () => void;
+      const hit = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      script.beforeCreate = async (index) => {
+        if (index !== 1) return;
+        entered();
+        await gate;
+      };
+      const first = approve(ctx, session, current.id, current.version);
+      await hit;
+      const second = await approve(ctx, session, current.id, current.version);
+      expect(second.statusCode).toBe(409);
+      expect(second.json()).toMatchObject({ code: 'approval_in_progress' });
+      release();
+      expect((await first).statusCode).toBe(200);
+      expect(await taskCount(ctx, session)).toBe(6);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('approval-first makes cancel and manual return 409 and still creates six tasks', async () => {
+    const { script, repos } = scriptedRepos();
+    const ctx = await createTestContext({ repos });
+    await ctx.seedUser({ email: 'lock-approval-first@example.com', password: 'correct-horse' });
+    const session = await login(ctx, 'lock-approval-first@example.com', 'correct-horse');
+    try {
+      const current = await createManualDecomposing(ctx, session, true);
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let entered!: () => void;
+      const hit = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      script.beforeCreate = async (index) => {
+        if (index !== 1) return;
+        entered();
+        await gate;
+      };
+      const first = approve(ctx, session, current.id, current.version);
+      await hit;
+      for (const action of ['cancel', 'manual'] as const) {
+        const raced = await ctx.app.inject({
+          method: 'POST',
+          url: `/api/v1/intake-sessions/${current.id}:${action}`,
+          headers: authHeaders(session, {
+            'if-match': `W/"${current.version}"`,
+            'idempotency-key': newIdempotencyKey(),
+          }),
+        });
+        expect(raced.statusCode).toBe(409);
+        expect(raced.json()).toMatchObject({ code: 'approval_in_progress' });
+      }
+      release();
+      expect((await first).statusCode).toBe(200);
+      expect(await taskCount(ctx, session)).toBe(6);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('cancel-first and manual-first make a stale approval 412 with zero tasks', async () => {
+    const actionCases = ['cancel', 'manual'] as const;
+    for (const action of actionCases) {
+      const ctx = await createTestContext({});
+      const email = `lock-mutation-first-${action}@example.com`;
+      await ctx.seedUser({ email, password: 'correct-horse' });
+      const session = await login(ctx, email, 'correct-horse');
+      try {
+        const current = await createManualDecomposing(ctx, session, true);
+        const mutated = await ctx.app.inject({
+          method: 'POST',
+          url: `/api/v1/intake-sessions/${current.id}:${action}`,
+          headers: authHeaders(session, {
+            'if-match': `W/"${current.version}"`,
+            'idempotency-key': newIdempotencyKey(),
+          }),
+        });
+        expect(mutated.statusCode).toBe(200);
+        const stale = await approve(ctx, session, current.id, current.version);
+        expect(stale.statusCode).toBe(412);
+        expect(await taskCount(ctx, session)).toBe(0);
+      } finally {
+        await ctx.close();
+      }
+    }
+  });
+
+  test('destroying the approval lock client releases the session for the next approval', async () => {
+    const ctx = await createTestContext({});
+    await ctx.seedUser({ email: 'lock-death@example.com', password: 'correct-horse' });
+    const session = await login(ctx, 'lock-death@example.com', 'correct-horse');
+    if (databaseUrl === undefined) throw new Error('DATABASE_URL required');
+    const client = new pg.Client({ connectionString: databaseUrl });
+    await client.connect();
+    const current = await createManualDecomposing(ctx, session, true);
+    try {
+      const acquired = await client.query<{ locked: boolean }>(
+        'SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS locked',
+        [intakeSessionLockKey(current.id as Id)],
+      );
+      expect(acquired.rows[0]?.locked).toBe(true);
+      const blocked = await approve(ctx, session, current.id, current.version);
+      expect(blocked.statusCode).toBe(409);
+      expect(blocked.json()).toMatchObject({ code: 'approval_in_progress' });
+
+      // Abrupt process death: the connection closes and PostgreSQL drops the
+      // session lock. There is no lease timer to wait for.
+      await client.end();
+
+      const retried = await approve(ctx, session, current.id, current.version);
+      expect(retried.statusCode).toBe(200);
+      expect(await taskCount(ctx, session)).toBe(6);
+    } finally {
+      await client.end().catch(() => undefined);
+      await ctx.close();
+    }
+  });
+
+  test('an absent template step kind is normalized to work', async () => {
+    const ctx = await createTestContext({});
+    const ownerId = await ctx.seedUser({
+      email: 'l-template-absent@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'l-template-absent@example.com', 'correct-horse');
+    const templateId = ctx.ids.next();
+    await ctx.db
+      .insertInto('task_template')
+      .values({
+        id: templateId,
+        owner_id: ownerId,
+        name: 'Absent kind template',
+        steps: JSON.stringify([{}]) as never,
+        source: 'system',
+      })
+      .execute();
+    try {
+      const response = await ctx.app.inject({
+        method: 'GET',
+        url: `/api/v1/templates/${templateId}`,
+        headers: authHeaders(session),
+      });
+      expect(response.statusCode).toBe(200);
+      expect((response.json() as { steps: { kind: string }[] }).steps[0]?.kind).toBe('work');
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('all 13 intake and template routes stay within their declared statuses', async () => {
+    const declared = new Map(
+      routes.map((route) => [
+        route.operationId,
+        new Set(Object.keys(route.responses).map((status) => Number(status))),
+      ]),
+    );
+    const ctx = await createTestContext({});
+    const ownerId = await ctx.seedUser({
+      email: 'route-walk@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'route-walk@example.com', 'correct-horse');
+    const check = (operationId: string, statusCode: number): void => {
+      const allowed = declared.get(operationId);
+      expect(allowed, `route ${operationId} is registered`).toBeDefined();
+      expect([...(allowed ?? [])], `${operationId} -> ${statusCode}`).toContain(statusCode);
+    };
+    try {
+      const created = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/intake-sessions',
+        headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+        payload: { input: { title: 'Route walk' } },
+      });
+      check('createIntakeSession', created.statusCode);
+      const body = created.json() as IntakeSessionDto;
+
+      const read = await ctx.app.inject({
+        method: 'GET',
+        url: `/api/v1/intake-sessions/${body.id}`,
+        headers: authHeaders(session),
+      });
+      check('getIntakeSession', read.statusCode);
+
+      const answered = await ctx.app.inject({
+        method: 'POST',
+        url: `/api/v1/intake-sessions/${body.id}/answers`,
+        headers: authHeaders(session, {
+          'if-match': `W/"${body.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: { answers: [{ questionKey: 'priority', action: 'answer', value: 2 }] },
+      });
+      check('answerIntakeQuestions', answered.statusCode);
+      let current = answered.json() as IntakeSessionDto;
+      expect(current.state).toBe('clarification');
+
+      const confirmed = await ctx.app.inject({
+        method: 'POST',
+        url: `/api/v1/intake-sessions/${body.id}/type-confirmation`,
+        headers: authHeaders(session, {
+          'if-match': `W/"${current.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: { similar: false },
+      });
+      check('confirmIntakeType', confirmed.statusCode);
+
+      const manual = await ctx.app.inject({
+        method: 'POST',
+        url: `/api/v1/intake-sessions/${body.id}:manual`,
+        headers: authHeaders(session, {
+          'if-match': `W/"${current.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+      });
+      check('enterManualIntakeMode', manual.statusCode);
+      current = manual.json() as IntakeSessionDto;
+
+      const paused = await ctx.app.inject({
+        method: 'POST',
+        url: `/api/v1/intake-sessions/${body.id}:pause`,
+        headers: authHeaders(session, {
+          'if-match': `W/"${current.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+      });
+      check('pauseIntakeSession', paused.statusCode);
+      current = paused.json() as IntakeSessionDto;
+
+      const resumed = await ctx.app.inject({
+        method: 'POST',
+        url: `/api/v1/intake-sessions/${body.id}:resume`,
+        headers: authHeaders(session, {
+          'if-match': `W/"${current.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+      });
+      check('resumeIntakeSession', resumed.statusCode);
+      current = resumed.json() as IntakeSessionDto;
+
+      const cancelled = await ctx.app.inject({
+        method: 'POST',
+        url: `/api/v1/intake-sessions/${body.id}:cancel`,
+        headers: authHeaders(session, {
+          'if-match': `W/"${current.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+      });
+      check('cancelIntakeSession', cancelled.statusCode);
+
+      const decomposing = await createManualDecomposing(ctx, session);
+      const draft = await ctx.app.inject({
+        method: 'GET',
+        url: `/api/v1/intake-sessions/${decomposing.id}/draft`,
+        headers: authHeaders(session),
+      });
+      check('getIntakeDraft', draft.statusCode);
+
+      const patched = await ctx.app.inject({
+        method: 'PATCH',
+        url: `/api/v1/intake-sessions/${decomposing.id}/draft`,
+        headers: authHeaders(session, {
+          'if-match': `W/"${decomposing.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: { assumptions: ['route walk'] },
+      });
+      check('updateIntakeDraft', patched.statusCode);
+
+      const approved = await approve(ctx, session, decomposing.id, decomposing.version);
+      check('approveIntakeDraft', approved.statusCode);
+
+      const templateId = await ctx.seedTemplate({
+        ownerId,
+        name: 'Route walk template',
+        steps: [
+          {
+            key: 's1',
+            title: 'Step',
+            deliverable: 'Thing',
+            doneCriteria: 'Done',
+            kind: 'work',
+            estimate: { p50Minutes: 30, p90Minutes: 60 },
+            dependsOn: [],
+            splittable: false,
+          },
+        ],
+      });
+      const templates = await ctx.app.inject({
+        method: 'GET',
+        url: '/api/v1/templates',
+        headers: authHeaders(session),
+      });
+      check('listTaskTemplates', templates.statusCode);
+
+      const template = await ctx.app.inject({
+        method: 'GET',
+        url: `/api/v1/templates/${templateId}`,
+        headers: authHeaders(session),
+      });
+      check('getTaskTemplate', template.statusCode);
+    } finally {
+      await ctx.close();
+    }
+  });
+ });

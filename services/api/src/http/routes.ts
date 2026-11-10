@@ -51,7 +51,9 @@ import type {
 import { AuthService } from '../application/auth-service.js';
 import { IntakeError } from '../application/intake/intake-error.js';
 import { IntakeService } from '../application/intake/intake-service.js';
+import { InProcessIntakeApprovalLock } from '../application/intake/in-process-approval-lock.js';
 import { PgAgentRunRepository } from '../adapters/pg-agent-run-repository.js';
+import { PgIntakeApprovalLock } from '../adapters/pg-intake-approval-lock.js';
 import { PgIntakeApprovalRepository } from '../adapters/pg-intake-approval-repository.js';
 import { PgIntakeSessionRepository } from '../adapters/pg-intake-session-repository.js';
 import { PgTaskTemplateRepository } from '../adapters/pg-task-template-repository.js';
@@ -895,6 +897,11 @@ export function createRuntime(options: {
   llm: LlmPort | null;
   budgetGuard: BudgetGuard;
 }): RouteRuntime {
+  const databaseUrl = options.config.databaseUrl;
+  const approvalLock =
+    databaseUrl !== null && databaseUrl.length > 0
+      ? new PgIntakeApprovalLock({ connectionString: databaseUrl })
+      : new InProcessIntakeApprovalLock();
   const intake = new IntakeService({
     clock: options.clock,
     ids: options.ids,
@@ -902,6 +909,7 @@ export function createRuntime(options: {
     templates: new PgTaskTemplateRepository(options.db),
     agentRuns: new PgAgentRunRepository(options.db),
     approvals: new PgIntakeApprovalRepository(options.db, options.clock),
+    approvalLock,
     tasks: options.repos.tasks,
     llm: options.llm,
     budgetGuard: options.budgetGuard,

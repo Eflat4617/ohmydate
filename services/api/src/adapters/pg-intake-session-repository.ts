@@ -9,9 +9,9 @@ import type { Clock, Id, IdGenerator, Instant, IntakeState } from '@ohmydate/dom
 import { NotFoundError, VersionConflictError } from '@ohmydate/domain';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { Database, IntakeAnswerTable, IntakeSessionTable, JsonValue } from '../db/types.js';
-import { IntakeError } from '../application/intake/intake-error.js';
 import { draftKind } from '../application/intake/ports.js';
 import { jsonb } from '../db/types.js';
+import { requireIntakeSessionXactLock } from './intake-session-advisory.js';
 import type {
   IntakeAnswerRecord,
   IntakeSessionRecord,
@@ -114,42 +114,50 @@ export class PgIntakeSessionRepository implements IntakeSessionRepository {
     patch: IntakeSessionUpdate,
     expectedVersion: number,
   ): Promise<IntakeSessionRecord> {
-    const set: Record<string, unknown> = {
-      updated_at: new Date(this.#clock.now()),
-      version: sql<number>`version + 1`,
-    };
-    if (patch.state !== undefined) set['state'] = patch.state;
-    if (patch.input !== undefined) set['input'] = jsonb(patch.input as unknown as JsonValue);
-    if ('detectedType' in patch) {
-      set['detected_type'] =
-        patch.detectedType === null || patch.detectedType === undefined
-          ? null
-          : jsonb(patch.detectedType as unknown as JsonValue);
-    }
-    if ('templateId' in patch) set['template_id'] = patch.templateId ?? null;
-    if (patch.round !== undefined) set['round'] = patch.round;
-    if (patch.manual !== undefined) set['manual'] = patch.manual;
-    if ('error' in patch) {
-      set['error'] =
-        patch.error === null || patch.error === undefined
-          ? null
-          : jsonb(patch.error as unknown as JsonValue);
-    }
+    return this.#db.transaction().execute(async (trx) => {
+      await requireIntakeSessionXactLock(trx, id);
+      const set: Record<string, unknown> = {
+        updated_at: new Date(this.#clock.now()),
+        version: sql<number>`version + 1`,
+      };
+      if (patch.state !== undefined) set['state'] = patch.state;
+      if (patch.input !== undefined) set['input'] = jsonb(patch.input as unknown as JsonValue);
+      if ('detectedType' in patch) {
+        set['detected_type'] =
+          patch.detectedType === null || patch.detectedType === undefined
+            ? null
+            : jsonb(patch.detectedType as unknown as JsonValue);
+      }
+      if ('templateId' in patch) set['template_id'] = patch.templateId ?? null;
+      if (patch.round !== undefined) set['round'] = patch.round;
+      if (patch.manual !== undefined) set['manual'] = patch.manual;
+      if ('error' in patch) {
+        set['error'] =
+          patch.error === null || patch.error === undefined
+            ? null
+            : jsonb(patch.error as unknown as JsonValue);
+      }
 
-    const updated = await this.#db
-      .updateTable('intake_session')
-      .set(set as never)
-      .where('id', '=', id)
-      .where('owner_id', '=', ownerId)
-      .where('version', '=', expectedVersion)
-      .returningAll()
-      .executeTakeFirst();
+      const updated = await trx
+        .updateTable('intake_session')
+        .set(set as never)
+        .where('id', '=', id)
+        .where('owner_id', '=', ownerId)
+        .where('version', '=', expectedVersion)
+        .returningAll()
+        .executeTakeFirst();
 
-    if (updated !== undefined) return mapSession(updated);
+      if (updated !== undefined) return mapSession(updated);
 
-    const current = await this.get(ownerId, id);
-    if (current === null) throw new NotFoundError('intake session', id);
-    throw new VersionConflictError(expectedVersion as never, current.version as never);
+      const current = await trx
+        .selectFrom('intake_session')
+        .select('version')
+        .where('id', '=', id)
+        .where('owner_id', '=', ownerId)
+        .executeTakeFirst();
+      if (current === undefined) throw new NotFoundError('intake session', id);
+      throw new VersionConflictError(expectedVersion as never, current.version as never);
+    });
   }
 
   async createGoal(ownerId: Id, goalId: Id, title: string): Promise<void> {
@@ -157,6 +165,16 @@ export class PgIntakeSessionRepository implements IntakeSessionRepository {
       .insertInto('goal')
       .values({ id: goalId, owner_id: ownerId, title })
       .execute();
+  }
+
+  async goalExists(ownerId: Id, goalId: Id): Promise<boolean> {
+    const row = await this.#db
+      .selectFrom('goal')
+      .select('id')
+      .where('id', '=', goalId)
+      .where('owner_id', '=', ownerId)
+      .executeTakeFirst();
+    return row !== undefined;
   }
 
   #answerValues(
@@ -184,29 +202,6 @@ export class PgIntakeSessionRepository implements IntakeSessionRepository {
       } as unknown as JsonValue),
       skipped: answer.skipped,
     }));
-  }
-
-  async #assertNoActiveApproval(
-    trx: { selectFrom: Kysely<Database>['selectFrom'] },
-    ownerId: Id,
-    sessionId: Id,
-  ): Promise<void> {
-    const active = await trx
-      .selectFrom('intake_approval')
-      .select('session_id')
-      .where('session_id', '=', sessionId)
-      .where('owner_id', '=', ownerId)
-      .where('state', '=', 'in_progress')
-      .where('lease_expires_at', '>', new Date(this.#clock.now()))
-      .executeTakeFirst();
-    if (active !== undefined) {
-      throw new IntakeError(
-        409,
-        'approval_in_progress',
-        'Approval in progress',
-        'the intake draft is already being approved',
-      );
-    }
   }
 
   async listAnswers(ownerId: Id, sessionId: Id): Promise<readonly IntakeAnswerRecord[]> {
@@ -241,6 +236,7 @@ export class PgIntakeSessionRepository implements IntakeSessionRepository {
     expectedVersion: number,
   ): Promise<IntakeSessionRecord> {
     return this.#db.transaction().execute(async (trx) => {
+      await requireIntakeSessionXactLock(trx, sessionId);
       const session = await trx
         .selectFrom('intake_session')
         .selectAll()
@@ -252,7 +248,6 @@ export class PgIntakeSessionRepository implements IntakeSessionRepository {
       if (session.version !== expectedVersion) {
         throw new VersionConflictError(expectedVersion as never, session.version as never);
       }
-      await this.#assertNoActiveApproval(trx, ownerId, sessionId);
       if (answers.length > 0) {
         await trx
           .insertInto('intake_answer')
@@ -308,6 +303,7 @@ export class PgIntakeSessionRepository implements IntakeSessionRepository {
     expectedVersion: number,
   ): Promise<IntakeSessionRecord> {
     return this.#db.transaction().execute(async (trx) => {
+      await requireIntakeSessionXactLock(trx, sessionId);
       const session = await trx
         .selectFrom('intake_session')
         .selectAll()
@@ -319,7 +315,6 @@ export class PgIntakeSessionRepository implements IntakeSessionRepository {
       if (session.version !== expectedVersion) {
         throw new VersionConflictError(expectedVersion as never, session.version as never);
       }
-      await this.#assertNoActiveApproval(trx, ownerId, sessionId);
       const proposal = await trx
         .selectFrom('agent_proposal')
         .select('id')
