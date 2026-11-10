@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 | Sol 사용 불가 시 리뷰어 = Claude Opus 5.5 xhigh (MODEL_BINDINGS §6) | 사용자 메시지 | user |
 | 2026-11-11 | 리뷰 수렴 기준: 수정 2회 소진 후 남은 MEDIUM 중 경계검사기 같은 '방어 도구'의 엣지 케이스는 HIGH가 아니면 잔여 위험 이슈로 기록하고 Accept(사용자 승인 없이 가능한 일상 판단). HIGH/CRITICAL은 blocked | 무한 리뷰 루프 방지(명세 C.7) | orchestrator |
 | 2026-11-11 | inbox 본문 절단 발견 → 리뷰 재보관, 이전 review packet의 WORKER CLAIMS는 절단본이었음(리뷰어는 diff 직접 검토로 영향 제한) | d9a839b | orchestrator |
 | 2026-11-11 | 동시 Orca 세션 상한 5 (DeepSeek ≤3, Sol ≤2) | 사용자 메시지 | user |

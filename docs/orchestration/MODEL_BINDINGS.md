@@ -55,3 +55,10 @@
 - OpenCode Go 요금제 한도·동시성: **UNVERIFIED** (대시보드 확인 필요). 초기 동시 DeepSeek 워커 2.
 - Codex(Sol) 구독 한도: **UNVERIFIED**. 리뷰어 동시 1.
 - Claude(오케스트레이터) 한도: **UNVERIFIED**. `agent-session.usage-limit-auto-continue.v1` capability 존재 → 한도 도달 시 재개 동작은 런타임 의존.
+
+## 6. 리뷰어 대체 정책 (2026-11-11 사용자 승인)
+- **조건:** Sol(`gpt-6.1-sol` high) 사용량 한도 도달/사용 불가가 증거로 확인될 때만(Codex 오류 메시지·usage-limit escalation·worker-start 실패 영수증). 일시적 침묵이나 타임아웃만으로는 전환하지 않음.
+- **대체:** Claude Code 워커 `orca orchestration worker-start --task <REVIEW_TASK> --worktree <impl worktree> --agent claude --model claude-opus-5-5 --effort xhigh --json`.
+- **독립성:** 대체 리뷰어는 오케스트레이터와 같은 모델 계열이므로 리뷰 패킷·형식·실행 의무는 동일하게 유지하고, 코디네이터 컨텍스트를 공유하지 않는 별도 세션으로 실행. 판정 기록에 `reviewer=opus-fallback` 표기.
+- **검증:** 시작 영수증의 model/effort가 `claude-opus-5-5`/`xhigh`인지 확인, 불일치 시 BLOCKED_MODEL_UNAVAILABLE.
+- **복귀:** Sol 사용 가능해지면 다음 리뷰부터 Sol로 복귀. 대체 리뷰로 승인된 변경 중 HIGH 위험 영역(동시성·보안·마이그레이션)은 Sol 복귀 후 사후 리뷰 대상 목록에 추가.
