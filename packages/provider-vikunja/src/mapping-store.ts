@@ -26,6 +26,15 @@ export interface ExternalMapping {
   readonly ownerId: Id;
   readonly externalEtag?: string;
   readonly externalUpdatedAt?: Instant;
+  /**
+   * Fingerprint of the provider-visible content this mapping was last
+   * reconciled against (title, marker-free description, done, due date,
+   * project and the mapped dependency relations). Vikunja ETags have second
+   * precision, so two writes inside the same second can share an ETag; the
+   * fingerprint is the tie-breaker that keeps such a change from being lost
+   * (ADR-016 §1, FU-16).
+   */
+  readonly contentFingerprint?: string;
   readonly localVersion: Version;
   readonly createdAt: Instant;
   readonly updatedAt: Instant;
