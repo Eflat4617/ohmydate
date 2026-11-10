@@ -22,19 +22,24 @@ export interface PlannerTaskFields {
   readonly dependsOn: readonly Id[];
 }
 
+/**
+ * Storage port for planner-only fields. Reads/writes are asynchronous because a
+ * durable implementation (PostgreSQL in `services/api`) may need I/O; the
+ * in-memory implementation resolves immediately.
+ */
 export interface PlannerFieldStore {
-  getTask(entityId: Id): PlannerTaskFields | null;
-  putTask(entityId: Id, fields: PlannerTaskFields): void;
+  getTask(entityId: Id): Promise<PlannerTaskFields | null>;
+  putTask(entityId: Id, fields: PlannerTaskFields): Promise<void>;
 }
 
 export class InMemoryPlannerFieldStore implements PlannerFieldStore {
   readonly #tasks = new Map<string, PlannerTaskFields>();
 
-  getTask(entityId: Id): PlannerTaskFields | null {
+  async getTask(entityId: Id): Promise<PlannerTaskFields | null> {
     return this.#tasks.get(entityId) ?? null;
   }
 
-  putTask(entityId: Id, fields: PlannerTaskFields): void {
+  async putTask(entityId: Id, fields: PlannerTaskFields): Promise<void> {
     this.#tasks.set(entityId, fields);
   }
 }

@@ -246,7 +246,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       status: normalized.status,
       dependsOn: [...normalized.dependsOn],
     };
-    this.#plannerFields.putTask(id, fields);
+    await this.#plannerFields.putTask(id, fields);
 
     try {
       for (const dependencyId of normalized.dependsOn) {
@@ -296,7 +296,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     }
     try {
       const { data: remote } = await client.getTask(mapping.externalId);
-      const fields = this.#plannerFields.getTask(id) ?? defaultPlannerTaskFields();
+      const fields = (await this.#plannerFields.getTask(id)) ?? defaultPlannerTaskFields();
       const dependsOn = await this.#remoteDependencies(ownerId, remote);
       return this.#toTask(ownerId, mapping, remote, fields, dependsOn);
     } catch (error) {
@@ -356,7 +356,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       if (mapping.needsReconcile === true || mapping.pendingCompletion !== undefined) {
         mapping = await this.#commitReconciled(ownerId, mapping, full, etag);
       }
-      const fields = this.#plannerFields.getTask(mapping.entityId) ?? defaultPlannerTaskFields();
+      const fields = (await this.#plannerFields.getTask(mapping.entityId)) ?? defaultPlannerTaskFields();
       const dependsOn = await this.#remoteDependencies(ownerId, full);
       const task = await this.#toTask(ownerId, mapping, full, fields, dependsOn);
       if (query.status !== undefined && task.status !== query.status) continue;
@@ -422,7 +422,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     }
 
     const normalized = validateTaskPatch(patch);
-    const fields = this.#plannerFields.getTask(id) ?? defaultPlannerTaskFields();
+    const fields = (await this.#plannerFields.getTask(id)) ?? defaultPlannerTaskFields();
     const currentDependencies = await this.#remoteDependencies(ownerId, current.data);
     const desiredDependencies = normalized.dependsOn ?? currentDependencies;
 
@@ -512,7 +512,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       needsReconcile: false,
     };
     await this.#mappings.put(updated);
-    this.#plannerFields.putTask(id, nextFields);
+    await this.#plannerFields.putTask(id, nextFields);
     await this.#appendJournal(ownerId, updated, updated.externalUpdatedAt ?? now);
     return this.#toTask(ownerId, updated, latest.data, nextFields, desiredDependencies);
   }
@@ -566,7 +566,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       throw new VersionConflictError(expectedVersion, reconciled.localVersion);
     }
 
-    const fields = this.#plannerFields.getTask(id) ?? defaultPlannerTaskFields();
+    const fields = (await this.#plannerFields.getTask(id)) ?? defaultPlannerTaskFields();
     if (current.data.done === true) {
       const dependsOn = await this.#remoteDependencies(ownerId, current.data);
       return this.#toTask(ownerId, mapping, current.data, fields, dependsOn);
@@ -620,7 +620,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     const nextStatus: TaskStatus = latest.data.done === true ? 'done' : 'todo';
     const nextFields: PlannerTaskFields = { ...fields, status: nextStatus };
     await this.#mappings.put(updated);
-    this.#plannerFields.putTask(id, nextFields);
+    await this.#plannerFields.putTask(id, nextFields);
     // The completion record belongs to the occurrence that was due when the
     // task was completed. Fall back to the completion time only when the task
     // had no due date (FU-17).
@@ -1114,8 +1114,8 @@ export class VikunjaTaskRepository implements TaskRepository {
       // as the normal completion path: done when the provider stays done, todo
       // when it reopened the next occurrence (FU-17).
       const fields =
-        this.#plannerFields.getTask(mapping.entityId) ?? defaultPlannerTaskFields();
-      this.#plannerFields.putTask(mapping.entityId, {
+        (await this.#plannerFields.getTask(mapping.entityId)) ?? defaultPlannerTaskFields();
+      await this.#plannerFields.putTask(mapping.entityId, {
         ...fields,
         status: remote.done === true ? 'done' : 'todo',
       });
