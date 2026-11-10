@@ -10,10 +10,12 @@
   `incomplete:false`, exit 0. A missing feature is recorded as an observation; a
   register/login/project/task prerequisite failure instead yields `ok:false` +
   `incomplete:true` and a non-zero exit.
-- Negative self-test: `bash scripts/probe/vikunja/probe.sh --self-test` starts a local
-  node HTTP fixture on a random `127.0.0.1` port that returns `403` for
-  `POST /api/v2/projects`; the child probe reports `ok:false` + `incomplete:true` and
-  exits 1, proving the prerequisite-failure path (the wrapper mirrors that non-zero exit).
+- Negative self-test: `bash scripts/probe/vikunja/probe.sh --self-test` starts local node HTTP
+  fixtures on random `127.0.0.1` ports that fail at a prerequisite (project creation,
+  login, task creation); each child probe reports `ok:false` + `incomplete:true` + a
+  non-empty `requiredFailures` and exits non-zero. The self-test explicitly asserts the
+  child exit is non-zero plus those fields, exits 0 when every assertion passes, and
+  exits non-zero if any assertion fails.
   Full machine-readable output is the JSON summary printed by the script.
 
 ## OpenAPI artifact

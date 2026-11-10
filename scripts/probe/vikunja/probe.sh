@@ -203,81 +203,124 @@ final_exit() {
   exit 0
 }
 
-# Negative self-test: a tiny throwaway fixture on 127.0.0.1 answers the auth
-# bootstrap but returns 403 for POST /api/v2/projects.  The child probe must
-# then report ok:false + incomplete:true and exit non-zero.  The wrapper mirrors
-# that non-zero exit on success (this is intentionally a negative test) and
-# exits 2 if the expected failure was NOT reproduced.
+# Negative self-test: throwaway fixtures on 127.0.0.1 answer the auth bootstrap
+# but fail at a chosen prerequisite (project creation, login, task creation).
+# Each child probe must report ok:false + incomplete:true + a non-empty
+# requiredFailures list and exit non-zero.  The wrapper asserts the child exit
+# code is non-zero and exits 0 when every assertion passes, non-zero if any
+# assertion fails.
 run_self_test() {
-  local port_file="$TMP/fixture.port"
-  node -e '
-    const http = require("http");
-    const fs = require("fs");
-    const portFile = process.argv[1];
-    const json = (res, code, obj) => {
-      const body = JSON.stringify(obj);
-      res.writeHead(code, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
-      res.end(body);
-    };
-    const server = http.createServer((req, res) => {
-      let body = "";
-      req.on("data", (c) => { body += c; });
-      req.on("end", () => {
-        const path = req.url.split("?")[0];
-        if (req.method === "POST" && path === "/api/v2/register") return json(res, 201, { id: 1, username: "fixture" });
-        if (req.method === "POST" && path === "/api/v2/login") return json(res, 200, { token: "fixture-jwt" });
-        if (req.method === "GET" && path === "/api/v2/routes") return json(res, 200, { tasks: { read_all: { path: "/api/v1/tasks", method: "GET" } } });
-        if (req.method === "POST" && path === "/api/v2/tokens") return json(res, 201, { id: 1, token: "tk_fixture", permissions: { tasks: ["read_all"] } });
-        if (req.method === "GET" && path === "/api/v2/tokens") return json(res, 200, { items: [], total: 0, page: 1, per_page: 5, total_pages: 0 });
-        if (req.method === "GET" && path === "/api/v2/info") return json(res, 200, { version: "fixture" });
-        if (req.method === "POST" && path === "/api/v2/projects") return json(res, 403, { title: "Forbidden", status: 403, detail: "fixture denies project creation", code: 4003 });
-        return json(res, 404, { title: "Not Found", status: 404, detail: "fixture", code: 4002 });
+  local scenarios="project login task"
+  local all="$TMP/self-test-all.jsonl"
+  : > "$all"
+  local scenario port_file fixture_pid child_exit out port
+  for scenario in $scenarios; do
+    port_file="$TMP/fixture-$scenario.port"
+    node -e '
+      const http = require("http");
+      const fs = require("fs");
+      const portFile = process.argv[1];
+      const scenario = process.argv[2];
+      const json = (res, code, obj) => {
+        const body = JSON.stringify(obj);
+        res.writeHead(code, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
+        res.end(body);
+      };
+      const server = http.createServer((req, res) => {
+        req.on("data", () => {});
+        req.on("end", () => {
+          const path = req.url.split("?")[0];
+          if (req.method === "POST" && path === "/api/v2/register") return json(res, 201, { id: 1, username: "fixture" });
+          if (req.method === "POST" && path === "/api/v2/login") {
+            if (scenario === "login") return json(res, 401, { title: "Unauthorized", status: 401, detail: "fixture denies login", code: 11 });
+            return json(res, 200, { token: "fixture-jwt" });
+          }
+          if (req.method === "GET" && path === "/api/v2/routes") return json(res, 200, { tasks: { read_all: { path: "/api/v1/tasks", method: "GET" } } });
+          if (req.method === "POST" && path === "/api/v2/tokens") return json(res, 201, { id: 1, token: "tk_fixture", permissions: { tasks: ["read_all"] } });
+          if (req.method === "GET" && path === "/api/v2/tokens") return json(res, 200, { items: [], total: 0, page: 1, per_page: 5, total_pages: 0 });
+          if (req.method === "GET" && path === "/api/v2/info") return json(res, 200, { version: "fixture" });
+          if (req.method === "POST" && path === "/api/v2/projects") {
+            if (scenario === "project") return json(res, 403, { title: "Forbidden", status: 403, detail: "fixture denies project creation", code: 4003 });
+            return json(res, 201, { id: 101, title: "fixture project" });
+          }
+          if (req.method === "GET" && path === "/api/v2/projects") return json(res, 200, { items: [], total: 0, page: 1, per_page: 50, total_pages: 0 });
+          if (req.method === "GET" && /^\/api\/v2\/projects\/\d+\/tasks$/.test(path)) return json(res, 200, { items: [], total: 0, page: 1, per_page: 5, total_pages: 0 });
+          if (req.method === "POST" && /^\/api\/v2\/projects\/\d+\/tasks$/.test(path)) {
+            if (scenario === "task") return json(res, 403, { title: "Forbidden", status: 403, detail: "fixture denies task creation", code: 4003 });
+            return json(res, 201, { id: 201, title: "fixture task", project_id: 101 });
+          }
+          return json(res, 404, { title: "Not Found", status: 404, detail: "fixture", code: 4002 });
+        });
       });
-    });
-    server.listen(0, "127.0.0.1", () => fs.writeFileSync(portFile, String(server.address().port)));
-    process.on("SIGTERM", () => server.close(() => process.exit(0)));
-  ' "$port_file" >/dev/null 2>"$TMP/fixture.err" &
-  local fixture_pid=$!
-  local i=0
-  while [ ! -s "$port_file" ] && [ "$i" -lt 100 ]; do
-    sleep 0.05
-    i=$((i + 1))
-  done
-  if [ ! -s "$port_file" ]; then
-    echo '{"selfTest":true,"passed":false,"error":"fixture server did not start"}'
+      server.listen(0, "127.0.0.1", () => fs.writeFileSync(portFile, String(server.address().port)));
+      process.on("SIGTERM", () => server.close(() => process.exit(0)));
+    ' "$port_file" "$scenario" >/dev/null 2>"$TMP/fixture-$scenario.err" &
+    fixture_pid=$!
+    local i=0
+    while [ ! -s "$port_file" ] && [ "$i" -lt 100 ]; do
+      sleep 0.05
+      i=$((i + 1))
+    done
+    if [ ! -s "$port_file" ]; then
+      printf '{"selfTest":true,"scenario":"%s","passed":false,"error":"fixture server did not start"}\n' "$scenario" >> "$all"
+      kill "$fixture_pid" 2>/dev/null || true
+      continue
+    fi
+    IFS= read -r port < "$port_file"
+    out="$TMP/self-test-child-$scenario.json"
+    child_exit=0
+    VIKUNJA_BASE_URL="http://127.0.0.1:${port}" bash "$SCRIPT_PATH" --check > "$out" 2>"$TMP/self-test-child-$scenario.err" || child_exit=$?
     kill "$fixture_pid" 2>/dev/null || true
-    exit 2
-  fi
-  local port out="$TMP/self-test-child.json" child_exit=0
-  IFS= read -r port < "$port_file"
-  VIKUNJA_BASE_URL="http://127.0.0.1:${port}" bash "$SCRIPT_PATH" --check > "$out" 2>"$TMP/self-test-child.err" || child_exit=$?
-  kill "$fixture_pid" 2>/dev/null || true
-  wait "$fixture_pid" 2>/dev/null || true
-  CHILD_EXIT="$child_exit" node -e '
+    wait "$fixture_pid" 2>/dev/null || true
+    CHILD_EXIT="$child_exit" SCENARIO="$scenario" node -e '
+      const fs = require("fs");
+      const out = process.argv[1];
+      const port = process.argv[2];
+      let summary = null;
+      try { summary = JSON.parse(fs.readFileSync(out, "utf8")); } catch (e) { summary = null; }
+      const childExit = Number(process.env.CHILD_EXIT);
+      const requiredFailures = summary && Array.isArray(summary.requiredFailures) ? summary.requiredFailures : [];
+      const assertions = {
+        childExitNonZero: childExit !== 0,
+        summaryParsed: summary !== null,
+        childOkFalse: summary !== null && summary.ok === false,
+        childIncompleteTrue: summary !== null && summary.incomplete === true,
+        requiredFailuresNonEmpty: requiredFailures.length > 0
+      };
+      const passed = Object.values(assertions).every(Boolean);
+      const report = {
+        selfTest: true,
+        scenario: process.env.SCENARIO,
+        passed,
+        assertions,
+        fixturePort: Number(port),
+        childExit,
+        childOk: summary ? summary.ok : null,
+        childIncomplete: summary ? summary.incomplete : null,
+        requiredFailures,
+        counts: summary ? summary.counts : null
+      };
+      process.stdout.write(JSON.stringify(report) + "\n");
+    ' "$out" "$port" >> "$all"
+  done
+  node -e '
     const fs = require("fs");
-    const out = process.argv[1];
-    const port = process.argv[2];
-    let summary = null;
-    try { summary = JSON.parse(fs.readFileSync(out, "utf8")); } catch (e) { summary = null; }
-    const childExit = Number(process.env.CHILD_EXIT);
-    const passed = childExit !== 0 && summary !== null && summary.ok === false && summary.incomplete === true;
+    const lines = fs.readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean);
+    let scenarios = [];
+    try { scenarios = lines.map((l) => JSON.parse(l)); } catch (e) { scenarios = []; }
+    const passed = scenarios.length > 0 && scenarios.every((s) => s.passed === true);
     const report = {
       selfTest: true,
       passed,
-      scenario: "fixture returns 403 for POST /api/v2/projects",
-      fixturePort: Number(port),
-      childExit,
-      childOk: summary ? summary.ok : null,
-      childIncomplete: summary ? summary.incomplete : null,
-      requiredFailures: summary && summary.requiredFailures ? summary.requiredFailures : null,
-      counts: summary ? summary.counts : null,
+      scenarioCount: scenarios.length,
+      scenarios,
       note: passed
-        ? "expected prerequisite failure reproduced; wrapper exits 1 (negative test passed)"
-        : "unexpected child result; wrapper exits 2"
+        ? "all prerequisite-failure paths reproduced; self-test passed (exit 0)"
+        : "one or more self-test assertions failed (exit 1)"
     };
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
-    process.exit(passed ? 1 : 2);
-  ' "$out" "$port"
+    process.exit(passed ? 0 : 1);
+  ' "$all"
   exit $?
 }
 
