@@ -27,6 +27,7 @@ const VIKUNJA_TOKEN_PERMISSIONS = {
   projects: ['create', 'read_all', 'read_one', 'update', 'delete', 'permanent'],
   tasks: ['create', 'read_all', 'read_one', 'update', 'delete', 'deleted', 'permanent'],
   tasks_relations: ['create', 'delete'],
+  other: ['user'],
 };
 
 function uniqueSuffix(): string {
@@ -193,7 +194,7 @@ async function insertOwnerAccount(options: {
     await client.query(
       `INSERT INTO vikunja_owner_account (owner_id, vikunja_user_id, token_secret_ref)
        VALUES ($1, $2, $3)`,
-      [options.ownerId, options.vikunjaUserId, 'env:VIKUNJA_E2E_TOKEN'],
+      [options.ownerId, options.vikunjaUserId, 'env:VIKUNJA_TOKEN_OWNER_E2E'],
     );
     await client.query(
       `INSERT INTO vikunja_mapping (entity_type, entity_id, owner_id, external_id, local_version)
@@ -289,7 +290,7 @@ export default async function globalSetup(): Promise<void> {
       PROVIDER: 'vikunja',
       DATABASE_URL: databaseUrl,
       VIKUNJA_URL: vikunjaUrl,
-      VIKUNJA_E2E_TOKEN: createdToken.token,
+      VIKUNJA_TOKEN_OWNER_E2E: createdToken.token,
       PORT: String(apiPort),
       LOG_LEVEL: 'warn',
     },
