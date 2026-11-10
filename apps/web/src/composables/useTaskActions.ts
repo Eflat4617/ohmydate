@@ -25,7 +25,7 @@ export interface TaskActions {
   rename: (task: Task, title: string) => Promise<Task | null>;
   complete: (task: Task) => Promise<Task | null>;
   remove: (task: Task, actionId?: string) => Promise<boolean>;
-  overwrite: () => Promise<Task | null>;
+  overwrite: (title?: string | null) => Promise<Task | null>;
   reload: () => Promise<Task | null>;
   dismissConflict: () => void;
   discard: (scope: string) => void;
@@ -118,6 +118,21 @@ export function useTaskActions(
   function settleCurrent(scope: string): void {
     const action = actions.peek(scope);
     if (action !== undefined) actions.settle(scope, action);
+  }
+
+  /**
+   * Starts a brand-new logical action, retiring any previous key. Used when a
+   * retry changes If-Match (overwrite/re-save after a conflict), where 08 §1
+   * recommends minting a fresh Idempotency-Key.
+   */
+  function restart<T>(
+    scope: string,
+    payload: T,
+    same: (left: T, right: T) => boolean,
+  ): IdempotentAction<T> {
+    const existing = actions.peek<T>(scope);
+    if (existing !== undefined) actions.settle(scope, existing);
+    return actions.begin(scope, payload, same);
   }
 
   async function refreshConflict(current: TaskConflict, scope: string): Promise<void> {
@@ -239,7 +254,7 @@ export function useTaskActions(
     });
   }
 
-  async function overwrite(): Promise<Task | null> {
+  async function overwrite(title?: string | null): Promise<Task | null> {
     const current = conflict.value;
     if (current === null) return null;
     return mutate(async () => {
@@ -252,9 +267,11 @@ export function useTaskActions(
       }
 
       if (current.operation === 'delete') {
-        const existing = actions.peek<IntentPayload>(scope);
-        const action: IdempotentAction<IntentPayload> =
-          existing ?? actions.begin(scope, { taskId: current.taskId, intent: 'delete' }, sameIntent);
+        const action = restart<IntentPayload>(
+          scope,
+          { taskId: current.taskId, intent: 'delete' },
+          sameIntent,
+        );
         try {
           await client.deleteTask(current.taskId, action.key, fresh.version);
           actions.settle(scope, action);
@@ -276,13 +293,12 @@ export function useTaskActions(
       }
 
       if (current.operation === 'rename') {
-        const existing = actions.peek<RenamePayload>(scope);
+        const trimmed = title?.trim();
         const payload: RenamePayload = {
           taskId: current.taskId,
-          title: current.localTitle ?? fresh.title,
+          title: trimmed !== undefined && trimmed.length > 0 ? trimmed : current.localTitle ?? fresh.title,
         };
-        const action: IdempotentAction<RenamePayload> =
-          existing ?? actions.begin(scope, payload, sameRename);
+        const action = restart<RenamePayload>(scope, payload, sameRename);
         try {
           const updated = await client.updateTask(
             current.taskId,
@@ -302,9 +318,11 @@ export function useTaskActions(
         }
       }
 
-      const existing = actions.peek<IntentPayload>(scope);
-      const action: IdempotentAction<IntentPayload> =
-        existing ?? actions.begin(scope, { taskId: current.taskId, intent: 'complete' }, sameIntent);
+      const action = restart<IntentPayload>(
+        scope,
+        { taskId: current.taskId, intent: 'complete' },
+        sameIntent,
+      );
       try {
         const updated = await client.completeTask(current.taskId, action.key, fresh.version);
         actions.settle(scope, action);
@@ -331,6 +349,8 @@ export function useTaskActions(
   }
 
   function dismissConflict(): void {
+    const current = conflict.value;
+    if (current !== null) settleCurrent(scopeFor(current));
     conflict.value = null;
   }
 

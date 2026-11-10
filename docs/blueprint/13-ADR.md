@@ -19,6 +19,7 @@
 | 013 | 개발 런타임: rootless 컨테이너, docker 그룹 가입 금지 | Proposed (GD-1) |
 | 014 | 개발 에이전트 바인딩·OpenCode 설정 고정 | Proposed (GM-1) |
 | 015 | 디렉터리·라이선스 구역 | Proposed |
+| 018 | Inbox 프로젝트 식별: Project.kind | Accepted (구현 FU-18) |
 | 017 | 스케줄러 시간 분할: 전환-구간 기반 로컬 날짜 계산 (M3-01R3 결과) | Accepted |
 | 016 | VikunjaTaskRepository 동시성·멱등 보정 (M0-03 결과) | Accepted (Sol 리뷰로 사실 재확인 조건) |
 
@@ -104,3 +105,8 @@
   4. 규칙 매칭: 최소 조각마다 그 로컬 날짜·요일 규칙의 로컬 경계를 같은 오프셋으로 UTC 변환해 교차.
 - **테스트 오라클:** 1분 단위 UTC 순회(각 분의 로컬 날짜·요일·시각 판정) — 생산 코드와 다른 방식. 고정 케이스: Santiago 2026-09-06, Goose_Bay 2009-11-01, St_Johns, Lord_Howe(30분 DST), Asia/Seoul, America/New_York.
 - **지원 범위:** IANA tzdb 전체(temporal-polyfill 내장). 성능: 블록당 전환 수는 작아 O(블록×전환).
+
+## ADR-018 Inbox 프로젝트 식별
+- **맥락:** FU-09R: 웹이 제목 'inbox'로 Inbox를 찾고 실패 시 범위 없는 목록으로 대체 → 잘못된 표시·누락. 계약에 Inbox 표식 없음, task.project_id nullable.
+- **결정:** `Project.kind: 'inbox' | 'normal'`(계약·도메인·DB `project.kind text not null default 'normal'` + owner당 inbox 1개 partial unique). 사용자 생성 시 Inbox 프로젝트 자동 생성. `createTask`에 projectId 없으면 owner의 Inbox로 배정(task.project_id는 NOT NULL로 강화). Vikunja 어댑터는 Vikunja의 기본 프로젝트를 Inbox로 매핑. 웹은 `kind==='inbox'`로만 찾고, 없으면 명시적 오류 상태(범위 없는 목록 대체 금지).
+- **영향:** contracts(Project schema), domain(Project), migrations(0002), provider-native/in-memory, provider-vikunja, api(user create), web. → FU-18 단일 Task로 계약 우선 구현 후 소비자 반영.

@@ -42,6 +42,8 @@ function requestNewTask(): void {
 function onKeydown(event: KeyboardEvent): void {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
 
+  if (ui.conflictOpen) return;
+
   if (isTypingTarget(event.target)) {
     if (event.key === 'Escape') ui.closeDialogs();
     return;

@@ -5,11 +5,30 @@ import { createUuidV7, type MockDb, type StoredResponse } from './db';
 
 const TASK_STATUSES: readonly TaskStatus[] = ['todo', 'in_progress', 'done'];
 
-function problem(status: number, code: ProblemCode, detail: string, title = 'Request failed'): Response {
+function problem(
+  status: number,
+  code: ProblemCode,
+  detail: string,
+  title = 'Request failed',
+  headers: Record<string, string> = {},
+): Response {
   return HttpResponse.json(
     { type: 'about:blank', title, status, code, detail },
-    { status, headers: { 'Content-Type': 'application/problem+json' } },
+    { status, headers: { 'Content-Type': 'application/problem+json', ...headers } },
   );
+}
+
+function problemBody(
+  status: number,
+  code: ProblemCode,
+  detail: string,
+  title = 'Request failed',
+): { type: string; title: string; status: number; code: ProblemCode; detail: string } {
+  return { type: 'about:blank', title, status, code, detail };
+}
+
+function unauthenticated(): Response {
+  return problem(401, 'unauthenticated', 'Authentication is required');
 }
 
 function etag(version: number): string {
@@ -37,15 +56,46 @@ interface IdempotencyToken {
   hash: string;
 }
 
-function parseIdempotency(
-  db: MockDb,
-  request: Request,
-  hash: string,
-): IdempotencyToken | Response {
+function canonicalize(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalize(item)).join(',')}]`;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  return `{${keys
+    .map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`)
+    .join(',')}}`;
+}
+
+/**
+ * 08 §1: the request hash is method + path + normalized body. If-Match is
+ * deliberately excluded so a precondition retry can reuse the same key.
+ */
+function requestHash(request: Request, raw: string): string {
+  const url = new URL(request.url);
+  const parsed = parseBody<unknown>(raw);
+  const body = parsed === undefined ? raw : canonicalize(parsed);
+  return `${request.method.toUpperCase()} ${url.pathname} ${body}`;
+}
+
+function parseIdempotency(db: MockDb, request: Request, raw: string): IdempotencyToken | Response {
   const key = request.headers.get('Idempotency-Key');
   if (key === null || key.length === 0) {
     return problem(400, 'validation_failed', 'Idempotency-Key header is required');
   }
+  if (db.pendingIdempotency.has(key)) {
+    return problem(
+      409,
+      'idempotency_in_progress',
+      'Another request with this Idempotency-Key is still in progress',
+      'Request in progress',
+      { 'Retry-After': '1' },
+    );
+  }
+  const hash = requestHash(request, raw);
   const stored = db.idempotency.get(key);
   if (stored !== undefined) {
     if (stored.hash !== hash) {
@@ -54,6 +104,22 @@ function parseIdempotency(
     return replay(stored);
   }
   return { key, hash };
+}
+
+function rememberDomainResult(
+  db: MockDb,
+  token: IdempotencyToken,
+  status: number,
+  code: ProblemCode,
+  detail: string,
+  title = 'Request failed',
+): Response {
+  const body = problemBody(status, code, detail, title);
+  remember(db, token, status, body, { 'Content-Type': 'application/problem+json' });
+  return HttpResponse.json(body, {
+    status,
+    headers: { 'Content-Type': 'application/problem+json' },
+  });
 }
 
 function replay(stored: StoredResponse): Response {
@@ -195,6 +261,7 @@ export function createHandlers(db: MockDb) {
     http.post('*/api/v1/auth/logout', () => new HttpResponse(null, { status: 204 })),
 
     http.get('*/api/v1/me', ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
       const current = etag(db.user.version);
       if (request.headers.get('If-None-Match') === current) {
         return new HttpResponse(null, { status: 304, headers: { ETag: current } });
@@ -203,6 +270,7 @@ export function createHandlers(db: MockDb) {
     }),
 
     http.get('*/api/v1/projects', ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
       const url = new URL(request.url);
       const limit = Number(url.searchParams.get('limit') ?? '50');
       const items = [...db.projects.values()].slice(0, Number.isFinite(limit) ? limit : 50);
@@ -217,12 +285,13 @@ export function createHandlers(db: MockDb) {
     }),
 
     http.post('*/api/v1/projects', async ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
       const raw = await request.text();
       const token = parseIdempotency(db, request, raw);
       if (token instanceof Response) return token;
       const body = parseBody<{ title?: unknown }>(raw);
       if (body === undefined || !validTitle(body.title)) {
-        return problem(422, 'validation_failed', 'title must be 1-200 characters');
+        return rememberDomainResult(db, token, 422, 'validation_failed', 'title must be 1-200 characters');
       }
       const now = new Date().toISOString();
       const project: Project = {
@@ -241,6 +310,7 @@ export function createHandlers(db: MockDb) {
     }),
 
     http.get('*/api/v1/tasks', ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
       const url = new URL(request.url);
       const projectId = url.searchParams.get('projectId');
       const status = url.searchParams.get('status');
@@ -266,21 +336,24 @@ export function createHandlers(db: MockDb) {
     }),
 
     http.post('*/api/v1/tasks', async ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
       const raw = await request.text();
       const token = parseIdempotency(db, request, raw);
       if (token instanceof Response) return token;
       const body = parseBody<TaskCreate>(raw);
       if (body === undefined || !validTitle(body.title)) {
-        return problem(422, 'validation_failed', 'title must be 1-200 characters');
+        return rememberDomainResult(db, token, 422, 'validation_failed', 'title must be 1-200 characters');
       }
       if (body.projectId !== undefined && !db.projects.has(body.projectId)) {
-        return problem(422, 'validation_failed', 'projectId does not exist');
+        return problem(404, 'not_found', 'projectId does not exist');
       }
       const now = new Date().toISOString();
       const taskId = createUuidV7();
       if (body.dependsOn !== undefined) {
         const failure = validateDependencies(db, taskId, body.dependsOn);
-        if (failure !== null) return problem(422, failure, 'Invalid dependency');
+        if (failure !== null) {
+          return rememberDomainResult(db, token, 422, failure, 'Invalid dependency');
+        }
       }
       const task: Task = {
         id: taskId,
@@ -306,6 +379,7 @@ export function createHandlers(db: MockDb) {
     }),
 
     http.get('*/api/v1/tasks/:id', ({ request, params }) => {
+      if (!db.authenticated) return unauthenticated();
       const task = findTask(db, String(params.id));
       if (task === undefined) return problem(404, 'not_found', 'Task not found');
       const current = etag(task.version);
@@ -316,6 +390,7 @@ export function createHandlers(db: MockDb) {
     }),
 
     http.patch('*/api/v1/tasks/:id', async ({ request, params }) => {
+      if (!db.authenticated) return unauthenticated();
       const raw = await request.text();
       const token = parseIdempotency(db, request, raw);
       if (token instanceof Response) return token;
@@ -333,11 +408,13 @@ export function createHandlers(db: MockDb) {
       const patch = parseBody<TaskPatch>(raw);
       if (patch === undefined) return problem(400, 'validation_failed', 'Malformed JSON body');
       if (patch.title !== undefined && !validTitle(patch.title)) {
-        return problem(422, 'validation_failed', 'title must be 1-200 characters');
+        return rememberDomainResult(db, token, 422, 'validation_failed', 'title must be 1-200 characters');
       }
       if (patch.dependsOn !== undefined) {
         const failure = validateDependencies(db, task.id, patch.dependsOn);
-        if (failure !== null) return problem(422, failure, 'Invalid dependency');
+        if (failure !== null) {
+          return rememberDomainResult(db, token, 422, failure, 'Invalid dependency');
+        }
       }
       const updated = applyTaskPatch(task, patch);
       db.tasks.set(updated.id, updated);
@@ -347,6 +424,7 @@ export function createHandlers(db: MockDb) {
     }),
 
     http.post(/\/api\/v1\/tasks\/([^/]+):complete$/, async ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
       const match = /\/api\/v1\/tasks\/([^/]+):complete$/.exec(new URL(request.url).pathname);
       const taskId = match?.[1] === undefined ? '' : decodeURIComponent(match[1]);
       const raw = await request.text();
@@ -364,7 +442,7 @@ export function createHandlers(db: MockDb) {
         );
       }
       if (task.status === 'done') {
-        return problem(409, 'validation_failed', 'Task is already completed');
+        return rememberDomainResult(db, token, 409, 'validation_failed', 'Task is already completed');
       }
       const updated: Task = {
         ...task,
@@ -379,6 +457,7 @@ export function createHandlers(db: MockDb) {
     }),
 
     http.delete('*/api/v1/tasks/:id', async ({ request, params }) => {
+      if (!db.authenticated) return unauthenticated();
       const raw = await request.text();
       const token = parseIdempotency(db, request, raw);
       if (token instanceof Response) return token;
@@ -406,6 +485,7 @@ export function createHandlers(db: MockDb) {
     }),
 
     http.post('*/api/v1/tasks/:id/dependencies', async ({ request, params }) => {
+      if (!db.authenticated) return unauthenticated();
       const raw = await request.text();
       const token = parseIdempotency(db, request, raw);
       if (token instanceof Response) return token;
@@ -422,16 +502,16 @@ export function createHandlers(db: MockDb) {
       }
       const body = parseBody<{ dependsOnTaskId?: string }>(raw);
       if (body === undefined || typeof body.dependsOnTaskId !== 'string') {
-        return problem(422, 'validation_failed', 'dependsOnTaskId is required');
+        return rememberDomainResult(db, token, 422, 'validation_failed', 'dependsOnTaskId is required');
       }
       if (findTask(db, body.dependsOnTaskId) === undefined) {
-        return problem(422, 'validation_failed', 'dependsOnTaskId does not exist');
+        return rememberDomainResult(db, token, 422, 'validation_failed', 'dependsOnTaskId does not exist');
       }
       if (task.dependsOn.includes(body.dependsOnTaskId)) {
-        return problem(422, 'dependency_cycle', 'Dependency already exists');
+        return rememberDomainResult(db, token, 422, 'dependency_cycle', 'Dependency already exists');
       }
       if (body.dependsOnTaskId === task.id || pathExists(db, body.dependsOnTaskId, task.id)) {
-        return problem(422, 'dependency_cycle', 'Dependency would create a cycle');
+        return rememberDomainResult(db, token, 422, 'dependency_cycle', 'Dependency would create a cycle');
       }
       const updated: Task = {
         ...task,

@@ -6,6 +6,7 @@ import { createPlannerClient, newActionId, plannerClient, type Task } from '../s
 import TaskItem from '../src/components/TaskItem.vue';
 import TaskList from '../src/components/TaskList.vue';
 import InboxView from '../src/views/InboxView.vue';
+import { SAMPLE_PROJECT_ID } from '../src/mocks/db';
 import { useOfflineStore } from '../src/stores/offline';
 
 const API = 'http://localhost:3000/api/v1';
@@ -300,5 +301,27 @@ describe('raw API helpers', () => {
   it('serves the mock API from the test origin', async () => {
     const response = await fetch(`${API}/me`);
     expect(response.status).toBe(200);
+  });
+});
+
+describe('inbox scoping', () => {
+  it('lists only tasks from the Inbox project', async () => {
+    const client = createPlannerClient();
+    await client.createTask({ title: 'Inbox item' }, newActionId('create-inbox'));
+    await client.createTask(
+      { title: 'Project item', projectId: SAMPLE_PROJECT_ID },
+      newActionId('create-project'),
+    );
+
+    const wrapper = mount(InboxView, {
+      global: { plugins: [createPinia(), VueQueryPlugin] },
+      attachTo: document.body,
+    });
+    await waitForText(wrapper, 'Inbox item');
+
+    expect(wrapper.text()).toContain('Inbox item');
+    expect(wrapper.text()).not.toContain('Project item');
+
+    wrapper.unmount();
   });
 });
