@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -68,6 +68,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| M2-01c | ctx_4d77b6bde034 (opus-fallback) | c67b23c | **APPROVE** (M2-01 전체) | FU-24(실 공급자 게이트) | **Accepted, merged 804c981**; G3 721 pass/18 skip + web 60, ci 0 |
 | FU-18 | ctx_a92131369f50 (opus-fallback) | 82fb9ee | REQUEST_CHANGES | HIGH×2: testkit kind 무조건 단언(Vikunja live 실패), 가입 Inbox가 실제 서빙 저장소에 없음; MEDIUM×2 | fix 1/2 |
 | M3-02 | ctx_dea84d7169d1 (opus-fallback) | 117bffb | REQUEST_CHANGES | HIGH×2: now 무시(과거 배치), 변경 최소화 무효; MEDIUM×5 | fix 1/2 |
 | FU-14 | ctx_1f6ebc759984 (opus-fallback) | fa3aad2 | **APPROVE** | FU-22 | **Accepted, merged ed38b31**; 첫 G3 실패=dev Vikunja noauth 429(인프라) → 한도 상향 후 357 pass/18 skip + web 60, ci 0 |
