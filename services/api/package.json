@@ -14,7 +14,7 @@
   "scripts": {
     "db:migrate": "node --experimental-strip-types src/db/migrate.ts up",
     "db:rollback": "node --experimental-strip-types src/db/migrate.ts down",
-    "create-user": "node --experimental-strip-types src/cli/create-user.ts",
+    "create-user": "tsx src/cli/create-user.ts",
     "test": "vitest run --globals",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
@@ -35,6 +35,7 @@
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "pino": "10.4.0",
-    "vitest": "5.1.0"
+    "vitest": "5.1.0",
+    "tsx": "4.23.15"
   }
 }

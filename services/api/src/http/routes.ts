@@ -80,6 +80,12 @@ interface HandlerOutcome {
   readonly outbox?: readonly OutboxEventInput[];
 }
 
+/**
+ * The contract header schemas use `additionalProperties: false` and only list
+ * the API headers, so passing them to Fastify would reject Host/User-Agent etc.
+ * We instead read the same required-list metadata and enforce it in
+ * `buildPreHandler` using the contract's own If-Match pattern.
+ */
 function headerRequirements(route: RouteDefinition): readonly string[] {
   const headers = route.headers as { readonly required?: readonly string[] } | undefined;
   return headers?.required ?? [];

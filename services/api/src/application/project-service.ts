@@ -1,5 +1,11 @@
-import type { Id, Page, Project, ProjectCreate, ProjectQuery } from '@ohmydate/domain';
-import type { ProjectRepository } from '@ohmydate/domain';
+import type {
+  Id,
+  Page,
+  Project,
+  ProjectCreate,
+  ProjectQuery,
+  ProjectRepository,
+} from '@ohmydate/domain';
 
 export class ProjectService {
   readonly #projects: ProjectRepository;
