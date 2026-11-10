@@ -260,10 +260,18 @@ function oracleOffsetMsAt(timeZone: string, epochMs: number): number {
 }
 
 /**
- * ADR-017 steps 1-2, implemented separately from `time.ts`/`slots.ts`: split at
- * every offset transition, then split each constant-offset piece at local
- * midnights using that piece's offset. Returned segments always belong to a
- * single local date, and a date can reappear after a backward transition.
+ * ADR-017 steps 1-2 for the validator. The partition *shape* follows the same
+ * transition-then-local-midnight principle as `time.ts`, but the date and
+ * weekday labels are deliberately derived by a different method (FU-12):
+ * `Temporal` converts each segment start directly in the target zone instead
+ * of using the wall-clock arithmetic that produced the split. Returned
+ * segments always belong to a single local date, and a date can reappear after
+ * a backward transition.
+ *
+ * Guard: like `time.ts`, the transition walk throws `RangeError` after
+ * `ORACLE_MAX_TRANSITIONS` steps. That cap is unreachable for realistic
+ * horizons (roughly two transitions per year over the IANA table), so it is a
+ * programming-error guard rather than a validation outcome (FU-13).
  */
 function partitionByLocalDateOracle(
   timeZone: string,
@@ -335,12 +343,12 @@ function partitionByLocalDateOracle(
       ) {
         continue;
       }
-      const wall = Temporal.Instant.fromEpochMilliseconds(
-        segmentStart + offsetMs,
-      ).toZonedDateTimeISO('UTC');
+      const localStart = Temporal.Instant.fromEpochMilliseconds(
+        segmentStart,
+      ).toZonedDateTimeISO(timeZone);
       segments.push({
-        date: wall.toPlainDate().toString(),
-        weekday: wall.dayOfWeek,
+        date: localStart.toPlainDate().toString(),
+        weekday: localStart.dayOfWeek,
         offsetMs,
         startMs: segmentStart,
         endMs: segmentEnd,

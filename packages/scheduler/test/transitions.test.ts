@@ -11,11 +11,14 @@ import {
   validate,
 } from '../src/index.js';
 import {
+  alignedAvailableSlotMinutes,
+  alignedAvailableSlots,
   availableSlotMinutes,
   dailyLoadsByMinute,
   hasDailyCapViolationByMinute,
   isCoveredByMinutes,
 } from './minuteOracle.js';
+import { MAX_TRANSITIONS, partitionByLocalDate } from '../src/time.js';
 
 const MINUTE_MS = 60 * 1000;
 
@@ -272,5 +275,165 @@ describe('ADR-017 minute-level invariants', () => {
     expect(slotTotalMin(computeAvailableSlots(input))).toBe(
       (instantMs(input.horizon.end) - instantMs(input.horizon.start)) / MINUTE_MS,
     );
+  });
+});
+
+describe('FU-13 edge fixtures', () => {
+  interface Fixture {
+    name: string;
+    timeZone: string;
+    start: string;
+    end: string;
+    availability: AvailabilityRule[];
+    expected: Array<{ start: string; end: string }>;
+  }
+
+  const FIXTURES: Fixture[] = [
+    {
+      name: 'St_Johns 2009 rollback full day',
+      timeZone: 'America/St_Johns',
+      start: '2009-11-01T02:00:00Z',
+      end: '2009-11-01T05:00:00Z',
+      availability: ALL_WEEK_FULL_DAY,
+      expected: [
+        { start: '2009-11-01T02:00:00Z', end: '2009-11-01T05:00:00Z' },
+      ],
+    },
+    {
+      name: 'St_Johns 2009 rollback local window',
+      timeZone: 'America/St_Johns',
+      start: '2009-11-01T02:00:00Z',
+      end: '2009-11-01T05:00:00Z',
+      availability: [
+        { weekday: 7, startLocal: '00:00', endLocal: '01:00', kind: 'work' },
+      ],
+      expected: [
+        { start: '2009-11-01T03:30:00Z', end: '2009-11-01T04:30:00Z' },
+      ],
+    },
+    {
+      name: 'Santiago April fold repeated hour',
+      timeZone: 'America/Santiago',
+      start: '2026-04-05T02:00:00Z',
+      end: '2026-04-05T06:00:00Z',
+      availability: [
+        { weekday: 6, startLocal: '23:00', endLocal: '24:00', kind: 'work' },
+      ],
+      expected: [
+        { start: '2026-04-05T02:00:00Z', end: '2026-04-05T04:00:00Z' },
+      ],
+    },
+    {
+      name: 'Apia 2011 skipped Friday',
+      timeZone: 'Pacific/Apia',
+      start: '2011-12-29T00:00:00Z',
+      end: '2011-12-31T00:00:00Z',
+      availability: [
+        { weekday: 5, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+      ],
+      expected: [],
+    },
+    {
+      name: 'Troll two-hour spring gap full day',
+      timeZone: 'Antarctica/Troll',
+      start: '2026-03-29T00:00:00Z',
+      end: '2026-03-29T06:00:00Z',
+      availability: ALL_WEEK_FULL_DAY,
+      expected: [
+        { start: '2026-03-29T00:00:00Z', end: '2026-03-29T06:00:00Z' },
+      ],
+    },
+    {
+      name: 'Troll two-hour spring gap local window',
+      timeZone: 'Antarctica/Troll',
+      start: '2026-03-29T00:00:00Z',
+      end: '2026-03-29T06:00:00Z',
+      availability: [
+        { weekday: 7, startLocal: '00:00', endLocal: '04:00', kind: 'work' },
+      ],
+      expected: [
+        { start: '2026-03-29T00:00:00Z', end: '2026-03-29T02:00:00Z' },
+      ],
+    },
+    {
+      name: 'Lord_Howe 30-minute fold',
+      timeZone: 'Australia/Lord_Howe',
+      start: '2026-04-04T13:00:00Z',
+      end: '2026-04-04T17:00:00Z',
+      availability: [
+        { weekday: 7, startLocal: '01:45', endLocal: '02:15', kind: 'work' },
+      ],
+      expected: [
+        { start: '2026-04-04T14:45:00Z', end: '2026-04-04T15:00:00Z' },
+        { start: '2026-04-04T15:15:00Z', end: '2026-04-04T15:45:00Z' },
+      ],
+    },
+  ];
+
+  for (const fixture of FIXTURES) {
+    it(`${fixture.name} matches the exact minute-walk intervals`, () => {
+      const input = makeInput({
+        timeZone: fixture.timeZone,
+        start: fixture.start,
+        end: fixture.end,
+        availability: fixture.availability,
+        task: makeTask(),
+      });
+      const slots = computeAvailableSlots(input);
+      expect(slots).toEqual(fixture.expected);
+      expect(slots).toEqual(alignedAvailableSlots(input));
+      expect(slotTotalMin(slots)).toBe(alignedAvailableSlotMinutes(input));
+      expect(slotTotalMin(slots)).toBeLessThanOrEqual(
+        availableSlotMinutes(input),
+      );
+    });
+  }
+
+  it('aggregates multiple blocks on a revisited local date for H6', () => {
+    const input = makeInput({
+      timeZone: 'America/Goose_Bay',
+      start: '2009-10-31T22:00:00Z',
+      end: '2009-11-01T06:00:00Z',
+      availability: ALL_WEEK_FULL_DAY,
+      task: makeTask({
+        estimate: { p50Min: 100, p90Min: 100 },
+        minSessionMin: 5,
+        maxSessionMin: 1440,
+      }),
+      maxDailyFocusMin: 90,
+    });
+    const blocks: Block[] = [
+      { taskId: 'A', start: '2009-11-01T02:00:00Z', end: '2009-11-01T02:50:00Z' },
+      { taskId: 'A', start: '2009-11-01T03:05:00Z', end: '2009-11-01T03:55:00Z' },
+    ];
+
+    expect(codes(input, blocks)).toEqual(['H6']);
+    expect(hasDailyCapViolationByMinute(input, blocks)).toBe(true);
+    const loads = dailyLoadsByMinute(blocks, input.timeZone);
+    expect(loads.get('2009-10-31')).toBe(100);
+    expect(loads.get('2009-11-01') ?? 0).toBe(0);
+  });
+
+  it('documents the runaway transition guard with a real throw', () => {
+    expect(MAX_TRANSITIONS).toBe(4096);
+    const startMs = Date.UTC(2026, 0, 1);
+    const prototype = Temporal.ZonedDateTime.prototype;
+    let transitions = 0;
+    const spy = vi
+      .spyOn(prototype, 'getTimeZoneTransition')
+      .mockImplementation(() => {
+        transitions += 1;
+        return Temporal.Instant.fromEpochMilliseconds(
+          startMs + transitions * 1000,
+        ).toZonedDateTimeISO('UTC');
+      });
+
+    try {
+      expect(() =>
+        partitionByLocalDate(startMs, startMs + 10 * 24 * 60 * MINUTE_MS, 'UTC'),
+      ).toThrow(/exceeded 4096/);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

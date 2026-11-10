@@ -8,11 +8,16 @@ export type {
   DeficitReport,
   ExceptionKind,
   ExceptionRule,
+  GenerateOptions,
+  GenerateResult,
   Horizon,
   IanaTz,
   Id,
   InputIssue,
   Instant,
+  PlanCandidate,
+  PlanMetrics,
+  PolicyName,
   Preferences,
   RiskLevel,
   ScheduleInput,
@@ -31,3 +36,11 @@ export { computeAvailableSlots, maxContiguousMin, slotTotalMin } from './slots.j
 export { validate, validateInput } from './validate.js';
 export { deficit } from './explain.js';
 export { taskRequiredMinutes } from './requirements.js';
+export { generate, GENERATOR_VERSION } from './generate.js';
+export {
+  POLICIES,
+  POLICY_NAMES,
+  POLICY_VERSION,
+  type PolicyProfile,
+  type PolicyWeights,
+} from './policies.js';

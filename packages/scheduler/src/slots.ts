@@ -123,8 +123,10 @@ function cutIntervalsOf(blocks: Array<Pick<Block, 'start' | 'end'>>): IntervalMs
  *
  * Then: `+ exceptions(extra)`, `- exceptions(off)`, `- commitments
  * - lockedBlocks`. Only intervals that survive horizon clipping and inward
- * 5-minute grid alignment are returned. `validate.ts` deliberately implements
- * the ADR-017 partition independently and audits raw local membership.
+ * 5-minute grid alignment are returned. `validate.ts` implements the ADR-017
+ * partition separately: its date/weekday labels come from converting each
+ * segment start with Temporal in the target zone (not wall-clock arithmetic),
+ * and H2 audits raw local membership.
  */
 export function computeAvailableSlots(input: ScheduleInput): Slot[] {
   const horizonStartMs = parseInstant(input.horizon.start);

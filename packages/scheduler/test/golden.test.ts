@@ -11,6 +11,8 @@ import type {
 import {
   computeAvailableSlots,
   deficit,
+  generate,
+  GENERATOR_VERSION,
   maxContiguousMin,
   slotTotalMin,
   taskRequiredMinutes,
@@ -44,6 +46,36 @@ interface GoldenFixture {
     userTimeZoneSlots?: Array<{ startPlain: string; endPlain: string }>;
   };
 }
+
+interface GeneratorExpectation {
+  feasibleCount: number;
+  deficitMin: number;
+  reason?: string;
+  maxDailyLoadMin?: number;
+  reusesExistingBlock?: boolean;
+}
+
+/**
+ * Expected generator behaviour per fixture. Feasible counts are the number of
+ * returned (post-diversity) candidates that validate cleanly; the rest are
+ * infeasible candidates that must still explain their violations.
+ */
+const GENERATOR_EXPECTATIONS: Record<string, GeneratorExpectation> = {
+  G01: { feasibleCount: 0, deficitMin: 60, reason: 'no_contiguous_window' },
+  G02: { feasibleCount: 1, deficitMin: 0 },
+  G03: { feasibleCount: 1, deficitMin: 0 },
+  G04: { feasibleCount: 2, deficitMin: 0, reusesExistingBlock: true },
+  G05: { feasibleCount: 1, deficitMin: 0, maxDailyLoadMin: 120 },
+  G06: { feasibleCount: 1, deficitMin: 0 },
+  G07: { feasibleCount: 0, deficitMin: 60, reason: 'invalid_window' },
+  G08: { feasibleCount: 1, deficitMin: 0 },
+  G09: { feasibleCount: 0, deficitMin: 60, reason: 'insufficient_available_time' },
+  G10: { feasibleCount: 1, deficitMin: 0 },
+  G11: { feasibleCount: 0, deficitMin: 60, reason: 'insufficient_available_time' },
+  G12: { feasibleCount: 1, deficitMin: 0 },
+  G13: { feasibleCount: 0, deficitMin: 0, reason: 'no_contiguous_window' },
+  G14: { feasibleCount: 1, deficitMin: 0 },
+};
 
 const goldenDir = fileURLToPath(new URL('./golden/', import.meta.url));
 const fixtureFiles = readdirSync(goldenDir)
@@ -164,6 +196,93 @@ describe('golden cases G01-G14', () => {
             .toString(),
         }));
         expect(plainSlots).toEqual(fixture.expected.userTimeZoneSlots);
+      }
+
+      const generatorExpectation = GENERATOR_EXPECTATIONS[fixture.id];
+      expect(generatorExpectation).toBeDefined();
+      if (generatorExpectation === undefined) {
+        return;
+      }
+
+      const generated = generate(fixture.input, {
+        policies: ['front_loaded', 'balanced', 'focus_blocked'],
+        seed: fixture.input.seed,
+      });
+
+      expect(generated.candidates.length).toBeGreaterThanOrEqual(1);
+      expect(generated.candidates.length).toBeLessThanOrEqual(3);
+      expect(generated.candidates.filter((candidate) => candidate.feasible)).toHaveLength(
+        generatorExpectation.feasibleCount,
+      );
+
+      const hashes = new Set(
+        generated.candidates.map((candidate) => candidate.inputHash),
+      );
+      expect(hashes.size).toBe(1);
+      const [hash] = [...hashes];
+      expect(hash).toMatch(/^[0-9a-f]{64}$/);
+
+      for (const candidate of generated.candidates) {
+        expect(candidate.generatorVersion).toBe(GENERATOR_VERSION);
+        expect(candidate.deficitMin).toBe(generatorExpectation.deficitMin);
+        expect(candidate.metrics.deficitMin).toBe(candidate.deficitMin);
+        expect(candidate.explanation.length).toBeGreaterThan(0);
+
+        if (candidate.feasible) {
+          expect(
+            validate(fixture.input, candidate.blocks, {
+              riskLevel: fixture.input.prefs.riskLevel,
+            }),
+          ).toEqual([]);
+        } else {
+          expect(
+            candidate.blocks.length === 0 ||
+              validate(fixture.input, candidate.blocks, {
+                riskLevel: fixture.input.prefs.riskLevel,
+              }).length > 0 ||
+              candidate.explanation.some((line) =>
+                line.includes('Input rejected'),
+              ),
+          ).toBe(true);
+        }
+
+        if (generatorExpectation.maxDailyLoadMin !== undefined) {
+          expect(candidate.metrics.maxDailyLoadMin).toBeLessThanOrEqual(
+            generatorExpectation.maxDailyLoadMin,
+          );
+        }
+      }
+
+      if (generatorExpectation.reason !== undefined) {
+        expect(
+          generated.candidates.some((candidate) =>
+            candidate.explanation.some((line) =>
+              line.includes(generatorExpectation.reason as string),
+            ),
+          ),
+        ).toBe(true);
+      }
+
+      if (generatorExpectation.reusesExistingBlock === true) {
+        expect(
+          generated.candidates.some(
+            (candidate) => candidate.metrics.changedBlocks === 0,
+          ),
+        ).toBe(true);
+      }
+
+      if (fixture.id === 'G14') {
+        expect(generated.candidates).toHaveLength(1);
+        expect(generated.diversityNote).toBeDefined();
+        expect(generated.diversityNote).toContain('distinct');
+      }
+
+      if (fixture.id === 'G12') {
+        const repeated = generate(fixture.input, {
+          policies: ['front_loaded', 'balanced', 'focus_blocked'],
+          seed: fixture.input.seed,
+        });
+        expect(JSON.stringify(repeated)).toBe(JSON.stringify(generated));
       }
     });
   }

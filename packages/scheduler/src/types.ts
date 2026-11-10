@@ -158,3 +158,53 @@ export interface DeficitReport {
     deficitMin: number;
   };
 }
+
+/** Published generator policy names (06 §4). */
+export type PolicyName = 'front_loaded' | 'balanced' | 'focus_blocked';
+
+/**
+ * Deterministic metrics for one generated candidate (06 §6).
+ *
+ * Daily loads use the ADR-017 local-date semantics, including locked blocks.
+ * `minSlackMin` is the smallest due-buffer slack in the final plan; when no
+ * task has a deadline it falls back to the horizon end minus the last block.
+ * `p90CoverageRatio` caps each task's placed minutes at its P90 estimate.
+ * `changedBlocks` is the symmetric difference between candidate blocks and
+ * `ScheduleInput.existingBlocks` (0 when the input has no existing blocks).
+ */
+export interface PlanMetrics {
+  totalFocusMin: number;
+  minSlackMin: number;
+  maxDailyLoadMin: number;
+  avgDailyLoadMin: number;
+  contextSwitches: number;
+  changedBlocks: number;
+  deficitMin: number;
+  p90CoverageRatio: number;
+}
+
+export interface PlanCandidate {
+  policy: PolicyName;
+  blocks: Block[];
+  metrics: PlanMetrics;
+  feasible: boolean;
+  /** Capacity deficit from `deficit()` (0 when the horizon has enough room). */
+  deficitMin: number;
+  explanation: string[];
+  /** SHA-256 of the canonical JSON of the whole input, including the seed. */
+  inputHash: string;
+  generatorVersion: string;
+}
+
+export interface GenerateOptions {
+  policies?: PolicyName[];
+  /** Overrides `ScheduleInput.seed` when supplied. */
+  seed?: number;
+  /** Local-improvement evaluation cap; defaults to 200 (06 §4). */
+  maxLocalImprovement?: number;
+}
+
+export interface GenerateResult {
+  candidates: PlanCandidate[];
+  diversityNote?: string;
+}

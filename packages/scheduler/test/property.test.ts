@@ -11,6 +11,7 @@ import type {
 import { computeAvailableSlots, slotTotalMin, validate } from '../src/index.js';
 import {
   alignedAvailableSlotMinutes,
+  alignedAvailableSlots,
   dailyLoadsByMinute,
   hasDailyCapViolationByMinute,
   isCoveredByMinutes,
@@ -1014,9 +1015,10 @@ describe('scheduler properties', () => {
     );
   }, 120000);
 
-  it('slot totals agree with the one-minute UTC oracle around transitions', () => {
+  it('exact slot intervals agree with the one-minute UTC oracle for varied windows', () => {
     const generator = fc.tuple(
       fc.constantFrom(...MINUTE_SCENARIOS),
+      fc.constantFrom(...MINUTE_WINDOWS),
       fc.array(
         fc.tuple(
           fc.constantFrom<'off' | 'extra'>('off', 'extra'),
@@ -1030,10 +1032,10 @@ describe('scheduler properties', () => {
     );
 
     fc.assert(
-      fc.property(generator, ([scenario, exceptionSpecs]) => {
+      fc.property(generator, ([scenario, window, exceptionSpecs]) => {
         const input = buildMinuteScenarioInput(
           scenario,
-          allWeekRules(['00:00', '24:00']),
+          allWeekRules(window),
           exceptionSpecs.map(([kind, dayOffset, fullDay, start, steps]) =>
             buildExceptionRule(
               scenario,
@@ -1046,9 +1048,9 @@ describe('scheduler properties', () => {
           ),
         );
 
-        expect(slotTotalMin(computeAvailableSlots(input))).toBe(
-          alignedAvailableSlotMinutes(input),
-        );
+        const slots = computeAvailableSlots(input);
+        expect(slots).toEqual(alignedAvailableSlots(input));
+        expect(slotTotalMin(slots)).toBe(alignedAvailableSlotMinutes(input));
       }),
       { numRuns: NUM_RUNS },
     );
