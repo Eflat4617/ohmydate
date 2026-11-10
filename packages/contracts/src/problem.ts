@@ -12,6 +12,9 @@ export const PROBLEM_CODES = [
   'not_found',
   'forbidden',
   'rate_limited',
+  'unauthenticated',
+  'idempotency_in_progress',
+  'internal_error',
 ] as const;
 
 export type ProblemCode = (typeof PROBLEM_CODES)[number];

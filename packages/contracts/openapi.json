@@ -299,6 +299,18 @@
               {
                 "const": "rate_limited",
                 "type": "string"
+              },
+              {
+                "const": "unauthenticated",
+                "type": "string"
+              },
+              {
+                "const": "idempotency_in_progress",
+                "type": "string"
+              },
+              {
+                "const": "internal_error",
+                "type": "string"
               }
             ]
           },
@@ -955,6 +967,16 @@
               }
             },
             "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
           }
         },
         "summary": "Destroy the current session"
@@ -1075,6 +1097,26 @@
               }
             },
             "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "State conflict"
           },
           "412": {
             "content": {
@@ -1243,6 +1285,16 @@
               }
             },
             "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
           },
           "409": {
             "content": {
@@ -1443,6 +1495,36 @@
             },
             "description": "Unauthenticated"
           },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "State conflict"
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -1523,6 +1605,16 @@
               }
             },
             "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
           },
           "404": {
             "content": {
@@ -1740,6 +1832,16 @@
             },
             "description": "Unauthenticated"
           },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -1878,6 +1980,16 @@
             },
             "description": "Unauthenticated"
           },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -2005,6 +2117,16 @@
               }
             },
             "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
           },
           "404": {
             "content": {
