@@ -8,11 +8,18 @@ export interface ListCursor {
 /**
  * Change cursor described by ADR-016 §3: `(updated_seconds, externalId)` with
  * an additional local sequence. The sequence makes same-second local mutations
- * (which Vikunja cannot distinguish) totally ordered. `seconds` is still used
- * for the overlapping `updated >= cursor` remote query.
+ * (which Vikunja cannot distinguish) totally ordered.
+ *
+ * `seconds` is the planner-journal timestamp of the newest delivered entry and
+ * is informational only. `remoteSeconds` is the remote watermark used for the
+ * overlapping `updated >= watermark` reconciliation query; it is derived from
+ * what the Vikunja scan returned (max `updated` seen minus the one-second
+ * overlap), never from journal entry times. Planner clock skew therefore cannot
+ * advance the remote watermark past an external edit (FU-14).
  */
 export interface ChangeCursor {
   readonly seconds: number;
+  readonly remoteSeconds: number;
   readonly externalId: string;
   readonly sequence: number;
   readonly epoch: string;
@@ -21,6 +28,7 @@ export interface ChangeCursor {
 
 export const EMPTY_CHANGE_CURSOR: ChangeCursor = {
   seconds: 0,
+  remoteSeconds: 0,
   externalId: '',
   sequence: 0,
   epoch: '',
@@ -61,6 +69,7 @@ export function decodeListCursor(value: string): ListCursor {
 export function encodeChangeCursor(cursor: ChangeCursor): string {
   return encode({
     s: cursor.seconds,
+    r: cursor.remoteSeconds,
     e: cursor.externalId,
     q: cursor.sequence,
     ep: cursor.epoch,
@@ -72,6 +81,7 @@ export function decodeChangeCursor(value: string | null): ChangeCursor {
   if (value === null) return EMPTY_CHANGE_CURSOR;
   const parsed = decode(value) as {
     s?: unknown;
+    r?: unknown;
     e?: unknown;
     q?: unknown;
     ep?: unknown;
@@ -92,8 +102,17 @@ export function decodeChangeCursor(value: string | null): ChangeCursor {
     typeof parsed.o === 'string' &&
     parsed.o.length > 0
   ) {
+    // Cursors minted before the remote watermark existed have no `r`. Restart
+    // the remote scan at 0 instead of inheriting the journal second, which may
+    // have been advanced by a skewed planner clock (FU-14). Re-scanning is safe:
+    // journal sequences and content fingerprints de-duplicate the result.
+    const remoteSeconds =
+      typeof parsed.r === 'number' && Number.isInteger(parsed.r) && parsed.r >= 0
+        ? parsed.r
+        : 0;
     return {
       seconds: parsed.s,
+      remoteSeconds,
       externalId: parsed.e,
       sequence: parsed.q,
       epoch: parsed.ep,

@@ -271,7 +271,15 @@ describe('VikunjaTaskRepository partial failure staging', () => {
     expect(task?.priority).toBe(2);
 
     const feed = await repo.listChangedSince(context.ownerId, null);
-    expect(feed.changes.map((change) => change.version)).toEqual([2]);
+    // The first use of the owner seeds the epoch with a snapshot of both
+    // mapped tasks (FU-15); the reconciled change is the only v2 entry.
+    expect(feed.changes.map((change) => change.id).sort()).toEqual(
+      [context.taskId, context.taskId, context.dependencyId].sort(),
+    );
+    expect(feed.changes.map((change) => change.version)).toEqual([1, 1, 2]);
+    expect(feed.changes.find((change) => change.version === 2)?.id).toBe(
+      context.taskId,
+    );
   });
 });
 
@@ -371,6 +379,7 @@ describe('VikunjaTaskRepository restart-safe change journal', () => {
     const epoch = await context.journal.epoch();
     const beyond = encodeChangeCursor({
       seconds: 0,
+      remoteSeconds: 0,
       externalId: '',
       sequence: 999,
       epoch,

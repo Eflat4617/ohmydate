@@ -247,6 +247,14 @@ describe('unknown-outcome writes', () => {
     'recurring complete applied then %s emits one completedOccurrenceAt and blocks retry',
     async (patchMode) => {
       const context = await setup({ repeat: true, patchMode });
+      // A reconciled completion must apply the same status rule as the normal
+      // path instead of leaving a stale in_progress value (FU-17).
+      context.plannerFields.putTask(context.taskId, {
+        splittable: false,
+        priority: 2,
+        status: 'in_progress',
+        dependsOn: [],
+      });
       const before = (await context.repo.listChangedSince(context.ownerId, null)).cursor;
 
       await expect(
@@ -266,7 +274,11 @@ describe('unknown-outcome writes', () => {
 
       const feed = await context.repo.listChangedSince(context.ownerId, before);
       expect(feed.changes.map((change) => change.version)).toEqual([2]);
-      expect(feed.changes[0]?.completedOccurrenceAt).toBeDefined();
+      // The completion record names the occurrence that was completed, not the
+      // reconciliation/completion time (FU-17).
+      expect(feed.changes[0]?.completedOccurrenceAt).toBe(
+        epochMsToInstant(Date.parse(FIRST_DUE)),
+      );
 
       const task = await context.repo.get(context.ownerId, context.taskId);
       expect(task?.status).toBe('todo');
@@ -276,6 +288,18 @@ describe('unknown-outcome writes', () => {
       );
     },
   );
+
+  test('the normal recurring completion records the completed occurrence dueAt', async () => {
+    const context = await setup({ repeat: true });
+
+    await context.repo.complete(context.ownerId, context.taskId, 1 as Version);
+
+    const feed = await context.repo.listChangedSince(context.ownerId, null);
+    const completion = feed.changes.find((change) => change.version === 2);
+    expect(completion?.completedOccurrenceAt).toBe(
+      epochMsToInstant(Date.parse(FIRST_DUE)),
+    );
+  });
 
   test('a definitive complete 4xx clears the intent without a reconcile mark or version bump', async () => {
     const context = await setup({ repeat: true, patchMode: 'reject-422' });

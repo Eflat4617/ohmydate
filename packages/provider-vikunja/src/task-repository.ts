@@ -74,6 +74,32 @@ const CAPABILITIES: RepositoryCapabilities = {
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+/**
+ * The reconciliation query is `updated >= watermark`. Re-querying the newest
+ * observed second guarantees that an edit landing in that same second after the
+ * scan is picked up on the next poll.
+ */
+const REMOTE_OVERLAP_SECONDS = 1;
+
+/**
+ * Provider-visible content used to detect changes that an ETag cannot: Vikunja
+ * ETags are second-precision, so two writes inside one second can share one.
+ * The description is marker-free because the planner marker is not user
+ * content, and only the mapped dependency relation kind is included so the
+ * server-generated inverse relation cannot cause fingerprint churn (FU-16).
+ */
+function contentFingerprint(remote: VikunjaTask): string {
+  const related = remote.related_tasks?.[DEPENDENCY_RELATION_KIND] ?? [];
+  const relationIds = related.map((task) => String(task.id)).sort();
+  return JSON.stringify({
+    title: remote.title,
+    description: stripMarker(remote.description) ?? '',
+    done: remote.done === true,
+    dueAt: normalizeRemoteInstant(remote.due_date) ?? '',
+    projectId: remote.project_id === undefined ? '' : String(remote.project_id),
+    relations: relationIds,
+  });
+}
 
 export interface VikunjaTaskRepositoryOptions {
   readonly clients: ReadonlyMap<Id, VikunjaClient>;
@@ -128,10 +154,16 @@ function normalizeLimit(limit: number | undefined): number {
  *    exactly-once. Cursors carry the store epoch; reusing the same store across
  *    repository instances keeps old cursors valid, while a different epoch or a
  *    sequence beyond the journal head raises `CursorInvalidatedError`.
- * 2. Remote reconciliation queries `filter=updated >= <cursor seconds>` and
- *    `/tasks/deleted`, de-duplicating with the stored ETag / deletion marker.
- *    The `>=` query deliberately overlaps by one second; the journal sequence
- *    and ETag comparisons remove the overlap.
+ *    In a new epoch the first use of an owner (any read or append) seeds the
+ *    journal with a snapshot of every mapped task at its current version, so a
+ *    write after a restart cannot hide pre-existing mappings from a null resync
+ *    (FU-15).
+ * 2. Remote reconciliation queries `filter=updated >= <remote watermark>` and
+ *    `/tasks/deleted`, de-duplicating with the stored ETag, content fingerprint
+ *    / deletion marker. The watermark comes from the Vikunja scan (`max updated`
+ *    seen minus a one-second overlap), never from journal entry times, so a
+ *    skewed planner clock cannot step over an external edit. The journal
+ *    sequence removes the deliberate one-second overlap (FU-14/FU-16).
  */
 export class VikunjaTaskRepository implements TaskRepository {
   readonly capabilities: RepositoryCapabilities = CAPABILITIES;
@@ -154,6 +186,7 @@ export class VikunjaTaskRepository implements TaskRepository {
 
   async create(ownerId: Id, input: TaskCreate, _idemKey: string): Promise<Task> {
     void _idemKey;
+    await this.#ensureSnapshot(ownerId);
     const client = this.#requireClient(ownerId);
     const normalized = validateTaskCreate(input);
     const projectMapping = await this.#projectMappingForCreate(
@@ -198,6 +231,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       ownerId,
       ...(etag === null ? {} : { externalEtag: etag }),
       ...(remoteUpdatedAt === undefined ? {} : { externalUpdatedAt: remoteUpdatedAt }),
+      contentFingerprint: contentFingerprint(remote),
       ...(followUpFailed ? { needsReconcile: true } : {}),
       localVersion: 1 as Version,
       createdAt: now,
@@ -245,6 +279,7 @@ export class VikunjaTaskRepository implements TaskRepository {
   }
 
   async get(ownerId: Id, id: Id): Promise<Task | null> {
+    await this.#ensureSnapshot(ownerId);
     const client = this.#clientFor(ownerId);
     if (client === undefined) return null;
     let mapping = await this.#mappings.get('task', id);
@@ -271,6 +306,7 @@ export class VikunjaTaskRepository implements TaskRepository {
   }
 
   async list(ownerId: Id, query: TaskQuery): Promise<Page<Task>> {
+    await this.#ensureSnapshot(ownerId);
     const client = this.#clientFor(ownerId);
     if (client === undefined) return { items: [], nextCursor: null };
     const limit = normalizeLimit(query.limit);
@@ -361,6 +397,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     patch: TaskPatch,
     expectedVersion: Version,
   ): Promise<Task> {
+    await this.#ensureSnapshot(ownerId);
     const client = this.#requireClient(ownerId);
     let mapping = await this.#requireMapping(ownerId, 'task', id);
     if (mapping.needsReconcile === true || mapping.pendingCompletion !== undefined) {
@@ -374,11 +411,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     // (a) read the current ETag. The provider will not enforce a precondition
     // on write, so (a)-(c) is best-effort and there is a race window here.
     const current = await this.#requireRemoteTask(client, id, mapping.externalId);
-    if (
-      mapping.externalEtag !== undefined &&
-      current.etag !== null &&
-      current.etag !== mapping.externalEtag
-    ) {
+    if (this.#remoteChanged(mapping, current.data, current.etag)) {
       const reconciled = await this.#commitReconciled(
         ownerId,
         mapping,
@@ -473,6 +506,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       ...mapping,
       ...(latest.etag === null ? {} : { externalEtag: latest.etag }),
       ...(latestUpdatedAt === undefined ? {} : { externalUpdatedAt: latestUpdatedAt }),
+      contentFingerprint: contentFingerprint(latest.data),
       localVersion: (mapping.localVersion + 1) as Version,
       updatedAt: now,
       needsReconcile: false,
@@ -491,13 +525,20 @@ export class VikunjaTaskRepository implements TaskRepository {
    * while the returned task status/dueAt reflect the provider state (a reopened
    * recurring task therefore reads as `todo` with its next due date).
    *
+   * `completedOccurrenceAt` is the dueAt of the occurrence that was completed
+   * (`pendingCompletion.dueAtBefore`), not the wall-clock completion time. Only
+   * a task that had no due date falls back to the completion instant. The same
+   * rule applies when a lost response is reconciled later.
+   *
    * A completion intent is persisted on the mapping before the PATCH. If the
    * write response is lost, reconciliation compares the provider state (done or
-   * an advanced due date) and emits the completion record exactly once. A retry
-   * with the same expectedVersion therefore conflicts after reconciliation
-   * instead of completing the next occurrence.
+   * an advanced due date), emits the completion record exactly once and applies
+   * the same planner status the normal path would (done, or todo when Vikunja
+   * reopened a recurring task). A retry with the same expectedVersion therefore
+   * conflicts after reconciliation instead of completing the next occurrence.
    */
   async complete(ownerId: Id, id: Id, expectedVersion: Version): Promise<Task> {
+    await this.#ensureSnapshot(ownerId);
     const client = this.#requireClient(ownerId);
     let mapping = await this.#requireMapping(ownerId, 'task', id);
     if (mapping.needsReconcile === true || mapping.pendingCompletion !== undefined) {
@@ -515,11 +556,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     }
 
     const current = await this.#requireRemoteTask(client, id, mapping.externalId);
-    if (
-      mapping.externalEtag !== undefined &&
-      current.etag !== null &&
-      current.etag !== mapping.externalEtag
-    ) {
+    if (this.#remoteChanged(mapping, current.data, current.etag)) {
       const reconciled = await this.#commitReconciled(
         ownerId,
         mapping,
@@ -574,6 +611,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       ...base,
       ...(latest.etag === null ? {} : { externalEtag: latest.etag }),
       ...(latestUpdatedAt === undefined ? {} : { externalUpdatedAt: latestUpdatedAt }),
+      contentFingerprint: contentFingerprint(latest.data),
       localVersion: (mapping.localVersion + 1) as Version,
       updatedAt: now,
       needsReconcile: false,
@@ -583,12 +621,22 @@ export class VikunjaTaskRepository implements TaskRepository {
     const nextFields: PlannerTaskFields = { ...fields, status: nextStatus };
     await this.#mappings.put(updated);
     this.#plannerFields.putTask(id, nextFields);
-    await this.#appendJournal(ownerId, updated, updated.externalUpdatedAt ?? now, undefined, now);
+    // The completion record belongs to the occurrence that was due when the
+    // task was completed. Fall back to the completion time only when the task
+    // had no due date (FU-17).
+    await this.#appendJournal(
+      ownerId,
+      updated,
+      updated.externalUpdatedAt ?? now,
+      undefined,
+      dueAtBefore ?? now,
+    );
     const dependsOn = await this.#remoteDependencies(ownerId, latest.data);
     return this.#toTask(ownerId, updated, latest.data, nextFields, dependsOn);
   }
 
   async softDelete(ownerId: Id, id: Id, expectedVersion: Version): Promise<void> {
+    await this.#ensureSnapshot(ownerId);
     const client = this.#requireClient(ownerId);
     let mapping = await this.#requireMapping(ownerId, 'task', id);
     if (mapping.needsReconcile === true || mapping.pendingCompletion !== undefined) {
@@ -599,11 +647,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       throw new VersionConflictError(expectedVersion, mapping.localVersion);
     }
     const current = await this.#requireRemoteTask(client, id, mapping.externalId);
-    if (
-      mapping.externalEtag !== undefined &&
-      current.etag !== null &&
-      current.etag !== mapping.externalEtag
-    ) {
+    if (this.#remoteChanged(mapping, current.data, current.etag)) {
       const reconciled = await this.#commitReconciled(
         ownerId,
         mapping,
@@ -646,7 +690,6 @@ export class VikunjaTaskRepository implements TaskRepository {
       throw error;
     }
     const ownerKey = String(ownerId);
-    const hadHistory = (await this.#journal.head(ownerId)) > 0;
     let baseline: ChangeCursor;
     if (cursor === null) {
       // Full resync: read the whole retained journal for this owner.
@@ -671,36 +714,18 @@ export class VikunjaTaskRepository implements TaskRepository {
       baseline = decoded;
     }
 
-    if (cursor === null && !hadHistory) {
-      // A fresh journal with preserved mappings must still produce a complete
-      // snapshot; remote reconciliation alone would skip unchanged ETags and
-      // silently drop every existing task.
-      for (const mapping of await this.#mappings.listByOwner(ownerId)) {
-        if (mapping.entityType !== 'task' || mapping.deletedAt === undefined) {
-          continue;
-        }
-        await this.#appendJournal(
-          ownerId,
-          mapping,
-          mapping.externalUpdatedAt ?? mapping.updatedAt,
-          mapping.deletedAt,
-        );
-      }
-      for (const mapping of await this.#mappings.listByOwner(ownerId)) {
-        if (mapping.entityType !== 'task' || mapping.deletedAt !== undefined) {
-          continue;
-        }
-        await this.#appendJournal(
-          ownerId,
-          mapping,
-          mapping.externalUpdatedAt ?? mapping.updatedAt,
-        );
-      }
-    }
+    // FU-15: seed the epoch from the mappings before serving any journal
+    // entry, whether this is a full resync or an incremental read.
+    await this.#ensureSnapshot(ownerId);
 
     const client = this.#clientFor(ownerId);
+    let remoteSeconds = baseline.remoteSeconds;
     if (client !== undefined) {
-      await this.#reconcileRemote(ownerId, client, baseline.seconds);
+      remoteSeconds = await this.#reconcileRemote(
+        ownerId,
+        client,
+        baseline.remoteSeconds,
+      );
     }
 
     const entries = await this.#journal.readAfter(ownerId, baseline.sequence);
@@ -715,9 +740,10 @@ export class VikunjaTaskRepository implements TaskRepository {
     const last = entries[entries.length - 1];
     const nextCursor: ChangeCursor =
       last === undefined
-        ? baseline
+        ? { ...baseline, remoteSeconds, epoch, owner: ownerKey }
         : {
             seconds: epochSeconds(last.at),
+            remoteSeconds,
             externalId: last.externalId,
             sequence: last.sequence,
             epoch,
@@ -995,6 +1021,28 @@ export class VikunjaTaskRepository implements TaskRepository {
     return this.#commitReconciled(ownerId, mapping, current.data, current.etag);
   }
 
+  /**
+   * True when the provider content no longer matches what the mapping recorded.
+   * The ETag is authoritative when both sides have one; the content fingerprint
+   * catches same-second writes that reuse an ETag. A missing local baseline is
+   * treated as unknown so the first reconciliation after a failed create
+   * follow-up adopts the observed ETag without inventing a version bump.
+   */
+  #remoteChanged(
+    mapping: ExternalMapping,
+    remote: VikunjaTask,
+    etag: string | null,
+  ): boolean {
+    const etagChanged =
+      mapping.externalEtag !== undefined &&
+      etag !== null &&
+      etag !== mapping.externalEtag;
+    const fingerprintChanged =
+      mapping.contentFingerprint !== undefined &&
+      mapping.contentFingerprint !== contentFingerprint(remote);
+    return etagChanged || fingerprintChanged;
+  }
+
   async #commitReconciled(
     ownerId: Id,
     mapping: ExternalMapping,
@@ -1010,25 +1058,44 @@ export class VikunjaTaskRepository implements TaskRepository {
         (pending.dueAtBefore !== undefined &&
           remoteDueAt !== undefined &&
           Date.parse(remoteDueAt) > Date.parse(pending.dueAtBefore)));
-    const etagChanged = etag !== null && mapping.externalEtag !== etag;
+    const fingerprint = contentFingerprint(remote);
+    const etagChanged =
+      mapping.externalEtag !== undefined &&
+      etag !== null &&
+      etag !== mapping.externalEtag;
     const updatedChanged =
+      mapping.externalUpdatedAt !== undefined &&
       etag === null &&
       updatedAt !== undefined &&
       mapping.externalUpdatedAt !== updatedAt;
-    const changed = etagChanged || updatedChanged || completed;
+    const fingerprintChanged =
+      mapping.contentFingerprint !== undefined &&
+      mapping.contentFingerprint !== fingerprint;
+    const changed = etagChanged || updatedChanged || completed || fingerprintChanged;
     const now = this.#clock.now();
 
     if (!changed) {
       // Settle an unknown-outcome intent or a reconcile marker without
-      // inventing a version when the provider state did not change.
-      const cleared: ExternalMapping = {
+      // inventing a version when the provider state did not change. Adopting
+      // the first observed ETag/updated/fingerprint keeps a failed create
+      // follow-up from looking changed forever (FU-17).
+      const settled: ExternalMapping = {
         ...withoutPending(mapping),
+        ...(etag === null ? {} : { externalEtag: etag }),
+        ...(updatedAt === undefined ? {} : { externalUpdatedAt: updatedAt }),
+        contentFingerprint: fingerprint,
         needsReconcile: false,
       };
-      if (mapping.needsReconcile === true || mapping.pendingCompletion !== undefined) {
-        await this.#mappings.put(cleared);
+      if (
+        mapping.needsReconcile === true ||
+        mapping.pendingCompletion !== undefined ||
+        mapping.externalEtag !== settled.externalEtag ||
+        mapping.externalUpdatedAt !== settled.externalUpdatedAt ||
+        mapping.contentFingerprint !== fingerprint
+      ) {
+        await this.#mappings.put(settled);
       }
-      return cleared;
+      return settled;
     }
 
     const base = withoutPending(mapping);
@@ -1036,33 +1103,65 @@ export class VikunjaTaskRepository implements TaskRepository {
       ...base,
       ...(etag === null ? {} : { externalEtag: etag }),
       ...(updatedAt === undefined ? {} : { externalUpdatedAt: updatedAt }),
+      contentFingerprint: fingerprint,
       localVersion: (mapping.localVersion + 1) as Version,
       updatedAt: now,
       needsReconcile: false,
     };
     await this.#mappings.put(updated);
+    if (completed) {
+      // A reconciled recurring completion must leave the same planner status
+      // as the normal completion path: done when the provider stays done, todo
+      // when it reopened the next occurrence (FU-17).
+      const fields =
+        this.#plannerFields.getTask(mapping.entityId) ?? defaultPlannerTaskFields();
+      this.#plannerFields.putTask(mapping.entityId, {
+        ...fields,
+        status: remote.done === true ? 'done' : 'todo',
+      });
+    }
     await this.#appendJournal(
       ownerId,
       updated,
       updatedAt ?? now,
       undefined,
-      completed ? pending.at : undefined,
+      // The completion belongs to the occurrence that was due when the intent
+      // was staged. Fall back to the completion time only when the task had no
+      // due date (FU-17).
+      completed ? (pending.dueAtBefore ?? pending.at) : undefined,
     );
     return updated;
   }
 
+  /**
+   * Returns the remote watermark for the next poll. It is derived only from
+   * what the Vikunja scan observed (`max updated` minus the one-second
+   * overlap), so planner-clock skew in journal entry times cannot move the
+   * incremental feed past an external edit (FU-14). When the scan observed
+   * nothing newer than the previous watermark, the watermark is unchanged.
+   */
   async #reconcileRemote(
     ownerId: Id,
     client: VikunjaClient,
     fromSeconds: number,
-  ): Promise<void> {
+  ): Promise<number> {
     const fromInstant = epochMsToInstant(Math.max(0, fromSeconds) * 1000);
     const live = await client.listAllTasks({
       filter: `updated >= "${fromInstant}"`,
       sort_by: 'updated',
       order_by: 'asc',
     });
+    let maxUpdatedSeconds = fromSeconds;
+    let observedNewer = false;
     for (const candidate of live) {
+      const candidateUpdatedAt = normalizeRemoteInstant(candidate.updated);
+      if (candidateUpdatedAt !== undefined) {
+        const candidateSeconds = epochSeconds(candidateUpdatedAt);
+        if (candidateSeconds > maxUpdatedSeconds) {
+          maxUpdatedSeconds = candidateSeconds;
+          observedNewer = true;
+        }
+      }
       const mapping = await this.#mappings.getByExternal(
         'vikunja',
         'task',
@@ -1087,9 +1186,13 @@ export class VikunjaTaskRepository implements TaskRepository {
         current.etag !== null && mapping.externalEtag === current.etag;
       const updatedSame =
         updatedAt !== undefined && mapping.externalUpdatedAt === updatedAt;
+      const fingerprintSame =
+        mapping.contentFingerprint === undefined ||
+        mapping.contentFingerprint === contentFingerprint(current.data);
       if (
         mapping.needsReconcile !== true &&
         mapping.pendingCompletion === undefined &&
+        fingerprintSame &&
         (etagSame || (current.etag === null && updatedSame))
       ) {
         continue;
@@ -1123,6 +1226,43 @@ export class VikunjaTaskRepository implements TaskRepository {
       await this.#mappings.put(updated);
       await this.#appendJournal(ownerId, updated, deletedAt, deletedAt);
     }
+
+    if (!observedNewer) return fromSeconds;
+    return Math.max(0, maxUpdatedSeconds - REMOTE_OVERLAP_SECONDS);
+  }
+
+  /**
+   * FU-15/FU-17: the first use of an owner in a journal epoch emits a snapshot
+   * of every mapped task at its current `localVersion`, before any read result
+   * or new append is observed. A null resync alone is not enough: a normal
+   * write after a restart makes the journal non-empty and would otherwise hide
+   * the mappings that predate it. `appendSnapshotOnce` makes concurrent first
+   * uses emit it exactly once.
+   */
+  async #ensureSnapshot(ownerId: Id): Promise<void> {
+    if (await this.#journal.hasSnapshot(ownerId)) return;
+    const mappings = await this.#mappings.listByOwner(ownerId);
+    const entries: JournalAppend[] = [];
+    for (const mapping of mappings) {
+      if (mapping.entityType !== 'task' || mapping.deletedAt === undefined) continue;
+      entries.push(this.#snapshotEntry(mapping, mapping.deletedAt));
+    }
+    for (const mapping of mappings) {
+      if (mapping.entityType !== 'task' || mapping.deletedAt !== undefined) continue;
+      entries.push(this.#snapshotEntry(mapping));
+    }
+    await this.#journal.appendSnapshotOnce(ownerId, entries);
+  }
+
+  #snapshotEntry(mapping: ExternalMapping, deletedAt?: Instant): JournalAppend {
+    return {
+      ownerId: mapping.ownerId,
+      taskId: mapping.entityId,
+      externalId: mapping.externalId,
+      version: mapping.localVersion,
+      at: mapping.externalUpdatedAt ?? mapping.updatedAt,
+      ...(deletedAt === undefined ? {} : { deletedAt }),
+    };
   }
 }
 
