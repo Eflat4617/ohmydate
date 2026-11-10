@@ -68,6 +68,18 @@
 
 **승인 원자성:** 단일 PG 트랜잭션: (1) `SELECT … FOR UPDATE` user availability_version (2) 최신 commitments/locked로 validator 재실행 (3) 이전 active version 블록 `superseded` (4) 새 blocks insert(EXCLUDE 제약) (5) schedule_approval(idempotency_key unique) (6) outbox `plan.approved`. 하나라도 실패 시 롤백.
 
+### 2.4a 가용 시간·약속 (M3, 2026-11-11 추가)
+| 메서드 경로 | 설명 |
+|---|---|
+| GET /availability | `{version, timeZone, rules[{weekday,startLocal,endLocal,kind}], exceptions[{date,kind,startLocal?,endLocal?}], prefs{maxDailyFocusMin,breakAfterMin,breakMin,dayStartLocal,dayEndLocal,riskLevel}}` + `ETag: W/"availability:<version>"` |
+| PUT /availability | 전체 교체, `If-Match: W/"availability:<n>"`(누락 428/불일치 412), Idem. 성공 시 `availability_version` +1(사용자 단위 단조 증가) |
+| GET /commitments?from&to&cursor | 고정 약속(반복 포함, `rrule?` + IANA tz). 응답에 기간 내 **전개된 발생** `occurrences[]` 포함 |
+| POST /commitments | 201, Idem. 생성·변경·삭제 모두 `availability_version` +1 (승인 412 판정에 쓰임) |
+| PATCH /commitments/{id} · DELETE /commitments/{id} | If-Match(약속 version) + Idem |
+- 시간 규칙: rule/exception은 로컬 벽시계(사용자 tz), commitment는 Instant + tz(반복은 해당 tz 벽시계 기준 전개). 전개 상한: 조회 기간 ≤ 366일, 발생 ≤ 2,000건(초과 시 422 `validation_failed`).
+- 입력 상한(스케줄러 계약과 일치): 분 값은 정수 0..100000, horizon ≤ 366일(`MAX_HORIZON_DAYS`).
+- Plan(§2.4) 생성 시 서버가 위 데이터 + 승인된 활성 블록(locked/history)으로 `ScheduleInput`을 조립한다. 클라이언트는 ScheduleInput을 직접 보내지 않는다.
+
 ### 2.5 Today/Session (M4)
 | 메서드 경로 | 설명 |
 |---|---|
