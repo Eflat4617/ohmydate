@@ -1,10 +1,14 @@
 import pg from 'pg';
 import {
+  DEFAULT_PG_QUERY_TIMEOUT_MS,
+  DEFAULT_PG_STATEMENT_TIMEOUT_MS,
   POOL_CONNECTION_TIMEOUT_MS,
   attachPoolErrorHandler,
   createDatabasePool,
   createShutdownController,
   parsePort,
+  pgClientErrorDetails,
+  pgTimeouts,
 } from '../src/main.js';
 import { databaseUrl, hasDatabase } from './support/test-context.js';
 
@@ -14,17 +18,84 @@ function fakeLogger() {
   return { info: vi.fn(), error: vi.fn() };
 }
 
+interface PoolOptions {
+  readonly connectionTimeoutMillis?: number;
+  readonly keepAlive?: boolean;
+  readonly statement_timeout?: number;
+  readonly query_timeout?: number;
+}
+
+function poolOptions(pool: pg.Pool): PoolOptions {
+  return (pool as unknown as { options: PoolOptions }).options;
+}
+
 describe('main pool hardening', () => {
-  test('the production pool sets connectionTimeoutMillis', async () => {
-    const pool = createDatabasePool('postgres://ohmydate@127.0.0.1:55432/planner_test');
+  test('the production pool sets connection, keepalive and query bounds', async () => {
+    const pool = createDatabasePool('postgres://ohmydate@127.0.0.1:55432/planner_test', {});
     try {
-      const options = (pool as unknown as { options: { connectionTimeoutMillis?: number } })
-        .options;
+      const options = poolOptions(pool);
       expect(options.connectionTimeoutMillis).toBe(POOL_CONNECTION_TIMEOUT_MS);
       expect(POOL_CONNECTION_TIMEOUT_MS).toBeGreaterThan(0);
+      expect(options.keepAlive).toBe(true);
+      expect(options.statement_timeout).toBe(DEFAULT_PG_STATEMENT_TIMEOUT_MS);
+      expect(options.query_timeout).toBe(DEFAULT_PG_QUERY_TIMEOUT_MS);
+      expect(DEFAULT_PG_STATEMENT_TIMEOUT_MS).toBeGreaterThan(0);
+      expect(DEFAULT_PG_QUERY_TIMEOUT_MS).toBeGreaterThan(0);
     } finally {
       await pool.end();
     }
+  });
+
+  test('the pool timeouts are configurable through the environment', async () => {
+    const pool = createDatabasePool('postgres://ohmydate@127.0.0.1:55432/planner_test', {
+      PG_STATEMENT_TIMEOUT_MS: '7000',
+      PG_QUERY_TIMEOUT_MS: '4000',
+    });
+    try {
+      const options = poolOptions(pool);
+      expect(options.statement_timeout).toBe(7_000);
+      expect(options.query_timeout).toBe(4_000);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  test('rejects non-positive pool timeouts', () => {
+    expect(() => pgTimeouts({ PG_STATEMENT_TIMEOUT_MS: '0' })).toThrow(
+      'PG_STATEMENT_TIMEOUT_MS must be a positive integer',
+    );
+    expect(() => pgTimeouts({ PG_QUERY_TIMEOUT_MS: '-1' })).toThrow(
+      'PG_QUERY_TIMEOUT_MS must be a positive integer',
+    );
+  });
+
+  test('pgClientErrorDetails copies only code and message', () => {
+    const error = Object.assign(new Error('connection reset'), {
+      code: 'ECONNRESET',
+      query: 'select secret from notes',
+      parameters: ['secret'],
+    });
+    expect(pgClientErrorDetails(error)).toEqual({
+      code: 'ECONNRESET',
+      message: 'connection reset',
+    });
+  });
+
+  describe.skipIf(!hasDatabase)('checked-out client listener', () => {
+    test('a checked-out client keeps its own error listener', async () => {
+      const pool = createDatabasePool(databaseUrl as string, {});
+      attachPoolErrorHandler(pool, () => undefined);
+      const client = await pool.connect();
+      try {
+        // pg-pool removes its idle listener while the client is checked out;
+        // without the connect listener this count is zero and a socket drop
+        // crashes the process (mutation-sensitive assertion).
+        expect(client.listenerCount('error')).toBeGreaterThan(0);
+      } finally {
+        client.release();
+        await pool.end();
+      }
+    });
   });
 
   describe.skipIf(!hasDatabase)('idle backend termination', () => {

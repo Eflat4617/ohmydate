@@ -104,6 +104,47 @@ export function defaultLoggerOptions(config: AppConfig): LoggerOption {
 /** /readyz must never hang on a database that accepts TCP but never answers. */
 export const READYZ_DB_TIMEOUT_MS = 2_500;
 
+/**
+ * A slow or stalled client must not keep its socket open through shutdown.
+ * Both Node/Fastify timeouts are below SHUTDOWN_DEADLINE_MS (15 s) and
+ * configurable for deployments that need a longer request body window.
+ */
+export const DEFAULT_HTTP_REQUEST_TIMEOUT_MS = 10_000;
+export const DEFAULT_HTTP_CONNECTION_TIMEOUT_MS = 10_000;
+export const HTTP_REQUEST_TIMEOUT_ENV = 'HTTP_REQUEST_TIMEOUT_MS';
+export const HTTP_CONNECTION_TIMEOUT_ENV = 'HTTP_CONNECTION_TIMEOUT_MS';
+
+function parseHttpTimeout(
+  raw: string | undefined,
+  name: string,
+  fallback: number,
+): number {
+  if (raw === undefined || raw.length === 0) return fallback;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+export function httpTimeouts(env: NodeJS.ProcessEnv = process.env): {
+  readonly requestTimeoutMs: number;
+  readonly connectionTimeoutMs: number;
+} {
+  return {
+    requestTimeoutMs: parseHttpTimeout(
+      env[HTTP_REQUEST_TIMEOUT_ENV],
+      HTTP_REQUEST_TIMEOUT_ENV,
+      DEFAULT_HTTP_REQUEST_TIMEOUT_MS,
+    ),
+    connectionTimeoutMs: parseHttpTimeout(
+      env[HTTP_CONNECTION_TIMEOUT_ENV],
+      HTTP_CONNECTION_TIMEOUT_ENV,
+      DEFAULT_HTTP_CONNECTION_TIMEOUT_MS,
+    ),
+  };
+}
+
 async function databaseReady(
   db: Kysely<Database>,
   timeoutMs: number = READYZ_DB_TIMEOUT_MS,
@@ -165,8 +206,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     options.loggerInstance === undefined
       ? { logger: options.logger ?? defaultLoggerOptions(config) }
       : { loggerInstance: options.loggerInstance };
+  const { requestTimeoutMs, connectionTimeoutMs } = httpTimeouts();
   const app = Fastify({
     ...logging,
+    requestTimeout: requestTimeoutMs,
+    connectionTimeout: connectionTimeoutMs,
     trustProxy: config.trustProxy as NonNullable<FastifyServerOptions['trustProxy']>,
     ajv: {
       plugins: [

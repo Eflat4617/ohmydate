@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createUuidV7Generator, epochMsToInstant } from '@ohmydate/domain';
 import type { FastifyInstance } from 'fastify';
 import { Kysely, PostgresDialect } from 'kysely';
@@ -17,6 +17,16 @@ const { Pool } = pg;
  * of the API's queries (FU-30R finding).
  */
 export const POOL_CONNECTION_TIMEOUT_MS = 5_000;
+
+/**
+ * An abandoned query (for example /readyz racing its own deadline) must not
+ * pin its pooled client forever. Both bounds are configurable because a
+ * report export may legitimately run longer than a health probe.
+ */
+export const DEFAULT_PG_STATEMENT_TIMEOUT_MS = 10_000;
+export const DEFAULT_PG_QUERY_TIMEOUT_MS = 10_000;
+export const PG_STATEMENT_TIMEOUT_ENV = 'PG_STATEMENT_TIMEOUT_MS';
+export const PG_QUERY_TIMEOUT_ENV = 'PG_QUERY_TIMEOUT_MS';
 
 /** Hard stop for graceful shutdown. Exceeding it exits non-zero. */
 export const SHUTDOWN_DEADLINE_MS = 15_000;
@@ -43,20 +53,81 @@ export function parsePort(raw: string | undefined): number {
   return port;
 }
 
-export function createDatabasePool(databaseUrl: string): pg.Pool {
+function parsePositiveTimeout(raw: string | undefined, name: string, fallback: number): number {
+  if (raw === undefined || raw.length === 0) return fallback;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+export function pgTimeouts(env: NodeJS.ProcessEnv = process.env): {
+  readonly statementTimeoutMs: number;
+  readonly queryTimeoutMs: number;
+} {
+  return {
+    statementTimeoutMs: parsePositiveTimeout(
+      env[PG_STATEMENT_TIMEOUT_ENV],
+      PG_STATEMENT_TIMEOUT_ENV,
+      DEFAULT_PG_STATEMENT_TIMEOUT_MS,
+    ),
+    queryTimeoutMs: parsePositiveTimeout(
+      env[PG_QUERY_TIMEOUT_ENV],
+      PG_QUERY_TIMEOUT_ENV,
+      DEFAULT_PG_QUERY_TIMEOUT_MS,
+    ),
+  };
+}
+
+export function createDatabasePool(
+  databaseUrl: string,
+  env: NodeJS.ProcessEnv = process.env,
+): pg.Pool {
+  const { statementTimeoutMs, queryTimeoutMs } = pgTimeouts(env);
   return new Pool({
     connectionString: databaseUrl,
     connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
+    keepAlive: true,
+    statement_timeout: statementTimeoutMs,
+    query_timeout: queryTimeoutMs,
   });
+}
+
+export interface PgClientErrorDetails {
+  readonly code: string | undefined;
+  readonly message: string;
+}
+
+/**
+ * Structured logs must never carry SQL text or parameters. pg's errors do not
+ * normally include either, but only the code and message are copied so an
+ * adapter cannot leak extra context by attaching it to the error object.
+ */
+export function pgClientErrorDetails(error: Error): PgClientErrorDetails {
+  const code = (error as { code?: unknown }).code;
+  return {
+    code: typeof code === 'string' ? code : undefined,
+    message: error.message,
+  };
 }
 
 /**
  * PostgreSQL emits `error` on the pool when it terminates an idle backend
  * (database restart, failover, idle_session_timeout). Without a listener that
  * event is unhandled and kills the process (FU-30R [MEDIUM]).
+ *
+ * pg-pool only keeps its own `error` listener on idle clients: `_acquireClient`
+ * removes it while a client is checked out. A checked-out socket that dies
+ * without a PostgreSQL FATAL (failover, reset, frozen network path) therefore
+ * has no listener and crashes the process (FU-35R finding 1). A `connect`
+ * listener stays attached for the client's whole life, checkout included.
  */
 export function attachPoolErrorHandler(pool: pg.Pool, onError: (error: Error) => void): void {
   pool.on('error', onError);
+  pool.on('connect', (client) => {
+    client.on('error', onError);
+  });
 }
 
 export interface ShutdownLogger {
@@ -128,10 +199,33 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
   };
 }
 
-function isDirectEntrypoint(): boolean {
-  const entry = process.argv[1];
+/**
+ * `node dist/main` and a symlinked release directory (`/app/current`) must
+ * boot too, not exit 0 silently. Node sets argv[1] to the literal path given,
+ * so resolve both it (plus Node's implicit `.js` extension) and this module
+ * through realpath before comparing (FU-35R finding 2).
+ */
+export function isDirectEntrypoint(
+  entry: string | undefined = process.argv[1],
+  moduleUrl: string = import.meta.url,
+  realpath: (path: string) => string = realpathSync,
+): boolean {
   if (entry === undefined) return false;
-  return import.meta.url === pathToFileURL(resolve(entry)).href;
+  const modulePath = realpathIdentity(realpath, fileURLToPath(moduleUrl));
+  if (modulePath === null) return false;
+  for (const candidate of [entry, `${entry}.js`]) {
+    const resolved = realpathIdentity(realpath, candidate);
+    if (resolved !== null && resolved === modulePath) return true;
+  }
+  return false;
+}
+
+function realpathIdentity(realpath: (path: string) => string, path: string): string | null {
+  try {
+    return realpath(path);
+  } catch {
+    return null;
+  }
 }
 
 export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> {
@@ -157,12 +251,16 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
   });
 
   const poolErrorReport: { report: (error: Error) => void } = {
-    report: (error) => process.stderr.write(`idle pg client error: ${error.message}\n`),
+    report: (error) => {
+      const { code, message } = pgClientErrorDetails(error);
+      process.stderr.write(`pg client error: ${code ?? 'no-code'} ${message}\n`);
+    },
   };
   attachPoolErrorHandler(pool, (error) => poolErrorReport.report(error));
 
   const app: FastifyInstance = await buildApp({ config, clock, ids, db });
-  poolErrorReport.report = (error) => app.log.warn({ err: error }, 'idle pg client error');
+  poolErrorReport.report = (error) =>
+    app.log.warn(pgClientErrorDetails(error), 'pg client error');
 
   const shutdown = createShutdownController({
     logger: {

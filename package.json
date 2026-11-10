@@ -14,7 +14,8 @@
     "check:api-client": "pnpm --filter @ohmydate/web gen:api && git diff --exit-code apps/web/src/api/schema.d.ts",
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "e2e": "playwright test -c e2e/playwright.config.ts",
-    "ci": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:api-client && pnpm run check:boundaries"
+    "smoke:build": "node scripts/ci/build-smoke.mjs",
+    "ci": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:api-client && pnpm run check:boundaries && pnpm run smoke:build"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.0",

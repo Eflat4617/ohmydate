@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
@@ -280,10 +281,32 @@ export async function rollbackLatest(options: MigrateOptions): Promise<string | 
   }
 }
 
-function isEntryPoint(): boolean {
-  const entry = process.argv[1];
+function realpathIdentity(realpath: (path: string) => string, path: string): string | null {
+  try {
+    return realpath(path);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The migration CLI must also run as `node dist/db/migrate` and through a
+ * symlinked release directory. Comparing `resolve(argv[1])` silently exited 0
+ * for both (FU-35R finding 2).
+ */
+export function isEntryPoint(
+  entry: string | undefined = process.argv[1],
+  moduleUrl: string = import.meta.url,
+  realpath: (path: string) => string = realpathSync,
+): boolean {
   if (entry === undefined) return false;
-  return resolve(entry) === fileURLToPath(import.meta.url);
+  const modulePath = realpathIdentity(realpath, fileURLToPath(moduleUrl));
+  if (modulePath === null) return false;
+  for (const candidate of [entry, `${entry}.js`]) {
+    const resolved = realpathIdentity(realpath, candidate);
+    if (resolved !== null && resolved === modulePath) return true;
+  }
+  return false;
 }
 
 async function runCli(): Promise<void> {
