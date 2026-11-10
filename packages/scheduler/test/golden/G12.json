@@ -1,0 +1,54 @@
+{
+  "id": "G12",
+  "description": "Running the same input and seed twice produces byte-identical slots.",
+  "input": {
+    "now": "2026-11-09T00:00:00Z",
+    "timeZone": "Asia/Seoul",
+    "horizon": {
+      "start": "2026-11-09T00:00:00Z",
+      "end": "2026-11-16T00:00:00Z"
+    },
+    "tasks": [
+      {
+        "id": "A",
+        "dueAt": "2026-11-15T08:00:00Z",
+        "estimate": { "p50Min": 60, "p90Min": 60 },
+        "splittable": true,
+        "minSessionMin": 30,
+        "maxSessionMin": 120,
+        "priority": 2,
+        "dependsOn": []
+      }
+    ],
+    "availability": [
+      { "weekday": 6, "startLocal": "09:00", "endLocal": "17:00", "kind": "work" },
+      { "weekday": 7, "startLocal": "09:00", "endLocal": "17:00", "kind": "work" }
+    ],
+    "exceptions": [],
+    "commitments": [],
+    "lockedBlocks": [],
+    "prefs": {
+      "maxDailyFocusMin": 480,
+      "breakAfterMin": 480,
+      "breakMin": 15,
+      "riskLevel": "p50",
+      "dayStartLocal": "00:00",
+      "dayEndLocal": "24:00"
+    },
+    "seed": 12
+  },
+  "candidateBlocks": {
+    "valid": [
+      { "taskId": "A", "start": "2026-11-14T00:00:00Z", "end": "2026-11-14T01:00:00Z" }
+    ],
+    "invalid": [
+      { "taskId": "A", "start": "2026-11-13T00:00:00Z", "end": "2026-11-13T01:00:00Z" }
+    ]
+  },
+  "expected": {
+    "slotTotalMin": 960,
+    "slotIntervalCount": 2,
+    "validViolationCodes": [],
+    "invalidViolationCodes": ["H2"]
+  }
+}

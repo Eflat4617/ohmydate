@@ -4,6 +4,7 @@ import { defineStore } from 'pinia';
 export const useUiStore = defineStore('ui', () => {
   const helpOpen = ref(false);
   const searchOpen = ref(false);
+  const conflictOpen = ref(false);
   const newTaskRequest = ref(0);
 
   function openHelp(): void {
@@ -21,9 +22,23 @@ export const useUiStore = defineStore('ui', () => {
     searchOpen.value = false;
   }
 
+  function setConflictOpen(open: boolean): void {
+    conflictOpen.value = open;
+  }
+
   function requestNewTask(): void {
     newTaskRequest.value += 1;
   }
 
-  return { helpOpen, searchOpen, newTaskRequest, openHelp, openSearch, closeDialogs, requestNewTask };
+  return {
+    helpOpen,
+    searchOpen,
+    conflictOpen,
+    newTaskRequest,
+    openHelp,
+    openSearch,
+    closeDialogs,
+    setConflictOpen,
+    requestNewTask,
+  };
 });

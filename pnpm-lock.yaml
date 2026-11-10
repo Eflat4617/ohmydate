@@ -281,9 +281,28 @@ importers:
         specifier: 5.1.0
         version: 5.1.0(@types/node@24.19.2)(jsdom@27.4.0(supports-color@10.2.2))(msw@3.0.4(@types/node@24.19.2)(supports-color@10.2.2)(typescript@6.0.3)(vite@7.3.8(@types/node@24.19.2)(tsx@4.23.15)))(vite@7.3.8(@types/node@24.19.2)(tsx@4.23.15))
 
-  packages/provider-vikunja: {}
+  packages/provider-vikunja:
+    dependencies:
+      '@ohmydate/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      '@ohmydate/testkit':
+        specifier: workspace:*
+        version: link:../testkit
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@types/node@24.19.2)(jsdom@27.4.0(supports-color@10.2.2))(msw@3.0.4(@types/node@24.19.2)(supports-color@10.2.2)(typescript@6.0.3)(vite@7.3.8(@types/node@24.19.2)(tsx@4.23.15)))(vite@7.3.8(@types/node@24.19.2)(tsx@4.23.15))
 
-  packages/scheduler: {}
+  packages/scheduler:
+    dependencies:
+      temporal-polyfill:
+        specifier: 1.0.8
+        version: 1.0.8
+    devDependencies:
+      fast-check:
+        specifier: 4.10.2
+        version: 4.10.2
 
   packages/testkit:
     dependencies:
@@ -1747,6 +1766,15 @@ packages:
   tagged-tag@1.0.0:
     resolution: {integrity: sha512-yEFYrVhod+hdNyx7g5Bnkkb0G6si8HJurOoOEgC8B/O0uXLHlaey/65KRv6cuWBNhBgHKAROVpc7QyYqE5gFng==}
     engines: {node: '>=20'}
+
+  temporal-polyfill@1.0.8:
+    resolution: {integrity: sha512-RCCGa0GddT099XG49ijdD0tDf86L8vfuZun1+JyJiO4Y2NP9PACQsG0OnvNPXwVLisdvhr/zqL2nhKQmXXx08A==}
+
+  temporal-spec@1.0.1:
+    resolution: {integrity: sha512-wxVoanmDeavXie1vu2JaQ3WIc3JZnWAOYFBsJyATaVsXsycKYUflGsyBmrRSnoCpZJpwPyr38VpgSUlQ8CbFxg==}
+
+  temporal-utils@1.0.4:
+    resolution: {integrity: sha512-4mAcgbWlaxe+gn23gk8g0iHxCVGVOhKzSCfF5HM3lfvH8BdT+/pBmH/R/E4CrIse+koUgs8ThkPzCLnui6Fi8w==}
 
   tinybench@6.2.3:
     resolution: {integrity: sha512-Al01C2JIBnO2CXCAPbpAl6sUiOZHeThGtHYNTa51JRw9PyWOCdr+9Ong05R4qg/Sk3+H645E8ov1h2c58ityNw==}
@@ -3432,6 +3460,15 @@ snapshots:
   symbol-tree@3.2.4: {}
 
   tagged-tag@1.0.0: {}
+
+  temporal-polyfill@1.0.8:
+    dependencies:
+      temporal-spec: 1.0.1
+      temporal-utils: 1.0.4
+
+  temporal-spec@1.0.1: {}
+
+  temporal-utils@1.0.4: {}
 
   tinybench@6.2.3: {}
 

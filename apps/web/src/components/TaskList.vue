@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { ActionStore, plannerClient, type Task } from '../api';
 import { useTaskActions } from '../composables/useTaskActions';
 import { useOfflineStore } from '../stores/offline';
 import { useToastStore } from '../stores/toast';
+import { useUiStore } from '../stores/ui';
 import ConflictDialog from './ConflictDialog.vue';
 import TaskItem from './TaskItem.vue';
 
@@ -15,10 +16,21 @@ const emit = defineEmits<{ refresh: [] }>();
 
 const offline = useOfflineStore();
 const toast = useToastStore();
+const ui = useUiStore();
 const { conflict, error, busy, rename, complete, remove, overwrite, reload, dismissConflict, discard } =
   useTaskActions(plannerClient, new ActionStore(), () => offline.online && !props.disabled);
 
 const interactiveDisabled = computed(() => props.disabled || !offline.online);
+
+watch(
+  () => conflict.value !== null,
+  (open) => ui.setConflictOpen(open),
+  { immediate: true },
+);
+
+onUnmounted(() => {
+  ui.setConflictOpen(false);
+});
 
 const editingId = ref<string | null>(null);
 const draft = ref('');
@@ -145,8 +157,13 @@ watch(
 
 async function onOverwrite(): Promise<void> {
   if (interactiveDisabled.value) return;
+  const current = conflict.value;
+  const currentDraft =
+    current !== null && current.operation === 'rename' && editingId.value === current.taskId
+      ? draft.value
+      : null;
   try {
-    await overwrite();
+    await overwrite(currentDraft);
     if (conflict.value === null) {
       cancelEdit();
       emit('refresh');
@@ -164,7 +181,7 @@ async function onReload(): Promise<void> {
       emit('refresh');
     }
   } catch {
-    // `error` already carries a user-facing message.
+    toast.show('Could not reload the server version. Please try again.', { tone: 'error' });
   }
 }
 
@@ -185,7 +202,7 @@ function onCancelConflict(): void {
         v-for="task in visibleTasks"
         :key="task.id"
         :task="task"
-        :disabled="interactiveDisabled"
+        :disabled="interactiveDisabled || conflict !== null"
         :pending="busy"
         :editing="editingId === task.id"
         :draft="draft"

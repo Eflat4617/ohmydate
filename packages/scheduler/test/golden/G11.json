@@ -1,0 +1,64 @@
+{
+  "id": "G11",
+  "description": "A full-day holiday off exception removes the whole local day.",
+  "input": {
+    "now": "2026-11-09T00:00:00Z",
+    "timeZone": "Asia/Seoul",
+    "horizon": {
+      "start": "2026-11-09T00:00:00Z",
+      "end": "2026-11-10T00:00:00Z"
+    },
+    "tasks": [
+      {
+        "id": "A",
+        "dueAt": "2026-11-09T08:00:00Z",
+        "estimate": { "p50Min": 60, "p90Min": 60 },
+        "splittable": true,
+        "minSessionMin": 30,
+        "maxSessionMin": 120,
+        "priority": 1,
+        "dependsOn": []
+      }
+    ],
+    "availability": [
+      { "weekday": 1, "startLocal": "09:00", "endLocal": "17:00", "kind": "work" }
+    ],
+    "exceptions": [
+      { "date": "2026-11-09", "kind": "off" }
+    ],
+    "commitments": [],
+    "lockedBlocks": [],
+    "prefs": {
+      "maxDailyFocusMin": 480,
+      "breakAfterMin": 480,
+      "breakMin": 15,
+      "riskLevel": "p50",
+      "dayStartLocal": "00:00",
+      "dayEndLocal": "24:00"
+    },
+    "seed": 11
+  },
+  "candidateBlocks": {
+    "valid": null,
+    "invalid": [
+      { "taskId": "A", "start": "2026-11-09T00:00:00Z", "end": "2026-11-09T01:00:00Z" }
+    ]
+  },
+  "expected": {
+    "slotTotalMin": 0,
+    "slotIntervalCount": 0,
+    "validViolationCodes": [],
+    "invalidViolationCodes": ["H2"],
+    "deficit": {
+      "taskId": "A",
+      "requiredMin": 60,
+      "availableBeforeDueMin": 0,
+      "deficitMin": 60,
+      "total": {
+        "requiredMin": 60,
+        "availableBeforeDueMin": 0,
+        "deficitMin": 60
+      }
+    }
+  }
+}
