@@ -13,3 +13,5 @@
 | FU-09 | M1-07R2 | web: ConflictDialog focus trap, Escape=Keep editing, suppress global shortcuts while open; editor inert under dialog (overwrite must not discard newer draft) | MEDIUM | M1-08 or before M2 UI |
 | FU-10 | M1-07R2 | web: mint fresh Idempotency-Key when If-Match changes (overwrite/re-save) | MEDIUM | with FU-09 |
 | FU-11 | M1-07R2 | web: remove dead IdempotencyKeyStore export; Cancel offline claim; Inbox lists all tasks (filter by Inbox project); reload() errors surfaced; keys UUIDv7 per 07 §6 | LOW | with FU-09 |
+| FU-12 | M3-01bR | scheduler: validator date labels derived by a different method (toPlainDate at segment start) to make ADR-017 implementations truly independent; fix "independently" wording | MEDIUM | M3-02 |
+| FU-13 | M3-01bR | scheduler tests: exact slot-interval equality vs minute walk with varied windows; multi-block H6 on revisited date; St_Johns/Santiago-April/Apia/Troll/Lord_Howe edge fixtures; runaway-guard test or documented throw | LOW | M3-02 |
