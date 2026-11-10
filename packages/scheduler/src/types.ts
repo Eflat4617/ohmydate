@@ -28,6 +28,16 @@ export interface Task {
   dueAt?: Instant;
   earliestStartAt?: Instant;
   estimate: TaskEstimate;
+  /**
+   * Minutes still needed going forward. When supplied it is authoritative and
+   * does not include past/in-progress history blocks (06 §7.1).
+   *
+   * A block that started before `now` counts entirely as history, including
+   * the part after `now`: callers send `remainingMin = required - history
+   * minutes`, which is 0 for an in-progress non-splittable task. Omitting
+   * `remainingMin` instead re-schedules the full estimate, because history is
+   * not credited automatically.
+   */
   remainingMin?: number;
   splittable: boolean;
   minSessionMin: number;
@@ -93,6 +103,11 @@ export interface ScheduleInput {
   exceptions: ExceptionRule[];
   commitments: Commitment[];
   lockedBlocks: Block[];
+  /**
+   * Previous plan blocks. Entries whose start is before `now` are history:
+   * they occupy time for H1/H6 but are not audited for H2/H4/H5 and do not
+   * reduce `remainingMin` (06 §7.1).
+   */
   existingBlocks?: Block[];
   prefs: Preferences;
   seed: number;
@@ -134,6 +149,11 @@ export interface Violation {
 
 export interface ValidateOptions {
   riskLevel: RiskLevel;
+  /**
+   * Past/in-progress history blocks: included in H1 overlap and H6
+   * daily-load/break checks, but exempt from H2, H4, H5 and H7 (06 §7.1).
+   */
+  historyBlocks?: Block[];
 }
 
 export interface InputIssue {
@@ -157,4 +177,70 @@ export interface DeficitReport {
     availableBeforeDueMin: number;
     deficitMin: number;
   };
+}
+
+/** Published generator policy names (06 §4). */
+export type PolicyName = 'front_loaded' | 'balanced' | 'focus_blocked';
+
+/**
+ * Deterministic metrics for one generated candidate (06 §6).
+ *
+ * Daily loads use the ADR-017 local-date semantics, including locked blocks.
+ * `minSlackMin` is the smallest due-buffer slack in the final plan; when no
+ * task has a deadline it falls back to the horizon end minus the last block.
+ * `p90CoverageRatio` compares each task's placed minutes with its effective
+ * requirement (`remainingMin` when supplied, else P90), capped per task.
+ * `changedBlocks` is the symmetric difference between the returned (movable)
+ * blocks and the non-fixed `ScheduleInput.existingBlocks`; locked and
+ * past/in-progress fixed blocks are excluded. `deficitMin` is the candidate's
+ * own H7 shortfall, while `capacityDeficitMin` is the pre-generation capacity
+ * upper bound from `deficit()`.
+ */
+export interface PlanMetrics {
+  totalFocusMin: number;
+  minSlackMin: number;
+  maxDailyLoadMin: number;
+  avgDailyLoadMin: number;
+  contextSwitches: number;
+  changedBlocks: number;
+  deficitMin: number;
+  capacityDeficitMin: number;
+  p90CoverageRatio: number;
+}
+
+export interface PlanCandidate {
+  policy: PolicyName;
+  /**
+   * Movable/seeded blocks only. `ScheduleInput.lockedBlocks` are audited
+   * separately; existing blocks whose start is before `now` are history
+   * (06 §7.1), so neither kind is repeated here. Re-validate with
+   * `ValidateOptions.historyBlocks` for the full-plan H1/H6 audit.
+   */
+  blocks: Block[];
+  metrics: PlanMetrics;
+  feasible: boolean;
+  /** This candidate's own H7 shortfall in minutes (unplaced work). */
+  deficitMin: number;
+  /** Capacity upper bound from `deficit()` before generation. */
+  capacityDeficitMin: number;
+  explanation: string[];
+  /**
+   * SHA-256 of canonical JSON covering the effective seed and
+   * `maxLocalImprovement`, with all instants canonicalised to UTC ISO strings.
+   */
+  inputHash: string;
+  generatorVersion: string;
+}
+
+export interface GenerateOptions {
+  policies?: PolicyName[];
+  /** Overrides `ScheduleInput.seed` when supplied. */
+  seed?: number;
+  /** Local-improvement evaluation cap; defaults to 200 (06 §4). */
+  maxLocalImprovement?: number;
+}
+
+export interface GenerateResult {
+  candidates: PlanCandidate[];
+  diversityNote?: string;
 }

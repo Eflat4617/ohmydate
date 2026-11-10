@@ -62,17 +62,20 @@ export function validate(
 
   const candidate = parsePlanBlocks(blocks, violations);
   const locked = parsePlanBlocks(input.lockedBlocks, violations);
-  const plan = [...candidate, ...locked];
+  const history = parsePlanBlocks(opts.historyBlocks ?? [], violations);
+  // H2-H5/H7 audit the live plan only; history contributes to H1 and H6.
+  const audited = [...candidate, ...locked];
+  const occupied = [...audited, ...history];
 
-  checkUnknownTaskIds(input, plan, violations);
+  checkUnknownTaskIds(input, audited, violations);
   checkHorizon(input, candidate, violations);
-  checkH1(input, plan, violations);
-  checkH2(input, plan, violations);
-  checkH3(input, plan, violations);
-  checkH4(input, plan, violations);
-  checkH5(input, plan, opts, violations);
-  checkH6(input, plan, violations);
-  checkH7(input, plan, opts, violations);
+  checkH1(input, occupied, violations);
+  checkH2(input, audited, violations);
+  checkH3(input, audited, violations);
+  checkH4(input, audited, violations);
+  checkH5(input, audited, opts, violations);
+  checkH6(input, occupied, violations);
+  checkH7(input, audited, opts, violations);
 
   return violations;
 }
@@ -260,10 +263,18 @@ function oracleOffsetMsAt(timeZone: string, epochMs: number): number {
 }
 
 /**
- * ADR-017 steps 1-2, implemented separately from `time.ts`/`slots.ts`: split at
- * every offset transition, then split each constant-offset piece at local
- * midnights using that piece's offset. Returned segments always belong to a
- * single local date, and a date can reappear after a backward transition.
+ * ADR-017 steps 1-2 for the validator. The partition *shape* follows the same
+ * transition-then-local-midnight principle as `time.ts`, but the date and
+ * weekday labels are deliberately derived by a different method (FU-12):
+ * `Temporal` converts each segment start directly in the target zone instead
+ * of using the wall-clock arithmetic that produced the split. Returned
+ * segments always belong to a single local date, and a date can reappear after
+ * a backward transition.
+ *
+ * Guard: like `time.ts`, the transition walk throws `RangeError` after
+ * `ORACLE_MAX_TRANSITIONS` steps. That cap is unreachable for realistic
+ * horizons (roughly two transitions per year over the IANA table), so it is a
+ * programming-error guard rather than a validation outcome (FU-13).
  */
 function partitionByLocalDateOracle(
   timeZone: string,
@@ -335,12 +346,12 @@ function partitionByLocalDateOracle(
       ) {
         continue;
       }
-      const wall = Temporal.Instant.fromEpochMilliseconds(
-        segmentStart + offsetMs,
-      ).toZonedDateTimeISO('UTC');
+      const localStart = Temporal.Instant.fromEpochMilliseconds(
+        segmentStart,
+      ).toZonedDateTimeISO(timeZone);
       segments.push({
-        date: wall.toPlainDate().toString(),
-        weekday: wall.dayOfWeek,
+        date: localStart.toPlainDate().toString(),
+        weekday: localStart.dayOfWeek,
         offsetMs,
         startMs: segmentStart,
         endMs: segmentEnd,
@@ -631,6 +642,20 @@ function checkH5(
 
     if (!task.splittable) {
       const required = taskRequiredMinutes(task, opts.riskLevel);
+      if (required === 0) {
+        // An in-progress or finished non-splittable task has no forward need:
+        // the whole existing block is history (06 §7.1). It needs no new
+        // block, and any candidate/locked block would be a duplicate.
+        if (taskBlocks.length > 0) {
+          violations.push({
+            code: 'H5',
+            message: `Non-splittable task "${task.id}" has no remaining minutes and must not have a block.`,
+            taskId: task.id,
+            blocks: taskBlocks.map((parsed) => parsed.block),
+          });
+        }
+        continue;
+      }
       if (required < task.minSessionMin || required > task.maxSessionMin) {
         violations.push({
           code: 'H5',

@@ -13,7 +13,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run --root ../.. packages/scheduler/test"
+    "test": "SCHED_PERF_ASSERT=1 vitest run --root ../.. --no-file-parallelism packages/scheduler/test"
   },
   "dependencies": {
     "temporal-polyfill": "1.0.8"

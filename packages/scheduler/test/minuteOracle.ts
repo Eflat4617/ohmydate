@@ -149,12 +149,16 @@ export function availableSlotMinutes(input: ScheduleInput): number {
 }
 
 /**
- * Minute-walk slot total including the public inward 5-minute grid contract.
- * Contiguous available minutes are grouped into UTC runs first, then each run
- * is aligned inward exactly like `computeAvailableSlots`. Date partitioning is
- * still derived solely from the one-minute local-time walk.
+ * Exact slot intervals from the one-minute UTC walk, including the public
+ * inward 5-minute grid contract. Contiguous available minutes are grouped into
+ * UTC runs first, then each run is aligned inward exactly like
+ * `computeAvailableSlots`. Date partitioning is derived solely from the
+ * one-minute local-time walk, so this is an independent check on the exact
+ * interval boundaries (not just totals).
  */
-export function alignedAvailableSlotMinutes(input: ScheduleInput): number {
+export function alignedAvailableSlots(
+  input: ScheduleInput,
+): Array<{ start: string; end: string }> {
   const horizonStartMs = instantMs(input.horizon.start);
   const horizonEndMs = instantMs(input.horizon.end);
   const gridMs = 5 * MINUTE_MS;
@@ -202,8 +206,16 @@ export function alignedAvailableSlotMinutes(input: ScheduleInput): number {
     }
   }
 
-  return merged.reduce(
-    (total, run) => total + (run.endMs - run.startMs) / MINUTE_MS,
+  return merged.map((run) => ({
+    start: Temporal.Instant.fromEpochMilliseconds(run.startMs).toString(),
+    end: Temporal.Instant.fromEpochMilliseconds(run.endMs).toString(),
+  }));
+}
+
+/** Minute-walk slot total including the inward 5-minute grid contract. */
+export function alignedAvailableSlotMinutes(input: ScheduleInput): number {
+  return alignedAvailableSlots(input).reduce(
+    (total, run) => total + (instantMs(run.end) - instantMs(run.start)) / MINUTE_MS,
     0,
   );
 }
