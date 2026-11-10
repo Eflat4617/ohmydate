@@ -82,3 +82,8 @@
 
 ## 12. 상용화 전환 (별도 단계)
 결제·다중 테넌트 인증(OIDC)·관측성 스택·관리형 DB/오브젝트 스토리지·개인정보 처리방침·약관·DPA·보안 점검. **모두 사용자 승인 및 법률 검토 대상.**
+
+## 13. Vikunja 서비스 토큰 (2026-11-11 추가, FU-23R)
+- planner가 소유자별로 쓰는 Vikunja API 토큰은 **projects/tasks 권한 + `other:user`**(기본 프로젝트 = Inbox 조회용 `GET /user`)가 필요하다. `other:user`가 없으면 프로젝트 조회가 401 → 현재는 503 `provider_unavailable`로 보인다.
+- `PATCH /user/settings/general`(기본 프로젝트 지정)은 **JWT 전용**이라 토큰으로는 불가 → planner는 기본 프로젝트 쓰기를 best-effort로 취급(FU-23 수정).
+- 토큰 참조는 DB에 `env:VIKUNJA_TOKEN_OWNER_*` 또는 `VIKUNJA_SECRETS_DIR` 내 파일만(FU-27). 회전 절차: 새 토큰 발급(동일 권한) → 시크릿 파일/환경 갱신 → API 재시작 → 구 토큰 폐기. FU-23 배포 시 기존 토큰은 `other:user` 포함으로 재발급 필요.
