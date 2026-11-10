@@ -61,15 +61,18 @@ async function ignoreNotFound(action: () => Promise<void>): Promise<void> {
 }
 
 /**
- * Removes all task/project data owned by a synthetic test user. Only data
- * created by this run is touched; the account itself and the default Inbox stay
- * in place so repeated runs remain cheap against the auth rate limit.
+ * Removes every task owned by a synthetic test user (projects are left in
+ * place, including the default Inbox). Only data created by this run is touched;
+ * the account itself stays so repeated runs remain cheap against the auth rate
+ * limit.
  */
 export async function purgeUserData(
   client: VikunjaClient,
-  mappings: MappingStore,
-  ownerId: Id,
+  _mappings: MappingStore,
+  _ownerId: Id,
 ): Promise<void> {
+  void _mappings;
+  void _ownerId;
   for (const task of await client.listAllTasks()) {
     await ignoreNotFound(() => client.deleteTask(String(task.id)));
     await ignoreNotFound(() => client.permanentDeleteTask(String(task.id)));
@@ -77,21 +80,4 @@ export async function purgeUserData(
   for (const task of await client.listAllDeletedTasks()) {
     await ignoreNotFound(() => client.permanentDeleteTask(String(task.id)));
   }
-
-  for (const mapping of await mappingsEntries(mappings)) {
-    if (mapping.entityType !== 'project' || mapping.ownerId !== ownerId) continue;
-    await ignoreNotFound(() => client.deleteProject(mapping.externalId));
-    await ignoreNotFound(() => client.permanentDeleteProject(mapping.externalId));
-  }
-}
-
-async function mappingsEntries(mappings: MappingStore) {
-  if ('entries' in mappings && typeof mappings.entries === 'function') {
-    return (mappings as { entries(): readonly {
-      entityType: string;
-      ownerId: Id;
-      externalId: string;
-    }[] }).entries();
-  }
-  return [];
 }

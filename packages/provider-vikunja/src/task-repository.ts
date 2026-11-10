@@ -141,12 +141,9 @@ export class VikunjaTaskRepository implements TaskRepository {
     void _idemKey;
     const client = this.#requireClient(ownerId);
     const normalized = validateTaskCreate(input);
-    if (normalized.projectId === undefined) {
-      throw new NotFoundError('project', 'projectId is required for Vikunja');
-    }
-    const projectMapping = await this.#requireMapping(
+    const projectMapping = await this.#projectMappingForCreate(
       ownerId,
-      'project',
+      client,
       normalized.projectId,
     );
     await this.#assertDependencies(ownerId, normalized.dependsOn);
@@ -526,6 +523,45 @@ export class VikunjaTaskRepository implements TaskRepository {
     const client = this.#clients.get(ownerId);
     if (client === undefined) throw new NotFoundError('owner', ownerId);
     return client;
+  }
+
+  /**
+   * Tasks are project-scoped in Vikunja and `TaskCreate.projectId` is optional
+   * in the domain port. When omitted, use the owner's real Inbox project and
+   * register the same planner mapping for every subsequent no-project create.
+   */
+  async #projectMappingForCreate(
+    ownerId: Id,
+    client: VikunjaClient,
+    projectId: Id | undefined,
+  ): Promise<ExternalMapping> {
+    if (projectId !== undefined) {
+      return this.#requireMapping(ownerId, 'project', projectId);
+    }
+    const projects = await client.listAllProjects();
+    const inbox = projects.find((project) => project.title.toLowerCase() === 'inbox');
+    const externalId =
+      inbox === undefined
+        ? String((await client.createProject('Inbox')).id)
+        : String(inbox.id);
+    const existing = await this.#mappings.getByExternal('vikunja', 'project', externalId);
+    if (existing !== null) {
+      if (existing.ownerId !== ownerId) throw new NotFoundError('project', externalId);
+      return existing;
+    }
+    const now = this.#clock.now();
+    const mapping: ExternalMapping = {
+      provider: 'vikunja',
+      entityType: 'project',
+      entityId: this.#ids.next(),
+      externalId,
+      ownerId,
+      localVersion: 1 as Version,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.#mappings.put(mapping);
+    return mapping;
   }
 
   async #requireMapping(

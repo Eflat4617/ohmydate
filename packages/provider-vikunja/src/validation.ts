@@ -209,6 +209,7 @@ export function validateTaskPatch(patch: TaskPatch): NormalizedTaskPatch {
     dependsOn?: readonly Id[];
   } = {};
 
+  if (patch.projectId !== undefined) result.projectId = patch.projectId;
   if (patch.title !== undefined) result.title = validateTitle(patch.title);
   if (patch.description !== undefined) {
     result.description =
