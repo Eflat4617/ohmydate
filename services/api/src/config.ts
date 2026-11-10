@@ -31,6 +31,12 @@ export interface AppConfig {
   /** Background reconciliation interval; 0 (default) disables the timer. */
   readonly reconcileIntervalMs: number;
   /**
+   * Database URL for the reconciler's dedicated leader-lock connection. This
+   * must point at the same database as the injected Kysely handle because
+   * advisory locks are per database. Required when reconcileIntervalMs > 0.
+   */
+  readonly databaseUrl: string | null;
+  /**
    * Directory that may contain token files referenced as `file:<path>`. Any
    * such file must realpath-resolve inside this directory (or be exactly
    * VIKUNJA_TOKEN_FILE); traversal and symlink escapes are rejected.
@@ -64,6 +70,7 @@ export const defaultConfig: AppConfig = {
   vikunjaUrl: null,
   vikunjaTokenFile: null,
   reconcileIntervalMs: DEFAULT_RECONCILE_INTERVAL_MS,
+  databaseUrl: null,
   vikunjaSecretsDir: null,
   cookieSecure: true,
   sessionTtlMs: DEFAULT_SESSION_TTL_MS,
@@ -94,6 +101,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     vikunjaUrl: env['VIKUNJA_URL'] ?? null,
     vikunjaTokenFile: env['VIKUNJA_TOKEN_FILE'] ?? null,
     reconcileIntervalMs,
+    databaseUrl: env['DATABASE_URL'] ?? null,
     vikunjaSecretsDir: env['VIKUNJA_SECRETS_DIR'] ?? null,
   });
 }

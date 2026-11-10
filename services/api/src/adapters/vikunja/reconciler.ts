@@ -9,12 +9,25 @@ const { Client } = pg;
  */
 export const VIKUNJA_RECONCILE_ADVISORY_LOCK_KEY = 5_196_101;
 
-export type LeaderRun = () => Promise<void>;
+/**
+ * A sweep receives an AbortSignal tied to the leader-lock connection. The
+ * reconciler checks it between owners so losing leadership (backend failure,
+ * failover, idle timeout) stops the sweep instead of letting a second leader
+ * run concurrently.
+ */
+export type LeaderRun = (signal: AbortSignal) => Promise<void>;
 export type LeaderLock = (run: LeaderRun) => Promise<boolean>;
+
+export interface ReconcilerLogger {
+  warn(message: string, details?: Readonly<Record<string, unknown>>): void;
+  error(message: string, details?: Readonly<Record<string, unknown>>): void;
+}
 
 export interface PgSessionLeaderLockOptions {
   readonly connectionString: string;
   readonly key?: number;
+  /** Logs connection loss without echoing the connection string or token. */
+  readonly logger?: ReconcilerLogger;
 }
 
 /**
@@ -24,33 +37,50 @@ export interface PgSessionLeaderLockOptions {
  * and holding an idle-in-transaction connection would exhaust the pool (or be
  * killed by idle_in_transaction_session_timeout). The connection is closed in
  * `finally`, which also releases the lock if the sweep throws.
+ *
+ * The client is an EventEmitter: without an 'error' listener a terminated
+ * backend (failover, pg_terminate_backend, idle_session_timeout) would crash
+ * the process. The listener logs through ReconcilerLogger and aborts the sweep;
+ * 'end' covers a clean disconnect. `run()` never sees an unhandled event.
  */
 export function createPgSessionLeaderLock(options: PgSessionLeaderLockOptions): LeaderLock {
   const key = options.key ?? VIKUNJA_RECONCILE_ADVISORY_LOCK_KEY;
+  const logger = options.logger;
   return async (run) => {
     const client = new Client({ connectionString: options.connectionString });
-    await client.connect();
+    const controller = new AbortController();
+    const onError = (error: unknown): void => {
+      logger?.error('vikunja leader lock connection lost; aborting sweep', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      controller.abort(error);
+    };
+    const onEnd = (): void => {
+      controller.abort(new Error('vikunja leader lock connection ended'));
+    };
+    client.on('error', onError);
+    client.on('end', onEnd);
     try {
+      await client.connect();
       const acquired = await client.query<{ locked: boolean }>(
         'SELECT pg_try_advisory_lock($1) AS locked',
         [key],
       );
       if (acquired.rows[0]?.locked !== true) return false;
       try {
-        await run();
+        await run(controller.signal);
       } finally {
-        await client.query('SELECT pg_advisory_unlock($1)', [key]).catch(() => undefined);
+        if (!controller.signal.aborted) {
+          await client.query('SELECT pg_advisory_unlock($1)', [key]).catch(() => undefined);
+        }
       }
-      return true;
+      return !controller.signal.aborted;
     } finally {
-      await client.end();
+      await client.end().catch(() => undefined);
+      client.removeListener('error', onError);
+      client.removeListener('end', onEnd);
     }
   };
-}
-
-export interface ReconcilerLogger {
-  warn(message: string, details?: Readonly<Record<string, unknown>>): void;
-  error(message: string, details?: Readonly<Record<string, unknown>>): void;
 }
 
 export interface IntervalScheduler {
@@ -125,8 +155,9 @@ export class VikunjaReconciler {
   }
 
   /**
-   * Runs one sweep. Returns false when another run is in flight or this process
-   * is not the leader; the timer treats both as a no-op.
+   * Runs one sweep. Returns false when another run is in flight, this process
+   * is not the leader, or leadership was lost before the sweep finished; the
+   * timer treats all of those as a no-op.
    */
   runOnce(): Promise<boolean> {
     if (this.#inFlight !== undefined) return Promise.resolve(false);
@@ -139,8 +170,14 @@ export class VikunjaReconciler {
 
   async #execute(): Promise<boolean> {
     const owners = await this.#options.ownerIds();
-    return this.#options.leaderLock(async () => {
+    return this.#options.leaderLock(async (signal) => {
       for (const ownerId of owners) {
+        if (signal.aborted) {
+          this.#options.logger?.warn('vikunja reconciliation aborted; leadership lost', {
+            ownerId,
+          });
+          return;
+        }
         try {
           await this.#options.taskRepository.listChangedSince(ownerId, null);
         } catch (error) {
