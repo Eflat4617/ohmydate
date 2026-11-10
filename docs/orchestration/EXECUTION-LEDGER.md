@@ -60,6 +60,7 @@
 | 2026-11-11 | worker_done | M1-05 fix task_06ffda7bb45a | ctx_7426991abf9c | msg_aff5299da89b | 538eeba | — | review (fallback) |
 | 2026-11-11 | worker_done | M1-06 task_82dc7265e91d | ctx_33b924c589dc | msg_fbf1b5aec3d2 | e41237c, scope OK, db frozen | — | M1-06R ctx_4a10ac2847dc (opus) |
 | 2026-11-11 | worker_done | M2-01 task_d8fe2f69911a | ctx_6526c3d73a59 | msg_61ebc6bf0a68 | ba591bb, scope OK, no SDK | — | M2-01R ctx_c674a13ed126 (opus) |
+| 2026-11-11 | **coordinator error** | task_adc90e846e3e ("unused") | ctx_a76e5f68b5c1 | — | 스크립트 실수로 종료된 M1-06 워커에 빈 메시지 전송 → 후속 Task 생성. 즉시 취소 메시지, 터미널 종료, abandon(failed). m1-06-api HEAD c2bd70b·작업트리 변경 없음 확인 | worker-show/git | 재발 방지: send는 명시 dispatch만, `|| true` 패턴 금지 |
 
 ## 4. 리뷰 판정
 | Task | 리뷰 dispatch | head SHA | VERDICT | 차단 이슈 | 후속 |
