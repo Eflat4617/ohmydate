@@ -7,6 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,13 +55,17 @@ describe('check-boundaries', () => {
     const { violations } = check('forbidden');
 
     expect(filesFor(violations, 'no-upstream-imports')).toEqual([
+      'apps/web/src/upstream-types.d.ts',
       'eslint.config.js',
       'packages/other/foo.config.js',
       'packages/other/src/upstream-value.ts',
+      'packages/x/__fixtures__/foo.mjs',
       'scripts/tool.ts',
       'vitest.config.ts',
     ]);
     expect(filesFor(violations, 'web/no-service-imports')).toEqual([
+      'apps/web/src/inline-type-reexport.ts',
+      'apps/web/src/service-types.d.ts',
       'apps/web/src/type-service.ts',
       'apps/web/src/value-service.ts',
       'apps/web/src/workspace-service.ts',
@@ -124,8 +129,32 @@ describe('check-boundaries', () => {
       expect(filesFor(violations, 'web/no-service-imports')).toContain(
         'apps/web/src/abs-service.ts',
       );
+      expect(filesFor(violations, 'packages/no-app-or-service-imports')).toContain(
+        'packages/other/src/file-url-service.ts',
+      );
+      expect(filesFor(violations, 'no-upstream-imports')).toContain(
+        'packages/other/src/file-url-upstream.ts',
+      );
     } finally {
       rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('effective pnpm configuration enforces the workspace policy', () => {
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+    const expected = {
+      autoInstallPeers: 'false',
+      strictPeerDependencies: 'true',
+      engineStrict: 'true',
+      saveExact: 'true',
+    };
+
+    for (const [key, value] of Object.entries(expected)) {
+      const actual = execFileSync('pnpm', ['config', 'get', key], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      }).trim();
+      expect(actual, key).toBe(value);
     }
   });
 });
