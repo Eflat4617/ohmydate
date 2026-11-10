@@ -19,9 +19,13 @@ import {
 
 const migrationsDir = fileURLToPath(new URL('../../migrations/', import.meta.url));
 
-const MIGRATION_FILES = readdirSync(migrationsDir)
-  .filter((name) => /^\d{4}_[A-Za-z0-9_]+\.sql$/.test(name))
-  .sort();
+function migrationFilenames(dir = migrationsDir): string[] {
+  return readdirSync(dir)
+    .filter((entry) => /^\d{4}_[A-Za-z0-9_]+\.sql$/.test(entry) && !entry.endsWith('.down.sql'))
+    .sort();
+}
+
+const MIGRATION_FILES = migrationFilenames();
 
 const M1_TABLES = [
   'audit_event',
@@ -34,6 +38,15 @@ const M1_TABLES = [
   'task',
   'task_dependency',
   'user',
+];
+
+// 0003_vikunja_durable_stores.sql. 0002 (FU-18) only alters existing tables.
+const VIKUNJA_TABLES = [
+  'vikunja_change_journal',
+  'vikunja_journal_epoch',
+  'vikunja_mapping',
+  'vikunja_owner_account',
+  'vikunja_planner_fields',
 ];
 
 describe.skipIf(!hasDatabase)('migration runner', () => {
@@ -71,7 +84,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
         [schema],
       );
       const names = tables.rows.map((row) => row.table_name).sort();
-      expect(names).toEqual([...M1_TABLES, 'schema_migrations'].sort());
+      expect(names).toEqual([...M1_TABLES, ...VIKUNJA_TABLES, 'schema_migrations'].sort());
     } finally {
       await client.end();
     }
@@ -92,7 +105,9 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
       await cp(migrationsDir, copyDir, { recursive: true });
       await runMigrations(schema, copyDir);
 
-      const migrationFile = join(copyDir, '0001_init.sql');
+      const latest = migrationFilenames(copyDir).at(-1);
+      if (latest === undefined) throw new Error('expected at least one migration');
+      const migrationFile = join(copyDir, latest);
       const original = await readFile(migrationFile, 'utf8');
       await writeFile(migrationFile, `${original}\n-- tampered after apply\n`, 'utf8');
 
@@ -137,7 +152,17 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
 
     const client = await connect(schema);
     try {
-      if (latest === '0002_inbox_project.sql') {
+      if (latest === '0003_vikunja_durable_stores.sql') {
+        const gone = await client.query<{ name: string | null }>(
+          `SELECT to_regclass('vikunja_mapping')::text AS name`,
+        );
+        expect(gone.rows[0]?.name).toBeNull();
+        // Rolling back only the latest keeps everything below it applied.
+        const stillThere = await client.query<{ name: string | null }>(
+          `SELECT to_regclass('"user"')::text AS name`,
+        );
+        expect(stillThere.rows[0]?.name).not.toBeNull();
+      } else if (latest === '0002_inbox_project.sql') {
         const column = await client.query<{ name: string | null }>(
           `SELECT column_name AS name
              FROM information_schema.columns
@@ -188,7 +213,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
     const clientAfter = await connect(schema);
     try {
       const present = await clientAfter.query<{ name: string | null }>(
-        `SELECT to_regclass('"user"')::text AS name`,
+        `SELECT to_regclass('vikunja_mapping')::text AS name`,
       );
       expect(present.rows[0]?.name).not.toBeNull();
     } finally {
@@ -238,7 +263,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
       await rename(join(copyDir, '0001_init.down.sql'), join(copyDir, '0002_init.down.sql'));
 
       const first = await runMigrations(schema, copyDir);
-      expect(first.applied).toEqual(['0002_init.sql']);
+      expect(first.applied).toEqual(migrationFilenames(copyDir));
 
       await copyFile(join(migrationsDir, '0001_init.sql'), join(copyDir, '0001_init.sql'));
       await copyFile(
