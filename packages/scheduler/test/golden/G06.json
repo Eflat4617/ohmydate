@@ -1,0 +1,59 @@
+{
+  "id": "G06",
+  "description": "America/New_York DST end on 2026-11-01: repeated 01:00 hour is not dropped or duplicated; an Asia/Seoul user sees the same instants.",
+  "userTimeZone": "Asia/Seoul",
+  "input": {
+    "now": "2026-11-01T04:00:00Z",
+    "timeZone": "America/New_York",
+    "horizon": {
+      "start": "2026-11-01T04:00:00Z",
+      "end": "2026-11-02T00:00:00Z"
+    },
+    "tasks": [
+      {
+        "id": "A",
+        "dueAt": "2026-11-02T00:00:00Z",
+        "estimate": { "p50Min": 120, "p90Min": 120 },
+        "splittable": true,
+        "minSessionMin": 30,
+        "maxSessionMin": 120,
+        "priority": 1,
+        "dependsOn": []
+      }
+    ],
+    "availability": [
+      { "weekday": 7, "startLocal": "01:00", "endLocal": "04:00", "kind": "work" },
+      { "weekday": 7, "startLocal": "09:00", "endLocal": "11:00", "kind": "work" }
+    ],
+    "exceptions": [],
+    "commitments": [],
+    "lockedBlocks": [],
+    "prefs": {
+      "maxDailyFocusMin": 480,
+      "breakAfterMin": 480,
+      "breakMin": 15,
+      "riskLevel": "p50",
+      "dayStartLocal": "00:00",
+      "dayEndLocal": "24:00"
+    },
+    "seed": 6
+  },
+  "candidateBlocks": {
+    "valid": [
+      { "taskId": "A", "start": "2026-11-01T14:00:00Z", "end": "2026-11-01T16:00:00Z" }
+    ],
+    "invalid": [
+      { "taskId": "A", "start": "2026-11-01T04:30:00Z", "end": "2026-11-01T06:30:00Z" }
+    ]
+  },
+  "expected": {
+    "slotTotalMin": 360,
+    "slotIntervalCount": 2,
+    "validViolationCodes": [],
+    "invalidViolationCodes": ["H2"],
+    "userTimeZoneSlots": [
+      { "startPlain": "2026-11-01T14:00:00", "endPlain": "2026-11-01T18:00:00" },
+      { "startPlain": "2026-11-01T23:00:00", "endPlain": "2026-11-02T01:00:00" }
+    ]
+  }
+}
