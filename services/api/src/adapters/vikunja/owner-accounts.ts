@@ -49,9 +49,13 @@ export async function listReconcilerOwnerIds(db: Kysely<Database>): Promise<read
  * Token files are JSON objects of ownerId -> API token (`{ "tokens": {...} }`
  * is also accepted). Supported references are:
  * - `env:VIKUNJA_TOKEN_*` — only names under that prefix are accepted, so a
- *   writable account row cannot exfiltrate an unrelated env secret.
+ *   writable account row cannot exfiltrate an unrelated env secret. The config
+ *   variable `VIKUNJA_TOKEN_FILE` is explicitly excluded: it holds a path, not
+ *   a token, so `env:VIKUNJA_TOKEN_FILE` would send the path as a Bearer value.
  * - `file:<path>` — the path must realpath-resolve to VIKUNJA_TOKEN_FILE or
- *   inside VIKUNJA_SECRETS_DIR; traversal and symlink escapes are rejected.
+ *   inside VIKUNJA_SECRETS_DIR; traversal and symlink escapes are rejected. The
+ *   resolved path is what gets read, so swapping the original symlink after the
+ *   check cannot redirect the read outside the allowed location (prevents TOCTOU).
  * - `default` — use the configured VIKUNJA_TOKEN_FILE.
  * Bare paths are intentionally unsupported. Cleartext tokens never touch
  * PostgreSQL, logs or error messages, and file errors never echo foreign keys.
@@ -72,12 +76,12 @@ export async function loadVikunjaClients(options: {
   const accounts = await listVikunjaOwnerAccounts(options.db);
   const clients = new Map<Id, VikunjaClient>();
 
-  const assertAllowedFile = async (path: string): Promise<void> => {
+  const assertAllowedFile = async (path: string): Promise<string> => {
     const resolved = await realpath(path);
     const defaultFile = options.config.vikunjaTokenFile;
     if (defaultFile !== null) {
       const resolvedDefault = await realpath(defaultFile).catch(() => null);
-      if (resolvedDefault !== null && resolvedDefault === resolved) return;
+      if (resolvedDefault !== null && resolvedDefault === resolved) return resolved;
     }
     const secretsDir = options.config.vikunjaSecretsDir;
     if (secretsDir === null) {
@@ -85,7 +89,7 @@ export async function loadVikunjaClients(options: {
     }
     const dir = await realpath(secretsDir);
     const inside = relative(dir, resolved);
-    if (inside === '' || (!inside.startsWith('..') && !isAbsolute(inside))) return;
+    if (inside === '' || (!inside.startsWith('..') && !isAbsolute(inside))) return resolved;
     throw new Error('Vikunja token file reference escapes VIKUNJA_SECRETS_DIR');
   };
 
@@ -108,9 +112,10 @@ export async function loadVikunjaClients(options: {
     let token: string;
     if (ref.startsWith('env:')) {
       const name = ref.slice('env:'.length);
-      if (!/^VIKUNJA_TOKEN_[A-Z0-9_]+$/.test(name)) {
+      if (!/^VIKUNJA_TOKEN_[A-Z0-9_]+$/.test(name) || name === 'VIKUNJA_TOKEN_FILE') {
         throw new Error(
-          `Vikunja token env reference for owner ${account.ownerId} must be env:VIKUNJA_TOKEN_*`,
+          `Vikunja token env reference for owner ${account.ownerId} must be env:VIKUNJA_TOKEN_* ` +
+            '(VIKUNJA_TOKEN_FILE is a path, not a token)',
         );
       }
       const value = env[name];
@@ -124,11 +129,12 @@ export async function loadVikunjaClients(options: {
           `VIKUNJA_TOKEN_FILE is required for owner ${account.ownerId} (token_secret_ref=default)`,
         );
       }
-      token = await tokenFromFile(options.config.vikunjaTokenFile, account.ownerId);
+      const resolved = await realpath(options.config.vikunjaTokenFile);
+      token = await tokenFromFile(resolved, account.ownerId);
     } else if (ref.startsWith('file:')) {
       const path = ref.slice('file:'.length);
-      await assertAllowedFile(path);
-      token = await tokenFromFile(path, account.ownerId);
+      const resolved = await assertAllowedFile(path);
+      token = await tokenFromFile(resolved, account.ownerId);
     } else {
       throw new Error(
         `unsupported vikunja token_secret_ref for owner ${account.ownerId} ` +

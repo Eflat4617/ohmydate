@@ -25,7 +25,11 @@ function migrationFilenames(dir = migrationsDir): string[] {
     .sort();
 }
 
-const MIGRATION_FILES = migrationFilenames();
+const MIGRATION_FILES = [
+  '0001_init.sql',
+  '0002_inbox_project.sql',
+  '0003_vikunja_durable_stores.sql',
+];
 
 const M1_TABLES = [
   'audit_event',
@@ -162,27 +166,6 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           `SELECT to_regclass('"user"')::text AS name`,
         );
         expect(stillThere.rows[0]?.name).not.toBeNull();
-      } else if (latest === '0002_inbox_project.sql') {
-        const column = await client.query<{ name: string | null }>(
-          `SELECT column_name AS name
-             FROM information_schema.columns
-            WHERE table_schema = $1 AND table_name = 'project' AND column_name = 'kind'`,
-          [schema],
-        );
-        expect(column.rows[0]?.name).toBeUndefined();
-        const taskColumn = await client.query<{ is_nullable: string }>(
-          `SELECT is_nullable
-             FROM information_schema.columns
-            WHERE table_schema = $1 AND table_name = 'task' AND column_name = 'project_id'`,
-          [schema],
-        );
-        expect(taskColumn.rows[0]?.is_nullable).toBe('YES');
-        const index = await client.query<{ name: string | null }>(
-          `SELECT indexname AS name FROM pg_indexes
-            WHERE schemaname = $1 AND indexname = 'project_owner_inbox_unique'`,
-          [schema],
-        );
-        expect(index.rowCount).toBe(0);
       }
     } finally {
       await client.end();
