@@ -49,12 +49,16 @@
 | 2026-11-11 | worker_done | task_3c3f4f8cbace (M1-04) | ctx_a9b437096fe4 | msg_3de5d2e896bc | succeeded @0a6b9a7, G1 OK (36 msgs deepseek high), vikunja DB 미변경 | — | M1-04R queued task_cc41df1f767d |
 | 2026-11-11 | start(stacked on m1-02@5615a58) | M1-03 (contract suite+InMemory), M1-07 (web skeleton) | — | — | RAM 5.3GB 가용 | receipts | — |
 | 2026-11-11 | start | task_cc41df1f767d (M1-04R) | ctx_2fedeb4fd139 | — | Sol | receipt | — |
+| 2026-11-11 | worker_done | FU-01 task_3890df099700 | ctx_a5bd7b57d8d7 | msg_bfa4f02ee9b6 | 1de2357, scope OK | — | FU-01R ctx_0d5bc4ea57b1 |
+| 2026-11-11 | start | M1-04R2 | ctx_cb9c19e723e4 | — | Sol | — | — |
 
 ## 4. 리뷰 판정
 | Task | 리뷰 dispatch | head SHA | VERDICT | 차단 이슈 | 후속 |
 |---|---|---|---|---|---|
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
+| M1-03 | ctx_a30129007d8d | 9c36ae4 | REQUEST_CHANGES | HIGH: list/changefeed 소유자 누출 미검출; MEDIUM×5 (변경 피드 증분, project 참조, 멱등 재생, 날짜 rollover, complete 버전) | fix 1/2 ctx_7f124dd2068d |
+| M3-01 | ctx_12655286e961 | a47a4fb | REQUEST_CHANGES | HIGH×3: Santiago 자정 DST, 미지정 taskId, ns 정밀도; MEDIUM×2 | **fix 2/2 (FINAL)** ctx_53234dfd4033 — HIGH 잔존 시 blocked |
 | M1-04 | ctx_2fedeb4fd139 | 0a6b9a7 | REQUEST_CHANGES | HIGH: mapping unique에 owner_id 혼입; MEDIUM×2 Kysely 타입 | fix 1/2 ctx_663e7bb9699b |
 | M1-02 | ctx_2a5ed3085bbb | 5615a58 | REQUEST_CHANGES | MEDIUM×1: GET /me 400 누락 | fix 2/2 ctx_b4b90a3fcfdb |
 | M3-01 | ctx_bf050ebe6e4d | d7c6d7e | REQUEST_CHANGES | HIGH×4: H2 샘플링 구멍, H6 자정 리셋, DST gap/fold, horizon 미검사; MEDIUM×3 | fix 1/2 ctx_43ff9356ae7d |
