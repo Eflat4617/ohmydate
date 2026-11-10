@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type { TSchema } from '@sinclair/typebox';
-import { routes, schemaRegistry } from '../src/index.js';
+import { contractRoutes, schemaRegistry } from '../src/index.js';
 
 const outputPath = fileURLToPath(new URL('../openapi.json', import.meta.url));
 
@@ -64,7 +64,7 @@ interface ParameterObject {
   readonly schema: unknown;
 }
 
-function parametersFor(route: (typeof routes)[number]): ParameterObject[] {
+function parametersFor(route: (typeof contractRoutes)[number]): ParameterObject[] {
   const parameters: ParameterObject[] = [];
 
   if (route.params !== undefined) {
@@ -107,7 +107,7 @@ function mediaTypeFor(schema: TSchema): string {
   return componentName(schema) === 'Problem' ? 'application/problem+json' : 'application/json';
 }
 
-function responsesFor(route: (typeof routes)[number]): Record<string, unknown> {
+function responsesFor(route: (typeof contractRoutes)[number]): Record<string, unknown> {
   const responses: Record<string, unknown> = {};
   for (const [status, response] of Object.entries(route.responses)) {
     responses[status] =
@@ -124,7 +124,7 @@ function responsesFor(route: (typeof routes)[number]): Record<string, unknown> {
 }
 
 function buildPaths(): Record<string, unknown> {
-  const sorted = [...routes].sort((left, right) => {
+  const sorted = [...contractRoutes].sort((left, right) => {
     if (left.path !== right.path) return left.path.localeCompare(right.path);
     return (METHOD_ORDER[left.method] ?? 99) - (METHOD_ORDER[right.method] ?? 99);
   });

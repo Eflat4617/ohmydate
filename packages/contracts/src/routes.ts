@@ -23,6 +23,30 @@ import {
   TaskPatchSchema,
   TaskSchema,
 } from './task.js';
+import {
+  DecompositionDraftPatchSchema,
+  DecompositionDraftSchema,
+  DecompositionEstimateSchema,
+  DecompositionStepSchema,
+  IntakeAnswerSchema,
+  IntakeAnswersRequestSchema,
+  IntakeAssumptionSchema,
+  IntakeDetectedTypeSchema,
+  IntakeErrorSchema,
+  IntakeInputSchema,
+  IntakeSessionCreateSchema,
+  IntakeSessionIdParamsSchema,
+  IntakeSessionSchema,
+  IntakeTypeConfirmationSchema,
+  PlannedQuestionSchema,
+} from './intake.js';
+import {
+  PageTaskTemplateSchema,
+  TaskTemplateIdParamsSchema,
+  TaskTemplateListQuerySchema,
+  TaskTemplateSchema,
+  TemplateStatsSchema,
+} from './template.js';
 
 export type HttpMethod = 'get' | 'post' | 'patch' | 'put' | 'delete';
 
@@ -259,6 +283,184 @@ export const routes: readonly RouteDefinition[] = [
   },
 ];
 
+/**
+ * Intake and template routes (08 §2.3).
+ *
+ * They live in a separate array from `routes` on purpose: the API composition
+ * root registers handlers only for milestone-complete operations, while the
+ * OpenAPI document must describe the full contract. `contractRoutes` is the
+ * single source consumed by the generator and contract tests; M2-03 moves
+ * these entries into `routes` when the handlers exist.
+ */
+export const intakeRoutes: readonly RouteDefinition[] = [
+  {
+    method: 'post',
+    path: '/intake-sessions',
+    operationId: 'createIntakeSession',
+    summary: 'Start an intake interview',
+    headers: IdempotencyHeadersSchema,
+    body: IntakeSessionCreateSchema,
+    responses: {
+      201: { description: 'Intake session created', schema: IntakeSessionSchema },
+      202: { description: 'Intake session accepted; type detection is running' },
+      ...problems(400, 401, 403, 409, 422, 503),
+    },
+  },
+  {
+    method: 'get',
+    path: '/intake-sessions/{id}',
+    operationId: 'getIntakeSession',
+    summary: 'Read an intake session (resume support)',
+    params: IntakeSessionIdParamsSchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Intake session', schema: IntakeSessionSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 404),
+    },
+  },
+  {
+    method: 'post',
+    path: '/intake-sessions/{id}/answers',
+    operationId: 'answerIntakeQuestions',
+    summary: 'Submit interview answers',
+    params: IntakeSessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: IntakeAnswersRequestSchema,
+    responses: {
+      200: { description: 'Updated intake session', schema: IntakeSessionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/intake-sessions/{id}/type-confirmation',
+    operationId: 'confirmIntakeType',
+    summary: 'Confirm or reject a similar task type',
+    params: IntakeSessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: IntakeTypeConfirmationSchema,
+    responses: {
+      200: { description: 'Updated intake session', schema: IntakeSessionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'get',
+    path: '/intake-sessions/{id}/draft',
+    operationId: 'getIntakeDraft',
+    summary: 'Read the decomposition draft',
+    params: IntakeSessionIdParamsSchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Decomposition draft', schema: DecompositionDraftSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 404),
+    },
+  },
+  {
+    method: 'patch',
+    path: '/intake-sessions/{id}/draft',
+    operationId: 'updateIntakeDraft',
+    summary: 'Edit the decomposition draft',
+    params: IntakeSessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: DecompositionDraftPatchSchema,
+    responses: {
+      200: { description: 'Updated decomposition draft', schema: DecompositionDraftSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/intake-sessions/{id}/draft:approve',
+    operationId: 'approveIntakeDraft',
+    summary: 'Approve the draft and create tasks',
+    params: IntakeSessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      200: { description: 'Intake session advanced to feasibility check', schema: IntakeSessionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
+    },
+  },
+  {
+    method: 'post',
+    path: '/intake-sessions/{id}:pause',
+    operationId: 'pauseIntakeSession',
+    summary: 'Pause an intake interview',
+    params: IntakeSessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      200: { description: 'Paused intake session', schema: IntakeSessionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/intake-sessions/{id}:resume',
+    operationId: 'resumeIntakeSession',
+    summary: 'Resume a paused intake interview',
+    params: IntakeSessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      200: { description: 'Resumed intake session', schema: IntakeSessionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/intake-sessions/{id}:cancel',
+    operationId: 'cancelIntakeSession',
+    summary: 'Cancel an intake interview',
+    params: IntakeSessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      200: { description: 'Cancelled intake session', schema: IntakeSessionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/intake-sessions/{id}:manual',
+    operationId: 'enterManualIntakeMode',
+    summary: 'Switch the intake interview to manual mode',
+    params: IntakeSessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      200: { description: 'Manual-mode intake session', schema: IntakeSessionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 428),
+    },
+  },
+  {
+    method: 'get',
+    path: '/templates',
+    operationId: 'listTaskTemplates',
+    summary: 'Search task templates',
+    query: TaskTemplateListQuerySchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Task template page', schema: PageTaskTemplateSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 422),
+    },
+  },
+  {
+    method: 'get',
+    path: '/templates/{id}',
+    operationId: 'getTaskTemplate',
+    summary: 'Read a task template',
+    params: TaskTemplateIdParamsSchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Task template', schema: TaskTemplateSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 404),
+    },
+  },
+];
+
+export const contractRoutes: readonly RouteDefinition[] = [...routes, ...intakeRoutes];
+
 export const schemaRegistry = {
   Problem: ProblemSchema,
   ProjectCreate: ProjectCreateSchema,
@@ -276,6 +478,26 @@ export const schemaRegistry = {
   LoginRequest: LoginRequestSchema,
   User: UserSchema,
   UserSettingsPatch: UserSettingsPatchSchema,
+  IntakeInput: IntakeInputSchema,
+  IntakeSessionCreate: IntakeSessionCreateSchema,
+  IntakeSession: IntakeSessionSchema,
+  IntakeSessionIdParams: IntakeSessionIdParamsSchema,
+  IntakeDetectedType: IntakeDetectedTypeSchema,
+  IntakeAnswer: IntakeAnswerSchema,
+  IntakeAnswersRequest: IntakeAnswersRequestSchema,
+  PlannedQuestion: PlannedQuestionSchema,
+  IntakeAssumption: IntakeAssumptionSchema,
+  DecompositionEstimate: DecompositionEstimateSchema,
+  DecompositionStep: DecompositionStepSchema,
+  DecompositionDraft: DecompositionDraftSchema,
+  DecompositionDraftPatch: DecompositionDraftPatchSchema,
+  IntakeTypeConfirmation: IntakeTypeConfirmationSchema,
+  IntakeError: IntakeErrorSchema,
+  TemplateStats: TemplateStatsSchema,
+  TaskTemplate: TaskTemplateSchema,
+  PageTaskTemplate: PageTaskTemplateSchema,
+  TaskTemplateListQuery: TaskTemplateListQuerySchema,
+  TaskTemplateIdParams: TaskTemplateIdParamsSchema,
 } as const;
 
 export type SchemaRegistry = typeof schemaRegistry;
