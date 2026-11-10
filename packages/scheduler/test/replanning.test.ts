@@ -49,12 +49,11 @@ function makeInput(overrides: Partial<ScheduleInput> = {}): ScheduleInput {
   };
 }
 
-function effectiveInput(input: ScheduleInput): ScheduleInput {
+function historyBlocksOf(input: ScheduleInput): Block[] {
   const nowMs = Date.parse(input.now);
-  const fixed = (input.existingBlocks ?? []).filter(
+  return (input.existingBlocks ?? []).filter(
     (block) => Date.parse(block.start) < nowMs,
   );
-  return { ...input, lockedBlocks: [...input.lockedBlocks, ...fixed] };
 }
 
 function blockKey(block: Block): string {
@@ -121,8 +120,9 @@ describe('replanning from now', () => {
         ),
       ).toBe(false);
       expect(
-        validate(effectiveInput(input), candidate.blocks, {
+        validate(input, candidate.blocks, {
           riskLevel: input.prefs.riskLevel,
+          historyBlocks: historyBlocksOf(input),
         }),
       ).toEqual([]);
     }
@@ -319,5 +319,277 @@ describe('replan degradation', () => {
     const [candidate] = result.candidates;
     expect(candidate?.feasible).toBe(true);
     expect(candidate?.metrics.changedBlocks).toBe(0);
+  });
+
+  it('N10: releases a seed whose remainder is below minSessionMin', () => {
+    const input = makeInput({
+      tasks: [
+        makeTask({
+          id: 'A',
+          estimate: { p50Min: 90, p90Min: 90 },
+          minSessionMin: 45,
+        }),
+      ],
+      existingBlocks: [
+        {
+          taskId: 'A',
+          start: '2026-11-09T09:00:00Z',
+          end: '2026-11-09T10:00:00Z',
+        },
+      ],
+    });
+    for (const policy of [
+      'front_loaded',
+      'balanced',
+      'focus_blocked',
+    ] as const) {
+      const result = generate(input, { policies: [policy], seed: input.seed });
+      const [candidate] = result.candidates;
+      expect(candidate?.feasible).toBe(true);
+      expect(candidate?.blocks).toEqual([
+        {
+          taskId: 'A',
+          start: '2026-11-09T09:00:00Z',
+          end: '2026-11-09T10:30:00Z',
+        },
+      ]);
+    }
+  });
+
+  it('N6: releases a grown task seed when its successor is seeded', () => {
+    const input = makeInput({
+      tasks: [
+        makeTask({
+          id: 'A',
+          estimate: { p50Min: 120, p90Min: 120 },
+        }),
+        makeTask({ id: 'B', dependsOn: ['A'] }),
+      ],
+      existingBlocks: [
+        {
+          taskId: 'A',
+          start: '2026-11-09T09:00:00Z',
+          end: '2026-11-09T10:00:00Z',
+        },
+        {
+          taskId: 'B',
+          start: '2026-11-09T10:00:00Z',
+          end: '2026-11-09T11:00:00Z',
+        },
+      ],
+    });
+    for (const policy of [
+      'front_loaded',
+      'balanced',
+      'focus_blocked',
+    ] as const) {
+      const result = generate(input, { policies: [policy], seed: input.seed });
+      const [candidate] = result.candidates;
+      expect(candidate?.feasible).toBe(true);
+      const aBlocks = (candidate?.blocks ?? []).filter(
+        (block) => block.taskId === 'A',
+      );
+      const bBlocks = (candidate?.blocks ?? []).filter(
+        (block) => block.taskId === 'B',
+      );
+      const aEnd = Math.max(
+        ...aBlocks.map((block) => Date.parse(block.end)),
+      );
+      const bStart = Math.min(
+        ...bBlocks.map((block) => Date.parse(block.start)),
+      );
+      expect(bStart).toBeGreaterThanOrEqual(aEnd);
+    }
+  });
+
+  it('N5: releases a seed that precedes a newly added dependency', () => {
+    const input = makeInput({
+      tasks: [
+        makeTask({ id: 'A' }),
+        makeTask({ id: 'B', dependsOn: ['A'] }),
+      ],
+      existingBlocks: [
+        {
+          taskId: 'B',
+          start: '2026-11-09T09:00:00Z',
+          end: '2026-11-09T10:00:00Z',
+        },
+        {
+          taskId: 'A',
+          start: '2026-11-09T11:00:00Z',
+          end: '2026-11-09T12:00:00Z',
+        },
+      ],
+    });
+    for (const policy of [
+      'front_loaded',
+      'balanced',
+      'focus_blocked',
+    ] as const) {
+      const result = generate(input, { policies: [policy], seed: input.seed });
+      const [candidate] = result.candidates;
+      expect(candidate?.feasible).toBe(true);
+      const a = (candidate?.blocks ?? []).find((block) => block.taskId === 'A');
+      const b = (candidate?.blocks ?? []).find((block) => block.taskId === 'B');
+      expect(a).toBeDefined();
+      expect(b).toBeDefined();
+      expect(Date.parse(b?.start ?? '')).toBeGreaterThanOrEqual(
+        Date.parse(a?.end ?? ''),
+      );
+    }
+  });
+
+  it('treats past blocks as history for H2 and remainingMin (N2, N3, N3b)', () => {
+    const history: Block = {
+      taskId: 'A',
+      start: '2026-11-09T09:00:00Z',
+      end: '2026-11-09T10:00:00Z',
+    };
+
+    const n2 = makeInput({
+      now: '2026-11-09T12:00:00Z',
+      tasks: [makeTask({ id: 'A' })],
+      availability: [
+        { weekday: 1, startLocal: '10:00', endLocal: '17:00', kind: 'work' },
+      ],
+      existingBlocks: [history],
+    });
+    const n2Result = generate(n2, { policies: ['front_loaded'], seed: n2.seed });
+    expect(n2Result.candidates[0]?.feasible).toBe(true);
+    expect(n2Result.candidates[0]?.blocks).toEqual([
+      {
+        taskId: 'A',
+        start: '2026-11-09T12:00:00Z',
+        end: '2026-11-09T13:00:00Z',
+      },
+    ]);
+
+    const future: Block = {
+      taskId: 'A',
+      start: '2026-11-09T13:00:00Z',
+      end: '2026-11-09T14:00:00Z',
+    };
+    const n3 = makeInput({
+      now: '2026-11-09T12:00:00Z',
+      tasks: [makeTask({ id: 'A', remainingMin: 60 })],
+      existingBlocks: [history, future],
+    });
+    const n3Result = generate(n3, { policies: ['front_loaded'], seed: n3.seed });
+    expect(n3Result.candidates[0]?.feasible).toBe(true);
+    expect(n3Result.candidates[0]?.blocks).toEqual([future]);
+    expect(n3Result.candidates[0]?.metrics.changedBlocks).toBe(0);
+
+    const n3b = makeInput({
+      now: '2026-11-09T12:00:00Z',
+      tasks: [
+        makeTask({
+          id: 'A',
+          remainingMin: 30,
+          minSessionMin: 30,
+        }),
+      ],
+      existingBlocks: [history, future],
+    });
+    const n3bResult = generate(n3b, {
+      policies: ['front_loaded'],
+      seed: n3b.seed,
+    });
+    const n3bCandidate = n3bResult.candidates[0];
+    expect(n3bCandidate?.feasible).toBe(true);
+    expect(n3bCandidate?.blocks).toHaveLength(1);
+    const n3bBlock = n3bCandidate?.blocks[0];
+    expect(n3bBlock).toBeDefined();
+    expect(Date.parse(n3bBlock?.start ?? '')).toBeGreaterThanOrEqual(
+      Date.parse('2026-11-09T12:00:00Z'),
+    );
+    expect(
+      Date.parse(n3bBlock?.end ?? '') - Date.parse(n3bBlock?.start ?? ''),
+    ).toBe(30 * 60 * 1000);
+  });
+
+  it('does not audit a past block against a new full-day off exception', () => {
+    const input = makeInput({
+      now: '2026-11-09T12:00:00Z',
+      horizon: {
+        start: '2026-11-09T00:00:00Z',
+        end: '2026-11-11T00:00:00Z',
+      },
+      tasks: [
+        makeTask({
+          id: 'A',
+          dueAt: '2026-11-10T17:00:00Z',
+          estimate: { p50Min: 120, p90Min: 120 },
+        }),
+      ],
+      availability: [
+        { weekday: 1, startLocal: '09:00', endLocal: '17:00', kind: 'work' },
+        { weekday: 2, startLocal: '09:00', endLocal: '17:00', kind: 'work' },
+      ],
+      exceptions: [{ date: '2026-11-09', kind: 'off' }],
+      existingBlocks: [
+        {
+          taskId: 'A',
+          start: '2026-11-09T09:00:00Z',
+          end: '2026-11-09T10:00:00Z',
+        },
+      ],
+    });
+    const result = generate(input, { policies: ['front_loaded'], seed: input.seed });
+    const [candidate] = result.candidates;
+    expect(candidate?.feasible).toBe(true);
+    expect(
+      (candidate?.blocks ?? []).every(
+        (block) => Date.parse(block.start) >= Date.parse('2026-11-10T00:00:00Z'),
+      ),
+    ).toBe(true);
+  });
+
+  it('counts history for H1 and H6 but not for H2/H4/H5', () => {
+    const history: Block = {
+      taskId: 'A',
+      start: '2026-11-09T09:00:00Z',
+      end: '2026-11-09T10:00:00Z',
+    };
+    const input = makeInput({
+      now: '2026-11-09T12:00:00Z',
+      tasks: [makeTask({ id: 'A' })],
+      availability: [
+        { weekday: 1, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+      ],
+      prefs: {
+        maxDailyFocusMin: 90,
+        breakAfterMin: 480,
+        breakMin: 15,
+        riskLevel: 'p50',
+        dayStartLocal: '00:00',
+        dayEndLocal: '24:00',
+      },
+    });
+
+    const h6 = validate(
+      input,
+      [
+        {
+          taskId: 'A',
+          start: '2026-11-09T12:00:00Z',
+          end: '2026-11-09T13:00:00Z',
+        },
+      ],
+      { riskLevel: input.prefs.riskLevel, historyBlocks: [history] },
+    );
+    expect(h6.map((violation) => violation.code)).toContain('H6');
+
+    const h1 = validate(
+      input,
+      [
+        {
+          taskId: 'A',
+          start: '2026-11-09T09:30:00Z',
+          end: '2026-11-09T10:30:00Z',
+        },
+      ],
+      { riskLevel: input.prefs.riskLevel, historyBlocks: [history] },
+    );
+    expect(h1.map((violation) => violation.code)).toContain('H1');
   });
 });

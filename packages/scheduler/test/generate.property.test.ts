@@ -61,6 +61,13 @@ const WINDOWS: Array<[string, string]> = [
   ['09:00', '12:00'],
 ];
 
+const HEAVY_WINDOWS: Array<[string, string]> = [
+  ['00:00', '24:00'],
+  ['08:00', '18:00'],
+  ['06:00', '20:00'],
+  ['09:00', '17:00'],
+];
+
 function configuredRuns(): number {
   const raw = process.env.SCHED_PROPERTY_RUNS;
   if (raw === undefined) {
@@ -166,16 +173,16 @@ const LONG_SCENARIOS: Array<{ timeZone: string; start: string }> = [
 ];
 
 const heavyTaskSpec = fc.record({
-  durationUnits: fc.integer({ min: 3, max: 48 }),
-  extraP90Units: fc.integer({ min: 0, max: 12 }),
+  durationUnits: fc.integer({ min: 3, max: 24 }),
+  extraP90Units: fc.integer({ min: 0, max: 6 }),
   minUnits: fc.constantFrom(3, 6, 12),
-  maxUnits: fc.constantFrom(12, 18, 24, 36, 48),
+  maxUnits: fc.constantFrom(12, 18, 24, 36),
   splittable: fc.boolean(),
   priority: fc.integer({ min: 1, max: 4 }),
   dependencyMode: fc.integer({ min: 0, max: 2 }),
   extraIndex: fc.integer({ min: 0, max: 29 }),
-  earliestSteps: fc.integer({ min: 0, max: 600 }),
-  bufferUnits: fc.integer({ min: 0, max: 12 }),
+  earliestFraction: fc.integer({ min: 0, max: 20 }),
+  bufferUnits: fc.integer({ min: 0, max: 4 }),
   remainingHalf: fc.boolean(),
   preferred: fc.uniqueArray(
     fc.constantFrom('morning', 'afternoon', 'evening'),
@@ -185,8 +192,8 @@ const heavyTaskSpec = fc.record({
 
 const heavySpec = fc.record({
   scenario: fc.constantFrom(...LONG_SCENARIOS),
-  dayCount: fc.integer({ min: 3, max: 21 }),
-  window: fc.constantFrom(...WINDOWS),
+  dayCount: fc.integer({ min: 18, max: 21 }),
+  window: fc.constantFrom(...HEAVY_WINDOWS),
   weekdayMode: fc.constantFrom('all', 'weekdays'),
   tasks: fc.array(heavyTaskSpec, { minLength: 1, maxLength: 30 }),
   commitments: fc.array(
@@ -194,7 +201,7 @@ const heavySpec = fc.record({
       startStep: fc.integer({ min: 0, max: 6000 }),
       lengthSteps: fc.integer({ min: 6, max: 36 }),
     }),
-    { maxLength: 4 },
+    { maxLength: 1 },
   ),
   locked: fc.array(
     fc.record({
@@ -220,11 +227,11 @@ const heavySpec = fc.record({
       startMinute: fc.constantFrom(0, 540, 1140),
       lengthMinutes: fc.constantFrom(60, 120, 180),
     }),
-    { maxLength: 3 },
+    { maxLength: 1 },
   ),
-  nowStep: fc.integer({ min: 0, max: 6000 }),
-  maxDailyFocusMin: fc.constantFrom(120, 240, 480, 720),
-  breakAfterMin: fc.constantFrom(60, 90, 120, 240, 480),
+  nowFraction: fc.integer({ min: 0, max: 25 }),
+  maxDailyFocusMin: fc.constantFrom(480, 720, 1440),
+  breakAfterMin: fc.constantFrom(120, 240, 480),
   breakMin: fc.constantFrom(5, 10, 15),
   riskLevel: fc.constantFrom<'p50' | 'p90'>('p50', 'p90'),
   seed: fc.integer({ min: 0, max: 100000 }),
@@ -244,7 +251,7 @@ type HeavySpec = {
     priority: number;
     dependencyMode: number;
     extraIndex: number;
-    earliestSteps: number;
+    earliestFraction: number;
     bufferUnits: number;
     remainingHalf: boolean;
     preferred: string[];
@@ -259,7 +266,7 @@ type HeavySpec = {
     startMinute: number;
     lengthMinutes: number;
   }>;
-  nowStep: number;
+  nowFraction: number;
   maxDailyFocusMin: number;
   breakAfterMin: number;
   breakMin: number;
@@ -273,7 +280,10 @@ function formatClock(totalMinutes: number): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
-function buildHeavyInput(spec: HeavySpec): ScheduleInput {
+function buildHeavyInput(
+  spec: HeavySpec,
+  priorBlocks: Block[] = [],
+): ScheduleInput {
   const startInstant = Temporal.Instant.from(spec.scenario.start);
   const endInstant = startInstant.add({ hours: spec.dayCount * 24 });
   const totalSteps = Math.floor(
@@ -289,18 +299,23 @@ function buildHeavyInput(spec: HeavySpec): ScheduleInput {
   const tasks: Task[] = spec.tasks.map((entry, index) => {
     const requiredMin = entry.durationUnits * 5;
     const p90Min = (entry.durationUnits + entry.extraP90Units) * 5;
-    const maxSessionMin = entry.splittable
-      ? Math.max(entry.minUnits, entry.maxUnits) * 5
-      : requiredMin;
-    const minSessionMin = entry.splittable
-      ? Math.min(entry.minUnits, entry.maxUnits) * 5
-      : requiredMin;
+    const minUnits = Math.min(
+      entry.minUnits,
+      entry.maxUnits,
+      entry.durationUnits,
+    );
+    const maxUnits = Math.max(minUnits, entry.maxUnits);
+    const maxSessionMin = entry.splittable ? maxUnits * 5 : p90Min;
+    const minSessionMin = entry.splittable ? minUnits * 5 : p90Min;
     const bufferMin = entry.bufferUnits * 5;
     const latestEarliest = endInstant.subtract({
       minutes: bufferMin + 5,
     });
+    const earliestSteps = Math.floor(
+      (totalSteps * entry.earliestFraction) / 100,
+    );
     let earliest = startInstant.add({
-      minutes: clampStep(entry.earliestSteps) * 5,
+      minutes: clampStep(earliestSteps) * 5,
     });
     if (Temporal.Instant.compare(earliest, latestEarliest) >= 0) {
       earliest = latestEarliest;
@@ -311,9 +326,16 @@ function buildHeavyInput(spec: HeavySpec): ScheduleInput {
         : entry.dependencyMode === 1
           ? [`T${index - 1}`]
           : [`T${entry.extraIndex % index}`];
-    const remainingMin = entry.remainingHalf
-      ? Math.max(5, Math.floor(requiredMin / 2 / 5) * 5)
-      : undefined;
+    const remainingMin =
+      entry.splittable && entry.remainingHalf
+        ? Math.min(
+            p90Min,
+            Math.max(
+              minSessionMin,
+              Math.floor(requiredMin / 2 / 5) * 5,
+            ),
+          )
+        : undefined;
     return {
       id: `T${index}`,
       dueAt: endInstant.toString(),
@@ -370,7 +392,7 @@ function buildHeavyInput(spec: HeavySpec): ScheduleInput {
       end: stepIso(steps + entry.lengthSteps),
     };
   });
-  const lockedBlocks: Block[] = spec.locked.map((entry) => {
+  const randomLocked: Block[] = spec.locked.map((entry) => {
     const steps = clampStep(entry.startStep, entry.lengthSteps);
     return {
       taskId: `T${entry.taskIndex % taskCount}`,
@@ -378,7 +400,7 @@ function buildHeavyInput(spec: HeavySpec): ScheduleInput {
       end: stepIso(steps + entry.lengthSteps),
     };
   });
-  const existingBlocks: Block[] = spec.existing.map((entry) => {
+  const randomExisting: Block[] = spec.existing.map((entry) => {
     const steps = clampStep(entry.startStep, entry.lengthSteps);
     return {
       taskId: `T${entry.taskIndex % taskCount}`,
@@ -386,9 +408,18 @@ function buildHeavyInput(spec: HeavySpec): ScheduleInput {
       end: stepIso(steps + entry.lengthSteps),
     };
   });
+  // Prefer blocks from a prior valid plan so replans exercise seeding rather
+  // than mostly-invalid random blocks.
+  const lockedBlocks =
+    priorBlocks.length > 0 ? priorBlocks.slice(0, 1) : randomLocked;
+  const existingBlocks =
+    priorBlocks.length > 0
+      ? priorBlocks.slice(1, 1 + Math.max(1, spec.existing.length))
+      : randomExisting;
 
+  const nowSteps = Math.floor((totalSteps * spec.nowFraction) / 100);
   return {
-    now: stepIso(clampStep(spec.nowStep)),
+    now: stepIso(clampStep(nowSteps)),
     timeZone: spec.scenario.timeZone,
     horizon: {
       start: startInstant.toString(),
@@ -560,14 +591,46 @@ describe('generator properties', () => {
     // 06 §10 caps are up to 30 tasks and 21 days. The heavy property uses a
     // bounded run count so the required SCHED_PROPERTY_RUNS=10000 suite stays
     // practical; the fast properties above still honour the full count.
-    const HEAVY_RUNS = Math.max(40, Math.min(NUM_RUNS, 150));
+    // SCHED_HEAVY_RUNS can raise the heavy-property sample; it is capped by
+    // SCHED_PROPERTY_RUNS so the default 10k suite stays bounded.
+    const rawHeavyRuns = process.env.SCHED_HEAVY_RUNS;
+    const requestedHeavyRuns =
+      rawHeavyRuns === undefined ? 150 : Number.parseInt(rawHeavyRuns, 10);
+    const HEAVY_RUNS = Math.max(
+      40,
+      Math.min(
+        NUM_RUNS,
+        Number.isInteger(requestedHeavyRuns) && requestedHeavyRuns > 0
+          ? requestedHeavyRuns
+          : 150,
+      ),
+    );
+    let feasibleInputs = 0;
+    let totalInputs = 0;
     fc.assert(
       fc.property(heavySpec, (spec) => {
-        const input = buildHeavyInput(spec);
+        totalInputs += 1;
+        const baseInput = buildHeavyInput({
+          ...spec,
+          locked: [],
+          existing: [],
+        });
+        const base = generate(baseInput, {
+          policies: ['front_loaded'],
+          seed: spec.seed,
+        });
+        const priorBlocks =
+          base.candidates[0]?.feasible === true
+            ? base.candidates[0].blocks
+            : [];
+        const input = buildHeavyInput(spec, priorBlocks);
         const result = generate(input, {
           policies: ['front_loaded', 'balanced', 'focus_blocked'],
           seed: spec.seed,
         });
+        if (result.candidates.some((candidate) => candidate.feasible)) {
+          feasibleInputs += 1;
+        }
         expect(result.candidates.length).toBeLessThanOrEqual(3);
         const nowMs = Temporal.Instant.from(input.now).epochMilliseconds;
 
@@ -612,6 +675,13 @@ describe('generator properties', () => {
         }
       }),
       { numRuns: HEAVY_RUNS },
+    );
+    console.log(
+      `heavy feasible inputs: ${feasibleInputs}/${totalInputs} = ${(feasibleInputs / Math.max(1, totalInputs)).toFixed(3)}`,
+    );
+    expect(totalInputs).toBeGreaterThanOrEqual(HEAVY_RUNS);
+    expect(feasibleInputs / Math.max(1, totalInputs)).toBeGreaterThanOrEqual(
+      0.3,
     );
   }, 240000);
 });

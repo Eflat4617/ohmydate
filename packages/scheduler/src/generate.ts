@@ -8,6 +8,7 @@ import type {
   PolicyName,
   ScheduleInput,
   Task,
+  Violation,
 } from './types.js';
 import { computeAvailableSlots } from './slots.js';
 import { validate, validateInput } from './validate.js';
@@ -25,7 +26,7 @@ import { POLICIES, POLICY_NAMES } from './policies.js';
 import { createPrng, type Prng } from './prng.js';
 import { canonicalJson, sha256Hex } from './hash.js';
 
-export const GENERATOR_VERSION = 'm3-02.2';
+export const GENERATOR_VERSION = 'm3-02.3';
 
 interface Interval {
   startMs: number;
@@ -51,9 +52,15 @@ interface Placement {
   seeded: boolean;
 }
 
+interface ReplanBlock {
+  taskId: string;
+  startMs: number;
+  endMs: number;
+}
+
 interface ReplanPlan {
-  seeds: Placement[];
-  affectedTasks: Set<string>;
+  movable: ReplanBlock[];
+  baseAffectedTasks: Set<string>;
   /** Non-fixed existing blocks, used for the changedBlocks metric. */
   movableExisting: Interval[];
 }
@@ -61,26 +68,23 @@ interface ReplanPlan {
 interface PlanState {
   timeZone: string;
   placements: Placement[];
-  /** Sorted locked + candidate intervals, used by overlap and H6 checks. */
+  /** Sorted locked + history + candidate intervals for H1/H6 checks. */
   intervals: Interval[];
-  locked: Interval[];
   dailyLoad: Map<string, number>;
 }
 
 interface BuildContext {
   /** Original caller input (hash + public metadata). */
   input: ScheduleInput;
-  /** Input with past/in-progress existing blocks added to `lockedBlocks`. */
-  effectiveInput: ScheduleInput;
   slotsByStart: SlotInfo[];
   slotsByLength: SlotInfo[];
-  /**
-   * Fixed intervals: original locked blocks plus existing blocks whose start
-   * is before `now`. They are audited like locked work and are not returned in
-   * `PlanCandidate.blocks`.
-   */
+  /** Approved locked blocks; they are audited normally and credited. */
   lockedIntervals: Interval[];
   lockedByTask: Map<string, Interval[]>;
+  /** Past/in-progress existing blocks: occupy time only (06 §7.1). */
+  historyBlocks: Block[];
+  historyIntervals: Interval[];
+  historyByTask: Map<string, Interval[]>;
   /** Keys of `input.lockedBlocks`, to exclude from changedBlocks. */
   lockedKeys: Set<string>;
   breakAfterMs: number;
@@ -116,8 +120,9 @@ interface ChunkSpec {
  *
  * Replanning seeds still-valid existing blocks (start >= now) and re-places
  * only conflicting/affected tasks and their successors. Existing blocks whose
- * start is before `now` are fixed exactly like locked blocks, and new
- * placements start at or after max(horizon.start, now).
+ * start is before `now` are history (06 §7.1): they occupy time for H1/H6 but
+ * are exempt from H2/H4/H5 and do not reduce `remainingMin`. New placements
+ * start at or after max(horizon.start, now).
  */
 export function generate(
   input: ScheduleInput,
@@ -147,7 +152,7 @@ export function generate(
 
   const context = buildContext(input);
   const replan = prepareReplan(context);
-  const capacityDeficitMin = capacityDeficit(context.effectiveInput);
+  const capacityDeficitMin = capacityDeficit(context);
 
   const candidates = requested.map((policy) =>
     generateForPolicy(
@@ -238,9 +243,18 @@ function normalizePolicies(
   return result;
 }
 
-function capacityDeficit(input: ScheduleInput): number {
+function capacityDeficit(context: BuildContext): number {
+  const input = context.input;
   try {
-    return deficit(input).total.deficitMin;
+    // History occupies time for capacity purposes but is not credited work.
+    const capacityInput: ScheduleInput =
+      context.historyBlocks.length === 0
+        ? input
+        : {
+            ...input,
+            commitments: [...input.commitments, ...context.historyBlocks],
+          };
+    return deficit(capacityInput).total.deficitMin;
   } catch {
     return input.tasks.reduce(
       (sum, task) => sum + taskRequiredMinutes(task, input.prefs.riskLevel),
@@ -328,7 +342,7 @@ function buildContext(input: ScheduleInput): BuildContext {
       blockKey(block.taskId, parseInstant(block.start), parseInstant(block.end)),
     ),
   );
-  const fixedExistingBlocks = (input.existingBlocks ?? []).filter((block) => {
+  const historyBlocks = (input.existingBlocks ?? []).filter((block) => {
     const startMs = parseInstant(block.start);
     const endMs = parseInstant(block.end);
     if (startMs >= nowMs || endMs <= startMs) {
@@ -337,33 +351,20 @@ function buildContext(input: ScheduleInput): BuildContext {
     return !lockedKeys.has(blockKey(block.taskId, startMs, endMs));
   });
 
-  const lockedIntervals: Interval[] = [];
-  const lockedByTask = new Map<string, Interval[]>();
-  for (const block of [...input.lockedBlocks, ...fixedExistingBlocks]) {
-    const startMs = parseInstant(block.start);
-    const endMs = parseInstant(block.end);
-    if (endMs <= startMs) {
-      continue;
-    }
-    const interval = { startMs, endMs, taskId: block.taskId };
-    lockedIntervals.push(interval);
-    const list = lockedByTask.get(block.taskId) ?? [];
-    list.push(interval);
-    lockedByTask.set(block.taskId, list);
-  }
-
-  const effectiveInput: ScheduleInput = {
-    ...input,
-    lockedBlocks: [...input.lockedBlocks, ...fixedExistingBlocks],
-  };
+  const lockedIntervals = toIntervals(input.lockedBlocks);
+  const lockedByTask = groupIntervalsByTask(lockedIntervals);
+  const historyIntervals = toIntervals(historyBlocks);
+  const historyByTask = groupIntervalsByTask(historyIntervals);
 
   return {
     input,
-    effectiveInput,
     slotsByStart,
     slotsByLength,
     lockedIntervals,
     lockedByTask,
+    historyBlocks,
+    historyIntervals,
+    historyByTask,
     lockedKeys,
     breakAfterMs: input.prefs.breakAfterMin * MINUTE_MS,
     breakMs: input.prefs.breakMin * MINUTE_MS,
@@ -375,16 +376,46 @@ function buildContext(input: ScheduleInput): BuildContext {
   };
 }
 
+function toIntervals(blocks: Block[]): Interval[] {
+  const intervals: Interval[] = [];
+  for (const block of blocks) {
+    const startMs = parseInstant(block.start);
+    const endMs = parseInstant(block.end);
+    if (endMs > startMs) {
+      intervals.push({ startMs, endMs, taskId: block.taskId });
+    }
+  }
+  return intervals;
+}
+
+function groupIntervalsByTask(
+  intervals: Interval[],
+): Map<string, Interval[]> {
+  const grouped = new Map<string, Interval[]>();
+  for (const interval of intervals) {
+    const list = grouped.get(interval.taskId) ?? [];
+    list.push(interval);
+    grouped.set(interval.taskId, list);
+  }
+  return grouped;
+}
+
+function validatePlan(
+  context: BuildContext,
+  blocks: Block[],
+): Violation[] {
+  return validate(context.input, blocks, {
+    riskLevel: context.riskLevel,
+    historyBlocks: context.historyBlocks,
+  });
+}
+
 function prepareReplan(context: BuildContext): ReplanPlan {
   const taskById = new Map(
     context.input.tasks.map((task) => [task.id, task]),
   );
   const movableExisting: Interval[] = [];
-  const movable: Array<{
-    taskId: string;
-    startMs: number;
-    endMs: number;
-  }> = [];
+  const movable: ReplanBlock[] = [];
 
   for (const block of context.input.existingBlocks ?? []) {
     const startMs = parseInstant(block.start);
@@ -464,15 +495,40 @@ function prepareReplan(context: BuildContext): ReplanPlan {
     }
   }
 
-  let current = propagateAffected(context, affected);
-  let seeds: Placement[] = [];
+  return {
+    movable,
+    baseAffectedTasks: propagateAffected(context, affected),
+    movableExisting,
+  };
+}
 
-  for (let iteration = 0; iteration <= context.input.tasks.length + 1; iteration += 1) {
+/**
+ * Build seeds for the given affected set, releasing more tasks until stable.
+ * A seed is invalid when it starts before a dependency's last block, when the
+ * task's remainder is below `minSessionMin`/cannot fit before a seeded
+ * successor, or when H1/H2/H6/daily checks reject it (06 §7.1).
+ */
+function buildReplanSeeds(
+  context: BuildContext,
+  replan: ReplanPlan,
+  initialAffected: Set<string>,
+): { seeds: Placement[]; affected: Set<string> } {
+  const taskById = new Map(
+    context.input.tasks.map((task) => [task.id, task]),
+  );
+  let affected = propagateAffected(context, new Set(initialAffected));
+
+  for (
+    let iteration = 0;
+    iteration <= context.input.tasks.length + 2;
+    iteration += 1
+  ) {
     const state = createState(context);
-    seeds = [];
-    let changed = false;
-    for (const item of movable) {
-      if (current.has(item.taskId)) {
+    const seeds: Placement[] = [];
+    let failedTask: string | undefined;
+
+    for (const item of replan.movable) {
+      if (affected.has(item.taskId)) {
         continue;
       }
       const slot = findContainingSlot(context, item.startMs, item.endMs);
@@ -480,9 +536,8 @@ function prepareReplan(context: BuildContext): ReplanPlan {
         slot === undefined ||
         !passes(context, state, item.startMs, item.endMs)
       ) {
-        current.add(item.taskId);
-        changed = true;
-        continue;
+        failedTask = item.taskId;
+        break;
       }
       const placement: Placement = {
         taskId: item.taskId,
@@ -495,13 +550,182 @@ function prepareReplan(context: BuildContext): ReplanPlan {
       addPlacement(state, placement);
       seeds.push(placement);
     }
-    current = propagateAffected(context, current);
-    if (!changed) {
-      break;
+
+    if (failedTask !== undefined) {
+      affected.add(failedTask);
+      affected = propagateAffected(context, affected);
+      continue;
     }
+
+    const seedsByTask = new Map<string, Placement[]>();
+    for (const seed of seeds) {
+      const list = seedsByTask.get(seed.taskId) ?? [];
+      list.push(seed);
+      seedsByTask.set(seed.taskId, list);
+    }
+
+    const next = new Set(affected);
+    for (const seed of seeds) {
+      const task = taskById.get(seed.taskId);
+      if (task === undefined) {
+        continue;
+      }
+      const dependencyReady = dependencyCompletion(
+        context,
+        seedsByTask,
+        task.dependsOn,
+      );
+      if (seed.startMs < dependencyReady) {
+        next.add(seed.taskId);
+      }
+    }
+
+    for (const [taskId, taskSeeds] of seedsByTask) {
+      const task = taskById.get(taskId);
+      if (task === undefined) {
+        continue;
+      }
+      const required = taskRequiredMinutes(task, context.riskLevel);
+      const lockedMin = minutesOf(context.lockedByTask.get(taskId) ?? []);
+      const seededMin = taskSeeds.reduce(
+        (sum, seed) => sum + seed.durationMin,
+        0,
+      );
+      const remaining = Math.max(0, required - lockedMin - seededMin);
+      if (remaining <= 0) {
+        continue;
+      }
+      if (!task.splittable || remaining < task.minSessionMin) {
+        next.add(taskId);
+        continue;
+      }
+      const chunks = buildChunks(task, remaining);
+      if (chunks.reason !== undefined) {
+        next.add(taskId);
+        continue;
+      }
+      const successorStart = earliestSeededSuccessorStart(
+        context,
+        seeds,
+        taskId,
+      );
+      if (successorStart !== undefined) {
+        const earliestMs =
+          task.earliestStartAt === undefined
+            ? context.horizonStartMs
+            : parseInstant(task.earliestStartAt);
+        const dueMs =
+          task.dueAt === undefined
+            ? context.horizonEndMs
+            : parseInstant(task.dueAt);
+        const windowStart = Math.max(
+          context.horizonStartMs,
+          context.nowMs,
+          earliestMs,
+          dependencyCompletion(context, seedsByTask, task.dependsOn),
+        );
+        const windowEnd = Math.min(
+          context.horizonEndMs,
+          dueMs - (task.bufferBeforeDueMin ?? 0) * MINUTE_MS,
+          successorStart,
+        );
+        if (
+          windowEnd <= windowStart ||
+          freeMinutesBetween(context, state, windowStart, windowEnd) <
+            remaining
+        ) {
+          next.add(taskId);
+        }
+      }
+    }
+
+    const propagated = propagateAffected(context, next);
+    if (setsEqual(propagated, affected)) {
+      return { seeds, affected };
+    }
+    affected = propagated;
   }
 
-  return { seeds, affectedTasks: current, movableExisting };
+  return { seeds: [], affected };
+}
+
+function dependencyCompletion(
+  context: BuildContext,
+  seedsByTask: Map<string, Placement[]>,
+  dependencies: string[],
+): number {
+  let ready = context.horizonStartMs;
+  for (const dependencyId of dependencies) {
+    for (const interval of context.lockedByTask.get(dependencyId) ?? []) {
+      ready = Math.max(ready, interval.endMs);
+    }
+    for (const interval of context.historyByTask.get(dependencyId) ?? []) {
+      ready = Math.max(ready, interval.endMs);
+    }
+    for (const seed of seedsByTask.get(dependencyId) ?? []) {
+      ready = Math.max(ready, seed.endMs);
+    }
+  }
+  return ready;
+}
+
+function earliestSeededSuccessorStart(
+  context: BuildContext,
+  seeds: Placement[],
+  taskId: string,
+): number | undefined {
+  let earliest: number | undefined;
+  for (const task of context.input.tasks) {
+    if (!task.dependsOn.includes(taskId)) {
+      continue;
+    }
+    for (const seed of seeds) {
+      if (seed.taskId !== task.id) {
+        continue;
+      }
+      earliest =
+        earliest === undefined ? seed.startMs : Math.min(earliest, seed.startMs);
+    }
+  }
+  return earliest;
+}
+
+function freeMinutesBetween(
+  context: BuildContext,
+  state: PlanState,
+  startMs: number,
+  endMs: number,
+): number {
+  if (endMs <= startMs) {
+    return 0;
+  }
+  let total = 0;
+  for (const slot of context.slotsByStart) {
+    for (const cellStart of slot.cellStarts) {
+      if (cellStart < startMs) {
+        continue;
+      }
+      if (cellStart + GRID_MS > endMs) {
+        break;
+      }
+      if (!overlapsAny(state.intervals, cellStart, cellStart + GRID_MS)) {
+        total += 5;
+      }
+    }
+  }
+  return total;
+}
+
+function setsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) {
+    return false;
+  }
+  for (const value of a) {
+    if (!b.has(value)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function propagateAffected(
@@ -582,11 +806,12 @@ function createState(context: BuildContext): PlanState {
     timeZone: context.input.timeZone,
     placements: [],
     intervals: [],
-    locked: [],
     dailyLoad: new Map<string, number>(),
   };
-  for (const interval of context.lockedIntervals) {
-    state.locked.push(interval);
+  for (const interval of [
+    ...context.lockedIntervals,
+    ...context.historyIntervals,
+  ]) {
     insertInterval(state.intervals, interval);
     addLoads(state.dailyLoad, blockDailyLoads(
       interval.startMs,
@@ -607,12 +832,142 @@ function generateForPolicy(
   maxImprovement: number,
 ): PlanCandidate {
   const profile = POLICIES[policy];
+  let affected = new Set(replan.baseAffectedTasks);
+  let attempt = buildReplanSeeds(context, replan, affected);
+  let result = runPlacementAttempt(
+    context,
+    policy,
+    seed,
+    maxImprovement,
+    attempt.seeds,
+  );
+  let retainedSeeds = attempt.seeds.length;
+
+  for (
+    let iteration = 0;
+    iteration <= context.input.tasks.length + 2 &&
+    result.violations.length > 0;
+    iteration += 1
+  ) {
+    const violating = new Set<string>();
+    for (const violation of result.violations) {
+      if (violation.taskId !== undefined) {
+        violating.add(violation.taskId);
+      }
+    }
+    if (violating.size === 0) {
+      for (const seeded of attempt.seeds) {
+        violating.add(seeded.taskId);
+      }
+      if (violating.size === 0) {
+        break;
+      }
+    }
+    const next = propagateAffected(context, new Set([...affected, ...violating]));
+    if (setsEqual(next, affected)) {
+      for (const seeded of attempt.seeds) {
+        next.add(seeded.taskId);
+      }
+      const expanded = propagateAffected(context, next);
+      if (setsEqual(expanded, affected)) {
+        break;
+      }
+      affected = expanded;
+    } else {
+      affected = next;
+    }
+    attempt = buildReplanSeeds(context, replan, affected);
+    result = runPlacementAttempt(
+      context,
+      policy,
+      seed,
+      maxImprovement,
+      attempt.seeds,
+    );
+    retainedSeeds = attempt.seeds.length;
+  }
+
+  // Final fallback: no seeds. If a still-seeded attempt was feasible we never
+  // get here, so the first feasible attempt wins.
+  if (result.violations.length > 0) {
+    const noSeeds = runPlacementAttempt(
+      context,
+      policy,
+      seed,
+      maxImprovement,
+      [],
+    );
+    result = noSeeds;
+    retainedSeeds = 0;
+  }
+
+  const finalState = stateFromPlacements(context, result.placements);
+  const blocks = blocksFromPlacements(finalState.placements);
+  const metrics = buildMetrics(
+    context,
+    finalState,
+    replan,
+    capacityDeficitMin,
+  );
+  const feasible = result.violations.length === 0;
+  const requiredTotalMin = context.input.tasks.reduce(
+    (sum, task) => sum + taskRequiredMinutes(task, context.riskLevel),
+    0,
+  );
+  const placedTotalMin = Math.max(0, requiredTotalMin - metrics.deficitMin);
+
+  const explanation: string[] = [
+    `Policy ${policy} v${profile.version}: ${profile.summary}`,
+    `Placed ${placedTotalMin} of ${requiredTotalMin} required minutes in ${blocks.length} movable block(s), retaining ${retainedSeeds} existing block(s).`,
+    feasible
+      ? 'All hard constraints H1-H8 satisfied.'
+      : `Infeasible with ${result.violations.length} hard violation(s): ${uniqueCodes(result.violations)}.`,
+  ];
+  if (!feasible) {
+    for (const violation of result.violations.slice(0, 4)) {
+      explanation.push(violation.message);
+    }
+  }
+  for (const reason of [...result.reasons].sort()) {
+    explanation.push(`Heuristic reason: ${reason}.`);
+  }
+  explanation.push(
+    `Unplaced minutes (H7 shortfall): ${metrics.deficitMin} min.`,
+  );
+  explanation.push(`Capacity deficit: ${capacityDeficitMin} min.`);
+
+  return {
+    policy,
+    blocks,
+    metrics,
+    feasible,
+    deficitMin: metrics.deficitMin,
+    capacityDeficitMin,
+    explanation,
+    inputHash,
+    generatorVersion: GENERATOR_VERSION,
+  };
+}
+
+interface PlacementAttempt {
+  placements: Placement[];
+  violations: Violation[];
+  reasons: Set<string>;
+}
+
+function runPlacementAttempt(
+  context: BuildContext,
+  policy: PolicyName,
+  seed: number,
+  maxImprovement: number,
+  seeds: Placement[],
+): PlacementAttempt {
   const state = createState(context);
-  for (const seedPlacement of replan.seeds) {
+  for (const seedPlacement of seeds) {
     addPlacement(state, { ...seedPlacement });
   }
   const seededMinutesByTask = new Map<string, number>();
-  for (const placement of replan.seeds) {
+  for (const placement of seeds) {
     seededMinutesByTask.set(
       placement.taskId,
       (seededMinutesByTask.get(placement.taskId) ?? 0) + placement.durationMin,
@@ -723,9 +1078,7 @@ function generateForPolicy(
   }
 
   const greedyBlocks = blocksFromPlacements(state.placements);
-  const greedyViolations = validate(context.effectiveInput, greedyBlocks, {
-    riskLevel: context.riskLevel,
-  });
+  const greedyViolations = validatePlan(context, greedyBlocks);
 
   let finalPlacements = state.placements.map((placement) => ({ ...placement }));
   if (greedyViolations.length === 0 && maxImprovement > 0) {
@@ -737,65 +1090,15 @@ function generateForPolicy(
       prng,
     );
     const improvedBlocks = blocksFromPlacements(improved);
-    const improvedViolations = validate(
-      context.effectiveInput,
-      improvedBlocks,
-      { riskLevel: context.riskLevel },
-    );
+    const improvedViolations = validatePlan(context, improvedBlocks);
     if (improvedViolations.length === 0) {
       finalPlacements = improved;
     }
   }
 
-  const finalState = stateFromPlacements(context, finalPlacements);
-  const blocks = blocksFromPlacements(finalState.placements);
-  const violations = validate(context.effectiveInput, blocks, {
-    riskLevel: context.riskLevel,
-  });
-  const metrics = buildMetrics(
-    context,
-    finalState,
-    replan,
-    capacityDeficitMin,
-  );
-  const feasible = violations.length === 0;
-  const requiredTotalMin = context.input.tasks.reduce(
-    (sum, task) => sum + taskRequiredMinutes(task, context.riskLevel),
-    0,
-  );
-  const placedTotalMin = Math.max(0, requiredTotalMin - metrics.deficitMin);
-
-  const explanation: string[] = [
-    `Policy ${policy} v${profile.version}: ${profile.summary}`,
-    `Placed ${placedTotalMin} of ${requiredTotalMin} required minutes in ${blocks.length} movable block(s), retaining ${replan.seeds.length} existing block(s).`,
-    feasible
-      ? 'All hard constraints H1-H8 satisfied.'
-      : `Infeasible with ${violations.length} hard violation(s): ${uniqueCodes(violations)}.`,
-  ];
-  if (!feasible) {
-    for (const violation of violations.slice(0, 4)) {
-      explanation.push(violation.message);
-    }
-  }
-  for (const reason of [...reasons].sort()) {
-    explanation.push(`Heuristic reason: ${reason}.`);
-  }
-  explanation.push(
-    `Unplaced minutes (H7 shortfall): ${metrics.deficitMin} min.`,
-  );
-  explanation.push(`Capacity deficit: ${capacityDeficitMin} min.`);
-
-  return {
-    policy,
-    blocks,
-    metrics,
-    feasible,
-    deficitMin: metrics.deficitMin,
-    capacityDeficitMin,
-    explanation,
-    inputHash,
-    generatorVersion: GENERATOR_VERSION,
-  };
+  const blocks = blocksFromPlacements(finalPlacements);
+  const violations = validatePlan(context, blocks);
+  return { placements: finalPlacements, violations, reasons };
 }
 
 function policySeedOffset(policy: PolicyName): number {
@@ -1433,8 +1736,8 @@ function placementWindow(
 }
 
 /**
- * Bounded local improvement: each new block is offered the next 30-minute
- * position inside its own slot and kept only when the policy objective
+ * Bounded local improvement: each new block is offered -60/-30/+30/+60 minute
+ * positions inside its own slot and kept only when the policy objective
  * strictly improves. Seeded existing blocks are never moved here, preserving
  * change minimisation. At most `cap` (<= 200) block moves are tried.
  */
@@ -1516,7 +1819,7 @@ function* neighborPositions(
   const currentIndex = Math.round((target.startMs - slot.startMs) / GRID_MS);
   const limit = slot.cellStarts.length - cellCount;
   const indices = new Set<number>();
-  for (const offset of [6]) {
+  for (const offset of [-12, -6, 6, 12]) {
     const index = currentIndex + offset;
     if (index >= 0 && index <= limit) {
       indices.add(index);
@@ -1832,28 +2135,44 @@ function blockKey(taskId: string, startMs: number, endMs: number): string {
 }
 
 function finalize(candidates: PlanCandidate[]): GenerateResult {
-  const kept: PlanCandidate[] = [];
+  let kept: PlanCandidate[] = [];
   let dropped = 0;
   for (const candidate of candidates) {
-    const duplicateIndex = kept.findIndex(
-      (earlier) => candidateDistance(earlier.blocks, candidate.blocks) < 0.15,
-    );
-    if (duplicateIndex < 0) {
+    const similar = kept
+      .map((earlier, index) => ({
+        earlier,
+        index,
+        close: candidateDistance(earlier.blocks, candidate.blocks) < 0.15,
+      }))
+      .filter((entry) => entry.close);
+
+    if (similar.length === 0) {
       kept.push(candidate);
       continue;
     }
-    const earlier = kept[duplicateIndex];
-    if (
-      earlier !== undefined &&
-      candidate.feasible &&
-      !earlier.feasible
-    ) {
-      // Feasibility always wins a diversity collision.
-      kept[duplicateIndex] = candidate;
+
+    if (!candidate.feasible) {
       dropped += 1;
       continue;
     }
-    dropped += 1;
+
+    const hasFeasibleSimilar = similar.some((entry) => entry.earlier.feasible);
+    if (hasFeasibleSimilar) {
+      dropped += 1;
+      continue;
+    }
+
+    // Feasible newcomer wins over every similar infeasible plan. Remove all
+    // such similarities first so the kept set stays pairwise diverse.
+    const removeIndices = new Set(similar.map((entry) => entry.index));
+    kept = kept.filter((_, index) => {
+      if (removeIndices.has(index)) {
+        dropped += 1;
+        return false;
+      }
+      return true;
+    });
+    kept.push(candidate);
   }
 
   if (dropped > 0) {

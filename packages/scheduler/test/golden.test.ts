@@ -136,16 +136,12 @@ function codesOf(violations: Array<{ code: string }>): string[] {
   return violations.map((violation) => violation.code).sort();
 }
 
-function withFixedExistingBlocks(input: ScheduleInput): ScheduleInput {
+function historyBlocksOf(input: ScheduleInput): Block[] {
   const nowMs = Temporal.Instant.from(input.now).epochMilliseconds;
-  const fixed = (input.existingBlocks ?? []).filter(
+  return (input.existingBlocks ?? []).filter(
     (block) =>
       Temporal.Instant.from(block.start).epochMilliseconds < nowMs,
   );
-  if (fixed.length === 0) {
-    return input;
-  }
-  return { ...input, lockedBlocks: [...input.lockedBlocks, ...fixed] };
 }
 
 describe('golden cases G01-G15', () => {
@@ -290,18 +286,20 @@ describe('golden cases G01-G15', () => {
         );
         expect(candidate.explanation.length).toBeGreaterThan(0);
 
-        const effectiveInput = withFixedExistingBlocks(fixture.input);
+        const historyBlocks = historyBlocksOf(fixture.input);
         if (candidate.feasible) {
           expect(
-            validate(effectiveInput, candidate.blocks, {
+            validate(fixture.input, candidate.blocks, {
               riskLevel: fixture.input.prefs.riskLevel,
+              historyBlocks,
             }),
           ).toEqual([]);
         } else {
           expect(
             candidate.blocks.length === 0 ||
-              validate(effectiveInput, candidate.blocks, {
+              validate(fixture.input, candidate.blocks, {
                 riskLevel: fixture.input.prefs.riskLevel,
+                historyBlocks,
               }).length > 0 ||
               candidate.explanation.some((line) =>
                 line.includes('Input rejected'),

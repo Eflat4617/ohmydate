@@ -28,6 +28,10 @@ export interface Task {
   dueAt?: Instant;
   earliestStartAt?: Instant;
   estimate: TaskEstimate;
+  /**
+   * Minutes still needed going forward. When supplied it is authoritative and
+   * does not include past/in-progress history blocks (06 §7.1).
+   */
   remainingMin?: number;
   splittable: boolean;
   minSessionMin: number;
@@ -93,6 +97,11 @@ export interface ScheduleInput {
   exceptions: ExceptionRule[];
   commitments: Commitment[];
   lockedBlocks: Block[];
+  /**
+   * Previous plan blocks. Entries whose start is before `now` are history:
+   * they occupy time for H1/H6 but are not audited for H2/H4/H5 and do not
+   * reduce `remainingMin` (06 §7.1).
+   */
   existingBlocks?: Block[];
   prefs: Preferences;
   seed: number;
@@ -134,6 +143,11 @@ export interface Violation {
 
 export interface ValidateOptions {
   riskLevel: RiskLevel;
+  /**
+   * Past/in-progress history blocks: included in H1 overlap and H6
+   * daily-load/break checks, but exempt from H2, H4, H5 and H7 (06 §7.1).
+   */
+  historyBlocks?: Block[];
 }
 
 export interface InputIssue {
@@ -191,9 +205,10 @@ export interface PlanMetrics {
 export interface PlanCandidate {
   policy: PolicyName;
   /**
-   * Movable/seeded blocks only. `ScheduleInput.lockedBlocks` and existing
-   * blocks whose start is before `now` are treated as fixed and audited like
-   * locked work, so they are not repeated here.
+   * Movable/seeded blocks only. `ScheduleInput.lockedBlocks` are audited
+   * separately; existing blocks whose start is before `now` are history
+   * (06 §7.1), so neither kind is repeated here. Re-validate with
+   * `ValidateOptions.historyBlocks` for the full-plan H1/H6 audit.
    */
   blocks: Block[];
   metrics: PlanMetrics;

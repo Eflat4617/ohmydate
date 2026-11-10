@@ -62,17 +62,20 @@ export function validate(
 
   const candidate = parsePlanBlocks(blocks, violations);
   const locked = parsePlanBlocks(input.lockedBlocks, violations);
-  const plan = [...candidate, ...locked];
+  const history = parsePlanBlocks(opts.historyBlocks ?? [], violations);
+  // H2-H5/H7 audit the live plan only; history contributes to H1 and H6.
+  const audited = [...candidate, ...locked];
+  const occupied = [...audited, ...history];
 
-  checkUnknownTaskIds(input, plan, violations);
+  checkUnknownTaskIds(input, audited, violations);
   checkHorizon(input, candidate, violations);
-  checkH1(input, plan, violations);
-  checkH2(input, plan, violations);
-  checkH3(input, plan, violations);
-  checkH4(input, plan, violations);
-  checkH5(input, plan, opts, violations);
-  checkH6(input, plan, violations);
-  checkH7(input, plan, opts, violations);
+  checkH1(input, occupied, violations);
+  checkH2(input, audited, violations);
+  checkH3(input, audited, violations);
+  checkH4(input, audited, violations);
+  checkH5(input, audited, opts, violations);
+  checkH6(input, occupied, violations);
+  checkH7(input, audited, opts, violations);
 
   return violations;
 }
