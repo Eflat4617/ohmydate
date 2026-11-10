@@ -60,6 +60,7 @@ interface HarnessServer {
   nextTaskId: number;
   createUpdated: string;
   failTaskGets: number;
+  failTaskGetFor?: number | undefined;
   failPatchAfterApply?: '502' | 'timeout';
   nextPatchUpdated?: (task: RemoteTask) => string;
   beforeListResponse?: (() => Promise<void>) | undefined;
@@ -76,6 +77,10 @@ function createHandler(server: HarnessServer) {
   return (request: FakeRequest) => {
     const taskMatch = /^\/api\/v2\/tasks\/(\d+)$/.exec(request.path);
     if (request.method === 'GET' && taskMatch !== null) {
+      if (server.failTaskGetFor === Number(taskMatch[1])) {
+        server.failTaskGetFor = undefined;
+        return { status: 503, body: { title: 'unavailable' } };
+      }
       if (server.failTaskGets > 0) {
         server.failTaskGets -= 1;
         return { status: 503, body: { title: 'unavailable' } };
@@ -150,6 +155,26 @@ function createHandler(server: HarnessServer) {
         }));
       }
       return { status: 200, body: page(items) };
+    }
+    const relationMatch = /^\/api\/v2\/tasks\/(\d+)\/relations$/.exec(request.path);
+    if (request.method === 'POST' && relationMatch !== null) {
+      const task = server.tasks.get(Number(relationMatch[1]));
+      if (task === undefined) return { status: 404, body: { code: 4002 } };
+      const body = request.body as Record<string, unknown>;
+      if (body.relation_kind === 'blocked' && typeof body.other_task_id === 'number') {
+        task.dependencies = [...task.dependencies, body.other_task_id];
+      }
+      return { status: 201, body: {} };
+    }
+    const relationDeleteMatch =
+      /^\/api\/v2\/tasks\/(\d+)\/relations\/([^/]+)\/(\d+)$/.exec(request.path);
+    if (request.method === 'DELETE' && relationDeleteMatch !== null) {
+      const task = server.tasks.get(Number(relationDeleteMatch[1]));
+      if (task !== undefined && relationDeleteMatch[2] === 'blocked') {
+        const other = Number(relationDeleteMatch[3]);
+        task.dependencies = task.dependencies.filter((id) => id !== other);
+      }
+      return { status: 200, body: {} };
     }
     if (request.method === 'GET' && request.path === '/api/v2/tasks/deleted') {
       const items = [...server.tasks.values()]
@@ -513,6 +538,109 @@ describe('FU-16 content fingerprint', () => {
       before,
     );
     expect(feed.changes.map((change) => change.version)).toEqual([2]);
+  });
+});
+
+describe('FU-14R HIGH: create with dependencies', () => {
+  test('records relations in the fingerprint so the first write at v1 succeeds', async () => {
+    const context = await setup({ seedTaskMappings: false });
+    const dependency = await context.repository.create(
+      context.ownerId,
+      { projectId: context.projectId, title: 'A' },
+      'create-a',
+    );
+    const created = await context.repository.create(
+      context.ownerId,
+      {
+        projectId: context.projectId,
+        title: 'B',
+        dependsOn: [dependency.id],
+      },
+      'create-b',
+    );
+    expect(created.version).toBe(1);
+    expect(created.dependsOn).toEqual([dependency.id]);
+
+    const mapping = await context.mappings.get('task', created.id);
+    expect(mapping?.needsReconcile).not.toBe(true);
+
+    const feed = await context.repository.listChangedSince(context.ownerId, null);
+    expect(
+      feed.changes
+        .filter((change) => change.id === created.id)
+        .map((change) => change.version),
+    ).toEqual([1]);
+    const loaded = await context.repository.get(context.ownerId, created.id);
+    expect(loaded?.version).toBe(1);
+    expect(loaded?.dependsOn).toEqual([dependency.id]);
+
+    const updated = await context.repository.update(
+      context.ownerId,
+      created.id,
+      { title: 'B updated' },
+      1 as Version,
+    );
+    expect(updated.version).toBe(2);
+  });
+
+  test('a failed create follow-up with dependencies still adopts v1 without a bump', async () => {
+    const context = await setup({ seedTaskMappings: false });
+    const dependency = await context.repository.create(
+      context.ownerId,
+      { projectId: context.projectId, title: 'A' },
+      'create-a-follow-up',
+    );
+    // Fail only the follow-up GET for the new task; the acyclic check also
+    // GETs the existing dependency, which must succeed.
+    context.server.failTaskGetFor = context.server.nextTaskId;
+
+    const created = await context.repository.create(
+      context.ownerId,
+      {
+        projectId: context.projectId,
+        title: 'B',
+        dependsOn: [dependency.id],
+      },
+      'create-b-follow-up',
+    );
+    expect((await context.mappings.get('task', created.id))?.needsReconcile).toBe(
+      true,
+    );
+
+    const loaded = await context.repository.get(context.ownerId, created.id);
+    expect(loaded?.version).toBe(1);
+    expect(loaded?.dependsOn).toEqual([dependency.id]);
+
+    const feed = await context.repository.listChangedSince(context.ownerId, null);
+    expect(
+      feed.changes
+        .filter((change) => change.id === created.id)
+        .map((change) => change.version),
+    ).toEqual([1]);
+  });
+
+  test('equal fingerprint and equal ETag produce no bump and no feed entry', async () => {
+    const context = await setup({ seedTaskMappings: false });
+    const created = await context.repository.create(
+      context.ownerId,
+      { projectId: context.projectId, title: 'Stable' },
+      'create-stable',
+    );
+    const initial = await context.repository.listChangedSince(context.ownerId, null);
+
+    const stored = await context.mappings.get('task', created.id);
+    expect(stored).not.toBeNull();
+    await context.mappings.put({ ...(stored as NonNullable<typeof stored>), needsReconcile: true });
+
+    const loaded = await context.repository.get(context.ownerId, created.id);
+    expect(loaded?.version).toBe(1);
+    expect((await context.mappings.get('task', created.id))?.needsReconcile).toBe(
+      false,
+    );
+    expect(
+      (await context.repository.listChangedSince(context.ownerId, initial.cursor))
+        .changes,
+    ).toEqual([]);
   });
 });
 

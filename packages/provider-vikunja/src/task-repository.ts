@@ -88,9 +88,18 @@ const REMOTE_OVERLAP_SECONDS = 1;
  * content, and only the mapped dependency relation kind is included so the
  * server-generated inverse relation cannot cause fingerprint churn (FU-16).
  */
-function contentFingerprint(remote: VikunjaTask): string {
+function contentFingerprint(
+  remote: VikunjaTask,
+  dependencyExternalIds?: readonly string[],
+): string {
   const related = remote.related_tasks?.[DEPENDENCY_RELATION_KIND] ?? [];
-  const relationIds = related.map((task) => String(task.id)).sort();
+  // `dependencyExternalIds` lets create() record the relations it just wrote
+  // even though the POST/follow-up payload predates the createRelation calls.
+  const relationIds = (
+    dependencyExternalIds === undefined
+      ? related.map((task) => String(task.id))
+      : [...dependencyExternalIds]
+  ).sort();
   return JSON.stringify({
     title: remote.title,
     description: stripMarker(remote.description) ?? '',
@@ -248,6 +257,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     };
     await this.#plannerFields.putTask(id, fields);
 
+    const dependencyExternalIds: string[] = [];
     try {
       for (const dependencyId of normalized.dependsOn) {
         const dependency = await this.#requireMapping(ownerId, 'task', dependencyId);
@@ -256,6 +266,7 @@ export class VikunjaTaskRepository implements TaskRepository {
           dependency.externalId,
           DEPENDENCY_RELATION_KIND,
         );
+        dependencyExternalIds.push(dependency.externalId);
       }
     } catch (error) {
       // The relation write may have been applied before its response was lost.
@@ -272,6 +283,28 @@ export class VikunjaTaskRepository implements TaskRepository {
         // Leave the mapping/marker in place for orphan recovery.
       }
       throw error;
+    }
+
+    // Relations are written after the task payload, so the POST/follow-up body
+    // cannot carry them. Record the fingerprint only now: storing it earlier
+    // made every first write at the returned v1 look externally changed and
+    // produced a phantom v2 (FU-14R HIGH). This also covers followUpFailed,
+    // where `remote` is the POST body and the next GET will include the
+    // relations created below.
+    if (dependencyExternalIds.length > 0) {
+      const withRelations: ExternalMapping = {
+        ...mapping,
+        contentFingerprint: contentFingerprint(remote, dependencyExternalIds),
+      };
+      await this.#mappings.put(withRelations);
+      await this.#appendJournal(ownerId, withRelations, withRelations.externalUpdatedAt ?? now);
+      return this.#toTask(
+        ownerId,
+        withRelations,
+        remote,
+        fields,
+        normalized.dependsOn,
+      );
     }
 
     await this.#appendJournal(ownerId, mapping, mapping.externalUpdatedAt ?? now);
@@ -635,6 +668,15 @@ export class VikunjaTaskRepository implements TaskRepository {
     return this.#toTask(ownerId, updated, latest.data, nextFields, dependsOn);
   }
 
+  /**
+   * Soft-deletes the task upstream. Vikunja drops the `blocked` relation when a
+   * task is deleted, so every dependent task changes on the next poll: the
+   * adapter sees the relation ids differ from the stored content fingerprint
+   * and reports the dependent with a new version and an empty `dependsOn`.
+   * A client still holding the dependent's old version therefore gets a
+   * `VersionConflictError` on its next write; this is intentional,
+   * provider-faithful behavior (FU-14R LOW).
+   */
   async softDelete(ownerId: Id, id: Id, expectedVersion: Version): Promise<void> {
     await this.#ensureSnapshot(ownerId);
     const client = this.#requireClient(ownerId);
