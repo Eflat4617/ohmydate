@@ -12,6 +12,12 @@ export type MappingEntityType = 'task' | 'project';
  * owner-scoped reads/writes, and a mapping row is the cheapest place to enforce
  * that without an extra Vikunja request.
  */
+export interface PendingCompletion {
+  readonly expectedVersion: Version;
+  readonly at: Instant;
+  readonly dueAtBefore?: Instant;
+}
+
 export interface ExternalMapping {
   readonly provider: 'vikunja';
   readonly entityType: MappingEntityType;
@@ -31,6 +37,12 @@ export interface ExternalMapping {
    * can never become visible under an unchanged version.
    */
   readonly needsReconcile?: boolean;
+  /**
+   * Persisted before a completion PATCH. If the write outcome is unknown, the
+   * next reconciliation compares the provider state and emits the planner
+   * completion record exactly once, then clears this intent.
+   */
+  readonly pendingCompletion?: PendingCompletion;
 }
 
 export interface MappingStore {
@@ -41,6 +53,7 @@ export interface MappingStore {
     externalId: string,
   ): Promise<ExternalMapping | null>;
   put(mapping: ExternalMapping): Promise<void>;
+  listByOwner(ownerId: Id): Promise<readonly ExternalMapping[]>;
 }
 
 function entityKey(entityType: MappingEntityType, entityId: Id): string {
@@ -89,6 +102,10 @@ export class InMemoryMappingStore implements MappingStore {
       externalKey(mapping.provider, mapping.entityType, mapping.externalId),
       mapping,
     );
+  }
+
+  async listByOwner(ownerId: Id): Promise<readonly ExternalMapping[]> {
+    return [...this.#byEntity.values()].filter((mapping) => mapping.ownerId === ownerId);
   }
 
   /** Test/cleanup helper; not part of the store contract used by the adapter. */

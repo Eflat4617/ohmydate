@@ -2,6 +2,7 @@ import {
   CursorInvalidatedError,
   DependencyCycleError,
   NotFoundError,
+  ProviderUnavailableError,
   ValidationFailedError,
   VersionConflictError,
   epochMsToInstant,
@@ -39,6 +40,7 @@ import {
   InMemoryMappingStore,
   type ExternalMapping,
   type MappingStore,
+  type PendingCompletion,
 } from './mapping-store.js';
 import {
   InMemoryChangeJournalStore,
@@ -80,6 +82,12 @@ export interface VikunjaTaskRepositoryOptions {
   readonly journal?: ChangeJournalStore;
   readonly clock: Clock;
   readonly ids: IdGenerator;
+}
+
+function withoutPending(mapping: ExternalMapping): ExternalMapping {
+  const { pendingCompletion, ...rest } = mapping;
+  void pendingCompletion;
+  return rest;
 }
 
 function normalizeLimit(limit: number | undefined): number {
@@ -168,16 +176,17 @@ export class VikunjaTaskRepository implements TaskRepository {
     const now = this.#clock.now();
     let remote: VikunjaTask;
     let etag: string | null = null;
+    let followUpFailed = false;
     try {
       const fetched = await client.getTask(String(created.id));
       remote = fetched.data;
       etag = fetched.etag;
-    } catch (error) {
-      // A create response can omit server-set fields; a follow-up GET is
-      // advisable (capabilities doc). If it failed, keep the create result but
-      // still persist a mapping so the task can be recovered.
+    } catch {
+      // The POST itself succeeded, so the task exists upstream. Persist a
+      // needsReconcile mapping instead of orphaning it; the next read/list will
+      // refresh the ETag before serving.
       remote = created;
-      if (!(error instanceof NotFoundError)) throw error;
+      followUpFailed = true;
     }
 
     const remoteUpdatedAt = normalizeRemoteInstant(remote.updated);
@@ -189,6 +198,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       ownerId,
       ...(etag === null ? {} : { externalEtag: etag }),
       ...(remoteUpdatedAt === undefined ? {} : { externalUpdatedAt: remoteUpdatedAt }),
+      ...(followUpFailed ? { needsReconcile: true } : {}),
       localVersion: 1 as Version,
       createdAt: now,
       updatedAt: now,
@@ -214,13 +224,18 @@ export class VikunjaTaskRepository implements TaskRepository {
         );
       }
     } catch (error) {
-      // Best-effort rollback: the task exists upstream, so remove it (and its
-      // mapping) before surfacing the failure.
+      // The relation write may have been applied before its response was lost.
+      if (error instanceof ProviderUnavailableError) {
+        await this.#markNeedsReconcile(mapping);
+      }
+      // Best-effort rollback: the task exists upstream, so remove it before
+      // surfacing the failure. The marker stays for orphan recovery if this
+      // rollback also fails.
       try {
         await client.deleteTask(mapping.externalId);
         await client.permanentDeleteTask(mapping.externalId);
       } catch {
-        // Leave the marker in place for orphan recovery.
+        // Leave the mapping/marker in place for orphan recovery.
       }
       throw error;
     }
@@ -236,7 +251,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     if (mapping === null || mapping.ownerId !== ownerId || mapping.deletedAt !== undefined) {
       return null;
     }
-    if (mapping.needsReconcile === true) {
+    if (mapping.needsReconcile === true || mapping.pendingCompletion !== undefined) {
       try {
         mapping = await this.#reconcileMapping(ownerId, client, mapping);
       } catch (error) {
@@ -302,7 +317,7 @@ export class VikunjaTaskRepository implements TaskRepository {
         if (error instanceof NotFoundError) continue;
         throw error;
       }
-      if (mapping.needsReconcile === true) {
+      if (mapping.needsReconcile === true || mapping.pendingCompletion !== undefined) {
         mapping = await this.#commitReconciled(ownerId, mapping, full, etag);
       }
       const fields = this.#plannerFields.getTask(mapping.entityId) ?? defaultPlannerTaskFields();
@@ -348,7 +363,7 @@ export class VikunjaTaskRepository implements TaskRepository {
   ): Promise<Task> {
     const client = this.#requireClient(ownerId);
     let mapping = await this.#requireMapping(ownerId, 'task', id);
-    if (mapping.needsReconcile === true) {
+    if (mapping.needsReconcile === true || mapping.pendingCompletion !== undefined) {
       mapping = await this.#reconcileMapping(ownerId, client, mapping);
     }
     if (mapping.deletedAt !== undefined) throw new NotFoundError('task', id);
@@ -364,7 +379,13 @@ export class VikunjaTaskRepository implements TaskRepository {
       current.etag !== null &&
       current.etag !== mapping.externalEtag
     ) {
-      throw new VersionConflictError(expectedVersion, mapping.localVersion);
+      const reconciled = await this.#commitReconciled(
+        ownerId,
+        mapping,
+        current.data,
+        current.etag,
+      );
+      throw new VersionConflictError(expectedVersion, reconciled.localVersion);
     }
 
     const normalized = validateTaskPatch(patch);
@@ -427,7 +448,12 @@ export class VikunjaTaskRepository implements TaskRepository {
         },
       );
     } catch (error) {
-      if (remoteWriteApplied) await this.#markNeedsReconcile(mapping);
+      // ProviderUnavailable means the write may have been applied before the
+      // response was lost. Anything else (4xx validation/conflict) is a
+      // definitive non-application unless an earlier write already succeeded.
+      if (error instanceof ProviderUnavailableError || remoteWriteApplied) {
+        await this.#markNeedsReconcile(mapping);
+      }
       throw error;
     }
 
@@ -464,12 +490,21 @@ export class VikunjaTaskRepository implements TaskRepository {
    * cases a journal change with `completedOccurrenceAt` records the completion,
    * while the returned task status/dueAt reflect the provider state (a reopened
    * recurring task therefore reads as `todo` with its next due date).
+   *
+   * A completion intent is persisted on the mapping before the PATCH. If the
+   * write response is lost, reconciliation compares the provider state (done or
+   * an advanced due date) and emits the completion record exactly once. A retry
+   * with the same expectedVersion therefore conflicts after reconciliation
+   * instead of completing the next occurrence.
    */
   async complete(ownerId: Id, id: Id, expectedVersion: Version): Promise<Task> {
     const client = this.#requireClient(ownerId);
     let mapping = await this.#requireMapping(ownerId, 'task', id);
-    if (mapping.needsReconcile === true) {
+    if (mapping.needsReconcile === true || mapping.pendingCompletion !== undefined) {
       mapping = await this.#reconcileMapping(ownerId, client, mapping);
+      if (mapping.localVersion !== expectedVersion) {
+        throw new VersionConflictError(expectedVersion, mapping.localVersion);
+      }
     }
     if (mapping.deletedAt !== undefined) throw new NotFoundError('task', id);
     // Completing a done task is only a no-op when the caller's version is
@@ -485,7 +520,13 @@ export class VikunjaTaskRepository implements TaskRepository {
       current.etag !== null &&
       current.etag !== mapping.externalEtag
     ) {
-      throw new VersionConflictError(expectedVersion, mapping.localVersion);
+      const reconciled = await this.#commitReconciled(
+        ownerId,
+        mapping,
+        current.data,
+        current.etag,
+      );
+      throw new VersionConflictError(expectedVersion, reconciled.localVersion);
     }
 
     const fields = this.#plannerFields.getTask(id) ?? defaultPlannerTaskFields();
@@ -494,20 +535,43 @@ export class VikunjaTaskRepository implements TaskRepository {
       return this.#toTask(ownerId, mapping, current.data, fields, dependsOn);
     }
 
-    await client.patchTask(mapping.externalId, { done: true });
+    const now = this.#clock.now();
+    const dueAtBefore = normalizeRemoteInstant(current.data.due_date);
+    const intent: PendingCompletion = {
+      expectedVersion,
+      at: now,
+      ...(dueAtBefore === undefined ? {} : { dueAtBefore }),
+    };
+    const withIntent: ExternalMapping = { ...mapping, pendingCompletion: intent };
+    await this.#mappings.put(withIntent);
+    mapping = withIntent;
+
+    try {
+      await client.patchTask(mapping.externalId, { done: true });
+    } catch (error) {
+      if (error instanceof ProviderUnavailableError) {
+        await this.#markNeedsReconcile(mapping);
+      } else {
+        // Definitive 4xx: the completion was not applied.
+        await this.#mappings.put(withoutPending(mapping));
+      }
+      throw error;
+    }
 
     let latest: { readonly data: VikunjaTask; readonly etag: string | null };
     try {
       latest = await client.getTask(mapping.externalId);
     } catch (error) {
+      // The PATCH succeeded; keep the intent so reconciliation can emit the
+      // completion record even though the final read failed.
       await this.#markNeedsReconcile(mapping);
       throw error;
     }
 
-    const now = this.#clock.now();
     const latestUpdatedAt = normalizeRemoteInstant(latest.data.updated);
+    const base = withoutPending(mapping);
     const updated: ExternalMapping = {
-      ...mapping,
+      ...base,
       ...(latest.etag === null ? {} : { externalEtag: latest.etag }),
       ...(latestUpdatedAt === undefined ? {} : { externalUpdatedAt: latestUpdatedAt }),
       localVersion: (mapping.localVersion + 1) as Version,
@@ -519,13 +583,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     const nextFields: PlannerTaskFields = { ...fields, status: nextStatus };
     await this.#mappings.put(updated);
     this.#plannerFields.putTask(id, nextFields);
-    await this.#appendJournal(
-      ownerId,
-      updated,
-      updated.externalUpdatedAt ?? now,
-      undefined,
-      now,
-    );
+    await this.#appendJournal(ownerId, updated, updated.externalUpdatedAt ?? now, undefined, now);
     const dependsOn = await this.#remoteDependencies(ownerId, latest.data);
     return this.#toTask(ownerId, updated, latest.data, nextFields, dependsOn);
   }
@@ -533,7 +591,7 @@ export class VikunjaTaskRepository implements TaskRepository {
   async softDelete(ownerId: Id, id: Id, expectedVersion: Version): Promise<void> {
     const client = this.#requireClient(ownerId);
     let mapping = await this.#requireMapping(ownerId, 'task', id);
-    if (mapping.needsReconcile === true) {
+    if (mapping.needsReconcile === true || mapping.pendingCompletion !== undefined) {
       mapping = await this.#reconcileMapping(ownerId, client, mapping);
     }
     if (mapping.deletedAt !== undefined) throw new NotFoundError('task', id);
@@ -546,10 +604,23 @@ export class VikunjaTaskRepository implements TaskRepository {
       current.etag !== null &&
       current.etag !== mapping.externalEtag
     ) {
-      throw new VersionConflictError(expectedVersion, mapping.localVersion);
+      const reconciled = await this.#commitReconciled(
+        ownerId,
+        mapping,
+        current.data,
+        current.etag,
+      );
+      throw new VersionConflictError(expectedVersion, reconciled.localVersion);
     }
 
-    await client.deleteTask(mapping.externalId);
+    try {
+      await client.deleteTask(mapping.externalId);
+    } catch (error) {
+      if (error instanceof ProviderUnavailableError) {
+        await this.#markNeedsReconcile(mapping);
+      }
+      throw error;
+    }
     const now = this.#clock.now();
     const updated: ExternalMapping = {
       ...mapping,
@@ -574,14 +645,21 @@ export class VikunjaTaskRepository implements TaskRepository {
       }
       throw error;
     }
+    const ownerKey = String(ownerId);
+    const hadHistory = (await this.#journal.head(ownerId)) > 0;
     let baseline: ChangeCursor;
     if (cursor === null) {
       // Full resync: read the whole retained journal for this owner.
-      baseline = { ...EMPTY_CHANGE_CURSOR, epoch };
+      baseline = { ...EMPTY_CHANGE_CURSOR, epoch, owner: ownerKey };
     } else {
       if (decoded.epoch !== epoch) {
         throw new CursorInvalidatedError(
           'change cursor belongs to a different journal epoch; full resync required',
+        );
+      }
+      if (decoded.owner !== ownerKey) {
+        throw new CursorInvalidatedError(
+          'change cursor belongs to another owner; full resync required',
         );
       }
       const head = await this.#journal.head(ownerId);
@@ -591,6 +669,33 @@ export class VikunjaTaskRepository implements TaskRepository {
         );
       }
       baseline = decoded;
+    }
+
+    if (cursor === null && !hadHistory) {
+      // A fresh journal with preserved mappings must still produce a complete
+      // snapshot; remote reconciliation alone would skip unchanged ETags and
+      // silently drop every existing task.
+      for (const mapping of await this.#mappings.listByOwner(ownerId)) {
+        if (mapping.entityType !== 'task' || mapping.deletedAt === undefined) {
+          continue;
+        }
+        await this.#appendJournal(
+          ownerId,
+          mapping,
+          mapping.externalUpdatedAt ?? mapping.updatedAt,
+          mapping.deletedAt,
+        );
+      }
+      for (const mapping of await this.#mappings.listByOwner(ownerId)) {
+        if (mapping.entityType !== 'task' || mapping.deletedAt !== undefined) {
+          continue;
+        }
+        await this.#appendJournal(
+          ownerId,
+          mapping,
+          mapping.externalUpdatedAt ?? mapping.updatedAt,
+        );
+      }
     }
 
     const client = this.#clientFor(ownerId);
@@ -616,6 +721,7 @@ export class VikunjaTaskRepository implements TaskRepository {
             externalId: last.externalId,
             sequence: last.sequence,
             epoch,
+            owner: ownerKey,
           };
     return { changes, cursor: encodeChangeCursor(nextCursor) };
   }
@@ -896,9 +1002,38 @@ export class VikunjaTaskRepository implements TaskRepository {
     etag: string | null,
   ): Promise<ExternalMapping> {
     const updatedAt = normalizeRemoteInstant(remote.updated);
+    const pending = mapping.pendingCompletion;
+    const remoteDueAt = normalizeRemoteInstant(remote.due_date);
+    const completed =
+      pending !== undefined &&
+      (remote.done === true ||
+        (pending.dueAtBefore !== undefined &&
+          remoteDueAt !== undefined &&
+          Date.parse(remoteDueAt) > Date.parse(pending.dueAtBefore)));
+    const etagChanged = etag !== null && mapping.externalEtag !== etag;
+    const updatedChanged =
+      etag === null &&
+      updatedAt !== undefined &&
+      mapping.externalUpdatedAt !== updatedAt;
+    const changed = etagChanged || updatedChanged || completed;
     const now = this.#clock.now();
+
+    if (!changed) {
+      // Settle an unknown-outcome intent or a reconcile marker without
+      // inventing a version when the provider state did not change.
+      const cleared: ExternalMapping = {
+        ...withoutPending(mapping),
+        needsReconcile: false,
+      };
+      if (mapping.needsReconcile === true || mapping.pendingCompletion !== undefined) {
+        await this.#mappings.put(cleared);
+      }
+      return cleared;
+    }
+
+    const base = withoutPending(mapping);
     const updated: ExternalMapping = {
-      ...mapping,
+      ...base,
       ...(etag === null ? {} : { externalEtag: etag }),
       ...(updatedAt === undefined ? {} : { externalUpdatedAt: updatedAt }),
       localVersion: (mapping.localVersion + 1) as Version,
@@ -906,7 +1041,13 @@ export class VikunjaTaskRepository implements TaskRepository {
       needsReconcile: false,
     };
     await this.#mappings.put(updated);
-    await this.#appendJournal(ownerId, updated, updatedAt ?? now);
+    await this.#appendJournal(
+      ownerId,
+      updated,
+      updatedAt ?? now,
+      undefined,
+      completed ? pending.at : undefined,
+    );
     return updated;
   }
 
@@ -948,6 +1089,7 @@ export class VikunjaTaskRepository implements TaskRepository {
         updatedAt !== undefined && mapping.externalUpdatedAt === updatedAt;
       if (
         mapping.needsReconcile !== true &&
+        mapping.pendingCompletion === undefined &&
         (etagSame || (current.etag === null && updatedSame))
       ) {
         continue;
@@ -972,7 +1114,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       const deletedAt = normalizeRemoteInstant(candidate.deleted_at) ?? this.#clock.now();
       const now = this.#clock.now();
       const updated: ExternalMapping = {
-        ...mapping,
+        ...withoutPending(mapping),
         localVersion: (mapping.localVersion + 1) as Version,
         updatedAt: now,
         deletedAt,
@@ -989,4 +1131,3 @@ export function createVikunjaTaskRepository(
 ): VikunjaTaskRepository {
   return new VikunjaTaskRepository(options);
 }
-

@@ -187,3 +187,19 @@ describe('VikunjaClient failure normalization', () => {
     }
   });
 });
+
+describe('VikunjaClient response validation', () => {
+  test('maps a 2xx non-JSON body to ProviderUnavailableError', async () => {
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      fetch: async () =>
+        new Response('<html>proxy</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      sleep: async () => {},
+    });
+
+    await expect(client.getTask('1')).rejects.toBeInstanceOf(ProviderUnavailableError);
+  });
+});

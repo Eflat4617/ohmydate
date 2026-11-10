@@ -486,8 +486,18 @@ export class VikunjaClient {
     }
 
     if (response.status >= 200 && response.status < 300) {
+      let data: T | undefined;
+      if (text.length > 0) {
+        try {
+          data = JSON.parse(text) as T;
+        } catch {
+          // A proxy or misbehaving gateway can return HTML with a 2xx status.
+          // Never leak the raw SyntaxError across the domain boundary.
+          throw new ProviderUnavailableError('vikunja');
+        }
+      }
       return {
-        data: (text.length === 0 ? undefined : (JSON.parse(text) as T)) as T,
+        data: data as T,
         etag: response.headers.get('etag'),
         status: response.status,
       };

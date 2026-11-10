@@ -40,6 +40,7 @@ export {
   type ExternalMapping,
   type MappingEntityType,
   type MappingStore,
+  type PendingCompletion,
 } from './mapping-store.js';
 export { appendMarker, extractMarker, stripMarker } from './marker.js';
 export {

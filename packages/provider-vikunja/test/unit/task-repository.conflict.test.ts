@@ -148,9 +148,11 @@ describe('VikunjaTaskRepository conflict detection', () => {
     const { repo, http, state, ownerId, taskId } = await setup();
     state.etag = '"changed-externally"';
 
-    await expect(
-      repo.update(ownerId, taskId, { title: 'blocked' }, 1 as Version),
-    ).rejects.toBeInstanceOf(VersionConflictError);
+    const conflict = await repo
+      .update(ownerId, taskId, { title: 'blocked' }, 1 as Version)
+      .catch((error: unknown) => error);
+    expect(conflict).toBeInstanceOf(VersionConflictError);
+    expect((conflict as VersionConflictError).actual).toBe(2);
     expect(http.calls.filter((call) => call.method === 'PATCH')).toHaveLength(0);
   });
 
@@ -188,7 +190,7 @@ describe('VikunjaTaskRepository conflict detection', () => {
     const { repo, state, ownerId } = await setup();
 
     const initial = await repo.listChangedSince(ownerId, null);
-    expect(initial.changes).toEqual([]);
+    expect(initial.changes.map((change) => change.version)).toEqual([1]);
 
     state.etag = '"v2"';
     state.updated = '2026-01-01T00:00:05Z';

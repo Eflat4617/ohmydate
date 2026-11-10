@@ -228,6 +228,7 @@ describe('VikunjaTaskRepository partial failure staging', () => {
   test('a failed relation write does not commit staged planner fields', async () => {
     const context = await setup();
     const repo = context.createRepo();
+    const before = (await repo.listChangedSince(context.ownerId, null)).cursor;
     context.flags.failRelationPost = true;
 
     await expect(
@@ -244,7 +245,7 @@ describe('VikunjaTaskRepository partial failure staging', () => {
     expect(task?.priority).toBe(2);
     expect(task?.version).toBe(1);
     expect(task?.dependsOn).toEqual([]);
-    expect((await repo.listChangedSince(context.ownerId, null)).changes).toEqual([]);
+    expect((await repo.listChangedSince(context.ownerId, before)).changes).toEqual([]);
   });
 
   test('a failed final GET marks the mapping and reconciles before serving', async () => {
@@ -297,6 +298,51 @@ describe('VikunjaTaskRepository restart-safe change journal', () => {
     expect(page.changes[0]?.id).toBe(context.taskId);
   });
 
+  test('a fresh journal with preserved mappings emits a complete resync snapshot', async () => {
+    const context = await setup();
+    const deletedId = context.ids.next();
+    await context.mappings.put({
+      provider: 'vikunja',
+      entityType: 'task',
+      entityId: deletedId,
+      externalId: '44',
+      ownerId: context.ownerId,
+      externalEtag: '"v1"',
+      externalUpdatedAt: CREATED_AT as Instant,
+      localVersion: 1 as Version,
+      createdAt: context.clock.now(),
+      updatedAt: context.clock.now(),
+      deletedAt: context.clock.now(),
+    });
+
+    const fresh = new VikunjaTaskRepository({
+      clients: new Map<Id, VikunjaClient>([[context.ownerId, context.client]]),
+      mappings: context.mappings,
+      plannerFields: context.plannerFields,
+      journal: new InMemoryChangeJournalStore(),
+      clock: context.clock,
+      ids: context.ids,
+    });
+
+    const page = await fresh.listChangedSince(context.ownerId, null);
+    expect(page.changes.map((change) => change.id).sort()).toEqual(
+      [context.taskId, context.dependencyId, deletedId].sort(),
+    );
+    const deletedChange = page.changes.find((change) => change.id === deletedId);
+    expect(deletedChange?.deletedAt).toBeDefined();
+  });
+
+  test('cursors are bound to the owner that issued them', async () => {
+    const context = await setup();
+    const repo = context.createRepo();
+    const cursor = (await repo.listChangedSince(context.ownerId, null)).cursor;
+    const otherOwner = context.ids.next();
+
+    await expect(
+      repo.listChangedSince(otherOwner, cursor),
+    ).rejects.toBeInstanceOf(CursorInvalidatedError);
+  });
+
   test('a cursor from a fresh epoch or beyond the head is invalidated', async () => {
     const context = await setup();
     const repo = context.createRepo();
@@ -328,6 +374,7 @@ describe('VikunjaTaskRepository restart-safe change journal', () => {
       externalId: '',
       sequence: 999,
       epoch,
+      owner: String(context.ownerId),
     });
     await expect(
       repo.listChangedSince(context.ownerId, beyond),
