@@ -71,3 +71,25 @@ test('problem responses use application/problem+json per operation', () => {
     }
   }
 });
+
+test('every route with rejecting input declares a Problem media response', () => {
+  for (const route of routes) {
+    const hasInput =
+      route.params !== undefined ||
+      route.query !== undefined ||
+      route.headers !== undefined ||
+      route.body !== undefined;
+    if (!hasInput) continue;
+
+    const responses = document.paths[route.path]?.[route.method]?.responses ?? {};
+    const problemJson = (status: string): boolean =>
+      responses[status]?.content?.['application/problem+json'] !== undefined;
+    const acceptable = problemJson('400') || (route.body !== undefined && problemJson('422'));
+
+    expect({
+      route: route.operationId,
+      hasInput,
+      acceptable,
+    }).toEqual({ route: route.operationId, hasInput: true, acceptable: true });
+  }
+});

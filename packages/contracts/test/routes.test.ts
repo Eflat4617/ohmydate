@@ -1,4 +1,4 @@
-import { routes, type RouteDefinition } from '../src/index.js';
+import { ProblemSchema, routes, type RouteDefinition } from '../src/index.js';
 import { compile } from './ajv.js';
 
 const ID = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55';
@@ -23,7 +23,7 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
   getMe: {
     requiredHeaders: [],
     optionalHeaders: ['If-None-Match'],
-    statuses: [200, 304, 401],
+    statuses: [200, 304, 400, 401],
   },
   updateMySettings: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
@@ -233,4 +233,15 @@ test('every problem status declares a Problem schema', () => {
       });
     }
   }
+});
+
+test('getMe rejects empty If-None-Match and declares a 400 Problem', () => {
+  const route = routes.find((candidate) => candidate.operationId === 'getMe');
+  expect(route).toBeDefined();
+  if (route === undefined || route.headers === undefined) throw new Error('getMe headers missing');
+
+  const validate = compile(route.headers);
+  expect(validate({ 'If-None-Match': '' })).toBe(false);
+  expect(validate({ 'If-None-Match': 'W/"3"' })).toBe(true);
+  expect(route.responses[400]?.schema).toBe(ProblemSchema);
 });

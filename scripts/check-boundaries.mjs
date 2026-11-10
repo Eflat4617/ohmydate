@@ -1,51 +1,67 @@
 #!/usr/bin/env node
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { builtinModules } from 'node:module';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const sourceRoots = ['apps', 'services', 'packages'];
-const ignoredDirs = new Set(['node_modules', 'dist', 'coverage', '.git', '.turbo']);
+const DEFAULT_SOURCE_ROOTS = ['apps', 'services', 'packages'];
+const ALL_SOURCE = /\.(?:js|mjs|cjs|jsx|ts|tsx|mts|cts)$/;
+const ignoredDirs = new Set([
+  'node_modules',
+  'dist',
+  'coverage',
+  '.git',
+  '.turbo',
+  '__fixtures__',
+  'upstream',
+]);
 const builtins = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
 
-const workspacePackages = new Map();
-for (const root of sourceRoots) {
-  for (const entry of safeReadDir(join(repoRoot, root))) {
-    const manifestPath = join(repoRoot, root, entry, 'package.json');
-    try {
-      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-      if (typeof manifest.name === 'string') {
-        workspacePackages.set(manifest.name, `${root}/${entry}`);
+export function loadWorkspacePackages(repoRoot) {
+  const packages = new Map();
+  for (const root of DEFAULT_SOURCE_ROOTS) {
+    for (const entry of safeReadDir(join(repoRoot, root))) {
+      const manifestPath = join(repoRoot, root, entry, 'package.json');
+      try {
+        const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+        if (typeof manifest.name === 'string') {
+          packages.set(manifest.name, `${root}/${entry}`);
+        }
+      } catch {
+        // Not a workspace package directory.
       }
-    } catch {
-      // Not a workspace package directory.
     }
   }
+  return packages;
 }
 
-const violations = [];
-let checkedFiles = 0;
-
-for (const root of sourceRoots) {
-  for (const file of collectSourceFiles(join(repoRoot, root))) {
-    checkedFiles += 1;
-    checkFile(file);
+export function collectDefaultFiles(repoRoot) {
+  const files = [];
+  for (const root of DEFAULT_SOURCE_ROOTS) {
+    files.push(...collectSourceFiles(join(repoRoot, root), ALL_SOURCE));
   }
-}
-
-if (violations.length > 0) {
-  for (const violation of violations) {
-    console.error(
-      `${violation.file}:${violation.line} [${violation.rule}] ${violation.message}`,
-    );
+  for (const entry of safeReadDir(repoRoot)) {
+    if (ignoredDirs.has(entry) || !ALL_SOURCE.test(entry)) continue;
+    const absolute = join(repoRoot, entry);
+    if (statSync(absolute, { throwIfNoEntry: false })?.isFile()) files.push(absolute);
   }
-  console.error(`\nBoundary check failed: ${violations.length} violation(s) in ${checkedFiles} file(s).`);
-  process.exit(1);
+  files.push(...collectSourceFiles(join(repoRoot, 'scripts'), ALL_SOURCE));
+  return [...new Set(files)].sort();
 }
 
-console.log(`Boundary check passed: ${checkedFiles} file(s), 0 violations.`);
+export function runBoundaryCheck({ repoRoot, files, workspacePackages } = {}) {
+  const root = resolve(repoRoot ?? resolve(dirname(fileURLToPath(import.meta.url)), '..'));
+  const packages = workspacePackages ?? loadWorkspacePackages(root);
+  const scanned = (files ?? collectDefaultFiles(root)).map((file) => resolve(root, file));
+  const violations = [];
+
+  for (const file of scanned) {
+    checkFile({ repoRoot: root, file, workspacePackages: packages, violations });
+  }
+
+  return { violations, checkedFiles: scanned.length };
+}
 
 function safeReadDir(dir) {
   try {
@@ -55,15 +71,15 @@ function safeReadDir(dir) {
   }
 }
 
-function collectSourceFiles(dir) {
+function collectSourceFiles(dir, pattern) {
   const files = [];
   for (const entry of safeReadDir(dir)) {
     if (ignoredDirs.has(entry)) continue;
     const absolute = join(dir, entry);
     const stats = statSync(absolute);
     if (stats.isDirectory()) {
-      files.push(...collectSourceFiles(absolute));
-    } else if (/\.(?:ts|tsx|mts|cts)$/.test(entry) && !entry.endsWith('.d.ts')) {
+      files.push(...collectSourceFiles(absolute, pattern));
+    } else if (pattern.test(entry)) {
       files.push(absolute);
     }
   }
@@ -74,15 +90,23 @@ function toPosix(value) {
   return value.split(sep).join('/');
 }
 
-function checkFile(absoluteFile) {
-  const fileRel = toPosix(relative(repoRoot, absoluteFile));
-  const text = readFileSync(absoluteFile, 'utf8');
+function scriptKind(file) {
+  if (file.endsWith('.tsx')) return ts.ScriptKind.TSX;
+  if (file.endsWith('.jsx')) return ts.ScriptKind.JSX;
+  if (/\.(?:js|mjs|cjs)$/.test(file)) return ts.ScriptKind.JS;
+  return ts.ScriptKind.TS;
+}
+
+function checkFile({ repoRoot, file, workspacePackages, violations }) {
+  const fileRel = toPosix(relative(repoRoot, file));
+  const isDeclarationFile = file.endsWith('.d.ts');
+  const text = readFileSync(file, 'utf8');
   const sourceFile = ts.createSourceFile(
-    absoluteFile,
+    file,
     text,
     ts.ScriptTarget.Latest,
     true,
-    absoluteFile.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    scriptKind(file),
   );
 
   const visit = (node) => {
@@ -93,7 +117,22 @@ function checkFile(absoluteFile) {
     ) {
       const specifier = specifierOf(node);
       if (specifier !== undefined) {
-        inspect(fileRel, absoluteFile, sourceFile, node, specifier, isTypeOnly(node));
+        inspect(
+          { repoRoot, fileRel, file, sourceFile, workspacePackages, violations },
+          node,
+          specifier,
+          isTypeOnly(node) || isDeclarationFile,
+        );
+      }
+    } else if (ts.isImportTypeNode(node)) {
+      const specifier = importTypeSpecifier(node);
+      if (specifier !== undefined) {
+        inspect(
+          { repoRoot, fileRel, file, sourceFile, workspacePackages, violations },
+          node,
+          specifier,
+          true,
+        );
       }
     } else if (ts.isCallExpression(node)) {
       const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
@@ -102,7 +141,12 @@ function checkFile(absoluteFile) {
       if (isDynamicImport || isRequire) {
         const first = node.arguments[0];
         if (first !== undefined && ts.isStringLiteralLike(first)) {
-          inspect(fileRel, absoluteFile, sourceFile, node, first.text, false);
+          inspect(
+            { repoRoot, fileRel, file, sourceFile, workspacePackages, violations },
+            node,
+            first.text,
+            false,
+          );
         }
       }
     }
@@ -127,45 +171,47 @@ function specifierOf(node) {
     : undefined;
 }
 
+function importTypeSpecifier(node) {
+  const argument = node.argument;
+  return argument !== undefined &&
+    ts.isLiteralTypeNode(argument) &&
+    ts.isStringLiteralLike(argument.literal)
+    ? argument.literal.text
+    : undefined;
+}
+
 function isTypeOnly(node) {
   if (ts.isImportEqualsDeclaration(node)) {
     return node.isTypeOnly;
   }
   if (ts.isImportDeclaration(node)) {
-    const clause = node.importClause;
-    if (clause === undefined) return false;
-    if (clause.isTypeOnly) return true;
-    const bindings = clause.namedBindings;
-    if (bindings === undefined) return false;
-    if (ts.isNamespaceImport(bindings)) return false;
-    return (
-      bindings.elements.length > 0 && bindings.elements.every((element) => element.isTypeOnly)
-    );
+    return node.importClause?.isTypeOnly === true;
   }
   if (ts.isExportDeclaration(node)) {
-    if (node.isTypeOnly) return true;
-    const clause = node.exportClause;
-    if (clause === undefined) return false;
-    if (ts.isNamespaceExport(clause)) return false;
-    return clause.elements.length > 0 && clause.elements.every((element) => element.isTypeOnly);
+    return node.isTypeOnly;
   }
   return false;
 }
 
-function classifySpecifier(fileAbs, specifier) {
+function classifySpecifier({ repoRoot, file, workspacePackages }, specifier) {
   if (specifier.startsWith('node:') || builtins.has(specifier)) {
     return { kind: 'builtin' };
   }
   if (specifier.startsWith('.')) {
-    const absolute = resolve(dirname(fileAbs), specifier);
+    const absolute = resolve(dirname(file), specifier);
     const rel = toPosix(relative(repoRoot, absolute));
     return { kind: 'path', rel };
   }
-  if (
-    specifier.startsWith('/') ||
-    /^(?:apps|services|packages|upstream)(?:\/|$)/.test(specifier)
-  ) {
-    return { kind: 'path', rel: specifier.replace(/^\//, '') };
+  if (specifier.startsWith('/')) {
+    const absolute = resolve(specifier);
+    const rel = toPosix(relative(repoRoot, absolute));
+    if (isAbsolute(rel) || rel === '..' || rel.startsWith('../')) {
+      return { kind: 'external', packageName: specifier };
+    }
+    return { kind: 'path', rel };
+  }
+  if (/^(?:apps|services|packages|upstream)(?:\/|$)/.test(specifier)) {
+    return { kind: 'path', rel: specifier };
   }
   for (const [name, rel] of workspacePackages) {
     if (specifier === name || specifier.startsWith(`${name}/`)) {
@@ -178,8 +224,9 @@ function classifySpecifier(fileAbs, specifier) {
   return { kind: 'external', packageName };
 }
 
-function inspect(fileRel, fileAbs, sourceFile, node, specifier, typeOnly) {
-  const resolved = classifySpecifier(fileAbs, specifier);
+function inspect(context, node, specifier, typeOnly) {
+  const { fileRel, sourceFile, violations } = context;
+  const resolved = classifySpecifier(context, specifier);
   const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
   const report = (rule, message) => {
     violations.push({ file: fileRel, line, rule, message: `${message} (${specifier})` });
@@ -197,8 +244,8 @@ function inspect(fileRel, fileAbs, sourceFile, node, specifier, typeOnly) {
   }
 
   if (fileRel.startsWith('packages/domain/')) {
-    if (resolved.kind === 'builtin') {
-      report('domain/no-node-builtins', 'domain must not import Node built-ins');
+    if (resolved.kind === 'builtin' && !typeOnly) {
+      report('domain/no-node-builtins', 'domain must not import Node built-ins at runtime');
     } else if (resolved.kind === 'external' && !typeOnly) {
       report(
         'domain/no-runtime-external-import',
@@ -227,4 +274,21 @@ function inspect(fileRel, fileAbs, sourceFile, node, specifier, typeOnly) {
   ) {
     report('packages/no-app-or-service-imports', 'packages/* must not import apps/* or services/*');
   }
+}
+
+const modulePath = fileURLToPath(import.meta.url);
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === modulePath) {
+  const { violations, checkedFiles } = runBoundaryCheck();
+  if (violations.length > 0) {
+    for (const violation of violations) {
+      console.error(
+        `${violation.file}:${violation.line} [${violation.rule}] ${violation.message}`,
+      );
+    }
+    console.error(
+      `\nBoundary check failed: ${violations.length} violation(s) in ${checkedFiles} file(s).`,
+    );
+    process.exit(1);
+  }
+  console.log(`Boundary check passed: ${checkedFiles} file(s), 0 violations.`);
 }

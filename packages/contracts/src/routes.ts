@@ -128,7 +128,7 @@ export const routes: readonly RouteDefinition[] = [
     responses: {
       200: { description: 'Current user', schema: UserSchema },
       304: { description: 'Not modified' },
-      ...problems(401),
+      ...problems(400, 401),
     },
   },
   {

@@ -2,6 +2,12 @@ packages:
   - apps/*
   - services/*
   - packages/*
+autoInstallPeers: false
+strictPeerDependencies: true
+engineStrict: true
+linkWorkspacePackages: true
+sharedWorkspaceLockfile: true
+saveExact: true
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:

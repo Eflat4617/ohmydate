@@ -988,6 +988,16 @@
           "304": {
             "description": "Not modified"
           },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
           "401": {
             "content": {
               "application/problem+json": {
