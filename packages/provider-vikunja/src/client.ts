@@ -485,6 +485,18 @@ export class VikunjaClient {
       clearTimeout(timer);
     }
 
+    // Vikunja answers a merge-patch that changes nothing with 304 Not Modified.
+    // For the planner that is a successful no-op write (for example a
+    // status-only update that maps to the same `done` value), not an outage;
+    // there is no body to parse and the caller re-reads the task when needed.
+    if (response.status === 304 && method !== 'GET') {
+      return {
+        data: undefined as T,
+        etag: response.headers.get('etag'),
+        status: response.status,
+      };
+    }
+
     if (response.status >= 200 && response.status < 300) {
       let data: T | undefined;
       if (text.length > 0) {

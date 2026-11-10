@@ -101,6 +101,26 @@ describe('VikunjaClient transport behaviour', () => {
     await expect(client.getTask('1')).rejects.toBeInstanceOf(ProviderUnavailableError);
   });
 
+  test('treats a 304 no-op write as success without a body', async () => {
+    const methods: string[] = [];
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      fetch: async (_input, init) => {
+        methods.push(init?.method ?? 'GET');
+        return new Response(null, { status: 304 });
+      },
+      sleep: async () => {},
+    });
+
+    const result = await client.request<unknown>('PATCH', '/tasks/1', {
+      body: { done: false },
+    });
+
+    expect(result.status).toBe(304);
+    expect(result.etag).toBeNull();
+    expect(methods).toEqual(['PATCH']);
+  });
+
   test('sends bearer auth and an explicit merge-patch content type', async () => {
     const http = new FakeHttp(() => ({
       status: 200,

@@ -5,6 +5,12 @@ import type { MappingStore } from '../src/mapping-store.js';
 export interface LiveUser {
   readonly userId: number;
   readonly username: string;
+  /**
+   * Synthetic, run-scoped API token. Test-only: it is never logged and never
+   * leaves the process; it lets a test build a client with an injected fetch
+   * wrapper without mutating the shared client.
+   */
+  readonly token: string;
   readonly client: VikunjaClient;
 }
 
@@ -49,7 +55,7 @@ export async function createSyntheticUser(baseUrl: string): Promise<LiveUser> {
   });
   anon.setToken(created.token);
 
-  return { userId: registered.id, username, client: anon };
+  return { userId: registered.id, username, token: created.token, client: anon };
 }
 
 async function ignoreNotFound(action: () => Promise<void>): Promise<void> {
