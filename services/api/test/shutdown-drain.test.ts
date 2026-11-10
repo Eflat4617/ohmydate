@@ -8,6 +8,7 @@ import pino from 'pino';
 import { buildApp } from '../src/app.js';
 import { createConfig } from '../src/config.js';
 import { createApplicationClose } from '../src/main.js';
+import { shutdownControllerFor } from '../src/http/shutdown-context.js';
 import type { Database } from '../src/db/types.js';
 
 const { Pool } = pg;
@@ -115,25 +116,35 @@ describe('shutdown drain per socket', () => {
       sockets.add(socket);
       socket.on('data', () => undefined);
       socket.write(
-        'GET /slow-test HTTP/1.1\r\nHost: 127.0.0.1\r\n' +
-          'X-Secret-Payload: do-not-log-me\r\n\r\n',
+        'GET /slow-test?token=query-secret HTTP/1.1\r\nHost: 127.0.0.1\r\n' +
+          'X-Secret-Payload: do-not-log-me\r\n\r\n' +
+          'POST /unknown?token=query-secret HTTP/1.1\r\nHost: 127.0.0.1\r\n' +
+          'Content-Type: application/json\r\nContent-Length: 1000\r\n\r\n',
       );
       await delay(100);
 
       await close();
 
+      expect(shutdownControllerFor(app)?.signal.aborted).toBe(true);
       const lines = output()
         .trim()
         .split('\n')
         .filter((line) => line.length > 0)
         .map((line) => JSON.parse(line) as Record<string, unknown>);
-      const forced = lines.find((line) => line.msg === 'forced shutdown closure');
+      const forced = lines.find(
+        (line) => line.msg === 'forced shutdown closure' && line.method === 'GET',
+      );
       expect(forced).toBeDefined();
       expect(forced?.route).toBe('/slow-test');
       expect(forced?.method).toBe('GET');
       expect(typeof forced?.reqId).toBe('string');
       expect(String(forced?.reqId).length).toBeGreaterThan(0);
+      const unmatched = lines.find(
+        (line) => line.msg === 'forced shutdown closure' && line.method === 'POST',
+      );
+      expect(unmatched?.route).toBe('unmatched');
       expect(output()).not.toContain('do-not-log-me');
+      expect(output()).not.toContain('query-secret');
     } finally {
       for (const socket of sockets) socket.destroy();
       await app.close();

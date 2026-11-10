@@ -9,8 +9,10 @@ import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import { buildApp } from './app.js';
 import {
+  UNMATCHED_ROUTE,
   shutdownControllerFor,
   shutdownRequestMeta,
+  waitForRequestSettlement,
 } from './http/shutdown-context.js';
 import { configFromEnv, type AppConfig } from './config.js';
 import type { Database } from './db/types.js';
@@ -46,6 +48,15 @@ export const SHUTDOWN_DEADLINE_MS = 15_000;
  */
 export const SHUTDOWN_DRAIN_BUDGET_MS = 12_000;
 
+/**
+ * After the drain budget expires and the application signal aborts provider
+ * work, handlers get this long to finish bounded recovery (needs_reconcile
+ * marking, idempotency release) before the database is destroyed. The
+ * drain + cleanup budgets stay below SHUTDOWN_DEADLINE_MS.
+ */
+export const DEFAULT_SHUTDOWN_CLEANUP_BUDGET_MS = 2_000;
+export const SHUTDOWN_CLEANUP_BUDGET_ENV = 'SHUTDOWN_CLEANUP_BUDGET_MS';
+
 export function parseTrustProxy(raw: string | undefined): AppConfig['trustProxy'] {
   if (raw === undefined || raw.length === 0) return false;
   if (raw === 'true') return true;
@@ -75,6 +86,16 @@ function parsePositiveTimeout(raw: string | undefined, name: string, fallback: n
     throw new Error(`${name} must be a positive integer`);
   }
   return value;
+}
+
+export function shutdownCleanupBudgetMs(
+  env: NodeJS.ProcessEnv = process.env,
+): number {
+  return parsePositiveTimeout(
+    env[SHUTDOWN_CLEANUP_BUDGET_ENV],
+    SHUTDOWN_CLEANUP_BUDGET_ENV,
+    DEFAULT_SHUTDOWN_CLEANUP_BUDGET_MS,
+  );
 }
 
 export function pgTimeouts(env: NodeJS.ProcessEnv = process.env): {
@@ -322,8 +343,11 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
  *   is preserved until that response finishes, then closed so later incomplete
  *   pipelined requests are dropped;
  * - at the drain budget the app signal is aborted (provider retries stop) and
- *   any still-pending request is force-closed and logged once with its route,
- *   request id and method, never its body.
+ *   any still-pending request is force-closed and logged once with its
+ *   registered route template, request id and method, never its body or raw
+ *   target;
+ * - the database is released only after aborted handlers settle, bounded by
+ *   the cleanup budget.
  *
  * `server.close()` disables Node's periodic requestTimeout check, so an
  * incomplete request would otherwise keep the server open forever
@@ -333,6 +357,7 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
 export function createApplicationClose(
   app: FastifyInstance,
   drainMs: number = SHUTDOWN_DRAIN_BUDGET_MS,
+  cleanupMs: number = shutdownCleanupBudgetMs(),
 ): () => Promise<void> {
   const sockets = new Set<Socket>();
   const pending = new Map<IncomingMessage, ServerResponse>();
@@ -383,7 +408,7 @@ export function createApplicationClose(
         const meta = shutdownRequestMeta(request);
         app.log.warn(
           {
-            route: meta?.route ?? request.url ?? '',
+            route: meta?.route ?? UNMATCHED_ROUTE,
             reqId: meta?.reqId ?? '',
             method: meta?.method ?? request.method ?? '',
           },
@@ -397,6 +422,9 @@ export function createApplicationClose(
     } finally {
       clearTimeout(force);
     }
+    // Sockets may be closed, but aborted handlers still own bounded recovery
+    // writes and idempotency release. Do not let db.destroy() overtake them.
+    await waitForRequestSettlement(app, cleanupMs);
   };
 }
 

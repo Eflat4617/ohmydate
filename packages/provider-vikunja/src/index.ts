@@ -3,7 +3,6 @@ export const packageName = '@ohmydate/provider-vikunja' as const;
 export {
   VIKUNJA_ERROR_CODES,
   VikunjaClient,
-  currentAbortSignal,
   mapVikunjaError,
   runWithAbortSignal,
   toValidationIssues,

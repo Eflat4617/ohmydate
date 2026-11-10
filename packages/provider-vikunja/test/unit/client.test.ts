@@ -311,3 +311,25 @@ describe('VikunjaClient abort signal', () => {
     expect(attempts).toBe(0);
   });
 });
+
+describe('abort context isolation', () => {
+  test('an aborted ambient context does not affect calls outside that context', async () => {
+    const http = new FakeHttp(() => ({ status: 200, body: { id: 1, title: 'ok' } }));
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      fetch: http.fetch,
+      sleep: async () => {},
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      runWithAbortSignal(controller.signal, () => client.getTask('1')),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(http.calls).toHaveLength(0);
+
+    const result = await client.getTask('1');
+    expect(result.data.title).toBe('ok');
+    expect(http.calls).toHaveLength(1);
+  });
+});
