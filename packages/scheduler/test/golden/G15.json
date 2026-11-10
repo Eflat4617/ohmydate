@@ -1,0 +1,64 @@
+{
+  "id": "G15",
+  "description": "Replan after now: past and in-progress existing blocks stay fixed and no new block starts before now.",
+  "input": {
+    "now": "2026-11-09T12:00:00Z",
+    "timeZone": "UTC",
+    "horizon": {
+      "start": "2026-11-09T00:00:00Z",
+      "end": "2026-11-10T00:00:00Z"
+    },
+    "tasks": [
+      {
+        "id": "A",
+        "dueAt": "2026-11-09T17:00:00Z",
+        "estimate": { "p50Min": 180, "p90Min": 180 },
+        "splittable": true,
+        "minSessionMin": 15,
+        "maxSessionMin": 120,
+        "priority": 1,
+        "dependsOn": []
+      },
+      {
+        "id": "B",
+        "dueAt": "2026-11-09T17:00:00Z",
+        "estimate": { "p50Min": 60, "p90Min": 60 },
+        "splittable": true,
+        "minSessionMin": 15,
+        "maxSessionMin": 120,
+        "priority": 2,
+        "dependsOn": []
+      }
+    ],
+    "availability": [
+      { "weekday": 1, "startLocal": "09:00", "endLocal": "17:00", "kind": "work" }
+    ],
+    "exceptions": [],
+    "commitments": [],
+    "lockedBlocks": [],
+    "existingBlocks": [
+      { "taskId": "A", "start": "2026-11-09T10:00:00Z", "end": "2026-11-09T11:00:00Z" },
+      { "taskId": "A", "start": "2026-11-09T11:30:00Z", "end": "2026-11-09T12:30:00Z" },
+      { "taskId": "B", "start": "2026-11-09T14:00:00Z", "end": "2026-11-09T15:00:00Z" }
+    ],
+    "prefs": {
+      "maxDailyFocusMin": 480,
+      "breakAfterMin": 480,
+      "breakMin": 15,
+      "riskLevel": "p50",
+      "dayStartLocal": "00:00",
+      "dayEndLocal": "24:00"
+    },
+    "seed": 15
+  },
+  "candidateBlocks": {
+    "valid": null,
+    "invalid": null
+  },
+  "expected": {
+    "slotTotalMin": 480,
+    "slotIntervalCount": 1,
+    "validViolationCodes": [],
+    "invalidViolationCodes": []
+  }
+}

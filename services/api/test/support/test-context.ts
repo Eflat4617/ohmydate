@@ -1,5 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { hash } from '@node-rs/argon2';
+import { vi } from 'vitest';
+
+// DB-backed suites migrate schemas and can exceed the 5 s default under load.
+vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+
 import { PgUserRepository } from '../../src/adapters/pg-user-repository.js';
 import { UserService } from '../../src/application/user-service.js';
 import { createConfig, type AppConfig } from '../../src/config.js';

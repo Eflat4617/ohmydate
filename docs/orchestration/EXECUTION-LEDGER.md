@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -18,6 +18,13 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 07:50 | **M2-03R2 REQUEST_CHANGES (Sol) → M2-03 BLOCKED** (수정 2회 소진). 해결 확인: 일반 실패 재시도 6개, 다른 키 동시 200/409, PATCH 경합, H2/H4/H5/H6. 남은 HIGH 3: 결과 불명 복구·리스 인계 시 중복(7·12개), cancel/manual이 승인 획득과 비원자적, dueAt 답변 전부 거부(형식 미등록). MEDIUM 2(고아 채택 의존 미기록, 없는 goalId 500), LOW 1. → **ADR-020**(세션별 PG advisory 잠금, 인계 없음) + 좁은 Task **M2-03c**(기존 브랜치 위) | reviews/M2-03R2.md | orchestrator |
+| 2026-11-11 07:46 | **FU-38R2 REQUEST_CHANGES (Sol) → FU-38 BLOCKED** (수정 2회 소진): HIGH 2 — 혼합 RRN 창이 뒤 RRN 시작 건너뜀(뒤 7자리 노출), 짧은 전화번호 대체가 다음 전화번호 건너뜀(통째 노출). 종류 혼합 인접 12k 중 13건 회귀. 공통 원인 → **ADR-019** 재설계, FU-38c 새 worktree(FU-32 기준). 브랜치 fu-38-redaction-lows 병합 안 함 | reviews/FU-38R2.md | orchestrator |
+| 2026-11-11 07:42 | **FU-39R-1 REQUEST_CHANGES (Sol, FU-08 겸)**: 독립 감사 12,691회 생성·16,043 가능 후보에서 하드 제약 위반 0, G12 3,172회 바이트 동일, 성능 p95 412ms. MEDIUM: 중첩 이력에서 생성기 H6 휴식 누락, 독립 H1 기준 약화(H1 끈 변이 생존), bufferBeforeDueMin 미검증으로 마감 우회, 거부 결과에 Infinity 지표, 재계획 변경 범위(기존 결함→FU-41). LOW 비정상 horizon. 수정 1/2 → FU-39 워커 | reviews/FU-39R-1.md | orchestrator |
+| 2026-11-11 07:19 | **FU-38R-1 REQUEST_CHANGES (Sol)**: HIGH — LOW-2 구간 확장이 뒤따르는 RRN 시작을 건너뜀(2-토큰 2,000건 중 1,734 재현 회귀, 뒤 7자리 노출). LOW 각주/지수 과잉 마스킹. 수정 1/2 → ctx_85ad043dda40(원래 끝 이후로 스캔 이동 금지 또는 LOW-2 되돌림, 2-토큰 퍼징, 혼합 위첨자+일반 숫자 마스킹 시도). **GB-1 준비 상태 재평가:** 이 HIGH 해결 전에는 실제 제공자 연결 불가 | reviews/FU-38R-1.md | orchestrator |
+| 2026-11-11 07:18 | **FU-37R-1 REQUEST_CHANGES (Sol)**: MEDIUM 3(시간 초과 클라이언트가 풀로 재사용됨, 느린 본문이 종료를 15s 강제 종료까지 붙잡음, connectionTimeout 10s가 정상적인 긴 핸들러를 끊음) + LOW(DB 없으면 빌드 점검 건너뜀). 크래시 자체는 수정 확인. 수정 1/2 → ctx_089b3d67a2cc (클라이언트 폐기, 수신 시간 제한과 핸들러 분리, closeAllConnections 드레인) | reviews/FU-37R-1.md | orchestrator |
+| 2026-11-11 07:16 | **M2-03R-1 REQUEST_CHANGES (Sol)**: HIGH 6(승인 중복·부분 실패, 거부된 PATCH 덮어쓰기, 부분 답변 500, 답변 값 미검증, 오류 로그 답변 노출, 생성 실패 시 수동 경로 접근 불가), MEDIUM 4, LOW 1. 수정 라운드 1/2 → ctx_0fc03d38c6d8. 설계 결정: 0006 intake_approval(+step) 리스 + 단계별 사전 배정 plannedId(TaskRepository.create opts, ADR-016 마커 복구), 생성 실패는 201 수동 세션으로 강등, pause는 도메인 지원 전이만, FU-40(title/description) 포함. **범위 MEDIUM 근거:** M2-02R 계약 수정·빌드 목록 수정은 orchestrator가 07:00/07:03 send(msg_64892027fc9d 등)로 승인한 범위 확장 | reviews/M2-03R-1.md | orchestrator |
+| 2026-11-11 07:13 | M2-04 worker_done (a162ae4, web 84 tests, build OK). 리뷰 보류: M2-03 계약 변경 병합 + FU-40(title/description 계약 공백) 반영 후 Sol 리뷰. 워커는 follow-up용으로 유지 | worker report | orchestrator |
 | 2026-11-11 07:03 | **Sol 복귀 확인**: `codex exec -m gpt-6.1-sol -c model_reasoning_effort=high` → 헤더 model: gpt-6.1-sol / reasoning effort: high, 응답 SOL_OK. 이후 신규 리뷰는 Sol(MODEL_BINDINGS §1). 진행 중인 M3-02cR(Opus)은 유지. M2-03 worker_done(de1af71..957017c, DeepSeek-high 136) → 리뷰 전 통합본 병합 + 빌드 목록에 llm 추가 지시 | codex probe | orchestrator |
 | 2026-11-11 06:38 | **호스트 재부팅** (uptime 4분 확인). Orca 데스크톱 앱 재기동(ready). 진행 중 Dispatch 5개 자동 abandoned → Task ready: FU-32R, FU-35R, M2-02R, M3-02cR(리뷰), M2-03(작업 트리 거의 빈 상태). dev 컨테이너 정지 → `restart: unless-stopped` 추가 후 재기동. 리뷰 4건 Opus 대체로 재시작(ctx_00974a8b4db0, ctx_56d39c548ab8, ctx_e2f20910c6eb, ctx_1af22cce1c49), M2-03은 기존 worktree로 재개(resume-deepseek-worker.sh). 중복 dispatch 없음 | uptime, worker-list, task-list | orchestrator |
 | 2026-11-11 | **Orca 런타임 장애 및 복구:** 06:10경 그래픽 세션 종료(GDM greeter)로 Orca 앱 런타임 소실 → CLI runtime_unavailable(BLOCKED: ORCA_RUNTIME). 데몬·워커 프로세스는 생존. `xvfb-run -a dbus-run-session -- orca serve --bind 127.0.0.1 --no-pairing --refuse-public`로 로컬 전용 헤드리스 런타임 기동 → ready(ws://127.0.0.1:6768), Run/Task/Dispatch 상태 보존, 대기 중이던 worker_done 3건 정상 수신. 직전 부하 평균 206 급증(동시 테스트+시스템 업데이트) 관측 | orca status, serve log | orchestrator |
@@ -75,6 +82,8 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-37 | ctx_2fa1e6cb31e8 (sol, R2) | 00a363d | R2 MEDIUM만(파이프라인 종료) → 수렴 규칙으로 Accepted | FU-42 | **Accepted, merged 053363f**; ci 1063 pass/27 skip + web 69, build smoke 200/exit 0 |
+| M3-02c | ctx_1af22cce1c49 (opus-fallback) | 61597c2 | **APPROVE** (스케줄러 전체 병합 판정) | MEDIUM(이력 전용 H1/H6) → 06 §7.1 확정 + FU-39 | **Accepted, merged b0c565a**; ci 1040 pass/27 skip + web 69 |
 | FU-32 | ctx_00974a8b4db0 (opus-fallback) | 072678f | **APPROVE** | LOW 4 → FU-38; **GB-1 마스킹 관문 완료** | **Accepted, merged 9344caa**; ci 992 pass, DB 마이그레이션 테스트 1건 부하(16) 5s 타임아웃 — 단독 14/14 통과, FU-37에서 timeout 조정 |
 | FU-35 | ctx_56d39c548ab8 (opus-fallback) | 8e8b6f8 | **APPROVE** | MEDIUM(사용 중 연결 소켓 단절 시 크래시, 기존 결함) → FU-37 즉시 착수 | **Accepted, merged 543cbee**; ci 942 pass/27 skip (1차 부하 타임아웃 2건, 재실행 통과) |
 | M2-02 | ctx_e2f20910c6eb (opus-fallback) | 2972a81 | **APPROVE** | 계약 MEDIUM 4건 → M2-03 범위 확장으로 처리 | **Accepted, merged df4244c**; G3 935 pass/27 skip + web 69, ci 0 |

@@ -342,6 +342,64 @@ describe('hard constraint validator', () => {
     ).toEqual(['H5']);
   });
 
+  it('H5 skips a non-splittable task with no remaining minutes and flags any block', () => {
+    const input = makeInput({
+      task: makeTask({
+        splittable: false,
+        dueAt: '2026-11-09T17:00:00Z',
+        estimate: { p50Min: 90, p90Min: 90 },
+        remainingMin: 0,
+        minSessionMin: 90,
+        maxSessionMin: 90,
+      }),
+      availability: [
+        { weekday: 1, startLocal: '09:00', endLocal: '17:00', kind: 'work' },
+      ],
+    });
+    input.timeZone = 'UTC';
+
+    expect(codes(input, [])).toEqual([]);
+    expect(
+      codes(input, [
+        { taskId: 'A', start: '2026-11-09T09:00:00Z', end: '2026-11-09T10:30:00Z' },
+      ]),
+    ).toContain('H5');
+  });
+
+  it('exempts history blocks from H4 and H5', () => {
+    const input = makeInput({
+      task: makeTask({
+        splittable: false,
+        dueAt: '2026-11-09T12:00:00Z',
+        estimate: { p50Min: 60, p90Min: 60 },
+        minSessionMin: 60,
+        maxSessionMin: 60,
+      }),
+      availability: [
+        { weekday: 1, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+      ],
+    });
+    input.timeZone = 'UTC';
+    const history: Block = {
+      taskId: 'A',
+      start: '2026-11-09T12:30:00Z',
+      end: '2026-11-09T13:30:00Z',
+    };
+    const result = validate(
+      input,
+      [
+        {
+          taskId: 'A',
+          start: '2026-11-09T09:00:00Z',
+          end: '2026-11-09T10:00:00Z',
+        },
+      ],
+      { riskLevel: 'p50', historyBlocks: [history] },
+    ).map((violation) => violation.code);
+    expect(result).not.toContain('H4');
+    expect(result).not.toContain('H5');
+  });
+
   it('requires overnight single-rule windows to be split at midnight', () => {
     const input = makeInput({
       availability: [

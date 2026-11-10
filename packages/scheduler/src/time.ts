@@ -7,7 +7,13 @@ export const GRID_NS = 300_000_000_000n;
 export const MINUTE_MS = 60 * 1000;
 export const DAY_MS = 24 * 60 * MINUTE_MS;
 
-/** Hard cap for the transition walk; a runaway walk is a programming error. */
+/**
+ * Hard cap for the transition walk; a runaway walk is a programming error.
+ *
+ * `partitionByLocalDate` throws `RangeError` after this many transitions
+ * instead of looping forever (FU-13 documents the throw; the cap is far above
+ * any realistic horizon, which contains about two transitions per year).
+ */
 export const MAX_TRANSITIONS = 4096;
 
 export interface Clock {
