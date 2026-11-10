@@ -1,0 +1,61 @@
+{
+  "$id": "llm.layout_suggestion.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mode", "regions", "pinned", "reason", "policyVersion"],
+  "properties": {
+    "mode": {
+      "enum": ["overview", "planning", "focus", "deadline_risk", "review", "notes"]
+    },
+    "regions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary"],
+      "properties": {
+        "primary": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/component" }
+        },
+        "secondary": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/component" }
+        },
+        "tertiary": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/component" }
+        }
+      }
+    },
+    "pinned": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Z][A-Za-z0-9]{1,40}$"
+      }
+    },
+    "reason": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "policyVersion": {
+      "type": "string",
+      "maxLength": 80
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["component"],
+      "properties": {
+        "component": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Za-z0-9]{1,40}$"
+        },
+        "props": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}
