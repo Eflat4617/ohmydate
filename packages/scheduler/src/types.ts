@@ -105,14 +105,17 @@ export interface Slot {
 }
 
 /**
- * Hard constraints H1-H8 plus `H0_horizon`.
+ * Hard constraints H1-H8 plus H0 preconditions.
  *
  * `H0_horizon` rejects candidate blocks outside `ScheduleInput.horizon`.
  * `lockedBlocks` are explicitly exempt from this horizon check so historical
  * approved work can remain in the input; they are still audited by H1-H8.
+ * `H0_unknown_task` rejects candidate and locked blocks whose taskId is not
+ * present in `ScheduleInput.tasks`; such blocks have no task constraints.
  */
 export type ViolationCode =
   | 'H0_horizon'
+  | 'H0_unknown_task'
   | 'H1'
   | 'H2'
   | 'H3'

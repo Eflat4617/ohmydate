@@ -9,9 +9,10 @@ import type {
   ValidateOptions,
 } from './types.js';
 import {
+  GRID_NS,
   MINUTE_MS,
+  instantNanoseconds,
   instantToZoned,
-  isGridAligned,
   isValidTimeZone,
   parseClock,
   parseInstant,
@@ -40,13 +41,14 @@ interface ExceptionWindow {
 /**
  * Audit a candidate plan against hard constraints H1-H8.
  *
- * This module intentionally uses a different strategy from `slots.ts`:
- * raw weekly rules and exceptions are projected to exact UTC intervals by an
- * independent per-day walk, then each full half-open block interval is checked
- * with a sorted coverage sweep. Overlaps use a separate sorted scan. Candidate
- * blocks must lie inside the horizon (`H0_horizon`); locked blocks are exempt
- * from that horizon check so historical approved work can be carried in the
- * input, but they remain subject to H1-H8.
+ * H2 uses a genuinely different oracle from `slots.ts`: each block is split at
+ * every relevant local rule/exception edge, local-midnight boundary and IANA
+ * transition, then each resulting segment is classified by converting its
+ * midpoint to local wall time and testing raw rule membership directly. It
+ * does not build or subtract availability interval unions. Overlaps use a
+ * separate sorted scan. Candidate blocks must lie inside the horizon
+ * (`H0_horizon`) and every block must name a known task (`H0_unknown_task`);
+ * locked blocks are exempt only from the horizon check.
  */
 export function validate(
   input: ScheduleInput,
@@ -68,6 +70,7 @@ export function validate(
   const locked = parsePlanBlocks(input.lockedBlocks, violations);
   const plan = [...candidate, ...locked];
 
+  checkUnknownTaskIds(input, plan, violations);
   checkHorizon(input, candidate, violations);
   checkH1(input, plan, violations);
   checkH2(input, plan, violations);
@@ -78,6 +81,24 @@ export function validate(
   checkH7(input, plan, opts, violations);
 
   return violations;
+}
+
+function checkUnknownTaskIds(
+  input: ScheduleInput,
+  plan: ParsedBlock[],
+  violations: Violation[],
+): void {
+  const knownTaskIds = new Set(input.tasks.map((task) => task.id));
+  for (const parsed of plan) {
+    if (!knownTaskIds.has(parsed.block.taskId)) {
+      violations.push({
+        code: 'H0_unknown_task',
+        message: `Block references unknown task "${parsed.block.taskId}".`,
+        taskId: parsed.block.taskId,
+        blocks: [parsed.block],
+      });
+    }
+  }
 }
 
 function checkHorizon(
@@ -109,11 +130,11 @@ function checkHorizon(
 function parsePlanBlocks(blocks: Block[], violations: Violation[]): ParsedBlock[] {
   const parsed: ParsedBlock[] = [];
   for (const block of blocks) {
-    let startMs: number;
-    let endMs: number;
+    let startNs: bigint;
+    let endNs: bigint;
     try {
-      startMs = parseInstant(block.start);
-      endMs = parseInstant(block.end);
+      startNs = instantNanoseconds(block.start);
+      endNs = instantNanoseconds(block.end);
     } catch {
       violations.push({
         code: 'H8',
@@ -123,6 +144,26 @@ function parsePlanBlocks(blocks: Block[], violations: Violation[]): ParsedBlock[
       });
       continue;
     }
+    if (startNs % 1_000_000n !== 0n || endNs % 1_000_000n !== 0n) {
+      violations.push({
+        code: 'H8',
+        message: `Block for task "${block.taskId}" has sub-millisecond precision.`,
+        taskId: block.taskId,
+        blocks: [block],
+      });
+      continue;
+    }
+    if (startNs % GRID_NS !== 0n || endNs % GRID_NS !== 0n) {
+      violations.push({
+        code: 'H8',
+        message: `Block for task "${block.taskId}" is not aligned to the 5-minute grid.`,
+        taskId: block.taskId,
+        blocks: [block],
+      });
+      continue;
+    }
+    const startMs = Number(startNs / 1_000_000n);
+    const endMs = Number(endNs / 1_000_000n);
     if (endMs <= startMs) {
       violations.push({
         code: 'H8',
@@ -131,14 +172,6 @@ function parsePlanBlocks(blocks: Block[], violations: Violation[]): ParsedBlock[
         blocks: [block],
       });
       continue;
-    }
-    if (!isGridAligned(startMs) || !isGridAligned(endMs)) {
-      violations.push({
-        code: 'H8',
-        message: `Block for task "${block.taskId}" is not aligned to the 5-minute grid.`,
-        taskId: block.taskId,
-        blocks: [block],
-      });
     }
     parsed.push({ block, startMs, endMs });
   }
@@ -201,7 +234,7 @@ function checkH2(
   violations: Violation[],
 ): void {
   for (const parsed of plan) {
-    if (!isBlockCovered(input, parsed.startMs, parsed.endMs)) {
+    if (!isBlockLocallyCovered(input, parsed.startMs, parsed.endMs)) {
       violations.push({
         code: 'H2',
         message: `Block for task "${parsed.block.taskId}" is outside availability.`,
@@ -212,266 +245,271 @@ function checkH2(
   }
 }
 
-function isBlockCovered(
+/**
+ * Independent H2 oracle: partition the block at rule/exception edges, local
+ * midnights and timezone transitions, then test each segment midpoint in local
+ * wall time. No interval union is constructed.
+ */
+function isBlockLocallyCovered(
   input: ScheduleInput,
   startMs: number,
   endMs: number,
 ): boolean {
-  const firstDate = instantToZoned(startMs, input.timeZone).toPlainDate();
-  const lastDate = instantToZoned(endMs - 1, input.timeZone).toPlainDate();
-  const available: IntervalMs[] = [];
+  const boundaries = new Set<number>([startMs, endMs]);
+  addTransitionBoundaries(input.timeZone, startMs, endMs, boundaries);
+
+  const firstDate = Temporal.Instant.fromEpochMilliseconds(startMs)
+    .toZonedDateTimeISO(input.timeZone)
+    .toPlainDate();
+  const lastDate = Temporal.Instant.fromEpochMilliseconds(endMs - 1)
+    .toZonedDateTimeISO(input.timeZone)
+    .toPlainDate();
 
   for (
     let date = firstDate;
     Temporal.PlainDate.compare(date, lastDate) <= 0;
     date = date.add({ days: 1 })
   ) {
-    available.push(...availableIntervalsForDate(input, date));
-  }
+    addBoundary(
+      boundaries,
+      date.toZonedDateTime({ timeZone: input.timeZone }).startOfDay()
+        .epochMilliseconds,
+      startMs,
+      endMs,
+    );
+    addBoundary(
+      boundaries,
+      date
+        .add({ days: 1 })
+        .toZonedDateTime({ timeZone: input.timeZone })
+        .startOfDay().epochMilliseconds,
+      startMs,
+      endMs,
+    );
 
-  const merged = mergeUtcIntervals(available);
-  let cursor = startMs;
-  for (const interval of merged) {
-    if (interval.endMs <= cursor) {
-      continue;
-    }
-    if (interval.startMs > cursor) {
-      return false;
-    }
-    cursor = Math.max(cursor, interval.endMs);
-    if (cursor >= endMs) {
-      return true;
-    }
-  }
-  return cursor >= endMs;
-}
-
-function availableIntervalsForDate(
-  input: ScheduleInput,
-  date: Temporal.PlainDate,
-): IntervalMs[] {
-  const dateString = date.toString();
-  const exceptions = input.exceptions.filter(
-    (exception) => exception.date === dateString,
-  ) as ExceptionWindow[];
-  const fullDayOff = exceptions.some(
-    (exception) =>
-      exception.kind === 'off' &&
-      exception.startLocal === undefined &&
-      exception.endLocal === undefined,
-  );
-  if (fullDayOff) {
-    return [];
-  }
-
-  const windows: IntervalMs[] = [];
-  for (const rule of input.availability) {
-    if (rule.weekday !== date.dayOfWeek) {
-      continue;
-    }
-    windows.push(
-      ...validatorProjectWallWindow(
+    const dateString = date.toString();
+    for (const rule of input.availability) {
+      if (rule.weekday !== date.dayOfWeek) {
+        continue;
+      }
+      addLocalBoundary(
         input.timeZone,
         date,
         rule.startLocal,
+        boundaries,
+        startMs,
+        endMs,
+      );
+      addLocalBoundary(
+        input.timeZone,
+        date,
         rule.endLocal,
-      ),
-    );
-  }
-
-  for (const exception of exceptions) {
-    if (exception.kind !== 'extra') {
-      continue;
+        boundaries,
+        startMs,
+        endMs,
+      );
     }
-    windows.push(...validatorExceptionIntervals(input, date, exception));
-  }
-
-  const offCuts: IntervalMs[] = [];
-  for (const exception of exceptions) {
-    if (exception.kind !== 'off') {
-      continue;
-    }
-    offCuts.push(...validatorExceptionIntervals(input, date, exception));
-  }
-
-  return offCuts.length === 0
-    ? mergeUtcIntervals(windows)
-    : subtractUtcIntervals(windows, offCuts);
-}
-
-function validatorExceptionIntervals(
-  input: ScheduleInput,
-  date: Temporal.PlainDate,
-  exception: ExceptionWindow,
-): IntervalMs[] {
-  if (exception.startLocal === undefined && exception.endLocal === undefined) {
-    return validatorProjectWallWindow(input.timeZone, date, '00:00', '24:00');
-  }
-  if (exception.startLocal === undefined || exception.endLocal === undefined) {
-    return [];
-  }
-  return validatorProjectWallWindow(
-    input.timeZone,
-    date,
-    exception.startLocal,
-    exception.endLocal,
-  );
-}
-
-interface OffsetPoint {
-  startMs: number;
-  offsetMs: number;
-}
-
-/**
- * Validator-owned projection of a raw local wall window. This deliberately
- * does not call the slot-builder projection: H2 must audit the raw rules
- * independently, including non-grid-aligned boundaries and DST transitions.
- */
-function validatorProjectWallWindow(
-  timeZone: string,
-  date: Temporal.PlainDate,
-  startLocal: string,
-  endLocal: string,
-): IntervalMs[] {
-  let startMinute: number;
-  let endMinute: number;
-  try {
-    startMinute = clockMinutesOf(startLocal);
-    endMinute = clockMinutesOf(endLocal);
-  } catch {
-    return [];
-  }
-  if (endMinute <= startMinute) {
-    return [];
-  }
-
-  const dayStart = validatorLocalMidnight(timeZone, date);
-  const dayEnd = validatorLocalMidnight(timeZone, date.add({ days: 1 }));
-  const points = validatorOffsetPoints(dayStart, dayEnd.epochMilliseconds);
-  const wallMidnight = Temporal.ZonedDateTime.from({
-    timeZone: 'UTC',
-    year: date.year,
-    month: date.month,
-    day: date.day,
-    hour: 0,
-    minute: 0,
-  }).epochMilliseconds;
-
-  const intervals: IntervalMs[] = [];
-  for (let index = 0; index < points.length - 1; index += 1) {
-    const point = points[index];
-    const next = points[index + 1];
-    if (point === undefined || next === undefined) {
-      continue;
-    }
-    const wallStart = (point.startMs + point.offsetMs - wallMidnight) / MINUTE_MS;
-    const wallEnd = (next.startMs + point.offsetMs - wallMidnight) / MINUTE_MS;
-    const intersectStart = Math.max(startMinute, wallStart);
-    const intersectEnd = Math.min(endMinute, wallEnd);
-    if (intersectEnd > intersectStart) {
-      intervals.push({
-        startMs: wallMidnight + intersectStart * MINUTE_MS - point.offsetMs,
-        endMs: wallMidnight + intersectEnd * MINUTE_MS - point.offsetMs,
-      });
-    }
-  }
-  return mergeUtcIntervals(intervals);
-}
-
-function validatorLocalMidnight(
-  timeZone: string,
-  date: Temporal.PlainDate,
-): Temporal.ZonedDateTime {
-  return Temporal.ZonedDateTime.from(
-    {
-      timeZone,
-      year: date.year,
-      month: date.month,
-      day: date.day,
-      hour: 0,
-      minute: 0,
-    },
-    { disambiguation: 'compatible' },
-  );
-}
-
-function validatorOffsetPoints(
-  dayStart: Temporal.ZonedDateTime,
-  dayEndMs: number,
-): OffsetPoint[] {
-  const points: OffsetPoint[] = [
-    {
-      startMs: dayStart.epochMilliseconds,
-      offsetMs: Math.trunc(dayStart.offsetNanoseconds / 1_000_000),
-    },
-  ];
-  let cursor = dayStart;
-  for (let guard = 0; guard < 16; guard += 1) {
-    const transition = cursor.getTimeZoneTransition('next');
-    if (transition === null || transition.epochMilliseconds >= dayEndMs) {
-      break;
-    }
-    points.push({
-      startMs: transition.epochMilliseconds,
-      offsetMs: Math.trunc(transition.offsetNanoseconds / 1_000_000),
-    });
-    cursor = transition;
-  }
-  points.push({
-    startMs: dayEndMs,
-    offsetMs: points[points.length - 1]?.offsetMs ?? 0,
-  });
-  return points;
-}
-
-function mergeUtcIntervals(intervals: IntervalMs[]): IntervalMs[] {
-  const sorted = [...intervals].sort((a, b) => a.startMs - b.startMs);
-  const merged: IntervalMs[] = [];
-  for (const interval of sorted) {
-    if (interval.endMs <= interval.startMs) {
-      continue;
-    }
-    const last = merged[merged.length - 1];
-    if (last !== undefined && interval.startMs <= last.endMs) {
-      last.endMs = Math.max(last.endMs, interval.endMs);
-    } else {
-      merged.push({ startMs: interval.startMs, endMs: interval.endMs });
-    }
-  }
-  return merged;
-}
-
-function subtractUtcIntervals(
-  bases: IntervalMs[],
-  cuts: IntervalMs[],
-): IntervalMs[] {
-  const mergedCuts = mergeUtcIntervals(cuts);
-  const result: IntervalMs[] = [];
-  for (const base of mergeUtcIntervals(bases)) {
-    let cursor = base.startMs;
-    for (const cut of mergedCuts) {
-      if (cut.endMs <= cursor || cut.startMs >= base.endMs) {
+    for (const exception of input.exceptions) {
+      if (exception.date !== dateString) {
         continue;
       }
-      if (cut.startMs > cursor) {
-        result.push({ startMs: cursor, endMs: Math.min(cut.startMs, base.endMs) });
+      if (
+        exception.startLocal === undefined ||
+        exception.endLocal === undefined
+      ) {
+        continue;
       }
-      cursor = Math.max(cursor, cut.endMs);
-      if (cursor >= base.endMs) {
-        break;
-      }
-    }
-    if (cursor < base.endMs) {
-      result.push({ startMs: cursor, endMs: base.endMs });
+      addLocalBoundary(
+        input.timeZone,
+        date,
+        exception.startLocal,
+        boundaries,
+        startMs,
+        endMs,
+      );
+      addLocalBoundary(
+        input.timeZone,
+        date,
+        exception.endLocal,
+        boundaries,
+        startMs,
+        endMs,
+      );
     }
   }
-  return result;
+
+  const sorted = [...boundaries].sort((a, b) => a - b);
+  for (let index = 0; index < sorted.length - 1; index += 1) {
+    const left = sorted[index];
+    const right = sorted[index + 1];
+    if (left === undefined || right === undefined || right <= left) {
+      continue;
+    }
+    const midpoint = Math.floor((left + right) / 2);
+    if (!isInstantLocallyAvailable(input, midpoint)) {
+      return false;
+    }
+  }
+  return true;
 }
 
-function clockMinutesOf(value: string): number {
-  const clock = parseClock(value);
-  return clock.hour * 60 + clock.minute;
+function addBoundary(
+  boundaries: Set<number>,
+  candidateMs: number,
+  startMs: number,
+  endMs: number,
+): void {
+  if (candidateMs > startMs && candidateMs < endMs) {
+    boundaries.add(candidateMs);
+  }
+}
+
+function addTransitionBoundaries(
+  timeZone: string,
+  startMs: number,
+  endMs: number,
+  boundaries: Set<number>,
+): void {
+  let cursor = Temporal.Instant.fromEpochMilliseconds(startMs)
+    .toZonedDateTimeISO(timeZone);
+  for (let guard = 0; guard < 64; guard += 1) {
+    const transition = cursor.getTimeZoneTransition('next');
+    if (transition === null || transition.epochMilliseconds >= endMs) {
+      break;
+    }
+    addBoundary(boundaries, transition.epochMilliseconds, startMs, endMs);
+    cursor = transition;
+  }
+}
+
+function addLocalBoundary(
+  timeZone: string,
+  date: Temporal.PlainDate,
+  clockValue: string,
+  boundaries: Set<number>,
+  startMs: number,
+  endMs: number,
+): void {
+  const clock = oracleClockParts(clockValue);
+  if (clock === undefined) {
+    return;
+  }
+  const targetDate = clock.hour === 24 ? date.add({ days: 1 }) : date;
+  const hour = clock.hour === 24 ? 0 : clock.hour;
+  for (const disambiguation of ['compatible', 'earlier', 'later'] as const) {
+    try {
+      const zoned = Temporal.ZonedDateTime.from(
+        {
+          timeZone,
+          year: targetDate.year,
+          month: targetDate.month,
+          day: targetDate.day,
+          hour,
+          minute: clock.minute,
+        },
+        { disambiguation },
+      );
+      addBoundary(boundaries, zoned.epochMilliseconds, startMs, endMs);
+    } catch {
+      // Unrepresentable boundary; another disambiguation or transition boundary covers it.
+    }
+  }
+}
+
+function isInstantLocallyAvailable(
+  input: ScheduleInput,
+  epochMs: number,
+): boolean {
+  const zoned = Temporal.Instant.fromEpochMilliseconds(epochMs)
+    .toZonedDateTimeISO(input.timeZone);
+  const date = zoned.toPlainDate().toString();
+  const weekday = zoned.dayOfWeek;
+  const seconds =
+    zoned.hour * 3600 +
+    zoned.minute * 60 +
+    zoned.second +
+    zoned.millisecond / 1000 +
+    zoned.microsecond / 1_000_000 +
+    zoned.nanosecond / 1_000_000_000;
+
+  const exceptions = input.exceptions.filter(
+    (exception) => exception.date === date,
+  );
+  if (
+    exceptions.some(
+      (exception) =>
+        exception.kind === 'off' &&
+        exception.startLocal === undefined &&
+        exception.endLocal === undefined,
+    )
+  ) {
+    return false;
+  }
+
+  const fromRule = input.availability.some(
+    (rule) =>
+      rule.weekday === weekday &&
+      oracleRangeContains(rule.startLocal, rule.endLocal, seconds),
+  );
+  const fromExtra = exceptions.some(
+    (exception) =>
+      exception.kind === 'extra' && oracleExceptionContains(exception, seconds),
+  );
+  const fromOff = exceptions.some(
+    (exception) =>
+      exception.kind === 'off' && oracleExceptionContains(exception, seconds),
+  );
+  return (fromRule || fromExtra) && !fromOff;
+}
+
+function oracleExceptionContains(
+  exception: ExceptionWindow,
+  seconds: number,
+): boolean {
+  if (exception.startLocal === undefined && exception.endLocal === undefined) {
+    return true;
+  }
+  if (exception.startLocal === undefined || exception.endLocal === undefined) {
+    return false;
+  }
+  return oracleRangeContains(exception.startLocal, exception.endLocal, seconds);
+}
+
+function oracleRangeContains(
+  startLocal: string,
+  endLocal: string,
+  seconds: number,
+): boolean {
+  const start = oracleClockParts(startLocal);
+  const end = oracleClockParts(endLocal);
+  if (start === undefined || end === undefined) {
+    return false;
+  }
+  const startSeconds = start.hour * 3600 + start.minute * 60;
+  const endSeconds = end.hour * 3600 + end.minute * 60;
+  return endSeconds > startSeconds && seconds >= startSeconds && seconds < endSeconds;
+}
+
+function oracleClockParts(
+  value: string,
+): { hour: number; minute: number } | undefined {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (match === null) {
+    return undefined;
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    minute > 59 ||
+    hour < 0 ||
+    hour > 24 ||
+    (hour === 24 && minute !== 0)
+  ) {
+    return undefined;
+  }
+  return { hour, minute };
 }
 
 function checkH3(
@@ -881,10 +919,46 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
     validateBlockInterval(commitment.start, commitment.end, issues, 'commitment');
   }
   for (const block of [...input.lockedBlocks, ...(input.existingBlocks ?? [])]) {
-    if (tryParseInstant(block.start) === undefined || tryParseInstant(block.end) === undefined) {
+    if (!taskIds.has(block.taskId)) {
+      issues.push({
+        code: 'unknown_task',
+        message: `Block references unknown task "${block.taskId}".`,
+        taskId: block.taskId,
+      });
+    }
+    let startNs: bigint;
+    let endNs: bigint;
+    try {
+      startNs = instantNanoseconds(block.start);
+      endNs = instantNanoseconds(block.end);
+    } catch {
       issues.push({
         code: 'invalid_instant',
         message: `Block for task "${block.taskId}" has an invalid instant.`,
+        taskId: block.taskId,
+      });
+      continue;
+    }
+    if (startNs % 1_000_000n !== 0n || endNs % 1_000_000n !== 0n) {
+      issues.push({
+        code: 'invalid_precision',
+        message: `Block for task "${block.taskId}" has sub-millisecond precision.`,
+        taskId: block.taskId,
+      });
+      continue;
+    }
+    if (startNs % GRID_NS !== 0n || endNs % GRID_NS !== 0n) {
+      issues.push({
+        code: 'invalid_precision',
+        message: `Block for task "${block.taskId}" is not on the 5-minute grid.`,
+        taskId: block.taskId,
+      });
+      continue;
+    }
+    if (Number(endNs / 1_000_000n) <= Number(startNs / 1_000_000n)) {
+      issues.push({
+        code: 'invalid_window',
+        message: `Block for task "${block.taskId}" ends before it starts.`,
         taskId: block.taskId,
       });
     }

@@ -19,6 +19,7 @@ interface LockedInterval {
 }
 
 interface Consumption {
+  complete: boolean;
   completionMs: number;
 }
 
@@ -29,8 +30,10 @@ interface Consumption {
  * against the task requirement, and their latest end contributes to the
  * readiness of successors. For the remaining work, availability is measured
  * inside each task's own effective window, then an optimistic completion is
- * found by consuming real available intervals in order. Successors start after
- * the predecessor's optimistic completion (or locked completion, if later).
+ * found by consuming real available intervals in order. If the remaining work
+ * cannot be consumed inside the task window, the completion is unreachable and
+ * successors are blocked (zero availability, full deficit). Successors start
+ * after the predecessor's optimistic completion (or locked completion).
  *
  * Per-task availability ignores contention between independent tasks, so
  * `total` is the sum of per-task values and remains an explanatory upper bound.
@@ -121,7 +124,9 @@ export function deficit(input: ScheduleInput): DeficitReport {
         windowEndMs,
         remainingMin,
       );
-      completionMs = Math.max(completionMs, consumed.completionMs);
+      completionMs = consumed.complete
+        ? Math.max(completionMs, consumed.completionMs)
+        : Number.POSITIVE_INFINITY;
     }
     completionById.set(task.id, completionMs);
 
@@ -152,8 +157,11 @@ function consumeAvailable(
   endMs: number,
   minutes: number,
 ): Consumption {
-  if (minutes <= 0 || endMs <= startMs) {
-    return { completionMs: Math.max(startMs, endMs) };
+  if (minutes <= 0) {
+    return { complete: true, completionMs: startMs };
+  }
+  if (endMs <= startMs) {
+    return { complete: false, completionMs: startMs };
   }
   let remaining = minutes;
   let completionMs = startMs;
@@ -167,10 +175,10 @@ function consumeAvailable(
     remaining -= take;
     completionMs = slotStart + take * MINUTE_MS;
     if (remaining <= 0) {
-      return { completionMs };
+      return { complete: true, completionMs };
     }
   }
-  return { completionMs: Math.max(completionMs, endMs) };
+  return { complete: false, completionMs: Math.max(completionMs, endMs) };
 }
 
 function tryParseInstant(value: string): number | undefined {

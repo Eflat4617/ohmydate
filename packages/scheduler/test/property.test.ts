@@ -45,6 +45,21 @@ const SCENARIOS: Scenario[] = [
     end: '2026-11-13T00:00:00Z',
   },
   {
+    timeZone: 'America/Santiago',
+    start: '2026-09-03T00:00:00Z',
+    end: '2026-09-09T00:00:00Z',
+  },
+  {
+    timeZone: 'Asia/Beirut',
+    start: '2026-03-26T00:00:00Z',
+    end: '2026-04-01T00:00:00Z',
+  },
+  {
+    timeZone: 'America/Havana',
+    start: '2026-03-05T00:00:00Z',
+    end: '2026-03-11T00:00:00Z',
+  },
+  {
     timeZone: 'UTC',
     start: '2026-11-08T00:00:00Z',
     end: '2026-11-13T00:00:00Z',
@@ -82,6 +97,10 @@ interface RawSpec {
   sessionBSteps: number;
   lockedSlotIndex: number;
   lockedDurationSteps: number;
+  earliestASteps: number;
+  earliestBSteps: number;
+  bufferASteps: number;
+  bufferBSteps: number;
 }
 
 const rawSpec = fc.record({
@@ -106,6 +125,10 @@ const rawSpec = fc.record({
   sessionBSteps: fc.integer({ min: 6, max: 24 }),
   lockedSlotIndex: fc.integer({ min: 0, max: 49 }),
   lockedDurationSteps: fc.integer({ min: 6, max: 12 }),
+  earliestASteps: fc.integer({ min: 0, max: 24 }),
+  earliestBSteps: fc.integer({ min: 0, max: 24 }),
+  bufferASteps: fc.integer({ min: 0, max: 12 }),
+  bufferBSteps: fc.integer({ min: 0, max: 12 }),
 });
 
 function configuredRuns(): number {
@@ -203,22 +226,45 @@ function buildInput(
   };
 }
 
+interface TaskOptions {
+  riskLevel?: string;
+  earliestMs?: number;
+  dueMs?: number;
+  bufferBeforeDueMin?: number;
+}
+
+function instantIso(epochMs: number): string {
+  return Temporal.Instant.fromEpochMilliseconds(epochMs).toString();
+}
+
 function makeTask(
   id: string,
   requiredMin: number,
   scenario: Scenario,
   dependsOn: string[] = [],
+  options: TaskOptions = {},
 ): Task {
+  const estimate =
+    options.riskLevel === 'p90'
+      ? { p50Min: Math.max(0, requiredMin - 30), p90Min: requiredMin }
+      : { p50Min: requiredMin, p90Min: requiredMin + 30 };
   return {
     id,
-    dueAt: scenario.end,
-    earliestStartAt: scenario.start,
-    estimate: { p50Min: requiredMin, p90Min: requiredMin },
+    dueAt:
+      options.dueMs === undefined ? scenario.end : instantIso(options.dueMs),
+    earliestStartAt:
+      options.earliestMs === undefined
+        ? scenario.start
+        : instantIso(options.earliestMs),
+    estimate,
     splittable: true,
     minSessionMin: 30,
     maxSessionMin: 120,
     priority: 1,
     dependsOn,
+    ...(options.bufferBeforeDueMin === undefined
+      ? {}
+      : { bufferBeforeDueMin: options.bufferBeforeDueMin }),
   };
 }
 
@@ -304,12 +350,96 @@ function isCoveredBySlots(
   return cursor >= endMs;
 }
 
+
+function localDailyLoads(
+  blocks: Block[],
+  timeZone: string,
+): Map<string, number> {
+  const loads = new Map<string, number>();
+  for (const block of blocks) {
+    let cursor = instantMs(block.start);
+    const blockEnd = instantMs(block.end);
+    while (cursor < blockEnd) {
+      const zoned = Temporal.Instant.fromEpochMilliseconds(cursor)
+        .toZonedDateTimeISO(timeZone);
+      const nextDateStart = zoned
+        .toPlainDate()
+        .add({ days: 1 })
+        .toZonedDateTime({ timeZone })
+        .startOfDay().epochMilliseconds;
+      const segmentEnd = Math.min(blockEnd, nextDateStart);
+      const date = zoned.toPlainDate().toString();
+      loads.set(
+        date,
+        (loads.get(date) ?? 0) + (segmentEnd - cursor) / MINUTE_MS,
+      );
+      if (segmentEnd <= cursor) {
+        break;
+      }
+      cursor = segmentEnd;
+    }
+  }
+  return loads;
+}
+
+function hasH6Oracle(
+  blocks: Block[],
+  timeZone: string,
+  maxDailyFocusMin: number,
+  breakAfterMin: number,
+  breakMin: number,
+): boolean {
+  for (const minutes of localDailyLoads(blocks, timeZone).values()) {
+    if (minutes > maxDailyFocusMin) {
+      return true;
+    }
+  }
+
+  const sorted = [...blocks]
+    .map((block) => ({ startMs: instantMs(block.start), endMs: instantMs(block.end) }))
+    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+  let runStart: number | undefined;
+  let runEnd: number | undefined;
+  for (const interval of sorted) {
+    if (runStart === undefined || runEnd === undefined) {
+      runStart = interval.startMs;
+      runEnd = interval.endMs;
+      continue;
+    }
+    if (interval.startMs - runEnd >= breakMin * MINUTE_MS) {
+      if (runEnd - runStart > breakAfterMin * MINUTE_MS) {
+        return true;
+      }
+      runStart = interval.startMs;
+      runEnd = interval.endMs;
+    } else {
+      runEnd = Math.max(runEnd, interval.endMs);
+    }
+  }
+  return (
+    runStart !== undefined &&
+    runEnd !== undefined &&
+    runEnd - runStart > breakAfterMin * MINUTE_MS
+  );
+}
+
 describe('scheduler properties', () => {
   it('plans derived from computeAvailableSlots stay valid across varied inputs', () => {
     const generator = fc.tuple(fc.constantFrom(...SCENARIOS), rawSpec);
 
     fc.assert(
       fc.property(generator, ([scenario, spec]) => {
+        const horizonStartMs = instantMs(scenario.start);
+        const horizonEndMs = instantMs(scenario.end);
+        const earliestAMs =
+          horizonStartMs + spec.earliestASteps * 5 * MINUTE_MS;
+        const earliestBMs =
+          horizonStartMs + spec.earliestBSteps * 5 * MINUTE_MS;
+        const bufferAMin = spec.bufferASteps * 5;
+        const bufferBMin = spec.bufferBSteps * 5;
+        const dueAMs = horizonEndMs + bufferAMin * MINUTE_MS;
+        const dueBMs = horizonEndMs + bufferBMin * MINUTE_MS;
+
         const baseInput = buildInput(scenario, spec, [], []);
         const baseSlots = computeAvailableSlots(baseInput);
 
@@ -325,7 +455,7 @@ describe('scheduler properties', () => {
               continue;
             }
             const lengthMin = (instantMs(candidate.end) - instantMs(candidate.start)) / MINUTE_MS;
-            if (lengthMin >= 30) {
+            if (lengthMin >= 30 && instantMs(candidate.start) >= earliestAMs) {
               chosen = candidate;
               break;
             }
@@ -353,9 +483,23 @@ describe('scheduler properties', () => {
         const sessionAMin = spec.sessionASteps * 5;
         const sessionBMin = spec.sessionBSteps * 5;
         const requiredA = lockedMin + sessionAMin;
-        const tasks: Task[] = [makeTask('A', requiredA, scenario)];
+        const tasks: Task[] = [
+          makeTask('A', requiredA, scenario, [], {
+            riskLevel: spec.riskLevel,
+            earliestMs: earliestAMs,
+            dueMs: dueAMs,
+            bufferBeforeDueMin: bufferAMin,
+          }),
+        ];
         if (spec.hasDependent) {
-          tasks.push(makeTask('B', sessionBMin, scenario, ['A']));
+          tasks.push(
+            makeTask('B', sessionBMin, scenario, ['A'], {
+              riskLevel: spec.riskLevel,
+              earliestMs: earliestBMs,
+              dueMs: dueBMs,
+              bufferBeforeDueMin: bufferBMin,
+            }),
+          );
         }
 
         const input = buildInput(scenario, spec, tasks, lockedBlocks);
@@ -364,7 +508,7 @@ describe('scheduler properties', () => {
           slots,
           'A',
           sessionAMin,
-          instantMs(scenario.start),
+          earliestAMs,
         );
         if (aPlacement === null) {
           fc.pre(false);
@@ -376,7 +520,7 @@ describe('scheduler properties', () => {
           const aReady = Math.max(
             aPlacement.lastEndMs,
             lockedEndMs,
-            instantMs(scenario.start),
+            earliestBMs,
           );
           const bPlacement = allocateFromSlots(
             slots,
@@ -429,7 +573,11 @@ describe('scheduler properties', () => {
             start: Temporal.Instant.fromEpochMilliseconds(blockStartMs).toString(),
             end: Temporal.Instant.fromEpochMilliseconds(blockEndMs).toString(),
           };
-          input.tasks = [makeTask('A', durationMin, scenario)];
+          input.tasks = [
+            makeTask('A', durationMin, scenario, [], {
+              riskLevel: spec.riskLevel,
+            }),
+          ];
 
           const covered = isCoveredBySlots(slots, blockStartMs, blockEndMs);
           const codes = validate(input, [block], {
@@ -483,6 +631,10 @@ describe('scheduler properties', () => {
             sessionBSteps: 12,
             lockedSlotIndex: 0,
             lockedDurationSteps: 6,
+            earliestASteps: 0,
+            earliestBSteps: 0,
+            bufferASteps: 0,
+            bufferBSteps: 0,
           },
           [makeTask('A', 60, COMMIT_SCENARIO)],
           [],
@@ -511,4 +663,108 @@ describe('scheduler properties', () => {
       { numRuns: NUM_RUNS },
     );
   }, 60000);
+  it('H6 daily and break boundaries agree with an independent oracle', () => {
+    const generator = fc.tuple(
+      fc.constantFrom(...SCENARIOS),
+      rawSpec,
+      fc.integer({ min: 0, max: 49 }),
+      fc.integer({ min: 6, max: 24 }),
+      fc.integer({ min: 6, max: 24 }),
+      fc.integer({ min: 0, max: 3 }),
+      fc.constantFrom(30, 60, 90, 120, 150),
+      fc.constantFrom(30, 60, 90, 120),
+      fc.constantFrom(15, 30),
+    );
+
+    fc.assert(
+      fc.property(
+        generator,
+        ([
+          scenario,
+          spec,
+          slotIndex,
+          firstSteps,
+          secondSteps,
+          gapSteps,
+          maxDailyFocusMin,
+          breakAfterMin,
+          breakMin,
+        ]) => {
+          const input = buildInput(scenario, spec, [], []);
+          const slots = computeAvailableSlots(input);
+          if (slots.length === 0) {
+            fc.pre(false);
+            return;
+          }
+          const preferred = slotIndex % slots.length;
+          let chosen: { start: string; end: string } | undefined;
+          for (let offset = 0; offset < slots.length; offset += 1) {
+            const candidate = slots[(preferred + offset) % slots.length];
+            if (candidate === undefined) {
+              continue;
+            }
+            if ((instantMs(candidate.end) - instantMs(candidate.start)) / MINUTE_MS >= 60) {
+              chosen = candidate;
+              break;
+            }
+          }
+          if (chosen === undefined) {
+            fc.pre(false);
+            return;
+          }
+          const slotStart = instantMs(chosen.start);
+          const slotEnd = instantMs(chosen.end);
+          const slotMinutes = (slotEnd - slotStart) / MINUTE_MS;
+          const firstMin = Math.min(firstSteps * 5, slotMinutes);
+          if (firstMin < 30) {
+            fc.pre(false);
+            return;
+          }
+          const gapMin = gapSteps * 5;
+          const remaining = slotMinutes - firstMin - gapMin;
+          const secondMin = Math.min(secondSteps * 5, Math.floor(remaining / 5) * 5);
+          const blocks: Block[] = [
+            {
+              taskId: 'A',
+              start: instantIso(slotStart),
+              end: instantIso(slotStart + firstMin * MINUTE_MS),
+            },
+          ];
+          if (secondMin >= 30) {
+            blocks.push({
+              taskId: 'A',
+              start: instantIso(
+                slotStart + (firstMin + gapMin) * MINUTE_MS,
+              ),
+              end: instantIso(
+                slotStart + (firstMin + gapMin + secondMin) * MINUTE_MS,
+              ),
+            });
+          }
+          const requiredMin = blocks.reduce(
+            (sum, block) => sum + (instantMs(block.end) - instantMs(block.start)) / MINUTE_MS,
+            0,
+          );
+          input.tasks = [makeTask('A', requiredMin, scenario, [], { riskLevel: spec.riskLevel })];
+          input.prefs.maxDailyFocusMin = maxDailyFocusMin;
+          input.prefs.breakAfterMin = breakAfterMin;
+          input.prefs.breakMin = breakMin;
+
+          const hasH6 = validate(input, blocks, {
+            riskLevel: input.prefs.riskLevel,
+          }).some((violation) => violation.code === 'H6');
+          const oracle = hasH6Oracle(
+            blocks,
+            scenario.timeZone,
+            maxDailyFocusMin,
+            breakAfterMin,
+            breakMin,
+          );
+          expect(hasH6).toBe(oracle);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  }, 60000);
+
 });

@@ -162,4 +162,44 @@ describe('deficit explanation', () => {
       deficitMin: 60,
     });
   });
+  it('blocks successors when a predecessor cannot finish inside its window', () => {
+    const input = makeInput({
+      start: '2026-11-09T00:00:00Z',
+      end: '2026-11-09T11:00:00Z',
+      availability: MONDAY_0900_1000,
+      tasks: [
+        makeTask({
+          id: 'A',
+          dueAt: '2026-11-09T09:30:00Z',
+        }),
+        makeTask({
+          id: 'B',
+          dueAt: '2026-11-09T10:00:00Z',
+          estimate: { p50Min: 30, p90Min: 30 },
+          dependsOn: ['A'],
+        }),
+      ],
+    });
+
+    const report = deficit(input);
+    const byId = new Map(report.tasks.map((task) => [task.taskId, task]));
+    expect(byId.get('A')).toEqual({
+      taskId: 'A',
+      requiredMin: 60,
+      availableBeforeDueMin: 30,
+      deficitMin: 30,
+    });
+    expect(byId.get('B')).toEqual({
+      taskId: 'B',
+      requiredMin: 30,
+      availableBeforeDueMin: 0,
+      deficitMin: 30,
+    });
+    expect(report.total).toEqual({
+      requiredMin: 90,
+      availableBeforeDueMin: 30,
+      deficitMin: 60,
+    });
+  });
+
 });

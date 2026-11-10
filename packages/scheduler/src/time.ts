@@ -3,6 +3,7 @@ import type { Instant, IanaTz } from './types.js';
 
 export const GRID_MINUTES = 5;
 export const GRID_MS = GRID_MINUTES * 60 * 1000;
+export const GRID_NS = 300_000_000_000n;
 export const MINUTE_MS = 60 * 1000;
 
 export interface Clock {
@@ -17,8 +18,16 @@ export interface LocalDaySegment {
   endMs: number;
 }
 
+export function instantNanoseconds(value: Instant): bigint {
+  return Temporal.Instant.from(value).epochNanoseconds;
+}
+
 export function parseInstant(value: Instant): number {
-  return Temporal.Instant.from(value).epochMilliseconds;
+  const nanoseconds = instantNanoseconds(value);
+  if (nanoseconds % 1_000_000n !== 0n) {
+    throw new RangeError(`Instant has sub-millisecond precision: ${value}`);
+  }
+  return Number(nanoseconds / 1_000_000n);
 }
 
 export function instantToUtc(epochMs: number): Instant {
@@ -205,8 +214,12 @@ export function splitByLocalDay(
   let cursor = startMs;
   while (cursor < endMs) {
     const zoned = instantToZoned(cursor, timeZone);
-    const nextMidnight = zoned.startOfDay().add({ days: 1 }).epochMilliseconds;
-    const segmentEnd = Math.min(endMs, nextMidnight);
+    const nextDateStart = zoned
+      .toPlainDate()
+      .add({ days: 1 })
+      .toZonedDateTime({ timeZone })
+      .startOfDay().epochMilliseconds;
+    const segmentEnd = Math.min(endMs, nextDateStart);
     segments.push({
       date: zoned.toPlainDate().toString(),
       startMs: cursor,

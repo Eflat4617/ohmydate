@@ -54,6 +54,16 @@ function codes(input: ScheduleInput, blocks: Block[]): string[] {
     .sort();
 }
 
+const ALL_WEEK_FULL_DAY: AvailabilityRule[] = [
+  { weekday: 1, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+  { weekday: 2, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+  { weekday: 3, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+  { weekday: 4, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+  { weekday: 5, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+  { weekday: 6, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+  { weekday: 7, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+];
+
 describe('hard constraint validator', () => {
   it('reports H1 for overlapping blocks', () => {
     const input = makeInput({
@@ -344,5 +354,169 @@ describe('hard constraint validator', () => {
         .sort(),
     ).toContain('invalid_window');
   });
+
+  it('H6 rejects a daily-cap overflow after the Santiago midnight gap', () => {
+    const input = makeInput({
+      task: makeTask({
+        dueAt: '2026-09-07T06:00:00Z',
+        estimate: { p50Min: 150, p90Min: 150 },
+        minSessionMin: 30,
+        maxSessionMin: 150,
+      }),
+      availability: ALL_WEEK_FULL_DAY,
+    });
+    input.timeZone = 'America/Santiago';
+    input.horizon = {
+      start: '2026-09-06T04:00:00Z',
+      end: '2026-09-07T06:00:00Z',
+    };
+    input.prefs.maxDailyFocusMin = 90;
+    input.prefs.breakAfterMin = 1440;
+    expect(
+      codes(input, [
+        { taskId: 'A', start: '2026-09-07T02:30:00Z', end: '2026-09-07T05:00:00Z' },
+      ]),
+    ).toEqual(['H6']);
+  });
+
+  it('accepts valid daily loads split by the Santiago midnight gap', () => {
+    const input = makeInput({
+      task: makeTask({
+        dueAt: '2026-09-07T06:00:00Z',
+        estimate: { p50Min: 90, p90Min: 90 },
+        minSessionMin: 30,
+        maxSessionMin: 120,
+      }),
+      availability: ALL_WEEK_FULL_DAY,
+    });
+    input.timeZone = 'America/Santiago';
+    input.horizon = {
+      start: '2026-09-06T04:00:00Z',
+      end: '2026-09-07T06:00:00Z',
+    };
+    input.prefs.maxDailyFocusMin = 60;
+    input.prefs.breakAfterMin = 1440;
+    expect(
+      codes(input, [
+        { taskId: 'A', start: '2026-09-07T02:30:00Z', end: '2026-09-07T04:00:00Z' },
+      ]),
+    ).toEqual([]);
+  });
+
+  it('rejects candidate and locked blocks for unknown task IDs', () => {
+    const candidateInput = makeInput({
+      task: makeTask({
+        dueAt: '2026-11-11T00:00:00Z',
+        earliestStartAt: '2026-11-09T00:00:00Z',
+      }),
+      availability: ALL_WEEK_FULL_DAY,
+    });
+    candidateInput.timeZone = 'UTC';
+    candidateInput.horizon = {
+      start: '2026-11-09T00:00:00Z',
+      end: '2026-11-11T00:00:00Z',
+    };
+    expect(
+      codes(candidateInput, [
+        { taskId: 'A', start: '2026-11-09T09:00:00Z', end: '2026-11-09T10:00:00Z' },
+        { taskId: 'UNKNOWN', start: '2026-11-09T10:00:00Z', end: '2026-11-09T11:00:00Z' },
+      ]),
+    ).toEqual(['H0_unknown_task']);
+
+    const lockedInput = makeInput({
+      task: makeTask({
+        dueAt: '2026-11-11T00:00:00Z',
+        earliestStartAt: '2026-11-09T00:00:00Z',
+      }),
+      availability: ALL_WEEK_FULL_DAY,
+    });
+    lockedInput.timeZone = 'UTC';
+    lockedInput.horizon = {
+      start: '2026-11-09T00:00:00Z',
+      end: '2026-11-11T00:00:00Z',
+    };
+    lockedInput.lockedBlocks = [
+      { taskId: 'UNKNOWN', start: '2026-11-09T10:00:00Z', end: '2026-11-09T11:00:00Z' },
+    ];
+    expect(
+      codes(lockedInput, [
+        { taskId: 'A', start: '2026-11-09T09:00:00Z', end: '2026-11-09T10:00:00Z' },
+      ]),
+    ).toContain('H0_unknown_task');
+    expect(
+      validateInput(lockedInput)
+        .map((issue) => issue.code)
+        .sort(),
+    ).toContain('unknown_task');
+  });
+
+  it('rejects sub-millisecond candidate and locked block precision', () => {
+    const candidateInput = makeInput({
+      task: makeTask({
+        dueAt: '2026-11-09T10:00:00Z',
+        earliestStartAt: '2026-11-09T00:00:00Z',
+      }),
+      availability: ALL_WEEK_FULL_DAY,
+    });
+    candidateInput.timeZone = 'UTC';
+    expect(
+      codes(candidateInput, [
+        {
+          taskId: 'A',
+          start: '2026-11-09T09:00:00.000000001Z',
+          end: '2026-11-09T10:00:00Z',
+        },
+      ]),
+    ).toContain('H8');
+
+    const lockedInput = makeInput({
+      task: makeTask({
+        dueAt: '2026-11-09T10:00:00Z',
+        earliestStartAt: '2026-11-09T00:00:00Z',
+      }),
+      availability: ALL_WEEK_FULL_DAY,
+    });
+    lockedInput.timeZone = 'UTC';
+    lockedInput.lockedBlocks = [
+      {
+        taskId: 'A',
+        start: '2026-11-09T09:00:00.000000001Z',
+        end: '2026-11-09T10:00:00Z',
+      },
+    ];
+    expect(
+      codes(lockedInput, [
+        { taskId: 'A', start: '2026-11-09T09:00:00Z', end: '2026-11-09T10:00:00Z' },
+      ]),
+    ).toContain('H8');
+    expect(
+      validateInput(lockedInput)
+        .map((issue) => issue.code)
+        .sort(),
+    ).toContain('invalid_precision');
+
+    const offGridLocked = makeInput({
+      task: makeTask({
+        dueAt: '2026-11-09T10:00:00Z',
+        earliestStartAt: '2026-11-09T00:00:00Z',
+      }),
+      availability: ALL_WEEK_FULL_DAY,
+    });
+    offGridLocked.timeZone = 'UTC';
+    offGridLocked.lockedBlocks = [
+      { taskId: 'A', start: '2026-11-09T09:03:00Z', end: '2026-11-09T10:00:00Z' },
+    ];
+    expect(
+      codes(offGridLocked, [
+        { taskId: 'A', start: '2026-11-09T09:00:00Z', end: '2026-11-09T10:00:00Z' },
+      ]),
+    ).toContain('H8');
+    expect(
+      validateInput(offGridLocked)
+        .map((issue) => issue.code)
+        .sort(),
+    ).toContain('invalid_precision');
+  });
+
 
 });
