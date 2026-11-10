@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 | 라이선스 기록: @axe-core/playwright·axe-core = MPL-2.0, E2E 개발/테스트 전용(배포 안 함) → 허용. 루트 devDependencies 2개(@playwright/test, @axe-core/playwright) 추가는 e2e 스크립트에 필수라 범위 초과 승인 (M1-08R LOW-5/6) | M1-08R-1 | orchestrator |
 | 2026-11-11 | 성능 단언 best-of-5 전환 승인: 임계값 동일, 2차 시간 회귀는 5회 모두 실패하므로 약화 아님; 부하 플레이크 제거 목적 (FU-24R-2 LOW) | FU-24R-2 | orchestrator |
 | 2026-11-11 | M1-10R HIGH(FU-22 미배선) 처리: M1-10은 재조정기 기본 OFF로 노출 제거, CAS 호출 배선은 이미 배정된 FU-23이 담당(같은 파일 동시 편집 회피). FU-23 병합 후 재조정기 기본 ON 재검토 | M1-10R-1 | orchestrator |
 | 2026-11-11 | M1-06 체인 BLOCKED (R3 HIGH = 마지막 수정의 1줄 회귀). 재작업은 해당 회귀+테스트로만 범위를 좁힌 M1-06c로 배정, 집중 리뷰 1회 | M1-06R-3 | orchestrator |
