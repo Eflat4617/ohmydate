@@ -60,6 +60,7 @@
 |---|---|---|---|---|---|
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
+| M1-05 | ctx_bf4bfacdf49a | f089d89 | REQUEST_CHANGES | HIGH×3: 재시작 후 커서 변경 유실, 부분 실패 시 버전 없는 변경, 반복 완료 기록 없음; MEDIUM×3 | 오케스트레이터 도메인 포트 변경(CursorInvalidatedError, completedOccurrenceAt) + fix 1/2 |
 | M3-01 | ctx_c474514565eb | 0798bba | REQUEST_CHANGES | HIGH×2 Goose_Bay 자정 역행 (H6, H2), MEDIUM slots | **체인 BLOCKED (수정 2회 소진)** → ADR-017 재설계 Task M3-01b |
 | M1-07 | ctx_5655f519c769 | 0500f2c | REQUEST_CHANGES | HIGH×2: :complete MSW 경로, 멱등 키 액션 간 누출; MEDIUM×7 (offline, 충돌 초안, overwrite, complete/delete 412, CI 미포함, 컬렉션 ETag, 순환) | fix 1/2 ctx_44641e5005d1 (root package.json/vitest.config 승인) |
 | M1-04 | ctx_49ac5989ebcb | 6f6613f | **APPROVE** | — | **Accepted, merged 1e9b641**, G3 with DB: 105 tests, ci 0 |
