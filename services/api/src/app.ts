@@ -110,12 +110,23 @@ export function defaultLoggerOptions(config: AppConfig): LoggerOption {
   } as unknown as LoggerOption;
 }
 
-async function databaseReady(db: Kysely<Database>): Promise<boolean> {
+/** /readyz must never hang on a database that accepts TCP but never answers. */
+export const READYZ_DB_TIMEOUT_MS = 2_500;
+
+async function databaseReady(
+  db: Kysely<Database>,
+  timeoutMs: number = READYZ_DB_TIMEOUT_MS,
+): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
   try {
-    await sql`select 1`.execute(db);
-    return true;
+    const timeout = new Promise<boolean>((resolveTimeout) => {
+      timer = setTimeout(() => resolveTimeout(false), timeoutMs);
+    });
+    return await Promise.race([sql`select 1`.execute(db).then(() => true), timeout]);
   } catch {
     return false;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 

@@ -31,6 +31,7 @@ const MASKS: Readonly<Record<RedactionKind, string>> = {
 const REPORT_ORDER: readonly RedactionKind[] = ['email', 'phone', 'rrn', 'api_key'];
 
 const IGNORABLE = /\p{Default_Ignorable_Code_Point}/u;
+const ORIGINAL_DIGIT = /^\p{Nd}$/u;
 
 const DIGIT = '[0-9０-９]';
 const SEPARATOR = '[.\\s\\-_/\\u2010-\\u2015\\u2212\\u00B7]*';
@@ -115,8 +116,55 @@ function isDigitCode(code: number): boolean {
 
 function isOriginalDigitChar(char: OriginalChar | undefined): boolean {
   if (char === undefined || char.stripped) return false;
-  if (char.value.length !== 1) return false;
-  return isDigitCode(char.value.charCodeAt(0));
+  return ORIGINAL_DIGIT.test(char.value);
+}
+
+/**
+ * Superscript (⁰¹²³⁴⁵⁶⁷⁸⁹) and subscript (₀₁₂₃₄₅₆₇₈₉) digits are `No`, not `Nd`, so
+ * they still act as footnote markers by default. A number written entirely in these
+ * digits is a real number though: the decision (FU-32) is to mask it when every digit
+ * in the matched token is super/subscript.
+ */
+function isSuperSubDigit(value: string): boolean {
+  if (value.length !== 1) return false;
+  const code = value.charCodeAt(0);
+  return (
+    code === 0x2070 ||
+    code === 0x00b9 ||
+    code === 0x00b2 ||
+    code === 0x00b3 ||
+    (code >= 0x2074 && code <= 0x2079) ||
+    (code >= 0x2080 && code <= 0x2089)
+  );
+}
+
+function startsOnSuperSubDigit(map: IndexMap, start: number): boolean {
+  if (map.ascii) return false;
+  const current = sourceAt(map, start);
+  const char = current === undefined ? undefined : map.chars[current];
+  return char !== undefined && !char.stripped && isSuperSubDigit(char.value);
+}
+
+/** True when every digit that the match spans is a super/subscript digit. */
+function allDigitsSuperSub(map: IndexMap, start: number, end: number): boolean {
+  if (map.ascii) return false;
+  const first = sourceAt(map, start);
+  const last = sourceAt(map, end - 1);
+  if (first === undefined || last === undefined) return false;
+  let digits = 0;
+  for (let index = first; index <= last; index += 1) {
+    const char = map.chars[index];
+    if (char === undefined || char.stripped) continue;
+    if (isSuperSubDigit(char.value)) {
+      digits += 1;
+      continue;
+    }
+    // Any other character that folds to a digit (ASCII/fullwidth/math Nd, circled No)
+    // means the token mixes real digits with super/subscript markers.
+    const folded = char.value.normalize('NFKC');
+    if (folded.length === 1 && isDigitCode(folded.charCodeAt(0))) return false;
+  }
+  return digits > 0;
 }
 
 /** True when the normalised match starts on a digit code unit. */
@@ -580,10 +628,13 @@ function startAllowed(map: IndexMap, pattern: Pattern, start: number): boolean {
   }
   // A digit pattern must not begin on a footnote marker that only folds to a digit
   // (⁰/①/㉑); that start would let its end land on a stripped char before a real digit.
+  // Super/subscript digits are the exception: a token made entirely of them is a real
+  // number, checked after the end is resolved.
   if (
     (digitBoundary === 'start' || digitBoundary === 'both') &&
     startsOnDigit(map, start) &&
-    !startsOnOriginalDigit(map, start)
+    !startsOnOriginalDigit(map, start) &&
+    !startsOnSuperSubDigit(map, start)
   ) {
     return false;
   }
@@ -633,7 +684,18 @@ function resolveEnd(
   }
   if ((digitBoundary === 'end' || digitBoundary === 'both') && !boundaryAfter(map, end)) {
     const candidate = shorterEndAfter(map, pattern, start, rawEnd);
-    if (candidate !== undefined) return candidate;
+    if (candidate === undefined) return undefined;
+    end = candidate;
+  }
+  // A match that starts on a super/subscript digit is only a real number when every
+  // digit it spans is super/subscript; otherwise the leading glyph is a marker and a
+  // real-digit start later in the token must be the one that masks.
+  if (
+    (digitBoundary === 'start' || digitBoundary === 'both') &&
+    startsOnDigit(map, start) &&
+    !startsOnOriginalDigit(map, start) &&
+    !allDigitsSuperSub(map, start, end)
+  ) {
     return undefined;
   }
   return end;

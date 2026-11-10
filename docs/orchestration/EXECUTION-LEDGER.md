@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 07:03 | **Sol 복귀 확인**: `codex exec -m gpt-6.1-sol -c model_reasoning_effort=high` → 헤더 model: gpt-6.1-sol / reasoning effort: high, 응답 SOL_OK. 이후 신규 리뷰는 Sol(MODEL_BINDINGS §1). 진행 중인 M3-02cR(Opus)은 유지. M2-03 worker_done(de1af71..957017c, DeepSeek-high 136) → 리뷰 전 통합본 병합 + 빌드 목록에 llm 추가 지시 | codex probe | orchestrator |
 | 2026-11-11 06:38 | **호스트 재부팅** (uptime 4분 확인). Orca 데스크톱 앱 재기동(ready). 진행 중 Dispatch 5개 자동 abandoned → Task ready: FU-32R, FU-35R, M2-02R, M3-02cR(리뷰), M2-03(작업 트리 거의 빈 상태). dev 컨테이너 정지 → `restart: unless-stopped` 추가 후 재기동. 리뷰 4건 Opus 대체로 재시작(ctx_00974a8b4db0, ctx_56d39c548ab8, ctx_e2f20910c6eb, ctx_1af22cce1c49), M2-03은 기존 worktree로 재개(resume-deepseek-worker.sh). 중복 dispatch 없음 | uptime, worker-list, task-list | orchestrator |
 | 2026-11-11 | **Orca 런타임 장애 및 복구:** 06:10경 그래픽 세션 종료(GDM greeter)로 Orca 앱 런타임 소실 → CLI runtime_unavailable(BLOCKED: ORCA_RUNTIME). 데몬·워커 프로세스는 생존. `xvfb-run -a dbus-run-session -- orca serve --bind 127.0.0.1 --no-pairing --refuse-public`로 로컬 전용 헤드리스 런타임 기동 → ready(ws://127.0.0.1:6768), Run/Task/Dispatch 상태 보존, 대기 중이던 worker_done 3건 정상 수신. 직전 부하 평균 206 급증(동시 테스트+시스템 업데이트) 관측 | orca status, serve log | orchestrator |
 | 2026-11-11 | M3-02 체인 BLOCKED(R3 HIGH: 진행 중 비분할 작업 remainingMin=0 표현 불가) → 범위 축소 M3-02c | M3-02R-3 | orchestrator |
@@ -74,6 +75,8 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-32 | ctx_00974a8b4db0 (opus-fallback) | 072678f | **APPROVE** | LOW 4 → FU-38; **GB-1 마스킹 관문 완료** | **Accepted, merged 9344caa**; ci 992 pass, DB 마이그레이션 테스트 1건 부하(16) 5s 타임아웃 — 단독 14/14 통과, FU-37에서 timeout 조정 |
+| FU-35 | ctx_56d39c548ab8 (opus-fallback) | 8e8b6f8 | **APPROVE** | MEDIUM(사용 중 연결 소켓 단절 시 크래시, 기존 결함) → FU-37 즉시 착수 | **Accepted, merged 543cbee**; ci 942 pass/27 skip (1차 부하 타임아웃 2건, 재실행 통과) |
 | M2-02 | ctx_e2f20910c6eb (opus-fallback) | 2972a81 | **APPROVE** | 계약 MEDIUM 4건 → M2-03 범위 확장으로 처리 | **Accepted, merged df4244c**; G3 935 pass/27 skip + web 69, ci 0 |
 | FU-33 | ctx_035d58e4be6f (opus-fallback) | cc49314 | **APPROVE** | FU-36 | **Accepted, merged af25b39**; G3 920 pass/27 skip + web 69, ci 0 |
 | FU-30 | ctx_469f7ad52705 (opus-fallback) | 86a4629 | **APPROVE** | FU-35 | **Accepted, merged**; G3 916 pass/27 skip + web 69, ci 0; e2e 4/4 |
