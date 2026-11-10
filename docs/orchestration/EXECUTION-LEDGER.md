@@ -69,6 +69,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-24 | ctx_ce9adf251800 (opus-fallback) | dcea051 | REQUEST_CHANGES | HIGH: shorterEnd/키 패턴 2차 시간 DoS; MEDIUM: 전각 키 재현율 회귀 | fix 1/2 |
 | M1-10 | ctx_07698d9d1733 (opus-fallback) | 0212d04 | **APPROVE** | FU-26/27 | **Accepted, merged 1111794**; G3 773 pass/33 skip + web 68, ci 0 |
 | M1-10 | ctx_ea51210611f1 (opus-fallback) | f1467b7 | REQUEST_CHANGES | HIGH: 백그라운드 재조정기가 FU-22 CAS 없이 local_version 역행 | 결정: 재조정기 기본 OFF + CAS 배선은 FU-23 담당(중복 편집 방지); fix 1/2 |
 | FU-18 | ctx_85ddda68a802 (opus-fallback) | 5e8f5d4 | **APPROVE** | FU-23, FU-25 | **Accepted, merged 1e56bec** (domain index additive conflict resolved); G3 733 pass/22 skip + web 68, ci 0 |
