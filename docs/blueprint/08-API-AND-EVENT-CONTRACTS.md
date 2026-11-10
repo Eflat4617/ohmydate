@@ -8,6 +8,14 @@
 - 상태 코드: 200/201/202/204, 304(If-None-Match), 400(형식), 401, 403, 404, 409(상태 전이 불가), 412(If-Match 불일치), 422(도메인 검증), 428(If-Match 필수 누락), 429, 503(provider/LLM).
 - 낙관적 잠금: 모든 PATCH/PUT/DELETE와 상태 변경 POST는 `If-Match: W/"<version>"` 필수(누락 428).
 - 멱등: 모든 생성 POST·승인 POST·세션 이벤트는 `Idempotency-Key` 필수. 같은 키+같은 본문 해시 → 저장된 응답 재생, 다른 본문 → 422 `idempotency_mismatch`. 보존 24h.
+- **헤더 규칙 확정(2026-11-11, M1-02R 지적 반영 — 이 표가 정본):**
+  | 경로 종류 | If-Match | Idempotency-Key | 추가 오류 응답 |
+  |---|---|---|---|
+  | 생성 POST (컬렉션에 새 리소스) | 없음 | **필수** | 422 idempotency_mismatch |
+  | 기존 리소스 변경(PATCH/PUT/DELETE, `:action` POST, 하위 리소스 추가 POST 예: `/tasks/{id}/dependencies`) | **필수**(누락 428, 불일치 412) | **필수** | 412, 428, 422 |
+  | GET | 선택 If-None-Match(304) | 없음 | — |
+  | `/auth/login`, `/auth/logout` | 없음 | 없음 | — |
+  모든 Problem 응답 media type = `application/problem+json`. 모든 경로는 입력 검증 실패 400(형식)/422(도메인), provider를 거치는 경로는 503을 개별 선언.
 - 목록: `{items, nextCursor}` 커서 페이지네이션.
 - 권한: 모든 리소스 `owner_id = session.userId` 검사(리포지토리 레벨 강제).
 
