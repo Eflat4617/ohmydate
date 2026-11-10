@@ -443,6 +443,347 @@ export function describeTaskRepositoryContract(
       expect(fetched?.version).toBe(created.version + 1);
     });
 
+    it('rejects one of two concurrent project-bearing stale updates with exactly one VersionConflictError', async (
+      testContext,
+    ) => {
+      const project = await createProject(context, context.ownerA, 'project-concurrent-ref');
+      const target = await createProject(context, context.ownerA, 'project-concurrent-target');
+      const created = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'Concurrent project',
+        'task-concurrent-project',
+      );
+
+      if (!context.repo.capabilities.strictConcurrency) {
+        skipWithReason(
+          testContext,
+          'adapter declares strictConcurrency=false; concurrent stale project-bearing updates are not guaranteed (ADR-016).',
+        );
+        return;
+      }
+
+      const cursor = (await context.repo.listChangedSince(context.ownerA, null)).cursor;
+      const results = await Promise.allSettled([
+        context.repo.update(
+          context.ownerA,
+          created.id,
+          { projectId: target.id, title: 'Left' },
+          created.version,
+        ),
+        context.repo.update(
+          context.ownerA,
+          created.id,
+          { projectId: target.id, title: 'Right' },
+          created.version,
+        ),
+      ]);
+      const fulfilled = results.filter((result) => result.status === 'fulfilled');
+      const rejected = results.filter((result) => result.status === 'rejected');
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      const reason = rejected[0]?.status === 'rejected' ? rejected[0].reason : undefined;
+      expect(reason).toBeInstanceOf(VersionConflictError);
+
+      const fetched = await context.repo.get(context.ownerA, created.id);
+      expect(fetched?.version).toBe(created.version + 1);
+      expect(fetched?.projectId).toBe(target.id);
+
+      const changes = (await context.repo.listChangedSince(context.ownerA, cursor)).changes;
+      expect(changes).toHaveLength(1);
+      expect(changes[0]?.id).toBe(created.id);
+      expect(changes[0]?.version).toBe(created.version + 1);
+    });
+
+    it('does not resurrect a task when a project-bearing update races softDelete', async (
+      testContext,
+    ) => {
+      const project = await createProject(context, context.ownerA, 'project-race-delete');
+      const target = await createProject(context, context.ownerA, 'project-race-delete-target');
+      const created = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'Delete race',
+        'task-race-delete',
+      );
+
+      if (!context.repo.capabilities.strictConcurrency) {
+        skipWithReason(
+          testContext,
+          'adapter declares strictConcurrency=false; update versus delete serialization is not guaranteed (ADR-016).',
+        );
+        return;
+      }
+
+      const cursor = (await context.repo.listChangedSince(context.ownerA, null)).cursor;
+      const pendingUpdate = context.repo.update(
+        context.ownerA,
+        created.id,
+        { projectId: target.id, title: 'Resurrected' },
+        created.version,
+      );
+      const pendingDelete = context.repo.softDelete(
+        context.ownerA,
+        created.id,
+        created.version,
+      );
+      const results = await Promise.allSettled([pendingUpdate, pendingDelete]);
+
+      expect(results[0]?.status).toBe('rejected');
+      const reason = results[0]?.status === 'rejected' ? results[0].reason : undefined;
+      expect(reason).toBeInstanceOf(VersionConflictError);
+      expect(results[1]?.status).toBe('fulfilled');
+
+      expect(await context.repo.get(context.ownerA, created.id)).toBeNull();
+      const listed = await listAll(context.repo, context.ownerA, { limit: 100 });
+      expect(listed.some((task) => task.id === created.id)).toBe(false);
+
+      const changes = (await context.repo.listChangedSince(context.ownerA, cursor)).changes;
+      expect(changes).toHaveLength(1);
+      expect(changes[0]?.id).toBe(created.id);
+      expect(changes[0]?.version).toBe(created.version + 1);
+      expect(changes[0]?.deletedAt).toBeDefined();
+    });
+
+    it('does not overwrite a completion when a project-bearing update races complete', async (
+      testContext,
+    ) => {
+      const project = await createProject(context, context.ownerA, 'project-race-complete');
+      const target = await createProject(context, context.ownerA, 'project-race-complete-target');
+      const created = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'Complete race',
+        'task-race-complete',
+      );
+
+      if (!context.repo.capabilities.strictConcurrency) {
+        skipWithReason(
+          testContext,
+          'adapter declares strictConcurrency=false; update versus complete serialization is not guaranteed (ADR-016).',
+        );
+        return;
+      }
+
+      const cursor = (await context.repo.listChangedSince(context.ownerA, null)).cursor;
+      const pendingUpdate = context.repo.update(
+        context.ownerA,
+        created.id,
+        { projectId: target.id, title: 'Resurrected' },
+        created.version,
+      );
+      const pendingComplete = context.repo.complete(
+        context.ownerA,
+        created.id,
+        created.version,
+      );
+      const results = await Promise.allSettled([pendingUpdate, pendingComplete]);
+
+      expect(results[0]?.status).toBe('rejected');
+      const reason = results[0]?.status === 'rejected' ? results[0].reason : undefined;
+      expect(reason).toBeInstanceOf(VersionConflictError);
+      expect(results[1]?.status).toBe('fulfilled');
+
+      const fetched = await context.repo.get(context.ownerA, created.id);
+      expect(fetched?.status).toBe('done');
+      expect(fetched?.title).toBe(created.title);
+      expect(fetched?.version).toBe(created.version + 1);
+
+      const changes = (await context.repo.listChangedSince(context.ownerA, cursor)).changes;
+      expect(changes).toHaveLength(1);
+      expect(changes[0]?.id).toBe(created.id);
+      expect(changes[0]?.version).toBe(created.version + 1);
+    });
+
+    it('allows only one of two simultaneous dependency patches that would form a cycle', async (
+      testContext,
+    ) => {
+      const project = await createProject(context, context.ownerA, 'project-race-deps');
+      const target = await createProject(context, context.ownerA, 'project-race-deps-target');
+      const first = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'Dependency A',
+        'task-race-deps-a',
+      );
+      const second = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'Dependency B',
+        'task-race-deps-b',
+      );
+
+      if (!context.repo.capabilities.strictConcurrency) {
+        skipWithReason(
+          testContext,
+          'adapter declares strictConcurrency=false; simultaneous dependency graph validation is not guaranteed (ADR-016).',
+        );
+        return;
+      }
+
+      const cursor = (await context.repo.listChangedSince(context.ownerA, null)).cursor;
+      const results = await Promise.allSettled([
+        context.repo.update(
+          context.ownerA,
+          first.id,
+          { projectId: target.id, dependsOn: [second.id] },
+          first.version,
+        ),
+        context.repo.update(
+          context.ownerA,
+          second.id,
+          { projectId: target.id, dependsOn: [first.id] },
+          second.version,
+        ),
+      ]);
+      const fulfilled = results.filter((result) => result.status === 'fulfilled');
+      const rejected = results.filter((result) => result.status === 'rejected');
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(1);
+      const reason = rejected[0]?.status === 'rejected' ? rejected[0].reason : undefined;
+      expect(reason).toBeInstanceOf(DependencyCycleError);
+
+      const currentFirst = await context.repo.get(context.ownerA, first.id);
+      const currentSecond = await context.repo.get(context.ownerA, second.id);
+      const firstDependsOnSecond = currentFirst?.dependsOn.includes(second.id) ?? false;
+      const secondDependsOnFirst = currentSecond?.dependsOn.includes(first.id) ?? false;
+      expect(firstDependsOnSecond && secondDependsOnFirst).toBe(false);
+      expect([firstDependsOnSecond, secondDependsOnFirst].filter(Boolean)).toHaveLength(1);
+
+      const winner = firstDependsOnSecond ? currentFirst : currentSecond;
+      const loser = firstDependsOnSecond ? currentSecond : currentFirst;
+      expect(winner?.version).toBe(2);
+      expect(loser?.version).toBe(1);
+      expect(loser?.dependsOn).toEqual([]);
+
+      const changes = (await context.repo.listChangedSince(context.ownerA, cursor)).changes;
+      expect(changes).toHaveLength(1);
+      expect([first.id, second.id]).toContain(changes[0]?.id);
+      expect(changes[0]?.version).toBe(2);
+    });
+
+    it('serves concurrent equal-body creates from one immutable stored response and one change record', async (
+      testContext,
+    ) => {
+      if (!context.repo.capabilities.idempotentCreate) {
+        skipWithReason(
+          testContext,
+          'adapter declares idempotentCreate=false; concurrent idempotent create replay is handled by the API layer per ADR-016.',
+        );
+        return;
+      }
+
+      const project = await createProject(context, context.ownerA, 'project-concurrent-idem');
+      const scenarios: ReadonlyArray<{ key: string; input: TaskCreate }> = [
+        {
+          key: 'concurrent-idem-explicit',
+          input: { projectId: project.id, title: 'Concurrent explicit' },
+        },
+        {
+          key: 'concurrent-idem-inbox',
+          input: { title: 'Concurrent inbox' },
+        },
+      ];
+
+      for (const scenario of scenarios) {
+        const cursor = (await context.repo.listChangedSince(context.ownerA, null)).cursor;
+        const [first, second] = await Promise.all([
+          context.repo.create(context.ownerA, scenario.input, scenario.key),
+          context.repo.create(context.ownerA, scenario.input, scenario.key),
+        ]);
+
+        expect(second).toEqual(first);
+        expect(second).not.toBe(first);
+        expect(second.id).toBe(first.id);
+        expect(second.version).toBe(1);
+
+        const mutable = first as unknown as { title: string; dependsOn: Id[] };
+        mutable.title = 'mutated';
+        mutable.dependsOn.push(second.id);
+        expect(second.title).toBe(scenario.input.title);
+        expect(second.dependsOn).toEqual([]);
+        const fetched = await context.repo.get(context.ownerA, first.id);
+        expect(fetched?.title).toBe(scenario.input.title);
+        expect(fetched?.dependsOn).toEqual([]);
+
+        if (scenario.input.projectId === undefined) {
+          expect(second.projectId).toBe(first.projectId);
+          const inbox = await context.projects.get(context.ownerA, first.projectId);
+          expect(inbox?.title).toBe('Inbox');
+        }
+
+        const listed = await listAll(context.repo, context.ownerA, { limit: 100 });
+        expect(listed.filter((task) => task.id === first.id)).toHaveLength(1);
+        const changes = (await context.repo.listChangedSince(context.ownerA, cursor)).changes;
+        expect(changes).toHaveLength(1);
+        expect(changes[0]?.id).toBe(first.id);
+        expect(changes[0]?.version).toBe(1);
+      }
+    });
+
+    it('rejects concurrent same-key creates with different bodies without extra writes', async (
+      testContext,
+    ) => {
+      if (!context.repo.capabilities.idempotentCreate) {
+        skipWithReason(
+          testContext,
+          'adapter declares idempotentCreate=false; concurrent idempotency mismatch is handled by the API layer per ADR-016.',
+        );
+        return;
+      }
+
+      const project = await createProject(context, context.ownerA, 'project-concurrent-mismatch');
+      const scenarios: ReadonlyArray<{
+        key: string;
+        firstInput: TaskCreate;
+        secondInput: TaskCreate;
+      }> = [
+        {
+          key: 'concurrent-mismatch-explicit',
+          firstInput: { projectId: project.id, title: 'Explicit first' },
+          secondInput: { projectId: project.id, title: 'Explicit second' },
+        },
+        {
+          key: 'concurrent-mismatch-inbox',
+          firstInput: { title: 'Inbox first' },
+          secondInput: { title: 'Inbox second' },
+        },
+      ];
+
+      for (const scenario of scenarios) {
+        const cursor = (await context.repo.listChangedSince(context.ownerA, null)).cursor;
+        const results = await Promise.allSettled([
+          context.repo.create(context.ownerA, scenario.firstInput, scenario.key),
+          context.repo.create(context.ownerA, scenario.secondInput, scenario.key),
+        ]);
+        const fulfilled = results.filter((result) => result.status === 'fulfilled');
+        const rejected = results.filter((result) => result.status === 'rejected');
+        expect(fulfilled).toHaveLength(1);
+        expect(rejected).toHaveLength(1);
+        const reason = rejected[0]?.status === 'rejected' ? rejected[0].reason : undefined;
+        expect(reason).toBeInstanceOf(IdempotencyMismatchError);
+
+        const changes = (await context.repo.listChangedSince(context.ownerA, cursor)).changes;
+        expect(changes).toHaveLength(1);
+        const createdId = changes[0]?.id;
+        if (createdId === undefined) throw new Error('expected a created task change');
+        const created = await context.repo.get(context.ownerA, createdId);
+        expect(created?.title).toBe(scenario.firstInput.title);
+        if (scenario.firstInput.projectId === undefined) {
+          const inbox = await context.projects.get(context.ownerA, created?.projectId as Id);
+          expect(inbox?.title).toBe('Inbox');
+        }
+
+        const listed = await listAll(context.repo, context.ownerA, { limit: 100 });
+        expect(listed.filter((task) => task.id === createdId)).toHaveLength(1);
+      }
+    });
+
     it('completes a task once and treats completing a done task as a version-stable no-op', async () => {
       const project = await createProject(context, context.ownerA, 'project-complete');
       const created = await createTask(
