@@ -44,6 +44,11 @@ export interface Task {
   maxSessionMin: number;
   priority: 1 | 2 | 3 | 4;
   dependsOn: Id[];
+  /**
+   * Minutes reserved before `dueAt`. Must be a whole number in
+   * `[0, 100000]` like every other minute field; invalid values are rejected
+   * before scheduling rather than bypassing the deadline.
+   */
   bufferBeforeDueMin?: number;
   preferredWindows?: WindowKind[];
 }
@@ -91,6 +96,11 @@ export interface Preferences {
 
 export interface Horizon {
   start: Instant;
+  /**
+   * End of the planning horizon. The supported span is at most 366 days;
+   * longer horizons (and occupied blocks longer than 366 days) are rejected as
+   * `invalid_input` before transition enumeration or cell allocation.
+   */
   end: Instant;
 }
 

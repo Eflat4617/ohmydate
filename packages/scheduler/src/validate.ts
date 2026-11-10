@@ -40,6 +40,15 @@ interface ExceptionWindow {
 export const MAX_INPUT_MINUTES = 100_000;
 
 /**
+ * Maximum supported planning horizon and occupied-block span. Transition
+ * enumeration walks one IANA transition at a time and allocates one cell per
+ * grid slot; both are bounded by this cap so absurd ranges are rejected as
+ * invalid input instead of reaching the programming-error guard.
+ */
+export const MAX_HORIZON_DAYS = 366;
+const MAX_HORIZON_MS = MAX_HORIZON_DAYS * 24 * 60 * MINUTE_MS;
+
+/**
  * Audit a candidate plan against hard constraints H1-H8.
  *
  * H2 uses a genuinely different oracle from `slots.ts`: each block is split at
@@ -634,7 +643,7 @@ function checkH4(
 
     if (task.dueAt !== undefined) {
       const dueMs = tryParseInstant(task.dueAt);
-      const bufferMs = (task.bufferBeforeDueMin ?? 0) * MINUTE_MS;
+      const bufferMs = usableBufferMinutes(task) * MINUTE_MS;
       if (dueMs !== undefined && last.endMs > dueMs - bufferMs) {
         violations.push({
           code: 'H4',
@@ -886,6 +895,11 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       code: 'invalid_window',
       message: 'Horizon end must be after horizon start.',
     });
+  } else if (horizonEnd - horizonStart > MAX_HORIZON_MS) {
+    issues.push({
+      code: 'invalid_input',
+      message: `Horizon spans more than ${MAX_HORIZON_DAYS} days, the maximum supported length.`,
+    });
   }
 
   if (tryParseInstant(input.now) === undefined) {
@@ -902,7 +916,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       });
     }
     taskIds.add(task.id);
-    validateTaskWindow(task, issues);
+    // Validate every minute-valued field before window/H4 arithmetic can use
+    // it (a non-finite buffer would otherwise bypass the deadline).
     const estimateFields = [
       task.estimate.p50Min,
       task.estimate.p90Min,
@@ -912,6 +927,16 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_estimate',
         message: `Task "${task.id}" has an estimate that is not a whole number of minutes between 0 and ${MAX_INPUT_MINUTES}.`,
+        taskId: task.id,
+      });
+    }
+    if (
+      task.bufferBeforeDueMin !== undefined &&
+      !isWholeMinute(task.bufferBeforeDueMin)
+    ) {
+      issues.push({
+        code: 'invalid_estimate',
+        message: `Task "${task.id}" has a bufferBeforeDueMin that is not a whole number of minutes between 0 and ${MAX_INPUT_MINUTES}.`,
         taskId: task.id,
       });
     }
@@ -936,6 +961,7 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
         taskId: task.id,
       });
     }
+    validateTaskWindow(task, issues);
   }
 
   for (const [name, value] of [
@@ -1017,6 +1043,18 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
 
   for (const commitment of input.commitments) {
     validateBlockInterval(commitment.start, commitment.end, issues, 'commitment');
+    const startMs = tryParseInstant(commitment.start);
+    const endMs = tryParseInstant(commitment.end);
+    if (
+      startMs !== undefined &&
+      endMs !== undefined &&
+      endMs - startMs > MAX_HORIZON_MS
+    ) {
+      issues.push({
+        code: 'invalid_input',
+        message: `Commitment spans more than ${MAX_HORIZON_DAYS} days, the maximum supported length.`,
+      });
+    }
   }
   for (const block of [...input.lockedBlocks, ...(input.existingBlocks ?? [])]) {
     if (!taskIds.has(block.taskId)) {
@@ -1055,10 +1093,18 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       });
       continue;
     }
-    if (Number(endNs / 1_000_000n) <= Number(startNs / 1_000_000n)) {
+    const startMs = Number(startNs / 1_000_000n);
+    const endMs = Number(endNs / 1_000_000n);
+    if (endMs <= startMs) {
       issues.push({
         code: 'invalid_window',
         message: `Block for task "${block.taskId}" ends before it starts.`,
+        taskId: block.taskId,
+      });
+    } else if (endMs - startMs > MAX_HORIZON_MS) {
+      issues.push({
+        code: 'invalid_input',
+        message: `Block for task "${block.taskId}" spans more than ${MAX_HORIZON_DAYS} days, the maximum supported length.`,
         taskId: block.taskId,
       });
     }
@@ -1077,6 +1123,12 @@ function isWholeMinute(value: number): boolean {
   );
 }
 
+/** A usable buffer value, or 0 when the input is invalid (rejected earlier). */
+function usableBufferMinutes(task: Task): number {
+  const value = task.bufferBeforeDueMin;
+  return value !== undefined && isWholeMinute(value) ? value : 0;
+}
+
 function validateTaskWindow(task: Task, issues: InputIssue[]): void {
   const earliest = task.earliestStartAt === undefined
     ? undefined
@@ -1092,7 +1144,7 @@ function validateTaskWindow(task: Task, issues: InputIssue[]): void {
     return;
   }
   if (earliest !== undefined && due !== undefined) {
-    const bufferMs = (task.bufferBeforeDueMin ?? 0) * MINUTE_MS;
+    const bufferMs = usableBufferMinutes(task) * MINUTE_MS;
     if (earliest > due || earliest >= due - bufferMs) {
       issues.push({
         code: 'invalid_window',

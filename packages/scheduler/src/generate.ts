@@ -145,10 +145,7 @@ export function generate(
   const issues = validateInput(input);
 
   if (issues.length > 0) {
-    const requiredTotal = input.tasks.reduce(
-      (sum, task) => sum + taskRequiredMinutes(task, input.prefs.riskLevel),
-      0,
-    );
+    const requiredTotal = finiteRequiredTotal(input);
     const candidates = requested.map((policy) =>
       invalidInputCandidate(policy, inputHash, issues, requiredTotal),
     );
@@ -266,6 +263,22 @@ function capacityDeficit(context: BuildContext): number {
       0,
     );
   }
+}
+
+/**
+ * Finite fallback total for rejected inputs. Invalid estimates (Infinity/NaN)
+ * must not leak into candidate metrics, so only finite non-negative values are
+ * summed.
+ */
+function finiteRequiredTotal(input: ScheduleInput): number {
+  let total = 0;
+  for (const task of input.tasks) {
+    const required = taskRequiredMinutes(task, input.prefs.riskLevel);
+    if (Number.isFinite(required) && required > 0) {
+      total += required;
+    }
+  }
+  return total;
 }
 
 function invalidInputCandidate(
@@ -1632,44 +1645,33 @@ function h6WouldBreak(
     return false;
   }
 
-  let low = 0;
-  let high = intervals.length;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    const interval = intervals[middle];
-    if (interval !== undefined && interval.startMs <= startMs) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
-
+  // Occupied intervals may nest or overlap (legitimate history under 06 §7.1),
+  // so a backward scan cannot stop at the first gap: an earlier interval can
+  // extend past the nearest one. Grow the run union until no interval joins
+  // within breakMin on either side.
   let runStart = startMs;
   let runEnd = endMs;
-  let index = low - 1;
-  while (index >= 0) {
-    const previous = intervals[index];
-    if (previous === undefined) {
-      break;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const interval of intervals) {
+      const joins =
+        interval.endMs <= runStart
+          ? runStart - interval.endMs < context.breakMs
+          : interval.startMs >= runEnd
+            ? interval.startMs - runEnd < context.breakMs
+            : interval.startMs < runEnd && interval.endMs > runStart;
+      if (!joins) {
+        continue;
+      }
+      const nextStart = Math.min(runStart, interval.startMs);
+      const nextEnd = Math.max(runEnd, interval.endMs);
+      if (nextStart !== runStart || nextEnd !== runEnd) {
+        runStart = nextStart;
+        runEnd = nextEnd;
+        changed = true;
+      }
     }
-    if (runStart - previous.endMs >= context.breakMs) {
-      break;
-    }
-    runStart = Math.min(runStart, previous.startMs);
-    runEnd = Math.max(runEnd, previous.endMs);
-    index -= 1;
-  }
-  index = low;
-  while (index < intervals.length) {
-    const next = intervals[index];
-    if (next === undefined) {
-      break;
-    }
-    if (next.startMs - runEnd >= context.breakMs) {
-      break;
-    }
-    runEnd = Math.max(runEnd, next.endMs);
-    index += 1;
   }
   return runEnd - runStart > context.breakAfterMs;
 }

@@ -33,7 +33,12 @@ export type {
 } from './types.js';
 
 export { computeAvailableSlots, maxContiguousMin, slotTotalMin } from './slots.js';
-export { MAX_INPUT_MINUTES, validate, validateInput } from './validate.js';
+export {
+  MAX_HORIZON_DAYS,
+  MAX_INPUT_MINUTES,
+  validate,
+  validateInput,
+} from './validate.js';
 export { deficit } from './explain.js';
 export { taskRequiredMinutes } from './requirements.js';
 export { generate, GENERATOR_VERSION } from './generate.js';

@@ -496,14 +496,21 @@ function independentH1Violation(
       key: blockKeyOf(block),
     }))
     .sort((a, b) => a.startMs - b.startMs);
-  for (let index = 1; index < intervals.length; index += 1) {
-    const previous = intervals[index - 1];
-    const current = intervals[index];
-    if (
-      previous !== undefined &&
-      current !== undefined &&
-      current.startMs < previous.endMs
-    ) {
+  // Sweep with every still-active interval, not just the immediate predecessor:
+  // nested history can hide an outer interval that still overlaps the current
+  // one.
+  const active: typeof intervals = [];
+  for (const current of intervals) {
+    for (let index = active.length - 1; index >= 0; index -= 1) {
+      const entry = active[index];
+      if (entry !== undefined && entry.endMs <= current.startMs) {
+        active.splice(index, 1);
+      }
+    }
+    for (const previous of active) {
+      if (previous.endMs <= current.startMs) {
+        continue;
+      }
       const involvesHistory =
         historyKeys.has(previous.key) || historyKeys.has(current.key);
       const involvesCandidate =
@@ -513,6 +520,7 @@ function independentH1Violation(
       }
       return true;
     }
+    active.push(current);
   }
   for (const block of blocks) {
     if (historyKeys.has(blockKeyOf(block))) {
@@ -738,4 +746,144 @@ describe('generator properties', () => {
       0.3,
     );
   }, heavyTimeoutMs());
+
+  it('independent H1 catches a candidate under a nested history outer interval', () => {
+    const history: Block[] = [
+      {
+        taskId: 'B',
+        start: '2026-11-09T09:00:00Z',
+        end: '2026-11-09T12:00:00Z',
+      },
+      {
+        taskId: 'B',
+        start: '2026-11-09T09:30:00Z',
+        end: '2026-11-09T10:00:00Z',
+      },
+    ];
+    const candidate: Block[] = [
+      {
+        taskId: 'A',
+        start: '2026-11-09T10:30:00Z',
+        end: '2026-11-09T11:00:00Z',
+      },
+    ];
+    expect(
+      independentH1Violation(
+        [...history, ...candidate],
+        [],
+        history,
+        candidate,
+      ),
+    ).toBe(true);
+    const input = nestedHistoryInput('2026-11-09T17:00:00Z');
+    expect(
+      validate(input, candidate, {
+        riskLevel: 'p50',
+        historyBlocks: history,
+      }).map((violation) => violation.code),
+    ).toContain('H1');
+  });
+
+  it('adversarial nested-history property fails if audited H1 is disabled', () => {
+    const nestedH1Spec = fc.record({
+      innerStartUnits: fc.integer({ min: 0, max: 12 }),
+      innerUnits: fc.integer({ min: 1, max: 6 }),
+      gapUnits: fc.integer({ min: 2, max: 12 }),
+      candidateUnits: fc.integer({ min: 1, max: 6 }),
+      tailUnits: fc.integer({ min: 0, max: 6 }),
+    });
+    const unitMs = 5 * 60 * 1000;
+    const baseMs = Date.UTC(2026, 10, 9, 9, 0);
+    const iso = (ms: number): string => new Date(ms).toISOString();
+    fc.assert(
+      fc.property(nestedH1Spec, (spec) => {
+        const innerStart = spec.innerStartUnits;
+        const innerEnd = innerStart + spec.innerUnits;
+        const candidateStart = innerEnd + spec.gapUnits;
+        const candidateEnd = candidateStart + spec.candidateUnits;
+        const outerUnits = candidateEnd + spec.tailUnits;
+        const outer: Block = {
+          taskId: 'B',
+          start: iso(baseMs),
+          end: iso(baseMs + outerUnits * unitMs),
+        };
+        const inner: Block = {
+          taskId: 'B',
+          start: iso(baseMs + innerStart * unitMs),
+          end: iso(baseMs + innerEnd * unitMs),
+        };
+        const candidate: Block = {
+          taskId: 'A',
+          start: iso(baseMs + candidateStart * unitMs),
+          end: iso(baseMs + candidateEnd * unitMs),
+        };
+        const history = [outer, inner];
+        expect(
+          independentH1Violation(
+            [...history, candidate],
+            [],
+            history,
+            [candidate],
+          ),
+        ).toBe(true);
+        const input = nestedHistoryInput('2026-11-09T17:00:00Z');
+        expect(
+          validate(input, [candidate], {
+            riskLevel: 'p50',
+            historyBlocks: history,
+          }).map((violation) => violation.code),
+        ).toContain('H1');
+      }),
+      { numRuns: Math.min(NUM_RUNS, 300) },
+    );
+  });
+
+  function nestedHistoryInput(dueAt: string): ScheduleInput {
+    return {
+      now: '2026-11-09T09:00:00Z',
+      timeZone: 'UTC',
+      horizon: {
+        start: '2026-11-09T09:00:00Z',
+        end: dueAt,
+      },
+      tasks: [
+        {
+          id: 'A',
+          dueAt,
+          estimate: { p50Min: 30, p90Min: 30 },
+          splittable: true,
+          minSessionMin: 5,
+          maxSessionMin: 120,
+          priority: 1,
+          dependsOn: [],
+        },
+        {
+          id: 'B',
+          dueAt,
+          estimate: { p50Min: 60, p90Min: 60 },
+          remainingMin: 0,
+          splittable: false,
+          minSessionMin: 60,
+          maxSessionMin: 60,
+          priority: 1,
+          dependsOn: [],
+        },
+      ],
+      availability: [
+        { weekday: 1, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+      ],
+      exceptions: [],
+      commitments: [],
+      lockedBlocks: [],
+      prefs: {
+        maxDailyFocusMin: 480,
+        breakAfterMin: 480,
+        breakMin: 15,
+        riskLevel: 'p50',
+        dayStartLocal: '00:00',
+        dayEndLocal: '24:00',
+      },
+      seed: 39039,
+    };
+  }
 });
