@@ -65,6 +65,7 @@
 |---|---|---|---|---|---|
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
+| M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
 | M2-01 | ctx_b51bf23eb06e (opus-fallback) | 7292b4e | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 질문 플래너 오래된 가정·exhausted; 제안(정규화 마스킹, costUsd 강제) 승격 | **fix 2/2 FINAL** |
 | FU-09 | ctx_ee65fb65a235 (opus-fallback) | 2580131 | **APPROVE** | ADR-018 → FU-18, FU-19 | **Accepted, merged 10f8260**; G3 269+60 tests, ci 0 |
 | M1-05 | ctx_c944b22c95d2 (opus-fallback) | 5ee225e | **APPROVE** | FU-14..17 (즉시 Task), Sol 사후 FU-08 | **Accepted, merged 3aa02bd** + lockfile repair; G3 with DB+live Vikunja: 290 pass/18 gated skip + web 45, ci 0 |
