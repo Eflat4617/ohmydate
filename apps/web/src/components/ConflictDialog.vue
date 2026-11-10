@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { ConflictOperation } from '../composables/useTaskActions';
 
 const props = withDefaults(
@@ -9,8 +9,9 @@ const props = withDefaults(
     localTitle?: string | null;
     operation?: ConflictOperation;
     disabled?: boolean;
+    busy?: boolean;
   }>(),
-  { localTitle: null, operation: 'rename', disabled: false },
+  { localTitle: null, operation: 'rename', disabled: false, busy: false },
 );
 
 const emit = defineEmits<{ reload: []; overwrite: []; cancel: [] }>();
@@ -83,8 +84,25 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
+function trapFocus(event: FocusEvent): void {
+  const root = dialog.value;
+  if (root === null) return;
+  const target = event.target;
+  if (target instanceof Node && root.contains(target)) return;
+  if (reloadButton.value !== null && !reloadButton.value.disabled) {
+    reloadButton.value.focus();
+    return;
+  }
+  root.focus();
+}
+
 onMounted(() => {
+  document.addEventListener('focusin', trapFocus, true);
   void nextTick().then(() => reloadButton.value?.focus());
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener('focusin', trapFocus, true);
 });
 </script>
 
@@ -94,6 +112,7 @@ onMounted(() => {
       ref="dialog"
       class="dialog conflict-dialog"
       role="dialog"
+      tabindex="-1"
       aria-modal="true"
       aria-labelledby="conflict-title"
       aria-describedby="conflict-detail"
@@ -120,10 +139,16 @@ onMounted(() => {
       </dl>
       <p class="muted">Reload keeps the server version. Overwrite re-fetches and re-applies your change.</p>
       <div class="dialog-actions">
-        <button ref="reloadButton" type="button" class="primary-action" @click="emit('reload')">
+        <button
+          ref="reloadButton"
+          type="button"
+          class="primary-action"
+          :disabled="disabled || busy"
+          @click="emit('reload')"
+        >
           Reload server version
         </button>
-        <button type="button" :disabled="disabled" @click="emit('overwrite')">
+        <button type="button" :disabled="disabled || busy" @click="emit('overwrite')">
           {{ overwriteLabel }}
         </button>
         <button type="button" class="link-button" @click="emit('cancel')">

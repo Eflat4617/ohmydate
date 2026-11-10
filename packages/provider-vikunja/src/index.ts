@@ -39,6 +39,7 @@ export {
   InMemoryMappingStore,
   type ExternalMapping,
   type MappingEntityType,
+  type MappingPutOptions,
   type MappingStore,
   type PendingCompletion,
 } from './mapping-store.js';

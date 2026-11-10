@@ -255,7 +255,18 @@ importers:
 
   packages/domain: {}
 
-  packages/llm: {}
+  packages/llm:
+    dependencies:
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
+    devDependencies:
+      '@ohmydate/domain':
+        specifier: workspace:*
+        version: link:../domain
+      fast-check:
+        specifier: 4.10.2
+        version: 4.10.2
 
   packages/provider-native:
     dependencies:
@@ -319,6 +330,9 @@ importers:
       '@ohmydate/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@ohmydate/provider-vikunja':
+        specifier: workspace:*
+        version: link:../../packages/provider-vikunja
       '@sinclair/typebox':
         specifier: 0.34.52
         version: 0.34.52

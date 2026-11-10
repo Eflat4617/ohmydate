@@ -30,6 +30,22 @@ describe('idempotent action model', () => {
     const later = store.begin('task:create:inbox', { title: 'Write summary' }, sameTitle);
     expect(later.key).not.toBe(changed.key);
   });
+
+  it('rotates the key only when the If-Match changes', () => {
+    const store = new ActionStore();
+    const same = (left: { title: string }, right: { title: string }): boolean =>
+      left.title === right.title;
+    const first = store.begin('task:t1:rename', { title: 'Title' }, same, 2);
+    const retry = store.begin('task:t1:rename', { title: 'Title' }, same, 2);
+    expect(retry.key).toBe(first.key);
+
+    const rotated = store.begin('task:t1:rename', { title: 'Title' }, same, 3);
+    expect(rotated.key).not.toBe(first.key);
+    expect(rotated.ifMatch).toBe(3);
+
+    const withoutPrecondition = store.begin('task:t1:rename', { title: 'Title' }, same);
+    expect(withoutPrecondition.key).toBe(rotated.key);
+  });
 });
 
 describe('idempotency keys', () => {

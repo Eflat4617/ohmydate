@@ -107,6 +107,7 @@ export interface ProjectTable {
   id: Col<'uuid', false, false>;
   owner_id: Col<'uuid', false, false>;
   title: Col<'text', false, false>;
+  kind: Col<'text', false, true>;
   archived: Col<'boolean', false, true>;
   created_at: Col<'timestamptz', false, true>;
   updated_at: Col<'timestamptz', false, true>;
@@ -117,7 +118,7 @@ export interface ProjectTable {
 export interface TaskTable {
   id: Col<'uuid', false, false>;
   owner_id: Col<'uuid', false, false>;
-  project_id: Col<'uuid', true, false>;
+  project_id: Col<'uuid', false, false>;
   title_cache: Col<'text', true, false>;
   status_cache: Col<'text', false, true>;
   due_at: Col<'timestamptz', true, false>;
@@ -226,6 +227,57 @@ export interface JobTable {
   version: Col<'integer', false, true>;
 }
 
+export interface VikunjaMappingTable {
+  entity_type: Col<'text', false, false>;
+  entity_id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  external_id: Col<'text', false, false>;
+  external_etag: Col<'text', true, false>;
+  external_updated_at: Col<'timestamptz', true, false>;
+  local_version: Col<'integer', false, true>;
+  content_fingerprint: Col<'text', true, false>;
+  needs_reconcile: Col<'boolean', false, true>;
+  pending_completion: Col<'jsonb', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  deleted_at: Col<'timestamptz', true, false>;
+}
+
+export interface VikunjaPlannerFieldsTable {
+  task_id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  fields: Col<'jsonb', false, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+}
+
+export interface VikunjaChangeJournalTable {
+  owner_id: Col<'uuid', false, false>;
+  epoch: Col<'text', false, false>;
+  seq: Col<'integer', false, false>;
+  task_id: Col<'uuid', false, false>;
+  external_id: Col<'text', false, false>;
+  version: Col<'integer', false, false>;
+  deleted_at: Col<'timestamptz', true, false>;
+  completed_occurrence_at: Col<'timestamptz', true, false>;
+  at: Col<'timestamptz', false, false>;
+}
+
+export interface VikunjaJournalEpochTable {
+  owner_id: Col<'uuid', false, false>;
+  epoch: Col<'text', false, false>;
+  snapshot_done: Col<'boolean', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+}
+
+export interface VikunjaOwnerAccountTable {
+  owner_id: Col<'uuid', false, false>;
+  vikunja_user_id: Col<'integer', false, false>;
+  token_secret_ref: Col<'text', false, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+}
+
 export interface Database {
   user: UserTable;
   project: ProjectTable;
@@ -237,6 +289,11 @@ export interface Database {
   inbox_event: InboxEventTable;
   audit_event: AuditEventTable;
   job: JobTable;
+  vikunja_mapping: VikunjaMappingTable;
+  vikunja_planner_fields: VikunjaPlannerFieldsTable;
+  vikunja_change_journal: VikunjaChangeJournalTable;
+  vikunja_journal_epoch: VikunjaJournalEpochTable;
+  vikunja_owner_account: VikunjaOwnerAccountTable;
 }
 
 export interface ColumnSpec {
@@ -275,6 +332,7 @@ export const databaseTables = {
     id: col('uuid', false, false),
     owner_id: col('uuid', false, false),
     title: col('text', false, false),
+    kind: col('text', false, true),
     archived: col('boolean', false, true),
     created_at: col('timestamptz', false, true),
     updated_at: col('timestamptz', false, true),
@@ -284,7 +342,7 @@ export const databaseTables = {
   task: {
     id: col('uuid', false, false),
     owner_id: col('uuid', false, false),
-    project_id: col('uuid', true, false),
+    project_id: col('uuid', false, false),
     title_cache: col('text', true, false),
     status_cache: col('text', false, true),
     due_at: col('timestamptz', true, false),
@@ -384,6 +442,52 @@ export const databaseTables = {
     updated_at: col('timestamptz', false, true),
     version: col('integer', false, true),
   },
+  vikunja_mapping: {
+    entity_type: col('text', false, false),
+    entity_id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    external_id: col('text', false, false),
+    external_etag: col('text', true, false),
+    external_updated_at: col('timestamptz', true, false),
+    local_version: col('integer', false, true),
+    content_fingerprint: col('text', true, false),
+    needs_reconcile: col('boolean', false, true),
+    pending_completion: col('jsonb', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    deleted_at: col('timestamptz', true, false),
+  },
+  vikunja_planner_fields: {
+    task_id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    fields: col('jsonb', false, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+  },
+  vikunja_change_journal: {
+    owner_id: col('uuid', false, false),
+    epoch: col('text', false, false),
+    seq: col('integer', false, false),
+    task_id: col('uuid', false, false),
+    external_id: col('text', false, false),
+    version: col('integer', false, false),
+    deleted_at: col('timestamptz', true, false),
+    completed_occurrence_at: col('timestamptz', true, false),
+    at: col('timestamptz', false, false),
+  },
+  vikunja_journal_epoch: {
+    owner_id: col('uuid', false, false),
+    epoch: col('text', false, false),
+    snapshot_done: col('boolean', false, true),
+    updated_at: col('timestamptz', false, true),
+  },
+  vikunja_owner_account: {
+    owner_id: col('uuid', false, false),
+    vikunja_user_id: col('integer', false, false),
+    token_secret_ref: col('text', false, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+  },
 } as const satisfies Record<keyof Database, Record<string, ColumnSpec>>;
 
 export type Equal<A, B> =
@@ -432,6 +536,26 @@ type TableAssertions = {
   inbox_event: AssertTableColumns<InboxEventTable, typeof databaseTables.inbox_event>;
   audit_event: AssertTableColumns<AuditEventTable, typeof databaseTables.audit_event>;
   job: AssertTableColumns<JobTable, typeof databaseTables.job>;
+  vikunja_mapping: AssertTableColumns<
+    VikunjaMappingTable,
+    typeof databaseTables.vikunja_mapping
+  >;
+  vikunja_planner_fields: AssertTableColumns<
+    VikunjaPlannerFieldsTable,
+    typeof databaseTables.vikunja_planner_fields
+  >;
+  vikunja_change_journal: AssertTableColumns<
+    VikunjaChangeJournalTable,
+    typeof databaseTables.vikunja_change_journal
+  >;
+  vikunja_journal_epoch: AssertTableColumns<
+    VikunjaJournalEpochTable,
+    typeof databaseTables.vikunja_journal_epoch
+  >;
+  vikunja_owner_account: AssertTableColumns<
+    VikunjaOwnerAccountTable,
+    typeof databaseTables.vikunja_owner_account
+  >;
 };
 
 export type DatabaseTablesMatch = ExpectTrue<Equal<keyof Database, keyof typeof databaseTables>>;

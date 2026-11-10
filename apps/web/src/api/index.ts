@@ -14,6 +14,7 @@ export {
   type User,
 } from './client';
 export { ApiError, apiErrorFromPayload, apiErrorFromResponse, parseProblem, type ApiErrorCode, type Problem, type ProblemCode } from './errors';
+export { findInboxProject } from './inbox';
 export {
   ActionStore,
   isUuidV7Key,

@@ -13,7 +13,7 @@ export interface RepositoryDependencies {
 
 export interface ProjectLookup {
   get(ownerId: Id, id: Id): Promise<Project | null>;
-  ensureInbox(ownerId: Id): Promise<Project>;
+  getInbox(ownerId: Id): Promise<Project>;
 }
 
 export type InMemoryRepositoryOptions = RepositoryDependencies;

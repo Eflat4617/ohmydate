@@ -1,10 +1,11 @@
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 
 export const useUiStore = defineStore('ui', () => {
   const helpOpen = ref(false);
   const searchOpen = ref(false);
-  const conflictOpen = ref(false);
+  const conflictCount = ref(0);
+  const conflictOpen = computed(() => conflictCount.value > 0);
   const newTaskRequest = ref(0);
 
   function openHelp(): void {
@@ -22,8 +23,12 @@ export const useUiStore = defineStore('ui', () => {
     searchOpen.value = false;
   }
 
-  function setConflictOpen(open: boolean): void {
-    conflictOpen.value = open;
+  function openConflict(): void {
+    conflictCount.value += 1;
+  }
+
+  function closeConflict(): void {
+    conflictCount.value = Math.max(0, conflictCount.value - 1);
   }
 
   function requestNewTask(): void {
@@ -34,11 +39,13 @@ export const useUiStore = defineStore('ui', () => {
     helpOpen,
     searchOpen,
     conflictOpen,
+    conflictCount,
     newTaskRequest,
     openHelp,
     openSearch,
     closeDialogs,
-    setConflictOpen,
+    openConflict,
+    closeConflict,
     requestNewTask,
   };
 });
