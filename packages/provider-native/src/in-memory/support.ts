@@ -1,13 +1,25 @@
 import type {
   Clock,
+  Id,
   IdGenerator,
   Project,
   Task,
 } from '@ohmydate/domain';
 
-export interface InMemoryRepositoryOptions {
+export interface RepositoryDependencies {
   readonly clock: Clock;
   readonly ids: IdGenerator;
+}
+
+export interface ProjectLookup {
+  get(ownerId: Id, id: Id): Promise<Project | null>;
+  ensureInbox(ownerId: Id): Promise<Project>;
+}
+
+export type InMemoryRepositoryOptions = RepositoryDependencies;
+
+export interface InMemoryTaskRepositoryOptions extends RepositoryDependencies {
+  readonly projects: ProjectLookup;
 }
 
 export function canonicalize(value: unknown): unknown {

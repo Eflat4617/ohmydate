@@ -1,6 +1,8 @@
 import {
   ValidationFailedError,
   epochMsToInstant,
+  instantToEpochMs,
+  isInstant,
   isUuidV7,
   type Id,
   type Instant,
@@ -12,7 +14,7 @@ import {
 } from '@ohmydate/domain';
 
 const ISO_WITH_ZONE =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(?:(Z)|([+-])(\d{2}):(\d{2}))$/;
 
 const TASK_STATUSES: ReadonlySet<string> = new Set(['todo', 'in_progress', 'done']);
 const MAX_TITLE_LENGTH = 200;
@@ -69,13 +71,77 @@ export function validateDescription(value: unknown, path = 'description'): strin
 }
 
 export function validateInstant(value: unknown, path = 'instant'): Instant {
-  if (typeof value !== 'string' || !ISO_WITH_ZONE.test(value)) {
+  if (typeof value !== 'string') {
     fail(path, 'expected an ISO-8601 instant including a timezone offset');
   }
-  const epochMs = Date.parse(value);
-  if (!Number.isFinite(epochMs)) fail(path, 'invalid date-time');
+  if (isInstant(value)) {
+    return epochMsToInstant(instantToEpochMs(value));
+  }
+
+  const match = ISO_WITH_ZONE.exec(value);
+  if (match === null) {
+    fail(path, 'expected an ISO-8601 instant including a timezone offset');
+  }
+  const [
+    ,
+    yearText,
+    monthText,
+    dayText,
+    hourText,
+    minuteText,
+    secondText,
+    fraction = '',
+    zulu,
+    offsetSign,
+    offsetHourText,
+    offsetMinuteText,
+  ] = match;
+  if (
+    yearText === undefined ||
+    monthText === undefined ||
+    dayText === undefined ||
+    hourText === undefined ||
+    minuteText === undefined ||
+    secondText === undefined
+  ) {
+    fail(path, 'expected an ISO-8601 instant including a timezone offset');
+  }
+
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const millisecond = Number(`${fraction}000`.slice(0, 3));
+
+  let offsetMinutes = 0;
+  if (zulu === undefined) {
+    const offsetHour = Number(offsetHourText);
+    const offsetMinute = Number(offsetMinuteText);
+    if (offsetHour > 23 || offsetMinute > 59) {
+      fail(path, 'invalid timezone offset');
+    }
+    const sign = offsetSign === '-' ? -1 : 1;
+    offsetMinutes = sign * (offsetHour * 60 + offsetMinute);
+  }
+
+  const local = new Date(0);
+  local.setUTCFullYear(year, month - 1, day);
+  local.setUTCHours(hour, minute, second, millisecond);
+  if (
+    local.getUTCFullYear() !== year ||
+    local.getUTCMonth() !== month - 1 ||
+    local.getUTCDate() !== day ||
+    local.getUTCHours() !== hour ||
+    local.getUTCMinutes() !== minute ||
+    local.getUTCSeconds() !== second
+  ) {
+    fail(path, 'invalid calendar date-time');
+  }
+
   try {
-    return epochMsToInstant(epochMs);
+    return epochMsToInstant(local.getTime() - offsetMinutes * 60_000);
   } catch {
     return fail(path, 'instant outside the supported range');
   }

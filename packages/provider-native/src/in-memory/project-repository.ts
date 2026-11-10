@@ -24,7 +24,7 @@ import { validateTitle } from './validation.js';
 
 interface IdempotencyRecord {
   readonly requestHash: string;
-  readonly projectId: Id;
+  readonly response: Project;
 }
 
 const CAPABILITIES: RepositoryCapabilities = {
@@ -42,6 +42,7 @@ export class InMemoryProjectRepository implements ProjectRepository {
   readonly #ids: InMemoryRepositoryOptions['ids'];
   readonly #projects = new Map<string, Project>();
   readonly #idempotency = new Map<string, IdempotencyRecord>();
+  readonly #inboxProjects = new Map<string, Id>();
 
   constructor(options: InMemoryRepositoryOptions) {
     this.#clock = options.clock;
@@ -55,9 +56,7 @@ export class InMemoryProjectRepository implements ProjectRepository {
     const existing = this.#idempotency.get(idempotencyId);
     if (existing !== undefined) {
       if (existing.requestHash !== requestHash) throw new IdempotencyMismatchError();
-      const replayed = this.#projects.get(existing.projectId);
-      if (replayed === undefined) throw new NotFoundError('project', existing.projectId);
-      return cloneProject(replayed);
+      return cloneProject(existing.response);
     }
 
     const now = this.#clock.now();
@@ -71,13 +70,38 @@ export class InMemoryProjectRepository implements ProjectRepository {
       updatedAt: now,
     };
     this.#projects.set(project.id, project);
-    this.#idempotency.set(idempotencyId, { requestHash, projectId: project.id });
+    this.#idempotency.set(idempotencyId, {
+      requestHash,
+      response: cloneProject(project),
+    });
     return cloneProject(project);
   }
 
   async get(ownerId: Id, id: Id): Promise<Project | null> {
     const project = this.#projects.get(id);
     if (project === undefined || project.ownerId !== ownerId) return null;
+    return cloneProject(project);
+  }
+
+  async ensureInbox(ownerId: Id): Promise<Project> {
+    const existingId = this.#inboxProjects.get(ownerId);
+    if (existingId !== undefined) {
+      const existing = this.#projects.get(existingId);
+      if (existing !== undefined) return cloneProject(existing);
+    }
+
+    const now = this.#clock.now();
+    const project: Project = {
+      id: this.#ids.next(),
+      ownerId,
+      title: 'Inbox',
+      archived: false,
+      version: 1 as Version,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.#projects.set(project.id, project);
+    this.#inboxProjects.set(ownerId, project.id);
     return cloneProject(project);
   }
 

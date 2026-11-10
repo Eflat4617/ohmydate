@@ -14,6 +14,7 @@ import {
   type ProjectRepository,
   type Task,
   type TaskCreate,
+  type TaskQuery,
   type TaskRepository,
   type Version,
 } from '@ohmydate/domain';
@@ -50,6 +51,29 @@ function createTask(
   extra: Partial<TaskCreate> = {},
 ): Promise<Task> {
   return repo.create(ownerId, { projectId, title, ...extra }, idemKey);
+}
+
+async function listAll(
+  repo: TaskRepository,
+  ownerId: Id,
+  query: TaskQuery = {},
+): Promise<Task[]> {
+  const items: Task[] = [];
+  let cursor: string | null = null;
+  for (let pageCount = 0; pageCount < 1_000; pageCount += 1) {
+    const page = await repo.list(
+      ownerId,
+      cursor === null ? query : { ...query, cursor },
+    );
+    items.push(...page.items);
+    cursor = page.nextCursor;
+    if (cursor === null) return items;
+  }
+  throw new Error('pagination did not terminate');
+}
+
+function sortedIds(tasks: readonly Task[]): string[] {
+  return tasks.map((task) => task.id).sort();
 }
 
 function skipWithReason(context: TestContext, reason: string): never {
@@ -156,6 +180,140 @@ export function describeTaskRepositoryContract(
       expect([...seenIds].sort()).toEqual(expected);
     });
 
+    it('paginates tasks that share the same millisecond', async () => {
+      const project = await createProject(context, context.ownerA, 'project-same-ms-page');
+      const created: Task[] = [];
+      for (let index = 0; index < 6; index += 1) {
+        created.push(
+          await createTask(
+            context.repo,
+            context.ownerA,
+            project.id,
+            `Same millisecond ${index}`,
+            `task-same-ms-page-${index}`,
+          ),
+        );
+      }
+
+      const all = await listAll(context.repo, context.ownerA, {
+        projectId: project.id,
+        limit: 2,
+      });
+      expect(all).toHaveLength(6);
+      expect(new Set(all.map((task) => task.id)).size).toBe(6);
+      expect(sortedIds(all)).toEqual(sortedIds(created));
+
+      const firstPage = await context.repo.list(context.ownerA, {
+        projectId: project.id,
+        limit: 2,
+      });
+      expect(firstPage.nextCursor).not.toBeNull();
+      if (firstPage.nextCursor === null) throw new Error('expected a continuation cursor');
+      const secondPage = await context.repo.list(context.ownerA, {
+        projectId: project.id,
+        limit: 2,
+        cursor: firstPage.nextCursor,
+      });
+      expect(secondPage.nextCursor).not.toBeNull();
+    });
+
+    it('lists exactly the owner-local tasks for unfiltered, filtered and cursor-continued queries', async () => {
+      const projectA1 = await createProject(context, context.ownerA, 'owner-list-a1');
+      const projectA2 = await createProject(context, context.ownerA, 'owner-list-a2');
+      const projectB1 = await createProject(context, context.ownerB, 'owner-list-b1');
+
+      context.clock.advance(1_000);
+      const a1 = await createTask(
+        context.repo,
+        context.ownerA,
+        projectA1.id,
+        'A1',
+        'owner-list-task-a1',
+      );
+      context.clock.advance(1_000);
+      const a2 = await createTask(
+        context.repo,
+        context.ownerA,
+        projectA2.id,
+        'A2',
+        'owner-list-task-a2',
+      );
+      context.clock.advance(1_000);
+      const a3 = await createTask(
+        context.repo,
+        context.ownerA,
+        projectA1.id,
+        'A3',
+        'owner-list-task-a3',
+        { status: 'in_progress' },
+      );
+      context.clock.advance(1_000);
+      const b1 = await createTask(
+        context.repo,
+        context.ownerB,
+        projectB1.id,
+        'B1',
+        'owner-list-task-b1',
+      );
+      context.clock.advance(1_000);
+      const b2 = await createTask(
+        context.repo,
+        context.ownerB,
+        projectB1.id,
+        'B2',
+        'owner-list-task-b2',
+        { status: 'in_progress' },
+      );
+
+      const allA = await listAll(context.repo, context.ownerA, { limit: 100 });
+      expect(sortedIds(allA)).toEqual(sortedIds([a1, a2, a3]));
+      expect(allA.every((task) => task.ownerId === context.ownerA)).toBe(true);
+
+      const allB = await listAll(context.repo, context.ownerB, { limit: 100 });
+      expect(sortedIds(allB)).toEqual(sortedIds([b1, b2]));
+      expect(allB.every((task) => task.ownerId === context.ownerB)).toBe(true);
+
+      const filteredProjectA = await listAll(context.repo, context.ownerA, {
+        projectId: projectA1.id,
+        limit: 100,
+      });
+      expect(sortedIds(filteredProjectA)).toEqual(sortedIds([a1, a3]));
+
+      const filteredStatusA = await listAll(context.repo, context.ownerA, {
+        status: 'in_progress',
+        limit: 100,
+      });
+      expect(sortedIds(filteredStatusA)).toEqual(sortedIds([a3]));
+
+      const filteredStatusB = await listAll(context.repo, context.ownerB, {
+        status: 'in_progress',
+        limit: 100,
+      });
+      expect(sortedIds(filteredStatusB)).toEqual(sortedIds([b2]));
+
+      const crossed = await context.repo.list(context.ownerA, {
+        projectId: projectB1.id,
+        limit: 100,
+      });
+      expect(crossed.items).toEqual([]);
+      expect(crossed.nextCursor).toBeNull();
+
+      const firstPage = await context.repo.list(context.ownerA, { limit: 2 });
+      expect(firstPage.items).toHaveLength(2);
+      expect(firstPage.items.every((task) => task.ownerId === context.ownerA)).toBe(true);
+      expect(firstPage.nextCursor).not.toBeNull();
+      if (firstPage.nextCursor === null) throw new Error('expected a continuation cursor');
+      const secondPage = await context.repo.list(context.ownerA, {
+        limit: 2,
+        cursor: firstPage.nextCursor,
+      });
+      expect(secondPage.items.every((task) => task.ownerId === context.ownerA)).toBe(true);
+
+      const continued = await listAll(context.repo, context.ownerA, { limit: 2 });
+      expect(continued).toHaveLength(3);
+      expect(sortedIds(continued)).toEqual(sortedIds([a1, a2, a3]));
+    });
+
     it('updates a task and increments the version by one', async () => {
       const project = await createProject(context, context.ownerA, 'project-update');
       const created = await createTask(
@@ -179,6 +337,49 @@ export function describeTaskRepositoryContract(
       expect(updated.updatedAt).not.toBe(created.updatedAt);
       const fetched = await context.repo.get(context.ownerA, created.id);
       expect(fetched?.title).toBe('Draft revised');
+    });
+
+    it('clears optional fields with null and rejects invalid updates atomically', async () => {
+      const project = await createProject(context, context.ownerA, 'project-update-null');
+      const created = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'Clear me',
+        'task-update-null',
+        {
+          description: 'description',
+          dueAt: '2026-11-20T14:59:00.000Z' as Instant,
+          session: { minMinutes: 10, maxMinutes: 20 },
+        },
+      );
+
+      const cleared = await context.repo.update(
+        context.ownerA,
+        created.id,
+        { description: null, dueAt: null, session: null },
+        created.version,
+      );
+      expect(cleared.description).toBeUndefined();
+      expect(cleared.dueAt).toBeUndefined();
+      expect(cleared.session).toBeUndefined();
+      expect(cleared.version).toBe(created.version + 1);
+
+      const cursor = (await context.repo.listChangedSince(context.ownerA, null)).cursor;
+      await expect(
+        context.repo.update(context.ownerA, created.id, { title: '' }, cleared.version),
+      ).rejects.toBeInstanceOf(ValidationFailedError);
+      await expect(
+        context.repo.update(
+          context.ownerA,
+          created.id,
+          { dueAt: '2026-11-20T14:59:00' as Instant },
+          cleared.version,
+        ),
+      ).rejects.toBeInstanceOf(ValidationFailedError);
+
+      expect(await context.repo.get(context.ownerA, created.id)).toEqual(cleared);
+      expect((await context.repo.listChangedSince(context.ownerA, cursor)).changes).toEqual([]);
     });
 
     it('rejects a sequential update with a stale version', async () => {
@@ -267,6 +468,54 @@ export function describeTaskRepositoryContract(
       );
       expect(repeated.status).toBe('done');
       expect(repeated.version).toBe(completed.version);
+    });
+
+    it('rejects stale, foreign, and post-completion complete calls without changing state', async () => {
+      const project = await createProject(context, context.ownerA, 'project-complete-negative');
+      const created = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'Complete guards',
+        'task-complete-negative',
+      );
+      const cursorBeforeDone = (
+        await context.repo.listChangedSince(context.ownerA, null)
+      ).cursor;
+
+      await expect(
+        context.repo.complete(
+          context.ownerA,
+          created.id,
+          (created.version + 1) as Version,
+        ),
+      ).rejects.toBeInstanceOf(VersionConflictError);
+      expect(await context.repo.get(context.ownerA, created.id)).toEqual(created);
+      expect(
+        (await context.repo.listChangedSince(context.ownerA, cursorBeforeDone)).changes,
+      ).toEqual([]);
+
+      const completed = await context.repo.complete(
+        context.ownerA,
+        created.id,
+        created.version,
+      );
+      const cursorAfterDone = (
+        await context.repo.listChangedSince(context.ownerA, null)
+      ).cursor;
+
+      await expect(
+        context.repo.complete(context.ownerA, created.id, created.version),
+      ).rejects.toBeInstanceOf(VersionConflictError);
+      expect(await context.repo.get(context.ownerA, created.id)).toEqual(completed);
+      expect(
+        (await context.repo.listChangedSince(context.ownerA, cursorAfterDone)).changes,
+      ).toEqual([]);
+
+      await expect(
+        context.repo.complete(context.ownerB, created.id, completed.version),
+      ).rejects.toBeInstanceOf(NotFoundError);
+      expect(await context.repo.get(context.ownerA, created.id)).toEqual(completed);
     });
 
     it('soft deletes tasks, hides them from get and list, and rejects stale versions', async () => {
@@ -369,6 +618,180 @@ export function describeTaskRepositoryContract(
       expect(await context.repo.get(context.ownerA, created.id)).not.toBeNull();
     });
 
+    it('creates a real owner-local Inbox project when projectId is omitted', async () => {
+      const first = await context.repo.create(
+        context.ownerA,
+        { title: 'Without project' },
+        'task-inbox-first',
+      );
+      const second = await context.repo.create(
+        context.ownerA,
+        { title: 'Without project again' },
+        'task-inbox-second',
+      );
+
+      expect(first.projectId).toBe(second.projectId);
+      const inbox = await context.projects.get(context.ownerA, first.projectId);
+      expect(inbox).not.toBeNull();
+      expect(inbox?.ownerId).toBe(context.ownerA);
+      expect(inbox?.title).toBe('Inbox');
+      expect(await context.projects.get(context.ownerB, first.projectId)).toBeNull();
+
+      const projects = await context.projects.list(context.ownerA, { limit: 100 });
+      expect(projects.items.some((project) => project.id === first.projectId)).toBe(true);
+    });
+
+    it('rejects foreign and nonexistent project references on create and update', async () => {
+      const projectA = await createProject(context, context.ownerA, 'project-ref-a');
+      const projectB = await createProject(context, context.ownerB, 'project-ref-b');
+      const missingProjectId = context.ids.next();
+      const cursorBeforeCreates = (
+        await context.repo.listChangedSince(context.ownerA, null)
+      ).cursor;
+
+      const beforeForeignCreate = await listAll(context.repo, context.ownerB, { limit: 100 });
+      await expect(
+        context.repo.create(
+          context.ownerB,
+          { projectId: projectA.id, title: 'Foreign project' },
+          'task-foreign-project',
+        ),
+      ).rejects.toBeInstanceOf(NotFoundError);
+      await expect(
+        context.repo.create(
+          context.ownerA,
+          { projectId: missingProjectId, title: 'Missing project' },
+          'task-missing-project',
+        ),
+      ).rejects.toBeInstanceOf(NotFoundError);
+      expect(await listAll(context.repo, context.ownerB, { limit: 100 })).toEqual(
+        beforeForeignCreate,
+      );
+      expect(
+        (await context.repo.listChangedSince(context.ownerA, cursorBeforeCreates)).changes,
+      ).toEqual([]);
+
+      const created = await createTask(
+        context.repo,
+        context.ownerA,
+        projectA.id,
+        'Owned',
+        'task-project-ref',
+      );
+      const cursor = (await context.repo.listChangedSince(context.ownerA, null)).cursor;
+      await expect(
+        context.repo.update(
+          context.ownerA,
+          created.id,
+          { projectId: projectB.id },
+          created.version,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundError);
+      await expect(
+        context.repo.update(
+          context.ownerA,
+          created.id,
+          { projectId: missingProjectId },
+          created.version,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundError);
+
+      expect(await context.repo.get(context.ownerA, created.id)).toEqual(created);
+      expect((await context.repo.listChangedSince(context.ownerA, cursor)).changes).toEqual([]);
+    });
+
+    it('streams only owner-local changes for creates, updates and deletes', async () => {
+      const projectA = await createProject(context, context.ownerA, 'changes-owner-a');
+      const projectB = await createProject(context, context.ownerB, 'changes-owner-b');
+
+      context.clock.advance(1_000);
+      const ownedA = await createTask(
+        context.repo,
+        context.ownerA,
+        projectA.id,
+        'A change',
+        'changes-owner-task-a',
+      );
+      const ownedB = await createTask(
+        context.repo,
+        context.ownerB,
+        projectB.id,
+        'B change',
+        'changes-owner-task-b',
+      );
+      context.clock.advance(1_000);
+      const updatedA = await context.repo.update(
+        context.ownerA,
+        ownedA.id,
+        { title: 'A updated' },
+        ownedA.version,
+      );
+      const updatedB = await context.repo.update(
+        context.ownerB,
+        ownedB.id,
+        { title: 'B updated' },
+        ownedB.version,
+      );
+      context.clock.advance(1_000);
+      await context.repo.softDelete(context.ownerA, ownedA.id, updatedA.version);
+      await context.repo.softDelete(context.ownerB, ownedB.id, updatedB.version);
+
+      const changesA = await context.repo.listChangedSince(context.ownerA, null);
+      expect(changesA.changes.map((change) => change.id)).toEqual([
+        ownedA.id,
+        ownedA.id,
+        ownedA.id,
+      ]);
+      expect(changesA.changes.map((change) => change.version)).toEqual([
+        ownedA.version,
+        updatedA.version,
+        updatedA.version + 1,
+      ]);
+      expect(changesA.changes[2]?.deletedAt).toBeDefined();
+      expect(changesA.changes.some((change) => change.id === ownedB.id)).toBe(false);
+
+      const changesB = await context.repo.listChangedSince(context.ownerB, null);
+      expect(changesB.changes.map((change) => change.id)).toEqual([
+        ownedB.id,
+        ownedB.id,
+        ownedB.id,
+      ]);
+      expect(changesB.changes.map((change) => change.version)).toEqual([
+        ownedB.version,
+        updatedB.version,
+        updatedB.version + 1,
+      ]);
+      expect(changesB.changes[2]?.deletedAt).toBeDefined();
+      expect(changesB.changes.some((change) => change.id === ownedA.id)).toBe(false);
+
+      const newA = await createTask(
+        context.repo,
+        context.ownerA,
+        projectA.id,
+        'A after cursor',
+        'changes-owner-task-a2',
+      );
+      const newB = await createTask(
+        context.repo,
+        context.ownerB,
+        projectB.id,
+        'B after cursor',
+        'changes-owner-task-b2',
+      );
+      const incrementalA = await context.repo.listChangedSince(
+        context.ownerA,
+        changesA.cursor,
+      );
+      expect(incrementalA.changes.map((change) => change.id)).toEqual([newA.id]);
+      expect(incrementalA.changes.map((change) => change.version)).toEqual([newA.version]);
+      const incrementalB = await context.repo.listChangedSince(
+        context.ownerB,
+        changesB.cursor,
+      );
+      expect(incrementalB.changes.map((change) => change.id)).toEqual([newB.id]);
+      expect(incrementalB.changes.map((change) => change.version)).toEqual([newB.version]);
+    });
+
     it('streams creates, updates and deletes after a cursor exactly once in order, including same-millisecond changes', async () => {
       const project = await createProject(context, context.ownerA, 'project-changes');
       const initial = await context.repo.listChangedSince(context.ownerA, null);
@@ -438,8 +861,84 @@ export function describeTaskRepositoryContract(
       );
     });
 
-    it('rejects invalid input with ValidationFailedError', async () => {
+    it('continues the change feed incrementally after a consumed nonempty cursor, same-millisecond writes, and an empty drain', async () => {
+      const project = await createProject(context, context.ownerA, 'project-changes-incremental');
+      const initial = await context.repo.listChangedSince(context.ownerA, null);
+
+      context.clock.advance(1_000);
+      const first = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'First change',
+        'changes-incremental-first',
+      );
+      const batch = await context.repo.listChangedSince(context.ownerA, initial.cursor);
+      expect(batch.changes.map((change) => change.id)).toEqual([first.id]);
+      expect(batch.changes.map((change) => change.version)).toEqual([first.version]);
+
+      const updated = await context.repo.update(
+        context.ownerA,
+        first.id,
+        { title: 'First updated' },
+        first.version,
+      );
+      const second = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'Second change',
+        'changes-incremental-second',
+      );
+      await context.repo.softDelete(context.ownerA, second.id, second.version);
+
+      const incremental = await context.repo.listChangedSince(
+        context.ownerA,
+        batch.cursor,
+      );
+      expect(incremental.changes.map((change) => change.id)).toEqual([
+        first.id,
+        second.id,
+        second.id,
+      ]);
+      expect(incremental.changes.map((change) => change.version)).toEqual([
+        updated.version,
+        second.version,
+        second.version + 1,
+      ]);
+      expect(incremental.changes[0]?.deletedAt).toBeUndefined();
+      expect(incremental.changes[1]?.deletedAt).toBeUndefined();
+      expect(incremental.changes[2]?.deletedAt).toBeDefined();
+
+      const keys = incremental.changes.map(
+        (change) => `${change.id}:${change.version}:${change.deletedAt ?? ''}`,
+      );
+      expect(new Set(keys).size).toBe(keys.length);
+
+      const drained = await context.repo.listChangedSince(
+        context.ownerA,
+        incremental.cursor,
+      );
+      expect(drained.changes).toEqual([]);
+
+      const third = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'After drain',
+        'changes-incremental-third',
+      );
+      const afterDrain = await context.repo.listChangedSince(
+        context.ownerA,
+        drained.cursor,
+      );
+      expect(afterDrain.changes.map((change) => change.id)).toEqual([third.id]);
+      expect(afterDrain.changes.map((change) => change.version)).toEqual([third.version]);
+    });
+
+    it('rejects invalid create input with ValidationFailedError without writing', async () => {
       const project = await createProject(context, context.ownerA, 'project-validation');
+      const cursor = (await context.repo.listChangedSince(context.ownerA, null)).cursor;
 
       await expect(
         context.repo.create(
@@ -460,6 +959,49 @@ export function describeTaskRepositoryContract(
           'task-invalid-instant',
         ),
       ).rejects.toBeInstanceOf(ValidationFailedError);
+
+      expect(await listAll(context.repo, context.ownerA, { limit: 100 })).toEqual([]);
+      expect((await context.repo.listChangedSince(context.ownerA, cursor)).changes).toEqual([]);
+    });
+
+    it('rejects impossible calendar dates before UTC normalization without writing', async () => {
+      const project = await createProject(context, context.ownerA, 'project-calendar');
+      const impossibleDate = '2026-02-30T12:00:00+09:00' as Instant;
+      const cursor = (await context.repo.listChangedSince(context.ownerA, null)).cursor;
+
+      await expect(
+        context.repo.create(
+          context.ownerA,
+          { projectId: project.id, title: 'Impossible calendar date', dueAt: impossibleDate },
+          'task-impossible-calendar',
+        ),
+      ).rejects.toBeInstanceOf(ValidationFailedError);
+      expect(await listAll(context.repo, context.ownerA, { limit: 100 })).toEqual([]);
+      expect((await context.repo.listChangedSince(context.ownerA, cursor)).changes).toEqual([]);
+
+      const created = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'Valid calendar date',
+        'task-valid-calendar',
+      );
+      const cursorAfterCreate = (
+        await context.repo.listChangedSince(context.ownerA, null)
+      ).cursor;
+
+      await expect(
+        context.repo.update(
+          context.ownerA,
+          created.id,
+          { dueAt: impossibleDate },
+          created.version,
+        ),
+      ).rejects.toBeInstanceOf(ValidationFailedError);
+      expect(await context.repo.get(context.ownerA, created.id)).toEqual(created);
+      expect(
+        (await context.repo.listChangedSince(context.ownerA, cursorAfterCreate)).changes,
+      ).toEqual([]);
     });
 
     it('replays idempotent creates and rejects key reuse with a different body', async (
@@ -491,6 +1033,82 @@ export function describeTaskRepositoryContract(
         'idem-key',
       );
       expect(otherOwner.id).not.toBe(first.id);
+    });
+
+    it('replays the original create response after later update, complete and delete without duplicate changes', async (
+      testContext,
+    ) => {
+      if (!context.repo.capabilities.idempotentCreate) {
+        skipWithReason(
+          testContext,
+          'adapter declares idempotentCreate=false; response replay belongs to the API layer per ADR-016.',
+        );
+        return;
+      }
+
+      const project = await createProject(context, context.ownerA, 'project-idem-replay');
+      const input: TaskCreate = { projectId: project.id, title: 'Original response' };
+      const first = await context.repo.create(context.ownerA, input, 'idem-replay-key');
+      const cursorAfterCreate = (
+        await context.repo.listChangedSince(context.ownerA, null)
+      ).cursor;
+
+      const updated = await context.repo.update(
+        context.ownerA,
+        first.id,
+        { title: 'Changed later' },
+        first.version,
+      );
+      const completed = await context.repo.complete(
+        context.ownerA,
+        first.id,
+        updated.version,
+      );
+      const replayAfterMutations = await context.repo.create(
+        context.ownerA,
+        input,
+        'idem-replay-key',
+      );
+      expect(replayAfterMutations).toEqual(first);
+      expect(replayAfterMutations.version).toBe(first.version);
+      expect(replayAfterMutations.status).toBe(first.status);
+
+      const changesAfterReplay = await context.repo.listChangedSince(
+        context.ownerA,
+        cursorAfterCreate,
+      );
+      expect(changesAfterReplay.changes.map((change) => change.version)).toEqual([
+        updated.version,
+        completed.version,
+      ]);
+
+      const cursorBeforeDelete = (
+        await context.repo.listChangedSince(context.ownerA, null)
+      ).cursor;
+      await context.repo.softDelete(context.ownerA, first.id, completed.version);
+      const replayAfterDelete = await context.repo.create(
+        context.ownerA,
+        input,
+        'idem-replay-key',
+      );
+      expect(replayAfterDelete).toEqual(first);
+      expect(replayAfterDelete.deletedAt).toBeUndefined();
+
+      const changesAfterDelete = await context.repo.listChangedSince(
+        context.ownerA,
+        cursorBeforeDelete,
+      );
+      expect(changesAfterDelete.changes).toHaveLength(1);
+      expect(changesAfterDelete.changes[0]?.version).toBe(completed.version + 1);
+      expect(changesAfterDelete.changes[0]?.deletedAt).toBeDefined();
+
+      const cursorAfterDelete = (
+        await context.repo.listChangedSince(context.ownerA, null)
+      ).cursor;
+      await context.repo.create(context.ownerA, input, 'idem-replay-key');
+      expect(
+        (await context.repo.listChangedSince(context.ownerA, cursorAfterDelete)).changes,
+      ).toEqual([]);
     });
   });
 }

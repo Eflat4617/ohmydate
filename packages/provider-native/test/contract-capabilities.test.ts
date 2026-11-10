@@ -21,8 +21,9 @@ import type {
   Version,
 } from '@ohmydate/domain';
 import {
-  InMemoryProjectRepository,
-  InMemoryTaskRepository,
+  createInMemoryRepositories,
+  type InMemoryProjectRepository,
+  type InMemoryTaskRepository,
 } from '../src/in-memory/index.js';
 
 const NON_STRICT_CAPABILITIES: RepositoryCapabilities = {
@@ -109,11 +110,11 @@ describeTaskRepositoryContract('InMemoryTaskRepository with non-strict capabilit
   const ids = createSeededIdGenerator(7, clock);
   const ownerA = ids.next();
   const ownerB = ids.next();
-  const options = { clock, ids };
+  const { tasks, projects } = createInMemoryRepositories({ clock, ids });
 
   return {
-    repo: new NonStrictTaskRepository(new InMemoryTaskRepository(options)),
-    projects: new NonStrictProjectRepository(new InMemoryProjectRepository(options)),
+    repo: new NonStrictTaskRepository(tasks),
+    projects: new NonStrictProjectRepository(projects),
     clock,
     ids,
     ownerA,

@@ -1,10 +1,15 @@
-import type { InMemoryRepositoryOptions } from './support.js';
+import type { RepositoryDependencies } from './support.js';
 import { InMemoryProjectRepository } from './project-repository.js';
 import { InMemoryTaskRepository } from './task-repository.js';
 
 export { InMemoryProjectRepository } from './project-repository.js';
 export { InMemoryTaskRepository } from './task-repository.js';
-export type { InMemoryRepositoryOptions } from './support.js';
+export type {
+  InMemoryRepositoryOptions,
+  InMemoryTaskRepositoryOptions,
+  ProjectLookup,
+  RepositoryDependencies,
+} from './support.js';
 
 export interface InMemoryRepositories {
   readonly tasks: InMemoryTaskRepository;
@@ -12,10 +17,11 @@ export interface InMemoryRepositories {
 }
 
 export function createInMemoryRepositories(
-  options: InMemoryRepositoryOptions,
+  options: RepositoryDependencies,
 ): InMemoryRepositories {
+  const projects = new InMemoryProjectRepository(options);
   return {
-    tasks: new InMemoryTaskRepository(options),
-    projects: new InMemoryProjectRepository(options),
+    tasks: new InMemoryTaskRepository({ ...options, projects }),
+    projects,
   };
 }

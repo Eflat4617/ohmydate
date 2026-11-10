@@ -28,7 +28,7 @@ import {
   canonicalJson,
   cloneTask,
   compareCreatedAt,
-  type InMemoryRepositoryOptions,
+  type InMemoryTaskRepositoryOptions,
 } from './support.js';
 import { validateTaskCreate, validateTaskPatch } from './validation.js';
 
@@ -41,7 +41,7 @@ interface ChangeRecord {
 
 interface IdempotencyRecord {
   readonly requestHash: string;
-  readonly taskId: Id;
+  readonly response: Task;
 }
 
 const CAPABILITIES: RepositoryCapabilities = {
@@ -55,18 +55,19 @@ const MAX_LIMIT = 100;
 export class InMemoryTaskRepository implements TaskRepository {
   readonly capabilities: RepositoryCapabilities = CAPABILITIES;
 
-  readonly #clock: InMemoryRepositoryOptions['clock'];
-  readonly #ids: InMemoryRepositoryOptions['ids'];
+  readonly #clock: InMemoryTaskRepositoryOptions['clock'];
+  readonly #ids: InMemoryTaskRepositoryOptions['ids'];
+  readonly #projects: InMemoryTaskRepositoryOptions['projects'];
   readonly #tasks = new Map<string, Task>();
   readonly #changes = new Map<string, ChangeRecord[]>();
   readonly #idempotency = new Map<string, IdempotencyRecord>();
-  readonly #defaultProjects = new Map<string, Id>();
 
   #sequence = 0;
 
-  constructor(options: InMemoryRepositoryOptions) {
+  constructor(options: InMemoryTaskRepositoryOptions) {
     this.#clock = options.clock;
     this.#ids = options.ids;
+    this.#projects = options.projects;
   }
 
   async create(ownerId: Id, input: TaskCreate, idemKey: string): Promise<Task> {
@@ -76,15 +77,17 @@ export class InMemoryTaskRepository implements TaskRepository {
     const existing = this.#idempotency.get(idempotencyId);
     if (existing !== undefined) {
       if (existing.requestHash !== requestHash) throw new IdempotencyMismatchError();
-      const replayed = this.#tasks.get(existing.taskId);
-      if (replayed === undefined) throw new NotFoundError('task', existing.taskId);
-      return cloneTask(replayed);
+      return cloneTask(existing.response);
     }
 
     const id = this.#ids.next();
-    const projectId = normalized.projectId ?? this.#defaultProjectId(ownerId);
     this.#assertDependencies(ownerId, normalized.dependsOn);
     this.#assertAcyclic(ownerId, { id, dependsOn: normalized.dependsOn });
+
+    const projectId =
+      normalized.projectId === undefined
+        ? (await this.#projects.ensureInbox(ownerId)).id
+        : await this.#requireProject(ownerId, normalized.projectId);
 
     const now = this.#clock.now();
     const task: Task = {
@@ -106,7 +109,10 @@ export class InMemoryTaskRepository implements TaskRepository {
     };
 
     this.#tasks.set(id, task);
-    this.#idempotency.set(idempotencyId, { requestHash, taskId: id });
+    this.#idempotency.set(idempotencyId, {
+      requestHash,
+      response: cloneTask(task),
+    });
     this.#recordChange(ownerId, task);
     return cloneTask(task);
   }
@@ -161,6 +167,11 @@ export class InMemoryTaskRepository implements TaskRepository {
       this.#assertAcyclic(ownerId, { id, dependsOn });
     }
 
+    const projectId =
+      normalized.projectId === undefined
+        ? current.projectId
+        : await this.#requireProject(ownerId, normalized.projectId);
+
     const description =
       normalized.description === null
         ? undefined
@@ -173,7 +184,7 @@ export class InMemoryTaskRepository implements TaskRepository {
     const task: Task = {
       id,
       ownerId,
-      projectId: normalized.projectId ?? current.projectId,
+      projectId,
       title: normalized.title ?? current.title,
       ...(description === undefined ? {} : { description }),
       status: normalized.status ?? current.status,
@@ -291,12 +302,10 @@ export class InMemoryTaskRepository implements TaskRepository {
     assertAcyclic(edges);
   }
 
-  #defaultProjectId(ownerId: Id): Id {
-    const existing = this.#defaultProjects.get(ownerId);
-    if (existing !== undefined) return existing;
-    const id = this.#ids.next();
-    this.#defaultProjects.set(ownerId, id);
-    return id;
+  async #requireProject(ownerId: Id, projectId: Id): Promise<Id> {
+    const project = await this.#projects.get(ownerId, projectId);
+    if (project === null) throw new NotFoundError('project', projectId);
+    return project.id;
   }
 
   #recordChange(ownerId: Id, task: Task): void {
