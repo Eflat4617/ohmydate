@@ -47,3 +47,44 @@ export class IdempotencyKeyStore {
 export function newActionId(prefix: string): string {
   return `${prefix}:${randomKey()}`;
 }
+
+export interface IdempotentAction<T> {
+  readonly payload: T;
+  readonly key: string;
+}
+
+/**
+ * Keeps one immutable action (payload + idempotency key) per logical
+ * submission scope. Repeating the same payload is a retry and reuses the key;
+ * changing the payload is a new user action and gets a fresh key.
+ */
+export class ActionStore {
+  private readonly actions = new Map<string, IdempotentAction<unknown>>();
+
+  begin<T>(scope: string, payload: T, same: (left: T, right: T) => boolean): IdempotentAction<T> {
+    const existing = this.actions.get(scope) as IdempotentAction<T> | undefined;
+    if (existing !== undefined && same(existing.payload, payload)) return existing;
+    const action: IdempotentAction<T> = { payload, key: randomKey() };
+    this.actions.set(scope, action as IdempotentAction<unknown>);
+    return action;
+  }
+
+  peek<T>(scope: string): IdempotentAction<T> | undefined {
+    return this.actions.get(scope) as IdempotentAction<T> | undefined;
+  }
+
+  settle(scope: string, action: IdempotentAction<unknown>): void {
+    const existing = this.actions.get(scope);
+    if (existing !== undefined && existing.key === action.key) {
+      this.actions.delete(scope);
+    }
+  }
+
+  has(scope: string): boolean {
+    return this.actions.has(scope);
+  }
+
+  clear(): void {
+    this.actions.clear();
+  }
+}

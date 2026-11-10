@@ -12,6 +12,9 @@ function submit(): void {
   const value = title.value.trim();
   if (value.length === 0) return;
   emit('submit', value);
+}
+
+function clear(): void {
   title.value = '';
 }
 
@@ -19,7 +22,7 @@ function focus(): void {
   input.value?.focus();
 }
 
-defineExpose({ focus });
+defineExpose({ focus, clear });
 </script>
 
 <template>

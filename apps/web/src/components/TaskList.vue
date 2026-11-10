@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import type { Task } from '../api';
+import { computed, ref, watch } from 'vue';
+import { ActionStore, plannerClient, type Task } from '../api';
 import { useTaskActions } from '../composables/useTaskActions';
+import { useOfflineStore } from '../stores/offline';
 import { useToastStore } from '../stores/toast';
 import ConflictDialog from './ConflictDialog.vue';
 import TaskItem from './TaskItem.vue';
@@ -12,9 +13,16 @@ const props = withDefaults(
 );
 const emit = defineEmits<{ refresh: [] }>();
 
+const offline = useOfflineStore();
 const toast = useToastStore();
-const { conflict, error, busy, rename, complete, remove, overwrite, reload, dismissConflict } =
-  useTaskActions();
+const { conflict, error, busy, rename, complete, remove, overwrite, reload, dismissConflict, discard } =
+  useTaskActions(plannerClient, new ActionStore(), () => offline.online && !props.disabled);
+
+const interactiveDisabled = computed(() => props.disabled || !offline.online);
+
+const editingId = ref<string | null>(null);
+const draft = ref('');
+const focusNonce = ref(0);
 
 const hidden = ref<Set<string>>(new Set());
 const deleteTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -34,26 +42,53 @@ function unhide(taskId: string): void {
   hidden.value = next;
 }
 
-async function onRename(task: Task, title: string): Promise<void> {
+function startEdit(task: Task): void {
+  if (interactiveDisabled.value) return;
+  editingId.value = task.id;
+  draft.value = task.title;
+}
+
+function updateDraft(value: string): void {
+  draft.value = value;
+}
+
+function cancelEdit(): void {
+  const id = editingId.value;
+  if (id !== null) discard(`task:${id}:rename`);
+  editingId.value = null;
+  draft.value = '';
+}
+
+async function saveEdit(task: Task): Promise<void> {
+  if (interactiveDisabled.value) return;
+  const title = draft.value.trim();
+  if (title.length === 0 || title === task.title) {
+    cancelEdit();
+    return;
+  }
   try {
     const updated = await rename(task, title);
+    if (updated !== null) {
+      cancelEdit();
+      emit('refresh');
+    }
+  } catch {
+    // `error` already carries a user-facing message; keep the draft editable.
+  }
+}
+
+async function onComplete(task: Task): Promise<void> {
+  if (interactiveDisabled.value) return;
+  try {
+    const updated = await complete(task);
     if (updated !== null) emit('refresh');
   } catch {
     // `error` already carries a user-facing message.
   }
 }
 
-async function onComplete(task: Task): Promise<void> {
-  try {
-    await complete(task);
-    emit('refresh');
-  } catch {
-    // `error` already carries a user-facing message.
-  }
-}
-
 function onRemove(task: Task): void {
-  if (props.disabled) return;
+  if (interactiveDisabled.value) return;
   hide(task.id);
   toast.show(`Deleted "${task.title}"`, {
     action: { label: 'Undo', handler: () => undoDelete(task.id) },
@@ -75,31 +110,69 @@ function undoDelete(taskId: string): void {
   unhide(taskId);
 }
 
+function cancelAllDeletes(reason: string): void {
+  if (deleteTimers.size === 0) return;
+  for (const [taskId, timer] of deleteTimers) {
+    clearTimeout(timer);
+    unhide(taskId);
+  }
+  deleteTimers.clear();
+  toast.show(reason);
+}
+
 async function commitDelete(task: Task): Promise<void> {
+  if (!offline.online || props.disabled) {
+    unhide(task.id);
+    toast.show('Deletion cancelled because editing is disabled.');
+    return;
+  }
   try {
-    await remove(task);
-    emit('refresh');
+    const deleted = await remove(task);
+    if (deleted) emit('refresh');
+    else unhide(task.id);
   } catch {
     unhide(task.id);
     toast.show('Could not delete the task. Please try again.', { tone: 'error' });
   }
 }
 
+watch(
+  () => offline.online,
+  (online) => {
+    if (!online) cancelAllDeletes('Pending deletions were cancelled because you are offline.');
+  },
+);
+
 async function onOverwrite(): Promise<void> {
+  if (interactiveDisabled.value) return;
   try {
-    const updated = await overwrite();
-    if (updated !== null) emit('refresh');
+    await overwrite();
+    if (conflict.value === null) {
+      cancelEdit();
+      emit('refresh');
+    }
   } catch {
-    // `error` already carries a user-facing message.
+    // `error` already carries a user-facing message; conflict state is kept.
   }
 }
 
 async function onReload(): Promise<void> {
   try {
-    const fresh = await reload();
-    if (fresh !== null) emit('refresh');
+    await reload();
+    if (conflict.value === null) {
+      cancelEdit();
+      emit('refresh');
+    }
   } catch {
     // `error` already carries a user-facing message.
+  }
+}
+
+function onCancelConflict(): void {
+  const current = conflict.value;
+  dismissConflict();
+  if (current?.operation === 'rename' && editingId.value === current.taskId) {
+    focusNonce.value += 1;
   }
 }
 </script>
@@ -112,8 +185,15 @@ async function onReload(): Promise<void> {
         v-for="task in visibleTasks"
         :key="task.id"
         :task="task"
-        :disabled="props.disabled"
-        @rename="onRename(task, $event)"
+        :disabled="interactiveDisabled"
+        :pending="busy"
+        :editing="editingId === task.id"
+        :draft="draft"
+        :focus-nonce="focusNonce"
+        @start-edit="startEdit(task)"
+        @update:draft="updateDraft"
+        @save="saveEdit(task)"
+        @cancel="cancelEdit"
         @complete="onComplete(task)"
         @remove="onRemove(task)"
       />
@@ -125,9 +205,11 @@ async function onReload(): Promise<void> {
       :server-version="conflict.server.version"
       :server-title="conflict.server.title"
       :local-title="conflict.localTitle"
+      :operation="conflict.operation"
+      :disabled="interactiveDisabled"
       @reload="onReload"
       @overwrite="onOverwrite"
-      @cancel="dismissConflict"
+      @cancel="onCancelConflict"
     />
   </section>
 </template>

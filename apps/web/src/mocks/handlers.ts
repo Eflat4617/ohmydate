@@ -86,8 +86,25 @@ function visibleTasks(db: MockDb): Task[] {
   return [...db.tasks.values()].filter((task) => task.deletedAt === undefined);
 }
 
-function maxVersion(items: readonly { version: number }[]): number {
-  return items.reduce((max, item) => (item.version > max ? item.version : max), 1);
+function hashString(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function collectionEtag(
+  kind: 'tasks' | 'projects',
+  revision: number,
+  query: Record<string, string | null>,
+): string {
+  const canonical = Object.keys(query)
+    .sort()
+    .map((key) => `${key}=${query[key] ?? ''}`)
+    .join('&');
+  return `W/"${kind}-${revision}-${hashString(canonical)}"`;
 }
 
 function parseBody<T>(raw: string): T | undefined {
@@ -127,6 +144,35 @@ function applyTaskPatch(task: Task, patch: TaskPatch): Task {
   return updated;
 }
 
+function pathExists(db: MockDb, fromId: string, targetId: string): boolean {
+  const stack = [fromId];
+  const seen = new Set<string>();
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined) break;
+    if (current === targetId) return true;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const task = findTask(db, current);
+    if (task === undefined) continue;
+    for (const dependency of task.dependsOn) stack.push(dependency);
+  }
+  return false;
+}
+
+function validateDependencies(
+  db: MockDb,
+  taskId: string,
+  dependsOn: readonly string[],
+): ProblemCode | null {
+  for (const dependency of dependsOn) {
+    if (dependency === taskId) return 'dependency_cycle';
+    if (findTask(db, dependency) === undefined) return 'validation_failed';
+    if (pathExists(db, dependency, taskId)) return 'dependency_cycle';
+  }
+  return null;
+}
+
 export function createHandlers(db: MockDb) {
   return [
     http.post('*/api/v1/auth/login', async ({ request }) => {
@@ -160,7 +206,10 @@ export function createHandlers(db: MockDb) {
       const url = new URL(request.url);
       const limit = Number(url.searchParams.get('limit') ?? '50');
       const items = [...db.projects.values()].slice(0, Number.isFinite(limit) ? limit : 50);
-      const current = etag(maxVersion(items));
+      const current = collectionEtag('projects', db.projectRevision, {
+        cursor: url.searchParams.get('cursor'),
+        limit: url.searchParams.get('limit'),
+      });
       if (request.headers.get('If-None-Match') === current) {
         return new HttpResponse(null, { status: 304, headers: { ETag: current } });
       }
@@ -186,6 +235,7 @@ export function createHandlers(db: MockDb) {
         updatedAt: now,
       };
       db.projects.set(project.id, project);
+      db.projectRevision += 1;
       remember(db, token, 201, project, { ETag: etag(project.version) });
       return json(project, 201, { ETag: etag(project.version) });
     }),
@@ -203,7 +253,12 @@ export function createHandlers(db: MockDb) {
       if (status !== null) items = items.filter((task) => task.status === status);
       items.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
       const page = items.slice(0, Number.isFinite(limit) ? limit : 50);
-      const current = etag(maxVersion(page));
+      const current = collectionEtag('tasks', db.taskRevision, {
+        cursor: url.searchParams.get('cursor'),
+        limit: url.searchParams.get('limit'),
+        projectId,
+        status,
+      });
       if (request.headers.get('If-None-Match') === current) {
         return new HttpResponse(null, { status: 304, headers: { ETag: current } });
       }
@@ -222,8 +277,13 @@ export function createHandlers(db: MockDb) {
         return problem(422, 'validation_failed', 'projectId does not exist');
       }
       const now = new Date().toISOString();
+      const taskId = createUuidV7();
+      if (body.dependsOn !== undefined) {
+        const failure = validateDependencies(db, taskId, body.dependsOn);
+        if (failure !== null) return problem(422, failure, 'Invalid dependency');
+      }
       const task: Task = {
-        id: createUuidV7(),
+        id: taskId,
         ownerId: db.user.id,
         projectId: body.projectId ?? db.inboxProjectId,
         title: body.title.trim(),
@@ -240,6 +300,7 @@ export function createHandlers(db: MockDb) {
         ...(body.session === undefined ? {} : { session: body.session }),
       };
       db.tasks.set(task.id, task);
+      db.taskRevision += 1;
       remember(db, token, 201, task, { ETag: etag(task.version) });
       return json(task, 201, { ETag: etag(task.version) });
     }),
@@ -274,19 +335,26 @@ export function createHandlers(db: MockDb) {
       if (patch.title !== undefined && !validTitle(patch.title)) {
         return problem(422, 'validation_failed', 'title must be 1-200 characters');
       }
+      if (patch.dependsOn !== undefined) {
+        const failure = validateDependencies(db, task.id, patch.dependsOn);
+        if (failure !== null) return problem(422, failure, 'Invalid dependency');
+      }
       const updated = applyTaskPatch(task, patch);
       db.tasks.set(updated.id, updated);
+      db.taskRevision += 1;
       remember(db, token, 200, updated, { ETag: etag(updated.version) });
       return json(updated, 200, { ETag: etag(updated.version) });
     }),
 
-    http.post('*/api/v1/tasks/:id:complete', async ({ request, params }) => {
+    http.post(/\/api\/v1\/tasks\/([^/]+):complete$/, async ({ request }) => {
+      const match = /\/api\/v1\/tasks\/([^/]+):complete$/.exec(new URL(request.url).pathname);
+      const taskId = match?.[1] === undefined ? '' : decodeURIComponent(match[1]);
       const raw = await request.text();
       const token = parseIdempotency(db, request, raw);
       if (token instanceof Response) return token;
       const ifMatch = parseIfMatch(request);
       if (ifMatch instanceof Response) return ifMatch;
-      const task = findTask(db, String(params.id));
+      const task = findTask(db, taskId);
       if (task === undefined) return problem(404, 'not_found', 'Task not found');
       if (task.version !== ifMatch.version) {
         return problem(
@@ -305,6 +373,7 @@ export function createHandlers(db: MockDb) {
         updatedAt: new Date().toISOString(),
       };
       db.tasks.set(updated.id, updated);
+      db.taskRevision += 1;
       remember(db, token, 200, updated, { ETag: etag(updated.version) });
       return json(updated, 200, { ETag: etag(updated.version) });
     }),
@@ -331,6 +400,7 @@ export function createHandlers(db: MockDb) {
         updatedAt: new Date().toISOString(),
       };
       db.tasks.set(deleted.id, deleted);
+      db.taskRevision += 1;
       remember(db, token, 204, null);
       return new HttpResponse(null, { status: 204 });
     }),
@@ -360,6 +430,9 @@ export function createHandlers(db: MockDb) {
       if (task.dependsOn.includes(body.dependsOnTaskId)) {
         return problem(422, 'dependency_cycle', 'Dependency already exists');
       }
+      if (body.dependsOnTaskId === task.id || pathExists(db, body.dependsOnTaskId, task.id)) {
+        return problem(422, 'dependency_cycle', 'Dependency would create a cycle');
+      }
       const updated: Task = {
         ...task,
         dependsOn: [...task.dependsOn, body.dependsOnTaskId],
@@ -367,6 +440,7 @@ export function createHandlers(db: MockDb) {
         updatedAt: new Date().toISOString(),
       };
       db.tasks.set(updated.id, updated);
+      db.taskRevision += 1;
       const dependency = { taskId: updated.id, dependsOnTaskId: body.dependsOnTaskId };
       remember(db, token, 201, dependency);
       return json(dependency, 201);

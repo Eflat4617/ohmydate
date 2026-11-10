@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
-import { newActionId, plannerClient, type Task } from '../api';
+import { ActionStore, plannerClient, type Task } from '../api';
 import { useTaskActions } from '../composables/useTaskActions';
 import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
@@ -12,8 +12,11 @@ const offline = useOfflineStore();
 const ui = useUiStore();
 const queryClient = useQueryClient();
 const quickAdd = ref<InstanceType<typeof QuickAddForm> | null>(null);
-const { create, error: createError } = useTaskActions();
-const createAction = ref<string | null>(null);
+const {
+  create,
+  busy: createBusy,
+  error: createError,
+} = useTaskActions(plannerClient, new ActionStore(), () => offline.online);
 
 const { data, isLoading, isError, refetch } = useQuery({
   queryKey: ['tasks', 'inbox'],
@@ -31,13 +34,12 @@ watch(
 
 async function addTask(title: string): Promise<void> {
   if (!offline.mutationsEnabled) return;
-  createAction.value ??= newActionId('task:create');
   try {
-    await create(title, createAction.value);
-    createAction.value = null;
+    await create(title);
+    quickAdd.value?.clear();
     await queryClient.invalidateQueries({ queryKey: ['tasks'] });
   } catch {
-    // `createError` carries the user-facing message.
+    // `createError` carries the user-facing message and the form keeps its text.
   }
 }
 
@@ -55,7 +57,11 @@ async function refresh(): Promise<void> {
       </div>
     </header>
 
-    <QuickAddForm ref="quickAdd" :disabled="!offline.mutationsEnabled" @submit="addTask" />
+    <QuickAddForm
+      ref="quickAdd"
+      :disabled="!offline.mutationsEnabled || createBusy"
+      @submit="addTask"
+    />
     <p v-if="createError" class="error-text" role="alert">{{ createError }}</p>
 
     <p v-if="!offline.mutationsEnabled" class="offline-note" role="status">

@@ -13,6 +13,8 @@ export interface MockDb {
   projects: Map<string, Project>;
   tasks: Map<string, Task>;
   idempotency: Map<string, StoredResponse>;
+  taskRevision: number;
+  projectRevision: number;
 }
 
 export const USER_ID = '01900000-0000-7000-8000-000000000002';
@@ -93,6 +95,8 @@ export function createMockDb(): MockDb {
     ]),
     tasks: new Map([[seededTask.id, seededTask]]),
     idempotency: new Map(),
+    taskRevision: 1,
+    projectRevision: 1,
   };
 }
 
@@ -105,4 +109,6 @@ export function resetMockDb(): void {
   mockDb.projects = fresh.projects;
   mockDb.tasks = fresh.tasks;
   mockDb.idempotency = fresh.idempotency;
+  mockDb.taskRevision = fresh.taskRevision;
+  mockDb.projectRevision = fresh.projectRevision;
 }

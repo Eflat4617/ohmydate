@@ -14,4 +14,4 @@ export {
   type User,
 } from './client';
 export { ApiError, apiErrorFromPayload, apiErrorFromResponse, parseProblem, type ApiErrorCode, type Problem, type ProblemCode } from './errors';
-export { IdempotencyKeyStore, newActionId } from './idempotency';
+export { ActionStore, IdempotencyKeyStore, newActionId, type IdempotentAction } from './idempotency';

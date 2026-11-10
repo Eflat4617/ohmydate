@@ -1,12 +1,28 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import type { Task } from '../api';
 
-const props = defineProps<{ task: Task; disabled?: boolean }>();
-const emit = defineEmits<{ rename: [title: string]; complete: []; remove: [] }>();
+const props = withDefaults(
+  defineProps<{
+    task: Task;
+    disabled?: boolean;
+    pending?: boolean;
+    editing?: boolean;
+    draft?: string;
+    focusNonce?: number;
+  }>(),
+  { disabled: false, pending: false, editing: false, draft: '', focusNonce: 0 },
+);
 
-const editing = ref(false);
-const draft = ref('');
+const emit = defineEmits<{
+  'start-edit': [];
+  'update:draft': [value: string];
+  save: [];
+  cancel: [];
+  complete: [];
+  remove: [];
+}>();
+
 const editInput = ref<HTMLInputElement | null>(null);
 
 const isDone = computed(() => props.task.status === 'done');
@@ -21,46 +37,56 @@ const statusLabel = computed(() => {
   }
 });
 
-async function startEdit(): Promise<void> {
-  if (props.disabled === true) return;
-  draft.value = props.task.title;
-  editing.value = true;
+const locked = computed(() => props.disabled || props.pending);
+
+async function focusEditor(): Promise<void> {
   await nextTick();
   editInput.value?.focus();
   editInput.value?.select();
 }
 
-function cancelEdit(): void {
-  editing.value = false;
-  draft.value = '';
-}
+watch(
+  () => props.editing,
+  (editing) => {
+    if (editing) void focusEditor();
+  },
+);
 
-function saveEdit(): void {
-  const value = draft.value.trim();
-  if (value.length === 0 || value === props.task.title) {
-    cancelEdit();
-    return;
-  }
-  emit('rename', value);
-  editing.value = false;
+watch(
+  () => props.focusNonce,
+  () => {
+    if (props.editing) void focusEditor();
+  },
+);
+
+function onInput(event: Event): void {
+  emit('update:draft', (event.target as HTMLInputElement).value);
 }
 </script>
 
 <template>
   <li class="task-item" :class="{ 'task-item--done': isDone }">
     <template v-if="editing">
-      <form class="inline-edit" @submit.prevent="saveEdit">
+      <form class="inline-edit" @submit.prevent="emit('save')">
         <label :for="`task-title-${task.id}`">Task title</label>
         <input
           :id="`task-title-${task.id}`"
           ref="editInput"
-          v-model="draft"
+          :value="draft"
           type="text"
           maxlength="200"
-          @keydown.esc.prevent="cancelEdit"
+          :disabled="locked"
+          @input="onInput"
+          @keydown.esc.prevent="emit('cancel')"
         />
-        <button type="submit" class="primary-action" :disabled="draft.trim().length === 0">Save</button>
-        <button type="button" @click="cancelEdit">Cancel</button>
+        <button
+          type="submit"
+          class="primary-action"
+          :disabled="locked || draft.trim().length === 0"
+        >
+          Save
+        </button>
+        <button type="button" :disabled="pending" @click="emit('cancel')">Cancel</button>
       </form>
     </template>
     <template v-else>
@@ -72,15 +98,15 @@ function saveEdit(): void {
         <button
           type="button"
           :aria-label="`Edit title of ${task.title}`"
-          :disabled="disabled"
-          @click="startEdit"
+          :disabled="locked"
+          @click="emit('start-edit')"
         >
           Edit
         </button>
         <button
           type="button"
           :aria-label="`Mark ${task.title} complete`"
-          :disabled="disabled || isDone"
+          :disabled="locked || isDone"
           @click="emit('complete')"
         >
           {{ isDone ? 'Completed' : 'Complete' }}
@@ -89,7 +115,7 @@ function saveEdit(): void {
           type="button"
           class="danger"
           :aria-label="`Delete ${task.title}`"
-          :disabled="disabled"
+          :disabled="locked"
           @click="emit('remove')"
         >
           Delete
