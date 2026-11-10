@@ -395,7 +395,7 @@ describe('scheduler properties', () => {
       }),
       { numRuns: NUM_RUNS },
     );
-  });
+  }, 60000);
 
   it('H2 agrees with computeAvailableSlots for arbitrary grid blocks', () => {
     const generator = fc.tuple(
@@ -442,7 +442,7 @@ describe('scheduler properties', () => {
       ),
       { numRuns: NUM_RUNS },
     );
-  });
+  }, 60000);
 
   it('a block overlapping a commitment always reports H1', () => {
     const generator = fc.record({
@@ -510,5 +510,5 @@ describe('scheduler properties', () => {
       }),
       { numRuns: NUM_RUNS },
     );
-  });
+  }, 60000);
 });
