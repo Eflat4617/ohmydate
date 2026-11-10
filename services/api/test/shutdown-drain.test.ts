@@ -17,6 +17,14 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function aborted(signal: AbortSignal | undefined): Promise<void> {
+  if (signal === undefined) return new Promise<void>(() => undefined);
+  if (signal.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    signal.addEventListener('abort', () => resolve(), { once: true });
+  });
+}
+
 function captureStream(): { stream: Writable; output: () => string } {
   const chunks: string[] = [];
   const stream = new Writable({
@@ -51,7 +59,10 @@ async function buildTestApp(handleDelayMs: number): Promise<TestApp> {
     loggerInstance: logger,
   });
   app.get('/slow-test', async () => {
-    await delay(handleDelayMs);
+    // A real handler observes the application abort signal. A handler that
+    // ignores it is covered by the never-settling shutdown regression.
+    const signal = shutdownControllerFor(app)?.signal;
+    await Promise.race([delay(handleDelayMs), aborted(signal)]);
     return { ok: true };
   });
   return { app, db, output };

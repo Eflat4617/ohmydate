@@ -10,9 +10,11 @@ import pg from 'pg';
 import { buildApp } from './app.js';
 import {
   UNMATCHED_ROUTE,
+  pendingOperationCount,
+  pendingOperationRoutes,
   shutdownControllerFor,
   shutdownRequestMeta,
-  waitForRequestSettlement,
+  waitForOperationSettlement,
 } from './http/shutdown-context.js';
 import { configFromEnv, type AppConfig } from './config.js';
 import type { Database } from './db/types.js';
@@ -334,25 +336,27 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
 }
 
 /**
- * Graceful close that decides per socket, not per request:
- * - connections that never became a request (incomplete headers) and idle
- *   keep-alive sockets are dropped immediately;
- * - a socket that only carries incomplete requests is dropped immediately,
- *   because no handler can start without a complete body;
- * - a socket that still carries a complete request whose response is pending
- *   is preserved until that response finishes, then closed so later incomplete
- *   pipelined requests are dropped;
- * - at the drain budget the app signal is aborted (provider retries stop) and
- *   any still-pending request is force-closed and logged once with its
- *   registered route template, request id and method, never its body or raw
- *   target;
- * - the database is released only after aborted handlers settle, bounded by
- *   the cleanup budget.
+ * Graceful close that settles in-flight work twice, then tears sockets down:
+ * 1. Immediately stops accepting connections. Sockets that never carried a
+ *    complete request and idle keep-alive sockets are dropped; a socket with a
+ *    complete pending response is preserved until that response finishes
+ *    (FU-42 round-1 behaviour, FU-37R2).
+ * 2. Waits for every handler operation (its route-handler promise) to settle,
+ *    up to the drain budget. Complete responses keep the rest of that budget to
+ *    flush before their socket is dropped.
+ * 3. At expiry the application signal is aborted so provider retries stop.
+ *    The timer is independent of `app.close()`: a Fastify close that resolves
+ *    while a disconnected handler is still running must not cancel cleanup.
+ * 4. Remaining operations get the cleanup budget for bounded recovery writes
+ *    (needs_reconcile marking, idempotency release) while the database is
+ *    still alive.
+ * 5. Only then are remaining sockets closed and the database released. If any
+ *    operation is still unsettled, an explicit error is thrown so the process
+ *    exits 1 instead of reporting a successful shutdown.
  *
  * `server.close()` disables Node's periodic requestTimeout check, so an
  * incomplete request would otherwise keep the server open forever
- * (FU-37R finding 2). The old per-request sweep also destroyed a valid
- * handler's socket when a later pipelined request was incomplete (FU-37R2).
+ * (FU-37R finding 2).
  */
 export function createApplicationClose(
   app: FastifyInstance,
@@ -361,6 +365,7 @@ export function createApplicationClose(
 ): () => Promise<void> {
   const sockets = new Set<Socket>();
   const pending = new Map<IncomingMessage, ServerResponse>();
+  const responseWaiters = new Set<() => void>();
   let closing = false;
 
   const hasCompletePending = (socket: Socket): boolean => {
@@ -370,10 +375,33 @@ export function createApplicationClose(
     return false;
   };
 
+  const notifyResponsesFlushed = (): void => {
+    if (pending.size > 0) return;
+    const waiters = [...responseWaiters];
+    responseWaiters.clear();
+    for (const waiter of waiters) waiter();
+  };
+
   const destroyWhenDrained = (socket: Socket): void => {
     if (!closing || !sockets.has(socket)) return;
     if (hasCompletePending(socket)) return;
     destroySocket(socket);
+  };
+
+  const waitForResponses = (timeoutMs: number): Promise<void> => {
+    if (pending.size === 0 || timeoutMs <= 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const state: { timer?: NodeJS.Timeout } = {};
+      const waiter = (): void => {
+        if (state.timer !== undefined) clearTimeout(state.timer);
+        resolve();
+      };
+      responseWaiters.add(waiter);
+      state.timer = setTimeout(() => {
+        responseWaiters.delete(waiter);
+        resolve();
+      }, timeoutMs);
+    });
   };
 
   app.server.on('connection', (socket: Socket) => {
@@ -385,6 +413,7 @@ export function createApplicationClose(
     const settled = (): void => {
       if (pending.get(request) !== response) return;
       pending.delete(request);
+      notifyResponsesFlushed();
       destroyWhenDrained(request.socket);
     };
     // `finish` means the response bytes reached the socket even on a keep-alive
@@ -395,15 +424,28 @@ export function createApplicationClose(
 
   return async () => {
     closing = true;
+    // Start teardown so new connections are refused, but never tie the drain
+    // timer to this promise: it can resolve while a disconnected handler is
+    // still running (FU-42R2 finding 1).
+    const appClosed = app.close();
     app.server.closeIdleConnections();
     // Drop only sockets with no complete request left to answer.
     for (const socket of [...sockets]) {
       if (!hasCompletePending(socket)) destroySocket(socket);
     }
 
-    const force = setTimeout(() => {
-      // Drain budget expired: stop provider retries and in-flight fetches.
-      shutdownControllerFor(app)?.abort();
+    const drainDeadline = Date.now() + Math.max(0, drainMs);
+    // 2. Wait for every handler promise, not for response/socket events.
+    const drained = await waitForOperationSettlement(app, drainMs);
+    // A settled handler may still have response bytes in flight. Keep the
+    // drain budget for that flush; its socket is closed once `finish` fires.
+    if (pending.size > 0) {
+      await waitForResponses(Math.max(0, drainDeadline - Date.now()));
+    }
+
+    if (!drained || pending.size > 0) {
+      // Drain budget expired: log once per still-open response with the
+      // registered route template only, never the body or raw target.
       for (const request of [...pending.keys()]) {
         const meta = shutdownRequestMeta(request);
         app.log.warn(
@@ -415,16 +457,36 @@ export function createApplicationClose(
           'forced shutdown closure',
         );
       }
-      app.server.closeAllConnections();
-    }, drainMs);
-    try {
-      await app.close();
-    } finally {
-      clearTimeout(force);
     }
-    // Sockets may be closed, but aborted handlers still own bounded recovery
-    // writes and idempotency release. Do not let db.destroy() overtake them.
-    await waitForRequestSettlement(app, cleanupMs);
+
+    // 3. Cancel provider work for whatever is left, regardless of whether
+    // `app.close()` already resolved.
+    shutdownControllerFor(app)?.abort();
+
+    // 4. Bounded recovery window with the database still connected.
+    const settled = await waitForOperationSettlement(app, cleanupMs);
+
+    // 5. Close remaining sockets, then let Fastify run its close hooks. The
+    // caller destroys the database only after this resolves.
+    app.server.closeAllConnections();
+    let closeError: unknown;
+    try {
+      await appClosed;
+    } catch (error) {
+      closeError = error;
+    }
+
+    if (!settled) {
+      const routes = pendingOperationRoutes(app);
+      app.log.error(
+        { count: pendingOperationCount(app), routes },
+        'unsettled operations after shutdown cleanup budget',
+      );
+      throw new Error(
+        `shutdown cannot settle ${String(pendingOperationCount(app))} in-flight operation(s)`,
+      );
+    }
+    if (closeError !== undefined) throw closeError;
   };
 }
 
