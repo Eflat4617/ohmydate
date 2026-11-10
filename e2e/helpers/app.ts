@@ -13,6 +13,7 @@ export interface VikunjaTaskBody {
   readonly id: number;
   readonly title: string;
   readonly done?: boolean;
+  readonly project_id?: number;
 }
 
 export async function login(page: Page, state: E2EState): Promise<void> {
@@ -27,8 +28,8 @@ export async function fetchPlannerTasks(
   page: Page,
   state: E2EState,
 ): Promise<readonly PlannerTask[]> {
-  const response = await page.request.get(`${state.apiUrl}/tasks`);
-  expect(response.ok(), `GET /tasks -> ${response.status}`).toBeTruthy();
+  const response = await page.request.get(`${state.apiUrl}/api/v1/tasks`);
+  expect(response.ok(), `GET /api/v1/tasks -> ${response.status}`).toBeTruthy();
   const body = (await response.json()) as { items: PlannerTask[] };
   return body.items;
 }

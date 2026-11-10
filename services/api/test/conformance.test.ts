@@ -10,6 +10,7 @@ import {
   type RouteDefinition,
 } from '@ohmydate/contracts';
 import type { InjectOptions } from 'fastify';
+import { API_PREFIX } from '../src/app.js';
 import { toFastifyPath } from '../src/http/routes.js';
 import {
   authHeaders,
@@ -26,7 +27,7 @@ const ID = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55';
 const OTHER_ID = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c56';
 
 function concretePath(path: string): string {
-  return path.replace(/\{id\}/g, ID);
+  return `${API_PREFIX}${path}`.replace(/\{id\}/g, ID);
 }
 
 function declaredStatuses(route: RouteDefinition): readonly number[] {
@@ -76,14 +77,14 @@ describe.skipIf(!hasDatabase)('contract conformance', () => {
         route: route.operationId,
         registered: ctx.app.hasRoute({
           method: route.method.toUpperCase() as 'GET',
-          url: toFastifyPath(route.path),
+          url: `${API_PREFIX}${toFastifyPath(route.path)}`,
         }),
       }).toEqual({ route: route.operationId, registered: true });
     }
   });
 
   test('unknown routes return a not_found problem', async () => {
-    const response = await ctx.app.inject({ method: 'GET', url: '/does-not-exist' });
+    const response = await ctx.app.inject({ method: 'GET', url: '/api/v1/does-not-exist' });
     expect(response.statusCode).toBe(404);
     expect(response.headers['content-type']).toContain('application/problem+json');
     expect(response.json()).toMatchObject({ status: 404, code: 'not_found' });
@@ -107,7 +108,7 @@ describe.skipIf(!hasDatabase)('contract conformance', () => {
     const loginRoute = routeById('login');
     const loginFailure = await ctx.app.inject({
       method: 'POST',
-      url: '/auth/login',
+      url: '/api/v1/auth/login',
       payload: { email: 'conformance@example.com', password: 'wrong' },
     });
     assertProblem(loginRoute, loginFailure);
@@ -166,7 +167,7 @@ describe.skipIf(!hasDatabase)('contract conformance', () => {
     const route = routeById('createTask');
     const response = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title: 'Unknown project', projectId: OTHER_ID },
     });
@@ -177,7 +178,7 @@ describe.skipIf(!hasDatabase)('contract conformance', () => {
   test('successful responses validate against their contract schemas', async () => {
     const createProject = await ctx.app.inject({
       method: 'POST',
-      url: '/projects',
+      url: '/api/v1/projects',
       headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title: 'Conformance project' },
     });
@@ -187,7 +188,7 @@ describe.skipIf(!hasDatabase)('contract conformance', () => {
     const projectId = (createProject.json() as { id: string }).id;
     const createTask = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title: 'Conformance task', projectId },
     });
@@ -196,7 +197,7 @@ describe.skipIf(!hasDatabase)('contract conformance', () => {
 
     const listTasks = await ctx.app.inject({
       method: 'GET',
-      url: '/tasks?limit=10',
+      url: '/api/v1/tasks?limit=10',
       headers: authHeaders(session),
     });
     expect(listTasks.statusCode).toBe(200);
@@ -204,13 +205,13 @@ describe.skipIf(!hasDatabase)('contract conformance', () => {
 
     const listProjects = await ctx.app.inject({
       method: 'GET',
-      url: '/projects',
+      url: '/api/v1/projects',
       headers: authHeaders(session),
     });
     expect(listProjects.statusCode).toBe(200);
     expect(compile(PageProjectSchema)(listProjects.json())).toBe(true);
 
-    const me = await ctx.app.inject({ method: 'GET', url: '/me', headers: authHeaders(session) });
+    const me = await ctx.app.inject({ method: 'GET', url: '/api/v1/me', headers: authHeaders(session) });
     expect(me.statusCode).toBe(200);
     expect(compile(UserSchema)(me.json())).toBe(true);
   });

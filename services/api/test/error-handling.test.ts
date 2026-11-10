@@ -73,7 +73,7 @@ describe.skipIf(!hasDatabase)('500 error handling', () => {
       const session = await login(ctx, 'boom@example.com', 'correct-horse');
       const response = await ctx.app.inject({
         method: 'GET',
-        url: `/tasks/${ID}`,
+        url: `/api/v1/tasks/${ID}`,
         headers: authHeaders(session),
       });
       expect(response.statusCode).toBe(500);
@@ -99,7 +99,7 @@ describe.skipIf(!hasDatabase)('500 error handling', () => {
       const session = await login(ctx, 'boom2@example.com', 'correct-horse');
       const response = await ctx.app.inject({
         method: 'GET',
-        url: `/tasks/${ID}`,
+        url: `/api/v1/tasks/${ID}`,
         headers: authHeaders(session),
       });
       expect(response.statusCode).toBe(500);
@@ -125,7 +125,7 @@ describe.skipIf(!hasDatabase)('provider unavailable mapping', () => {
       const session = await login(ctx, 'provider@example.com', 'correct-horse');
       const response = await ctx.app.inject({
         method: 'GET',
-        url: `/tasks/${ID}`,
+        url: `/api/v1/tasks/${ID}`,
         headers: authHeaders(session),
       });
       expect(response.statusCode).toBe(503);
@@ -156,7 +156,7 @@ describe.skipIf(!hasDatabase)('provider unavailable mapping', () => {
       const session = await login(ctx, 'provider-auth@example.com', 'correct-horse');
       const response = await ctx.app.inject({
         method: 'GET',
-        url: `/tasks/${ID}`,
+        url: `/api/v1/tasks/${ID}`,
         headers: authHeaders(session),
       });
       expect(response.statusCode).toBe(503);
@@ -182,7 +182,7 @@ describe.skipIf(!hasDatabase)('provider unavailable mapping', () => {
       const key = newIdempotencyKey();
       const response = await ctx.app.inject({
         method: 'PATCH',
-        url: `/tasks/${ID}`,
+        url: `/api/v1/tasks/${ID}`,
         headers: authHeaders(session, {
           'if-match': 'W/"1"',
           'idempotency-key': key,
@@ -250,7 +250,7 @@ describe.skipIf(!hasDatabase)('idempotency problem storage failure', () => {
       const createTask = async (title: string) => {
         const response = await ctx.app.inject({
           method: 'POST',
-          url: '/tasks',
+          url: '/api/v1/tasks',
           headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
           payload: { title },
         });
@@ -262,7 +262,7 @@ describe.skipIf(!hasDatabase)('idempotency problem storage failure', () => {
 
       const depends = await ctx.app.inject({
         method: 'POST',
-        url: `/tasks/${second.id}/dependencies`,
+        url: `/api/v1/tasks/${second.id}/dependencies`,
         headers: authHeaders(session, {
           'if-match': 'W/"1"',
           'idempotency-key': newIdempotencyKey(),
@@ -274,7 +274,7 @@ describe.skipIf(!hasDatabase)('idempotency problem storage failure', () => {
       store.failProblemStorage = true;
       const cycle = await ctx.app.inject({
         method: 'POST',
-        url: `/tasks/${first.id}/dependencies`,
+        url: `/api/v1/tasks/${first.id}/dependencies`,
         headers: authHeaders(session, {
           'if-match': 'W/"1"',
           'idempotency-key': newIdempotencyKey(),

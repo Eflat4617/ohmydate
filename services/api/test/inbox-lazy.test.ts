@@ -49,14 +49,14 @@ describe.skipIf(!hasDatabase)('lazy Inbox for CLI-style users', () => {
     const headers = authHeaders(session);
 
     const [firstList, created, secondList] = await Promise.all([
-      ctx.app.inject({ method: 'GET', url: '/projects?limit=100', headers }),
+      ctx.app.inject({ method: 'GET', url: '/api/v1/projects?limit=100', headers }),
       ctx.app.inject({
         method: 'POST',
-        url: '/tasks',
+        url: '/api/v1/tasks',
         headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
         payload: { title: 'Captured without a project' },
       }),
-      ctx.app.inject({ method: 'GET', url: '/projects?limit=100', headers }),
+      ctx.app.inject({ method: 'GET', url: '/api/v1/projects?limit=100', headers }),
     ]);
 
     expect(firstList.statusCode).toBe(200);
@@ -70,7 +70,7 @@ describe.skipIf(!hasDatabase)('lazy Inbox for CLI-style users', () => {
 
     const finalList = await ctx.app.inject({
       method: 'GET',
-      url: '/projects?limit=100',
+      url: '/api/v1/projects?limit=100',
       headers,
     });
     expect(finalList.statusCode).toBe(200);
@@ -83,7 +83,7 @@ describe.skipIf(!hasDatabase)('lazy Inbox for CLI-style users', () => {
 
     const listed = await ctx.app.inject({
       method: 'GET',
-      url: '/tasks?limit=100',
+      url: '/api/v1/tasks?limit=100',
       headers,
     });
     expect(listed.statusCode).toBe(200);

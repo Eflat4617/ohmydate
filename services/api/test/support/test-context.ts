@@ -151,7 +151,7 @@ export async function login(
 ): Promise<TestSession> {
   const response = await ctx.app.inject({
     method: 'POST',
-    url: '/auth/login',
+    url: '/api/v1/auth/login',
     payload: { email, password },
   });
   if (response.statusCode !== 204) {

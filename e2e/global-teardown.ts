@@ -77,11 +77,15 @@ export default async function globalTeardown(): Promise<void> {
 
   const baseDatabaseUrl =
     state.baseDatabaseUrl ?? 'postgres://ohmydate:ohmydate-dev-only@127.0.0.1:55432/planner_test';
-  const client = new pg.Client({ connectionString: baseDatabaseUrl });
-  await client.connect();
   try {
-    await client.query(`DROP SCHEMA IF EXISTS ${quoteIdentifier(state.databaseSchema)} CASCADE`);
+    const client = new pg.Client({ connectionString: baseDatabaseUrl });
+    await client.connect();
+    try {
+      await client.query(`DROP SCHEMA IF EXISTS ${quoteIdentifier(state.databaseSchema)} CASCADE`);
+    } finally {
+      await client.end();
+    }
   } finally {
-    await client.end();
+    await fs.rm(STATE_PATH, { force: true });
   }
 }

@@ -42,7 +42,9 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     await quickAdd(pageA, createdTitle);
     const created = await waitForPlannerTask(pageA, state, createdTitle);
     const externalId = externalIdOf(created);
-    expect((await fetchVikunjaTask(state, externalId)).title).toBe(createdTitle);
+    const vikunjaTask = await fetchVikunjaTask(state, externalId);
+    expect(vikunjaTask.title).toBe(createdTitle);
+    expect(String(vikunjaTask.project_id)).toBe(state.inboxExternalId);
 
     await editTask(pageA, createdTitle, firstEdit);
     await expectVikunjaTitle(state, externalId, firstEdit);
@@ -55,7 +57,15 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
 
     await pageA.getByRole('button', { name: `Edit title of ${firstEdit}` }).click();
     await pageA.getByLabel('Task title').fill(conflictEdit);
+    const conflictResponsePromise = pageA.waitForResponse(
+      (response) =>
+        response.request().method() === 'PATCH' &&
+        response.url().includes(`/api/v1/tasks/${created.id}`),
+    );
     await pageA.getByRole('button', { name: 'Save' }).click();
+    const conflictResponse = await conflictResponsePromise;
+    expect(conflictResponse.status()).toBe(412);
+    expect(conflictResponse.headers()['content-type']).toContain('application/problem+json');
 
     const dialog = pageA.getByRole('dialog');
     await expect(dialog).toBeVisible();
@@ -117,10 +127,35 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     const page = await context.newPage();
     await login(page, state);
 
+    const title = `Offline task ${Date.now().toString(36)}`;
+    await quickAdd(page, title);
+    await waitForPlannerTask(page, state, title);
+
+    let mutationRequests = 0;
+    page.on('request', (request) => {
+      const method = request.method();
+      if (
+        method !== 'GET' &&
+        method !== 'HEAD' &&
+        method !== 'OPTIONS' &&
+        request.url().includes('/api/v1/')
+      ) {
+        mutationRequests += 1;
+      }
+    });
+
     await context.setOffline(true);
     await expect(page.getByText(/You are offline\. Viewing cached data/)).toBeVisible();
     await expect(page.getByLabel('Quick add task')).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Add task' })).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: `Edit title of ${title}` }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole('button', { name: `Mark ${title} complete` }),
+    ).toBeDisabled();
+    await page.waitForTimeout(300);
+    expect(mutationRequests).toBe(0);
 
     await context.setOffline(false);
     await expect(page.getByText(/You are offline\. Viewing cached data/)).toBeHidden();

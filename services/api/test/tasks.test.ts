@@ -28,7 +28,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
   async function createProject(session: TestSession, title: string) {
     const response = await ctx.app.inject({
       method: 'POST',
-      url: '/projects',
+      url: '/api/v1/projects',
       headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title },
     });
@@ -39,7 +39,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
   async function createTask(session: TestSession, payload: Record<string, unknown>) {
     return ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
       payload,
     });
@@ -49,7 +49,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
     const project = await createProject(alice, 'Work');
     const created = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title: 'Write report', projectId: project.id },
     });
@@ -60,7 +60,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const fetched = await ctx.app.inject({
       method: 'GET',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice),
     });
     expect(fetched.statusCode).toBe(200);
@@ -69,7 +69,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const notModified = await ctx.app.inject({
       method: 'GET',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, { 'if-none-match': 'W/"1"' }),
     });
     expect(notModified.statusCode).toBe(304);
@@ -83,7 +83,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const missingIfMatch = await ctx.app.inject({
       method: 'PATCH',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title: 'nope' },
     });
@@ -91,7 +91,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const updated = await ctx.app.inject({
       method: 'PATCH',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -103,7 +103,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const stale = await ctx.app.inject({
       method: 'PATCH',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -115,7 +115,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const missingKey = await ctx.app.inject({
       method: 'PATCH',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, { 'if-match': 'W/"2"' }),
       payload: { title: 'no key' },
     });
@@ -128,7 +128,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const completed = await ctx.app.inject({
       method: 'POST',
-      url: `/tasks/${task.id}:complete`,
+      url: `/api/v1/tasks/${task.id}:complete`,
       headers: authHeaders(alice, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -139,7 +139,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const deleted = await ctx.app.inject({
       method: 'DELETE',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, {
         'if-match': 'W/"2"',
         'idempotency-key': newIdempotencyKey(),
@@ -149,7 +149,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const gone = await ctx.app.inject({
       method: 'GET',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice),
     });
     expect(gone.statusCode).toBe(404);
@@ -162,7 +162,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const dependency = await ctx.app.inject({
       method: 'POST',
-      url: `/tasks/${first.id}/dependencies`,
+      url: `/api/v1/tasks/${first.id}/dependencies`,
       headers: authHeaders(alice, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -175,7 +175,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const fetched = await ctx.app.inject({
       method: 'GET',
-      url: `/tasks/${first.id}`,
+      url: `/api/v1/tasks/${first.id}`,
       headers: authHeaders(alice),
     });
     expect(fetched.json()).toMatchObject({ dependsOn: [second.id] });
@@ -187,7 +187,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
     const listB = (await createTask(alice, { title: 'Todo two', projectId: project.id })).json();
     await ctx.app.inject({
       method: 'POST',
-      url: `/tasks/${listA.id}:complete`,
+      url: `/api/v1/tasks/${listA.id}:complete`,
       headers: authHeaders(alice, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -196,7 +196,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const todo = await ctx.app.inject({
       method: 'GET',
-      url: `/tasks?projectId=${project.id}&status=todo`,
+      url: `/api/v1/tasks?projectId=${project.id}&status=todo`,
       headers: authHeaders(alice),
     });
     expect(todo.statusCode).toBe(200);
@@ -209,14 +209,14 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const fetch = await ctx.app.inject({
       method: 'GET',
-      url: `/tasks/${alicesTask.id}`,
+      url: `/api/v1/tasks/${alicesTask.id}`,
       headers: authHeaders(bob),
     });
     expect(fetch.statusCode).toBe(404);
 
     const update = await ctx.app.inject({
       method: 'PATCH',
-      url: `/tasks/${alicesTask.id}`,
+      url: `/api/v1/tasks/${alicesTask.id}`,
       headers: authHeaders(bob, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -227,7 +227,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const remove = await ctx.app.inject({
       method: 'DELETE',
-      url: `/tasks/${alicesTask.id}`,
+      url: `/api/v1/tasks/${alicesTask.id}`,
       headers: authHeaders(bob, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -242,7 +242,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const response = await ctx.app.inject({
       method: 'GET',
-      url: '/projects?limit=100',
+      url: '/api/v1/projects?limit=100',
       headers: authHeaders(fresh),
     });
     expect(response.statusCode).toBe(200);
@@ -255,7 +255,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
   test('POST /projects rejects an attempt to create an Inbox', async () => {
     const response = await ctx.app.inject({
       method: 'POST',
-      url: '/projects',
+      url: '/api/v1/projects',
       headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title: 'My inbox', kind: 'inbox' },
     });
@@ -270,7 +270,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const projects = await ctx.app.inject({
       method: 'GET',
-      url: '/projects?limit=100',
+      url: '/api/v1/projects?limit=100',
       headers: authHeaders(alice),
     });
     expect(projects.statusCode).toBe(200);
@@ -288,7 +288,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const createdProject = await ctx.app.inject({
       method: 'POST',
-      url: '/projects',
+      url: '/api/v1/projects',
       headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title: 'Work' },
     });
@@ -299,7 +299,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
   test('request bodies are not type-coerced', async () => {
     const response = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title: 123, priority: '4' },
     });
@@ -308,7 +308,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
 
     const query = await ctx.app.inject({
       method: 'GET',
-      url: '/tasks?limit=10',
+      url: '/api/v1/tasks?limit=10',
       headers: authHeaders(alice),
     });
     expect(query.statusCode).toBe(200);
@@ -317,7 +317,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
   test('create POSTs reject missing Idempotency-Key with 400', async () => {
     const response = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(alice),
       payload: { title: 'No key' },
     });
