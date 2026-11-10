@@ -192,6 +192,9 @@ importers:
 
   packages/contracts:
     dependencies:
+      '@ohmydate/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@sinclair/typebox':
         specifier: 0.34.52
         version: 0.34.52

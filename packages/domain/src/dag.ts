@@ -10,6 +10,12 @@ const WHITE = 0;
 const GRAY = 1;
 const BLACK = 2;
 
+interface TraversalFrame {
+  readonly node: string;
+  readonly neighbors: readonly string[];
+  index: number;
+}
+
 export function assertAcyclic(edges: Iterable<DependencyEdge>): void {
   const adjacency = new Map<string, string[]>();
   const nodes = new Set<string>();
@@ -29,34 +35,41 @@ export function assertAcyclic(edges: Iterable<DependencyEdge>): void {
 
   const state = new Map<string, number>();
   for (const node of nodes) state.set(node, WHITE);
-  const stack: string[] = [];
 
-  const visit = (node: string): string[] | null => {
-    state.set(node, GRAY);
-    stack.push(node);
+  for (const start of nodes) {
+    if ((state.get(start) ?? WHITE) !== WHITE) continue;
 
-    for (const next of adjacency.get(node) ?? []) {
+    const path: string[] = [start];
+    const stack: TraversalFrame[] = [
+      { node: start, neighbors: adjacency.get(start) ?? [], index: 0 },
+    ];
+    state.set(start, GRAY);
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      if (frame === undefined) break;
+
+      if (frame.index >= frame.neighbors.length) {
+        state.set(frame.node, BLACK);
+        stack.pop();
+        path.pop();
+        continue;
+      }
+
+      const next = frame.neighbors[frame.index];
+      frame.index += 1;
+      if (next === undefined) continue;
+
       const nextState = state.get(next) ?? WHITE;
       if (nextState === GRAY) {
-        const cycleStart = stack.indexOf(next);
-        return [...stack.slice(cycleStart), next];
+        const cycleStart = path.indexOf(next);
+        throw new DependencyCycleError([...path.slice(cycleStart), next] as Id[]);
       }
       if (nextState === WHITE) {
-        const found = visit(next);
-        if (found !== null) return found;
+        state.set(next, GRAY);
+        path.push(next);
+        stack.push({ node: next, neighbors: adjacency.get(next) ?? [], index: 0 });
       }
-    }
-
-    stack.pop();
-    state.set(node, BLACK);
-    return null;
-  };
-
-  for (const node of nodes) {
-    if ((state.get(node) ?? WHITE) !== WHITE) continue;
-    const cycle = visit(node);
-    if (cycle !== null) {
-      throw new DependencyCycleError(cycle as Id[]);
     }
   }
 }

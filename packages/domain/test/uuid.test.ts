@@ -41,6 +41,17 @@ test('uuidV7 rejects invalid timestamps', () => {
   expect(() => uuidV7(sequentialRand, 1.5)).toThrow(RangeError);
 });
 
+test('uuidV7 accepts the 48-bit timestamp boundary and rejects overflow', () => {
+  const zeroRand: RandomBytes = (length) => new Uint8Array(length);
+  const max = 0xffffffffffff;
+  const boundary = uuidV7(zeroRand, max);
+  expect(timestampOf(boundary)).toBe(max);
+  expect(boundary.startsWith('ffffffff-ffff-7')).toBe(true);
+  expect(timestampOf(uuidV7(zeroRand, 0))).toBe(0);
+  expect(uuidV7(zeroRand, max)).not.toBe(uuidV7(zeroRand, 0));
+  expect(() => uuidV7(zeroRand, max + 1)).toThrow(RangeError);
+});
+
 test('the generator is monotonic when the clock stalls', () => {
   const clock: Clock = { now: () => '2026-11-11T00:00:00.000Z' as Instant };
   const generator = createUuidV7Generator({ rand: sequentialRand, clock });

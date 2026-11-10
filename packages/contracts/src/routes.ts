@@ -1,13 +1,10 @@
 import { Type, type TSchema } from '@sinclair/typebox';
-import {
-  LoginRequestSchema,
-  UserSchema,
-  UserSettingsPatchSchema,
-} from './auth.js';
+import { LoginRequestSchema, UserSchema, UserSettingsPatchSchema } from './auth.js';
 import {
   CursorSchema,
   IdempotencyKeyHeaderSchema,
   IfMatchHeaderSchema,
+  IfNoneMatchHeaderSchema,
 } from './common.js';
 import { ProblemSchema } from './problem.js';
 import {
@@ -70,18 +67,26 @@ function problems(...statuses: readonly number[]): Record<number, RouteResponse>
   return responses;
 }
 
-const IfMatchHeadersSchema = Type.Object(
-  {
-    'If-Match': IfMatchHeaderSchema,
-  },
-  { additionalProperties: false, required: ['If-Match'] },
-);
-
 const IdempotencyHeadersSchema = Type.Object(
   {
     'Idempotency-Key': IdempotencyKeyHeaderSchema,
   },
   { additionalProperties: false, required: ['Idempotency-Key'] },
+);
+
+const IfMatchAndIdempotencyHeadersSchema = Type.Object(
+  {
+    'If-Match': IfMatchHeaderSchema,
+    'Idempotency-Key': IdempotencyKeyHeaderSchema,
+  },
+  { additionalProperties: false, required: ['If-Match', 'Idempotency-Key'] },
+);
+
+const IfNoneMatchHeadersSchema = Type.Object(
+  {
+    'If-None-Match': Type.Optional(IfNoneMatchHeaderSchema),
+  },
+  { additionalProperties: false },
 );
 
 const PageQuerySchema = Type.Object(
@@ -101,7 +106,7 @@ export const routes: readonly RouteDefinition[] = [
     body: LoginRequestSchema,
     responses: {
       204: { description: 'Session created' },
-      ...problems(400, 401, 429, 503),
+      ...problems(400, 401, 429),
     },
   },
   {
@@ -119,6 +124,7 @@ export const routes: readonly RouteDefinition[] = [
     path: '/me',
     operationId: 'getMe',
     summary: 'Read the current user',
+    headers: IfNoneMatchHeadersSchema,
     responses: {
       200: { description: 'Current user', schema: UserSchema },
       304: { description: 'Not modified' },
@@ -130,11 +136,11 @@ export const routes: readonly RouteDefinition[] = [
     path: '/me/settings',
     operationId: 'updateMySettings',
     summary: 'Update user settings',
-    headers: IfMatchHeadersSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
     body: UserSettingsPatchSchema,
     responses: {
       200: { description: 'Updated user', schema: UserSchema },
-      ...problems(400, 401, 404, 412, 422, 428, 503),
+      ...problems(400, 401, 412, 422, 428),
     },
   },
   {
@@ -143,9 +149,11 @@ export const routes: readonly RouteDefinition[] = [
     operationId: 'listProjects',
     summary: 'List projects',
     query: PageQuerySchema,
+    headers: IfNoneMatchHeadersSchema,
     responses: {
       200: { description: 'Project page', schema: PageProjectSchema },
-      ...problems(401, 422),
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 422),
     },
   },
   {
@@ -157,7 +165,7 @@ export const routes: readonly RouteDefinition[] = [
     body: ProjectCreateSchema,
     responses: {
       201: { description: 'Created project', schema: ProjectSchema },
-      ...problems(400, 401, 409, 422, 503),
+      ...problems(400, 401, 409, 422),
     },
   },
   {
@@ -166,9 +174,11 @@ export const routes: readonly RouteDefinition[] = [
     operationId: 'listTasks',
     summary: 'List tasks',
     query: TaskListQuerySchema,
+    headers: IfNoneMatchHeadersSchema,
     responses: {
       200: { description: 'Task page', schema: PageTaskSchema },
-      ...problems(400, 401, 422),
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 422, 503),
     },
   },
   {
@@ -189,10 +199,11 @@ export const routes: readonly RouteDefinition[] = [
     operationId: 'getTask',
     summary: 'Read a task',
     params: TaskIdParamsSchema,
+    headers: IfNoneMatchHeadersSchema,
     responses: {
       200: { description: 'Task', schema: TaskSchema },
       304: { description: 'Not modified' },
-      ...problems(401, 404),
+      ...problems(400, 401, 404, 503),
     },
   },
   {
@@ -201,7 +212,7 @@ export const routes: readonly RouteDefinition[] = [
     operationId: 'updateTask',
     summary: 'Update a task',
     params: TaskIdParamsSchema,
-    headers: IfMatchHeadersSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
     body: TaskPatchSchema,
     responses: {
       200: { description: 'Updated task', schema: TaskSchema },
@@ -214,10 +225,10 @@ export const routes: readonly RouteDefinition[] = [
     operationId: 'completeTask',
     summary: 'Complete a task',
     params: TaskIdParamsSchema,
-    headers: IfMatchHeadersSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       200: { description: 'Completed task', schema: TaskSchema },
-      ...problems(401, 404, 409, 412, 422, 428, 503),
+      ...problems(400, 401, 404, 409, 412, 422, 428, 503),
     },
   },
   {
@@ -226,10 +237,10 @@ export const routes: readonly RouteDefinition[] = [
     operationId: 'deleteTask',
     summary: 'Soft delete a task',
     params: TaskIdParamsSchema,
-    headers: IfMatchHeadersSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       204: { description: 'Task deleted' },
-      ...problems(401, 404, 409, 412, 428, 503),
+      ...problems(400, 401, 404, 409, 412, 422, 428, 503),
     },
   },
   {
@@ -238,11 +249,11 @@ export const routes: readonly RouteDefinition[] = [
     operationId: 'createTaskDependency',
     summary: 'Add a task dependency',
     params: TaskIdParamsSchema,
-    headers: IdempotencyHeadersSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
     body: TaskDependencyCreateSchema,
     responses: {
       201: { description: 'Created dependency', schema: TaskDependencySchema },
-      ...problems(400, 401, 404, 409, 422, 503),
+      ...problems(400, 401, 404, 409, 412, 422, 428, 503),
     },
   },
 ];

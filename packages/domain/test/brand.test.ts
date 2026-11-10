@@ -35,19 +35,27 @@ test('assertUuidV7 throws validation_failed with the path', () => {
   }
 });
 
-test('Instant is an ISO-8601 UTC string', () => {
+test('Instant is an ISO-8601 UTC string inside the supported range', () => {
   expect(isInstant('2026-11-20T14:59:00.000Z')).toBe(true);
+  expect(isInstant('1970-01-01T00:00:00.000Z')).toBe(true);
+  expect(isInstant('9999-12-31T23:59:59.999Z')).toBe(true);
   expect(isInstant('2026-11-20T23:59:00+09:00')).toBe(false);
   expect(isInstant('2026-02-30T00:00:00Z')).toBe(false);
   expect(isInstant('2026-11-20T14:59:00')).toBe(false);
+  expect(isInstant('1969-12-31T23:59:59.999Z')).toBe(false);
+  expect(isInstant('0099-01-01T00:00:00Z')).toBe(false);
+  expect(isInstant('10000-01-01T00:00:00.000Z')).toBe(false);
   expect(() => assertInstant('2026-11-20T23:59:00+09:00')).toThrow(ValidationFailedError);
 });
 
-test('IanaTimeZone uses Intl validation', () => {
+test('IanaTimeZone accepts named zones but rejects offsets', () => {
   expect(isIanaTimeZone('Asia/Seoul')).toBe(true);
+  expect(isIanaTimeZone('America/New_York')).toBe(true);
   expect(isIanaTimeZone('UTC')).toBe(true);
+  expect(isIanaTimeZone('+09:00')).toBe(false);
   expect(isIanaTimeZone('Mars/Olympus')).toBe(false);
   expect(isIanaTimeZone('')).toBe(false);
+  expect(() => assertIanaTimeZone('+09:00')).toThrow(ValidationFailedError);
   expect(() => assertIanaTimeZone('Mars/Olympus')).toThrow(ValidationFailedError);
 });
 

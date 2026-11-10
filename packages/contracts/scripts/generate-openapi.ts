@@ -103,6 +103,10 @@ function parametersFor(route: (typeof routes)[number]): ParameterObject[] {
   return parameters;
 }
 
+function mediaTypeFor(schema: TSchema): string {
+  return componentName(schema) === 'Problem' ? 'application/problem+json' : 'application/json';
+}
+
 function responsesFor(route: (typeof routes)[number]): Record<string, unknown> {
   const responses: Record<string, unknown> = {};
   for (const [status, response] of Object.entries(route.responses)) {
@@ -112,7 +116,7 @@ function responsesFor(route: (typeof routes)[number]): Record<string, unknown> {
         : {
             description: response.description,
             content: {
-              'application/json': { schema: schemaRefOrInline(response.schema) },
+              [mediaTypeFor(response.schema)]: { schema: schemaRefOrInline(response.schema) },
             },
           };
   }
