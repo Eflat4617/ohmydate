@@ -1,0 +1,1090 @@
+import { Temporal } from 'temporal-polyfill';
+import type {
+  Block,
+  InputIssue,
+  Instant,
+  ScheduleInput,
+  Task,
+  Violation,
+  ValidateOptions,
+} from './types.js';
+import {
+  GRID_NS,
+  MINUTE_MS,
+  instantNanoseconds,
+  instantToZoned,
+  isValidTimeZone,
+  parseClock,
+  parseInstant,
+} from './time.js';
+import { taskRequiredMinutes } from './requirements.js';
+
+interface ParsedBlock {
+  block: Block;
+  startMs: number;
+  endMs: number;
+}
+
+interface ExceptionWindow {
+  date: string;
+  kind: 'off' | 'extra';
+  startLocal?: string;
+  endLocal?: string;
+}
+
+/**
+ * Audit a candidate plan against hard constraints H1-H8.
+ *
+ * H2 uses a genuinely different oracle from `slots.ts`: each block is split at
+ * every relevant local rule/exception edge, local-midnight boundary and IANA
+ * transition, then each resulting segment is classified by converting its
+ * midpoint to local wall time and testing raw rule membership directly. It
+ * does not build or subtract availability interval unions. Overlaps use a
+ * separate sorted scan. Candidate blocks must lie inside the horizon
+ * (`H0_horizon`) and every block must name a known task (`H0_unknown_task`);
+ * locked blocks are exempt only from the horizon check.
+ */
+export function validate(
+  input: ScheduleInput,
+  blocks: Block[],
+  opts: ValidateOptions,
+): Violation[] {
+  const violations: Violation[] = [];
+
+  if (!isValidTimeZone(input.timeZone)) {
+    return [
+      {
+        code: 'H8',
+        message: `Invalid IANA time zone: ${input.timeZone}`,
+      },
+    ];
+  }
+
+  const candidate = parsePlanBlocks(blocks, violations);
+  const locked = parsePlanBlocks(input.lockedBlocks, violations);
+  const plan = [...candidate, ...locked];
+
+  checkUnknownTaskIds(input, plan, violations);
+  checkHorizon(input, candidate, violations);
+  checkH1(input, plan, violations);
+  checkH2(input, plan, violations);
+  checkH3(input, plan, violations);
+  checkH4(input, plan, violations);
+  checkH5(input, plan, opts, violations);
+  checkH6(input, plan, violations);
+  checkH7(input, plan, opts, violations);
+
+  return violations;
+}
+
+function checkUnknownTaskIds(
+  input: ScheduleInput,
+  plan: ParsedBlock[],
+  violations: Violation[],
+): void {
+  const knownTaskIds = new Set(input.tasks.map((task) => task.id));
+  for (const parsed of plan) {
+    if (!knownTaskIds.has(parsed.block.taskId)) {
+      violations.push({
+        code: 'H0_unknown_task',
+        message: `Block references unknown task "${parsed.block.taskId}".`,
+        taskId: parsed.block.taskId,
+        blocks: [parsed.block],
+      });
+    }
+  }
+}
+
+function checkHorizon(
+  input: ScheduleInput,
+  candidate: ParsedBlock[],
+  violations: Violation[],
+): void {
+  const horizonStart = tryParseInstant(input.horizon.start);
+  const horizonEnd = tryParseInstant(input.horizon.end);
+  if (horizonStart === undefined || horizonEnd === undefined) {
+    violations.push({
+      code: 'H8',
+      message: 'Horizon contains an invalid instant.',
+    });
+    return;
+  }
+  for (const parsed of candidate) {
+    if (parsed.startMs < horizonStart || parsed.endMs > horizonEnd) {
+      violations.push({
+        code: 'H0_horizon',
+        message: `Block for task "${parsed.block.taskId}" is outside the planning horizon.`,
+        taskId: parsed.block.taskId,
+        blocks: [parsed.block],
+      });
+    }
+  }
+}
+
+function parsePlanBlocks(blocks: Block[], violations: Violation[]): ParsedBlock[] {
+  const parsed: ParsedBlock[] = [];
+  for (const block of blocks) {
+    let startNs: bigint;
+    let endNs: bigint;
+    try {
+      startNs = instantNanoseconds(block.start);
+      endNs = instantNanoseconds(block.end);
+    } catch {
+      violations.push({
+        code: 'H8',
+        message: `Block for task "${block.taskId}" has an invalid instant.`,
+        taskId: block.taskId,
+        blocks: [block],
+      });
+      continue;
+    }
+    if (startNs % 1_000_000n !== 0n || endNs % 1_000_000n !== 0n) {
+      violations.push({
+        code: 'H8',
+        message: `Block for task "${block.taskId}" has sub-millisecond precision.`,
+        taskId: block.taskId,
+        blocks: [block],
+      });
+      continue;
+    }
+    if (startNs % GRID_NS !== 0n || endNs % GRID_NS !== 0n) {
+      violations.push({
+        code: 'H8',
+        message: `Block for task "${block.taskId}" is not aligned to the 5-minute grid.`,
+        taskId: block.taskId,
+        blocks: [block],
+      });
+      continue;
+    }
+    const startMs = Number(startNs / 1_000_000n);
+    const endMs = Number(endNs / 1_000_000n);
+    if (endMs <= startMs) {
+      violations.push({
+        code: 'H8',
+        message: `Block for task "${block.taskId}" ends before it starts.`,
+        taskId: block.taskId,
+        blocks: [block],
+      });
+      continue;
+    }
+    parsed.push({ block, startMs, endMs });
+  }
+  return parsed;
+}
+
+function checkH1(
+  input: ScheduleInput,
+  plan: ParsedBlock[],
+  violations: Violation[],
+): void {
+  const sorted = [...plan].sort(
+    (a, b) => a.startMs - b.startMs || a.endMs - b.endMs,
+  );
+  for (let index = 0; index < sorted.length; index += 1) {
+    const current = sorted[index];
+    if (current === undefined) {
+      continue;
+    }
+    for (let other = index + 1; other < sorted.length; other += 1) {
+      const next = sorted[other];
+      if (next === undefined || next.startMs >= current.endMs) {
+        break;
+      }
+      if (next.startMs < current.endMs && next.endMs > current.startMs) {
+        violations.push({
+          code: 'H1',
+          message:
+            current.block.taskId === next.block.taskId
+              ? `Blocks for task "${current.block.taskId}" overlap.`
+              : `Blocks for tasks "${current.block.taskId}" and "${next.block.taskId}" overlap.`,
+          blocks: [current.block, next.block],
+        });
+      }
+    }
+  }
+
+  for (const parsed of plan) {
+    for (const commitment of input.commitments) {
+      const startMs = tryParseInstant(commitment.start);
+      const endMs = tryParseInstant(commitment.end);
+      if (startMs === undefined || endMs === undefined) {
+        continue;
+      }
+      if (parsed.startMs < endMs && parsed.endMs > startMs) {
+        violations.push({
+          code: 'H1',
+          message: `Block for task "${parsed.block.taskId}" overlaps a commitment.`,
+          taskId: parsed.block.taskId,
+          blocks: [parsed.block],
+        });
+      }
+    }
+  }
+}
+
+function checkH2(
+  input: ScheduleInput,
+  plan: ParsedBlock[],
+  violations: Violation[],
+): void {
+  for (const parsed of plan) {
+    if (!isBlockLocallyCovered(input, parsed.startMs, parsed.endMs)) {
+      violations.push({
+        code: 'H2',
+        message: `Block for task "${parsed.block.taskId}" is outside availability.`,
+        taskId: parsed.block.taskId,
+        blocks: [parsed.block],
+      });
+    }
+  }
+}
+
+/** Independent ADR-017 partition used by the H2 and H6 oracles. */
+interface OracleSegment {
+  date: string;
+  weekday: number;
+  offsetMs: number;
+  startMs: number;
+  endMs: number;
+  localMidnightMs: number;
+}
+
+const ORACLE_DAY_MS = 24 * 60 * MINUTE_MS;
+const ORACLE_MAX_TRANSITIONS = 4096;
+
+function oracleOffsetMsAt(timeZone: string, epochMs: number): number {
+  return Math.trunc(
+    Temporal.Instant.fromEpochMilliseconds(epochMs)
+      .toZonedDateTimeISO(timeZone).offsetNanoseconds / 1_000_000,
+  );
+}
+
+/**
+ * ADR-017 steps 1-2, implemented separately from `time.ts`/`slots.ts`: split at
+ * every offset transition, then split each constant-offset piece at local
+ * midnights using that piece's offset. Returned segments always belong to a
+ * single local date, and a date can reappear after a backward transition.
+ */
+function partitionByLocalDateOracle(
+  timeZone: string,
+  startMs: number,
+  endMs: number,
+): OracleSegment[] {
+  if (endMs <= startMs) {
+    return [];
+  }
+
+  const boundaries: number[] = [startMs];
+  let cursor = Temporal.Instant.fromEpochMilliseconds(startMs)
+    .toZonedDateTimeISO(timeZone);
+  for (let guard = 0; ; guard += 1) {
+    if (guard >= ORACLE_MAX_TRANSITIONS) {
+      throw new RangeError(
+        `Time zone transition walk exceeded ${ORACLE_MAX_TRANSITIONS} steps for ${timeZone}.`,
+      );
+    }
+    const transition = cursor.getTimeZoneTransition('next');
+    if (transition === null) {
+      break;
+    }
+    const transitionMs = transition.epochMilliseconds;
+    if (transitionMs >= endMs) {
+      break;
+    }
+    if (transitionMs > startMs) {
+      boundaries.push(transitionMs);
+    }
+    cursor = transition;
+  }
+  boundaries.push(endMs);
+  boundaries.sort((a, b) => a - b);
+
+  const segments: OracleSegment[] = [];
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const pieceStart = boundaries[index];
+    const pieceEnd = boundaries[index + 1];
+    if (
+      pieceStart === undefined ||
+      pieceEnd === undefined ||
+      pieceEnd <= pieceStart
+    ) {
+      continue;
+    }
+    const offsetMs = oracleOffsetMsAt(timeZone, pieceStart);
+    const localStartMs = pieceStart + offsetMs;
+    let nextLocalMidnightMs =
+      (Math.floor(localStartMs / ORACLE_DAY_MS) + 1) * ORACLE_DAY_MS;
+
+    const pieceBoundaries: number[] = [pieceStart];
+    while (nextLocalMidnightMs - offsetMs < pieceEnd) {
+      const midnightMs = nextLocalMidnightMs - offsetMs;
+      if (midnightMs > pieceStart) {
+        pieceBoundaries.push(midnightMs);
+      }
+      nextLocalMidnightMs += ORACLE_DAY_MS;
+    }
+    pieceBoundaries.push(pieceEnd);
+
+    for (let sub = 0; sub < pieceBoundaries.length - 1; sub += 1) {
+      const segmentStart = pieceBoundaries[sub];
+      const segmentEnd = pieceBoundaries[sub + 1];
+      if (
+        segmentStart === undefined ||
+        segmentEnd === undefined ||
+        segmentEnd <= segmentStart
+      ) {
+        continue;
+      }
+      const wall = Temporal.Instant.fromEpochMilliseconds(
+        segmentStart + offsetMs,
+      ).toZonedDateTimeISO('UTC');
+      segments.push({
+        date: wall.toPlainDate().toString(),
+        weekday: wall.dayOfWeek,
+        offsetMs,
+        startMs: segmentStart,
+        endMs: segmentEnd,
+        localMidnightMs:
+          Math.floor((segmentStart + offsetMs) / ORACLE_DAY_MS) *
+            ORACLE_DAY_MS -
+          offsetMs,
+      });
+    }
+  }
+  return segments;
+}
+
+function isBlockLocallyCovered(
+  input: ScheduleInput,
+  startMs: number,
+  endMs: number,
+): boolean {
+  const boundaries = new Set<number>([startMs, endMs]);
+
+  for (const segment of partitionByLocalDateOracle(
+    input.timeZone,
+    startMs,
+    endMs,
+  )) {
+    boundaries.add(segment.startMs);
+    boundaries.add(segment.endMs);
+    for (const rule of input.availability) {
+      if (rule.weekday !== segment.weekday) {
+        continue;
+      }
+      addSegmentBoundary(boundaries, segment, rule.startLocal, startMs, endMs);
+      addSegmentBoundary(boundaries, segment, rule.endLocal, startMs, endMs);
+    }
+    for (const exception of input.exceptions) {
+      if (exception.date !== segment.date) {
+        continue;
+      }
+      if (
+        exception.startLocal === undefined ||
+        exception.endLocal === undefined
+      ) {
+        continue;
+      }
+      addSegmentBoundary(
+        boundaries,
+        segment,
+        exception.startLocal,
+        startMs,
+        endMs,
+      );
+      addSegmentBoundary(
+        boundaries,
+        segment,
+        exception.endLocal,
+        startMs,
+        endMs,
+      );
+    }
+  }
+
+  const sorted = [...boundaries].sort((a, b) => a - b);
+  for (let index = 0; index < sorted.length - 1; index += 1) {
+    const left = sorted[index];
+    const right = sorted[index + 1];
+    if (left === undefined || right === undefined || right <= left) {
+      continue;
+    }
+    const midpoint = Math.floor((left + right) / 2);
+    if (!isInstantLocallyAvailable(input, midpoint)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function addSegmentBoundary(
+  boundaries: Set<number>,
+  segment: OracleSegment,
+  clockValue: string,
+  startMs: number,
+  endMs: number,
+): void {
+  const clock = oracleClockParts(clockValue);
+  if (clock === undefined) {
+    return;
+  }
+  const candidateMs =
+    segment.localMidnightMs +
+    (clock.hour * 60 + clock.minute) * MINUTE_MS;
+  if (candidateMs > startMs && candidateMs < endMs) {
+    boundaries.add(candidateMs);
+  }
+}
+
+
+function isInstantLocallyAvailable(
+  input: ScheduleInput,
+  epochMs: number,
+): boolean {
+  const zoned = Temporal.Instant.fromEpochMilliseconds(epochMs)
+    .toZonedDateTimeISO(input.timeZone);
+  const date = zoned.toPlainDate().toString();
+  const weekday = zoned.dayOfWeek;
+  const seconds =
+    zoned.hour * 3600 +
+    zoned.minute * 60 +
+    zoned.second +
+    zoned.millisecond / 1000 +
+    zoned.microsecond / 1_000_000 +
+    zoned.nanosecond / 1_000_000_000;
+
+  const exceptions = input.exceptions.filter(
+    (exception) => exception.date === date,
+  );
+  if (
+    exceptions.some(
+      (exception) =>
+        exception.kind === 'off' &&
+        exception.startLocal === undefined &&
+        exception.endLocal === undefined,
+    )
+  ) {
+    return false;
+  }
+
+  const fromRule = input.availability.some(
+    (rule) =>
+      rule.weekday === weekday &&
+      oracleRangeContains(rule.startLocal, rule.endLocal, seconds),
+  );
+  const fromExtra = exceptions.some(
+    (exception) =>
+      exception.kind === 'extra' && oracleExceptionContains(exception, seconds),
+  );
+  const fromOff = exceptions.some(
+    (exception) =>
+      exception.kind === 'off' && oracleExceptionContains(exception, seconds),
+  );
+  return (fromRule || fromExtra) && !fromOff;
+}
+
+function oracleExceptionContains(
+  exception: ExceptionWindow,
+  seconds: number,
+): boolean {
+  if (exception.startLocal === undefined && exception.endLocal === undefined) {
+    return true;
+  }
+  if (exception.startLocal === undefined || exception.endLocal === undefined) {
+    return false;
+  }
+  return oracleRangeContains(exception.startLocal, exception.endLocal, seconds);
+}
+
+function oracleRangeContains(
+  startLocal: string,
+  endLocal: string,
+  seconds: number,
+): boolean {
+  const start = oracleClockParts(startLocal);
+  const end = oracleClockParts(endLocal);
+  if (start === undefined || end === undefined) {
+    return false;
+  }
+  const startSeconds = start.hour * 3600 + start.minute * 60;
+  const endSeconds = end.hour * 3600 + end.minute * 60;
+  return endSeconds > startSeconds && seconds >= startSeconds && seconds < endSeconds;
+}
+
+function oracleClockParts(
+  value: string,
+): { hour: number; minute: number } | undefined {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (match === null) {
+    return undefined;
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    minute > 59 ||
+    hour < 0 ||
+    hour > 24 ||
+    (hour === 24 && minute !== 0)
+  ) {
+    return undefined;
+  }
+  return { hour, minute };
+}
+
+function checkH3(
+  input: ScheduleInput,
+  plan: ParsedBlock[],
+  violations: Violation[],
+): void {
+  const byTask = groupByTask(plan);
+  for (const task of input.tasks) {
+    const successorBlocks = byTask.get(task.id);
+    if (successorBlocks === undefined || successorBlocks.length === 0) {
+      continue;
+    }
+    const successorFirst = successorBlocks[0];
+    if (successorFirst === undefined) {
+      continue;
+    }
+    for (const dependencyId of task.dependsOn) {
+      const dependencyBlocks = byTask.get(dependencyId);
+      if (dependencyBlocks === undefined || dependencyBlocks.length === 0) {
+        continue;
+      }
+      const dependencyLast = dependencyBlocks[dependencyBlocks.length - 1];
+      if (dependencyLast === undefined) {
+        continue;
+      }
+      if (dependencyLast.endMs > successorFirst.startMs) {
+        violations.push({
+          code: 'H3',
+          message: `Task "${task.id}" starts before dependency "${dependencyId}" finishes.`,
+          taskId: task.id,
+          blocks: [dependencyLast.block, successorFirst.block],
+        });
+      }
+    }
+  }
+}
+
+function checkH4(
+  input: ScheduleInput,
+  plan: ParsedBlock[],
+  violations: Violation[],
+): void {
+  const byTask = groupByTask(plan);
+  for (const task of input.tasks) {
+    const taskBlocks = byTask.get(task.id);
+    if (taskBlocks === undefined || taskBlocks.length === 0) {
+      continue;
+    }
+    const first = taskBlocks[0];
+    const last = taskBlocks[taskBlocks.length - 1];
+    if (first === undefined || last === undefined) {
+      continue;
+    }
+
+    if (task.earliestStartAt !== undefined) {
+      const earliestMs = tryParseInstant(task.earliestStartAt);
+      if (earliestMs !== undefined && first.startMs < earliestMs) {
+        violations.push({
+          code: 'H4',
+          message: `Task "${task.id}" starts before earliestStartAt.`,
+          taskId: task.id,
+          blocks: [first.block],
+        });
+      }
+    }
+
+    if (task.dueAt !== undefined) {
+      const dueMs = tryParseInstant(task.dueAt);
+      const bufferMs = (task.bufferBeforeDueMin ?? 0) * MINUTE_MS;
+      if (dueMs !== undefined && last.endMs > dueMs - bufferMs) {
+        violations.push({
+          code: 'H4',
+          message:
+            bufferMs > 0
+              ? `Task "${task.id}" ends inside its pre-due buffer.`
+              : `Task "${task.id}" ends after its due time.`,
+          taskId: task.id,
+          blocks: [last.block],
+        });
+      }
+    }
+  }
+}
+
+function checkH5(
+  input: ScheduleInput,
+  plan: ParsedBlock[],
+  opts: ValidateOptions,
+  violations: Violation[],
+): void {
+  const byTask = groupByTask(plan);
+  for (const task of input.tasks) {
+    const taskBlocks = byTask.get(task.id) ?? [];
+    const durations = taskBlocks.map(
+      (parsed) => (parsed.endMs - parsed.startMs) / MINUTE_MS,
+    );
+
+    if (!task.splittable) {
+      const required = taskRequiredMinutes(task, opts.riskLevel);
+      if (required < task.minSessionMin || required > task.maxSessionMin) {
+        violations.push({
+          code: 'H5',
+          message: `Non-splittable task "${task.id}" requires ${required} minutes, outside [${task.minSessionMin}, ${task.maxSessionMin}].`,
+          taskId: task.id,
+          ...(taskBlocks.length === 0
+            ? {}
+            : { blocks: taskBlocks.map((parsed) => parsed.block) }),
+        });
+        continue;
+      }
+      const total = durations.reduce((sum, duration) => sum + duration, 0);
+      if (taskBlocks.length > 0 && (taskBlocks.length !== 1 || total !== required)) {
+        violations.push({
+          code: 'H5',
+          message: `Non-splittable task "${task.id}" must be one block covering ${required} minutes.`,
+          taskId: task.id,
+          blocks: taskBlocks.map((parsed) => parsed.block),
+        });
+      }
+      continue;
+    }
+
+    for (let index = 0; index < taskBlocks.length; index += 1) {
+      const duration = durations[index];
+      if (
+        duration !== undefined &&
+        (duration < task.minSessionMin || duration > task.maxSessionMin)
+      ) {
+        const parsed = taskBlocks[index];
+        violations.push({
+          code: 'H5',
+          message: `Task "${task.id}" has a ${duration}-minute session outside [${task.minSessionMin}, ${task.maxSessionMin}].`,
+          taskId: task.id,
+          ...(parsed === undefined ? {} : { blocks: [parsed.block] }),
+        });
+      }
+    }
+  }
+}
+
+function checkH6(
+  input: ScheduleInput,
+  plan: ParsedBlock[],
+  violations: Violation[],
+): void {
+  const byDate = new Map<string, number>();
+  for (const parsed of plan) {
+    for (const segment of partitionByLocalDateOracle(
+      input.timeZone,
+      parsed.startMs,
+      parsed.endMs,
+    )) {
+      const minutes = (segment.endMs - segment.startMs) / MINUTE_MS;
+      byDate.set(segment.date, (byDate.get(segment.date) ?? 0) + minutes);
+    }
+  }
+
+  for (const [date, totalMin] of byDate) {
+    if (totalMin > input.prefs.maxDailyFocusMin) {
+      violations.push({
+        code: 'H6',
+        message: `Daily focus on ${date} is ${totalMin} minutes, above ${input.prefs.maxDailyFocusMin}.`,
+      });
+    }
+  }
+
+  const breakAfterMs = input.prefs.breakAfterMin * MINUTE_MS;
+  const breakMs = input.prefs.breakMin * MINUTE_MS;
+  if (breakAfterMs <= 0) {
+    return;
+  }
+
+  const sortedPlan = [...plan].sort(
+    (a, b) => a.startMs - b.startMs || a.endMs - b.endMs,
+  );
+  let runStart: number | undefined;
+  let runEnd: number | undefined;
+  let runDate = '';
+  for (const interval of sortedPlan) {
+    if (runStart === undefined || runEnd === undefined) {
+      runStart = interval.startMs;
+      runEnd = interval.endMs;
+      runDate = instantToZoned(runStart, input.timeZone)
+        .toPlainDate()
+        .toString();
+      continue;
+    }
+    if (interval.startMs - runEnd >= breakMs) {
+      if (runEnd - runStart > breakAfterMs) {
+        violations.push({
+          code: 'H6',
+          message: `Continuous focus starting on ${runDate} exceeds ${input.prefs.breakAfterMin} minutes without a ${input.prefs.breakMin}-minute break.`,
+        });
+      }
+      runStart = interval.startMs;
+      runEnd = interval.endMs;
+      runDate = instantToZoned(runStart, input.timeZone)
+        .toPlainDate()
+        .toString();
+    } else {
+      runEnd = Math.max(runEnd, interval.endMs);
+    }
+  }
+  if (
+    runStart !== undefined &&
+    runEnd !== undefined &&
+    runEnd - runStart > breakAfterMs
+  ) {
+    violations.push({
+      code: 'H6',
+      message: `Continuous focus starting on ${runDate} exceeds ${input.prefs.breakAfterMin} minutes without a ${input.prefs.breakMin}-minute break.`,
+    });
+  }
+}
+
+function checkH7(
+  input: ScheduleInput,
+  plan: ParsedBlock[],
+  opts: ValidateOptions,
+  violations: Violation[],
+): void {
+  const byTask = groupByTask(plan);
+  for (const task of input.tasks) {
+    const taskBlocks = byTask.get(task.id) ?? [];
+    const required = taskRequiredMinutes(task, opts.riskLevel);
+    const placed = taskBlocks.reduce(
+      (sum, parsed) => sum + (parsed.endMs - parsed.startMs) / MINUTE_MS,
+      0,
+    );
+    if (placed !== required) {
+      const difference = Math.abs(required - placed);
+      violations.push({
+        code: 'H7',
+        message:
+          placed < required
+            ? `Task "${task.id}" is short by ${difference} minutes (deficit).`
+            : `Task "${task.id}" is overallocated by ${difference} minutes.`,
+        taskId: task.id,
+        ...(taskBlocks.length === 0
+          ? {}
+          : { blocks: taskBlocks.map((parsed) => parsed.block) }),
+      });
+    }
+  }
+}
+
+function groupByTask(plan: ParsedBlock[]): Map<string, ParsedBlock[]> {
+  const byTask = new Map<string, ParsedBlock[]>();
+  for (const parsed of plan) {
+    const list = byTask.get(parsed.block.taskId) ?? [];
+    list.push(parsed);
+    byTask.set(parsed.block.taskId, list);
+  }
+  for (const list of byTask.values()) {
+    list.sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+  }
+  return byTask;
+}
+
+function tryParseInstant(value: Instant): number | undefined {
+  try {
+    return parseInstant(value);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Validate the shape and internal consistency of a `ScheduleInput` before any
+ * plan is generated. G07-style impossible windows are reported as
+ * `invalid_window`.
+ */
+export function validateInput(input: ScheduleInput): InputIssue[] {
+  const issues: InputIssue[] = [];
+
+  if (!isValidTimeZone(input.timeZone)) {
+    issues.push({
+      code: 'invalid_timezone',
+      message: `Invalid IANA time zone: ${input.timeZone}`,
+    });
+  }
+
+  const horizonStart = tryParseInstant(input.horizon.start);
+  const horizonEnd = tryParseInstant(input.horizon.end);
+  if (horizonStart === undefined || horizonEnd === undefined) {
+    issues.push({
+      code: 'invalid_instant',
+      message: 'Horizon contains an invalid instant.',
+    });
+  } else if (horizonEnd <= horizonStart) {
+    issues.push({
+      code: 'invalid_window',
+      message: 'Horizon end must be after horizon start.',
+    });
+  }
+
+  if (tryParseInstant(input.now) === undefined) {
+    issues.push({ code: 'invalid_instant', message: 'now is not a valid instant.' });
+  }
+
+  const taskIds = new Set<string>();
+  for (const task of input.tasks) {
+    if (taskIds.has(task.id)) {
+      issues.push({
+        code: 'duplicate_task',
+        message: `Task id "${task.id}" is duplicated.`,
+        taskId: task.id,
+      });
+    }
+    taskIds.add(task.id);
+    validateTaskWindow(task, issues);
+    if (
+      task.estimate.p50Min < 0 ||
+      task.estimate.p90Min < 0 ||
+      (task.remainingMin !== undefined && task.remainingMin < 0)
+    ) {
+      issues.push({
+        code: 'invalid_estimate',
+        message: `Task "${task.id}" has a negative estimate.`,
+        taskId: task.id,
+      });
+    }
+    if (
+      task.minSessionMin < 0 ||
+      task.maxSessionMin < task.minSessionMin ||
+      (task.splittable && task.minSessionMin === 0)
+    ) {
+      issues.push({
+        code: 'invalid_session',
+        message: `Task "${task.id}" has invalid session bounds.`,
+        taskId: task.id,
+      });
+    }
+  }
+
+  for (const task of input.tasks) {
+    for (const dependency of task.dependsOn) {
+      if (!taskIds.has(dependency)) {
+        issues.push({
+          code: 'unknown_dependency',
+          message: `Task "${task.id}" depends on unknown task "${dependency}".`,
+          taskId: task.id,
+        });
+      }
+    }
+  }
+
+  if (hasDependencyCycle(input.tasks)) {
+    issues.push({
+      code: 'dependency_cycle',
+      message: 'Task dependencies contain a cycle.',
+    });
+  }
+
+  for (const rule of input.availability) {
+    if (rule.weekday < 1 || rule.weekday > 7) {
+      issues.push({
+        code: 'invalid_window',
+        message: `Availability weekday ${rule.weekday} is outside 1-7.`,
+      });
+      continue;
+    }
+    if (!isValidClockRange(rule.startLocal, rule.endLocal)) {
+      issues.push({
+        code: 'invalid_window',
+        message: `Availability window ${rule.startLocal}-${rule.endLocal} is invalid.`,
+      });
+    }
+  }
+
+  for (const exception of input.exceptions) {
+    if (!isValidDate(exception.date)) {
+      issues.push({
+        code: 'invalid_window',
+        message: `Exception date "${exception.date}" is invalid.`,
+      });
+    }
+    const hasStart = exception.startLocal !== undefined;
+    const hasEnd = exception.endLocal !== undefined;
+    if (hasStart !== hasEnd) {
+      issues.push({
+        code: 'invalid_window',
+        message: `Exception on "${exception.date}" must have both start and end or neither.`,
+      });
+    } else if (
+      hasStart &&
+      hasEnd &&
+      !isValidClockRange(
+        exception.startLocal as string,
+        exception.endLocal as string,
+      )
+    ) {
+      issues.push({
+        code: 'invalid_window',
+        message: `Exception window on "${exception.date}" is invalid.`,
+      });
+    }
+  }
+
+  for (const commitment of input.commitments) {
+    validateBlockInterval(commitment.start, commitment.end, issues, 'commitment');
+  }
+  for (const block of [...input.lockedBlocks, ...(input.existingBlocks ?? [])]) {
+    if (!taskIds.has(block.taskId)) {
+      issues.push({
+        code: 'unknown_task',
+        message: `Block references unknown task "${block.taskId}".`,
+        taskId: block.taskId,
+      });
+    }
+    let startNs: bigint;
+    let endNs: bigint;
+    try {
+      startNs = instantNanoseconds(block.start);
+      endNs = instantNanoseconds(block.end);
+    } catch {
+      issues.push({
+        code: 'invalid_instant',
+        message: `Block for task "${block.taskId}" has an invalid instant.`,
+        taskId: block.taskId,
+      });
+      continue;
+    }
+    if (startNs % 1_000_000n !== 0n || endNs % 1_000_000n !== 0n) {
+      issues.push({
+        code: 'invalid_precision',
+        message: `Block for task "${block.taskId}" has sub-millisecond precision.`,
+        taskId: block.taskId,
+      });
+      continue;
+    }
+    if (startNs % GRID_NS !== 0n || endNs % GRID_NS !== 0n) {
+      issues.push({
+        code: 'invalid_precision',
+        message: `Block for task "${block.taskId}" is not on the 5-minute grid.`,
+        taskId: block.taskId,
+      });
+      continue;
+    }
+    if (Number(endNs / 1_000_000n) <= Number(startNs / 1_000_000n)) {
+      issues.push({
+        code: 'invalid_window',
+        message: `Block for task "${block.taskId}" ends before it starts.`,
+        taskId: block.taskId,
+      });
+    }
+  }
+
+  return issues;
+}
+
+function validateTaskWindow(task: Task, issues: InputIssue[]): void {
+  const earliest = task.earliestStartAt === undefined
+    ? undefined
+    : tryParseInstant(task.earliestStartAt);
+  const due = task.dueAt === undefined ? undefined : tryParseInstant(task.dueAt);
+  if ((task.earliestStartAt !== undefined && earliest === undefined) ||
+      (task.dueAt !== undefined && due === undefined)) {
+    issues.push({
+      code: 'invalid_window',
+      message: `Task "${task.id}" contains an invalid window instant.`,
+      taskId: task.id,
+    });
+    return;
+  }
+  if (earliest !== undefined && due !== undefined) {
+    const bufferMs = (task.bufferBeforeDueMin ?? 0) * MINUTE_MS;
+    if (earliest > due || earliest >= due - bufferMs) {
+      issues.push({
+        code: 'invalid_window',
+        message: `Task "${task.id}" has earliestStartAt at or after its due window.`,
+        taskId: task.id,
+      });
+    }
+  }
+}
+
+function validateBlockInterval(
+  start: Instant,
+  end: Instant,
+  issues: InputIssue[],
+  label: string,
+): void {
+  const startMs = tryParseInstant(start);
+  const endMs = tryParseInstant(end);
+  if (startMs === undefined || endMs === undefined) {
+    issues.push({
+      code: 'invalid_instant',
+      message: `${label} has an invalid instant.`,
+    });
+    return;
+  }
+  if (endMs <= startMs) {
+    issues.push({
+      code: 'invalid_window',
+      message: `${label} ends before it starts.`,
+    });
+  }
+}
+
+function isValidClockRange(startLocal: string, endLocal: string): boolean {
+  try {
+    const start = parseClock(startLocal);
+    const end = parseClock(endLocal);
+    if (start.hour === 24) {
+      return false;
+    }
+    return end.hour * 60 + end.minute > start.hour * 60 + start.minute;
+  } catch {
+    return false;
+  }
+}
+
+function isValidDate(value: string): boolean {
+  try {
+    Temporal.PlainDate.from(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasDependencyCycle(tasks: Task[]): boolean {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+
+  const visit = (id: string): boolean => {
+    if (visiting.has(id)) {
+      return true;
+    }
+    if (visited.has(id)) {
+      return false;
+    }
+    const task = byId.get(id);
+    if (task === undefined) {
+      return false;
+    }
+    visiting.add(id);
+    for (const dependency of task.dependsOn) {
+      if (visit(dependency)) {
+        return true;
+      }
+    }
+    visiting.delete(id);
+    visited.add(id);
+    return false;
+  };
+
+  for (const task of tasks) {
+    if (visit(task.id)) {
+      return true;
+    }
+  }
+  return false;
+}

@@ -1,0 +1,51 @@
+{
+  "id": "G07",
+  "description": "earliestStartAt after dueAt is an invalid input window.",
+  "input": {
+    "now": "2026-11-09T00:00:00Z",
+    "timeZone": "Asia/Seoul",
+    "horizon": {
+      "start": "2026-11-09T00:00:00Z",
+      "end": "2026-11-10T00:00:00Z"
+    },
+    "tasks": [
+      {
+        "id": "A",
+        "earliestStartAt": "2026-11-09T05:00:00Z",
+        "dueAt": "2026-11-09T04:00:00Z",
+        "estimate": { "p50Min": 60, "p90Min": 60 },
+        "splittable": true,
+        "minSessionMin": 30,
+        "maxSessionMin": 120,
+        "priority": 1,
+        "dependsOn": []
+      }
+    ],
+    "availability": [
+      { "weekday": 1, "startLocal": "09:00", "endLocal": "17:00", "kind": "work" }
+    ],
+    "exceptions": [],
+    "commitments": [],
+    "lockedBlocks": [],
+    "prefs": {
+      "maxDailyFocusMin": 480,
+      "breakAfterMin": 480,
+      "breakMin": 15,
+      "riskLevel": "p50",
+      "dayStartLocal": "00:00",
+      "dayEndLocal": "24:00"
+    },
+    "seed": 7
+  },
+  "candidateBlocks": {
+    "valid": null,
+    "invalid": null
+  },
+  "expected": {
+    "slotTotalMin": 480,
+    "slotIntervalCount": 1,
+    "validViolationCodes": [],
+    "invalidViolationCodes": [],
+    "inputIssueCodes": ["invalid_window"]
+  }
+}
