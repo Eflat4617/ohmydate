@@ -10,6 +10,7 @@ sharedWorkspaceLockfile: true
 saveExact: true
 allowBuilds:
   esbuild: true
+  vue-demi: true
 minimumReleaseAgeExclude:
   - '@typescript-eslint/eslint-plugin@8.72.2'
   - '@typescript-eslint/parser@8.72.2'
