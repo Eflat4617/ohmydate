@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 07:03 | **Sol 복귀 확인**: `codex exec -m gpt-6.1-sol -c model_reasoning_effort=high` → 헤더 model: gpt-6.1-sol / reasoning effort: high, 응답 SOL_OK. 이후 신규 리뷰는 Sol(MODEL_BINDINGS §1). 진행 중인 M3-02cR(Opus)은 유지. M2-03 worker_done(de1af71..957017c, DeepSeek-high 136) → 리뷰 전 통합본 병합 + 빌드 목록에 llm 추가 지시 | codex probe | orchestrator |
 | 2026-11-11 06:38 | **호스트 재부팅** (uptime 4분 확인). Orca 데스크톱 앱 재기동(ready). 진행 중 Dispatch 5개 자동 abandoned → Task ready: FU-32R, FU-35R, M2-02R, M3-02cR(리뷰), M2-03(작업 트리 거의 빈 상태). dev 컨테이너 정지 → `restart: unless-stopped` 추가 후 재기동. 리뷰 4건 Opus 대체로 재시작(ctx_00974a8b4db0, ctx_56d39c548ab8, ctx_e2f20910c6eb, ctx_1af22cce1c49), M2-03은 기존 worktree로 재개(resume-deepseek-worker.sh). 중복 dispatch 없음 | uptime, worker-list, task-list | orchestrator |
 | 2026-11-11 | **Orca 런타임 장애 및 복구:** 06:10경 그래픽 세션 종료(GDM greeter)로 Orca 앱 런타임 소실 → CLI runtime_unavailable(BLOCKED: ORCA_RUNTIME). 데몬·워커 프로세스는 생존. `xvfb-run -a dbus-run-session -- orca serve --bind 127.0.0.1 --no-pairing --refuse-public`로 로컬 전용 헤드리스 런타임 기동 → ready(ws://127.0.0.1:6768), Run/Task/Dispatch 상태 보존, 대기 중이던 worker_done 3건 정상 수신. 직전 부하 평균 206 급증(동시 테스트+시스템 업데이트) 관측 | orca status, serve log | orchestrator |
 | 2026-11-11 | M3-02 체인 BLOCKED(R3 HIGH: 진행 중 비분할 작업 remainingMin=0 표현 불가) → 범위 축소 M3-02c | M3-02R-3 | orchestrator |
