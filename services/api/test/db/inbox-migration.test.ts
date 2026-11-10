@@ -1,4 +1,4 @@
-import { cp, mkdtemp, rm } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,9 +28,12 @@ describe.skipIf(!hasDatabase)('0002 inbox project migration', () => {
     await createSchema(schema);
     workDir = await mkdtemp(join(tmpdir(), 'ohmydate-inbox-'));
     migrations = join(workDir, 'migrations');
-    await cp(migrationsDir, migrations, { recursive: true });
-    await rm(join(migrations, '0002_inbox_project.sql'));
-    await rm(join(migrations, '0002_inbox_project.down.sql'));
+    await mkdir(migrations, { recursive: true });
+    await cp(join(migrationsDir, '0001_init.sql'), join(migrations, '0001_init.sql'));
+    await cp(
+      join(migrationsDir, '0001_init.down.sql'),
+      join(migrations, '0001_init.down.sql'),
+    );
   });
 
   afterEach(async () => {

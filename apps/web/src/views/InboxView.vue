@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
-import { ActionStore, plannerClient, type Task } from '../api';
+import { ActionStore, findInboxProject, plannerClient, type Task } from '../api';
 import { useTaskActions } from '../composables/useTaskActions';
 import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
@@ -18,19 +18,15 @@ const {
   error: createError,
 } = useTaskActions(plannerClient, new ActionStore(), () => offline.online);
 
-const projectsQuery = useQuery({
-  queryKey: ['projects'],
-  queryFn: () => plannerClient.listProjects(),
+const inboxQuery = useQuery({
+  queryKey: ['projects', 'inbox'],
+  queryFn: () => findInboxProject(plannerClient),
 });
 
-const inboxProject = computed(() => {
-  const project = projectsQuery.data.value?.items.find((item) => item.kind === 'inbox');
-  return project;
-});
-
+const inboxProject = computed(() => inboxQuery.data.value ?? undefined);
 const inboxProjectId = computed(() => inboxProject.value?.id);
 const inboxMissing = computed(
-  () => projectsQuery.isSuccess.value && inboxProject.value === undefined,
+  () => inboxQuery.isSuccess.value && inboxQuery.data.value === null,
 );
 
 const tasksQuery = useQuery({
@@ -46,16 +42,16 @@ const tasksQuery = useQuery({
 const tasks = computed<Task[]>(() => tasksQuery.data.value?.items ?? []);
 const isLoading = computed(
   () =>
-    projectsQuery.isLoading.value ||
+    inboxQuery.isLoading.value ||
     (inboxProjectId.value !== undefined && tasksQuery.isLoading.value),
 );
-const isError = computed(() => projectsQuery.isError.value || tasksQuery.isError.value);
+const isError = computed(() => inboxQuery.isError.value || tasksQuery.isError.value);
 const quickAddDisabled = computed(
-  () => !offline.mutationsEnabled || createBusy.value || inboxMissing.value,
+  () => !offline.mutationsEnabled || createBusy.value,
 );
 
 async function refetchAll(): Promise<void> {
-  const pending: Promise<unknown>[] = [projectsQuery.refetch()];
+  const pending: Promise<unknown>[] = [inboxQuery.refetch()];
   if (inboxProjectId.value !== undefined) pending.push(tasksQuery.refetch());
   await Promise.all(pending);
 }
@@ -73,6 +69,7 @@ async function addTask(title: string): Promise<void> {
     await create(title);
     quickAdd.value?.clear();
     await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    await queryClient.invalidateQueries({ queryKey: ['projects'] });
   } catch {
     // `createError` carries the user-facing message and the form keeps its text.
   }

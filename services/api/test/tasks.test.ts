@@ -236,6 +236,33 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
     expect(remove.statusCode).toBe(404);
   });
 
+  test('a fresh user already sees exactly one Inbox in GET /projects', async () => {
+    await ctx.seedUser({ email: 'fresh-inbox@example.com', password: 'correct-horse' });
+    const fresh = await login(ctx, 'fresh-inbox@example.com', 'correct-horse');
+
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/projects?limit=100',
+      headers: authHeaders(fresh),
+    });
+    expect(response.statusCode).toBe(200);
+    const items = (response.json() as {
+      items: { id: string; kind: string }[];
+    }).items;
+    expect(items.filter((project) => project.kind === 'inbox')).toHaveLength(1);
+  });
+
+  test('POST /projects rejects an attempt to create an Inbox', async () => {
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
+      payload: { title: 'My inbox', kind: 'inbox' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'validation_failed' });
+  });
+
   test('assigns tasks without projectId to the owner Inbox and exposes kind', async () => {
     const created = await createTask(alice, { title: 'Inbox capture' });
     expect(created.statusCode).toBe(201);

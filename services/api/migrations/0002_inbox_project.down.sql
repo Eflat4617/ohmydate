@@ -2,7 +2,9 @@
 --
 -- The Inbox projects created by the forward migration remain as normal
 -- projects; orphan tasks stay attached to them. Only the kind marker, the
--- partial unique index and the NOT NULL constraint are reverted.
+-- partial unique index and the NOT NULL constraint are reverted. Re-running
+-- 0002 after this rollback creates another 'Inbox' per user because the old
+-- row is no longer marked as an inbox; run a manual cleanup if needed.
 
 ALTER TABLE task
   ALTER COLUMN project_id DROP NOT NULL;

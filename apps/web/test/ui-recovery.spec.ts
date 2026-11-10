@@ -337,7 +337,12 @@ describe('inbox scoping', () => {
     await waitForText(wrapper, 'Inbox project is missing');
 
     expect(wrapper.text()).not.toContain('Unscoped-looking task');
-    expect(wrapper.get('#quick-add-title').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('#quick-add-title').attributes('disabled')).toBeUndefined();
+
+    await wrapper.get('#quick-add-title').setValue('Recovered capture');
+    await wrapper.get('form.quick-add').trigger('submit');
+    await waitForText(wrapper, 'Recovered capture');
+    expect(wrapper.text()).not.toContain('Inbox project is missing');
 
     wrapper.unmount();
   });

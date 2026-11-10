@@ -1,4 +1,4 @@
-import type { Id, InboxProjectLookup } from '@ohmydate/domain';
+import { supportsInbox, type Id, type ProjectRepository } from '@ohmydate/domain';
 import type { UserRecord, UserRepository } from './ports.js';
 
 export interface CreateUserInput {
@@ -10,21 +10,23 @@ export interface CreateUserInput {
 }
 
 /**
- * ADR-018: every new user owns exactly one Inbox. The CLI and the test harness
- * create users through this service so the invariant holds outside HTTP.
+ * ADR-018: user creation seeds the Inbox in the same ProjectRepository the API
+ * serves. A repository without getInbox is left to create it lazily.
  */
 export class UserService {
   readonly #users: UserRepository;
-  readonly #inbox: InboxProjectLookup;
+  readonly #projects: ProjectRepository | undefined;
 
-  constructor(users: UserRepository, inbox: InboxProjectLookup) {
+  constructor(users: UserRepository, projects?: ProjectRepository) {
     this.#users = users;
-    this.#inbox = inbox;
+    this.#projects = projects;
   }
 
   async create(input: CreateUserInput): Promise<UserRecord> {
     const user = await this.#users.insert(input);
-    await this.#inbox.getInbox(user.id);
+    if (this.#projects !== undefined && supportsInbox(this.#projects)) {
+      await this.#projects.getInbox(user.id);
+    }
     return user;
   }
 }

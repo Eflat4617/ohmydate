@@ -1,6 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { hash } from '@node-rs/argon2';
-import { PgInboxRepository } from '../../src/adapters/pg-inbox-repository.js';
 import { PgUserRepository } from '../../src/adapters/pg-user-repository.js';
 import { UserService } from '../../src/application/user-service.js';
 import { createConfig, type AppConfig } from '../../src/config.js';
@@ -120,8 +119,7 @@ export async function createTestContext(
       const id = ids.next();
       const passwordHash = await hash(input.password);
       const users = new PgUserRepository(db, clock);
-      const inbox = new PgInboxRepository({ db, clock, ids });
-      const service = new UserService(users, inbox);
+      const service = new UserService(users, repos.projects);
       await service.create({
         id,
         email: input.email.trim().toLowerCase(),

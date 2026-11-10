@@ -403,6 +403,9 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       const auth = currentAuth(request);
       const key = requireIdempotencyKey(request);
       const input = request.body as TaskCreate;
+      if (input.projectId === undefined) {
+        await runtime.projects.ensureInbox(auth.userId);
+      }
       const task = await runtime.tasks.create(
         auth.userId,
         toDomainTaskCreate(input),

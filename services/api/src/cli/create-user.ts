@@ -7,7 +7,6 @@ import {
 } from '@ohmydate/domain';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
-import { PgInboxRepository } from '../adapters/pg-inbox-repository.js';
 import { normalizeEmail, PgUserRepository } from '../adapters/pg-user-repository.js';
 import { UserService } from '../application/user-service.js';
 import type { Database } from '../db/types.js';
@@ -50,8 +49,7 @@ async function main(): Promise<void> {
     };
     const ids = createUuidV7Generator({ clock, rand: (length) => randomBytes(length) });
     const users = new PgUserRepository(db, clock);
-    const inbox = new PgInboxRepository({ db, clock, ids });
-    const service = new UserService(users, inbox);
+    const service = new UserService(users);
     const created = await service.create({
       id: ids.next(),
       email: normalizeEmail(email),

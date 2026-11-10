@@ -1,4 +1,10 @@
-import type { Id, InboxProjectLookup, Instant, Project, Version } from '@ohmydate/domain';
+import type {
+  Id,
+  Instant,
+  Project,
+  ProjectRepository,
+  Version,
+} from '@ohmydate/domain';
 import type { UserRecord, UserRepository } from '../src/application/ports.js';
 import { UserService } from '../src/application/user-service.js';
 
@@ -17,8 +23,23 @@ function userRecord(): UserRecord {
   };
 }
 
+function projectRepository(getInbox: (ownerId: Id) => Promise<Project>): ProjectRepository {
+  return {
+    capabilities: { strictConcurrency: true, idempotentCreate: true },
+    create: async () => {
+      throw new Error('not used');
+    },
+    get: async () => null,
+    list: async () => ({ items: [], nextCursor: null }),
+    update: async () => {
+      throw new Error('not used');
+    },
+    getInbox,
+  };
+}
+
 describe('UserService', () => {
-  it('creates the Inbox for every new user', async () => {
+  it('creates the Inbox in the served project repository', async () => {
     const insert = vi.fn(async () => userRecord());
     const inboxProject: Project = {
       id: '01900000-0000-7000-8000-000000000002' as Id,
@@ -32,9 +53,8 @@ describe('UserService', () => {
     };
     const getInbox = vi.fn(async () => inboxProject);
     const users = { insert } as unknown as UserRepository;
-    const inbox = { getInbox } as InboxProjectLookup;
 
-    const created = await new UserService(users, inbox).create({
+    const created = await new UserService(users, projectRepository(getInbox)).create({
       id: userId,
       email: 'new@example.test',
       passwordHash: 'hash',
@@ -47,5 +67,19 @@ describe('UserService', () => {
       passwordHash: 'hash',
     });
     expect(getInbox).toHaveBeenCalledWith(userId);
+  });
+
+  it('still creates the user when the served repository has no Inbox support', async () => {
+    const insert = vi.fn(async () => userRecord());
+    const users = { insert } as unknown as UserRepository;
+
+    const created = await new UserService(users).create({
+      id: userId,
+      email: 'new@example.test',
+      passwordHash: 'hash',
+    });
+
+    expect(created.id).toBe(userId);
+    expect(insert).toHaveBeenCalledTimes(1);
   });
 });

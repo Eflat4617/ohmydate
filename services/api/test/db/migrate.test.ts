@@ -1,5 +1,5 @@
 import { readdirSync } from 'node:fs';
-import { copyFile, cp, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -152,13 +152,13 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           [schema],
         );
         expect(taskColumn.rows[0]?.is_nullable).toBe('YES');
+        const index = await client.query<{ name: string | null }>(
+          `SELECT indexname AS name FROM pg_indexes
+            WHERE schemaname = $1 AND indexname = 'project_owner_inbox_unique'`,
+          [schema],
+        );
+        expect(index.rowCount).toBe(0);
       }
-      const index = await client.query<{ name: string | null }>(
-        `SELECT indexname AS name FROM pg_indexes
-          WHERE schemaname = $1 AND indexname = 'project_owner_inbox_unique'`,
-        [schema],
-      );
-      expect(index.rowCount).toBe(0);
     } finally {
       await client.end();
     }
@@ -228,9 +228,12 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
     const tmpRoot = await mkdtemp(join(tmpdir(), 'ohmydate-migrations-'));
     const copyDir = join(tmpRoot, 'migrations');
     try {
-      await cp(migrationsDir, copyDir, { recursive: true });
-      await rm(join(copyDir, '0002_inbox_project.sql'));
-      await rm(join(copyDir, '0002_inbox_project.down.sql'));
+      await mkdir(copyDir, { recursive: true });
+      await copyFile(join(migrationsDir, '0001_init.sql'), join(copyDir, '0001_init.sql'));
+      await copyFile(
+        join(migrationsDir, '0001_init.down.sql'),
+        join(copyDir, '0001_init.down.sql'),
+      );
       await rename(join(copyDir, '0001_init.sql'), join(copyDir, '0002_init.sql'));
       await rename(join(copyDir, '0001_init.down.sql'), join(copyDir, '0002_init.down.sql'));
 

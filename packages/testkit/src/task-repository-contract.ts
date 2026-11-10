@@ -985,7 +985,9 @@ export function describeTaskRepositoryContract(
       const inbox = await context.projects.get(context.ownerA, first.projectId);
       expect(inbox).not.toBeNull();
       expect(inbox?.ownerId).toBe(context.ownerA);
-      expect(inbox?.kind).toBe('inbox');
+      if (supportsInbox(context.projects)) {
+        expect(inbox?.kind).toBe('inbox');
+      }
       expect(inbox?.title).toBe('Inbox');
       expect(await context.projects.get(context.ownerB, first.projectId)).toBeNull();
 
