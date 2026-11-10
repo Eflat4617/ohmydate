@@ -32,11 +32,15 @@ interface MigrationFile {
   readonly filename: string;
   readonly sql: string;
   readonly sha256: string;
+  readonly downFilename: string;
+  readonly downSql: string | null;
+  readonly downSha256: string | null;
 }
 
 interface AppliedMigration {
   readonly filename: string;
   readonly sha256: string;
+  readonly down_sha256: string | null;
 }
 
 export class MigrationError extends Error {
@@ -88,9 +92,22 @@ async function loadMigrations(migrationsDir: string): Promise<readonly Migration
     filenames.map(async (filename) => {
       const sql = await readFile(join(migrationsDir, filename), 'utf8');
       const sha256 = createHash('sha256').update(sql, 'utf8').digest('hex');
-      return { filename, sql, sha256 };
+      const downFilename = filename.replace(/\.sql$/, '.down.sql');
+      let downSql: string | null;
+      try {
+        downSql = await readFile(join(migrationsDir, downFilename), 'utf8');
+      } catch {
+        downSql = null;
+      }
+      const downSha256 =
+        downSql === null ? null : createHash('sha256').update(downSql, 'utf8').digest('hex');
+      return { filename, sql, sha256, downFilename, downSql, downSha256 };
     }),
   );
+}
+
+function migrationNumber(filename: string): number {
+  return Number.parseInt(filename.slice(0, 4), 10);
 }
 
 async function prepareSession(
@@ -110,6 +127,7 @@ async function ensureSchemaMigrations(client: InstanceType<typeof Client>): Prom
        applied_at timestamptz NOT NULL DEFAULT now()
      )`,
   );
+  await client.query('ALTER TABLE schema_migrations ADD COLUMN IF NOT EXISTS down_sha256 text');
 }
 
 /**
@@ -134,21 +152,38 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
       await ensureSchemaMigrations(client);
 
       const appliedResult = await client.query<AppliedMigration>(
-        'SELECT filename, sha256 FROM schema_migrations ORDER BY filename',
+        'SELECT filename, sha256, down_sha256 FROM schema_migrations ORDER BY filename',
       );
-      const applied = new Map(appliedResult.rows.map((row) => [row.filename, row.sha256]));
+      const applied = new Map(appliedResult.rows.map((row) => [row.filename, row]));
       const filesByName = new Map(files.map((file) => [file.filename, file]));
 
-      for (const [filename, recordedSha256] of applied) {
-        const file = filesByName.get(filename);
+      for (const row of appliedResult.rows) {
+        const file = filesByName.get(row.filename);
         if (file === undefined) {
           throw new MigrationError(
-            `applied migration ${filename} is missing from ${migrationsDir}; ` +
+            `applied migration ${row.filename} is missing from ${migrationsDir}; ` +
               'restore the file or add a new forward migration.',
           );
         }
-        if (file.sha256 !== recordedSha256) {
-          throw new MigrationChecksumMismatchError(filename, recordedSha256, file.sha256);
+        if (file.sha256 !== row.sha256) {
+          throw new MigrationChecksumMismatchError(row.filename, row.sha256, file.sha256);
+        }
+        if (file.downSha256 !== row.down_sha256) {
+          throw new MigrationChecksumMismatchError(
+            file.downFilename,
+            row.down_sha256 ?? '<missing>',
+            file.downSha256 ?? '<missing>',
+          );
+        }
+      }
+
+      const highestApplied = Math.max(0, ...appliedResult.rows.map((row) => migrationNumber(row.filename)));
+      for (const file of files) {
+        if (!applied.has(file.filename) && migrationNumber(file.filename) < highestApplied) {
+          throw new MigrationError(
+            `migration ${file.filename} is numbered below already applied ${highestApplied}; ` +
+              'migrations must be appended, not inserted.',
+          );
         }
       }
 
@@ -161,10 +196,10 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
           continue;
         }
         await client.query(file.sql);
-        await client.query('INSERT INTO schema_migrations (filename, sha256) VALUES ($1, $2)', [
-          file.filename,
-          file.sha256,
-        ]);
+        await client.query(
+          'INSERT INTO schema_migrations (filename, sha256, down_sha256) VALUES ($1, $2, $3)',
+          [file.filename, file.sha256, file.downSha256],
+        );
         appliedNow.push(file.filename);
       }
 
@@ -186,6 +221,8 @@ export async function migrate(options: MigrateOptions): Promise<MigrateResult> {
  */
 export async function rollbackLatest(options: MigrateOptions): Promise<string | null> {
   const migrationsDir = options.migrationsDir ?? defaultMigrationsDir();
+  const files = await loadMigrations(migrationsDir);
+  const filesByName = new Map(files.map((file) => [file.filename, file]));
   const client = new Client({ connectionString: options.databaseUrl });
 
   await client.connect();
@@ -199,8 +236,8 @@ export async function rollbackLatest(options: MigrateOptions): Promise<string | 
       await prepareSession(client, options.schema);
       await ensureSchemaMigrations(client);
 
-      const latestResult = await client.query<{ filename: string }>(
-        'SELECT filename FROM schema_migrations ORDER BY filename DESC LIMIT 1',
+      const latestResult = await client.query<AppliedMigration>(
+        'SELECT filename, sha256, down_sha256 FROM schema_migrations ORDER BY filename DESC LIMIT 1',
       );
       const latest = latestResult.rows[0];
       if (latest === undefined) {
@@ -208,17 +245,29 @@ export async function rollbackLatest(options: MigrateOptions): Promise<string | 
         return null;
       }
 
-      const downFilename = latest.filename.replace(/\.sql$/, '.down.sql');
-      let downSql: string;
-      try {
-        downSql = await readFile(join(migrationsDir, downFilename), 'utf8');
-      } catch {
+      const file = filesByName.get(latest.filename);
+      if (file === undefined) {
         throw new MigrationError(
-          `rollback file ${downFilename} is missing for applied migration ${latest.filename}`,
+          `applied migration ${latest.filename} is missing from ${migrationsDir}`,
+        );
+      }
+      if (file.sha256 !== latest.sha256) {
+        throw new MigrationChecksumMismatchError(latest.filename, latest.sha256, file.sha256);
+      }
+      if (file.downSha256 !== latest.down_sha256) {
+        throw new MigrationChecksumMismatchError(
+          file.downFilename,
+          latest.down_sha256 ?? '<missing>',
+          file.downSha256 ?? '<missing>',
+        );
+      }
+      if (file.downSql === null) {
+        throw new MigrationError(
+          `rollback file ${file.downFilename} is missing for applied migration ${latest.filename}`,
         );
       }
 
-      await client.query(downSql);
+      await client.query(file.downSql);
       await client.query('DELETE FROM schema_migrations WHERE filename = $1', [latest.filename]);
       await client.query('COMMIT');
       return latest.filename;

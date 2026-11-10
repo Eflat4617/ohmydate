@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -158,5 +158,71 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
       migrationsDir,
     });
     expect(rolledBack).toBeNull();
+  });
+
+  test('refuses to run when an applied down file checksum changed', async () => {
+    const tmpRoot = await mkdtemp(join(tmpdir(), 'ohmydate-migrations-'));
+    const copyDir = join(tmpRoot, 'migrations');
+    try {
+      await cp(migrationsDir, copyDir, { recursive: true });
+      await runMigrations(schema, copyDir);
+
+      const downFile = join(copyDir, '0001_init.down.sql');
+      const original = await readFile(downFile, 'utf8');
+      await writeFile(downFile, `${original}\n-- tampered after apply\n`, 'utf8');
+
+      await expect(runMigrations(schema, copyDir)).rejects.toBeInstanceOf(
+        MigrationChecksumMismatchError,
+      );
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses a new migration numbered below the highest applied', async () => {
+    const tmpRoot = await mkdtemp(join(tmpdir(), 'ohmydate-migrations-'));
+    const copyDir = join(tmpRoot, 'migrations');
+    try {
+      await cp(migrationsDir, copyDir, { recursive: true });
+      await rename(join(copyDir, '0001_init.sql'), join(copyDir, '0002_init.sql'));
+      await rename(join(copyDir, '0001_init.down.sql'), join(copyDir, '0002_init.down.sql'));
+
+      const first = await runMigrations(schema, copyDir);
+      expect(first.applied).toEqual(['0002_init.sql']);
+
+      await copyFile(join(migrationsDir, '0001_init.sql'), join(copyDir, '0001_init.sql'));
+      await copyFile(
+        join(migrationsDir, '0001_init.down.sql'),
+        join(copyDir, '0001_init.down.sql'),
+      );
+
+      await expect(runMigrations(schema, copyDir)).rejects.toThrow(/numbered below/);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('rolls back the whole batch when a later migration fails', async () => {
+    const tmpRoot = await mkdtemp(join(tmpdir(), 'ohmydate-migrations-'));
+    const copyDir = join(tmpRoot, 'migrations');
+    try {
+      await cp(migrationsDir, copyDir, { recursive: true });
+      await writeFile(join(copyDir, '0002_broken.sql'), 'CREATE TABLE broken (', 'utf8');
+
+      await expect(runMigrations(schema, copyDir)).rejects.toThrow();
+
+      const client = await connect(schema);
+      try {
+        const result = await client.query<{ user_table: string | null; migrations: string | null }>(
+          `SELECT to_regclass('"user"')::text AS user_table,
+                  to_regclass('schema_migrations')::text AS migrations`,
+        );
+        expect(result.rows[0]).toEqual({ user_table: null, migrations: null });
+      } finally {
+        await client.end();
+      }
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
   });
 });

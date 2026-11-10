@@ -122,10 +122,12 @@ CREATE TABLE external_provider_mapping (
   CONSTRAINT external_provider_mapping_provider_valid CHECK (provider IN ('vikunja')),
   CONSTRAINT external_provider_mapping_local_version_positive CHECK (local_version > 0),
   CONSTRAINT external_provider_mapping_version_positive CHECK (version > 0),
+  -- One provider object <-> one local entity globally (04 §3). owner_id stays
+  -- for scoping and FK integrity but is deliberately not part of these keys.
   CONSTRAINT external_provider_mapping_external_unique
-    UNIQUE (owner_id, provider, entity_type, external_id),
+    UNIQUE (provider, entity_type, external_id),
   CONSTRAINT external_provider_mapping_entity_unique
-    UNIQUE (owner_id, entity_type, entity_id, provider)
+    UNIQUE (entity_type, entity_id, provider)
 );
 
 CREATE INDEX external_provider_mapping_entity_idx

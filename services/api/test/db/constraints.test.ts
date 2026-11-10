@@ -18,7 +18,7 @@ describe.skipIf(!hasDatabase)('M1 schema constraints', () => {
   let schema: string;
   let client: PgClient;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     schema = makeSchemaName();
     await createSchema(schema);
     await migrate({
@@ -29,7 +29,7 @@ describe.skipIf(!hasDatabase)('M1 schema constraints', () => {
     client = await connect(schema);
   });
 
-  afterAll(async () => {
+  afterEach(async () => {
     await client.end();
     await dropSchema(schema);
   });
@@ -117,28 +117,54 @@ describe.skipIf(!hasDatabase)('M1 schema constraints', () => {
     expect(error.constraint).toBe('idempotency_record_owner_key_unique');
   });
 
+  function insertMapping(ownerId: string, entityId: string, externalId: string) {
+    return client.query(
+      `INSERT INTO external_provider_mapping
+         (id, owner_id, entity_type, entity_id, provider, external_id)
+       VALUES ($1, $2, 'task', $3, 'vikunja', $4)`,
+      [randomUUID(), ownerId, entityId, externalId],
+    );
+  }
+
   test('enforces external provider mapping uniqueness in both directions', async () => {
     const ownerId = await insertUser();
     const taskA = await insertTask(ownerId);
     const taskB = await insertTask(ownerId);
 
-    const insertMapping = (entityId: string, externalId: string) =>
-      client.query(
-        `INSERT INTO external_provider_mapping
-           (id, owner_id, entity_type, entity_id, provider, external_id)
-         VALUES ($1, $2, 'task', $3, 'vikunja', $4)`,
-        [randomUUID(), ownerId, entityId, externalId],
-      );
+    await insertMapping(ownerId, taskA, '412');
 
-    await insertMapping(taskA, '412');
-
-    const duplicateExternal = await queryFailure(insertMapping(taskB, '412'));
+    const duplicateExternal = await queryFailure(insertMapping(ownerId, taskB, '412'));
     expect(duplicateExternal.code).toBe('23505');
     expect(duplicateExternal.constraint).toBe('external_provider_mapping_external_unique');
 
-    const duplicateEntity = await queryFailure(insertMapping(taskA, '413'));
+    const duplicateEntity = await queryFailure(insertMapping(ownerId, taskA, '413'));
     expect(duplicateEntity.code).toBe('23505');
     expect(duplicateEntity.constraint).toBe('external_provider_mapping_entity_unique');
+  });
+
+  test('rejects the same external id mapped by a different owner', async () => {
+    const ownerA = await insertUser();
+    const ownerB = await insertUser();
+    const taskA = await insertTask(ownerA);
+    const taskB = await insertTask(ownerB);
+
+    await insertMapping(ownerA, taskA, '412');
+    const error = await queryFailure(insertMapping(ownerB, taskB, '412'));
+
+    expect(error.code).toBe('23505');
+    expect(error.constraint).toBe('external_provider_mapping_external_unique');
+  });
+
+  test('rejects the same local entity mapped by a different owner', async () => {
+    const ownerA = await insertUser();
+    const ownerB = await insertUser();
+    const taskA = await insertTask(ownerA);
+
+    await insertMapping(ownerA, taskA, '412');
+    const error = await queryFailure(insertMapping(ownerB, taskA, '413'));
+
+    expect(error.code).toBe('23505');
+    expect(error.constraint).toBe('external_provider_mapping_entity_unique');
   });
 
   test('enforces the positive version check', async () => {

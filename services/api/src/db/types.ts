@@ -2,10 +2,14 @@ import type { ColumnType } from 'kysely';
 
 /**
  * Hand-written Kysely view of the M1 planner schema
- * (services/api/migrations/0001_init.sql). Keep this file and the migration in
- * lockstep; test/db/types.test.ts compares `databaseTables` to
- * information_schema, and a type-level assertion keeps `Database` aligned with
- * the runtime manifest.
+ * (services/api/migrations/0001_init.sql).
+ *
+ * Every column is expressed through `Col<kind, nullable, hasDefault>`. The
+ * runtime `databaseTables` manifest carries the same three flags, is checked
+ * against information_schema in test/db/types.test.ts, and is type-linked to
+ * the interfaces below through `AssertTableColumns`. If an interface column
+ * drifts from the manifest (or the manifest drifts from PostgreSQL), either
+ * tsc or the schema test fails.
  */
 
 export type JsonValue =
@@ -16,155 +20,190 @@ export type JsonValue =
   | JsonValue[]
   | { readonly [key: string]: JsonValue };
 
-type Timestamp = ColumnType<Date, Date | string | undefined, Date | string | undefined>;
-type NullableTimestamp = ColumnType<
-  Date | null,
-  Date | string | null | undefined,
-  Date | string | null | undefined
+export type ColumnKind =
+  | 'uuid'
+  | 'text'
+  | 'jsonb'
+  | 'timestamptz'
+  | 'integer'
+  | 'boolean';
+
+type Scalar<K extends ColumnKind> = K extends 'uuid'
+  ? string
+  : K extends 'text'
+    ? string
+    : K extends 'integer'
+      ? number
+      : K extends 'boolean'
+        ? boolean
+        : K extends 'jsonb'
+          ? JsonValue
+          : K extends 'timestamptz'
+            ? Date
+            : never;
+
+// A NOT NULL jsonb column still needs a non-null, non-undefined insert type so
+// Kysely's Insertable keeps the key required (JSON null is not a SQL NULL).
+type InsertScalar<K extends ColumnKind> = K extends 'timestamptz'
+  ? Date | string
+  : K extends 'jsonb'
+    ? Exclude<JsonValue, null>
+    : Scalar<K>;
+
+type Selected<K extends ColumnKind, N extends boolean> = N extends true
+  ? Scalar<K> | null
+  : Scalar<K>;
+
+type Written<K extends ColumnKind, N extends boolean, D extends boolean> = N extends true
+  ? InsertScalar<K> | null | undefined
+  : D extends true
+    ? InsertScalar<K> | undefined
+    : InsertScalar<K>;
+
+/**
+ * Canonical Kysely column type for one column shape.
+ * `N` = nullable, `D` = has a database default (insert may omit it).
+ */
+export type Col<K extends ColumnKind, N extends boolean, D extends boolean> = ColumnType<
+  Selected<K, N>,
+  Written<K, N, D>,
+  Written<K, N, D>
 >;
-type Jsonb = ColumnType<JsonValue, JsonValue | undefined, JsonValue | undefined>;
-type NullableJsonb = ColumnType<
-  JsonValue | null,
-  JsonValue | null | undefined,
-  JsonValue | null | undefined
->;
-type DefaultedInteger = ColumnType<number, number | undefined, number | undefined>;
-type NullableInteger = ColumnType<number | null, number | null | undefined, number | null | undefined>;
-type DefaultedBoolean = ColumnType<boolean, boolean | undefined, boolean | undefined>;
 
 export interface UserTable {
-  id: string;
-  email: string;
-  password_hash: string;
-  time_zone: ColumnType<string, string | undefined, string | undefined>;
-  locale: ColumnType<string, string | undefined, string | undefined>;
-  settings: Jsonb;
-  llm_consent: Jsonb;
-  created_at: Timestamp;
-  updated_at: Timestamp;
-  version: DefaultedInteger;
+  id: Col<'uuid', false, false>;
+  email: Col<'text', false, false>;
+  password_hash: Col<'text', false, false>;
+  time_zone: Col<'text', false, true>;
+  locale: Col<'text', false, true>;
+  settings: Col<'jsonb', false, true>;
+  llm_consent: Col<'jsonb', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
 }
 
 export interface ProjectTable {
-  id: string;
-  owner_id: string;
-  title: string;
-  archived: DefaultedBoolean;
-  created_at: Timestamp;
-  updated_at: Timestamp;
-  version: DefaultedInteger;
-  deleted_at: NullableTimestamp;
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  title: Col<'text', false, false>;
+  archived: Col<'boolean', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+  deleted_at: Col<'timestamptz', true, false>;
 }
 
 export interface TaskTable {
-  id: string;
-  owner_id: string;
-  project_id: string | null;
-  title_cache: string | null;
-  status_cache: ColumnType<string, string | undefined, string | undefined>;
-  due_at: NullableTimestamp;
-  splittable: DefaultedBoolean;
-  min_session_min: NullableInteger;
-  max_session_min: NullableInteger;
-  priority: DefaultedInteger;
-  earliest_start_at: NullableTimestamp;
-  provider_etag: string | null;
-  created_at: Timestamp;
-  updated_at: Timestamp;
-  version: DefaultedInteger;
-  deleted_at: NullableTimestamp;
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  project_id: Col<'uuid', true, false>;
+  title_cache: Col<'text', true, false>;
+  status_cache: Col<'text', false, true>;
+  due_at: Col<'timestamptz', true, false>;
+  splittable: Col<'boolean', false, true>;
+  min_session_min: Col<'integer', true, false>;
+  max_session_min: Col<'integer', true, false>;
+  priority: Col<'integer', false, true>;
+  earliest_start_at: Col<'timestamptz', true, false>;
+  provider_etag: Col<'text', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+  deleted_at: Col<'timestamptz', true, false>;
 }
 
 export interface TaskDependencyTable {
-  task_id: string;
-  depends_on_task_id: string;
-  owner_id: string;
-  kind: ColumnType<string, string | undefined, string | undefined>;
-  created_at: Timestamp;
-  updated_at: Timestamp;
-  version: DefaultedInteger;
+  task_id: Col<'uuid', false, false>;
+  depends_on_task_id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  kind: Col<'text', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
 }
 
 export interface ExternalProviderMappingTable {
-  id: string;
-  owner_id: string;
-  entity_type: string;
-  entity_id: string;
-  provider: string;
-  external_id: string;
-  external_etag: string | null;
-  external_updated_at: NullableTimestamp;
-  local_version: DefaultedInteger;
-  last_synced_at: NullableTimestamp;
-  created_at: Timestamp;
-  updated_at: Timestamp;
-  version: DefaultedInteger;
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  entity_type: Col<'text', false, false>;
+  entity_id: Col<'uuid', false, false>;
+  provider: Col<'text', false, false>;
+  external_id: Col<'text', false, false>;
+  external_etag: Col<'text', true, false>;
+  external_updated_at: Col<'timestamptz', true, false>;
+  local_version: Col<'integer', false, true>;
+  last_synced_at: Col<'timestamptz', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
 }
 
 export interface IdempotencyRecordTable {
-  id: string;
-  owner_id: string;
-  key: string;
-  route: string;
-  request_hash: string;
-  response: NullableJsonb;
-  status: ColumnType<string, string | undefined, string | undefined>;
-  expires_at: ColumnType<Date, Date | string, Date | string>;
-  created_at: Timestamp;
-  updated_at: Timestamp;
-  version: DefaultedInteger;
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  key: Col<'text', false, false>;
+  route: Col<'text', false, false>;
+  request_hash: Col<'text', false, false>;
+  response: Col<'jsonb', true, false>;
+  status: Col<'text', false, true>;
+  expires_at: Col<'timestamptz', false, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
 }
 
 export interface OutboxEventTable {
-  id: string;
-  owner_id: string;
-  topic: string;
-  payload: Jsonb;
-  available_at: Timestamp;
-  attempts: DefaultedInteger;
-  processed_at: NullableTimestamp;
-  created_at: Timestamp;
-  updated_at: Timestamp;
-  version: DefaultedInteger;
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  topic: Col<'text', false, false>;
+  /** NOT NULL without a default: producers must always supply the payload. */
+  payload: Col<'jsonb', false, false>;
+  available_at: Col<'timestamptz', false, true>;
+  attempts: Col<'integer', false, true>;
+  processed_at: Col<'timestamptz', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
 }
 
 export interface InboxEventTable {
-  id: string;
-  owner_id: string;
-  provider: string;
-  event_hash: string;
-  payload: NullableJsonb;
-  received_at: Timestamp;
-  created_at: Timestamp;
-  updated_at: Timestamp;
-  version: DefaultedInteger;
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  provider: Col<'text', false, false>;
+  event_hash: Col<'text', false, false>;
+  payload: Col<'jsonb', true, false>;
+  received_at: Col<'timestamptz', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
 }
 
 export interface AuditEventTable {
-  id: string;
-  owner_id: string;
-  actor: string;
-  action: string;
-  entity: string;
-  entity_id: string | null;
-  diff_summary: NullableJsonb;
-  created_at: Timestamp;
-  updated_at: Timestamp;
-  version: DefaultedInteger;
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  actor: Col<'text', false, false>;
+  action: Col<'text', false, false>;
+  entity: Col<'text', false, false>;
+  entity_id: Col<'uuid', true, false>;
+  diff_summary: Col<'jsonb', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
 }
 
 export interface JobTable {
-  id: string;
-  owner_id: string;
-  kind: string;
-  run_at: Timestamp;
-  lease_until: NullableTimestamp;
-  attempts: DefaultedInteger;
-  unique_key: string;
-  status: ColumnType<string, string | undefined, string | undefined>;
-  created_at: Timestamp;
-  updated_at: Timestamp;
-  version: DefaultedInteger;
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  kind: Col<'text', false, false>;
+  run_at: Col<'timestamptz', false, true>;
+  lease_until: Col<'timestamptz', true, false>;
+  attempts: Col<'integer', false, true>;
+  unique_key: Col<'text', false, false>;
+  status: Col<'text', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
 }
 
 export interface Database {
@@ -180,153 +219,202 @@ export interface Database {
   job: JobTable;
 }
 
-export type ColumnKind =
-  | 'uuid'
-  | 'text'
-  | 'jsonb'
-  | 'timestamptz'
-  | 'integer'
-  | 'boolean';
+export interface ColumnSpec {
+  readonly kind: ColumnKind;
+  readonly nullable: boolean;
+  readonly hasDefault: boolean;
+}
+
+function col<K extends ColumnKind, N extends boolean, D extends boolean>(
+  kind: K,
+  nullable: N,
+  hasDefault: D,
+): { readonly kind: K; readonly nullable: N; readonly hasDefault: D } {
+  return { kind, nullable, hasDefault };
+}
 
 /**
  * Runtime mirror of `Database`, consumed by the information_schema parity test.
- * Table keys are type-checked against `Database` below.
+ * `kind` maps to information_schema.columns.data_type, `nullable` to
+ * is_nullable, and `hasDefault` to "column_default IS NOT NULL".
  */
 export const databaseTables = {
   user: {
-    id: 'uuid',
-    email: 'text',
-    password_hash: 'text',
-    time_zone: 'text',
-    locale: 'text',
-    settings: 'jsonb',
-    llm_consent: 'jsonb',
-    created_at: 'timestamptz',
-    updated_at: 'timestamptz',
-    version: 'integer',
+    id: col('uuid', false, false),
+    email: col('text', false, false),
+    password_hash: col('text', false, false),
+    time_zone: col('text', false, true),
+    locale: col('text', false, true),
+    settings: col('jsonb', false, true),
+    llm_consent: col('jsonb', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
   },
   project: {
-    id: 'uuid',
-    owner_id: 'uuid',
-    title: 'text',
-    archived: 'boolean',
-    created_at: 'timestamptz',
-    updated_at: 'timestamptz',
-    version: 'integer',
-    deleted_at: 'timestamptz',
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    title: col('text', false, false),
+    archived: col('boolean', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+    deleted_at: col('timestamptz', true, false),
   },
   task: {
-    id: 'uuid',
-    owner_id: 'uuid',
-    project_id: 'uuid',
-    title_cache: 'text',
-    status_cache: 'text',
-    due_at: 'timestamptz',
-    splittable: 'boolean',
-    min_session_min: 'integer',
-    max_session_min: 'integer',
-    priority: 'integer',
-    earliest_start_at: 'timestamptz',
-    provider_etag: 'text',
-    created_at: 'timestamptz',
-    updated_at: 'timestamptz',
-    version: 'integer',
-    deleted_at: 'timestamptz',
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    project_id: col('uuid', true, false),
+    title_cache: col('text', true, false),
+    status_cache: col('text', false, true),
+    due_at: col('timestamptz', true, false),
+    splittable: col('boolean', false, true),
+    min_session_min: col('integer', true, false),
+    max_session_min: col('integer', true, false),
+    priority: col('integer', false, true),
+    earliest_start_at: col('timestamptz', true, false),
+    provider_etag: col('text', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+    deleted_at: col('timestamptz', true, false),
   },
   task_dependency: {
-    task_id: 'uuid',
-    depends_on_task_id: 'uuid',
-    owner_id: 'uuid',
-    kind: 'text',
-    created_at: 'timestamptz',
-    updated_at: 'timestamptz',
-    version: 'integer',
+    task_id: col('uuid', false, false),
+    depends_on_task_id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    kind: col('text', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
   },
   external_provider_mapping: {
-    id: 'uuid',
-    owner_id: 'uuid',
-    entity_type: 'text',
-    entity_id: 'uuid',
-    provider: 'text',
-    external_id: 'text',
-    external_etag: 'text',
-    external_updated_at: 'timestamptz',
-    local_version: 'integer',
-    last_synced_at: 'timestamptz',
-    created_at: 'timestamptz',
-    updated_at: 'timestamptz',
-    version: 'integer',
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    entity_type: col('text', false, false),
+    entity_id: col('uuid', false, false),
+    provider: col('text', false, false),
+    external_id: col('text', false, false),
+    external_etag: col('text', true, false),
+    external_updated_at: col('timestamptz', true, false),
+    local_version: col('integer', false, true),
+    last_synced_at: col('timestamptz', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
   },
   idempotency_record: {
-    id: 'uuid',
-    owner_id: 'uuid',
-    key: 'text',
-    route: 'text',
-    request_hash: 'text',
-    response: 'jsonb',
-    status: 'text',
-    expires_at: 'timestamptz',
-    created_at: 'timestamptz',
-    updated_at: 'timestamptz',
-    version: 'integer',
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    key: col('text', false, false),
+    route: col('text', false, false),
+    request_hash: col('text', false, false),
+    response: col('jsonb', true, false),
+    status: col('text', false, true),
+    expires_at: col('timestamptz', false, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
   },
   outbox_event: {
-    id: 'uuid',
-    owner_id: 'uuid',
-    topic: 'text',
-    payload: 'jsonb',
-    available_at: 'timestamptz',
-    attempts: 'integer',
-    processed_at: 'timestamptz',
-    created_at: 'timestamptz',
-    updated_at: 'timestamptz',
-    version: 'integer',
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    topic: col('text', false, false),
+    payload: col('jsonb', false, false),
+    available_at: col('timestamptz', false, true),
+    attempts: col('integer', false, true),
+    processed_at: col('timestamptz', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
   },
   inbox_event: {
-    id: 'uuid',
-    owner_id: 'uuid',
-    provider: 'text',
-    event_hash: 'text',
-    payload: 'jsonb',
-    received_at: 'timestamptz',
-    created_at: 'timestamptz',
-    updated_at: 'timestamptz',
-    version: 'integer',
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    provider: col('text', false, false),
+    event_hash: col('text', false, false),
+    payload: col('jsonb', true, false),
+    received_at: col('timestamptz', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
   },
   audit_event: {
-    id: 'uuid',
-    owner_id: 'uuid',
-    actor: 'text',
-    action: 'text',
-    entity: 'text',
-    entity_id: 'uuid',
-    diff_summary: 'jsonb',
-    created_at: 'timestamptz',
-    updated_at: 'timestamptz',
-    version: 'integer',
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    actor: col('text', false, false),
+    action: col('text', false, false),
+    entity: col('text', false, false),
+    entity_id: col('uuid', true, false),
+    diff_summary: col('jsonb', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
   },
   job: {
-    id: 'uuid',
-    owner_id: 'uuid',
-    kind: 'text',
-    run_at: 'timestamptz',
-    lease_until: 'timestamptz',
-    attempts: 'integer',
-    unique_key: 'text',
-    status: 'text',
-    created_at: 'timestamptz',
-    updated_at: 'timestamptz',
-    version: 'integer',
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    kind: col('text', false, false),
+    run_at: col('timestamptz', false, true),
+    lease_until: col('timestamptz', true, false),
+    attempts: col('integer', false, true),
+    unique_key: col('text', false, false),
+    status: col('text', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
   },
-} as const satisfies Record<keyof Database, Record<string, ColumnKind>>;
+} as const satisfies Record<keyof Database, Record<string, ColumnSpec>>;
 
-type Equal<A, B> =
+export type Equal<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
-export type DatabaseTablesMatch = Equal<keyof Database, keyof typeof databaseTables>;
+export type ExpectTrue<T extends true> = T;
 
-type AllTableColumnsMatch = {
-  [K in keyof Database]: Equal<keyof Database[K], keyof (typeof databaseTables)[K]>;
+/**
+ * Compares every column of `Table` with the corresponding manifest spec,
+ * including key sets, selected types, insert/update types, nullability and
+ * default-ness (via `Col`). Resolves to `true` only when everything matches.
+ */
+export type AssertTableColumns<
+  Table,
+  Specs extends Record<string, ColumnSpec>,
+> = Equal<keyof Table, keyof Specs> extends true
+  ? Equal<
+      {
+        [C in keyof Table]: Equal<
+          Table[C],
+          Col<
+            Specs[C & keyof Specs]['kind'],
+            Specs[C & keyof Specs]['nullable'],
+            Specs[C & keyof Specs]['hasDefault']
+          >
+        >;
+      },
+      { [C in keyof Table]: true }
+    >
+  : false;
+
+type TableAssertions = {
+  user: AssertTableColumns<UserTable, typeof databaseTables.user>;
+  project: AssertTableColumns<ProjectTable, typeof databaseTables.project>;
+  task: AssertTableColumns<TaskTable, typeof databaseTables.task>;
+  task_dependency: AssertTableColumns<TaskDependencyTable, typeof databaseTables.task_dependency>;
+  external_provider_mapping: AssertTableColumns<
+    ExternalProviderMappingTable,
+    typeof databaseTables.external_provider_mapping
+  >;
+  idempotency_record: AssertTableColumns<
+    IdempotencyRecordTable,
+    typeof databaseTables.idempotency_record
+  >;
+  outbox_event: AssertTableColumns<OutboxEventTable, typeof databaseTables.outbox_event>;
+  inbox_event: AssertTableColumns<InboxEventTable, typeof databaseTables.inbox_event>;
+  audit_event: AssertTableColumns<AuditEventTable, typeof databaseTables.audit_event>;
+  job: AssertTableColumns<JobTable, typeof databaseTables.job>;
 };
 
-export type DatabaseColumnsMatch = Equal<AllTableColumnsMatch[keyof Database], true>;
+export type DatabaseTablesMatch = ExpectTrue<Equal<keyof Database, keyof typeof databaseTables>>;
+export type DatabaseColumnsMatch = ExpectTrue<
+  Equal<TableAssertions[keyof TableAssertions], true>
+>;
