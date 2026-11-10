@@ -1,4 +1,5 @@
 import { FakeClock, createSeededIdGenerator } from '@ohmydate/testkit';
+import { IdempotencyMismatchError } from '@ohmydate/domain';
 import { createInMemoryRepositories } from '../src/in-memory/index.js';
 
 function createContext() {
@@ -39,6 +40,35 @@ describe('InMemory repositories', () => {
     expect(replay).toEqual(original);
     expect(replay.title).toBe('Original project');
     expect(replay.version).toBe(original.version);
+  });
+
+  it('scopes project idempotency keys per owner', async () => {
+    const { ids, projects } = createContext();
+    const ownerA = ids.next();
+    const ownerB = ids.next();
+    const key = 'shared-project-key';
+    const sameTitle = 'Shared project title';
+
+    const first = await projects.create(ownerA, { title: sameTitle }, key);
+    const second = await projects.create(ownerB, { title: sameTitle }, key);
+    expect(first.id).not.toBe(second.id);
+    expect(first.ownerId).toBe(ownerA);
+    expect(second.ownerId).toBe(ownerB);
+
+    expect(await projects.create(ownerA, { title: sameTitle }, key)).toEqual(first);
+    expect(await projects.create(ownerB, { title: sameTitle }, key)).toEqual(second);
+
+    await expect(
+      projects.create(ownerA, { title: 'Different title' }, key),
+    ).rejects.toBeInstanceOf(IdempotencyMismatchError);
+    await expect(
+      projects.create(ownerB, { title: 'Different title' }, key),
+    ).rejects.toBeInstanceOf(IdempotencyMismatchError);
+
+    const firstOwnerProjects = await projects.list(ownerA, { limit: 100 });
+    expect(firstOwnerProjects.items.map((project) => project.id)).toEqual([first.id]);
+    const secondOwnerProjects = await projects.list(ownerB, { limit: 100 });
+    expect(secondOwnerProjects.items.map((project) => project.id)).toEqual([second.id]);
   });
 
   it('creates a real owner-local Inbox project for tasks without a projectId', async () => {
