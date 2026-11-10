@@ -27,6 +27,8 @@ services:
       VIKUNJA_SERVICE_PUBLICURL: http://127.0.0.1:3456/
       VIKUNJA_SERVICE_SECRET: dev-only-secret-not-for-prod-0123456789
       VIKUNJA_SERVICE_ENABLEREGISTRATION: "true"
+      # dev-only: many parallel test suites register synthetic users (default noauth limit 10/min -> 429)
+      VIKUNJA_RATELIMIT_NOAUTHLIMIT: "1000"
       VIKUNJA_DATABASE_TYPE: postgres
       VIKUNJA_DATABASE_HOST: postgres
       VIKUNJA_DATABASE_USER: ohmydate
