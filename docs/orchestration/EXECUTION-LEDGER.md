@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -54,12 +54,21 @@
 | 2026-11-11 | start | M1-04R2 | ctx_cb9c19e723e4 | — | Sol | — | — |
 | 2026-11-11 | worker_done | M1-07 task_dacdef4c3561 | ctx_b52da46e9f73 | msg_36a7d0d56e52 | 0500f2c, scope OK(+vue-demi 승인 1줄), 111 msgs high; escalation(미읽은 메일 후속 불가)은 이미 반영된 base-update로 무해 | — | M1-07R ctx_5655f519c769 |
 | 2026-11-11 | worker_done | M1-05 (+재검증 task_bdc0d5a6c286) | ctx_2be6d1c4651e | msg_efb140d4e7c1 | f089d89, 강화 계약 live 47 pass/3 capability skip | — | M1-05R ctx_bf4bfacdf49a |
+| 2026-11-11 | **Sol usage limit** (Codex: "You've hit your usage limit … try again at 7:02 AM") | task_87877bc154df, task_297a57a4fe96, task_e988e15bcae0 | ctx_0c05ac2af0f9, ctx_845c1bce9bdc, ctx_cb81bd362c6f | escalations errored | worker-stop → retry-of with Opus fallback (MODEL_BINDINGS §6) | receipts model=claude-opus-5-5 effort=xhigh | ctx_bbaaf9ea56c5, ctx_39b1519531fa, ctx_8337a614cdd8; Sol 복귀 시 고위험(동시성·스케줄러) 사후 리뷰 목록: M1-05, M3-01b |
+| 2026-11-11 | worker_done | M3-01b task_7cde7b7b21d7 | ctx_f23d56990f05 | msg_fda7b73041c5 | ab97a14 | — | review (fallback) |
+| 2026-11-11 | worker_done | M1-05 fix task_06ffda7bb45a | ctx_7426991abf9c | msg_aff5299da89b | 538eeba | — | review (fallback) |
+| 2026-11-11 | worker_done | M1-06 task_82dc7265e91d | ctx_33b924c589dc | msg_fbf1b5aec3d2 | e41237c, scope OK, db frozen | — | M1-06R ctx_4a10ac2847dc (opus) |
+| 2026-11-11 | worker_done | M2-01 task_d8fe2f69911a | ctx_6526c3d73a59 | msg_61ebc6bf0a68 | ba591bb, scope OK, no SDK | — | M2-01R ctx_c674a13ed126 (opus) |
 
 ## 4. 리뷰 판정
 | Task | 리뷰 dispatch | head SHA | VERDICT | 차단 이슈 | 후속 |
 |---|---|---|---|---|---|
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
+| M2-01 | ctx_c674a13ed126 (opus-fallback) | ba591bb | REQUEST_CHANGES | HIGH: 전화번호 마스킹 누락; MEDIUM×4: 이메일 정규식 ReDoS, 예산 fail-open, abort 재시도, 미응답 필드 누락 | fix 1/2 |
+| M1-06 | ctx_4a10ac2847dc (opus-fallback) | e41237c | REQUEST_CHANGES | HIGH: 동시 동일키 500; MEDIUM×4: :action 라우트, 409/422 저장 규칙, 로그인 타이밍, 오류 코드 | 오케스트레이터 계약 변경(문제 코드 3종, 403/404/409 선언) + fix 1/2 ctx_28f5becc0d93 |
+| M1-07 | ctx_bbaaf9ea56c5 (opus-fallback) | f63af71 | **APPROVE** | FU-09..11 | **Accepted, merged de307fc** + lockfile repair; G3: 164+45 tests, build 0, ci 0 |
+| M1-05 | ctx_8337a614cdd8 (opus-fallback) | 538eeba | REQUEST_CHANGES | R1 6건 해결; HIGH: 결과 불명 쓰기(적용 후 5xx) 미재조정·반복완료 기록 유실; MEDIUM: epoch 변경 후 full resync 누락 | **fix 2/2 FINAL** ctx_f08ed070e742 |
 | M1-03 | ctx_5f2d362794c9 | 6c0e433 | **APPROVE** | FU-05..07 | **Accepted, merged e49d336**, G3: 164 pass/9 gated skip, ci 0 |
 | M1-05 | ctx_bf4bfacdf49a | f089d89 | REQUEST_CHANGES | HIGH×3: 재시작 후 커서 변경 유실, 부분 실패 시 버전 없는 변경, 반복 완료 기록 없음; MEDIUM×3 | 오케스트레이터 도메인 포트 변경(CursorInvalidatedError, completedOccurrenceAt) + fix 1/2 |
 | M3-01 | ctx_c474514565eb | 0798bba | REQUEST_CHANGES | HIGH×2 Goose_Bay 자정 역행 (H6, H2), MEDIUM slots | **체인 BLOCKED (수정 2회 소진)** → ADR-017 재설계 Task M3-01b |

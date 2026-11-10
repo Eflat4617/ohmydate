@@ -18,7 +18,7 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
   logout: {
     requiredHeaders: [],
     optionalHeaders: [],
-    statuses: [204, 401],
+    statuses: [204, 401, 403],
   },
   getMe: {
     requiredHeaders: [],
@@ -28,7 +28,7 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
   updateMySettings: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [200, 400, 401, 412, 422, 428],
+    statuses: [200, 400, 401, 403, 409, 412, 422, 428],
   },
   listProjects: {
     requiredHeaders: [],
@@ -38,7 +38,7 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
   createProject: {
     requiredHeaders: ['Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [201, 400, 401, 409, 422],
+    statuses: [201, 400, 401, 403, 409, 422],
   },
   listTasks: {
     requiredHeaders: [],
@@ -48,7 +48,7 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
   createTask: {
     requiredHeaders: ['Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [201, 400, 401, 422, 503],
+    statuses: [201, 400, 401, 403, 404, 409, 422, 503],
   },
   getTask: {
     requiredHeaders: [],
@@ -58,22 +58,22 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
   updateTask: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [200, 400, 401, 404, 409, 412, 422, 428, 503],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428, 503],
   },
   completeTask: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [200, 400, 401, 404, 409, 412, 422, 428, 503],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428, 503],
   },
   deleteTask: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [204, 400, 401, 404, 409, 412, 422, 428, 503],
+    statuses: [204, 400, 401, 403, 404, 409, 412, 422, 428, 503],
   },
   createTaskDependency: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [201, 400, 401, 404, 409, 412, 422, 428, 503],
+    statuses: [201, 400, 401, 403, 404, 409, 412, 422, 428, 503],
   },
 };
 
