@@ -18,10 +18,11 @@ export {
   type VikunjaRepositories,
 } from './adapters/vikunja/composition.js';
 export {
-  createPgAdvisoryLeaderLock,
+  createPgSessionLeaderLock,
   VIKUNJA_RECONCILE_ADVISORY_LOCK_KEY,
   VikunjaReconciler,
   type LeaderLock,
+  type PgSessionLeaderLockOptions,
   type VikunjaReconcilerOptions,
 } from './adapters/vikunja/reconciler.js';
 export { PgChangeJournalStore } from './adapters/vikunja/pg-change-journal-store.js';

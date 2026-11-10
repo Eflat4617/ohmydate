@@ -9,7 +9,6 @@ function repository(overrides: Partial<TaskRepository>): TaskRepository {
     capabilities: {
       strictConcurrency: true,
       idempotentCreate: true,
-      softDeleteReturnsVersion: true,
     },
     create: async () => {
       throw new Error('not used');
@@ -22,7 +21,7 @@ function repository(overrides: Partial<TaskRepository>): TaskRepository {
     complete: async () => {
       throw new Error('not used');
     },
-    softDelete: async () => undefined,
+    softDelete: async () => 1 as Version,
     listChangedSince: async () => ({ changes: [], cursor: null }),
     ...overrides,
   };
@@ -42,14 +41,16 @@ describe('TaskService.remove', () => {
     expect(listChangedSince).not.toHaveBeenCalled();
   });
 
-  it('falls back to the change feed for legacy adapters that return void', async () => {
+  it('never scans the change feed even when it would report a different version', async () => {
     const listChangedSince = vi.fn(async () => ({
       changes: [{ id: taskId, version: 4 as Version }],
       cursor: null,
     }));
-    const service = new TaskService(repository({ listChangedSince }));
+    const service = new TaskService(
+      repository({ softDelete: async () => 5 as Version, listChangedSince }),
+    );
 
-    await expect(service.remove(owner, taskId, 3 as Version)).resolves.toBe(4 as Version);
-    expect(listChangedSince).toHaveBeenCalledTimes(1);
+    await expect(service.remove(owner, taskId, 4 as Version)).resolves.toBe(5 as Version);
+    expect(listChangedSince).not.toHaveBeenCalled();
   });
 });

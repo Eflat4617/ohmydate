@@ -46,11 +46,6 @@ export interface TaskChangePage {
 export interface RepositoryCapabilities {
   readonly strictConcurrency: boolean;
   readonly idempotentCreate: boolean;
-  /**
-   * FU-20: softDelete resolves with the new Version. Optional so provider
-   * adapters that have not adopted the port yet keep the legacy void result.
-   */
-  readonly softDeleteReturnsVersion?: boolean;
 }
 
 export interface TaskRepository {
@@ -60,7 +55,8 @@ export interface TaskRepository {
   list(ownerId: Id, query: TaskQuery): Promise<Page<Task>>;
   update(ownerId: Id, id: Id, patch: TaskPatch, expectedVersion: Version): Promise<Task>;
   complete(ownerId: Id, id: Id, expectedVersion: Version): Promise<Task>;
-  softDelete(ownerId: Id, id: Id, expectedVersion: Version): Promise<Version | void>;
+  /** FU-20: resolves with the new Version so callers need no change-feed scan. */
+  softDelete(ownerId: Id, id: Id, expectedVersion: Version): Promise<Version>;
   listChangedSince(ownerId: Id, cursor: string | null): Promise<TaskChangePage>;
 }
 
@@ -71,23 +67,11 @@ export interface ProjectRepository {
   list(ownerId: Id, query: ProjectQuery): Promise<Page<Project>>;
   update(ownerId: Id, id: Id, patch: ProjectPatch, expectedVersion: Version): Promise<Project>;
   /**
-   * ADR-018: returns the owner's Inbox, creating it on first call. Optional
-   * until every adapter (the Vikunja one is a separate task) adopts it.
+   * ADR-018: returns the owner's Inbox, creating it on first call. Every
+   * adapter must implement this; the idempotent implementation is part of the
+   * shared contract suite.
    */
-  getInbox?(ownerId: Id): Promise<Project>;
-}
-
-export interface InboxProjectLookup {
   getInbox(ownerId: Id): Promise<Project>;
-}
-
-export type InboxProjectRepository = Omit<ProjectRepository, 'getInbox'> &
-  InboxProjectLookup;
-
-export function supportsInbox(
-  repository: ProjectRepository,
-): repository is InboxProjectRepository {
-  return typeof repository.getInbox === 'function';
 }
 
 export interface Clock {

@@ -41,6 +41,20 @@ export interface VikunjaUser {
   readonly username?: string;
 }
 
+/**
+ * The subset of the current user's general settings the adapter needs. Vikunja
+ * stores the Inbox as the user's `default_project_id` (ADR-018).
+ */
+export interface VikunjaGeneralSettings {
+  readonly default_project_id?: number;
+}
+
+export interface VikunjaUserInfo {
+  readonly id: number;
+  readonly username?: string;
+  readonly settings?: VikunjaGeneralSettings;
+}
+
 export interface VikunjaTask {
   readonly id: number;
   readonly project_id?: number;
@@ -152,7 +166,9 @@ export function mapVikunjaError(status: number, problem?: VikunjaProblem): Error
     return new NotFoundError('vikunja resource', String(problem?.detail ?? status));
   }
   if (status === 401) {
-    return new ProviderUnavailableError('vikunja');
+    // Distinct, non-secret cause: missing/expired token or a scoped token
+    // without the permission this route needs (ADR-018 reads other:user).
+    return new ProviderUnavailableError('vikunja', 'provider_auth');
   }
   return new ProviderUnavailableError('vikunja');
 }
@@ -227,6 +243,26 @@ export class VikunjaClient {
     const { data } = await this.request<VikunjaUser>('POST', '/register', {
       body: input,
     });
+    return data;
+  }
+
+  /**
+   * API tokens cannot read `/user/settings/*`, but the `other:user` permission
+   * exposes the same settings through `GET /user` (ADR-018).
+   */
+  async getGeneralSettings(): Promise<VikunjaGeneralSettings> {
+    const { data } = await this.request<VikunjaUserInfo>('GET', '/user');
+    return data.settings ?? {};
+  }
+
+  async updateGeneralSettings(
+    patch: Readonly<{ default_project_id: number }>,
+  ): Promise<VikunjaGeneralSettings> {
+    const { data } = await this.request<VikunjaGeneralSettings>(
+      'PATCH',
+      '/user/settings/general',
+      { body: patch, contentType: MERGE_PATCH_CONTENT_TYPE },
+    );
     return data;
   }
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { epochMsToInstant, type Id, type Instant, type Version } from '@ohmydate/domain';
+import { epochMsToInstant, type Clock, type Id, type Instant, type Version } from '@ohmydate/domain';
 import type {
   ChangeJournalStore,
   JournalAppend,
@@ -60,18 +60,30 @@ function toRecord(row: JournalRow): JournalRecord {
  */
 export class PgChangeJournalStore implements ChangeJournalStore {
   readonly #db: Kysely<Database>;
+  readonly #clock: Clock;
   #epoch: string | undefined;
   #epochPromise: Promise<string> | undefined;
 
-  constructor(db: Kysely<Database>) {
+  constructor(db: Kysely<Database>, clock: Clock) {
     this.#db = db;
+    this.#clock = clock;
   }
 
   async epoch(): Promise<string> {
     if (this.#epoch !== undefined) return this.#epoch;
-    this.#epochPromise ??= this.#loadEpoch();
-    this.#epoch = await this.#epochPromise;
-    return this.#epoch;
+    this.#epochPromise ??= this.#loadEpoch().then(
+      (epoch) => {
+        this.#epoch = epoch;
+        return epoch;
+      },
+      (error: unknown) => {
+        // A transient first failure (e.g. migration not applied yet) must not
+        // poison the instance forever; the next call retries the load.
+        this.#epochPromise = undefined;
+        throw error;
+      },
+    );
+    return this.#epochPromise;
   }
 
   async append(entry: JournalAppend): Promise<JournalRecord> {
@@ -132,11 +144,15 @@ export class PgChangeJournalStore implements ChangeJournalStore {
       const records = await this.#insertMany(trx, ownerId, epoch, entries);
       await trx
         .updateTable('vikunja_journal_epoch')
-        .set({ snapshot_done: true, updated_at: new Date() })
+        .set({ snapshot_done: true, updated_at: this.#now() })
         .where('owner_id', '=', ownerId)
         .execute();
       return records;
     });
+  }
+
+  #now(): Date {
+    return new Date(Date.parse(this.#clock.now()));
   }
 
   async #loadEpoch(): Promise<string> {
@@ -195,7 +211,7 @@ export class PgChangeJournalStore implements ChangeJournalStore {
       .execute();
     await trx
       .updateTable('vikunja_journal_epoch')
-      .set({ epoch, snapshot_done: false, updated_at: new Date() })
+      .set({ epoch, snapshot_done: false, updated_at: this.#now() })
       .where('owner_id', '=', ownerId)
       .execute();
   }

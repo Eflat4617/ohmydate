@@ -23,6 +23,7 @@ const TOKEN_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   projects: ['create', 'read_all', 'read_one', 'update', 'delete', 'permanent'],
   tasks: ['create', 'read_all', 'read_one', 'update', 'delete', 'deleted', 'permanent'],
   tasks_relations: ['create', 'delete'],
+  other: ['user'],
 };
 
 interface SyntheticAccount {
@@ -101,6 +102,7 @@ describe.skipIf(!live)('API smoke against live Vikunja with PG stores', () => {
       config: createConfig({
         provider: 'vikunja',
         vikunjaUrl: url,
+        vikunjaSecretsDir: tokenDir,
         reconcileIntervalMs: 0,
         cookieSecure: false,
         logLevel: 'silent',

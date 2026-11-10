@@ -7,11 +7,11 @@ import {
   VersionConflictError,
   isInstant,
   isUuidV7,
-  supportsInbox,
   type Id,
   type IdGenerator,
   type Instant,
   type Project,
+  type ProjectCreate,
   type ProjectRepository,
   type Task,
   type TaskCreate,
@@ -884,11 +884,7 @@ export function describeTaskRepositoryContract(
         created.id,
         created.version,
       );
-      if (context.repo.capabilities.softDeleteReturnsVersion === true) {
-        expect(recorded).toBe(created.version + 1);
-      } else {
-        expect(recorded).toBeUndefined();
-      }
+      expect(recorded).toBe(created.version + 1);
 
       expect(await context.repo.get(context.ownerA, created.id)).toBeNull();
       const page = await context.repo.list(context.ownerA, {
@@ -985,9 +981,7 @@ export function describeTaskRepositoryContract(
       const inbox = await context.projects.get(context.ownerA, first.projectId);
       expect(inbox).not.toBeNull();
       expect(inbox?.ownerId).toBe(context.ownerA);
-      if (supportsInbox(context.projects)) {
-        expect(inbox?.kind).toBe('inbox');
-      }
+      expect(inbox?.kind).toBe('inbox');
       expect(inbox?.title).toBe('Inbox');
       expect(await context.projects.get(context.ownerB, first.projectId)).toBeNull();
 
@@ -995,12 +989,7 @@ export function describeTaskRepositoryContract(
       expect(projects.items.some((project) => project.id === first.projectId)).toBe(true);
     });
 
-    it('returns exactly one Inbox per owner, including concurrent first calls', async (testContext) => {
-      if (!supportsInbox(context.projects)) {
-        skipWithReason(testContext, 'adapter does not implement ADR-018 getInbox yet.');
-        return;
-      }
-
+    it('returns exactly one Inbox per owner, including concurrent first calls', async () => {
       const [first, second] = await Promise.all([
         context.projects.getInbox(context.ownerA),
         context.projects.getInbox(context.ownerA),
@@ -1022,12 +1011,7 @@ export function describeTaskRepositoryContract(
       expect(projects.items.filter((project) => project.kind === 'inbox')).toHaveLength(1);
     });
 
-    it('rejects archiving (deleting) the Inbox with ValidationFailedError', async (testContext) => {
-      if (!supportsInbox(context.projects)) {
-        skipWithReason(testContext, 'adapter does not implement ADR-018 getInbox yet.');
-        return;
-      }
-
+    it('rejects archiving (deleting) the Inbox with ValidationFailedError', async () => {
       const inbox = await context.projects.getInbox(context.ownerA);
       await expect(
         context.projects.update(context.ownerA, inbox.id, { archived: true }, inbox.version),
@@ -1042,6 +1026,21 @@ export function describeTaskRepositoryContract(
       );
       expect(renamed.kind).toBe('inbox');
       expect(renamed.title).toBe('Capture');
+    });
+
+    it('cannot create a second Inbox through ProjectCreate', async () => {
+      const before = await context.projects.getInbox(context.ownerA);
+      await expect(
+        context.projects.create(
+          context.ownerA,
+          { title: 'Sneaky inbox', kind: 'inbox' } as unknown as ProjectCreate,
+          'project-create-inbox',
+        ),
+      ).rejects.toBeInstanceOf(ValidationFailedError);
+
+      const page = await context.projects.list(context.ownerA, { limit: 100 });
+      expect(page.items.filter((project) => project.kind === 'inbox')).toHaveLength(1);
+      expect(await context.projects.getInbox(context.ownerA)).toEqual(before);
     });
 
     it('rejects foreign and nonexistent project references on create and update', async () => {

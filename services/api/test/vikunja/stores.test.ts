@@ -2,10 +2,22 @@ import { randomUUID } from 'node:crypto';
 import { VersionConflictError, type Id, type Instant, type Version } from '@ohmydate/domain';
 import type { ExternalMapping, JournalAppend } from '@ohmydate/provider-vikunja';
 import { FakeClock } from '@ohmydate/testkit';
+import { Kysely, PostgresDialect } from 'kysely';
+import pg from 'pg';
+import { migrate } from '../../src/db/migrate.js';
+import type { Database } from '../../src/db/types.js';
 import { PgChangeJournalStore } from '../../src/adapters/vikunja/pg-change-journal-store.js';
 import { PgMappingStore } from '../../src/adapters/vikunja/pg-mapping-store.js';
 import { PgPlannerFieldStore } from '../../src/adapters/vikunja/pg-planner-field-store.js';
+import {
+  createSchema,
+  dropSchema,
+  makeSchemaName,
+  requireDatabaseUrl,
+} from '../db/helpers.js';
 import { createPgTestStore, hasDatabase, type PgTestStore } from './pg-support.js';
+
+const { Pool } = pg;
 
 function mappingFor(
   overrides: Partial<ExternalMapping> & {
@@ -118,7 +130,7 @@ describe.skipIf(!hasDatabase)('durable Vikunja stores (PostgreSQL)', () => {
 
   test('stores planner-only fields and resolves the owner from the task mapping', async () => {
     const mappings = new PgMappingStore(store.db);
-    const plannerFields = new PgPlannerFieldStore(store.db);
+    const plannerFields = new PgPlannerFieldStore(store.db, new FakeClock());
     const ownerId = randomUUID() as Id;
     const taskId = randomUUID() as Id;
     await mappings.put(
@@ -158,12 +170,12 @@ describe.skipIf(!hasDatabase)('durable Vikunja stores (PostgreSQL)', () => {
   });
 
   test('keeps the journal epoch across store restarts and appends atomically', async () => {
-    const journal = new PgChangeJournalStore(store.db);
-    const restarted = new PgChangeJournalStore(store.db);
+    const clock = new FakeClock();
+    const journal = new PgChangeJournalStore(store.db, clock);
+    const restarted = new PgChangeJournalStore(store.db, clock);
     const epoch = await journal.epoch();
     expect(await restarted.epoch()).toBe(epoch);
 
-    const clock = new FakeClock();
     const ownerId = randomUUID() as Id;
     const first = await journal.append({
       ownerId,
@@ -191,7 +203,7 @@ describe.skipIf(!hasDatabase)('durable Vikunja stores (PostgreSQL)', () => {
   });
 
   test('appends a snapshot exactly once per owner and epoch under concurrency', async () => {
-    const journal = new PgChangeJournalStore(store.db);
+    const journal = new PgChangeJournalStore(store.db, new FakeClock());
     const ownerId = randomUUID() as Id;
     const clock = new FakeClock();
     const entries: JournalAppend[] = [
@@ -231,5 +243,25 @@ describe.skipIf(!hasDatabase)('durable Vikunja stores (PostgreSQL)', () => {
       at: clock.now(),
     });
     expect(next.sequence).toBe(3);
+  });
+
+  test('retries epoch load after a transient first failure', async () => {
+    const schema = makeSchemaName();
+    await createSchema(schema);
+    const pool = new Pool({ connectionString: requireDatabaseUrl() });
+    const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) }).withSchema(
+      schema,
+    ) as Kysely<Database>;
+    try {
+      const journal = new PgChangeJournalStore(db, new FakeClock());
+      await expect(journal.epoch()).rejects.toThrow(/vikunja_journal_epoch/);
+
+      await migrate({ databaseUrl: requireDatabaseUrl(), schema });
+      const epoch = await journal.epoch();
+      expect(epoch.length).toBeGreaterThan(0);
+    } finally {
+      await db.destroy();
+      await dropSchema(schema);
+    }
   });
 });
