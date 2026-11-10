@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 | 성능 단언 best-of-5 전환 승인: 임계값 동일, 2차 시간 회귀는 5회 모두 실패하므로 약화 아님; 부하 플레이크 제거 목적 (FU-24R-2 LOW) | FU-24R-2 | orchestrator |
 | 2026-11-11 | M1-10R HIGH(FU-22 미배선) 처리: M1-10은 재조정기 기본 OFF로 노출 제거, CAS 호출 배선은 이미 배정된 FU-23이 담당(같은 파일 동시 편집 회피). FU-23 병합 후 재조정기 기본 ON 재검토 | M1-10R-1 | orchestrator |
 | 2026-11-11 | M1-06 체인 BLOCKED (R3 HIGH = 마지막 수정의 1줄 회귀). 재작업은 해당 회귀+테스트로만 범위를 좁힌 M1-06c로 배정, 집중 리뷰 1회 | M1-06R-3 | orchestrator |
 | 2026-11-11 | M3-01 수정 체인 BLOCKED, ADR-017(전환-구간 분할)로 재설계 Task 신설: 같은 결함의 반복 원인이 가정 자체였으므로 알고리즘을 명세해 재배정(우회 아님) | M3-01R-3 | orchestrator |
@@ -69,6 +70,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-24 | ctx_6ce821f74ee1 (opus-fallback) | 605dd76 | REQUEST_CHANGES | R1 전부 해결, 6개 공격 형태 선형; HIGH: +cc 대체 탐색 2차 시간(1MB 9.6분) | **fix 2/2 FINAL** |
 | FU-27 | ctx_dc236be881a5 (opus-fallback) | ec42c69 | **APPROVE** | FU-28 | **Accepted, merged 49bf2a3**; G3 783 pass/33 skip + web 68, ci 0 |
 | M3-02 | ctx_4bc9ce4ac53c (opus-fallback) | d0244a6 | REQUEST_CHANGES | R1 전부 해결; HIGH: 시드 재계획이 H3/H5로 불가능(11~51%); MEDIUM: 과거 블록 계약, heavy property 실효성 | 06 §7.1 계약 확정 + **fix 2/2 FINAL** |
 | FU-23 | ctx_a2f5adb00de2 (opus-fallback) | 5a805ff | REQUEST_CHANGES | HIGH: 기본 프로젝트 없는 계정에서 getInbox가 JWT 전용 PATCH에 의존해 영구 503; MEDIUM×3 (P10 planner 필드, 재조정 stale 재기록, 토큰 권한 문서) | 문서 09 §13 오케스트레이터 작성 + fix 1/2 |
