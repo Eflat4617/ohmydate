@@ -57,12 +57,15 @@
 | 2026-11-11 | **Sol usage limit** (Codex: "You've hit your usage limit … try again at 7:02 AM") | task_87877bc154df, task_297a57a4fe96, task_e988e15bcae0 | ctx_0c05ac2af0f9, ctx_845c1bce9bdc, ctx_cb81bd362c6f | escalations errored | worker-stop → retry-of with Opus fallback (MODEL_BINDINGS §6) | receipts model=claude-opus-5-5 effort=xhigh | ctx_bbaaf9ea56c5, ctx_39b1519531fa, ctx_8337a614cdd8; Sol 복귀 시 고위험(동시성·스케줄러) 사후 리뷰 목록: M1-05, M3-01b |
 | 2026-11-11 | worker_done | M3-01b task_7cde7b7b21d7 | ctx_f23d56990f05 | msg_fda7b73041c5 | ab97a14 | — | review (fallback) |
 | 2026-11-11 | worker_done | M1-05 fix task_06ffda7bb45a | ctx_7426991abf9c | msg_aff5299da89b | 538eeba | — | review (fallback) |
+| 2026-11-11 | worker_done | M1-06 task_82dc7265e91d | ctx_33b924c589dc | msg_fbf1b5aec3d2 | e41237c, scope OK, db frozen | — | M1-06R ctx_4a10ac2847dc (opus) |
+| 2026-11-11 | worker_done | M2-01 task_d8fe2f69911a | ctx_6526c3d73a59 | msg_61ebc6bf0a68 | ba591bb, scope OK, no SDK | — | M2-01R ctx_c674a13ed126 (opus) |
 
 ## 4. 리뷰 판정
 | Task | 리뷰 dispatch | head SHA | VERDICT | 차단 이슈 | 후속 |
 |---|---|---|---|---|---|
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
+| M1-05 | ctx_8337a614cdd8 (opus-fallback) | 538eeba | REQUEST_CHANGES | R1 6건 해결; HIGH: 결과 불명 쓰기(적용 후 5xx) 미재조정·반복완료 기록 유실; MEDIUM: epoch 변경 후 full resync 누락 | **fix 2/2 FINAL** ctx_f08ed070e742 |
 | M1-03 | ctx_5f2d362794c9 | 6c0e433 | **APPROVE** | FU-05..07 | **Accepted, merged e49d336**, G3: 164 pass/9 gated skip, ci 0 |
 | M1-05 | ctx_bf4bfacdf49a | f089d89 | REQUEST_CHANGES | HIGH×3: 재시작 후 커서 변경 유실, 부분 실패 시 버전 없는 변경, 반복 완료 기록 없음; MEDIUM×3 | 오케스트레이터 도메인 포트 변경(CursorInvalidatedError, completedOccurrenceAt) + fix 1/2 |
 | M3-01 | ctx_c474514565eb | 0798bba | REQUEST_CHANGES | HIGH×2 Goose_Bay 자정 역행 (H6, H2), MEDIUM slots | **체인 BLOCKED (수정 2회 소진)** → ADR-017 재설계 Task M3-01b |
