@@ -21,3 +21,4 @@
 | FU-17 | M1-05R3 | vikunja LOWs: create follow-up spurious bump; lost-response recurring completion status; completedOccurrenceAt semantics = completed occurrence dueAt (coordinator: use dueAtBefore); concurrent null polls | LOW | FU-14 task (now) |
 | FU-18 | FU-09R / ADR-018 | Project.kind inbox (contracts, domain, migration 0002, in-memory, vikunja, api user-create, web) | MEDIUM | after M1-06 merges |
 | FU-19 | FU-09R | web: overwrite double-click (disable dialog actions while busy; rotate key only when If-Match changed); focus trap via inert/focusin; real-path overwrite test; conflictOpen counter; claim drift fixes | MEDIUM/LOW | with FU-18 web part |
+| FU-20 | M1-06R2 | domain port: softDelete returns new Version (remove full change-feed scan in TaskService.remove); x-trace-id/replay traceId semantics; session cookie sliding Max-Age; limiter/session map pruning | LOW | with FU-18 |
