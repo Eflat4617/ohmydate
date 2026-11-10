@@ -25,6 +25,7 @@ export {
 
 export {
   DomainError,
+  CursorInvalidatedError,
   DependencyCycleError,
   IdempotencyMismatchError,
   NotFoundError,

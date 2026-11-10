@@ -12,6 +12,16 @@
     }
   },
   "scripts": {
+    "db:migrate": "node --experimental-strip-types src/db/migrate.ts up",
+    "db:rollback": "node --experimental-strip-types src/db/migrate.ts down",
+    "test": "vitest run --globals",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "kysely": "0.29.8",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
   }
 }

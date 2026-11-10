@@ -19,6 +19,7 @@
 | 013 | 개발 런타임: rootless 컨테이너, docker 그룹 가입 금지 | Proposed (GD-1) |
 | 014 | 개발 에이전트 바인딩·OpenCode 설정 고정 | Proposed (GM-1) |
 | 015 | 디렉터리·라이선스 구역 | Proposed |
+| 017 | 스케줄러 시간 분할: 전환-구간 기반 로컬 날짜 계산 (M3-01R3 결과) | Accepted |
 | 016 | VikunjaTaskRepository 동시성·멱등 보정 (M0-03 결과) | Accepted (Sol 리뷰로 사실 재확인 조건) |
 
 ---
@@ -93,3 +94,13 @@
   6. API 토큰은 `/user/*` 불가 → 서비스 계정은 토큰(엔티티 작업) + 필요 시 JWT 부트스트랩.
 - **계약 테스트 영향:** `VersionConflict` 테스트는 InMemory/Native는 "항상 감지", Vikunja는 "순차 시나리오에서 감지"로 구분 표기(동일 스위트, capability flag `strictConcurrency`).
 - **Native 전환 트리거 강화:** 실제 사용에서 lost-update 1건 이상 관측 시 M7 앞당김 검토.
+
+## ADR-017 스케줄러 시간 분할 알고리즘 (M3-01 재설계)
+- **맥락:** M3-01 리뷰 3회에서 반복된 HIGH의 공통 원인은 "한 로컬 날짜 = 하나의 연속 UTC 구간"이라는 가정. 자정 갭(Santiago), 자정 역행(America/Goose_Bay 2009-11-01: 00:01→23:01, 같은 날짜가 두 번 나타남)에서 깨짐.
+- **결정:** 모든 시간 계산(일 상한 H6, 가용 투영 slots, H2 경계 열거)은 다음 공통 원리를 따른다(구현은 slots/validator가 각자 독립 작성):
+  1. 대상 UTC 구간 [a,b)를 `getTimeZoneTransition`로 얻은 **모든 오프셋 전환 시점**에서 분할 → 각 조각 내부 오프셋 일정.
+  2. 각 조각에서 로컬 시각 = UTC + offset(선형). 조각을 다시 **로컬 자정(그 조각의 오프셋 기준)**에서 분할 → 각 최소 조각은 정확히 하나의 로컬 날짜에 속함.
+  3. 날짜별 합계 = 같은 날짜를 가진 모든 최소 조각의 합(불연속·재방문 허용).
+  4. 규칙 매칭: 최소 조각마다 그 로컬 날짜·요일 규칙의 로컬 경계를 같은 오프셋으로 UTC 변환해 교차.
+- **테스트 오라클:** 1분 단위 UTC 순회(각 분의 로컬 날짜·요일·시각 판정) — 생산 코드와 다른 방식. 고정 케이스: Santiago 2026-09-06, Goose_Bay 2009-11-01, St_Johns, Lord_Howe(30분 DST), Asia/Seoul, America/New_York.
+- **지원 범위:** IANA tzdb 전체(temporal-polyfill 내장). 성능: 블록당 전환 수는 작아 O(블록×전환).
