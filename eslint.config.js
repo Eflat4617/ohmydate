@@ -10,6 +10,7 @@ export default tseslint.config(
       'docs/**',
       'upstream/**',
       'deploy/**',
+      'scripts/__fixtures__/**',
       'pnpm-lock.yaml',
     ],
   },
