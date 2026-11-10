@@ -2,6 +2,7 @@ import {
   DomainError,
   DependencyCycleError,
   IdempotencyMismatchError,
+  CursorInvalidatedError,
   NotFoundError,
   ProviderUnavailableError,
   ValidationFailedError,
@@ -19,6 +20,7 @@ test('domain errors expose stable codes', () => {
   expect(new ProviderUnavailableError('vikunja').code).toBe('provider_unavailable');
   expect(new DependencyCycleError(['a', 'b', 'a'] as Id[]).code).toBe('dependency_cycle');
   expect(new IdempotencyMismatchError().code).toBe('idempotency_mismatch');
+  expect(new CursorInvalidatedError().code).toBe('cursor_invalidated');
 });
 
 test('all domain errors extend DomainError and Error', () => {
