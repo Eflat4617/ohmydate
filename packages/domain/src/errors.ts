@@ -1,0 +1,77 @@
+import type { Id, Version } from './brand.js';
+
+export type DomainErrorCode =
+  | 'not_found'
+  | 'version_conflict'
+  | 'validation_failed'
+  | 'provider_unavailable'
+  | 'dependency_cycle'
+  | 'idempotency_mismatch';
+
+export interface ValidationIssue {
+  readonly path: string;
+  readonly message: string;
+}
+
+export abstract class DomainError extends Error {
+  abstract readonly code: DomainErrorCode;
+
+  protected constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = new.target.name;
+  }
+}
+
+export class NotFoundError extends DomainError {
+  readonly code = 'not_found' as const;
+
+  constructor(resource = 'resource', id?: string) {
+    super(id === undefined ? `${resource} not found` : `${resource} not found: ${id}`);
+  }
+}
+
+export class VersionConflictError extends DomainError {
+  readonly code = 'version_conflict' as const;
+  readonly expected: Version;
+
+  constructor(expected: Version, readonly actual?: Version) {
+    super(
+      actual === undefined
+        ? `expected version ${expected}`
+        : `expected version ${expected} but found ${actual}`,
+    );
+    this.expected = expected;
+  }
+}
+
+export class ValidationFailedError extends DomainError {
+  readonly code = 'validation_failed' as const;
+
+  constructor(readonly issues: readonly ValidationIssue[]) {
+    super(`validation failed: ${issues.map((issue) => issue.path).join(', ')}`);
+  }
+}
+
+export class ProviderUnavailableError extends DomainError {
+  readonly code = 'provider_unavailable' as const;
+
+  constructor(readonly provider?: string) {
+    super(provider === undefined ? 'provider unavailable' : `provider unavailable: ${provider}`);
+  }
+}
+
+export class DependencyCycleError extends DomainError {
+  readonly code = 'dependency_cycle' as const;
+
+  constructor(readonly cycle: readonly Id[]) {
+    super(`dependency cycle detected: ${cycle.join(' -> ')}`);
+  }
+}
+
+export class IdempotencyMismatchError extends DomainError {
+  readonly code = 'idempotency_mismatch' as const;
+
+  constructor(message = 'idempotency key reused with a different request body') {
+    super(message);
+  }
+}

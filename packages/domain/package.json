@@ -12,6 +12,7 @@
     }
   },
   "scripts": {
+    "test": "vitest run --globals",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   }
 }
