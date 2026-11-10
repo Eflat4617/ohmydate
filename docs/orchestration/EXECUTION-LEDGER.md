@@ -68,6 +68,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-18 | ctx_a92131369f50 (opus-fallback) | 82fb9ee | REQUEST_CHANGES | HIGH×2: testkit kind 무조건 단언(Vikunja live 실패), 가입 Inbox가 실제 서빙 저장소에 없음; MEDIUM×2 | fix 1/2 |
 | M3-02 | ctx_dea84d7169d1 (opus-fallback) | 117bffb | REQUEST_CHANGES | HIGH×2: now 무시(과거 배치), 변경 최소화 무효; MEDIUM×5 | fix 1/2 |
 | FU-14 | ctx_1f6ebc759984 (opus-fallback) | fa3aad2 | **APPROVE** | FU-22 | **Accepted, merged ed38b31**; 첫 G3 실패=dev Vikunja noauth 429(인프라) → 한도 상향 후 357 pass/18 skip + web 60, ci 0 |
 | FU-14 | ctx_9fad715a07e7 (opus-fallback) | 379a7f5 | REQUEST_CHANGES | FU-14..17 해결 확인; HIGH: dependsOn 생성 시 지문 순서로 유령 v2 | fix 1/2 |
