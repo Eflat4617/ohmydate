@@ -29,7 +29,7 @@ const MIGRATION_FILES = [
   '0001_init.sql',
   '0002_inbox_project.sql',
   '0003_vikunja_durable_stores.sql',
-];
+] as const;
 
 const M1_TABLES = [
   'audit_event',
@@ -152,32 +152,66 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
       migrationsDir,
     });
     const latest = MIGRATION_FILES[MIGRATION_FILES.length - 1];
+    if (latest === undefined) throw new Error('expected at least one migration');
     expect(rolledBack).toBe(latest);
 
-    const client = await connect(schema);
-    try {
-      if (latest === '0003_vikunja_durable_stores.sql') {
-        const gone = await client.query<{ name: string | null }>(
-          `SELECT to_regclass('vikunja_mapping')::text AS name`,
-        );
-        expect(gone.rows[0]?.name).toBeNull();
-        // Rolling back only the latest keeps everything below it applied.
-        const stillThere = await client.query<{ name: string | null }>(
-          `SELECT to_regclass('"user"')::text AS name`,
-        );
-        expect(stillThere.rows[0]?.name).not.toBeNull();
+    const assertRollbackEffect = async (migration: string) => {
+      const client = await connect(schema);
+      try {
+        if (migration === '0002_inbox_project.sql') {
+          const column = await client.query<{ name: string | null }>(
+            `SELECT column_name AS name
+               FROM information_schema.columns
+              WHERE table_schema = $1 AND table_name = 'project' AND column_name = 'kind'`,
+            [schema],
+          );
+          expect(column.rows[0]?.name).toBeUndefined();
+          const taskColumn = await client.query<{ is_nullable: string }>(
+            `SELECT is_nullable
+               FROM information_schema.columns
+              WHERE table_schema = $1 AND table_name = 'task' AND column_name = 'project_id'`,
+            [schema],
+          );
+          expect(taskColumn.rows[0]?.is_nullable).toBe('YES');
+          const index = await client.query<{ name: string | null }>(
+            `SELECT indexname AS name FROM pg_indexes
+              WHERE schemaname = $1 AND indexname = 'project_owner_inbox_unique'`,
+            [schema],
+          );
+          expect(index.rowCount).toBe(0);
+        } else if (migration === '0003_vikunja_durable_stores.sql') {
+          const gone = await client.query<{ name: string | null }>(
+            `SELECT to_regclass('vikunja_mapping')::text AS name`,
+          );
+          expect(gone.rows[0]?.name).toBeNull();
+          // Rolling back only the latest keeps everything below it applied.
+          const stillThere = await client.query<{ name: string | null }>(
+            `SELECT to_regclass('"user"')::text AS name`,
+          );
+          expect(stillThere.rows[0]?.name).not.toBeNull();
+        } else if (migration === '0001_init.sql') {
+          const gone = await client.query<{ name: string | null }>(
+            `SELECT to_regclass('"user"')::text AS name`,
+          );
+          expect(gone.rows[0]?.name).toBeNull();
+        }
+      } finally {
+        await client.end();
       }
-    } finally {
-      await client.end();
-    }
+    };
+
+    await assertRollbackEffect(latest);
 
     for (let index = MIGRATION_FILES.length - 2; index >= 0; index -= 1) {
+      const migration = MIGRATION_FILES[index];
+      if (migration === undefined) throw new Error('expected migration filename');
       const rolledBackAgain = await rollbackLatest({
         databaseUrl: requireDatabaseUrl(),
         schema,
         migrationsDir,
       });
-      expect(rolledBackAgain).toBe(MIGRATION_FILES[index]);
+      expect(rolledBackAgain).toBe(migration);
+      await assertRollbackEffect(migration);
     }
 
     const clientAfterRollback = await connect(schema);

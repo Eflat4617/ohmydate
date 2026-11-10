@@ -17,7 +17,6 @@ describe('InMemory repositories', () => {
     expect(tasks.capabilities).toEqual({
       strictConcurrency: true,
       idempotentCreate: true,
-      softDeleteReturnsVersion: true,
     });
     expect(projects.capabilities).toEqual({
       strictConcurrency: true,

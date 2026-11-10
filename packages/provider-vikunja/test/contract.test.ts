@@ -461,4 +461,49 @@ if (baseUrl === undefined || baseUrl.length === 0) {
       }
     });
   });
+
+  describe('Vikunja Inbox adoption (live)', () => {
+    test('serves exactly one Inbox after the default project is trashed', async () => {
+      const user = await createSyntheticUser(liveUrl);
+      const clock = new FakeClock();
+      const ids = createSeededIdGenerator(99, clock);
+      const ownerId = ids.next();
+      const mappings = new InMemoryMappingStore();
+      const repo = new VikunjaProjectRepository({
+        clients: new Map<Id, VikunjaClient>([[ownerId, user.client]]),
+        mappings,
+        clock,
+        ids,
+      });
+      let replacementExternalId: string | undefined;
+      try {
+        const inbox = await repo.getInbox(ownerId);
+        expect(inbox.kind).toBe('inbox');
+        const inboxMapping = await mappings.get('project', inbox.id);
+        if (inboxMapping === null) throw new Error('inbox mapping missing');
+        await user.client.deleteProject(inboxMapping.externalId);
+
+        const adopted = await repo.getInbox(ownerId);
+        expect(adopted.kind).toBe('inbox');
+        expect(adopted.id).not.toBe(inbox.id);
+        replacementExternalId = (await mappings.get('project', adopted.id))?.externalId;
+
+        const list = await repo.list(ownerId, { limit: 100 });
+        expect(list.items.filter((project) => project.kind === 'inbox')).toHaveLength(1);
+        expect(list.items.find((project) => project.kind === 'inbox')?.id).toBe(adopted.id);
+
+        const repeated = await repo.getInbox(ownerId);
+        expect(repeated.id).toBe(adopted.id);
+        const repeatedList = await repo.list(ownerId, { limit: 100 });
+        expect(repeatedList.items.filter((project) => project.kind === 'inbox')).toHaveLength(1);
+      } finally {
+        if (replacementExternalId !== undefined) {
+          await user.client.deleteProject(replacementExternalId).catch(() => undefined);
+          await user.client
+            .permanentDeleteProject(replacementExternalId)
+            .catch(() => undefined);
+        }
+      }
+    });
+  });
 }

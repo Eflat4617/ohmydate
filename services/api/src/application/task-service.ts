@@ -43,20 +43,8 @@ export class TaskService {
     return this.#tasks.complete(ownerId, id, expectedVersion);
   }
 
-  async remove(ownerId: Id, id: Id, expectedVersion: Version): Promise<Version> {
-    const recorded = await this.#tasks.softDelete(ownerId, id, expectedVersion);
-    if (typeof recorded === 'number') return recorded as Version;
-    // Legacy adapters return void; only they pay for the change-feed scan.
-    const changes = await this.#tasks.listChangedSince(ownerId, null);
-    let fallback: Version | undefined;
-    for (const change of changes.changes) {
-      if (change.id !== id) continue;
-      if (fallback === undefined || change.version > fallback) fallback = change.version;
-    }
-    if (fallback === undefined) {
-      throw new Error(`task ${id} missing from change feed after soft delete`);
-    }
-    return fallback;
+  remove(ownerId: Id, id: Id, expectedVersion: Version): Promise<Version> {
+    return this.#tasks.softDelete(ownerId, id, expectedVersion);
   }
 
   /**

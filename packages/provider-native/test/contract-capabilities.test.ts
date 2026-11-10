@@ -29,7 +29,6 @@ import {
 const NON_STRICT_CAPABILITIES: RepositoryCapabilities = {
   strictConcurrency: false,
   idempotentCreate: false,
-  softDeleteReturnsVersion: true,
 };
 
 class NonStrictTaskRepository implements TaskRepository {
@@ -66,7 +65,7 @@ class NonStrictTaskRepository implements TaskRepository {
     return this.#inner.complete(ownerId, id, expectedVersion);
   }
 
-  softDelete(ownerId: Id, id: Id, expectedVersion: Version): Promise<Version | void> {
+  softDelete(ownerId: Id, id: Id, expectedVersion: Version): Promise<Version> {
     return this.#inner.softDelete(ownerId, id, expectedVersion);
   }
 
@@ -103,6 +102,10 @@ class NonStrictProjectRepository implements ProjectRepository {
     expectedVersion: Version,
   ): Promise<Project> {
     return this.#inner.update(ownerId, id, patch, expectedVersion);
+  }
+
+  getInbox(ownerId: Id): Promise<Project> {
+    return this.#inner.getInbox(ownerId);
   }
 }
 

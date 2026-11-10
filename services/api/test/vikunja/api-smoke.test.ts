@@ -23,6 +23,7 @@ const TOKEN_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   projects: ['create', 'read_all', 'read_one', 'update', 'delete', 'permanent'],
   tasks: ['create', 'read_all', 'read_one', 'update', 'delete', 'deleted', 'permanent'],
   tasks_relations: ['create', 'delete'],
+  other: ['user'],
 };
 
 interface SyntheticAccount {

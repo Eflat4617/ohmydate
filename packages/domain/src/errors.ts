@@ -56,8 +56,16 @@ export class ValidationFailedError extends DomainError {
 export class ProviderUnavailableError extends DomainError {
   readonly code = 'provider_unavailable' as const;
 
-  constructor(readonly provider?: string) {
-    super(provider === undefined ? 'provider unavailable' : `provider unavailable: ${provider}`);
+  /**
+   * Non-secret cause discriminator (for example `provider_auth`). It is safe
+   * to surface in problem details and logs; never put tokens or bodies here.
+   */
+  constructor(
+    readonly provider?: string,
+    readonly reason?: string,
+  ) {
+    const base = provider === undefined ? 'provider unavailable' : `provider unavailable: ${provider}`;
+    super(reason === undefined ? base : `${base} (${reason})`);
   }
 }
 

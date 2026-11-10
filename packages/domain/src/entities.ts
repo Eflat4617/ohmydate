@@ -20,8 +20,8 @@ export interface Project {
   readonly id: Id;
   readonly ownerId: Id;
   readonly title: string;
-  /** ADR-018; optional until every provider adapter (Vikunja) adopts it. */
-  readonly kind?: ProjectKind;
+  /** ADR-018: exactly one `inbox` project per owner; every other project is `normal`. */
+  readonly kind: ProjectKind;
   readonly archived: boolean;
   readonly version: Version;
   readonly createdAt: Instant;
