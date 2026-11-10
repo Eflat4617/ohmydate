@@ -22,14 +22,26 @@ const { conflict, error, busy, rename, complete, remove, overwrite, reload, dism
 
 const interactiveDisabled = computed(() => props.disabled || !offline.online);
 
+let conflictRegistered = false;
 watch(
   () => conflict.value !== null,
-  (open) => ui.setConflictOpen(open),
+  (open) => {
+    if (open && !conflictRegistered) {
+      conflictRegistered = true;
+      ui.openConflict();
+    } else if (!open && conflictRegistered) {
+      conflictRegistered = false;
+      ui.closeConflict();
+    }
+  },
   { immediate: true },
 );
 
 onUnmounted(() => {
-  ui.setConflictOpen(false);
+  if (conflictRegistered) {
+    conflictRegistered = false;
+    ui.closeConflict();
+  }
 });
 
 const editingId = ref<string | null>(null);
@@ -156,7 +168,7 @@ watch(
 );
 
 async function onOverwrite(): Promise<void> {
-  if (interactiveDisabled.value) return;
+  if (interactiveDisabled.value || busy.value) return;
   const current = conflict.value;
   const currentDraft =
     current !== null && current.operation === 'rename' && editingId.value === current.taskId
@@ -174,6 +186,7 @@ async function onOverwrite(): Promise<void> {
 }
 
 async function onReload(): Promise<void> {
+  if (busy.value) return;
   try {
     await reload();
     if (conflict.value === null) {
@@ -187,7 +200,7 @@ async function onReload(): Promise<void> {
 
 function onCancelConflict(): void {
   const current = conflict.value;
-  dismissConflict();
+  dismissConflict(current?.operation === 'rename' ? { keepAction: true } : {});
   if (current?.operation === 'rename' && editingId.value === current.taskId) {
     focusNonce.value += 1;
   }
@@ -224,6 +237,7 @@ function onCancelConflict(): void {
       :local-title="conflict.localTitle"
       :operation="conflict.operation"
       :disabled="interactiveDisabled"
+      :busy="busy"
       @reload="onReload"
       @overwrite="onOverwrite"
       @cancel="onCancelConflict"

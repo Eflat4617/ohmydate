@@ -3,7 +3,6 @@ import {
   ActionStore,
   ApiError,
   plannerClient,
-  type IdempotentAction,
   type PlannerClient,
   type Task,
 } from '../api';
@@ -27,7 +26,7 @@ export interface TaskActions {
   remove: (task: Task, actionId?: string) => Promise<boolean>;
   overwrite: (title?: string | null) => Promise<Task | null>;
   reload: () => Promise<Task | null>;
-  dismissConflict: () => void;
+  dismissConflict: (options?: { keepAction?: boolean }) => void;
   discard: (scope: string) => void;
 }
 
@@ -120,21 +119,6 @@ export function useTaskActions(
     if (action !== undefined) actions.settle(scope, action);
   }
 
-  /**
-   * Starts a brand-new logical action, retiring any previous key. Used when a
-   * retry changes If-Match (overwrite/re-save after a conflict), where 08 §1
-   * recommends minting a fresh Idempotency-Key.
-   */
-  function restart<T>(
-    scope: string,
-    payload: T,
-    same: (left: T, right: T) => boolean,
-  ): IdempotentAction<T> {
-    const existing = actions.peek<T>(scope);
-    if (existing !== undefined) actions.settle(scope, existing);
-    return actions.begin(scope, payload, same);
-  }
-
   async function refreshConflict(current: TaskConflict, scope: string): Promise<void> {
     const server = await fetchLatest(current.taskId);
     if (server === null) {
@@ -157,7 +141,12 @@ export function useTaskActions(
   async function rename(task: Task, title: string): Promise<Task | null> {
     return mutate(async () => {
       const scope = `task:${task.id}:rename`;
-      const action = actions.begin<RenamePayload>(scope, { taskId: task.id, title }, sameRename);
+      const action = actions.begin<RenamePayload>(
+        scope,
+        { taskId: task.id, title },
+        sameRename,
+        task.version,
+      );
       try {
         const updated = await client.updateTask(
           task.id,
@@ -195,6 +184,7 @@ export function useTaskActions(
         scope,
         { taskId: task.id, intent: 'complete' },
         sameIntent,
+        task.version,
       );
       try {
         const updated = await client.completeTask(task.id, action.key, task.version);
@@ -228,6 +218,7 @@ export function useTaskActions(
         scope,
         { taskId: task.id, intent: 'delete' },
         sameIntent,
+        task.version,
       );
       try {
         await client.deleteTask(task.id, action.key, task.version);
@@ -267,10 +258,11 @@ export function useTaskActions(
       }
 
       if (current.operation === 'delete') {
-        const action = restart<IntentPayload>(
+        const action = actions.begin<IntentPayload>(
           scope,
           { taskId: current.taskId, intent: 'delete' },
           sameIntent,
+          fresh.version,
         );
         try {
           await client.deleteTask(current.taskId, action.key, fresh.version);
@@ -298,7 +290,12 @@ export function useTaskActions(
           taskId: current.taskId,
           title: trimmed !== undefined && trimmed.length > 0 ? trimmed : current.localTitle ?? fresh.title,
         };
-        const action = restart<RenamePayload>(scope, payload, sameRename);
+        const action = actions.begin<RenamePayload>(
+          scope,
+          payload,
+          sameRename,
+          fresh.version,
+        );
         try {
           const updated = await client.updateTask(
             current.taskId,
@@ -318,10 +315,11 @@ export function useTaskActions(
         }
       }
 
-      const action = restart<IntentPayload>(
+      const action = actions.begin<IntentPayload>(
         scope,
         { taskId: current.taskId, intent: 'complete' },
         sameIntent,
+        fresh.version,
       );
       try {
         const updated = await client.completeTask(current.taskId, action.key, fresh.version);
@@ -348,9 +346,9 @@ export function useTaskActions(
     return fresh;
   }
 
-  function dismissConflict(): void {
+  function dismissConflict(options: { keepAction?: boolean } = {}): void {
     const current = conflict.value;
-    if (current !== null) settleCurrent(scopeFor(current));
+    if (current !== null && options.keepAction !== true) settleCurrent(scopeFor(current));
     conflict.value = null;
   }
 

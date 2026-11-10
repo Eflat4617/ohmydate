@@ -4,6 +4,8 @@ export type TaskStatus = 'todo' | 'in_progress' | 'done';
 
 export type TaskPriority = 1 | 2 | 3 | 4;
 
+export type ProjectKind = 'inbox' | 'normal';
+
 export interface SessionWindow {
   readonly minMinutes: number;
   readonly maxMinutes: number;
@@ -18,6 +20,8 @@ export interface Project {
   readonly id: Id;
   readonly ownerId: Id;
   readonly title: string;
+  /** ADR-018; optional until every provider adapter (Vikunja) adopts it. */
+  readonly kind?: ProjectKind;
   readonly archived: boolean;
   readonly version: Version;
   readonly createdAt: Instant;

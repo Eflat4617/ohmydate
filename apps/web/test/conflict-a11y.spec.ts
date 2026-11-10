@@ -3,7 +3,6 @@ import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { defineComponent, h, nextTick } from 'vue';
 import AppShell from '../src/components/AppShell.vue';
-import TaskItem from '../src/components/TaskItem.vue';
 import TaskList from '../src/components/TaskList.vue';
 import { createPlannerClient, newActionId, plannerClient, type Task } from '../src/api';
 import { useToastStore } from '../src/stores/toast';
@@ -79,7 +78,7 @@ describe('conflict dialog accessibility', () => {
     wrapper.unmount();
   });
 
-  it('overwrites with the current draft rather than the stale conflict title', async () => {
+  it('overwrites with the draft typed after Keep editing (real path)', async () => {
     const task = await conflictedTask();
     const pinia = createPinia();
 
@@ -98,8 +97,16 @@ describe('conflict dialog accessibility', () => {
       expect(wrapper.text()).toContain('This task changed elsewhere');
     });
 
-    wrapper.findComponent(TaskItem).vm.$emit('update:draft', 'Newer draft typed behind dialog');
-    await settle();
+    await button(wrapper, 'Keep editing').trigger('click');
+    await vi.waitFor(() => {
+      expect(wrapper.text()).not.toContain('This task changed elsewhere');
+    });
+
+    await wrapper.get('input').setValue('Newer draft typed after keep editing');
+    await wrapper.get('form').trigger('submit');
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('This task changed elsewhere');
+    });
 
     await button(wrapper, 'Overwrite with my edit').trigger('click');
     await vi.waitFor(() => {
@@ -107,12 +114,12 @@ describe('conflict dialog accessibility', () => {
     });
 
     const fresh = await plannerClient.getTask(task.id, { fresh: true });
-    expect(fresh.title).toBe('Newer draft typed behind dialog');
+    expect(fresh.title).toBe('Newer draft typed after keep editing');
 
     wrapper.unmount();
   });
 
-  it('mints a fresh key when the editor is re-saved after Keep editing', async () => {
+  it('reuses the key when a re-save keeps the same If-Match', async () => {
     const task = await conflictedTask();
     const keys: string[] = [];
     const spy = vi
@@ -148,7 +155,48 @@ describe('conflict dialog accessibility', () => {
       expect(keys).toHaveLength(2);
     });
 
-    expect(keys[0]).not.toBe(keys[1]);
+    expect(keys[0]).toBe(keys[1]);
+    spy.mockRestore();
+    wrapper.unmount();
+  });
+
+  it('sends only one overwrite request for a double click', async () => {
+    const task = await conflictedTask();
+    const realUpdate = plannerClient.updateTask.bind(plannerClient);
+    let patchCalls = 0;
+    const spy = vi
+      .spyOn(plannerClient, 'updateTask')
+      .mockImplementation(async (taskId, patch, key, version) => {
+        patchCalls += 1;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        return realUpdate(taskId, patch, key, version);
+      });
+    const pinia = createPinia();
+
+    const wrapper = mount(TaskList, {
+      props: { tasks: [task] },
+      global: { plugins: [pinia] },
+      attachTo: document.body,
+    });
+    await settle();
+
+    await button(wrapper, 'Edit').trigger('click');
+    await settle();
+    await wrapper.get('input').setValue('Local input to preserve');
+    await wrapper.get('form').trigger('submit');
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain('This task changed elsewhere');
+    });
+
+    patchCalls = 0;
+    const overwrite = button(wrapper, 'Overwrite with my edit');
+    await overwrite.trigger('click');
+    await overwrite.trigger('click');
+    await vi.waitFor(() => {
+      expect(wrapper.text()).not.toContain('This task changed elsewhere');
+    });
+
+    expect(patchCalls).toBe(1);
     spy.mockRestore();
     wrapper.unmount();
   });

@@ -30,6 +30,22 @@ describe('version-conflict flow', () => {
     expect(store.has(`task:${task.id}:rename`)).toBe(false);
   });
 
+  it('prefers the live draft over a stale conflict localTitle', async () => {
+    const client = createPlannerClient();
+    const otherDevice = createPlannerClient();
+    const actions = useTaskActions(client, new ActionStore());
+
+    const task = await client.createTask({ title: 'Original' }, newActionId('create'));
+    await otherDevice.updateTask(task.id, { title: 'Server title' }, newActionId('other'));
+
+    expect(await actions.rename(task, 'Stale local title')).toBeNull();
+    expect(actions.conflict.value?.localTitle).toBe('Stale local title');
+
+    const overwritten = await actions.overwrite('Live newer draft');
+    expect(overwritten?.title).toBe('Live newer draft');
+    expect(actions.conflict.value).toBeNull();
+  });
+
   it('re-fetches before overwrite so a newer server version is not rejected', async () => {
     const client = createPlannerClient();
     const otherDevice = createPlannerClient();

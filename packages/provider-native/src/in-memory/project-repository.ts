@@ -9,7 +9,7 @@ import {
   type ProjectCreate,
   type ProjectPatch,
   type ProjectQuery,
-  type ProjectRepository,
+  type InboxProjectRepository,
   type RepositoryCapabilities,
   type Version,
 } from '@ohmydate/domain';
@@ -35,7 +35,7 @@ const CAPABILITIES: RepositoryCapabilities = {
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
-export class InMemoryProjectRepository implements ProjectRepository {
+export class InMemoryProjectRepository implements InboxProjectRepository {
   readonly capabilities: RepositoryCapabilities = CAPABILITIES;
 
   readonly #clock: InMemoryRepositoryOptions['clock'];
@@ -43,6 +43,7 @@ export class InMemoryProjectRepository implements ProjectRepository {
   readonly #projects = new Map<string, Project>();
   readonly #idempotency = new Map<string, IdempotencyRecord>();
   readonly #inboxProjects = new Map<string, Id>();
+  readonly #pendingInbox = new Map<string, Promise<Project>>();
 
   constructor(options: InMemoryRepositoryOptions) {
     this.#clock = options.clock;
@@ -64,6 +65,7 @@ export class InMemoryProjectRepository implements ProjectRepository {
       id: this.#ids.next(),
       ownerId,
       title,
+      kind: 'normal',
       archived: false,
       version: 1 as Version,
       createdAt: now,
@@ -83,18 +85,32 @@ export class InMemoryProjectRepository implements ProjectRepository {
     return cloneProject(project);
   }
 
-  async ensureInbox(ownerId: Id): Promise<Project> {
+  async getInbox(ownerId: Id): Promise<Project> {
     const existingId = this.#inboxProjects.get(ownerId);
     if (existingId !== undefined) {
       const existing = this.#projects.get(existingId);
       if (existing !== undefined) return cloneProject(existing);
     }
 
+    const pending = this.#pendingInbox.get(ownerId);
+    if (pending !== undefined) return cloneProject(await pending);
+
+    const creating = this.#createInbox(ownerId);
+    this.#pendingInbox.set(ownerId, creating);
+    try {
+      return cloneProject(await creating);
+    } finally {
+      if (this.#pendingInbox.get(ownerId) === creating) this.#pendingInbox.delete(ownerId);
+    }
+  }
+
+  async #createInbox(ownerId: Id): Promise<Project> {
     const now = this.#clock.now();
     const project: Project = {
       id: this.#ids.next(),
       ownerId,
       title: 'Inbox',
+      kind: 'inbox',
       archived: false,
       version: 1 as Version,
       createdAt: now,
@@ -102,7 +118,7 @@ export class InMemoryProjectRepository implements ProjectRepository {
     };
     this.#projects.set(project.id, project);
     this.#inboxProjects.set(ownerId, project.id);
-    return cloneProject(project);
+    return project;
   }
 
   async list(ownerId: Id, query: ProjectQuery): Promise<Page<Project>> {
@@ -145,6 +161,11 @@ export class InMemoryProjectRepository implements ProjectRepository {
     if (patch.archived !== undefined && typeof patch.archived !== 'boolean') {
       throw new ValidationFailedError([
         { path: 'archived', message: 'expected a boolean' },
+      ]);
+    }
+    if (current.kind === 'inbox' && patch.archived === true) {
+      throw new ValidationFailedError([
+        { path: 'archived', message: 'the inbox project cannot be archived or deleted' },
       ]);
     }
 

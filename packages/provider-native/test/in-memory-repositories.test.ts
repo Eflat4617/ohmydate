@@ -17,6 +17,7 @@ describe('InMemory repositories', () => {
     expect(tasks.capabilities).toEqual({
       strictConcurrency: true,
       idempotentCreate: true,
+      softDeleteReturnsVersion: true,
     });
     expect(projects.capabilities).toEqual({
       strictConcurrency: true,
@@ -80,7 +81,9 @@ describe('InMemory repositories', () => {
 
     const inbox = await projects.get(owner, first.projectId);
     expect(inbox).not.toBeNull();
+    expect(inbox?.kind).toBe('inbox');
     expect(inbox?.title).toBe('Inbox');
     expect(inbox?.ownerId).toBe(owner);
+    await expect(projects.getInbox(owner)).resolves.toEqual(inbox);
   });
 });

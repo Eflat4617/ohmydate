@@ -236,6 +236,66 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
     expect(remove.statusCode).toBe(404);
   });
 
+  test('a fresh user already sees exactly one Inbox in GET /projects', async () => {
+    await ctx.seedUser({ email: 'fresh-inbox@example.com', password: 'correct-horse' });
+    const fresh = await login(ctx, 'fresh-inbox@example.com', 'correct-horse');
+
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/projects?limit=100',
+      headers: authHeaders(fresh),
+    });
+    expect(response.statusCode).toBe(200);
+    const items = (response.json() as {
+      items: { id: string; kind: string }[];
+    }).items;
+    expect(items.filter((project) => project.kind === 'inbox')).toHaveLength(1);
+  });
+
+  test('POST /projects rejects an attempt to create an Inbox', async () => {
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
+      payload: { title: 'My inbox', kind: 'inbox' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'validation_failed' });
+  });
+
+  test('assigns tasks without projectId to the owner Inbox and exposes kind', async () => {
+    const created = await createTask(alice, { title: 'Inbox capture' });
+    expect(created.statusCode).toBe(201);
+    const task = created.json() as { projectId: string };
+
+    const projects = await ctx.app.inject({
+      method: 'GET',
+      url: '/projects?limit=100',
+      headers: authHeaders(alice),
+    });
+    expect(projects.statusCode).toBe(200);
+    const items = (projects.json() as {
+      items: { id: string; kind: string; ownerId: string }[];
+    }).items;
+    const inbox = items.find((project) => project.kind === 'inbox');
+    expect(inbox).toBeDefined();
+    expect(inbox?.id).toBe(task.projectId);
+    expect(inbox?.ownerId).toBeDefined();
+
+    const second = await createTask(alice, { title: 'Another inbox capture' });
+    expect(second.statusCode).toBe(201);
+    expect((second.json() as { projectId: string }).projectId).toBe(task.projectId);
+
+    const createdProject = await ctx.app.inject({
+      method: 'POST',
+      url: '/projects',
+      headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
+      payload: { title: 'Work' },
+    });
+    expect(createdProject.statusCode).toBe(201);
+    expect(createdProject.json()).toMatchObject({ kind: 'normal' });
+  });
+
   test('request bodies are not type-coerced', async () => {
     const response = await ctx.app.inject({
       method: 'POST',
