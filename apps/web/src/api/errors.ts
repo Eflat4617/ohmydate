@@ -15,6 +15,9 @@ const PROBLEM_CODES: ReadonlySet<string> = new Set<ProblemCode>([
   'not_found',
   'forbidden',
   'rate_limited',
+  'unauthenticated',
+  'idempotency_in_progress',
+  'internal_error',
 ]);
 
 export type ApiErrorCode = ProblemCode | 'unknown';
