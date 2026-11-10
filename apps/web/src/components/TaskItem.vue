@@ -86,7 +86,7 @@ function onInput(event: Event): void {
         >
           Save
         </button>
-        <button type="button" :disabled="pending" @click="emit('cancel')">Cancel</button>
+        <button type="button" :disabled="locked" @click="emit('cancel')">Cancel</button>
       </form>
     </template>
     <template v-else>

@@ -18,12 +18,38 @@ const {
   error: createError,
 } = useTaskActions(plannerClient, new ActionStore(), () => offline.online);
 
-const { data, isLoading, isError, refetch } = useQuery({
-  queryKey: ['tasks', 'inbox'],
-  queryFn: () => plannerClient.listTasks(),
+const projectsQuery = useQuery({
+  queryKey: ['projects'],
+  queryFn: () => plannerClient.listProjects(),
 });
 
-const tasks = computed<Task[]>(() => data.value?.items ?? []);
+const inboxProjectId = computed(() => {
+  const project = projectsQuery.data.value?.items.find(
+    (item) => item.title.trim().toLowerCase() === 'inbox',
+  );
+  return project?.id;
+});
+
+const tasksQuery = useQuery({
+  queryKey: computed(() => ['tasks', 'inbox', inboxProjectId.value ?? null]),
+  queryFn: () =>
+    plannerClient.listTasks(
+      inboxProjectId.value === undefined ? {} : { projectId: inboxProjectId.value },
+    ),
+  enabled: computed(() => inboxProjectId.value !== undefined),
+});
+
+const tasks = computed<Task[]>(() => tasksQuery.data.value?.items ?? []);
+const isLoading = computed(
+  () =>
+    projectsQuery.isLoading.value ||
+    (inboxProjectId.value !== undefined && tasksQuery.isLoading.value),
+);
+const isError = computed(() => projectsQuery.isError.value || tasksQuery.isError.value);
+
+async function refetchAll(): Promise<void> {
+  await Promise.all([projectsQuery.refetch(), tasksQuery.refetch()]);
+}
 
 watch(
   () => ui.newTaskRequest,
@@ -71,7 +97,7 @@ async function refresh(): Promise<void> {
     <p v-if="isLoading" class="muted">Loading tasks…</p>
     <div v-else-if="isError" class="error-panel">
       <p class="error-text" role="alert">Could not load tasks.</p>
-      <button type="button" @click="refetch()">Retry</button>
+      <button type="button" @click="refetchAll()">Retry</button>
     </div>
     <TaskList v-else :tasks="tasks" :disabled="!offline.mutationsEnabled" @refresh="refresh" />
   </section>

@@ -143,3 +143,36 @@ describe('version-conflict flow', () => {
     });
   });
 });
+
+describe('idempotency key rotation across If-Match changes', () => {
+  it('mints a fresh key when overwrite changes If-Match', async () => {
+    const keys: string[] = [];
+    const realFetch = globalThis.fetch.bind(globalThis);
+    const client = createPlannerClient({
+      fetch: async (input, init) => {
+        const request =
+          input instanceof Request ? input : new Request(String(input), init);
+        if (request.method === 'PATCH') {
+          const key = request.headers.get('Idempotency-Key');
+          if (key !== null) keys.push(key);
+        }
+        return realFetch(input as RequestInfo, init);
+      },
+    });
+    const otherDevice = createPlannerClient();
+    const store = new ActionStore();
+    const actions = useTaskActions(client, store);
+
+    const task = await client.createTask({ title: 'Original' }, newActionId('create'));
+    await otherDevice.updateTask(task.id, { title: 'Server title' }, newActionId('other'));
+
+    expect(await actions.rename(task, 'Local title')).toBeNull();
+    expect(actions.conflict.value?.server.version).toBe(2);
+
+    const overwritten = await actions.overwrite();
+    expect(overwritten?.title).toBe('Local title');
+    expect(overwritten?.version).toBe(3);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+});

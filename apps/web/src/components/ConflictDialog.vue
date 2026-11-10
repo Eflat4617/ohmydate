@@ -15,6 +15,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{ reload: []; overwrite: []; cancel: [] }>();
 
+const dialog = ref<HTMLElement | null>(null);
 const reloadButton = ref<HTMLButtonElement | null>(null);
 
 const heading = computed(() => {
@@ -41,6 +42,47 @@ const overwriteLabel = computed(() => {
 
 const cancelLabel = computed(() => (props.operation === 'rename' ? 'Keep editing' : 'Cancel'));
 
+function focusableElements(): HTMLElement[] {
+  const root = dialog.value;
+  if (root === null) return [];
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  );
+}
+
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    emit('cancel');
+    return;
+  }
+  if (event.key !== 'Tab') return;
+
+  const items = focusableElements();
+  if (items.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const first = items[0];
+  const last = items[items.length - 1];
+  if (first === undefined || last === undefined) return;
+  const active = document.activeElement;
+  const inside = dialog.value?.contains(active ?? null) === true;
+
+  if (event.shiftKey) {
+    if (!inside || active === first) {
+      event.preventDefault();
+      last.focus();
+    }
+  } else if (!inside || active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 onMounted(() => {
   void nextTick().then(() => reloadButton.value?.focus());
 });
@@ -49,11 +91,13 @@ onMounted(() => {
 <template>
   <div class="dialog-backdrop">
     <div
+      ref="dialog"
       class="dialog conflict-dialog"
       role="dialog"
       aria-modal="true"
       aria-labelledby="conflict-title"
       aria-describedby="conflict-detail"
+      @keydown="onKeydown"
     >
       <h2 id="conflict-title">{{ heading }}</h2>
       <p id="conflict-detail">
