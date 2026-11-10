@@ -6,7 +6,8 @@ export type DomainErrorCode =
   | 'validation_failed'
   | 'provider_unavailable'
   | 'dependency_cycle'
-  | 'idempotency_mismatch';
+  | 'idempotency_mismatch'
+  | 'cursor_invalidated';
 
 export interface ValidationIssue {
   readonly path: string;
@@ -72,6 +73,20 @@ export class IdempotencyMismatchError extends DomainError {
   readonly code = 'idempotency_mismatch' as const;
 
   constructor(message = 'idempotency key reused with a different request body') {
+    super(message);
+  }
+}
+
+/**
+ * A change-feed cursor can no longer be honoured (e.g. issued by a previous adapter
+ * instance/epoch or compacted history). Consumers must perform a full resync by calling
+ * listChangedSince(ownerId, null) and reconciling all returned tasks. Internal only: not an
+ * HTTP problem code.
+ */
+export class CursorInvalidatedError extends DomainError {
+  readonly code = 'cursor_invalidated' as const;
+
+  constructor(message = 'change cursor is no longer valid; full resync required') {
     super(message);
   }
 }

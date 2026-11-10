@@ -30,6 +30,12 @@ export interface TaskChange {
   readonly id: Id;
   readonly version: Version;
   readonly deletedAt?: Instant;
+  /**
+   * Planner-owned completion record (ADR-016 §4): set when this change records a completion of
+   * an occurrence, including recurring tasks that the provider reopens. Consumers must treat it
+   * as the source of truth for "completed" even if the current task status is todo.
+   */
+  readonly completedOccurrenceAt?: Instant;
 }
 
 export interface TaskChangePage {
