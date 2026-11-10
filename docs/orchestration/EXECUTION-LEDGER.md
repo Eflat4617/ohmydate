@@ -68,6 +68,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-14 | ctx_9fad715a07e7 (opus-fallback) | 379a7f5 | REQUEST_CHANGES | FU-14..17 해결 확인; HIGH: dependsOn 생성 시 지문 순서로 유령 v2 | fix 1/2 |
 | M2-01 | ctx_854c1bd3462e (opus-fallback) | 6d3f87e | REQUEST_CHANGES | HIGH: 정규화 경로 성능 회귀로 전체 ci 실패(100KB 테스트 >200ms); MEDIUM: 치환 루프 2차 시간, 경계 회귀 | **체인 BLOCKED** → 범위 축소 M2-01c |
 | M1-06c | ctx_21fc4d80beb9 (opus-fallback) | 0c20d15 | **APPROVE** (M1-06 전체 병합 가능 판정) | FU-21 | **Accepted, merged 3db53ad**; G3 DB+live Vikunja 342 pass/18 skip + web 60, ci 0 |
 | M1-06 | ctx_aa0fa6d2208e (opus-fallback) | c2bd70b | REQUEST_CHANGES | HIGH: c2bd70b가 만든 503→500 회귀 (R2 항목 전부 해결) | **체인 BLOCKED** → 범위 축소 Task M1-06c |
