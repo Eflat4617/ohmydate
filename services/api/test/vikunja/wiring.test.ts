@@ -350,14 +350,19 @@ describe.skipIf(!hasDatabase)('Vikunja owner account token resolution', () => {
   });
 
   test('still follows the input symlink and reads the verified file', async () => {
-    const { secrets } = await secretLayout();
+    const { root, secrets } = await secretLayout();
     const inside = join(secrets, 'inside.json');
+    const outside = join(root, 'outside.json');
     const link = join(secrets, 'link.json');
     const ownerId = randomUUID() as Id;
     await writeFile(inside, JSON.stringify({ [ownerId]: 'tk-inside' }), 'utf8');
+    await writeFile(outside, JSON.stringify({ [ownerId]: 'tk-outside' }), 'utf8');
     await symlink(inside, link);
     await insertAccount(ownerId, `file:${link}`);
+    const resolvedInside = await realpath(inside);
 
+    // T1: realpath resolves the input symlink, then an attacker repoints it
+    // outside. The verified resolved path must still be the one read.
     const clients = await loadVikunjaClients({
       db: store.db,
       config: createConfig({
@@ -365,8 +370,28 @@ describe.skipIf(!hasDatabase)('Vikunja owner account token resolution', () => {
         vikunjaUrl: 'http://127.0.0.1:3456',
         vikunjaSecretsDir: secrets,
       }),
+      beforeTokenFileOpen: async (resolved) => {
+        expect(resolved).toBe(resolvedInside);
+        await rm(link);
+        await symlink(outside, link);
+      },
     });
     expect([...clients.keys()]).toEqual([ownerId]);
+
+    const authorizations: Array<string | null> = [];
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      authorizations.push(new Headers(init?.headers).get('authorization'));
+      return new Response(JSON.stringify({ settings: {} }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    try {
+      await clients.get(ownerId)?.getGeneralSettings();
+    } finally {
+      fetchSpy.mockRestore();
+    }
+    expect(authorizations).toEqual(['Bearer tk-inside']);
   });
 
   test('rejects a leaf file swapped for a symlink after verification', async () => {

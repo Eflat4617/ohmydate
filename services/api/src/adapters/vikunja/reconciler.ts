@@ -34,6 +34,25 @@ export const LEADER_LOCK_QUERY_TIMEOUT_MS = 5_000;
 /** TCP keepalive probe delay on the dedicated lock connection. */
 export const LEADER_LOCK_KEEPALIVE_INITIAL_DELAY_MS = 10_000;
 
+/**
+ * Server-side TCP keepalive parameters requested for the lock session via
+ * startup `options`. Client-side keepAlive only notices a dead peer; it does
+ * not make the server release a partitioned session, so without these a
+ * failover can stall for the server default (hours on some builds). The
+ * defaults are conservative: 30 s idle, 10 s interval, 3 probes (~60 s).
+ */
+export const LEADER_LOCK_SERVER_KEEPALIVES = {
+  idleSeconds: 30,
+  intervalSeconds: 10,
+  count: 3,
+} as const;
+
+export interface LeaderLockServerKeepalives {
+  readonly idleSeconds: number;
+  readonly intervalSeconds: number;
+  readonly count: number;
+}
+
 export interface ReconcilerLogger {
   warn(message: string, details?: Readonly<Record<string, unknown>>): void;
   error(message: string, details?: Readonly<Record<string, unknown>>): void;
@@ -46,6 +65,11 @@ export interface PgSessionLeaderLockOptions {
   readonly logger?: ReconcilerLogger;
   /** Bound on lock/unlock/probe queries; defaults to 5 s. */
   readonly queryTimeoutMs?: number;
+  /**
+   * Server-side keepalive values for the lock session's startup `options`;
+   * defaults to LEADER_LOCK_SERVER_KEEPALIVES.
+   */
+  readonly serverKeepalives?: Partial<LeaderLockServerKeepalives>;
 }
 
 /**
@@ -65,6 +89,14 @@ export function createPgSessionLeaderLock(options: PgSessionLeaderLockOptions): 
   const key = options.key ?? VIKUNJA_RECONCILE_ADVISORY_LOCK_KEY;
   const logger = options.logger;
   const queryTimeoutMs = options.queryTimeoutMs ?? LEADER_LOCK_QUERY_TIMEOUT_MS;
+  const serverKeepalives: LeaderLockServerKeepalives = {
+    ...LEADER_LOCK_SERVER_KEEPALIVES,
+    ...options.serverKeepalives,
+  };
+  const startupOptions =
+    `-c tcp_keepalives_idle=${serverKeepalives.idleSeconds} ` +
+    `-c tcp_keepalives_interval=${serverKeepalives.intervalSeconds} ` +
+    `-c tcp_keepalives_count=${serverKeepalives.count}`;
   return async (run) => {
     const client = new Client({
       connectionString: options.connectionString,
@@ -72,10 +104,17 @@ export function createPgSessionLeaderLock(options: PgSessionLeaderLockOptions): 
       keepAliveInitialDelayMillis: LEADER_LOCK_KEEPALIVE_INITIAL_DELAY_MS,
       statement_timeout: queryTimeoutMs,
       query_timeout: queryTimeoutMs,
+      connectionTimeoutMillis: queryTimeoutMs,
+      options: startupOptions,
     });
     const controller = new AbortController();
     let lossLogged = false;
-    let sweeping = true;
+    // No sweep has started until the advisory lock is acquired, so a failed or
+    // hung connect must not log "aborting sweep".
+    let sweeping = false;
+    // Set before end() so the still-attached listeners stay silent during the
+    // shutdown window: a server FATAL/socket error there must not crash us.
+    let closing = false;
     // Exactly one error line per lost leadership, no matter whether the loss is
     // reported by the 'error' event, 'end', or a failed active probe.
     const recordLoss = (message: string, reason: unknown): void => {
@@ -90,11 +129,11 @@ export function createPgSessionLeaderLock(options: PgSessionLeaderLockOptions): 
       }
     };
     const onError = (error: unknown): void => {
-      if (!sweeping) return;
+      if (closing || !sweeping) return;
       recordLoss('vikunja leader lock connection lost; aborting sweep', error);
     };
     const onEnd = (): void => {
-      if (!sweeping) return;
+      if (closing || !sweeping) return;
       recordLoss(
         'vikunja leader lock connection ended; aborting sweep',
         new Error('vikunja leader lock connection ended'),
@@ -119,6 +158,7 @@ export function createPgSessionLeaderLock(options: PgSessionLeaderLockOptions): 
         [key],
       );
       if (acquired.rows[0]?.locked !== true) return false;
+      sweeping = true;
       try {
         await run({ signal: controller.signal, isLeader });
       } finally {
@@ -136,9 +176,13 @@ export function createPgSessionLeaderLock(options: PgSessionLeaderLockOptions): 
       }
       return !controller.signal.aborted;
     } finally {
+      closing = true;
+      // Keep the listeners attached until end() resolves: pg can deliver a
+      // server FATAL or socket error in this window, and an unhandled 'error'
+      // event would crash the process. They are silent because `closing`.
+      await client.end().catch(() => undefined);
       client.removeListener('error', onError);
       client.removeListener('end', onEnd);
-      await client.end().catch(() => undefined);
     }
   };
 }
