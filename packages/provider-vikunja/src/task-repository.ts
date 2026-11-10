@@ -118,6 +118,11 @@ export interface VikunjaTaskRepositoryOptions {
   readonly journal?: ChangeJournalStore;
   readonly clock: Clock;
   readonly ids: IdGenerator;
+  /**
+   * The served project repository. Injecting it shares the per-owner Inbox
+   * coalescing with GET /projects instead of building a second instance.
+   */
+  readonly projects?: VikunjaProjectRepository;
 }
 
 function withoutPending(mapping: ExternalMapping): ExternalMapping {
@@ -193,12 +198,14 @@ export class VikunjaTaskRepository implements TaskRepository {
     this.#journal = options.journal ?? new InMemoryChangeJournalStore();
     this.#clock = options.clock;
     this.#ids = options.ids;
-    this.#projects = new VikunjaProjectRepository({
-      clients: options.clients,
-      mappings: this.#mappings,
-      clock: options.clock,
-      ids: options.ids,
-    });
+    this.#projects =
+      options.projects ??
+      new VikunjaProjectRepository({
+        clients: options.clients,
+        mappings: this.#mappings,
+        clock: options.clock,
+        ids: options.ids,
+      });
   }
 
   async create(ownerId: Id, input: TaskCreate, _idemKey: string): Promise<Task> {
@@ -568,6 +575,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       updated,
       mapping.localVersion,
       targetFingerprint,
+      plannerFieldsEqual(fields, nextFields),
     );
     await this.#plannerFields.putTask(id, nextFields);
     if (committed.fresh) {
@@ -1103,6 +1111,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     candidate: ExternalMapping,
     expected: Version,
     adoptFingerprint: string | undefined,
+    allowAdopt = true,
   ): Promise<{ readonly mapping: ExternalMapping; readonly fresh: boolean }> {
     try {
       await this.#mappings.put(candidate, { expectedLocalVersion: expected });
@@ -1114,11 +1123,15 @@ export class VikunjaTaskRepository implements TaskRepository {
         candidate.entityId,
       );
       if (current === null) throw error;
+      const deletedMatches =
+        current.deletedAt === candidate.deletedAt ||
+        (current.deletedAt !== undefined && candidate.deletedAt !== undefined);
       if (
+        allowAdopt &&
         adoptFingerprint !== undefined &&
         current.localVersion > expected &&
         current.contentFingerprint === adoptFingerprint &&
-        current.deletedAt === candidate.deletedAt
+        deletedMatches
       ) {
         return { mapping: current, fresh: false };
       }
@@ -1261,16 +1274,19 @@ export class VikunjaTaskRepository implements TaskRepository {
       updatedAt: now,
       needsReconcile: false,
     };
-    const committed = await this.#putWithPrecondition(
-      updated,
-      mapping.localVersion,
-      fingerprint,
-    );
-    if (!committed.fresh) {
-      // A newer version already names exactly this provider state (for example
-      // a poll that landed while a request handler was writing). Reuse it
-      // instead of emitting a second version for the same state.
-      return committed.mapping;
+    try {
+      await this.#mappings.put(updated, {
+        expectedLocalVersion: mapping.localVersion,
+      });
+    } catch (error) {
+      if (!(error instanceof VersionConflictError)) throw error;
+      // A concurrent writer advanced the mapping while this sweep held a
+      // stale remote observation. Skip it: retrying would stamp an old
+      // etag/fingerprint (and possibly a stale pendingCompletion) onto a newer
+      // version. The next sweep re-reads fresh provider state.
+      const current = await this.#mappings.get('task', mapping.entityId);
+      if (current === null) throw error;
+      return current;
     }
     if (completed) {
       // A reconciled recurring completion must leave the same planner status
@@ -1285,7 +1301,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     }
     await this.#appendJournal(
       ownerId,
-      committed.mapping,
+      updated,
       updatedAt ?? now,
       undefined,
       // The completion belongs to the occurrence that was due when the intent
@@ -1293,7 +1309,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       // due date (FU-17).
       completed ? (pending.dueAtBefore ?? pending.at) : undefined,
     );
-    return committed.mapping;
+    return updated;
   }
 
   /**
@@ -1386,14 +1402,18 @@ export class VikunjaTaskRepository implements TaskRepository {
         deletedAt,
         needsReconcile: false,
       };
-      const committed = await this.#putWithPrecondition(
-        updated,
-        mapping.localVersion,
-        updated.contentFingerprint,
-      );
-      if (committed.fresh) {
-        await this.#appendJournal(ownerId, committed.mapping, deletedAt, deletedAt);
+      try {
+        await this.#mappings.put(updated, {
+          expectedLocalVersion: mapping.localVersion,
+        });
+      } catch (error) {
+        if (!(error instanceof VersionConflictError)) throw error;
+        // The scan and softDelete both observed the delete (or another writer
+        // already advanced the tombstone). Adopt the current mapping: one
+        // tombstone version is enough and a retry would duplicate the journal.
+        continue;
       }
+      await this.#appendJournal(ownerId, updated, deletedAt, deletedAt);
     }
 
     if (!observedNewer) return fromSeconds;
@@ -1433,6 +1453,18 @@ export class VikunjaTaskRepository implements TaskRepository {
       ...(deletedAt === undefined ? {} : { deletedAt }),
     };
   }
+}
+
+function plannerFieldsEqual(a: PlannerTaskFields, b: PlannerTaskFields): boolean {
+  return (
+    a.splittable === b.splittable &&
+    a.priority === b.priority &&
+    a.status === b.status &&
+    a.session?.minMinutes === b.session?.minMinutes &&
+    a.session?.maxMinutes === b.session?.maxMinutes &&
+    a.dependsOn.length === b.dependsOn.length &&
+    a.dependsOn.every((id, index) => id === b.dependsOn[index])
+  );
 }
 
 export function createVikunjaTaskRepository(

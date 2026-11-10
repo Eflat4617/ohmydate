@@ -147,6 +147,28 @@ describe.skipIf(!hasDatabase)('provider unavailable mapping', () => {
     }
   });
 
+  test('an auth failure keeps provider_unavailable but exposes provider_auth as the cause', async () => {
+    const ctx = await createTestContext({
+      repos: failingRepos(() => new ProviderUnavailableError('vikunja', 'provider_auth')),
+    });
+    try {
+      await ctx.seedUser({ email: 'provider-auth@example.com', password: 'correct-horse' });
+      const session = await login(ctx, 'provider-auth@example.com', 'correct-horse');
+      const response = await ctx.app.inject({
+        method: 'GET',
+        url: `/tasks/${ID}`,
+        headers: authHeaders(session),
+      });
+      expect(response.statusCode).toBe(503);
+      const body = response.json() as { code: string; detail: string };
+      expect(body.code).toBe('provider_unavailable');
+      expect(body.detail).toContain('provider_auth');
+      expect(body.detail).not.toContain('tk_');
+    } finally {
+      await ctx.close();
+    }
+  });
+
   test('a provider outage on a mutation returns 503 and releases the idempotency key', async () => {
     const ctx = await createTestContext({
       repos: failingRepos(() => new ProviderUnavailableError('vikunja')),

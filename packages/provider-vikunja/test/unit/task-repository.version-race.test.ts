@@ -18,7 +18,7 @@ const EXTERNAL_TASK = '42';
 const EXTERNAL_DEPENDENCY = '43';
 const CREATED_AT = '2026-01-01T00:00:00Z';
 
-type PollTrigger = 'none' | 'create-relation' | 'patch';
+type PollTrigger = 'none' | 'create-relation' | 'patch' | 'sweep-race';
 
 interface ServerState {
   etagVersion: number;
@@ -69,6 +69,12 @@ async function setup() {
   };
   let trigger: PollTrigger = 'none';
   const holder: { repo?: VikunjaTaskRepository } = {};
+  let subjectId: Id | undefined;
+  let captureMid = false;
+  const midWindow: { version: Version | undefined; priority: number | undefined } = {
+    version: undefined,
+    priority: undefined,
+  };
 
   const mappings = new InMemoryMappingStore();
   const plannerFields = new InMemoryPlannerFieldStore();
@@ -108,6 +114,24 @@ async function setup() {
 
   const http = new FakeHttp(async (request) => {
     if (request.method === 'GET' && request.path === `/api/v2/tasks/${EXTERNAL_TASK}`) {
+      if (trigger === 'sweep-race' && subjectId !== undefined) {
+        trigger = 'none';
+        // The sweep already read the v1 mapping; a concurrent writer commits v3
+        // while this GET is in flight, then the sweep receives this stale body.
+        const current = await mappings.get('task', subjectId);
+        if (current !== null) {
+          await mappings.put(
+            {
+              ...current,
+              externalEtag: '"v3"',
+              externalUpdatedAt: '2026-01-01T00:00:09Z' as Instant,
+              contentFingerprint: 'newer-concurrent-state',
+              localVersion: 3 as Version,
+            },
+            { expectedLocalVersion: current.localVersion },
+          );
+        }
+      }
       return {
         status: 200,
         body: taskBody(state),
@@ -164,6 +188,12 @@ async function setup() {
       if (trigger === 'patch') {
         trigger = 'none';
         await pollNow();
+        if (captureMid && subjectId !== undefined && holder.repo !== undefined) {
+          captureMid = false;
+          const mid = await holder.repo.get(ownerId, subjectId);
+          midWindow.version = mid?.version;
+          midWindow.priority = mid?.priority;
+        }
       }
       return {
         status: 200,
@@ -213,11 +243,22 @@ async function setup() {
   return {
     repo,
     mappings,
+    journal,
     ownerId,
     projectId,
     dependencyId,
+    midWindow,
     setTrigger: (value: PollTrigger) => {
       trigger = value;
+    },
+    setSubject: (id: Id) => {
+      subjectId = id;
+    },
+    captureMidWindow: () => {
+      captureMid = true;
+    },
+    mutateRemote: (patch: Partial<ServerState>) => {
+      Object.assign(state, patch);
     },
   };
 }
@@ -288,6 +329,70 @@ describe('VikunjaTaskRepository mapping version preconditions', () => {
     await expect(
       context.repo.update(context.ownerId, created.id, { title: 'stale' }, 2 as Version),
     ).rejects.toBeInstanceOf(VersionConflictError);
+  });
+
+  test('P10: adopting a poll version is refused when planner fields also changed', async () => {
+    const context = await setup();
+    const created = await context.repo.create(
+      context.ownerId,
+      { projectId: context.projectId, title: 'Original' },
+      'p10-fields-create',
+    );
+    context.setSubject(created.id);
+    context.captureMidWindow();
+    context.setTrigger('patch');
+
+    const updated = await context.repo.update(
+      context.ownerId,
+      created.id,
+      { title: 'Changed', priority: 4 },
+      created.version,
+    );
+
+    expect(updated.version).toBe(3);
+    expect(updated.priority).toBe(4);
+    // A feed consumer that saw v2 inside the write window had the old planner
+    // fields; the forced v3 is the entry that tells it about priority 4.
+    expect(context.midWindow).toEqual({ version: 2, priority: 2 });
+
+    const final = await context.repo.get(context.ownerId, created.id);
+    expect(final?.version).toBe(3);
+    expect(final?.priority).toBe(4);
+
+    const versions = await taskVersions(context.repo, context.ownerId, created.id);
+    expect(versions).toEqual([1, 2, 3]);
+    expect(new Set(versions).size).toBe(versions.length);
+  });
+
+  test('S2: a reconcile conflict with a stale observation skips without journaling', async () => {
+    const context = await setup();
+    const created = await context.repo.create(
+      context.ownerId,
+      { projectId: context.projectId, title: 'Original' },
+      's2-reconcile-create',
+    );
+    context.setSubject(created.id);
+    const before = (await context.journal.readAfter(context.ownerId, 0))
+      .filter((record) => record.taskId === created.id)
+      .map((record) => record.version);
+
+    // The sweep reads a stale remote body while a concurrent writer advances
+    // the mapping to v3; the retry path must skip, not re-stamp the stale body.
+    context.mutateRemote({
+      title: 'stale-remote',
+      etagVersion: 2,
+      updated: '2026-01-01T00:00:07Z',
+    });
+    context.setTrigger('sweep-race');
+    await context.repo.listChangedSince(context.ownerId, null);
+
+    const after = (await context.journal.readAfter(context.ownerId, 0))
+      .filter((record) => record.taskId === created.id)
+      .map((record) => record.version);
+    expect(after).toEqual(before);
+    const stored = await context.mappings.get('task', created.id);
+    expect(stored?.localVersion).toBe(3);
+    expect(stored?.contentFingerprint).toBe('newer-concurrent-state');
   });
 
   test('a poll during complete records the completion once at one version', async () => {

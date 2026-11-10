@@ -32,6 +32,14 @@ const CAPABILITIES: RepositoryCapabilities = {
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
+/**
+ * ADR-018 inbox marker persisted on the project mapping. Project mappings have
+ * no use for the task content fingerprint, so it doubles as the durable inbox
+ * identity. This keeps the Inbox stable even when the Vikunja default project
+ * cannot be written (PATCH settings is JWT-only; API tokens get 401).
+ */
+const INBOX_MARKER = 'inbox';
+
 export interface VikunjaProjectRepositoryOptions {
   readonly clients: ReadonlyMap<Id, VikunjaClient>;
   readonly mappings: MappingStore;
@@ -100,12 +108,12 @@ export class VikunjaProjectRepository implements ProjectRepository {
     }
     try {
       const { data } = await client.getProject(mapping.externalId);
-      const inboxExternalId = await this.#defaultProjectExternalId(client);
+      const inboxExternalId = await this.#resolveInboxExternalId(ownerId, client);
       return this.#toProject(
         ownerId,
         mapping,
         data,
-        this.#kindFor(mapping.externalId, inboxExternalId),
+        this.#kindFor(mapping, inboxExternalId),
       );
     } catch (error) {
       if (error instanceof NotFoundError) return null;
@@ -114,47 +122,37 @@ export class VikunjaProjectRepository implements ProjectRepository {
   }
 
   /**
-   * ADR-018: the Vikunja user's default project *is* the planner Inbox. When it
-   * is missing (new or reset account) create `Inbox` and persist it as the
-   * default. Concurrent first calls are coalesced per owner; a mapping race
-   * with another repository instance is reconciled through the unique external
-   * id instead of surfacing the store error.
+   * ADR-018: the Vikunja user's default project *is* the planner Inbox. The
+   * settings write is best effort only (PATCH /user/settings/general is
+   * JWT-only and returns 401 for API tokens), so the resolved project also gets
+   * a durable inbox marker on its mapping. When the default is 0, missing or
+   * trashed the same deterministic adoption rule (marker, then title 'Inbox',
+   * then create) keeps get/list/update consistent and never proliferates
+   * Inboxes. Concurrent first calls are coalesced per owner.
    */
-  getInbox(ownerId: Id): Promise<Project> {
+  async getInbox(ownerId: Id): Promise<Project> {
     const pending = this.#pendingInbox.get(ownerId);
     if (pending !== undefined) return pending;
     const client = this.#requireClient(ownerId);
     const creating = this.#ensureInbox(ownerId, client);
     this.#pendingInbox.set(ownerId, creating);
-    return creating.finally(() => {
+    try {
+      return await creating;
+    } finally {
       if (this.#pendingInbox.get(ownerId) === creating) this.#pendingInbox.delete(ownerId);
-    });
+    }
   }
 
   async #ensureInbox(ownerId: Id, client: VikunjaClient): Promise<Project> {
-    const settings = await client.getGeneralSettings();
-    let remote: VikunjaProject | undefined;
-    const configuredId = settings.default_project_id;
-    if (configuredId !== undefined && configuredId > 0) {
+    const resolved = await this.#resolveInboxRemote(ownerId, client, true);
+    if (resolved === undefined) throw new Error('inbox resolution failed unexpectedly');
+    const { project: remote, needsDefault } = resolved;
+    if (needsDefault) {
       try {
-        remote = (await client.getProject(String(configuredId))).data;
-      } catch (error) {
-        if (!(error instanceof NotFoundError)) throw error;
+        await client.updateGeneralSettings({ default_project_id: remote.id });
+      } catch {
+        // Tokens cannot PATCH user settings. The marker below is authoritative.
       }
-    }
-    if (remote === undefined) {
-      // A lost settings write must not create a second Inbox: adopt any
-      // existing project named Inbox before creating one.
-      const projects = await client.listAllProjects();
-      remote = projects.find(
-        (candidate) => candidate.id > 0 && candidate.title.trim().toLowerCase() === 'inbox',
-      );
-    }
-    if (remote === undefined) {
-      remote = await client.createProject('Inbox');
-    }
-    if (configuredId !== remote.id) {
-      await client.updateGeneralSettings({ default_project_id: remote.id });
     }
 
     const externalId = String(remote.id);
@@ -167,6 +165,7 @@ export class VikunjaProjectRepository implements ProjectRepository {
         entityId: this.#ids.next(),
         externalId,
         ownerId,
+        contentFingerprint: INBOX_MARKER,
         localVersion: 1 as Version,
         createdAt: now,
         updatedAt: now,
@@ -184,16 +183,98 @@ export class VikunjaProjectRepository implements ProjectRepository {
         if (existing === null) throw error;
         mapping = existing;
       }
+    } else if (mapping.contentFingerprint !== INBOX_MARKER) {
+      const marked: ExternalMapping = {
+        ...mapping,
+        contentFingerprint: INBOX_MARKER,
+      };
+      try {
+        await this.#mappings.put(marked, {
+          expectedLocalVersion: mapping.localVersion,
+        });
+        mapping = marked;
+      } catch (error) {
+        if (!(error instanceof VersionConflictError)) throw error;
+        const current = await this.#mappings.getByExternal(
+          'vikunja',
+          'project',
+          externalId,
+        );
+        if (current !== null) mapping = current;
+      }
     }
     if (mapping.ownerId !== ownerId) throw new NotFoundError('project', externalId);
     return this.#toProject(ownerId, mapping, remote, 'inbox');
+  }
+
+  async #resolveInboxRemote(
+    ownerId: Id,
+    client: VikunjaClient,
+    create: boolean,
+  ): Promise<{ readonly project: VikunjaProject; readonly needsDefault: boolean } | undefined> {
+    let defaultId: number | undefined;
+    try {
+      defaultId = (await client.getGeneralSettings()).default_project_id;
+    } catch {
+      // A token without `other:user` cannot read settings. Fall through to the
+      // persisted marker and title adoption.
+    }
+    if (defaultId !== undefined && defaultId > 0) {
+      try {
+        const { data } = await client.getProject(String(defaultId));
+        if (data.deleted_at === undefined) {
+          return { project: data, needsDefault: false };
+        }
+      } catch (error) {
+        if (!(error instanceof NotFoundError)) throw error;
+      }
+    }
+
+    const marked = (await this.#mappings.listByOwner(ownerId)).find(
+      (candidate) =>
+        candidate.entityType === 'project' &&
+        candidate.contentFingerprint === INBOX_MARKER &&
+        candidate.deletedAt === undefined,
+    );
+    if (marked !== undefined) {
+      try {
+        const { data } = await client.getProject(marked.externalId);
+        if (data.deleted_at === undefined) {
+          return { project: data, needsDefault: defaultId !== data.id };
+        }
+      } catch (error) {
+        if (!(error instanceof NotFoundError)) throw error;
+      }
+    }
+
+    const projects = await client.listAllProjects();
+    const existing = projects.find(
+      (candidate) =>
+        candidate.id > 0 &&
+        candidate.deleted_at === undefined &&
+        candidate.title.trim().toLowerCase() === 'inbox',
+    );
+    if (existing !== undefined) {
+      return { project: existing, needsDefault: defaultId !== existing.id };
+    }
+    if (!create) return undefined;
+    const created = await client.createProject('Inbox');
+    return { project: created, needsDefault: true };
+  }
+
+  async #resolveInboxExternalId(
+    ownerId: Id,
+    client: VikunjaClient,
+  ): Promise<string | undefined> {
+    const resolved = await this.#resolveInboxRemote(ownerId, client, false);
+    return resolved === undefined ? undefined : String(resolved.project.id);
   }
 
   async list(ownerId: Id, query: ProjectQuery): Promise<Page<Project>> {
     const client = this.#clientFor(ownerId);
     if (client === undefined) return { items: [], nextCursor: null };
     const limit = normalizeLimit(query.limit);
-    const inboxExternalId = await this.#defaultProjectExternalId(client);
+    const inboxExternalId = await this.#resolveInboxExternalId(ownerId, client);
     const candidates: Project[] = [];
     for (const remote of await client.listAllProjects()) {
       const mapping = await this.#mappings.getByExternal(
@@ -213,7 +294,7 @@ export class VikunjaProjectRepository implements ProjectRepository {
           ownerId,
           mapping,
           remote,
-          this.#kindFor(mapping.externalId, inboxExternalId),
+          this.#kindFor(mapping, inboxExternalId),
         ),
       );
     }
@@ -260,8 +341,8 @@ export class VikunjaProjectRepository implements ProjectRepository {
       throw new VersionConflictError(expectedVersion, mapping.localVersion);
     }
 
-    const inboxExternalId = await this.#defaultProjectExternalId(client);
-    const kind = this.#kindFor(mapping.externalId, inboxExternalId);
+    const inboxExternalId = await this.#resolveInboxExternalId(ownerId, client);
+    const kind = this.#kindFor(mapping, inboxExternalId);
     const body: Record<string, unknown> = {};
     if (patch.title !== undefined) body.title = validateTitle(patch.title);
     if (patch.archived !== undefined) {
@@ -303,14 +384,13 @@ export class VikunjaProjectRepository implements ProjectRepository {
     return this.#toProject(ownerId, updated, data, kind);
   }
 
-  async #defaultProjectExternalId(client: VikunjaClient): Promise<string | undefined> {
-    const settings = await client.getGeneralSettings();
-    const id = settings.default_project_id;
-    return id === undefined || id <= 0 ? undefined : String(id);
-  }
-
-  #kindFor(externalId: string, inboxExternalId: string | undefined): ProjectKind {
-    return externalId === inboxExternalId ? 'inbox' : 'normal';
+  #kindFor(mapping: ExternalMapping, inboxExternalId: string | undefined): ProjectKind {
+    if (inboxExternalId !== undefined) {
+      // The resolved default wins, so moving the Vikunja default moves the
+      // single Inbox identity and the old one becomes normal.
+      return mapping.externalId === inboxExternalId ? 'inbox' : 'normal';
+    }
+    return mapping.contentFingerprint === INBOX_MARKER ? 'inbox' : 'normal';
   }
 
   #clientFor(ownerId: Id): VikunjaClient | undefined {
