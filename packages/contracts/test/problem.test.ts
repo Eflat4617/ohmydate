@@ -13,6 +13,9 @@ const EXPECTED_CODES = [
   'not_found',
   'forbidden',
   'rate_limited',
+  'unauthenticated',
+  'idempotency_in_progress',
+  'internal_error',
 ];
 
 test('problem code enum is exhaustive and stable', () => {

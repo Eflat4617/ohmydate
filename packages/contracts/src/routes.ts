@@ -53,6 +53,7 @@ const PROBLEM_DESCRIPTIONS: Readonly<Record<number, string>> = {
   422: 'Domain validation failed',
   428: 'If-Match header required',
   429: 'Rate limited',
+  500: 'Internal error',
   503: 'Provider unavailable',
 };
 
@@ -116,7 +117,7 @@ export const routes: readonly RouteDefinition[] = [
     summary: 'Destroy the current session',
     responses: {
       204: { description: 'Session destroyed' },
-      ...problems(401),
+      ...problems(401, 403),
     },
   },
   {
@@ -140,7 +141,7 @@ export const routes: readonly RouteDefinition[] = [
     body: UserSettingsPatchSchema,
     responses: {
       200: { description: 'Updated user', schema: UserSchema },
-      ...problems(400, 401, 412, 422, 428),
+      ...problems(400, 401, 403, 409, 412, 422, 428),
     },
   },
   {
@@ -165,7 +166,7 @@ export const routes: readonly RouteDefinition[] = [
     body: ProjectCreateSchema,
     responses: {
       201: { description: 'Created project', schema: ProjectSchema },
-      ...problems(400, 401, 409, 422),
+      ...problems(400, 401, 403, 409, 422),
     },
   },
   {
@@ -190,7 +191,7 @@ export const routes: readonly RouteDefinition[] = [
     body: TaskCreateSchema,
     responses: {
       201: { description: 'Created task', schema: TaskSchema },
-      ...problems(400, 401, 422, 503),
+      ...problems(400, 401, 403, 404, 409, 422, 503),
     },
   },
   {
@@ -216,7 +217,7 @@ export const routes: readonly RouteDefinition[] = [
     body: TaskPatchSchema,
     responses: {
       200: { description: 'Updated task', schema: TaskSchema },
-      ...problems(400, 401, 404, 409, 412, 422, 428, 503),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
     },
   },
   {
@@ -228,7 +229,7 @@ export const routes: readonly RouteDefinition[] = [
     headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       200: { description: 'Completed task', schema: TaskSchema },
-      ...problems(400, 401, 404, 409, 412, 422, 428, 503),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
     },
   },
   {
@@ -240,7 +241,7 @@ export const routes: readonly RouteDefinition[] = [
     headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       204: { description: 'Task deleted' },
-      ...problems(400, 401, 404, 409, 412, 422, 428, 503),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
     },
   },
   {
@@ -253,7 +254,7 @@ export const routes: readonly RouteDefinition[] = [
     body: TaskDependencyCreateSchema,
     responses: {
       201: { description: 'Created dependency', schema: TaskDependencySchema },
-      ...problems(400, 401, 404, 409, 412, 422, 428, 503),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
     },
   },
 ];
