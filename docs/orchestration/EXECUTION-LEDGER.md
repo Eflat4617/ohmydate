@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | 521e11a (M1-01), 88f61e9 (M0-03) |
+| 마지막 Accepted merge | 974f2a3 (M1-02), M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -54,6 +54,8 @@
 | Task | 리뷰 dispatch | head SHA | VERDICT | 차단 이슈 | 후속 |
 |---|---|---|---|---|---|
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
+| M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
+| M1-04 | ctx_2fedeb4fd139 | 0a6b9a7 | REQUEST_CHANGES | HIGH: mapping unique에 owner_id 혼입; MEDIUM×2 Kysely 타입 | fix 1/2 ctx_663e7bb9699b |
 | M1-02 | ctx_2a5ed3085bbb | 5615a58 | REQUEST_CHANGES | MEDIUM×1: GET /me 400 누락 | fix 2/2 ctx_b4b90a3fcfdb |
 | M3-01 | ctx_bf050ebe6e4d | d7c6d7e | REQUEST_CHANGES | HIGH×4: H2 샘플링 구멍, H6 자정 리셋, DST gap/fold, horizon 미검사; MEDIUM×3 | fix 1/2 ctx_43ff9356ae7d |
 | M1-02 | ctx_e7931ee43f78 | 2c9878e | REQUEST_CHANGES | HIGH×2: 헤더 매트릭스 누락, 재귀 DAG 스택 오버플로; MEDIUM×3 problem+json media, 경로별 상태, tz offset 허용 | 08 헤더 규칙 확정(86746b2 이전 커밋), fix 1/2 ctx_901b490652f1 |
