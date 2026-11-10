@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | — |
+| 마지막 Accepted merge | 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -47,6 +47,8 @@
 | Task | 리뷰 dispatch | head SHA | VERDICT | 차단 이슈 | 후속 |
 |---|---|---|---|---|---|
 | M1-01 | ctx_6f6f892fea31 | 36fab0a | REQUEST_CHANGES | MEDIUM×4: boundary checker type-only 오분류, ImportTypeNode 누락, root config 미검사, .npmrc 무시(pnpm 12) | fix 1/2 → ctx_1857942db605 (task_72e09948c5ab) |
+| M0-03 | ctx_c05d3e80f1ac | aa37289 | REQUEST_CHANGES | MEDIUM: --self-test exit semantics | fix 2/2 ctx_fefd2539a203 |
+| M0-03 | ctx_a5ad8b6c94da | 39d976c | **APPROVE** | — | **Accepted, merged 88f61e9**, G3: probe --check 0, --self-test 0 |
 | M0-03 | ctx_61cb3abfa0ad | a861de8 | REQUEST_CHANGES | MEDIUM×2: probe 전제 실패 시 ok:true, 동시성 보장 과대기술 (Gap 사실 4건 CONFIRMED) | fix 1/2 → ctx_616a4a8a9d08 (task_72901241b3bd) |
 
 ## 5. 비용·사용량
