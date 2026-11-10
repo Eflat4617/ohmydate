@@ -1,9 +1,9 @@
-function randomKey(): string {
+const HEX = '0123456789abcdef';
+const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function randomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length);
   const subtleCrypto = globalThis.crypto as Crypto | undefined;
-  if (subtleCrypto !== undefined && typeof subtleCrypto.randomUUID === 'function') {
-    return subtleCrypto.randomUUID();
-  }
-  const bytes = new Uint8Array(16);
   if (subtleCrypto !== undefined && typeof subtleCrypto.getRandomValues === 'function') {
     subtleCrypto.getRandomValues(bytes);
   } else {
@@ -11,41 +11,50 @@ function randomKey(): string {
       bytes[index] = Math.floor(Math.random() * 256);
     }
   }
-  let hex = '';
-  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  return bytes;
+}
+
+function formatUuid(bytes: Uint8Array): string {
+  let out = '';
+  for (let index = 0; index < 16; index += 1) {
+    const byte = bytes[index];
+    if (byte === undefined) throw new RangeError('uuid buffer too short');
+    if (index === 4 || index === 6 || index === 8 || index === 10) out += '-';
+    out += HEX[byte >> 4];
+    out += HEX[byte & 0x0f];
+  }
+  return out;
 }
 
 /**
- * Keeps one idempotency key per logical user action until the action settles.
- * A retry of the same action therefore reuses the key, as required by 08 §1.
+ * Generates a UUIDv7 idempotency key using `crypto.getRandomValues`.
+ * 07 §6 requires every mutation's Idempotency-Key to be a client UUIDv7.
  */
-export class IdempotencyKeyStore {
-  private readonly keys = new Map<string, string>();
-
-  keyFor(actionId: string): string {
-    const existing = this.keys.get(actionId);
-    if (existing !== undefined) return existing;
-    const key = randomKey();
-    this.keys.set(actionId, key);
-    return key;
-  }
-
-  settle(actionId: string): void {
-    this.keys.delete(actionId);
-  }
-
-  has(actionId: string): boolean {
-    return this.keys.has(actionId);
-  }
-
-  clear(): void {
-    this.keys.clear();
-  }
+export function uuidV7Key(nowMs: number = Date.now()): string {
+  const bytes = randomBytes(16);
+  const timestamp = BigInt(nowMs);
+  bytes[0] = Number((timestamp >> 40n) & 0xffn);
+  bytes[1] = Number((timestamp >> 32n) & 0xffn);
+  bytes[2] = Number((timestamp >> 24n) & 0xffn);
+  bytes[3] = Number((timestamp >> 16n) & 0xffn);
+  bytes[4] = Number((timestamp >> 8n) & 0xffn);
+  bytes[5] = Number(timestamp & 0xffn);
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x70;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  return formatUuid(bytes);
 }
 
+export function isUuidV7Key(value: string): boolean {
+  return UUID_V7_PATTERN.test(value);
+}
+
+/**
+ * Mints a standalone UUIDv7 action id. The prefix is accepted for call-site
+ * readability but is not part of the key, so the header value stays a UUIDv7.
+ */
 export function newActionId(prefix: string): string {
-  return `${prefix}:${randomKey()}`;
+  void prefix;
+  return uuidV7Key();
 }
 
 export interface IdempotentAction<T> {
@@ -64,7 +73,7 @@ export class ActionStore {
   begin<T>(scope: string, payload: T, same: (left: T, right: T) => boolean): IdempotentAction<T> {
     const existing = this.actions.get(scope) as IdempotentAction<T> | undefined;
     if (existing !== undefined && same(existing.payload, payload)) return existing;
-    const action: IdempotentAction<T> = { payload, key: randomKey() };
+    const action: IdempotentAction<T> = { payload, key: uuidV7Key() };
     this.actions.set(scope, action as IdempotentAction<unknown>);
     return action;
   }

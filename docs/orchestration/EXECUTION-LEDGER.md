@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 | M1-06 체인 BLOCKED (R3 HIGH = 마지막 수정의 1줄 회귀). 재작업은 해당 회귀+테스트로만 범위를 좁힌 M1-06c로 배정, 집중 리뷰 1회 | M1-06R-3 | orchestrator |
 | 2026-11-11 | M3-01 수정 체인 BLOCKED, ADR-017(전환-구간 분할)로 재설계 Task 신설: 같은 결함의 반복 원인이 가정 자체였으므로 알고리즘을 명세해 재배정(우회 아님) | M3-01R-3 | orchestrator |
 | 2026-11-11 | Sol 사용 불가 시 리뷰어 = Claude Opus 5.5 xhigh (MODEL_BINDINGS §6) | 사용자 메시지 | user |
 | 2026-11-11 | 리뷰 수렴 기준: 수정 2회 소진 후 남은 MEDIUM 중 경계검사기 같은 '방어 도구'의 엣지 케이스는 HIGH가 아니면 잔여 위험 이슈로 기록하고 Accept(사용자 승인 없이 가능한 일상 판단). HIGH/CRITICAL은 blocked | 무한 리뷰 루프 방지(명세 C.7) | orchestrator |
@@ -59,12 +60,21 @@
 | 2026-11-11 | worker_done | M1-05 fix task_06ffda7bb45a | ctx_7426991abf9c | msg_aff5299da89b | 538eeba | — | review (fallback) |
 | 2026-11-11 | worker_done | M1-06 task_82dc7265e91d | ctx_33b924c589dc | msg_fbf1b5aec3d2 | e41237c, scope OK, db frozen | — | M1-06R ctx_4a10ac2847dc (opus) |
 | 2026-11-11 | worker_done | M2-01 task_d8fe2f69911a | ctx_6526c3d73a59 | msg_61ebc6bf0a68 | ba591bb, scope OK, no SDK | — | M2-01R ctx_c674a13ed126 (opus) |
+| 2026-11-11 | **coordinator error** | task_adc90e846e3e ("unused") | ctx_a76e5f68b5c1 | — | 스크립트 실수로 종료된 M1-06 워커에 빈 메시지 전송 → 후속 Task 생성. 즉시 취소 메시지, 터미널 종료, abandon(failed). m1-06-api HEAD c2bd70b·작업트리 변경 없음 확인 | worker-show/git | 재발 방지: send는 명시 dispatch만, `|| true` 패턴 금지 |
 
 ## 4. 리뷰 판정
 | Task | 리뷰 dispatch | head SHA | VERDICT | 차단 이슈 | 후속 |
 |---|---|---|---|---|---|
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
+| M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-14 | ctx_9fad715a07e7 (opus-fallback) | 379a7f5 | REQUEST_CHANGES | FU-14..17 해결 확인; HIGH: dependsOn 생성 시 지문 순서로 유령 v2 | fix 1/2 |
+| M2-01 | ctx_854c1bd3462e (opus-fallback) | 6d3f87e | REQUEST_CHANGES | HIGH: 정규화 경로 성능 회귀로 전체 ci 실패(100KB 테스트 >200ms); MEDIUM: 치환 루프 2차 시간, 경계 회귀 | **체인 BLOCKED** → 범위 축소 M2-01c |
+| M1-06c | ctx_21fc4d80beb9 (opus-fallback) | 0c20d15 | **APPROVE** (M1-06 전체 병합 가능 판정) | FU-21 | **Accepted, merged 3db53ad**; G3 DB+live Vikunja 342 pass/18 skip + web 60, ci 0 |
+| M1-06 | ctx_aa0fa6d2208e (opus-fallback) | c2bd70b | REQUEST_CHANGES | HIGH: c2bd70b가 만든 503→500 회귀 (R2 항목 전부 해결) | **체인 BLOCKED** → 범위 축소 Task M1-06c |
+| M2-01 | ctx_b51bf23eb06e (opus-fallback) | 7292b4e | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 질문 플래너 오래된 가정·exhausted; 제안(정규화 마스킹, costUsd 강제) 승격 | **fix 2/2 FINAL** |
+| FU-09 | ctx_ee65fb65a235 (opus-fallback) | 2580131 | **APPROVE** | ADR-018 → FU-18, FU-19 | **Accepted, merged 10f8260**; G3 269+60 tests, ci 0 |
+| M1-05 | ctx_c944b22c95d2 (opus-fallback) | 5ee225e | **APPROVE** | FU-14..17 (즉시 Task), Sol 사후 FU-08 | **Accepted, merged 3aa02bd** + lockfile repair; G3 with DB+live Vikunja: 290 pass/18 gated skip + web 45, ci 0 |
 | M3-01b | ctx_39b1519531fa (opus-fallback) | ab97a14 | **APPROVE** | FU-12/13; Sol 사후 리뷰 FU-08 | **Accepted, merged 4264b54** (lockfile conflict: ours + --fix-lockfile); G3: 224+45 tests, ci 0 |
 | M2-01 | ctx_c674a13ed126 (opus-fallback) | ba591bb | REQUEST_CHANGES | HIGH: 전화번호 마스킹 누락; MEDIUM×4: 이메일 정규식 ReDoS, 예산 fail-open, abort 재시도, 미응답 필드 누락 | fix 1/2 |
 | M1-06 | ctx_4a10ac2847dc (opus-fallback) | e41237c | REQUEST_CHANGES | HIGH: 동시 동일키 500; MEDIUM×4: :action 라우트, 409/422 저장 규칙, 로그인 타이밍, 오류 코드 | 오케스트레이터 계약 변경(문제 코드 3종, 403/404/409 선언) + fix 1/2 ctx_28f5becc0d93 |

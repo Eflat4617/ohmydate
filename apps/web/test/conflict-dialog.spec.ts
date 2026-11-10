@@ -74,4 +74,46 @@ describe('ConflictDialog', () => {
     expect(wrapper.emitted('overwrite')).toHaveLength(1);
     expect(wrapper.emitted('cancel')).toHaveLength(1);
   });
+
+  it('traps Tab and Shift+Tab inside the dialog', async () => {
+    const wrapper = mount(ConflictDialog, {
+      props: { serverVersion: 2, serverTitle: 'Server', localTitle: 'Local' },
+      attachTo: document.body,
+    });
+    await nextTick();
+    await nextTick();
+
+    const buttons = wrapper.findAll('button');
+    const first = buttons[0]?.element as HTMLElement;
+    const last = buttons[buttons.length - 1]?.element as HTMLElement;
+    const dialog = wrapper.get('[role="dialog"]');
+
+    last.focus();
+    await dialog.trigger('keydown', { key: 'Tab' });
+    expect(document.activeElement).toBe(first);
+
+    first.focus();
+    await dialog.trigger('keydown', { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
+
+    wrapper.unmount();
+  });
+
+  it('treats Escape as Keep editing and stops it reaching global shortcuts', async () => {
+    const wrapper = mount(ConflictDialog, {
+      props: { serverVersion: 2, serverTitle: 'Server', localTitle: 'Local' },
+      attachTo: document.body,
+    });
+    await nextTick();
+    await nextTick();
+
+    const dialog = wrapper.get('[role="dialog"]');
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    dialog.element.dispatchEvent(event);
+    await nextTick();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(wrapper.emitted('cancel')).toHaveLength(1);
+    wrapper.unmount();
+  });
 });
