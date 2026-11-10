@@ -1,0 +1,33 @@
+# REVIEW PACKET: FU-38cRR — Independent review of FU-38cR
+Role: reviewer (GPT-6.1 Sol high via Codex). READ-ONLY: do not modify, create or delete files; do not commit. Running tests/builds is allowed (generated caches like node_modules are fine).
+Target worktree: this worktree. Branch: torgal/fu-38c-redaction-scanner. Base: torgal/ohmydate. Head: 05dc09d.
+Original packet: read it fully with `git show torgal/ohmydate:docs/orchestration/packets/FU-38cR.md` (stacked worktrees may not contain it; use the same `git show torgal/ohmydate:<path>` for any docs/orchestration file). Worker claims (treat as unverified claims): see below.
+MUST: inspect git diff torgal/ohmydate...05dc09d; check changed paths are within the packet's ALLOWED PATHS; run every command in the packet's TESTS yourself and paste exit codes; apply the checklist in docs/orchestration/WORKER-AND-REVIEW-CONTRACT.md §4.
+Finish with exactly one worker_done (orca orchestration send --type worker_done ... --outcome succeeded) whose body is the review in this format:
+REVIEW VERDICT: APPROVE | REQUEST_CHANGES | BLOCKED
+Findings (most severe first):
+  [CRITICAL|HIGH|MEDIUM|LOW] <title>
+    Evidence: <file>:<line> + reproduction or test output
+    Required change | Suggestion
+Contract / license / security / migration impact: <text or "none">
+Missing tests: <list>
+Verification actually executed: yes|no — exact commands + exit codes
+git status --porcelain after review: <must be empty>
+Residual risks: <list>
+--- WORKER CLAIMS ---
+REVIEW of FU-38c (ADR-019 redaction scanner redesign; FU-38 BLOCKED). Branch torgal/fu-38c-redaction-scanner commit 05dc09d. Read FULLY: docs/blueprint/13-ADR.md ADR-019; docs/orchestration/packets/FU-38c.md; reviews FU-32R-1.md, FU-38R-1.md, FU-38R2.md. Worker report:
+taskId=task_14e53c0c5bf9 dispatchId=ctx_c5ebf3fcfeb5 worktree=/home/torgal/orca/workspaces/oh_my_date/fu-38c-redaction-scanner branch=torgal/fu-38c-redaction-scanner commit=05dc09dcc819c4582618bc2d22bed3af74d707a4
+What I did: redesigned packages/llm/src/privacy.ts per ADR-019 — every pattern now resumes at the next candidate start (nextStart, surrogate-safe) instead of the accepted end; all quantifiers are bounded and each pattern carries a documented L_max; accepted spans are unioned in original coordinates with kind priority RRN>phone>email>key; a bounded adjacency pass discovers glued continuation tokens (e.g. RRN+phone, phone+API key) without relaxing the `1010-1234-5678` negative. Mixed super/sub+Nd tokens now mask fully, circled-marker endings (⑧/①) and glued ⑳/㉑ phones are masked, and attached super/sub suffixes that a shape does not need stay visible. Added packages/llm/test/privacy-gate.test.ts (independent per-start oracle fixture, frozen FU-32 snapshot A/B, seeded single/same-kind/cross-kind corpus over glued/space/ZWSP/ZWNJ/U+00AD, all HIGH/LOW repros, precision negatives, perf ratio gate behind PRIVACY_PERF_ASSERT/PRIVACY_HEAVY) and moved the one former mixed-digit knownLimitation to a stronger positive test.
+Changed paths (b27e97d...HEAD): src privacy.ts (+547/-149 approx), test/privacy.test.ts (33 lines), new test/privacy-gate.test.ts (465), new fixtures/privacy-oracle.ts (116), new fixtures/privacy-fu32-snapshot.ts (862, frozen FU-32 copy). index.ts, package.json and lockfile unchanged; no new deps.
+Acceptance checklist: (1) ADR scanner every start + L_max documented + union + kind priority + extension only-union-stage — MET (no extension applied, documented because FU-32 pins visible attached suffixes). (2) FU-32 floor — MET, all pre-existing privacy assertions green; only change is the mixed `⁰¹⁰-¹²³⁴-⁵⁶⁷𝟖` limitation replaced by a positive full-mask assertion. (3) All FU-38R-1/R2 HIGH and FU-32R/FU-38 LOW repros — MET (gate test each). (4) Independent oracle + per-core-glyph corpus + frozen-snapshot zero regressions — MET. (5) Precision negatives + suffix tradeoffs pinned — MET. (6) Mixed super/sub+Nd tokens (`¹²³⁴⁵⁶-1234567`, `⁰¹⁰-1234-5678`, `¹⁹00101¹²³⁴⁵⁶𝟕`) — MET, fully masked, no knownLimitation needed. (7) Perf linear to 8 MiB on FU-38R2 shapes — MET.
+Tests: `corepack pnpm --filter @ohmydate/llm test` -> exit 0, 8 files / 339 passed, 1 skipped (perf, env-gated). `PRIVACY_HEAVY=1 PRIVACY_PERF_ASSERT=1 corepack pnpm --filter @ohmydate/llm test` -> exit 0, 8 files / 340 passed (heavy 2/4/8 MiB perf assertion, ~57s). `DATABASE_URL=... VIKUNJA_URL=... corepack pnpm run ci` -> exit 0: typecheck+lint pass, root 91 files / 1074 passed + 28 pre-existing skipped, web 13 files / 69 passed, check:api-client clean, boundaries 239 files 0 violations. Note: first CI attempt failed on an unrelated load-sensitive services/api migration test timing out at 5s; immediate rerun passed (retry within limit).
+Risks/unverified: synthetic corpora cannot prove comprehensive PII coverage; redaction remains best-effort per 05 §12 (names/addresses/IDN email/opaque tokens still out of scope). Start-at-every-position makes an all-super multi-MiB run ~1.8s/MiB (linear, asserted by ratio). The separator run cap (MAX_SEPARATOR=32) intentionally bounds L_max. No new contracts/exports; dependents unaffected. Rollback: delete branch torgal/fu-38c-redaction-scanner (or revert 05dc09d); nothing else was merged.
+This is the GB-1 privacy gate before any external LLM transfer. Focus asks:
+1) Re-run your OWN independent A/B harness (do not rely on the repo's oracle) vs torgal/ohmydate (FU-32): single-token 120k (all styles incl. per-digit Nd/fullwidth/super/sub mixtures), same-kind 2/3-token, CROSS-KIND adjacency both orders + 3-token permutations, separators glued/space/ZWSP/ZWNJ/U+00AD, circled/super/sub neighbours. Per-token and per-core-glyph recall regressions must be 0 in every class; report counts and any new leaks.
+2) Every repro from FU-32R-1, FU-38R-1, FU-38R2 (incl. '⁸⁵¹²²⁷¹⁴⁸⁶⁹⁹⁷⁹⁰⁰¹⁰¹-¹²³⁴⁵⁶⁷', '⁰¹⁰¹²³⁴⁵⁶⁷⁸​900101-1234567', '⁴³⁶⁰¹⁰⁸⁷⁵³⁷⁵⁸​019-1463-3169', '₁₂₄₀₅₂₅₇₄₄₇₃₃­031-7225-9762', '¹⁹00101¹²³⁴⁵⁶𝟕').
+3) Is the repo gate oracle truly independent of the scanner (no shared code/regexes)? Is the frozen FU-32 snapshot byte-identical to torgal/ohmydate packages/llm/src/privacy.ts?
+4) "bounded adjacency pass" — can it cause over-masking of benign text or new false negatives; precision negatives ('E=mc²', 'x₁…x₁₀', '결과¹²³', '²⁰²⁶', 'H₂O', '10⁻¹²³⁴', '1010-1234-5678' negative) unchanged.
+5) Linear time to 8 MiB on adversarial shapes (overlapping super runs, alternating super/ASCII/astral Nd, ZWSP chains, many retries, separator runs at MAX_SEPARATOR boundary); super-linear growth = HIGH.
+6) GB-1 readiness statement: given this head, is redaction acceptable as a best-effort gate (with 05 §12 scope/consent) — list anything that MUST be fixed before external transfer.
+Round 1 of 2.
+
