@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | 974f2a3 (M1-02), M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -51,12 +51,15 @@
 | 2026-11-11 | start | task_cc41df1f767d (M1-04R) | ctx_2fedeb4fd139 | — | Sol | receipt | — |
 | 2026-11-11 | worker_done | FU-01 task_3890df099700 | ctx_a5bd7b57d8d7 | msg_bfa4f02ee9b6 | 1de2357, scope OK | — | FU-01R ctx_0d5bc4ea57b1 |
 | 2026-11-11 | start | M1-04R2 | ctx_cb9c19e723e4 | — | Sol | — | — |
+| 2026-11-11 | worker_done | M1-07 task_dacdef4c3561 | ctx_b52da46e9f73 | msg_36a7d0d56e52 | 0500f2c, scope OK(+vue-demi 승인 1줄), 111 msgs high; escalation(미읽은 메일 후속 불가)은 이미 반영된 base-update로 무해 | — | M1-07R ctx_5655f519c769 |
 
 ## 4. 리뷰 판정
 | Task | 리뷰 dispatch | head SHA | VERDICT | 차단 이슈 | 후속 |
 |---|---|---|---|---|---|
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
+| FU-01 | ctx_0d5bc4ea57b1 | 1de2357 | **APPROVE** | 잔여 FU-04 | **Accepted, merged ce31fff**, G3 ci 0 |
+| M1-04 | ctx_cb9c19e723e4 | 4f09dc7 | REQUEST_CHANGES | MEDIUM: JSONB 쓰기 직렬화 | fix 2/2 ctx_1d79c130c1b5 |
 | M1-03 | ctx_a30129007d8d | 9c36ae4 | REQUEST_CHANGES | HIGH: list/changefeed 소유자 누출 미검출; MEDIUM×5 (변경 피드 증분, project 참조, 멱등 재생, 날짜 rollover, complete 버전) | fix 1/2 ctx_7f124dd2068d |
 | M3-01 | ctx_12655286e961 | a47a4fb | REQUEST_CHANGES | HIGH×3: Santiago 자정 DST, 미지정 taskId, ns 정밀도; MEDIUM×2 | **fix 2/2 (FINAL)** ctx_53234dfd4033 — HIGH 잔존 시 blocked |
 | M1-04 | ctx_2fedeb4fd139 | 0a6b9a7 | REQUEST_CHANGES | HIGH: mapping unique에 owner_id 혼입; MEDIUM×2 Kysely 타입 | fix 1/2 ctx_663e7bb9699b |
