@@ -46,6 +46,8 @@
 | 2026-11-11 | start | task_703f7ee4b9a0 (M0-03R2) | ctx_c05d3e80f1ac | — | Sol re-review aa37289 | receipt | — |
 | 2026-11-11 | start(stacked on torgal/m1-01-monorepo) | task_0bf1447e4351 (M1-02), task_7b97f47eff42 (M3-01) | — | — | 병렬 앞당김: 소유 경로 분리(packages/domain,contracts / packages/scheduler) | receipts | M1-01 수정 후 rebase 필요 여부 확인 |
 | 2026-11-11 | start(stacked on m1-02) | task_3c3f4f8cbace (M1-04 DB) | — | — | DeepSeek | receipt | — |
+| 2026-11-11 | worker_done | task_3c3f4f8cbace (M1-04) | ctx_a9b437096fe4 | msg_3de5d2e896bc | succeeded @0a6b9a7, G1 OK (36 msgs deepseek high), vikunja DB 미변경 | — | M1-04R queued task_cc41df1f767d |
+| 2026-11-11 | start(stacked on m1-02@5615a58) | M1-03 (contract suite+InMemory), M1-07 (web skeleton) | — | — | RAM 5.3GB 가용 | receipts | — |
 
 ## 4. 리뷰 판정
 | Task | 리뷰 dispatch | head SHA | VERDICT | 차단 이슈 | 후속 |
