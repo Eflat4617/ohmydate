@@ -14,6 +14,12 @@ import { InMemoryLoginRateLimiter } from './adapters/in-memory-login-rate-limite
 import { InMemorySessionStore } from './adapters/in-memory-session-store.js';
 import { PgIdempotencyStore } from './adapters/pg-idempotency-store.js';
 import { PgUserRepository } from './adapters/pg-user-repository.js';
+import { createVikunjaRepositories } from './adapters/vikunja/composition.js';
+import { listReconcilerOwnerIds } from './adapters/vikunja/owner-accounts.js';
+import {
+  createPgAdvisoryLeaderLock,
+  VikunjaReconciler,
+} from './adapters/vikunja/reconciler.js';
 import type { Database } from './db/types.js';
 import {
   ProblemError,
@@ -30,7 +36,12 @@ export type LoggerInstanceOption = NonNullable<FastifyServerOptions['loggerInsta
 
 export interface BuildAppOptions {
   readonly config: AppConfig;
-  readonly repos: AppRepositories;
+  /**
+   * Repository composition. Optional for `provider=vikunja`, where the
+   * composition root builds the Vikunja adapter with durable PG stores.
+   * `provider=memory` keeps the existing injected in-memory repositories.
+   */
+  readonly repos?: AppRepositories;
   readonly clock: Clock;
   readonly ids: IdGenerator;
   readonly db: Kysely<Database>;
@@ -203,6 +214,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     dummyPasswordHash,
   });
 
+  let repos = options.repos;
+  if (repos === undefined) {
+    if (config.provider !== 'vikunja') {
+      throw new Error(
+        "provider 'memory' requires injected AppRepositories (see createInMemoryRepositories)",
+      );
+    }
+    repos = (await createVikunjaRepositories({ db, config, clock, ids })).repos;
+  }
+
   const runtime = createRuntime({
     config,
     clock,
@@ -210,9 +231,28 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     sessions,
     idempotency,
     auth,
-    repos: options.repos,
+    repos,
   });
 
   registerRoutes(app, runtime);
+
+  if (config.provider === 'vikunja') {
+    const reconciler = new VikunjaReconciler({
+      taskRepository: repos.tasks,
+      ownerIds: () => listReconcilerOwnerIds(db),
+      leaderLock: createPgAdvisoryLeaderLock(db),
+      clock,
+      intervalMs: config.reconcileIntervalMs,
+      logger: {
+        warn: (message, details) => app.log.warn(details ?? {}, message),
+        error: (message, details) => app.log.error(details ?? {}, message),
+      },
+    });
+    app.addHook('onClose', async () => {
+      reconciler.stop();
+    });
+    reconciler.start();
+  }
+
   return app;
 }
