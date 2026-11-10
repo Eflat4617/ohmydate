@@ -1,4 +1,5 @@
 import cookie from '@fastify/cookie';
+import { createServer as createHttpServer } from 'node:http';
 import { registerIanaTimeZoneFormat } from '@ohmydate/contracts';
 import { DomainError, type Clock, type IdGenerator } from '@ohmydate/domain';
 import Fastify, {
@@ -105,14 +106,27 @@ export function defaultLoggerOptions(config: AppConfig): LoggerOption {
 export const READYZ_DB_TIMEOUT_MS = 2_500;
 
 /**
- * A slow or stalled client must not keep its socket open through shutdown.
- * Both Node/Fastify timeouts are below SHUTDOWN_DEADLINE_MS (15 s) and
- * configurable for deployments that need a longer request body window.
+ * Slow/incomplete request protection uses Node's receive limits, not the
+ * socket inactivity timeout: a valid handler may legitimately wait >10 s for
+ * provider retries (three 10 s Vikunja GET attempts plus margin), and the
+ * inactivity timer would kill it mid-handler (FU-37R finding 3).
+ *
+ * - `requestTimeout` bounds receiving the whole request (default 10 s).
+ * - `headersTimeout` bounds receiving the headers (default 10 s).
+ * - `connectionTimeout` is only the socket inactivity guard for the worst-case
+ *   provider budget above; it must stay well above 30 s (default 60 s).
+ * - `connectionsCheckingInterval` makes the receive limits fire promptly
+ *   instead of Node's 30 s default.
  */
 export const DEFAULT_HTTP_REQUEST_TIMEOUT_MS = 10_000;
-export const DEFAULT_HTTP_CONNECTION_TIMEOUT_MS = 10_000;
+export const DEFAULT_HTTP_HEADERS_TIMEOUT_MS = 10_000;
+export const DEFAULT_HTTP_CONNECTION_TIMEOUT_MS = 60_000;
+export const DEFAULT_HTTP_CONNECTIONS_CHECKING_INTERVAL_MS = 1_000;
 export const HTTP_REQUEST_TIMEOUT_ENV = 'HTTP_REQUEST_TIMEOUT_MS';
+export const HTTP_HEADERS_TIMEOUT_ENV = 'HTTP_HEADERS_TIMEOUT_MS';
 export const HTTP_CONNECTION_TIMEOUT_ENV = 'HTTP_CONNECTION_TIMEOUT_MS';
+export const HTTP_CONNECTIONS_CHECKING_INTERVAL_ENV =
+  'HTTP_CONNECTIONS_CHECKING_INTERVAL_MS';
 
 function parseHttpTimeout(
   raw: string | undefined,
@@ -127,22 +141,42 @@ function parseHttpTimeout(
   return value;
 }
 
-export function httpTimeouts(env: NodeJS.ProcessEnv = process.env): {
+export interface HttpTimeouts {
   readonly requestTimeoutMs: number;
+  readonly headersTimeoutMs: number;
   readonly connectionTimeoutMs: number;
-} {
-  return {
+  readonly connectionsCheckingIntervalMs: number;
+}
+
+export function httpTimeouts(env: NodeJS.ProcessEnv = process.env): HttpTimeouts {
+  const timeouts: HttpTimeouts = {
     requestTimeoutMs: parseHttpTimeout(
       env[HTTP_REQUEST_TIMEOUT_ENV],
       HTTP_REQUEST_TIMEOUT_ENV,
       DEFAULT_HTTP_REQUEST_TIMEOUT_MS,
+    ),
+    headersTimeoutMs: parseHttpTimeout(
+      env[HTTP_HEADERS_TIMEOUT_ENV],
+      HTTP_HEADERS_TIMEOUT_ENV,
+      DEFAULT_HTTP_HEADERS_TIMEOUT_MS,
     ),
     connectionTimeoutMs: parseHttpTimeout(
       env[HTTP_CONNECTION_TIMEOUT_ENV],
       HTTP_CONNECTION_TIMEOUT_ENV,
       DEFAULT_HTTP_CONNECTION_TIMEOUT_MS,
     ),
+    connectionsCheckingIntervalMs: parseHttpTimeout(
+      env[HTTP_CONNECTIONS_CHECKING_INTERVAL_ENV],
+      HTTP_CONNECTIONS_CHECKING_INTERVAL_ENV,
+      DEFAULT_HTTP_CONNECTIONS_CHECKING_INTERVAL_MS,
+    ),
   };
+  if (timeouts.headersTimeoutMs > timeouts.requestTimeoutMs) {
+    throw new Error(
+      `${HTTP_HEADERS_TIMEOUT_ENV} must be <= ${HTTP_REQUEST_TIMEOUT_ENV}`,
+    );
+  }
+  return timeouts;
 }
 
 async function databaseReady(
@@ -206,11 +240,27 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     options.loggerInstance === undefined
       ? { logger: options.logger ?? defaultLoggerOptions(config) }
       : { loggerInstance: options.loggerInstance };
-  const { requestTimeoutMs, connectionTimeoutMs } = httpTimeouts();
+  const {
+    requestTimeoutMs,
+    headersTimeoutMs,
+    connectionTimeoutMs,
+    connectionsCheckingIntervalMs,
+  } = httpTimeouts();
   const app = Fastify({
     ...logging,
-    requestTimeout: requestTimeoutMs,
-    connectionTimeout: connectionTimeoutMs,
+    // Fastify does not surface headersTimeout or connectionsCheckingInterval,
+    // and requestTimeout is only enforced when the connection checker runs.
+    // Build the HTTP server with the receive limits so a trickling body is
+    // cut promptly even while shutting down (FU-37R finding 2).
+    serverFactory: (handler) =>
+      createHttpServer(
+        {
+          requestTimeout: requestTimeoutMs,
+          headersTimeout: headersTimeoutMs,
+          connectionsCheckingInterval: connectionsCheckingIntervalMs,
+        },
+        handler,
+      ),
     trustProxy: config.trustProxy as NonNullable<FastifyServerOptions['trustProxy']>,
     ajv: {
       plugins: [
@@ -228,6 +278,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       },
     },
   });
+
+  // `serverFactory` bypasses Fastify's connectionTimeout mapping; set the
+  // socket inactivity guard explicitly. It only covers a dead peer and must
+  // stay above the worst-case provider budget, not valid handler latency.
+  app.server.timeout = connectionTimeoutMs;
 
   app.decorateRequest('authSession', null);
   await app.register(cookie);

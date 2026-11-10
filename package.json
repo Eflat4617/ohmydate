@@ -15,7 +15,7 @@
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "e2e": "playwright test -c e2e/playwright.config.ts",
     "smoke:build": "node scripts/ci/build-smoke.mjs",
-    "ci": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:api-client && pnpm run check:boundaries && pnpm run smoke:build"
+    "ci": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:api-client && pnpm run check:boundaries && node scripts/ci/build-smoke.mjs --required"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.0",

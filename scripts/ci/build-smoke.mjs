@@ -81,19 +81,29 @@ async function waitForHealth(url, child, stderr) {
 }
 
 async function main() {
+  const required =
+    process.argv.includes('--required') ||
+    process.env['CI'] === '1' ||
+    process.env['CI'] === 'true';
   const databaseUrl = process.env['DATABASE_URL'];
-  if (databaseUrl === undefined || databaseUrl.length === 0) {
-    console.log(
-      '[build-smoke] SKIPPED: DATABASE_URL is not set. ' +
-        'The smoke boots PROVIDER=vikunja, which needs PostgreSQL but no docker.',
-    );
-    return;
-  }
 
+  // The build half is mandatory even without a database: a no-DB run must
+  // still prove dist compiles (FU-37R LOW).
   console.log('[build-smoke] rm -rf services/api/dist');
   await rm(join(apiDir, 'dist'), { recursive: true, force: true });
   console.log('[build-smoke] build');
   runPnpm(['run', 'build'], apiDir);
+
+  if (databaseUrl === undefined || databaseUrl.length === 0) {
+    const reason =
+      '[build-smoke] DATABASE_URL is not set. The start smoke boots ' +
+      'PROVIDER=vikunja, which needs PostgreSQL but no docker.';
+    if (required) {
+      throw new Error(`${reason} This step is required from pnpm run ci.`);
+    }
+    console.log(`${reason} SKIPPED (optional developer command).`);
+    return;
+  }
 
   const schema = `ci_smoke_${String(process.pid)}_${String(Date.now())}`;
   const require = createRequire(join(apiDir, 'package.json'));

@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Socket } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { createUuidV7Generator, epochMsToInstant } from '@ohmydate/domain';
 import type { FastifyInstance } from 'fastify';
@@ -30,6 +32,15 @@ export const PG_QUERY_TIMEOUT_ENV = 'PG_QUERY_TIMEOUT_MS';
 
 /** Hard stop for graceful shutdown. Exceeding it exits non-zero. */
 export const SHUTDOWN_DEADLINE_MS = 15_000;
+
+/**
+ * Valid in-flight handlers get this long to finish after the first signal.
+ * It is above the 11 s regression floor and below SHUTDOWN_DEADLINE_MS, so a
+ * trickling or idle socket can be force-closed while the process still exits
+ * 0 (FU-37R finding 2). Providers must still bound their own retries; the
+ * drain budget is not the provider timeout budget.
+ */
+export const SHUTDOWN_DRAIN_BUDGET_MS = 12_000;
 
 export function parseTrustProxy(raw: string | undefined): AppConfig['trustProxy'] {
   if (raw === undefined || raw.length === 0) return false;
@@ -80,12 +91,110 @@ export function pgTimeouts(env: NodeJS.ProcessEnv = process.env): {
   };
 }
 
+const TIMED_OUT_QUERY = Symbol('ohmydate.timedOutQuery');
+const QUERY_WRAPPED = Symbol('ohmydate.queryWrapped');
+
+type QueryCallback = (error: Error | null | undefined, result: unknown) => void;
+type QueryFunction = (...args: unknown[]) => unknown;
+type PoolConnectCallback = (
+  error: Error | undefined,
+  client: pg.PoolClient | undefined,
+  done: (release?: unknown) => void,
+) => void;
+
+interface TrackedClient extends pg.PoolClient {
+  [TIMED_OUT_QUERY]?: boolean;
+  [QUERY_WRAPPED]?: boolean;
+}
+
+function isQueryReadTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message === 'Query read timeout';
+}
+
+/**
+ * pg's client-side `query_timeout` rejects the pending callback but leaves the
+ * non-pipelined query on the wire: `readyForQuery` stays false and the active
+ * query is still set (pg/lib/client.js). Kysely then releases the client with
+ * `release(false)`, so pg-pool returns the blocked connection to the idle list
+ * and every later query reuses it (FU-37R finding 1).
+ *
+ * Mark the client when its own deadline expires. The release wrapper below
+ * then discards it instead of returning it to the pool.
+ */
+function instrumentClientQueryTimeout(client: pg.PoolClient): pg.PoolClient {
+  const tracked = client as TrackedClient;
+  if (tracked[QUERY_WRAPPED] !== true) {
+    tracked[QUERY_WRAPPED] = true;
+    const originalQuery = client.query.bind(client) as unknown as QueryFunction;
+    client.query = ((...args: unknown[]) => {
+      const last = args[args.length - 1];
+      if (typeof last === 'function') {
+        const callback = last as QueryCallback;
+        args[args.length - 1] = (error: Error | null | undefined, result: unknown) => {
+          if (isQueryReadTimeout(error)) tracked[TIMED_OUT_QUERY] = true;
+          callback(error, result);
+        };
+        return originalQuery(...args);
+      }
+      return new Promise((resolve, reject) => {
+        originalQuery(...args, (error: Error | null | undefined, result: unknown) => {
+          if (isQueryReadTimeout(error)) tracked[TIMED_OUT_QUERY] = true;
+          if (error !== undefined && error !== null) reject(error);
+          else resolve(result);
+        });
+      });
+    }) as unknown as pg.PoolClient['query'];
+  }
+
+  // pg-pool assigns a fresh `release` on every acquire; wrap that one so a
+  // timed-out checkout is removed. Passing a truthy error makes pg-pool call
+  // client.end(), which destroys the socket while a hung query is active.
+  const originalRelease = client.release.bind(client);
+  client.release = (err?: Error | boolean) => {
+    if (tracked[TIMED_OUT_QUERY] === true) {
+      originalRelease(
+        err === true
+          ? true
+          : new Error('discarding client after a client-side query timeout'),
+      );
+      return;
+    }
+    originalRelease(err);
+  };
+  return client;
+}
+
+/**
+ * pg.Pool that instruments every checkout. The wrapper is what Kysely sees, so
+ * `connect()` returns a client whose `release(false)` still destroys a client
+ * whose client-side query deadline expired.
+ */
+class ManagedPool extends Pool {
+  override connect(): Promise<pg.PoolClient>;
+  override connect(callback: PoolConnectCallback): void;
+  override connect(callback?: PoolConnectCallback): Promise<pg.PoolClient> | void {
+    if (callback === undefined) {
+      return super.connect().then((client) => instrumentClientQueryTimeout(client));
+    }
+    super.connect((error, client, done) => {
+      if (error !== undefined || client === undefined) {
+        callback(error, client, done);
+        return;
+      }
+      const instrumented = instrumentClientQueryTimeout(client);
+      callback(undefined, instrumented, (release?: unknown) =>
+        instrumented.release(release as Error | boolean | undefined),
+      );
+    });
+  }
+}
+
 export function createDatabasePool(
   databaseUrl: string,
   env: NodeJS.ProcessEnv = process.env,
 ): pg.Pool {
   const { statementTimeoutMs, queryTimeoutMs } = pgTimeouts(env);
-  return new Pool({
+  return new ManagedPool({
     connectionString: databaseUrl,
     connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
     keepAlive: true,
@@ -200,6 +309,54 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
 }
 
 /**
+ * Graceful close that cannot be pinned by an incomplete or idle socket:
+ * - connections that never became a request (incomplete headers) are dropped;
+ * - requests whose message is still incomplete (a trickling body) are dropped,
+ *   because their handler can never start with a valid body;
+ * - valid in-flight handlers drain up to the budget;
+ * - then every remaining connection is force-closed before the hard deadline.
+ *
+ * `server.close()` disables Node's periodic requestTimeout check, so an
+ * incomplete request would otherwise keep the server open forever
+ * (FU-37R finding 2).
+ */
+export function createApplicationClose(
+  app: FastifyInstance,
+  drainMs: number = SHUTDOWN_DRAIN_BUDGET_MS,
+): () => Promise<void> {
+  const sockets = new Set<Socket>();
+  const requests = new Set<IncomingMessage>();
+  app.server.on('connection', (socket: Socket) => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
+  });
+  app.server.on('request', (request: IncomingMessage, response: ServerResponse) => {
+    requests.add(request);
+    response.once('close', () => requests.delete(request));
+  });
+
+  return async () => {
+    app.server.closeIdleConnections();
+    // A request that has not completed its message can never reach a handler.
+    for (const request of [...requests]) {
+      if (request.complete !== true) request.socket.destroy();
+    }
+    // Idle keep-alive sockets and connections stuck in header parsing.
+    for (const socket of [...sockets]) {
+      const hasRequest = [...requests].some((request) => request.socket === socket);
+      if (!hasRequest) socket.destroy();
+    }
+
+    const force = setTimeout(() => app.server.closeAllConnections(), drainMs);
+    try {
+      await app.close();
+    } finally {
+      clearTimeout(force);
+    }
+  };
+}
+
+/**
  * `node dist/main` and a symlinked release directory (`/app/current`) must
  * boot too, not exit 0 silently. Node sets argv[1] to the literal path given,
  * so resolve both it (plus Node's implicit `.js` extension) and this module
@@ -267,7 +424,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
       info: (details, message) => app.log.info(details, message),
       error: (details, message) => app.log.error(details, message),
     },
-    close: () => app.close(),
+    close: createApplicationClose(app),
     destroy: () => db.destroy(),
     exit: (code) => process.exit(code),
   });
