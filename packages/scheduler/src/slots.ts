@@ -4,8 +4,8 @@ import {
   alignDownToGrid,
   alignUpToGrid,
   instantToUtc,
-  localWindowToMs,
   parseInstant,
+  projectWallWindowToIntervals,
 } from './time.js';
 
 interface IntervalMs {
@@ -100,34 +100,33 @@ function alignIntervals(intervals: IntervalMs[]): IntervalMs[] {
 function fullDayWindow(
   input: ScheduleInput,
   date: Temporal.PlainDate,
-): IntervalMs {
-  return localWindowToMs(input.timeZone, date, '00:00', '24:00');
+): IntervalMs[] {
+  return projectWallWindowToIntervals(input.timeZone, date, '00:00', '24:00');
 }
 
 function exceptionsForDate(input: ScheduleInput, date: string): WindowException[] {
   return input.exceptions.filter((exception) => exception.date === date);
 }
 
-function intervalForException(
+function intervalsForException(
   input: ScheduleInput,
   date: Temporal.PlainDate,
   exception: WindowException,
-): IntervalMs | undefined {
+): IntervalMs[] {
   const hasStart = exception.startLocal !== undefined;
   const hasEnd = exception.endLocal !== undefined;
   if (!hasStart && !hasEnd) {
     return fullDayWindow(input, date);
   }
   if (!hasStart || !hasEnd) {
-    return undefined;
+    return [];
   }
-  const interval = localWindowToMs(
+  return projectWallWindowToIntervals(
     input.timeZone,
     date,
     exception.startLocal as string,
     exception.endLocal as string,
   );
-  return interval.endMs > interval.startMs ? interval : undefined;
 }
 
 function cutIntervalsOf(blocks: Array<Pick<Block, 'start' | 'end'>>): IntervalMs[] {
@@ -149,7 +148,8 @@ function cutIntervalsOf(blocks: Array<Pick<Block, 'start' | 'end'>>): IntervalMs
  * `+ exceptions(extra)`, `- exceptions(off)`, `- commitments - lockedBlocks`.
  * Only intervals that survive horizon clipping and inward 5-minute grid
  * alignment are returned. The implementation walks days and subtracts
- * interval sets; `validate.ts` deliberately audits using point checks instead.
+ * interval sets; `validate.ts` deliberately re-implements raw-rule projection
+ * and audits the full half-open block interval with a coverage sweep instead.
  */
 export function computeAvailableSlots(input: ScheduleInput): Slot[] {
   const horizonStartMs = parseInstant(input.horizon.start);
@@ -182,25 +182,21 @@ export function computeAvailableSlots(input: ScheduleInput): Slot[] {
       if (rule.weekday !== date.dayOfWeek) {
         continue;
       }
-      const window = localWindowToMs(
-        input.timeZone,
-        date,
-        rule.startLocal,
-        rule.endLocal,
+      dayWindows.push(
+        ...projectWallWindowToIntervals(
+          input.timeZone,
+          date,
+          rule.startLocal,
+          rule.endLocal,
+        ),
       );
-      if (window.endMs > window.startMs) {
-        dayWindows.push(window);
-      }
     }
 
     for (const exception of exceptions) {
       if (exception.kind !== 'extra') {
         continue;
       }
-      const window = intervalForException(input, date, exception);
-      if (window !== undefined) {
-        dayWindows.push(window);
-      }
+      dayWindows.push(...intervalsForException(input, date, exception));
     }
 
     const offCuts: IntervalMs[] = [];
@@ -208,10 +204,7 @@ export function computeAvailableSlots(input: ScheduleInput): Slot[] {
       if (exception.kind !== 'off') {
         continue;
       }
-      const window = intervalForException(input, date, exception);
-      if (window !== undefined) {
-        offCuts.push(window);
-      }
+      offCuts.push(...intervalsForException(input, date, exception));
     }
 
     windows.push(...subtractIntervals(dayWindows, offCuts));

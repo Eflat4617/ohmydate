@@ -40,7 +40,11 @@ export interface Task {
 
 export interface AvailabilityRule {
   weekday: Weekday;
-  /** Local wall clock, `HH:mm`. */
+  /**
+   * Local wall clock, `HH:mm`. Must be earlier than `endLocal`.
+   * Single-rule overnight windows are not supported; split them at midnight
+   * (23:00-01:00 => 23:00-24:00 on this weekday plus 00:00-01:00 on the next).
+   */
   startLocal: string;
   /** Local wall clock, `HH:mm`; `24:00` means the following midnight. */
   endLocal: string;
@@ -100,7 +104,23 @@ export interface Slot {
   end: Instant;
 }
 
-export type ViolationCode = 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'H6' | 'H7' | 'H8';
+/**
+ * Hard constraints H1-H8 plus `H0_horizon`.
+ *
+ * `H0_horizon` rejects candidate blocks outside `ScheduleInput.horizon`.
+ * `lockedBlocks` are explicitly exempt from this horizon check so historical
+ * approved work can remain in the input; they are still audited by H1-H8.
+ */
+export type ViolationCode =
+  | 'H0_horizon'
+  | 'H1'
+  | 'H2'
+  | 'H3'
+  | 'H4'
+  | 'H5'
+  | 'H6'
+  | 'H7'
+  | 'H8';
 
 export interface Violation {
   code: ViolationCode;

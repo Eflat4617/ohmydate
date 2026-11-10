@@ -64,51 +64,135 @@ export function clockMinutes(clock: Clock): number {
   return clock.hour * 60 + clock.minute;
 }
 
+export interface WallInterval {
+  startMs: number;
+  endMs: number;
+}
+
+interface OffsetPoint {
+  startMs: number;
+  offsetMs: number;
+}
+
 /**
- * Convert a local wall-clock window on a local date into UTC milliseconds.
+ * Project a local wall-clock window on one local date into exact UTC
+ * intervals.
  *
- * A start that falls in a DST fold selects the earlier occurrence; a start in
- * a gap moves forward to the first valid wall clock. An end uses the later
- * occurrence so a window spanning an autumn fold covers both repetitions.
+ * The local date is split into constant-offset segments at every time-zone
+ * transition. Intersecting the requested wall window with each segment:
+ * - clips nonexistent spring-forward wall time (02:30-03:30 NY on 2026-03-08
+ *   becomes 07:00Z-07:30Z), and
+ * - preserves both repetitions of autumn-fold wall time as disjoint intervals
+ *   (01:15-01:45 NY on 2026-11-01 becomes 05:15Z-05:45Z and 06:15Z-06:45Z).
+ *
+ * Single-rule overnight windows are intentionally unsupported; callers must
+ * split them at midnight (23:00-01:00 => 23:00-24:00 plus 00:00-01:00).
  */
-export function localWindowToMs(
+export function projectWallWindowToIntervals(
   timeZone: IanaTz,
   date: Temporal.PlainDate,
   startLocal: string,
   endLocal: string,
-): { startMs: number; endMs: number } {
-  const startClock = parseClock(startLocal);
-  const endClock = parseClock(endLocal);
+): WallInterval[] {
+  const startMinute = clockMinutes(parseClock(startLocal));
+  const endMinute = clockMinutes(parseClock(endLocal));
+  if (endMinute <= startMinute) {
+    return [];
+  }
 
-  const startDate = startClock.hour === 24 ? date.add({ days: 1 }) : date;
-  const startHour = startClock.hour === 24 ? 0 : startClock.hour;
-  const endDate = endClock.hour === 24 ? date.add({ days: 1 }) : date;
-  const endHour = endClock.hour === 24 ? 0 : endClock.hour;
+  const dayStart = zonedAtLocalMidnight(timeZone, date);
+  const dayEnd = zonedAtLocalMidnight(timeZone, date.add({ days: 1 }));
+  const offsetPoints = collectOffsetPoints(dayStart, dayEnd.epochMilliseconds);
+  const wallMidnight = Temporal.ZonedDateTime.from({
+    timeZone: 'UTC',
+    year: date.year,
+    month: date.month,
+    day: date.day,
+    hour: 0,
+    minute: 0,
+  }).epochMilliseconds;
 
-  const start = Temporal.ZonedDateTime.from(
+  const intervals: WallInterval[] = [];
+  for (let index = 0; index < offsetPoints.length; index += 1) {
+    const point = offsetPoints[index];
+    const next = offsetPoints[index + 1];
+    if (point === undefined || next === undefined) {
+      continue;
+    }
+    const wallStart = (point.startMs + point.offsetMs - wallMidnight) / MINUTE_MS;
+    const wallEnd = (next.startMs + point.offsetMs - wallMidnight) / MINUTE_MS;
+    const intersectStart = Math.max(startMinute, wallStart);
+    const intersectEnd = Math.min(endMinute, wallEnd);
+    if (intersectEnd > intersectStart) {
+      intervals.push({
+        startMs: wallMidnight + intersectStart * MINUTE_MS - point.offsetMs,
+        endMs: wallMidnight + intersectEnd * MINUTE_MS - point.offsetMs,
+      });
+    }
+  }
+
+  return mergeWallIntervals(intervals);
+}
+
+function zonedAtLocalMidnight(
+  timeZone: IanaTz,
+  date: Temporal.PlainDate,
+): Temporal.ZonedDateTime {
+  return Temporal.ZonedDateTime.from(
     {
       timeZone,
-      year: startDate.year,
-      month: startDate.month,
-      day: startDate.day,
-      hour: startHour,
-      minute: startClock.minute,
+      year: date.year,
+      month: date.month,
+      day: date.day,
+      hour: 0,
+      minute: 0,
     },
     { disambiguation: 'compatible' },
   );
-  const end = Temporal.ZonedDateTime.from(
-    {
-      timeZone,
-      year: endDate.year,
-      month: endDate.month,
-      day: endDate.day,
-      hour: endHour,
-      minute: endClock.minute,
-    },
-    { disambiguation: 'later' },
-  );
+}
 
-  return { startMs: start.epochMilliseconds, endMs: end.epochMilliseconds };
+function collectOffsetPoints(
+  dayStart: Temporal.ZonedDateTime,
+  dayEndMs: number,
+): OffsetPoint[] {
+  const points: OffsetPoint[] = [
+    { startMs: dayStart.epochMilliseconds, offsetMs: offsetMsOf(dayStart) },
+  ];
+  let cursor = dayStart;
+  for (let guard = 0; guard < 16; guard += 1) {
+    const transition = cursor.getTimeZoneTransition('next');
+    if (transition === null || transition.epochMilliseconds >= dayEndMs) {
+      break;
+    }
+    points.push({
+      startMs: transition.epochMilliseconds,
+      offsetMs: offsetMsOf(transition),
+    });
+    cursor = transition;
+  }
+  points.push({ startMs: dayEndMs, offsetMs: points[points.length - 1]?.offsetMs ?? 0 });
+  return points;
+}
+
+function offsetMsOf(zoned: Temporal.ZonedDateTime): number {
+  return Math.trunc(zoned.offsetNanoseconds / 1_000_000);
+}
+
+function mergeWallIntervals(intervals: WallInterval[]): WallInterval[] {
+  const sorted = [...intervals].sort((a, b) => a.startMs - b.startMs);
+  const merged: WallInterval[] = [];
+  for (const interval of sorted) {
+    if (interval.endMs <= interval.startMs) {
+      continue;
+    }
+    const last = merged[merged.length - 1];
+    if (last !== undefined && interval.startMs <= last.endMs) {
+      last.endMs = Math.max(last.endMs, interval.endMs);
+    } else {
+      merged.push({ startMs: interval.startMs, endMs: interval.endMs });
+    }
+  }
+  return merged;
 }
 
 /** Split a UTC interval at local midnights so daily aggregates stay in local time. */

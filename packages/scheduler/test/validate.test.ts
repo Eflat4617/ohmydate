@@ -1,5 +1,5 @@
 import type { AvailabilityRule, Block, ExceptionRule, ScheduleInput, Task } from '../src/index.js';
-import { computeAvailableSlots, slotTotalMin, validate } from '../src/index.js';
+import { computeAvailableSlots, slotTotalMin, validate, validateInput } from '../src/index.js';
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -169,4 +169,180 @@ describe('hard constraint validator', () => {
       ]),
     ).toEqual(['H8']);
   });
+  it('H2 covers the full block against non-grid-aligned availability', () => {
+    const input = makeInput({
+      task: makeTask({
+        dueAt: '2026-11-09T10:00:00Z',
+        estimate: { p50Min: 5, p90Min: 5 },
+        minSessionMin: 5,
+        maxSessionMin: 5,
+      }),
+      availability: [
+        { weekday: 1, startLocal: '09:00', endLocal: '09:03', kind: 'work' },
+      ],
+    });
+    input.timeZone = 'UTC';
+    expect(computeAvailableSlots(input)).toEqual([]);
+    expect(
+      codes(input, [
+        { taskId: 'A', start: '2026-11-09T09:00:00Z', end: '2026-11-09T09:05:00Z' },
+      ]),
+    ).toEqual(['H2']);
+  });
+
+  it('H2 catches a timed off exception inside the block', () => {
+    const input = makeInput({
+      task: makeTask({
+        dueAt: '2026-11-09T10:00:00Z',
+        estimate: { p50Min: 5, p90Min: 5 },
+        minSessionMin: 5,
+        maxSessionMin: 5,
+      }),
+      availability: [
+        { weekday: 1, startLocal: '09:00', endLocal: '10:00', kind: 'work' },
+      ],
+      exceptions: [
+        { date: '2026-11-09', kind: 'off', startLocal: '09:01', endLocal: '09:04' },
+      ],
+    });
+    input.timeZone = 'UTC';
+    expect(
+      codes(input, [
+        { taskId: 'A', start: '2026-11-09T09:00:00Z', end: '2026-11-09T09:05:00Z' },
+      ]),
+    ).toEqual(['H2']);
+  });
+
+  it('H6 keeps continuous focus runs across local midnight', () => {
+    const input = makeInput({
+      task: makeTask({
+        dueAt: '2026-11-10T01:00:00Z',
+        estimate: { p50Min: 120, p90Min: 120 },
+        minSessionMin: 30,
+        maxSessionMin: 120,
+      }),
+      availability: [
+        { weekday: 1, startLocal: '23:00', endLocal: '24:00', kind: 'work' },
+        { weekday: 2, startLocal: '00:00', endLocal: '01:00', kind: 'work' },
+      ],
+    });
+    input.timeZone = 'UTC';
+    input.horizon = {
+      start: '2026-11-09T22:00:00Z',
+      end: '2026-11-10T02:00:00Z',
+    };
+    input.prefs.breakAfterMin = 90;
+    input.prefs.breakMin = 15;
+    expect(
+      codes(input, [
+        { taskId: 'A', start: '2026-11-09T23:00:00Z', end: '2026-11-10T01:00:00Z' },
+      ]),
+    ).toEqual(['H6']);
+  });
+
+  it('H6 joins adjacent blocks that meet across local midnight', () => {
+    const input = makeInput({
+      task: makeTask({
+        dueAt: '2026-11-10T01:00:00Z',
+        estimate: { p50Min: 120, p90Min: 120 },
+        minSessionMin: 30,
+        maxSessionMin: 120,
+      }),
+      availability: [
+        { weekday: 1, startLocal: '23:00', endLocal: '24:00', kind: 'work' },
+        { weekday: 2, startLocal: '00:00', endLocal: '01:00', kind: 'work' },
+      ],
+    });
+    input.timeZone = 'UTC';
+    input.horizon = {
+      start: '2026-11-09T22:00:00Z',
+      end: '2026-11-10T02:00:00Z',
+    };
+    input.prefs.breakAfterMin = 90;
+    input.prefs.breakMin = 15;
+    expect(
+      codes(input, [
+        { taskId: 'A', start: '2026-11-09T23:00:00Z', end: '2026-11-10T00:00:00Z' },
+        { taskId: 'A', start: '2026-11-10T00:00:00Z', end: '2026-11-10T01:00:00Z' },
+      ]),
+    ).toEqual(['H6']);
+  });
+
+  it('rejects a candidate block outside the planning horizon', () => {
+    const task = makeTask({ estimate: { p50Min: 60, p90Min: 60 } });
+    delete task.dueAt;
+    delete task.earliestStartAt;
+    const input = makeInput({
+      task,
+      availability: [
+        { weekday: 4, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+      ],
+    });
+    input.timeZone = 'UTC';
+    input.horizon = {
+      start: '2026-11-09T00:00:00Z',
+      end: '2026-11-11T00:00:00Z',
+    };
+    expect(
+      codes(input, [
+        { taskId: 'A', start: '2026-11-12T09:00:00Z', end: '2026-11-12T10:00:00Z' },
+      ]),
+    ).toEqual(['H0_horizon']);
+  });
+
+  it('exempts locked blocks from the horizon check', () => {
+    const input = makeInput({
+      task: makeTask({ estimate: { p50Min: 120, p90Min: 120 } }),
+      availability: [
+        { weekday: 1, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+      ],
+    });
+    input.timeZone = 'UTC';
+    input.tasks[0] = makeTask({
+      dueAt: '2026-11-10T00:00:00Z',
+      estimate: { p50Min: 120, p90Min: 120 },
+    });
+    input.lockedBlocks = [
+      { taskId: 'A', start: '2026-11-08T09:00:00Z', end: '2026-11-08T10:00:00Z' },
+    ];
+    const result = codes(input, [
+      { taskId: 'A', start: '2026-11-09T00:00:00Z', end: '2026-11-09T01:00:00Z' },
+    ]);
+    expect(result).not.toContain('H0_horizon');
+  });
+
+  it('H5 enforces session bounds for non-splittable tasks', () => {
+    const input = makeInput({
+      task: makeTask({
+        splittable: false,
+        dueAt: '2026-11-09T12:00:00Z',
+        estimate: { p50Min: 120, p90Min: 120 },
+        minSessionMin: 30,
+        maxSessionMin: 60,
+      }),
+      availability: [
+        { weekday: 1, startLocal: '09:00', endLocal: '13:00', kind: 'work' },
+      ],
+    });
+    input.timeZone = 'UTC';
+    expect(
+      codes(input, [
+        { taskId: 'A', start: '2026-11-09T09:00:00Z', end: '2026-11-09T11:00:00Z' },
+      ]),
+    ).toEqual(['H5']);
+  });
+
+  it('requires overnight single-rule windows to be split at midnight', () => {
+    const input = makeInput({
+      availability: [
+        { weekday: 1, startLocal: '23:00', endLocal: '01:00', kind: 'work' },
+      ],
+    });
+    expect(
+      validateInput(input)
+        .map((issue) => issue.code)
+        .sort(),
+    ).toContain('invalid_window');
+  });
+
 });
