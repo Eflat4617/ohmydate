@@ -769,7 +769,11 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
  * swallow every POST /tasks/<x> (including /tasks/<id> and other actions).
  */
 export function toFastifyPath(path: string): string {
-  const withActions = path.replace(
+  const withCollectionAction = path.replace(
+    /\/([^/{}]+):([A-Za-z][A-Za-z0-9]*)$/,
+    '/$1::$2',
+  );
+  const withActions = withCollectionAction.replace(
     /\{([^}]+)\}:([A-Za-z][A-Za-z0-9]*)$/,
     ':$1([^:]+)::$2',
   );

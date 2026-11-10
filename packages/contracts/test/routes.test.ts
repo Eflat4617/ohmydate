@@ -78,7 +78,7 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
   createIntakeSession: {
     requiredHeaders: ['Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [201, 202, 400, 401, 403, 409, 422, 503],
+    statuses: [201, 400, 401, 403, 409, 422, 503],
   },
   getIntakeSession: {
     requiredHeaders: [],
@@ -88,12 +88,12 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
   answerIntakeQuestions: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428, 503],
   },
   confirmIntakeType: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428, 503],
   },
   getIntakeDraft: {
     requiredHeaders: [],
@@ -113,22 +113,22 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
   pauseIntakeSession: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [200, 400, 401, 403, 404, 409, 412, 428],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
   },
   resumeIntakeSession: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [200, 400, 401, 403, 404, 409, 412, 428],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
   },
   cancelIntakeSession: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [200, 400, 401, 403, 404, 409, 412, 428],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
   },
   enterManualIntakeMode: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [200, 400, 401, 403, 404, 409, 412, 428],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
   },
   listTaskTemplates: {
     requiredHeaders: [],

@@ -6,6 +6,7 @@ import { createConfig, type AppConfig } from '../../src/config.js';
 import { createInMemoryRepositories } from '@ohmydate/provider-native/in-memory';
 import { FakeClock, createSeededIdGenerator } from '@ohmydate/testkit';
 import type { Id } from '@ohmydate/domain';
+import type { BudgetGuard, LlmPort } from '@ohmydate/llm';
 import type { FastifyInstance } from 'fastify';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
@@ -31,6 +32,19 @@ export interface TestContext {
     password: string;
     timeZone?: string;
     locale?: string;
+  }): Promise<Id>;
+  /** Migration-free system seed used by intake tests (M2-03). */
+  seedTemplate(input: {
+    ownerId: Id;
+    name: string;
+    steps: readonly unknown[];
+    source?: 'user' | 'system';
+    confidence?: number;
+  }): Promise<Id>;
+  seedFingerprint(input: {
+    ownerId: Id;
+    templateId: Id;
+    tags?: readonly string[];
   }): Promise<Id>;
   close(): Promise<void>;
 }
@@ -72,6 +86,8 @@ export interface TestContextOptions {
   readonly loggerInstance?: LoggerInstanceOption;
   readonly idempotency?: IdempotencyStore;
   readonly repos?: AppRepositories;
+  readonly llm?: LlmPort;
+  readonly budgetGuard?: BudgetGuard;
 }
 
 export async function createTestContext(
@@ -105,6 +121,8 @@ export async function createTestContext(
     logger: options.logger ?? false,
     ...(options.loggerInstance === undefined ? {} : { loggerInstance: options.loggerInstance }),
     ...(options.idempotency === undefined ? {} : { idempotency: options.idempotency }),
+    ...(options.llm === undefined ? {} : { llm: options.llm }),
+    ...(options.budgetGuard === undefined ? {} : { budgetGuard: options.budgetGuard }),
   });
   await app.ready();
 
@@ -127,6 +145,36 @@ export async function createTestContext(
         ...(input.timeZone === undefined ? {} : { timeZone: input.timeZone }),
         ...(input.locale === undefined ? {} : { locale: input.locale }),
       });
+      return id;
+    },
+    async seedTemplate(input) {
+      const id = ids.next();
+      await db
+        .insertInto('task_template')
+        .values({
+          id,
+          owner_id: input.ownerId,
+          name: input.name,
+          steps: JSON.stringify(input.steps) as never,
+          stats: JSON.stringify({ sampleCount: 3, meanRatio: 1.1, p90Ratio: 1.4 }) as never,
+          source: input.source ?? 'system',
+          confidence: input.confidence ?? 0.8,
+        })
+        .execute();
+      return id;
+    },
+    async seedFingerprint(input) {
+      const id = ids.next();
+      await db
+        .insertInto('task_type_fingerprint')
+        .values({
+          id,
+          owner_id: input.ownerId,
+          template_id: input.templateId,
+          tags: [...(input.tags ?? [])],
+          meta: JSON.stringify({}) as never,
+        })
+        .execute();
       return id;
     },
     async close() {

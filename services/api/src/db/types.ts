@@ -1,4 +1,13 @@
 import { sql, type ColumnType, type RawBuilder } from 'kysely';
+import pg from 'pg';
+
+/**
+ * PostgreSQL `date` (OID 1082) has no timezone. node-postgres' default parser
+ * builds a local-midnight `Date`, which shifts the calendar day when the host
+ * timezone is not UTC. The Kysely schema types `date` columns as `string`, so
+ * keep the raw `YYYY-MM-DD` text instead.
+ */
+pg.types.setTypeParser(1082, (value: string) => value);
 
 /**
  * Hand-written Kysely view of the M1 planner schema

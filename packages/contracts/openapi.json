@@ -431,95 +431,196 @@
         "properties": {
           "answers": {
             "items": {
-              "additionalProperties": false,
-              "properties": {
-                "action": {
-                  "anyOf": [
-                    {
+              "anyOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "action": {
                       "const": "answer",
                       "type": "string"
                     },
-                    {
+                    "questionKey": {
+                      "anyOf": [
+                        {
+                          "const": "deliverable",
+                          "type": "string"
+                        },
+                        {
+                          "const": "dueAt",
+                          "type": "string"
+                        },
+                        {
+                          "const": "estimatedScope",
+                          "type": "string"
+                        },
+                        {
+                          "const": "currentProgress",
+                          "type": "string"
+                        },
+                        {
+                          "const": "availabilityConfirmed",
+                          "type": "string"
+                        },
+                        {
+                          "const": "prerequisites",
+                          "type": "string"
+                        },
+                        {
+                          "const": "priority",
+                          "type": "string"
+                        },
+                        {
+                          "const": "maxFocusMinutes",
+                          "type": "string"
+                        },
+                        {
+                          "const": "reviewNeeded",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "value": {
+                      "anyOf": [
+                        {
+                          "maxLength": 2000,
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "items": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "maxItems": 20,
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "questionKey",
+                    "action",
+                    "value"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "action": {
                       "const": "skip",
                       "type": "string"
                     },
-                    {
+                    "questionKey": {
+                      "anyOf": [
+                        {
+                          "const": "deliverable",
+                          "type": "string"
+                        },
+                        {
+                          "const": "dueAt",
+                          "type": "string"
+                        },
+                        {
+                          "const": "estimatedScope",
+                          "type": "string"
+                        },
+                        {
+                          "const": "currentProgress",
+                          "type": "string"
+                        },
+                        {
+                          "const": "availabilityConfirmed",
+                          "type": "string"
+                        },
+                        {
+                          "const": "prerequisites",
+                          "type": "string"
+                        },
+                        {
+                          "const": "priority",
+                          "type": "string"
+                        },
+                        {
+                          "const": "maxFocusMinutes",
+                          "type": "string"
+                        },
+                        {
+                          "const": "reviewNeeded",
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "questionKey",
+                    "action"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "action": {
                       "const": "idk",
                       "type": "string"
+                    },
+                    "questionKey": {
+                      "anyOf": [
+                        {
+                          "const": "deliverable",
+                          "type": "string"
+                        },
+                        {
+                          "const": "dueAt",
+                          "type": "string"
+                        },
+                        {
+                          "const": "estimatedScope",
+                          "type": "string"
+                        },
+                        {
+                          "const": "currentProgress",
+                          "type": "string"
+                        },
+                        {
+                          "const": "availabilityConfirmed",
+                          "type": "string"
+                        },
+                        {
+                          "const": "prerequisites",
+                          "type": "string"
+                        },
+                        {
+                          "const": "priority",
+                          "type": "string"
+                        },
+                        {
+                          "const": "maxFocusMinutes",
+                          "type": "string"
+                        },
+                        {
+                          "const": "reviewNeeded",
+                          "type": "string"
+                        }
+                      ]
                     }
-                  ]
-                },
-                "questionKey": {
-                  "anyOf": [
-                    {
-                      "const": "deliverable",
-                      "type": "string"
-                    },
-                    {
-                      "const": "dueAt",
-                      "type": "string"
-                    },
-                    {
-                      "const": "estimatedScope",
-                      "type": "string"
-                    },
-                    {
-                      "const": "currentProgress",
-                      "type": "string"
-                    },
-                    {
-                      "const": "availabilityConfirmed",
-                      "type": "string"
-                    },
-                    {
-                      "const": "prerequisites",
-                      "type": "string"
-                    },
-                    {
-                      "const": "priority",
-                      "type": "string"
-                    },
-                    {
-                      "const": "maxFocusMinutes",
-                      "type": "string"
-                    },
-                    {
-                      "const": "reviewNeeded",
-                      "type": "string"
-                    }
-                  ]
-                },
-                "value": {
-                  "anyOf": [
-                    {
-                      "maxLength": 2000,
-                      "type": "string"
-                    },
-                    {
-                      "type": "number"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "items": {
-                        "maxLength": 200,
-                        "type": "string"
-                      },
-                      "maxItems": 20,
-                      "type": "array"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
+                  },
+                  "required": [
+                    "questionKey",
+                    "action"
+                  ],
+                  "type": "object"
                 }
-              },
-              "required": [
-                "questionKey",
-                "action"
-              ],
-              "type": "object"
+              ]
             },
             "maxItems": 5,
             "minItems": 1,
@@ -3152,9 +3253,6 @@
             },
             "description": "Intake session created"
           },
-          "202": {
-            "description": "Intake session accepted; type detection is running"
-          },
           "400": {
             "content": {
               "application/problem+json": {
@@ -3424,6 +3522,16 @@
               }
             },
             "description": "If-Match header required"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Provider unavailable"
           }
         },
         "summary": "Submit interview answers"
@@ -3908,6 +4016,16 @@
               }
             },
             "description": "If-Match header required"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Provider unavailable"
           }
         },
         "summary": "Confirm or reject a similar task type"
@@ -4016,6 +4134,16 @@
               }
             },
             "description": "Version precondition failed"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
           },
           "428": {
             "content": {
@@ -4135,6 +4263,16 @@
             },
             "description": "Version precondition failed"
           },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          },
           "428": {
             "content": {
               "application/problem+json": {
@@ -4253,6 +4391,16 @@
             },
             "description": "Version precondition failed"
           },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          },
           "428": {
             "content": {
               "application/problem+json": {
@@ -4264,7 +4412,7 @@
             "description": "If-Match header required"
           }
         },
-        "summary": "Pause an intake interview"
+        "summary": "Pause an intake interview (state becomes needs_input; other states return 409)"
       }
     },
     "/intake-sessions/{id}:resume": {
@@ -4371,6 +4519,16 @@
             },
             "description": "Version precondition failed"
           },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          },
           "428": {
             "content": {
               "application/problem+json": {
@@ -4382,7 +4540,7 @@
             "description": "If-Match header required"
           }
         },
-        "summary": "Resume a paused intake interview"
+        "summary": "Resume a paused intake interview (needs_input restores the previous state)"
       }
     },
     "/me": {

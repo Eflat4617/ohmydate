@@ -21,13 +21,71 @@ function toInstant(value: Date | string): Instant {
   return (value instanceof Date ? value.toISOString() : value) as Instant;
 }
 
+const STEP_KINDS: ReadonlySet<string> = new Set(['prep', 'work', 'review', 'buffer']);
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function asString(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function asNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * Contract/DB default alignment (M2-02R LOW): `task_template.steps` defaults to
+ * `[]` and `stats` is open jsonb, while the DTO requires the closed step/stat
+ * shapes. The mapper guarantees the DTO shape instead of casting blindly.
+ */
+function mapSteps(value: unknown): DecompositionStepDto[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
+    const step = asRecord(entry);
+    const estimate = asRecord(step['estimate']);
+    const dependsOn = Array.isArray(step['dependsOn'])
+      ? step['dependsOn'].filter((ref): ref is string => typeof ref === 'string')
+      : [];
+    return {
+      key: asString(step['key'], 's1'),
+      title: asString(step['title'], 'Untitled step'),
+      deliverable: asString(step['deliverable'], ''),
+      doneCriteria: asString(step['doneCriteria'], ''),
+      kind: STEP_KINDS.has(asString(step['kind'], 'work'))
+        ? (step['kind'] as DecompositionStepDto['kind'])
+        : 'work',
+      estimate: {
+        p50Minutes: asNumber(estimate['p50Minutes'], 5),
+        p90Minutes: asNumber(estimate['p90Minutes'], 5),
+      },
+      dependsOn,
+      splittable: step['splittable'] === true,
+    };
+  });
+}
+
+function mapStats(value: unknown): TemplateStats {
+  const stats = asRecord(value);
+  return {
+    ...(typeof stats['sampleCount'] === 'number'
+      ? { sampleCount: stats['sampleCount'] }
+      : {}),
+    ...(typeof stats['meanRatio'] === 'number' ? { meanRatio: stats['meanRatio'] } : {}),
+    ...(typeof stats['p90Ratio'] === 'number' ? { p90Ratio: stats['p90Ratio'] } : {}),
+  };
+}
+
 function mapTemplate(row: TemplateRow): TaskTemplate {
   return {
     id: row.id as Id,
     ownerId: row.owner_id as Id,
     name: row.name,
-    steps: row.steps as unknown as DecompositionStepDto[],
-    stats: row.stats as unknown as TemplateStats,
+    steps: mapSteps(row.steps),
+    stats: mapStats(row.stats),
     source: row.source as TemplateSource,
     confidence: row.confidence,
     version: row.version,

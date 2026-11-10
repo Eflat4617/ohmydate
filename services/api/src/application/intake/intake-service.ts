@@ -65,7 +65,6 @@ import {
   type IntakeSessionRecord,
   type IntakeSessionRepository,
   type IntakeSessionUpdate,
-  type StoredDraft,
   type TaskTemplateRepository,
 } from './ports.js';
 
@@ -157,17 +156,16 @@ function redactedTemplate(template: TaskTemplate, report: Record<string, number>
   );
 }
 
-function untrustedDocuments(input: IntakeInput, report: Record<string, number>): string[] {
+/** Wraps the already-redacted free text so redaction is counted exactly once. */
+function untrustedDocuments(task: Record<string, unknown>): string[] {
   const documents: string[] = [];
-  if (typeof input.deliverable === 'string' && input.deliverable.trim().length > 0) {
-    const redacted = redact(input.deliverable);
-    mergeRedaction(report, redacted.report);
-    documents.push(buildUntrustedBlock('intake-deliverable', redacted.text));
+  const deliverable = task['deliverable'];
+  if (typeof deliverable === 'string' && deliverable.trim().length > 0) {
+    documents.push(buildUntrustedBlock('intake-deliverable', deliverable));
   }
-  if (typeof input.prerequisites === 'string' && input.prerequisites.trim().length > 0) {
-    const redacted = redact(input.prerequisites);
-    mergeRedaction(report, redacted.report);
-    documents.push(buildUntrustedBlock('intake-prerequisites', redacted.text));
+  const prerequisites = task['prerequisites'];
+  if (typeof prerequisites === 'string' && prerequisites.trim().length > 0) {
+    documents.push(buildUntrustedBlock('intake-prerequisites', prerequisites));
   }
   return documents;
 }
@@ -179,7 +177,7 @@ export function buildDetectionLlmInput(
 ): LlmInputBundle {
   const report: Record<string, number> = {};
   const task = redactValue(input, report) as Record<string, unknown>;
-  const documents = untrustedDocuments(input, report);
+  const documents = untrustedDocuments(task);
   return {
     input: {
       configVersion: INTAKE_AGENT_CONFIG.version,
@@ -199,7 +197,7 @@ export function buildDecompositionLlmInput(
 ): LlmInputBundle {
   const report: Record<string, number> = {};
   const task = redactValue(input, report) as Record<string, unknown>;
-  const documents = untrustedDocuments(input, report);
+  const documents = untrustedDocuments(task);
   return {
     input: {
       configVersion: INTAKE_AGENT_CONFIG.version,
@@ -502,13 +500,12 @@ export class IntakeService {
     const now = this.#clock.now();
     for (const answer of request.answers) {
       const field = answer.questionKey as IntakeField;
-      if (answer.action === 'answer' && answer.value !== undefined) {
-        input[field] = answer.value;
-      }
+      const value = answer.action === 'answer' ? answer.value : undefined;
+      if (answer.action === 'answer') input[field] = answer.value;
       answerRecords.push({
         field,
         action: answer.action,
-        ...(answer.value === undefined ? {} : { value: answer.value }),
+        ...(value === undefined ? {} : { value }),
         questionText: truncate(QUESTION_PROMPTS[field], 300),
         skipped: answer.action !== 'answer',
         createdAt: now,
@@ -526,7 +523,7 @@ export class IntakeService {
       maxPerRound: this.#config.questions.maxPerRound,
     });
 
-    const proceed = plan.complete || plan.exhausted;
+    const proceed = requiredMissing(nextInput, previous).length === 0 || plan.exhausted;
     let next: IntakeSessionUpdate;
     if (proceed) {
       const result = transition(session.state, { type: 'proceed_with_defaults' });

@@ -300,7 +300,6 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     body: IntakeSessionCreateSchema,
     responses: {
       201: { description: 'Intake session created', schema: IntakeSessionSchema },
-      202: { description: 'Intake session accepted; type detection is running' },
       ...problems(400, 401, 403, 409, 422, 503),
     },
   },
@@ -327,7 +326,7 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     body: IntakeAnswersRequestSchema,
     responses: {
       200: { description: 'Updated intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
     },
   },
   {
@@ -340,7 +339,7 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     body: IntakeTypeConfirmationSchema,
     responses: {
       200: { description: 'Updated intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
     },
   },
   {
@@ -385,24 +384,24 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     method: 'post',
     path: '/intake-sessions/{id}:pause',
     operationId: 'pauseIntakeSession',
-    summary: 'Pause an intake interview',
+    summary: 'Pause an intake interview (state becomes needs_input; other states return 409)',
     params: IntakeSessionIdParamsSchema,
     headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       200: { description: 'Paused intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
     },
   },
   {
     method: 'post',
     path: '/intake-sessions/{id}:resume',
     operationId: 'resumeIntakeSession',
-    summary: 'Resume a paused intake interview',
+    summary: 'Resume a paused intake interview (needs_input restores the previous state)',
     params: IntakeSessionIdParamsSchema,
     headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       200: { description: 'Resumed intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
     },
   },
   {
@@ -414,7 +413,7 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       200: { description: 'Cancelled intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
     },
   },
   {
@@ -426,7 +425,7 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       200: { description: 'Manual-mode intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
     },
   },
   {
