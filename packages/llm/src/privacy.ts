@@ -51,10 +51,18 @@ interface Pattern {
   /** Replaces `(?<![\w+])` so an original-character format char still starts a number. */
   readonly notWordPlusBefore?: boolean;
   /**
-   * Retried from the same start when only the trailing digit check fails, so a greedy
-   * variable group count can backtrack to a shorter, valid end.
+   * Compiled once with the sticky `y` flag. Retried from the same start when only the
+   * trailing digit check fails, so a greedy variable group count can backtrack.
    */
   readonly shorterEnd?: RegExp;
+  /**
+   * Word-boundary patterns scan for candidate starts with this prefix-only regex, then run
+   * the sticky `regex` body only after the original-character start check passes. Without
+   * it, `start + 1` retries would greedily rescan a long rejected body per occurrence.
+   */
+  readonly prefix?: RegExp;
+  /** Sticky backtracking variant used when a bounded word token ends mid-run. */
+  readonly shorterWordEnd?: RegExp;
 }
 
 interface OriginalChar {
@@ -211,7 +219,16 @@ function isAsciiWordCode(code: number): boolean {
 function isOriginalWordChar(char: OriginalChar | undefined): boolean {
   if (char === undefined || char.stripped) return false;
   if (char.value.length !== 1) return false;
-  return isAsciiWordCode(char.value.charCodeAt(0));
+  const code = char.value.charCodeAt(0);
+  if (isAsciiWordCode(code)) return true;
+  // Fullwidth ASCII variants are word characters too; NFKC folds them to ASCII before the
+  // regexes run, so treating the original glyph as non-word would split the token.
+  return (
+    (code >= 0xff10 && code <= 0xff19) ||
+    (code >= 0xff21 && code <= 0xff3a) ||
+    code === 0xff3f ||
+    (code >= 0xff41 && code <= 0xff5a)
+  );
 }
 
 /**
@@ -263,10 +280,20 @@ function notWordPlusBefore(map: IndexMap, start: number): boolean {
   if (previous === undefined) return true;
   // A fullwidth plus is the same '+' for this rule, so the whole token still masks.
   if (previous.value === '+' || previous.value === '＋') return false;
+  if (previous.stripped) {
+    // `+<format char>82 ...`: the stripped char must not let a lower-priority 82-prefix
+    // pattern claim an inner span before the full +cc span.
+    let index = current - 1;
+    while (index >= 0 && map.chars[index]?.stripped === true) index -= 1;
+    const before = map.chars[index];
+    if (before !== undefined && (before.value === '+' || before.value === '＋')) return false;
+    return true;
+  }
   return !isOriginalWordChar(previous);
 }
 
 const CC_PHONE_SOURCE = `\\+${DIGIT}{1,3}(?:${SEPARATOR}(?:\\(\\s?${DIGIT}{1,5}\\s?\\)|${DIGIT}{2,4})){2,4}`;
+const CC_PHONE_EXACT = new RegExp(`^(?:${CC_PHONE_SOURCE})$`, 'u');
 
 // Order matters: redact wider/more specific tokens first so a lower-priority pattern never
 // claims part of an already-masked span. Matching runs on the normalised copy.
@@ -285,26 +312,46 @@ const PATTERNS: readonly Pattern[] = [
   },
   {
     kind: 'api_key',
-    regex: /(?:AKIA|ASIA)[0-9A-Z]{16}/g,
+    prefix: /(?:AKIA|ASIA)/g,
+    regex: /(?:AKIA|ASIA)[0-9A-Z]{16}/y,
     wordBoundary: 'both',
   },
   {
     kind: 'api_key',
-    regex: /(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g,
+    prefix: /(?:gh[pousr]_|github_pat_)/g,
+    regex: /(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/y,
     wordBoundary: 'both',
   },
   {
     kind: 'api_key',
-    regex: /(?:sk|tk|pk)[-_][A-Za-z0-9_-]{8,}/g,
+    prefix: /(?:sk|tk|pk)[-_]/g,
+    regex: /(?:sk|tk|pk)[-_][A-Za-z0-9_-]{8,}/y,
     wordBoundary: 'both',
   },
-  { kind: 'api_key', regex: /xox[baprs]-[A-Za-z0-9-]{10,}/g, wordBoundary: 'both' },
-  { kind: 'api_key', regex: /AIza[0-9A-Za-z_-]{30,40}/g, wordBoundary: 'both' },
-  { kind: 'api_key', regex: /glpat-[A-Za-z0-9_-]{20,}/g, wordBoundary: 'both' },
   {
     kind: 'api_key',
+    prefix: /xox[baprs]-/g,
+    regex: /xox[baprs]-[A-Za-z0-9-]{10,}/y,
+    wordBoundary: 'both',
+  },
+  {
+    kind: 'api_key',
+    prefix: /AIza/g,
+    regex: /AIza[0-9A-Za-z_-]{30,40}/y,
+    wordBoundary: 'both',
+    shorterWordEnd: /AIza[0-9A-Za-z_-]{30,40}(?![A-Za-z0-9_])/y,
+  },
+  {
+    kind: 'api_key',
+    prefix: /glpat-/g,
+    regex: /glpat-[A-Za-z0-9_-]{20,}/y,
+    wordBoundary: 'both',
+  },
+  {
+    kind: 'api_key',
+    prefix: /(?:Bearer|bearer)\s+/g,
     regex:
-      /(?:Bearer|bearer)\s+[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}/g,
+      /(?:Bearer|bearer)\s+[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}/y,
     wordBoundary: 'both',
   },
   {
@@ -349,7 +396,7 @@ const PATTERNS: readonly Pattern[] = [
     regex: new RegExp(CC_PHONE_SOURCE, 'gu'),
     digitBoundary: 'end',
     notWordPlusBefore: true,
-    shorterEnd: new RegExp(`${CC_PHONE_SOURCE}(?![0-9０-９])`, 'gu'),
+    shorterEnd: new RegExp(`${CC_PHONE_SOURCE}(?![0-9０-９])`, 'yu'),
   },
   // Glued E.164 without separators: +821012345678, +14155552671.
   {
@@ -436,23 +483,57 @@ function trimmedWordEnd(map: IndexMap, start: number, rawEnd: number): number | 
   return undefined;
 }
 
-/** Re-run a variable-length match with a trailing digit lookahead so it backtracks. */
+/** A shorter +cc end must satisfy the original-character digit boundary. */
 function shorterEndAfter(
   map: IndexMap,
-  shorter: RegExp,
+  pattern: Pattern,
   start: number,
+  rawEnd: number,
 ): number | undefined {
-  const pattern = new RegExp(shorter.source, shorter.flags);
-  pattern.lastIndex = start;
-  const match = pattern.exec(map.normalized);
-  if (match === null || match.index !== start) return undefined;
-  const end = start + match[0].length;
-  if (end <= start) return undefined;
-  const last = sourceAt(map, end - 1);
-  if (last === undefined) return undefined;
-  if (end < sourceLength(map) && sourceAt(map, end) === last) return undefined;
-  if (!boundaryAfter(map, end)) return undefined;
-  return end;
+  const shorter = pattern.shorterEnd;
+  if (shorter === undefined) return undefined;
+  // Sticky fast path: contiguous digits can be split across groups, yielding a match
+  // longer than the rejected greedy one. Sticky exec scans only at `start`.
+  shorter.lastIndex = start;
+  const candidate = shorter.exec(map.normalized);
+  if (candidate !== null) {
+    const end = start + candidate[0].length;
+    if (end > rawEnd) {
+      const last = sourceAt(map, end - 1);
+      const splits =
+        last !== undefined && end < sourceLength(map) && sourceAt(map, end) === last;
+      if (
+        !splits &&
+        boundaryAfter(map, end) &&
+        CC_PHONE_EXACT.test(map.normalized.slice(start, end))
+      ) {
+        return end;
+      }
+    }
+  }
+  // Walk the rejected span's ends longest-first. A normalised lookahead cannot see an
+  // original-char digit boundary (e.g. ⑳ or a stripped ZWSP), so each candidate end is
+  // tested with the original-character rule and the exact pattern.
+  for (let end = rawEnd; end > start; end -= 1) {
+    if (!boundaryAfter(map, end)) continue;
+    if (CC_PHONE_EXACT.test(map.normalized.slice(start, end))) return end;
+  }
+  return undefined;
+}
+
+function startAllowed(map: IndexMap, pattern: Pattern, start: number): boolean {
+  const { digitBoundary, wordBoundary, notWordPlusBefore: needsNotWordPlus } = pattern;
+  if ((digitBoundary === 'start' || digitBoundary === 'both') && !boundaryBefore(map, start)) {
+    return false;
+  }
+  if (needsNotWordPlus === true && !notWordPlusBefore(map, start)) return false;
+  if (
+    (wordBoundary === 'start' || wordBoundary === 'both') &&
+    !wordBoundaryBefore(map, start)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 /** Resolve a raw regex match to an accepted end, applying the original-character rules. */
@@ -462,40 +543,81 @@ function resolveEnd(
   start: number,
   rawEnd: number,
 ): number | undefined {
-  const { digitBoundary, wordBoundary, notWordPlusBefore: needsNotWordPlus } = pattern;
-  if ((digitBoundary === 'start' || digitBoundary === 'both') && !boundaryBefore(map, start)) {
-    return undefined;
-  }
-  if (needsNotWordPlus === true && !notWordPlusBefore(map, start)) {
-    return undefined;
-  }
-  if (
-    (wordBoundary === 'start' || wordBoundary === 'both') &&
-    !wordBoundaryBefore(map, start)
-  ) {
-    return undefined;
-  }
+  const { digitBoundary, wordBoundary } = pattern;
+  if (!startAllowed(map, pattern, start)) return undefined;
 
   let end = rawEnd;
   if (wordBoundary === 'end' || wordBoundary === 'both') {
-    const trimmed = trimmedWordEnd(map, start, end);
+    let trimmed = trimmedWordEnd(map, start, end);
+    if (trimmed === undefined) {
+      const fallback = pattern.shorterWordEnd;
+      if (fallback !== undefined) {
+        fallback.lastIndex = start;
+        const match = fallback.exec(map.normalized);
+        if (match !== null && match.index === start) {
+          const candidate = start + match[0].length;
+          const last = sourceAt(map, candidate - 1);
+          const splits =
+            last !== undefined &&
+            candidate < sourceLength(map) &&
+            sourceAt(map, candidate) === last;
+          if (candidate > start && !splits && wordBoundaryAfter(map, candidate)) {
+            trimmed = candidate;
+          }
+        }
+      }
+    }
     if (trimmed === undefined) return undefined;
     end = trimmed;
   }
   if ((digitBoundary === 'end' || digitBoundary === 'both') && !boundaryAfter(map, end)) {
-    const shorter = pattern.shorterEnd;
-    if (shorter !== undefined) {
-      const candidate = shorterEndAfter(map, shorter, start);
-      if (candidate !== undefined) return candidate;
-    }
+    const candidate = shorterEndAfter(map, pattern, start, rawEnd);
+    if (candidate !== undefined) return candidate;
     return undefined;
   }
   return end;
 }
 
-export function redact(text: string): RedactionResult {
+export interface RedactionWithSpansResult extends RedactionResult {
+  readonly spans: readonly RedactionSpan[];
+}
+
+/**
+ * Record a matched span. A fully-contained lower-priority span adds nothing; a partial
+ * overlap is kept so `mergeSpans` takes the union instead of dropping the wider match
+ * (e.g. a 82-prefix inner match inside a full +cc span).
+ */
+function addSpan(
+  map: IndexMap,
+  covered: Uint8Array,
+  spans: RedactionSpan[],
+  start: number,
+  end: number,
+  kind: RedactionKind,
+): void {
+  let allCovered = true;
+  for (let index = start; index < end; index += 1) {
+    if (covered[index] === 0) {
+      allCovered = false;
+      break;
+    }
+  }
+  if (allCovered) return;
+  for (let index = start; index < end; index += 1) covered[index] = 1;
+  const first = sourceAt(map, start);
+  const last = sourceAt(map, end - 1);
+  if (first !== undefined && last !== undefined) {
+    spans.push({ start: charStart(map, first), end: charEnd(map, last), kind });
+  }
+}
+
+/**
+ * Redact and also return the merged original-character spans. The spans are used by the
+ * fuzz test to prove every character of a token was covered, not just the whole token.
+ */
+export function redactWithSpans(text: string): RedactionWithSpansResult {
   if (!couldContainMatch(text)) {
-    return { text, report: [] };
+    return { text, report: [], spans: [] };
   }
   const map = normalizeWithMap(text);
   const covered = new Uint8Array(map.normalized.length);
@@ -503,6 +625,41 @@ export function redact(text: string): RedactionResult {
 
   for (const patternDef of PATTERNS) {
     const { kind, regex } = patternDef;
+    if (patternDef.prefix !== undefined) {
+      // Word-boundary patterns: scan only candidate prefix starts, so a rejected start
+      // never runs the greedy body (the quadratic cause of the FU-24R HIGH).
+      const prefix = new RegExp(patternDef.prefix.source, patternDef.prefix.flags);
+      const body = new RegExp(regex.source, regex.flags);
+      let candidate = prefix.exec(map.normalized);
+      while (candidate !== null) {
+        const start = candidate.index;
+        if (!startAllowed(map, patternDef, start)) {
+          prefix.lastIndex = start + 1;
+          candidate = prefix.exec(map.normalized);
+          continue;
+        }
+        body.lastIndex = start;
+        const raw = body.exec(map.normalized);
+        if (raw === null) {
+          prefix.lastIndex = start + 1;
+          candidate = prefix.exec(map.normalized);
+          continue;
+        }
+        const rawEnd = start + raw[0].length;
+        const end = rawEnd === start ? undefined : resolveEnd(map, patternDef, start, rawEnd);
+        if (end === undefined) {
+          prefix.lastIndex = start + 1;
+          candidate = prefix.exec(map.normalized);
+          continue;
+        }
+        addSpan(map, covered, spans, start, end, kind);
+        // Resume at the accepted end so a shorter word fallback never skips the next token.
+        prefix.lastIndex = Math.max(end, start + 1);
+        candidate = prefix.exec(map.normalized);
+      }
+      continue;
+    }
+
     const pattern = new RegExp(regex.source, regex.flags);
     let match = pattern.exec(map.normalized);
     while (match !== null) {
@@ -521,36 +678,18 @@ export function redact(text: string): RedactionResult {
         match = pattern.exec(map.normalized);
         continue;
       }
-      let free = true;
-      for (let index = start; index < end; index += 1) {
-        if (covered[index] === 1) {
-          free = false;
-          break;
-        }
-      }
-      if (free) {
-        for (let index = start; index < end; index += 1) covered[index] = 1;
-        const first = sourceAt(map, start);
-        const last = sourceAt(map, end - 1);
-        if (first !== undefined && last !== undefined) {
-          spans.push({
-            start: charStart(map, first),
-            end: charEnd(map, last),
-            kind,
-          });
-        }
-      }
+      addSpan(map, covered, spans, start, end, kind);
       // Continue after whichever match was accepted so the fallback never rescans its tail.
       pattern.lastIndex = Math.max(rawEnd, end);
       match = pattern.exec(map.normalized);
     }
   }
 
+  const merged = mergeSpans(spans);
   const counts = new Map<RedactionKind, number>();
-  for (const span of spans) {
+  for (const span of merged) {
     counts.set(span.kind, (counts.get(span.kind) ?? 0) + 1);
   }
-  const merged = mergeSpans(spans);
 
   const parts: string[] = [];
   let cursor = 0;
@@ -566,7 +705,12 @@ export function redact(text: string): RedactionResult {
     if (count > 0) report.push({ kind, count });
   }
 
-  return { text: parts.join(''), report };
+  return { text: parts.join(''), report, spans: merged };
+}
+
+export function redact(text: string): RedactionResult {
+  const { text: output, report } = redactWithSpans(text);
+  return { text: output, report };
 }
 
 const DOCUMENT_ID = /^[A-Za-z0-9._:-]{1,128}$/;
