@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { routes } from '../src/index.js';
+import { contractRoutes as routes } from '../src/index.js';
 
 interface OpenApiResponse {
   readonly content?: Readonly<Record<string, unknown>>;

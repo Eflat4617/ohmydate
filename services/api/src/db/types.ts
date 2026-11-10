@@ -26,7 +26,12 @@ export type ColumnKind =
   | 'jsonb'
   | 'timestamptz'
   | 'integer'
-  | 'boolean';
+  | 'boolean'
+  | 'date'
+  | 'real'
+  | 'numeric'
+  | 'tsvector'
+  | 'text_array';
 
 declare const jsonbParamBrand: unique symbol;
 
@@ -59,7 +64,17 @@ type Scalar<K extends ColumnKind> = K extends 'uuid'
           ? JsonValue
           : K extends 'timestamptz'
             ? Date
-            : never;
+            : K extends 'date'
+              ? string
+              : K extends 'real'
+                ? number
+                : K extends 'numeric'
+                  ? string
+                  : K extends 'tsvector'
+                    ? string
+                    : K extends 'text_array'
+                      ? string[]
+                      : never;
 
 // A NOT NULL jsonb column still needs a non-null, non-undefined insert type so
 // Kysely's Insertable keeps the key required (JSON null is not a SQL NULL).
@@ -227,6 +242,133 @@ export interface JobTable {
   version: Col<'integer', false, true>;
 }
 
+export interface GoalTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  title: Col<'text', false, false>;
+  target_date: Col<'date', true, false>;
+  status: Col<'text', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+  deleted_at: Col<'timestamptz', true, false>;
+}
+
+export interface TaskTemplateTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  name: Col<'text', false, false>;
+  steps: Col<'jsonb', false, true>;
+  stats: Col<'jsonb', false, true>;
+  source: Col<'text', false, true>;
+  confidence: Col<'real', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+  deleted_at: Col<'timestamptz', true, false>;
+}
+
+export interface TaskTypeFingerprintTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  template_id: Col<'uuid', false, false>;
+  tags: Col<'text_array', false, true>;
+  keywords: Col<'tsvector', false, true>;
+  meta: Col<'jsonb', false, true>;
+  false_positive_count: Col<'integer', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface IntakeSessionTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  goal_id: Col<'uuid', true, false>;
+  state: Col<'text', false, true>;
+  input: Col<'jsonb', false, true>;
+  detected_type: Col<'jsonb', true, false>;
+  template_id: Col<'uuid', true, false>;
+  round: Col<'integer', false, true>;
+  manual: Col<'boolean', false, true>;
+  error: Col<'jsonb', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface IntakeAnswerTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  session_id: Col<'uuid', false, false>;
+  question_key: Col<'text', false, false>;
+  question_text: Col<'text', false, false>;
+  answer: Col<'jsonb', true, false>;
+  skipped: Col<'boolean', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface EstimateTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  task_id: Col<'uuid', false, false>;
+  p50_min: Col<'integer', false, false>;
+  p90_min: Col<'integer', false, false>;
+  method: Col<'text', false, false>;
+  confidence: Col<'real', false, false>;
+  is_current: Col<'boolean', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface EstimateEvidenceTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  estimate_id: Col<'uuid', false, false>;
+  kind: Col<'text', false, false>;
+  ref: Col<'text', true, false>;
+  summary: Col<'text', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface AgentRunTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  purpose: Col<'text', false, false>;
+  prompt_id_version: Col<'text', false, false>;
+  model: Col<'text', false, false>;
+  provider: Col<'text', false, false>;
+  tokens_in: Col<'integer', false, true>;
+  tokens_out: Col<'integer', false, true>;
+  cost_usd: Col<'numeric', false, true>;
+  latency_ms: Col<'integer', false, true>;
+  status: Col<'text', false, false>;
+  redaction_report: Col<'jsonb', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface AgentProposalTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  run_id: Col<'uuid', false, false>;
+  kind: Col<'text', false, false>;
+  payload: Col<'jsonb', false, false>;
+  schema_ok: Col<'boolean', false, true>;
+  policy_ok: Col<'boolean', false, true>;
+  constraint_ok: Col<'boolean', false, true>;
+  decision: Col<'text', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
 export interface VikunjaMappingTable {
   entity_type: Col<'text', false, false>;
   entity_id: Col<'uuid', false, false>;
@@ -290,6 +432,15 @@ export interface Database {
   inbox_event: InboxEventTable;
   audit_event: AuditEventTable;
   job: JobTable;
+  goal: GoalTable;
+  task_template: TaskTemplateTable;
+  task_type_fingerprint: TaskTypeFingerprintTable;
+  intake_session: IntakeSessionTable;
+  intake_answer: IntakeAnswerTable;
+  estimate: EstimateTable;
+  estimate_evidence: EstimateEvidenceTable;
+  agent_run: AgentRunTable;
+  agent_proposal: AgentProposalTable;
   vikunja_mapping: VikunjaMappingTable;
   vikunja_planner_fields: VikunjaPlannerFieldsTable;
   vikunja_change_journal: VikunjaChangeJournalTable;
@@ -443,6 +594,124 @@ export const databaseTables = {
     updated_at: col('timestamptz', false, true),
     version: col('integer', false, true),
   },
+  goal: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    title: col('text', false, false),
+    target_date: col('date', true, false),
+    status: col('text', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+    deleted_at: col('timestamptz', true, false),
+  },
+  task_template: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    name: col('text', false, false),
+    steps: col('jsonb', false, true),
+    stats: col('jsonb', false, true),
+    source: col('text', false, true),
+    confidence: col('real', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+    deleted_at: col('timestamptz', true, false),
+  },
+  task_type_fingerprint: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    template_id: col('uuid', false, false),
+    tags: col('text_array', false, true),
+    keywords: col('tsvector', false, true),
+    meta: col('jsonb', false, true),
+    false_positive_count: col('integer', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  intake_session: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    goal_id: col('uuid', true, false),
+    state: col('text', false, true),
+    input: col('jsonb', false, true),
+    detected_type: col('jsonb', true, false),
+    template_id: col('uuid', true, false),
+    round: col('integer', false, true),
+    manual: col('boolean', false, true),
+    error: col('jsonb', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  intake_answer: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    session_id: col('uuid', false, false),
+    question_key: col('text', false, false),
+    question_text: col('text', false, false),
+    answer: col('jsonb', true, false),
+    skipped: col('boolean', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  estimate: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    task_id: col('uuid', false, false),
+    p50_min: col('integer', false, false),
+    p90_min: col('integer', false, false),
+    method: col('text', false, false),
+    confidence: col('real', false, false),
+    is_current: col('boolean', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  estimate_evidence: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    estimate_id: col('uuid', false, false),
+    kind: col('text', false, false),
+    ref: col('text', true, false),
+    summary: col('text', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  agent_run: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    purpose: col('text', false, false),
+    prompt_id_version: col('text', false, false),
+    model: col('text', false, false),
+    provider: col('text', false, false),
+    tokens_in: col('integer', false, true),
+    tokens_out: col('integer', false, true),
+    cost_usd: col('numeric', false, true),
+    latency_ms: col('integer', false, true),
+    status: col('text', false, false),
+    redaction_report: col('jsonb', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  agent_proposal: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    run_id: col('uuid', false, false),
+    kind: col('text', false, false),
+    payload: col('jsonb', false, false),
+    schema_ok: col('boolean', false, true),
+    policy_ok: col('boolean', false, true),
+    constraint_ok: col('boolean', false, true),
+    decision: col('text', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
   vikunja_mapping: {
     entity_type: col('text', false, false),
     entity_id: col('uuid', false, false),
@@ -538,6 +807,18 @@ type TableAssertions = {
   inbox_event: AssertTableColumns<InboxEventTable, typeof databaseTables.inbox_event>;
   audit_event: AssertTableColumns<AuditEventTable, typeof databaseTables.audit_event>;
   job: AssertTableColumns<JobTable, typeof databaseTables.job>;
+  goal: AssertTableColumns<GoalTable, typeof databaseTables.goal>;
+  task_template: AssertTableColumns<TaskTemplateTable, typeof databaseTables.task_template>;
+  task_type_fingerprint: AssertTableColumns<
+    TaskTypeFingerprintTable,
+    typeof databaseTables.task_type_fingerprint
+  >;
+  intake_session: AssertTableColumns<IntakeSessionTable, typeof databaseTables.intake_session>;
+  intake_answer: AssertTableColumns<IntakeAnswerTable, typeof databaseTables.intake_answer>;
+  estimate: AssertTableColumns<EstimateTable, typeof databaseTables.estimate>;
+  estimate_evidence: AssertTableColumns<EstimateEvidenceTable, typeof databaseTables.estimate_evidence>;
+  agent_run: AssertTableColumns<AgentRunTable, typeof databaseTables.agent_run>;
+  agent_proposal: AssertTableColumns<AgentProposalTable, typeof databaseTables.agent_proposal>;
   vikunja_mapping: AssertTableColumns<
     VikunjaMappingTable,
     typeof databaseTables.vikunja_mapping

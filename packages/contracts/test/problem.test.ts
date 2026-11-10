@@ -10,6 +10,7 @@ const EXPECTED_CODES = [
   'llm_unavailable',
   'budget_exceeded',
   'dependency_cycle',
+  'illegal_transition',
   'not_found',
   'forbidden',
   'rate_limited',
@@ -54,4 +55,18 @@ test('Problem follows RFC 9457 fields and rejects extra properties', () => {
   expect(validate({ ...problem, extra: true })).toBe(false);
   expect(validate({ ...problem, code: 'dependency_cycle' })).toBe(true);
   expect(validate({ ...problem, code: 'not_a_code' })).toBe(false);
+});
+
+test('illegal_transition is a stable 409 problem code', () => {
+  expect(PROBLEM_CODES).toContain('illegal_transition');
+  const validate = compile(ProblemSchema);
+  expect(
+    validate({
+      type: 'about:blank',
+      title: 'Illegal transition',
+      status: 409,
+      detail: 'created cannot be paused',
+      code: 'illegal_transition',
+    }),
+  ).toBe(true);
 });

@@ -9,6 +9,7 @@ export const PROBLEM_CODES = [
   'llm_unavailable',
   'budget_exceeded',
   'dependency_cycle',
+  'illegal_transition',
   'not_found',
   'forbidden',
   'rate_limited',

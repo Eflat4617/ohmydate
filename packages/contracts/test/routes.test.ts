@@ -1,4 +1,4 @@
-import { ProblemSchema, routes, type RouteDefinition } from '../src/index.js';
+import { ProblemSchema, contractRoutes as routes, type RouteDefinition } from '../src/index.js';
 import { compile } from './ajv.js';
 
 const ID = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55';
@@ -75,6 +75,71 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     optionalHeaders: [],
     statuses: [201, 400, 401, 403, 404, 409, 412, 422, 428, 503],
   },
+  createIntakeSession: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 202, 400, 401, 403, 409, 422, 503],
+  },
+  getIntakeSession: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 404],
+  },
+  answerIntakeQuestions: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  confirmIntakeType: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  getIntakeDraft: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 404],
+  },
+  updateIntakeDraft: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  approveIntakeDraft: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428, 503],
+  },
+  pauseIntakeSession: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 428],
+  },
+  resumeIntakeSession: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 428],
+  },
+  cancelIntakeSession: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 428],
+  },
+  enterManualIntakeMode: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 428],
+  },
+  listTaskTemplates: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 422],
+  },
+  getTaskTemplate: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 404],
+  },
 };
 
 const keyOf = (method: string, path: string): string => `${method.toUpperCase()} ${path}`;
@@ -127,6 +192,27 @@ test('route table covers task and project endpoints from 08 §2.2', () => {
     'POST /tasks/{id}:complete',
     'DELETE /tasks/{id}',
     'POST /tasks/{id}/dependencies',
+  ]) {
+    expect({ expected, present: keys.has(expected) }).toEqual({ expected, present: true });
+  }
+});
+
+test('route table covers intake and template endpoints from 08 §2.3', () => {
+  const keys = new Set(routes.map((route) => keyOf(route.method, route.path)));
+  for (const expected of [
+    'POST /intake-sessions',
+    'GET /intake-sessions/{id}',
+    'POST /intake-sessions/{id}/answers',
+    'POST /intake-sessions/{id}/type-confirmation',
+    'GET /intake-sessions/{id}/draft',
+    'PATCH /intake-sessions/{id}/draft',
+    'POST /intake-sessions/{id}/draft:approve',
+    'POST /intake-sessions/{id}:pause',
+    'POST /intake-sessions/{id}:resume',
+    'POST /intake-sessions/{id}:cancel',
+    'POST /intake-sessions/{id}:manual',
+    'GET /templates',
+    'GET /templates/{id}',
   ]) {
     expect({ expected, present: keys.has(expected) }).toEqual({ expected, present: true });
   }
@@ -204,6 +290,14 @@ test('existing-resource mutations require both If-Match and Idempotency-Key', ()
     'completeTask',
     'deleteTask',
     'createTaskDependency',
+    'answerIntakeQuestions',
+    'confirmIntakeType',
+    'updateIntakeDraft',
+    'approveIntakeDraft',
+    'pauseIntakeSession',
+    'resumeIntakeSession',
+    'cancelIntakeSession',
+    'enterManualIntakeMode',
   ]) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();
@@ -215,7 +309,7 @@ test('existing-resource mutations require both If-Match and Idempotency-Key', ()
 });
 
 test('creation POSTs require Idempotency-Key without If-Match', () => {
-  for (const operationId of ['createProject', 'createTask']) {
+  for (const operationId of ['createProject', 'createTask', 'createIntakeSession']) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();
     expect(headerShape(route as RouteDefinition).required).toEqual(['Idempotency-Key']);

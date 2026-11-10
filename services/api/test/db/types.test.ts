@@ -19,6 +19,11 @@ const KIND_TO_INFORMATION_SCHEMA: Record<ColumnKind, string> = {
   timestamptz: 'timestamp with time zone',
   integer: 'integer',
   boolean: 'boolean',
+  date: 'date',
+  real: 'real',
+  numeric: 'numeric',
+  tsvector: 'tsvector',
+  text_array: 'ARRAY',
 };
 
 describe.skipIf(!hasDatabase)('Kysely types vs information_schema', () => {
