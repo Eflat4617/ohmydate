@@ -14,6 +14,7 @@ export {
   PromptNotFoundError,
   SchemaViolation,
   UnknownSchemaError,
+  type BudgetBlockReason,
   type BudgetLimitKind,
   type LlmErrorCode,
 } from './errors.js';

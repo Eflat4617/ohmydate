@@ -32,16 +32,53 @@ interface Pattern {
 }
 
 // Order matters: redact the widest/most specific tokens first so a later pattern never
-// re-matches part of a mask. RRN must run before the phone rules.
+// re-matches part of a mask. The email rule is bounded ({1,64} local part, bounded labels)
+// to avoid quadratic backtracking on long non-matching input. RRN must run before phones.
+// Separators intentionally include dot, ASCII whitespace/hyphen and the Unicode dash range
+// (figure dash, hyphen, non-breaking hyphen, en dash, em dash) used in pasted documents.
 const PATTERNS: readonly Pattern[] = [
-  { kind: 'api_key', regex: /\bAKIA[0-9A-Z]{16}\b/g },
+  {
+    kind: 'email',
+    regex:
+      /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?){1,4}(?![A-Za-z0-9-])/g,
+  },
+  { kind: 'api_key', regex: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
   { kind: 'api_key', regex: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g },
   { kind: 'api_key', regex: /\b(?:sk|tk|pk)[-_][A-Za-z0-9_-]{8,}\b/g },
   { kind: 'rrn', regex: /\b\d{6}[- ]?[1-8]\d{6}\b/g },
-  { kind: 'email', regex: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g },
-  { kind: 'phone', regex: /(?<!\w)\+\d{8,15}\b/g },
-  { kind: 'phone', regex: /\b01[016789][- ]?\d{3,4}[- ]?\d{4}\b/g },
-  { kind: 'phone', regex: /\b0(?:2|[3-6][1-5])[- ]?\d{3,4}[- ]?\d{4}\b/g },
+  {
+    kind: 'phone',
+    // +<cc> followed by 2-4 groups with optional separators and an optional "(0)" trunk
+    // prefix, e.g. "+82 10-1234-5678", "+82-10-...", "+82 (0)10-...", "+1 415 555 2671".
+    regex:
+      /(?<![\w+])\+\d{1,3}(?:[.\s\-\u2010-\u2015]{0,2}(?:\(\s?0\s?\)|0)?[.\s\-\u2010-\u2015]{0,2}\d{2,4}){2,4}(?!\d)/g,
+  },
+  // Glued E.164 without separators: +821012345678, +14155552671.
+  { kind: 'phone', regex: /(?<![\w+])\+\d{8,15}(?!\d)/g },
+  // Parenthesised Korean area code: (02) 123-4567, (031) 123-4567.
+  {
+    kind: 'phone',
+    regex:
+      /\(\s?0(?:2|[3-6][1-5])\s?\)[.\s\-\u2010-\u2015]?\d{3,4}[.\s\-\u2010-\u2015]?\d{4}(?!\d)/g,
+  },
+  // Korean mobile plus 070 VoIP and 080 toll-free ranges.
+  {
+    kind: 'phone',
+    regex:
+      /(?<!\d)(?:01[016789]|070|080)[.\s\-\u2010-\u2015]?\d{3,4}[.\s\-\u2010-\u2015]?\d{4}(?!\d)/g,
+  },
+  // 050x VoIP ranges (050, 0505, ...).
+  {
+    kind: 'phone',
+    regex:
+      /(?<!\d)050\d?[.\s\-\u2010-\u2015]?\d{3,4}[.\s\-\u2010-\u2015]?\d{4}(?!\d)/g,
+  },
+  // Korean landline: 02, 031-065.
+  {
+    kind: 'phone',
+    regex:
+      /(?<!\d)0(?:2|[3-6][1-5])[.\s\-\u2010-\u2015]?\d{3,4}[.\s\-\u2010-\u2015]?\d{4}(?!\d)/g,
+  },
 ];
 
 export function redact(text: string): RedactionResult {
@@ -76,14 +113,16 @@ function sanitizeId(id: string): string {
   return id;
 }
 
-function escapeClosingTag(text: string): string {
-  return text.replace(/<\/untrusted_document/gi, '&lt;/untrusted_document');
+function escapeAngleBrackets(text: string): string {
+  // Escaping every "<" makes it impossible for content to form any closing/opening tag,
+  // including spaced, dashed, zero-width or case variants of `</untrusted_document>`.
+  return text.replace(/</g, '&lt;');
 }
 
 /**
  * Wrap external/notes text so the prompt can state that everything inside is data.
- * Closing tags inside the content are neutralised to prevent wrapper escape.
+ * All "<" characters in the content are escaped, so the only real tags are the wrapper.
  */
 export function buildUntrustedBlock(id: string, text: string): string {
-  return `<untrusted_document id="${sanitizeId(id)}">\n${escapeClosingTag(text)}\n</untrusted_document>`;
+  return `<untrusted_document id="${sanitizeId(id)}">\n${escapeAngleBrackets(text)}\n</untrusted_document>`;
 }

@@ -30,6 +30,11 @@ export type IntakeState = (typeof INTAKE_STATES)[number];
 export const TERMINAL_INTAKE_STATES = ['cancelled', 'failed'] as const;
 export type TerminalIntakeState = (typeof TERMINAL_INTAKE_STATES)[number];
 
+/**
+ * Ordered side effects the application layer must perform. `create_tasks` MUST be
+ * idempotent per (intakeSessionId, step key): F1 rescope and regeneration can re-enter
+ * `decomposition`, and re-applying the effect must not duplicate tasks.
+ */
 export type IntakeEffect =
   | { readonly type: 'agent_run'; readonly agent: 'detect_type' }
   | { readonly type: 'generate_questions' }
@@ -116,6 +121,18 @@ const LEGAL: ReadonlySet<string> = new Set([
   'plan_proposals:user_requested_regeneration',
 ]);
 
+const INTAKE_STATE_SET: ReadonlySet<string> = new Set(INTAKE_STATES);
+
+export function isIntakeState(value: unknown): value is IntakeState {
+  return typeof value === 'string' && INTAKE_STATE_SET.has(value);
+}
+
+function assertIntakeState(state: unknown): asserts state is IntakeState {
+  if (!isIntakeState(state)) {
+    throw new RangeError(`unknown intake state: ${String(state)}`);
+  }
+}
+
 function legalKey(state: IntakeState, eventType: IntakeEventType): string {
   return `${state}:${eventType}`;
 }
@@ -132,6 +149,7 @@ function isStructurallyLegal(state: IntakeState, event: IntakeEvent): boolean {
  * pair can be legal at all.
  */
 export function canTransition(state: IntakeState, event: IntakeEvent): boolean {
+  assertIntakeState(state);
   return isStructurallyLegal(state, event);
 }
 
@@ -141,8 +159,10 @@ function guardTypeDetected(
   if (event.classification === 'new' || event.missingRequired.length > 0) {
     return 'clarification';
   }
-  if (event.classification === 'similar' && event.similarConfirmed === true) {
-    return 'decomposition';
+  if (event.classification === 'similar') {
+    if (event.similarConfirmed === true) return 'decomposition';
+    // The user answered "not similar" (05 §3): treat it as new and clarify.
+    if (event.similarConfirmed === false) return 'clarification';
   }
   return null;
 }
@@ -151,6 +171,7 @@ export function transition(
   state: IntakeState,
   event: IntakeEvent,
 ): IntakeTransitionResult {
+  assertIntakeState(state);
   if (!isStructurallyLegal(state, event)) {
     throw new IntakeTransitionError(state, event.type);
   }

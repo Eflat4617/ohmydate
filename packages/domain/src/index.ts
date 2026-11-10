@@ -102,6 +102,7 @@ export {
   TERMINAL_INTAKE_STATES,
   IntakeTransitionError,
   canTransition,
+  isIntakeState,
   isTerminalIntakeState,
   transition,
   type IntakeEffect,

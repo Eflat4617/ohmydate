@@ -8,7 +8,13 @@ import {
 
 const ALL_FIELDS: IntakeField[] = [...REQUIRED_INTAKE_FIELDS, ...OPTIONAL_INTAKE_FIELDS];
 
-const sampleValue = (field: IntakeField): unknown => `provided:${field}`;
+const sampleValue = (field: IntakeField): unknown => {
+  if (field === 'dueAt') return new Date('2026-11-20T14:59:00.000Z');
+  if (field === 'currentProgress') return 0;
+  if (field === 'availabilityConfirmed' || field === 'reviewNeeded') return false;
+  if (field === 'priority') return 2;
+  return `provided:${field}`;
+};
 
 /**
  * Property (05 §4): already-provided fields are removed from the question candidates.

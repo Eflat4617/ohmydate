@@ -1,5 +1,5 @@
 import type { BudgetGuard } from './budget.js';
-import { LlmTimeoutError, LlmUnavailable, SchemaViolation } from './errors.js';
+import { BudgetExceeded, LlmTimeoutError, LlmUnavailable, SchemaViolation } from './errors.js';
 import type { LlmCompleteResponse, LlmPort, LlmUsage } from './port.js';
 import { validateOutput } from './schema-registry.js';
 
@@ -18,6 +18,8 @@ export interface RunStructuredOptions {
   readonly backoffBaseMs?: number;
   readonly timeoutMs?: number;
   readonly budgetGuard?: BudgetGuard;
+  /** Explicit opt-out for tests only (FakeLlm); production calls require a guard. */
+  readonly allowUnbudgeted?: boolean;
   readonly estimatedCostUsd?: number;
   readonly signal?: AbortSignal;
 }
@@ -99,14 +101,26 @@ export async function runStructured(
   const maxUnavailableRetries = Math.max(0, options.maxUnavailableRetries ?? 2);
   const backoffBaseMs = Math.max(0, options.backoffBaseMs ?? 250);
   const timeoutMs = options.timeoutMs ?? 30_000;
+  const budgetGuard = options.budgetGuard;
+
+  if (budgetGuard === undefined && options.allowUnbudgeted !== true) {
+    throw new BudgetExceeded('daily', 0, 0, 'not_configured');
+  }
 
   let input = request.input;
   let attempts = 0;
   let unavailableRetries = 0;
   let repairs = 0;
 
+  const assertNotAborted = (): void => {
+    if (options.signal?.aborted === true) {
+      throw new LlmUnavailable('llm call aborted by caller', 'aborted');
+    }
+  };
+
   for (;;) {
-    options.budgetGuard?.assertCanSpend(options.estimatedCostUsd ?? 0);
+    assertNotAborted();
+    budgetGuard?.assertCanSpend(options.estimatedCostUsd ?? 0);
     attempts += 1;
 
     let response: LlmCompleteResponse;
@@ -124,16 +138,21 @@ export async function runStructured(
         options.signal,
       );
     } catch (error) {
-      const retryable = error instanceof LlmUnavailable && !(error instanceof LlmTimeoutError);
-      if (retryable && unavailableRetries < maxUnavailableRetries) {
+      if (!(error instanceof LlmUnavailable)) throw error;
+      // Caller aborts and timeouts are never retried (05 §8: only 429/5xx outages).
+      if (error.reason === 'aborted') throw error;
+      if (error instanceof LlmTimeoutError) throw error;
+      assertNotAborted();
+      if (unavailableRetries < maxUnavailableRetries) {
         unavailableRetries += 1;
+        assertNotAborted();
         await sleep(backoffBaseMs * 2 ** (unavailableRetries - 1));
         continue;
       }
       throw error;
     }
 
-    options.budgetGuard?.record(response.usage);
+    budgetGuard?.record(response.usage);
 
     const validation = validateOutput(request.schemaId, response.output);
     if (validation.valid) {

@@ -1,5 +1,6 @@
 import {
   INTAKE_STATES,
+  isIntakeState,
   IntakeTransitionError,
   canTransition,
   transition,
@@ -175,6 +176,28 @@ test('similar type without explicit confirmation is rejected by the guard', () =
       missingRequired: [],
     }),
   ).toThrow(IntakeTransitionError);
+});
+
+test('a rejected similar classification routes to clarification', () => {
+  expect(
+    transition('type_detection', {
+      type: 'type_detected',
+      classification: 'similar',
+      missingRequired: [],
+      similarConfirmed: false,
+    }).state,
+  ).toBe('clarification');
+});
+
+test('unknown states are rejected at runtime', () => {
+  expect(isIntakeState('bogus')).toBe(false);
+  expect(isIntakeState('clarification')).toBe(true);
+  expect(() =>
+    transition('bogus' as IntakeState, { type: 'user_cancelled' }),
+  ).toThrow(RangeError);
+  expect(() =>
+    canTransition('bogus' as IntakeState, { type: 'user_cancelled' }),
+  ).toThrow(RangeError);
 });
 
 test('terminal states are cancellable only from non-cancelled states', () => {

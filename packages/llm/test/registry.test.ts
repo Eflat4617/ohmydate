@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Ajv } from 'ajv';
+import { SCHEMA_SOURCES } from '../src/schemas.generated.js';
 import {
   SCHEMA_IDS,
   getPrompt,
@@ -41,6 +42,21 @@ test('every schema file compiles under Ajv strict mode', () => {
     const ajv = new Ajv({ allErrors: true, strict: true });
     expect(() => ajv.compile(schema)).not.toThrow();
     expect(hasSchema(schema.$id)).toBe(true);
+  }
+});
+
+test('generated schema map matches the checked-in JSON files', () => {
+  const files = [
+    'llm.type_detection.v1.json',
+    'llm.questions.v1.json',
+    'llm.decomposition.v1.json',
+    'llm.replan_explanation.v1.json',
+    'llm.layout_suggestion.v1.json',
+  ];
+  expect(Object.keys(SCHEMA_SOURCES).sort()).toEqual(expectedSchemas);
+  for (const file of files) {
+    const schema = JSON.parse(readFileSync(join(SCHEMA_DIR, file), 'utf8')) as { $id: string };
+    expect(SCHEMA_SOURCES[schema.$id]).toEqual(schema);
   }
 });
 
@@ -111,4 +127,50 @@ test('prompt registry matches the checked-in markdown files', () => {
     const file = readFileSync(join(PROMPT_DIR, id, 'v1.md'), 'utf8');
     expect(getPrompt(id, 'v1')).toBe(file);
   }
+});
+
+test('layout suggestion accepts only 07 §3 registry components and scalar props', () => {
+  const valid = {
+    mode: 'focus',
+    regions: {
+      primary: [{ component: 'FocusTimer', props: { limit: 1, enabled: true } }],
+      secondary: [{ component: 'RelatedNotes' }],
+    },
+    pinned: ['NavRail'],
+    reason: 'active_session',
+    policyVersion: 'ui-policy@0.1.0',
+  };
+  expect(validateOutput('llm.layout_suggestion.v1', valid).valid).toBe(true);
+
+  expect(
+    validateOutput('llm.layout_suggestion.v1', {
+      ...valid,
+      regions: { primary: [{ component: 'EvilWidget' }] },
+    }).valid,
+  ).toBe(false);
+
+  expect(
+    validateOutput('llm.layout_suggestion.v1', {
+      ...valid,
+      regions: {
+        primary: [
+          {
+            component: 'FocusTimer',
+            props: { html: '<img src=x onerror=alert(1)>' },
+          },
+        ],
+      },
+    }).valid,
+  ).toBe(false);
+
+  expect(
+    validateOutput('llm.layout_suggestion.v1', {
+      ...valid,
+      regions: { primary: [{ component: 'FocusTimer', props: { url: 'javascript:alert(1)' } }] },
+    }).valid,
+  ).toBe(false);
+
+  expect(
+    validateOutput('llm.layout_suggestion.v1', { ...valid, pinned: ['UnknownNav'] }).valid,
+  ).toBe(false);
 });

@@ -82,7 +82,7 @@ test('the interview stops after two rounds and reports exhaustion', () => {
   expect(first.questions).toHaveLength(2);
   expect(second.questions).toHaveLength(2);
   expect(second.exhausted).toBe(true);
-  expect(second.remainingFields).toHaveLength(all.length - 4);
+  expect(second.remainingFields).toHaveLength(all.length - 2);
 
   const third = planQuestions({
     requiredFields: all,
@@ -144,4 +144,49 @@ test('empty strings are not treated as provided values', () => {
 test('planning is deterministic', () => {
   const input = { known: { dueAt: '2026-11-20T14:59:00.000Z' } } as const;
   expect(planQuestions(input)).toEqual(planQuestions(input));
+});
+
+test('asked-but-unanswered fields remain unresolved and get unanswered assumptions', () => {
+  const all = [...REQUIRED_INTAKE_FIELDS, ...OPTIONAL_INTAKE_FIELDS];
+  const plan = planQuestions({ round: 2, askedFields: all });
+  expect(plan.questions).toEqual([]);
+  expect(plan.complete).toBe(false);
+  expect(plan.exhausted).toBe(true);
+  expect(plan.remainingFields).toEqual(all);
+  expect(plan.assumptions).toHaveLength(all.length);
+  for (const assumption of plan.assumptions) {
+    expect(assumption.reason).toBe('unanswered');
+  }
+});
+
+test('an empty-value answer stays unresolved rather than completing the plan', () => {
+  const plan = planQuestions({
+    previousAnswers: [{ field: 'deliverable', action: 'answer', value: '   ' }],
+  });
+  expect(plan.complete).toBe(false);
+  expect(plan.remainingFields).toContain('deliverable');
+  expect(plan.questions.map((question) => question.field)).not.toContain('deliverable');
+  expect(plan.assumptions).toContainEqual({
+    field: 'deliverable',
+    reason: 'unanswered',
+    value: CONSERVATIVE_DEFAULTS.deliverable,
+  });
+});
+
+test('Date, zero and false values count as provided', () => {
+  const plan = planQuestions({
+    known: {
+      dueAt: new Date('2026-11-20T14:59:00.000Z'),
+      currentProgress: 0,
+      availabilityConfirmed: false,
+    },
+  });
+  const fields = plan.questions.map((question) => question.field);
+  expect(fields).not.toContain('dueAt');
+  expect(fields).not.toContain('currentProgress');
+  expect(fields).not.toContain('availabilityConfirmed');
+});
+
+test.each([0, -1, 1.5, Number.NaN])('an invalid round %s is rejected', (round) => {
+  expect(() => planQuestions({ round })).toThrow(RangeError);
 });

@@ -25,7 +25,7 @@ export class LlmUnavailable extends LlmError {
   }
 }
 
-/** Timeout is a kind of unavailability; callers may retry it like a provider outage. */
+/** Timeout is reported as unavailability but `runStructured` does not retry it. */
 export class LlmTimeoutError extends LlmUnavailable {
   constructor(readonly timeoutMs: number) {
     super(`llm request timed out after ${timeoutMs}ms`, 'timeout');
@@ -34,6 +34,16 @@ export class LlmTimeoutError extends LlmUnavailable {
 
 export type BudgetLimitKind = 'daily' | 'monthly';
 
+export type BudgetBlockReason =
+  | 'not_configured'
+  | 'invalid_limit'
+  | 'limit_reached'
+  | 'projected_limit';
+
+/**
+ * Budget is fail-closed (ADR-008): a missing/non-finite/non-positive limit, an already
+ * reached ceiling, or a missing guard all block provider calls rather than allowing them.
+ */
 export class BudgetExceeded extends LlmError {
   readonly code = 'budget_exceeded' as const;
 
@@ -41,8 +51,27 @@ export class BudgetExceeded extends LlmError {
     readonly kind: BudgetLimitKind,
     readonly limitUsd: number,
     readonly spentUsd: number,
+    readonly reason: BudgetBlockReason = 'limit_reached',
   ) {
-    super(`${kind} LLM budget exceeded: spent $${spentUsd.toFixed(4)} of $${limitUsd.toFixed(4)}`);
+    super(BudgetExceeded.messageFor(kind, limitUsd, spentUsd, reason));
+  }
+
+  private static messageFor(
+    kind: BudgetLimitKind,
+    limitUsd: number,
+    spentUsd: number,
+    reason: BudgetBlockReason,
+  ): string {
+    switch (reason) {
+      case 'not_configured':
+        return 'LLM budget is not configured; provider calls are disabled';
+      case 'invalid_limit':
+        return `${kind} LLM budget limit is missing, non-finite or non-positive`;
+      case 'limit_reached':
+        return `${kind} LLM budget reached: spent $${spentUsd.toFixed(4)} of $${limitUsd.toFixed(4)}`;
+      case 'projected_limit':
+        return `${kind} LLM budget would be exceeded: spent $${spentUsd.toFixed(4)} of $${limitUsd.toFixed(4)}`;
+    }
   }
 }
 

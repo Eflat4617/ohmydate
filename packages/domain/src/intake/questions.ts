@@ -68,7 +68,7 @@ export interface IntakeAnswer {
 
 export interface IntakeAssumption {
   readonly field: IntakeField;
-  readonly reason: 'skip' | 'idk';
+  readonly reason: 'skip' | 'idk' | 'unanswered';
   readonly value: string;
 }
 
@@ -108,6 +108,7 @@ export interface QuestionPlannerInput {
 function isProvided(value: unknown): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value === 'string') return value.trim().length > 0;
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === 'object') return Object.keys(value as object).length > 0;
   return true;
@@ -145,8 +146,11 @@ function clampPerRound(value: number | undefined): number {
  *
  * Invariants:
  * - a field is never asked when it is already known or was asked before;
+ * - asked-but-unanswered fields are not re-asked, but stay in `remainingFields` and are
+ *   surfaced as `unanswered` assumptions with conservative defaults;
  * - at most `MAX_QUESTIONS_PER_ROUND` questions per round and `MAX_QUESTION_ROUNDS` rounds;
  * - `skip`/`idk` answers are recorded as assumptions with conservative defaults;
+ * - `complete` is false while any field is still unresolved;
  * - the output is a pure function of the input (stable ordering).
  */
 export function planQuestions(input: QuestionPlannerInput = {}): QuestionPlan {
@@ -155,15 +159,27 @@ export function planQuestions(input: QuestionPlannerInput = {}): QuestionPlan {
   const known = input.known ?? {};
   const previousAnswers = input.previousAnswers ?? [];
   const asked = new Set<IntakeField>(input.askedFields ?? []);
-  const round = Math.max(1, Math.floor(input.round ?? 1));
-  const assumptions = conservativeAssumptions(previousAnswers);
 
-  const answeredFields = new Set(previousAnswers.map((answer) => answer.field));
-  const providedByAnswer = new Set(
-    previousAnswers
-      .filter((answer) => answer.action === 'answer' && isProvided(answer.value))
-      .map((answer) => answer.field),
-  );
+  if (
+    input.round !== undefined &&
+    (!Number.isInteger(input.round) || input.round < 1)
+  ) {
+    throw new RangeError('round must be a positive integer');
+  }
+  const round = input.round ?? 1;
+
+  const latestAnswer = new Map<IntakeField, IntakeAnswer>();
+  for (const answer of previousAnswers) latestAnswer.set(answer.field, answer);
+
+  const resolvedByAnswer = new Set<IntakeField>();
+  const assumedFields = new Set<IntakeField>();
+  for (const answer of latestAnswer.values()) {
+    if (answer.action === 'answer') {
+      if (isProvided(answer.value)) resolvedByAnswer.add(answer.field);
+    } else {
+      assumedFields.add(answer.field);
+    }
+  }
 
   const ordered: { field: IntakeField; required: boolean }[] = [];
   const seen = new Set<IntakeField>();
@@ -178,14 +194,32 @@ export function planQuestions(input: QuestionPlannerInput = {}): QuestionPlan {
     ordered.push({ field, required: false });
   }
 
-  const unresolved: { field: IntakeField; required: boolean }[] = [];
+  const pending: { field: IntakeField; required: boolean }[] = [];
   for (const candidate of ordered) {
     const { field } = candidate;
     if (isProvided(known[field])) continue;
-    if (answeredFields.has(field)) continue;
-    if (providedByAnswer.has(field)) continue;
-    if (asked.has(field)) continue;
-    unresolved.push(candidate);
+    if (resolvedByAnswer.has(field)) continue;
+    if (assumedFields.has(field)) continue;
+    pending.push(candidate);
+  }
+
+  const askedPending = pending.filter(
+    (candidate) => asked.has(candidate.field) || latestAnswer.has(candidate.field),
+  );
+  const askable = pending.filter(
+    (candidate) => !asked.has(candidate.field) && !latestAnswer.has(candidate.field),
+  );
+
+  const assumptions: IntakeAssumption[] = [...conservativeAssumptions(previousAnswers)];
+  const assumedSoFar = new Set(assumptions.map((assumption) => assumption.field));
+  for (const candidate of askedPending) {
+    if (assumedSoFar.has(candidate.field)) continue;
+    assumedSoFar.add(candidate.field);
+    assumptions.push({
+      field: candidate.field,
+      reason: 'unanswered',
+      value: CONSERVATIVE_DEFAULTS[candidate.field],
+    });
   }
 
   if (round > MAX_QUESTION_ROUNDS) {
@@ -193,14 +227,15 @@ export function planQuestions(input: QuestionPlannerInput = {}): QuestionPlan {
       round,
       questions: [],
       assumptions,
-      complete: unresolved.length === 0,
-      exhausted: unresolved.length > 0,
-      remainingFields: unresolved.map((candidate) => candidate.field),
+      complete: pending.length === 0,
+      exhausted: pending.length > 0,
+      remainingFields: pending.map((candidate) => candidate.field),
     };
   }
 
   const perRound = clampPerRound(input.maxPerRound);
-  const selected = unresolved.slice(0, perRound);
+  const selected = askable.slice(0, perRound);
+  const selectedFields = new Set(selected.map((candidate) => candidate.field));
   const questions: PlannedQuestion[] = selected.map((candidate) => ({
     field: candidate.field,
     prompt: QUESTION_PROMPTS[candidate.field],
@@ -208,8 +243,8 @@ export function planQuestions(input: QuestionPlannerInput = {}): QuestionPlan {
     choices: ['answer', 'skip', 'idk'] as const,
   }));
 
-  const remainingFields = unresolved
-    .slice(selected.length)
+  const remainingFields = pending
+    .filter((candidate) => !selectedFields.has(candidate.field))
     .map((candidate) => candidate.field);
   const lastRound = round >= MAX_QUESTION_ROUNDS;
 
@@ -217,8 +252,8 @@ export function planQuestions(input: QuestionPlannerInput = {}): QuestionPlan {
     round,
     questions,
     assumptions,
-    complete: unresolved.length === 0,
-    exhausted: lastRound && remainingFields.length > 0,
+    complete: pending.length === 0,
+    exhausted: lastRound && pending.length > 0,
     remainingFields,
   };
 }

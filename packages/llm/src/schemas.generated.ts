@@ -93,35 +93,62 @@ export const SCHEMA_SOURCES: Readonly<Record<string, unknown>> = {
   "$id": "llm.layout_suggestion.v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["mode", "regions", "pinned", "reason", "policyVersion"],
+  "required": [
+    "mode",
+    "regions",
+    "pinned",
+    "reason",
+    "policyVersion"
+  ],
   "properties": {
     "mode": {
-      "enum": ["overview", "planning", "focus", "deadline_risk", "review", "notes"]
+      "enum": [
+        "overview",
+        "planning",
+        "focus",
+        "deadline_risk",
+        "review",
+        "notes"
+      ]
     },
     "regions": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["primary"],
+      "required": [
+        "primary"
+      ],
       "properties": {
         "primary": {
           "type": "array",
-          "items": { "$ref": "#/$defs/component" }
+          "items": {
+            "$ref": "#/$defs/component"
+          }
         },
         "secondary": {
           "type": "array",
-          "items": { "$ref": "#/$defs/component" }
+          "items": {
+            "$ref": "#/$defs/component"
+          }
         },
         "tertiary": {
           "type": "array",
-          "items": { "$ref": "#/$defs/component" }
+          "items": {
+            "$ref": "#/$defs/component"
+          }
         }
       }
     },
     "pinned": {
       "type": "array",
       "items": {
-        "type": "string",
-        "pattern": "^[A-Z][A-Za-z0-9]{1,40}$"
+        "enum": [
+          "FocusTimer",
+          "CurrentTaskCard",
+          "RelatedNotes",
+          "NextUp",
+          "NavRail",
+          "BottomNav"
+        ]
       }
     },
     "reason": {
@@ -137,18 +164,41 @@ export const SCHEMA_SOURCES: Readonly<Record<string, unknown>> = {
     "component": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["component"],
+      "required": [
+        "component"
+      ],
       "properties": {
         "component": {
-          "type": "string",
-          "pattern": "^[A-Z][A-Za-z0-9]{1,40}$"
+          "enum": [
+            "FocusTimer",
+            "CurrentTaskCard",
+            "RelatedNotes",
+            "NextUp",
+            "NavRail",
+            "BottomNav"
+          ]
         },
         "props": {
-          "type": "object"
+          "type": "object",
+          "description": "Non-string scalar props only until per-component prop schemas exist; ui-policy re-validates.",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
         }
       }
     }
-  }
+  },
+  "description": "Structural validation only. packages/ui-policy re-validates the component allowlist and per-component prop schemas before rendering; prop values are limited to non-string scalars here."
 },
   "llm.questions.v1": {
   "$id": "llm.questions.v1",

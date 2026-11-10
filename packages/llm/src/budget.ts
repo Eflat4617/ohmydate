@@ -23,9 +23,17 @@ function monthKeyOf(date: Date): string {
   return date.toISOString().slice(0, 7);
 }
 
+function requireLimit(kind: 'daily' | 'monthly', value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value <= 0) {
+    throw new BudgetExceeded(kind, value ?? Number.NaN, 0, 'invalid_limit');
+  }
+  return value;
+}
+
 /**
  * Daily/monthly USD budget consulted before every LLM call (05 §8, ADR-008).
- * Time is injected so billing-period rollover is deterministic in tests.
+ * Fail-closed: both limits must be present, finite and positive. Time is injected so
+ * billing-period rollover is deterministic in tests.
  */
 export class BudgetGuard {
   private spentTodayUsd: number;
@@ -34,7 +42,7 @@ export class BudgetGuard {
   private monthKey: string;
 
   constructor(
-    readonly limits: LlmBudget,
+    readonly limits: Readonly<Partial<LlmBudget>>,
     init: BudgetGuardInit = {},
     private readonly now: () => Date = () => new Date(),
   ) {
@@ -69,15 +77,32 @@ export class BudgetGuard {
     };
   }
 
-  /** Throws `BudgetExceeded` when the projected spend would cross a ceiling. */
+  /**
+   * Throws `BudgetExceeded` unless a call is allowed. The default estimate is zero, but
+   * an already-reached ceiling still blocks: `spent >= limit` never passes.
+   */
   assertCanSpend(estimatedCostUsd = 0): void {
     this.rollover();
+    const dailyLimit = requireLimit('daily', this.limits.dailyUsd);
+    const monthlyLimit = requireLimit('monthly', this.limits.monthlyUsd);
     const estimate = Number.isFinite(estimatedCostUsd) ? Math.max(0, estimatedCostUsd) : 0;
-    if (this.spentTodayUsd + estimate > this.limits.dailyUsd) {
-      throw new BudgetExceeded('daily', this.limits.dailyUsd, this.spentTodayUsd);
+
+    if (this.spentTodayUsd >= dailyLimit) {
+      throw new BudgetExceeded('daily', dailyLimit, this.spentTodayUsd, 'limit_reached');
     }
-    if (this.spentThisMonthUsd + estimate > this.limits.monthlyUsd) {
-      throw new BudgetExceeded('monthly', this.limits.monthlyUsd, this.spentThisMonthUsd);
+    if (this.spentThisMonthUsd >= monthlyLimit) {
+      throw new BudgetExceeded('monthly', monthlyLimit, this.spentThisMonthUsd, 'limit_reached');
+    }
+    if (this.spentTodayUsd + estimate > dailyLimit) {
+      throw new BudgetExceeded('daily', dailyLimit, this.spentTodayUsd, 'projected_limit');
+    }
+    if (this.spentThisMonthUsd + estimate > monthlyLimit) {
+      throw new BudgetExceeded(
+        'monthly',
+        monthlyLimit,
+        this.spentThisMonthUsd,
+        'projected_limit',
+      );
     }
   }
 
