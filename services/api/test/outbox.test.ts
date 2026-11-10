@@ -98,6 +98,45 @@ describe.skipIf(!hasDatabase)('outbox events', () => {
     expect(completedKeys.filter((row) => row.status === 'completed').length).toBeGreaterThanOrEqual(4);
   });
 
+  test('completing an already done task does not emit a duplicate completed event', async () => {
+    const create = await ctx.app.inject({
+      method: 'POST',
+      url: '/tasks',
+      headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
+      payload: { title: 'Already done' },
+    });
+    const task = create.json() as { id: string };
+
+    const first = await ctx.app.inject({
+      method: 'POST',
+      url: `/tasks/${task.id}:complete`,
+      headers: authHeaders(alice, {
+        'if-match': 'W/"1"',
+        'idempotency-key': newIdempotencyKey(),
+      }),
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toMatchObject({ status: 'done', version: 2 });
+
+    const completedRows = async () =>
+      (await outboxFor(aliceId)).filter(
+        (row) => row.topic === 'task.completed' && row.payload.taskId === task.id,
+      );
+    expect((await completedRows()).length).toBe(1);
+
+    const second = await ctx.app.inject({
+      method: 'POST',
+      url: `/tasks/${task.id}:complete`,
+      headers: authHeaders(alice, {
+        'if-match': 'W/"2"',
+        'idempotency-key': newIdempotencyKey(),
+      }),
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toMatchObject({ status: 'done', version: 2 });
+    expect((await completedRows()).length).toBe(1);
+  });
+
   test('a mutation that fails does not write outbox rows for that attempt', async () => {
     const create = await ctx.app.inject({
       method: 'POST',

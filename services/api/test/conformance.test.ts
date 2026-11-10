@@ -43,7 +43,9 @@ function assertProblem(
     declared: declaredStatuses(route).includes(response.statusCode),
   }).toEqual({ route: route.operationId, status: response.statusCode, declared: true });
   expect(response.headers['content-type']).toContain('application/problem+json');
-  expect(compile(ProblemSchema)(JSON.parse(response.body) as unknown)).toBe(true);
+  const body = JSON.parse(response.body) as unknown;
+  expect(compile(ProblemSchema)(body)).toBe(true);
+  expect(typeof (body as { traceId?: unknown }).traceId).toBe('string');
 }
 
 function assertSuccess(route: RouteDefinition, response: { statusCode: number; body: string }): void {
@@ -78,6 +80,14 @@ describe.skipIf(!hasDatabase)('contract conformance', () => {
         }),
       }).toEqual({ route: route.operationId, registered: true });
     }
+  });
+
+  test('unknown routes return a not_found problem', async () => {
+    const response = await ctx.app.inject({ method: 'GET', url: '/does-not-exist' });
+    expect(response.statusCode).toBe(404);
+    expect(response.headers['content-type']).toContain('application/problem+json');
+    expect(response.json()).toMatchObject({ status: 404, code: 'not_found' });
+    expect(typeof (response.json() as { traceId?: unknown }).traceId).toBe('string');
   });
 
   test('unauthenticated requests return declared problem responses', async () => {
@@ -189,6 +199,7 @@ describe.skipIf(!hasDatabase)('contract conformance', () => {
       url: '/tasks?limit=10',
       headers: authHeaders(session),
     });
+    expect(listTasks.statusCode).toBe(200);
     expect(compile(PageTaskSchema)(listTasks.json())).toBe(true);
 
     const listProjects = await ctx.app.inject({
@@ -196,9 +207,11 @@ describe.skipIf(!hasDatabase)('contract conformance', () => {
       url: '/projects',
       headers: authHeaders(session),
     });
+    expect(listProjects.statusCode).toBe(200);
     expect(compile(PageProjectSchema)(listProjects.json())).toBe(true);
 
     const me = await ctx.app.inject({ method: 'GET', url: '/me', headers: authHeaders(session) });
+    expect(me.statusCode).toBe(200);
     expect(compile(UserSchema)(me.json())).toBe(true);
   });
 

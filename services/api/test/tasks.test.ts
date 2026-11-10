@@ -236,6 +236,24 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
     expect(remove.statusCode).toBe(404);
   });
 
+  test('request bodies are not type-coerced', async () => {
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: '/tasks',
+      headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
+      payload: { title: 123, priority: '4' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'validation_failed' });
+
+    const query = await ctx.app.inject({
+      method: 'GET',
+      url: '/tasks?limit=10',
+      headers: authHeaders(alice),
+    });
+    expect(query.statusCode).toBe(200);
+  });
+
   test('create POSTs reject missing Idempotency-Key with 400', async () => {
     const response = await ctx.app.inject({
       method: 'POST',

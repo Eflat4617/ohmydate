@@ -7,7 +7,7 @@ import Fastify, {
 } from 'fastify';
 import type { Kysely } from 'kysely';
 import type { AppConfig } from './config.js';
-import type { AppRepositories } from './application/ports.js';
+import type { AppRepositories, IdempotencyStore } from './application/ports.js';
 import { AuthService } from './application/auth-service.js';
 import { Argon2PasswordHasher } from './adapters/argon2-password-hasher.js';
 import { InMemoryLoginRateLimiter } from './adapters/in-memory-login-rate-limiter.js';
@@ -26,6 +26,7 @@ import { createRuntime, registerRoutes } from './http/routes.js';
 import './http/fastify-augment.js';
 
 export type LoggerOption = NonNullable<FastifyServerOptions['logger']>;
+export type LoggerInstanceOption = NonNullable<FastifyServerOptions['loggerInstance']>;
 
 export interface BuildAppOptions {
   readonly config: AppConfig;
@@ -35,6 +36,10 @@ export interface BuildAppOptions {
   readonly db: Kysely<Database>;
   /** Test override; production uses the structured pino defaults below. */
   readonly logger?: LoggerOption;
+  /** Test override for capturing logs with a pre-built pino instance. */
+  readonly loggerInstance?: LoggerInstanceOption;
+  /** Test override for forcing idempotency-store failures. */
+  readonly idempotency?: IdempotencyStore;
 }
 
 /**
@@ -73,8 +78,13 @@ export function defaultLoggerOptions(config: AppConfig): LoggerOption {
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const { config, clock, ids, db } = options;
+  const logging =
+    options.loggerInstance === undefined
+      ? { logger: options.logger ?? defaultLoggerOptions(config) }
+      : { loggerInstance: options.loggerInstance };
   const app = Fastify({
-    logger: options.logger ?? defaultLoggerOptions(config),
+    ...logging,
+    trustProxy: config.trustProxy,
     ajv: {
       plugins: [
         (ajv) => {
@@ -84,7 +94,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       ],
       customOptions: {
         removeAdditional: false,
-        coerceTypes: 'array',
+        coerceTypes: false,
         useDefaults: true,
         allErrors: true,
         addUsedSchema: false,
@@ -121,6 +131,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     }
     if (error instanceof DomainError) {
       const problem = domainErrorToProblem(error);
+      if (problem.status >= 500) {
+        request.log.error({ err: error }, 'unhandled domain error');
+        return sendProblem(
+          request,
+          reply,
+          500,
+          problem.code,
+          'Internal error',
+          'an unexpected error occurred',
+        );
+      }
       return sendProblem(
         request,
         reply,
@@ -161,12 +182,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     limit: config.loginRateLimit.limit,
     windowMs: config.loginRateLimit.windowMs,
   });
-  const idempotency = new PgIdempotencyStore({
-    db,
-    clock,
-    ids,
-    ttlMs: config.idempotencyTtlMs,
-  });
+  const idempotency =
+    options.idempotency ??
+    new PgIdempotencyStore({
+      db,
+      clock,
+      ids,
+      ttlMs: config.idempotencyTtlMs,
+    });
   const dummyPasswordHash = await hasher.hash('ohmydate-login-timing-dummy');
   const auth = new AuthService({
     users,

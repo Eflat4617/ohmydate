@@ -16,6 +16,11 @@ export interface AppConfig {
   /** 5 requests per minute per IP+email for POST /auth/login. */
   readonly loginRateLimit: LoginRateLimitConfig;
   readonly logLevel: string;
+  /**
+   * Fastify trustProxy. Default false: only enable when the API sits behind a
+   * trusted reverse proxy (09 §5 tailnet proxy) and X-Forwarded-For is stripped.
+   */
+  readonly trustProxy: boolean;
 }
 
 export const DEFAULT_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -27,6 +32,7 @@ export const defaultConfig: AppConfig = {
   idempotencyTtlMs: DEFAULT_IDEMPOTENCY_TTL_MS,
   loginRateLimit: { limit: 5, windowMs: 60_000 },
   logLevel: 'info',
+  trustProxy: false,
 };
 
 export function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {

@@ -128,30 +128,37 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
       ),
     );
 
-    const key = newIdempotencyKey();
-    const payload = { title: 'Concurrent body' };
-    const makeRequest = () =>
-      ctx.app.inject({
-        method: 'POST',
-        url: '/tasks',
-        headers: authHeaders(alice, { 'idempotency-key': key }),
-        payload,
-      });
+    let sawInProgress = false;
+    const rounds = 10;
+    for (let round = 0; round < rounds && !sawInProgress; round += 1) {
+      const key = newIdempotencyKey();
+      const title = `Concurrent body ${round}`;
+      const payload = { title };
+      const makeRequest = () =>
+        ctx.app.inject({
+          method: 'POST',
+          url: '/tasks',
+          headers: authHeaders(alice, { 'idempotency-key': key }),
+          payload,
+        });
 
-    const responses = await Promise.all(
-      Array.from({ length: 6 }, () => makeRequest()),
-    );
-    const statuses = responses.map((response) => response.statusCode);
-    expect(statuses.every((status) => status === 201 || status === 409)).toBe(true);
-    expect(statuses.filter((status) => status === 201).length).toBeGreaterThanOrEqual(1);
-    for (const response of responses.filter((entry) => entry.statusCode === 409)) {
-      expect((response.json() as { code: string }).code).toBe('idempotency_in_progress');
-      expect(response.headers['retry-after']).toBe('1');
+      const responses = await Promise.all(Array.from({ length: 6 }, () => makeRequest()));
+      const statuses = responses.map((response) => response.statusCode);
+      expect(statuses.every((status) => status === 201 || status === 409)).toBe(true);
+      expect(statuses.filter((status) => status === 201).length).toBeGreaterThanOrEqual(1);
+      const conflicts = responses.filter((entry) => entry.statusCode === 409);
+      if (conflicts.length > 0) sawInProgress = true;
+      for (const response of conflicts) {
+        expect((response.json() as { code: string }).code).toBe('idempotency_in_progress');
+        expect(response.headers['retry-after']).toBe('1');
+      }
+      const created = responses.filter((entry) => entry.statusCode === 201);
+      const ids = new Set(created.map((entry) => (entry.json() as { id: string }).id));
+      expect(ids.size).toBe(1);
+      expect(await listTitles(alice, title)).toBe(1);
     }
-    const created = responses.filter((entry) => entry.statusCode === 201);
-    const ids = new Set(created.map((entry) => (entry.json() as { id: string }).id));
-    expect(ids.size).toBe(1);
-    expect(await listTitles(alice, 'Concurrent body')).toBe(1);
+
+    expect(sawInProgress).toBe(true);
   });
 
   test('idempotency keys are scoped per owner', async () => {

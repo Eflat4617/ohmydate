@@ -14,6 +14,7 @@ import {
   type UserSettingsPatch,
   type RouteDefinition,
 } from '@ohmydate/contracts';
+import { timingSafeEqual } from 'node:crypto';
 import {
   DomainError,
   type Id,
@@ -193,15 +194,21 @@ function currentAuth(request: FastifyRequest) {
   return request.authSession;
 }
 
+function timingSafeStringEqual(left: string | undefined, right: string | undefined): boolean {
+  if (left === undefined || right === undefined) return false;
+  const leftBytes = Buffer.from(left, 'utf8');
+  const rightBytes = Buffer.from(right, 'utf8');
+  if (leftBytes.length !== rightBytes.length) return false;
+  return timingSafeEqual(leftBytes, rightBytes);
+}
+
 function verifyCsrf(request: FastifyRequest): void {
   const auth = currentAuth(request);
   const header = headerValue(request, 'x-csrf-token');
   const cookie = request.cookies[CSRF_COOKIE];
   if (
-    header === undefined ||
-    cookie === undefined ||
-    header !== cookie ||
-    header !== auth.csrfToken
+    !timingSafeStringEqual(header, cookie) ||
+    !timingSafeStringEqual(header, auth.csrfToken)
   ) {
     throw new ProblemError({
       status: 403,
@@ -316,24 +323,36 @@ async function runIdempotent(
   } catch (error) {
     // 08 §1 pinned storage rule: 409/422 domain results are stored and replayed
     // with no outbox rows; everything else releases the reservation.
+    const releaseQuietly = async (): Promise<void> => {
+      try {
+        await runtime.idempotency.release(auth.userId, key);
+      } catch {
+        // Always surface the original failure; a failed release is recoverable.
+      }
+    };
+
     if (error instanceof DomainError) {
       const problem = domainErrorToProblem(error);
       if (problem.status === 409 || problem.status === 422) {
-        await runtime.idempotency.complete({
-          ownerId: auth.userId,
-          key,
-          response: {
-            status: problem.status,
-            body: problemBodyFor(request, problem),
-            headers: { 'Content-Type': 'application/problem+json' },
-          },
-          outbox: [],
-        });
+        try {
+          await runtime.idempotency.complete({
+            ownerId: auth.userId,
+            key,
+            response: {
+              status: problem.status,
+              body: problemBodyFor(request, problem),
+              headers: { 'Content-Type': 'application/problem+json' },
+            },
+            outbox: [],
+          });
+        } catch {
+          await releaseQuietly();
+        }
       } else {
-        await runtime.idempotency.release(auth.userId, key);
+        await releaseQuietly();
       }
     } else {
-      await runtime.idempotency.release(auth.userId, key);
+      await releaseQuietly();
     }
     throw error;
   }
@@ -420,7 +439,10 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
         status: 200,
         body: toTaskDto(task),
         headers: { ETag: etagForVersion(task.version) },
-        outbox: [{ topic: 'task.completed', taskId: task.id, version: task.version }],
+        outbox:
+          task.version === expected
+            ? []
+            : [{ topic: 'task.completed', taskId: task.id, version: task.version }],
       };
     });
 
@@ -564,8 +586,23 @@ function responseSchemas(route: RouteDefinition): Record<string, object> {
   return schemas;
 }
 
+/**
+ * Ajv coercion is disabled so request bodies keep their JSON types. Only the
+ * numeric query fields from the contract need string -> number conversion.
+ */
+function coerceQueryParameters(request: FastifyRequest): void {
+  const query = request.query;
+  if (query === null || typeof query !== 'object') return;
+  const record = query as Record<string, unknown>;
+  const limit = record['limit'];
+  if (typeof limit === 'string' && /^-?\d+$/.test(limit)) {
+    record['limit'] = Number(limit);
+  }
+}
+
 function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
   return async function preHandler(request: FastifyRequest): Promise<void> {
+    coerceQueryParameters(request);
     if (meta.requiresAuth) {
       const sessionId = request.cookies[SID_COOKIE];
       if (sessionId === undefined || sessionId === '') {

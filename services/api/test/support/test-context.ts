@@ -7,7 +7,8 @@ import type { Id } from '@ohmydate/domain';
 import type { FastifyInstance } from 'fastify';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
-import { buildApp } from '../../src/app.js';
+import { buildApp, type LoggerInstanceOption } from '../../src/app.js';
+import type { AppRepositories, IdempotencyStore } from '../../src/application/ports.js';
 import { migrate } from '../../src/db/migrate.js';
 import type { Database } from '../../src/db/types.js';
 
@@ -22,7 +23,7 @@ export interface TestContext {
   readonly schema: string;
   readonly clock: FakeClock;
   readonly ids: ReturnType<typeof createSeededIdGenerator>;
-  readonly repos: ReturnType<typeof createInMemoryRepositories>;
+  readonly repos: AppRepositories;
   seedUser(input: {
     email: string;
     password: string;
@@ -66,6 +67,9 @@ export async function dropSchema(schema: string): Promise<void> {
 export interface TestContextOptions {
   readonly config?: Partial<AppConfig>;
   readonly logger?: boolean;
+  readonly loggerInstance?: LoggerInstanceOption;
+  readonly idempotency?: IdempotencyStore;
+  readonly repos?: AppRepositories;
 }
 
 export async function createTestContext(
@@ -82,7 +86,7 @@ export async function createTestContext(
 
   const clock = new FakeClock();
   const ids = createSeededIdGenerator(Math.floor(Math.random() * 1_000_000), clock);
-  const repos = createInMemoryRepositories({ clock, ids });
+  const repos = options.repos ?? createInMemoryRepositories({ clock, ids });
   const config = createConfig({
     cookieSecure: false,
     logLevel: 'silent',
@@ -97,6 +101,8 @@ export async function createTestContext(
     ids,
     db,
     logger: options.logger ?? false,
+    ...(options.loggerInstance === undefined ? {} : { loggerInstance: options.loggerInstance }),
+    ...(options.idempotency === undefined ? {} : { idempotency: options.idempotency }),
   });
   await app.ready();
 
