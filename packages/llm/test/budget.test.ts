@@ -185,3 +185,48 @@ test('the unpriced allow-list requires an exact model match', () => {
   guard.record({ inputTokens: 100_000, outputTokens: 100_000 }, { model: 'fake-llm-real' });
   expect(guard.isExhausted()).toBe(true);
 });
+
+test.each([
+  { label: 'NaN', costUsd: Number.NaN },
+  { label: 'positive Infinity', costUsd: Number.POSITIVE_INFINITY },
+  { label: 'negative', costUsd: -5 },
+])(
+  'an allow-listed model with a $label cost still exhausts the guard',
+  ({ costUsd }) => {
+    const guard = new BudgetGuard(
+      { dailyUsd: 1, monthlyUsd: 10 },
+      { allowUnpricedModels: ['fake-llm'] },
+      at('2026-11-11T12:00:00.000Z'),
+    );
+    guard.record({ inputTokens: 1, outputTokens: 1, costUsd }, { model: 'fake-llm' });
+    expect(guard.isExhausted()).toBe(true);
+    expect(guard.snapshot()).toMatchObject({ spentTodayUsd: 0, spentThisMonthUsd: 0 });
+    expect(() => guard.assertCanSpend()).toThrow(
+      expect.objectContaining({ reason: 'unpriced_usage' }),
+    );
+  },
+);
+
+test('an allow-listed model with no measurable cost stays exempt', () => {
+  const guard = new BudgetGuard(
+    { dailyUsd: 1, monthlyUsd: 10 },
+    { allowUnpricedModels: ['fake-llm'] },
+    at('2026-11-11T12:00:00.000Z'),
+  );
+  guard.record(undefined, { model: 'fake-llm' });
+  expect(guard.isExhausted()).toBe(false);
+});
+
+test.each([
+  { label: 'a bare string', value: 'fake-llm' },
+  { label: 'an array with a non-string entry', value: ['fake-llm', 1] },
+  { label: 'a number array', value: [1, 2] },
+])('rejects allowUnpricedModels as $label', ({ value }) => {
+  expect(
+    () =>
+      new BudgetGuard(
+        { dailyUsd: 1, monthlyUsd: 10 },
+        { allowUnpricedModels: value as unknown as readonly string[] },
+      ),
+  ).toThrow(TypeError);
+});

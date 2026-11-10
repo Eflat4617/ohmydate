@@ -42,6 +42,19 @@ interface Pattern {
   readonly kind: RedactionKind;
   readonly regex: RegExp;
   readonly digitBoundary?: DigitBoundary;
+  /**
+   * `\b` evaluated on the normalised copy joins tokens that the original text kept apart
+   * with a zero-width/format character. These flags apply the original-character word
+   * boundary instead (same semantics as `\b`, but a stripped format character is non-word).
+   */
+  readonly wordBoundary?: DigitBoundary;
+  /** Replaces `(?<![\w+])` so an original-character format char still starts a number. */
+  readonly notWordPlusBefore?: boolean;
+  /**
+   * Retried from the same start when only the trailing digit check fails, so a greedy
+   * variable group count can backtrack to a shorter, valid end.
+   */
+  readonly shorterEnd?: RegExp;
 }
 
 interface OriginalChar {
@@ -62,6 +75,7 @@ interface IndexMap {
 const FULLWIDTH_DIGIT_FIRST = 0xff10;
 const FULLWIDTH_DIGIT_LAST = 0xff19;
 const NON_ASCII = /[^\p{ASCII}]/u;
+const ASCII_CHAR = /\p{ASCII}/u;
 const EMPTY_NUMBERS: readonly number[] = [];
 const EMPTY_CHARS: readonly OriginalChar[] = [];
 
@@ -122,6 +136,26 @@ function normalizeWithMap(text: string): IndexMap {
   return { normalized, ascii: false, source, chars };
 }
 
+/**
+ * Normalisation folds compatibility characters to ASCII (fullwidth digits, circled numbers,
+ * fullwidth `@`/`+`). If no character can produce an ASCII unit, concatenating them cannot
+ * either, so no pattern can match and the whole normalisation map can be skipped.
+ */
+function couldContainMatch(text: string): boolean {
+  if (!NON_ASCII.test(text)) return true;
+  const folded = new Map<string, boolean>();
+  for (const char of text) {
+    if (char.length === 1 && char.charCodeAt(0) < 0x80) return true;
+    let producesAscii = folded.get(char);
+    if (producesAscii === undefined) {
+      producesAscii = ASCII_CHAR.test(char.normalize('NFKC'));
+      folded.set(char, producesAscii);
+    }
+    if (producesAscii) return true;
+  }
+  return false;
+}
+
 function sourceAt(map: IndexMap, index: number): number | undefined {
   return map.ascii ? (index >= 0 && index < map.normalized.length ? index : undefined) : map.source[index];
 }
@@ -164,8 +198,81 @@ function boundaryAfter(map: IndexMap, end: number): boolean {
   return charBoundary(map, current + 1);
 }
 
+/** ASCII word characters, matching JavaScript `\b` semantics. */
+function isAsciiWordCode(code: number): boolean {
+  return (
+    (code >= 0x30 && code <= 0x39) ||
+    (code >= 0x41 && code <= 0x5a) ||
+    (code >= 0x61 && code <= 0x7a) ||
+    code === 0x5f
+  );
+}
+
+function isOriginalWordChar(char: OriginalChar | undefined): boolean {
+  if (char === undefined || char.stripped) return false;
+  if (char.value.length !== 1) return false;
+  return isAsciiWordCode(char.value.charCodeAt(0));
+}
+
+/**
+ * `\b` on the original characters. Format characters are stripped from the normalised
+ * copy, so `\b` there sees two word characters glued together; here the stripped char is
+ * a non-word boundary, exactly as it was in the input.
+ */
+function wordBoundaryBefore(map: IndexMap, start: number): boolean {
+  if (map.ascii) {
+    if (start <= 0 || start >= map.normalized.length) return true;
+    return (
+      isAsciiWordCode(map.normalized.charCodeAt(start - 1)) !==
+      isAsciiWordCode(map.normalized.charCodeAt(start))
+    );
+  }
+  const current = sourceAt(map, start);
+  if (current === undefined) return true;
+  if (start > 0 && sourceAt(map, start - 1) === current) return false;
+  return (
+    isOriginalWordChar(map.chars[current - 1]) !== isOriginalWordChar(map.chars[current])
+  );
+}
+
+function wordBoundaryAfter(map: IndexMap, end: number): boolean {
+  if (map.ascii) {
+    if (end <= 0 || end >= map.normalized.length) return true;
+    return (
+      isAsciiWordCode(map.normalized.charCodeAt(end - 1)) !==
+      isAsciiWordCode(map.normalized.charCodeAt(end))
+    );
+  }
+  const current = sourceAt(map, end - 1);
+  if (current === undefined) return true;
+  if (end < sourceLength(map) && sourceAt(map, end) === current) return false;
+  return isOriginalWordChar(map.chars[current]) !== isOriginalWordChar(map.chars[current + 1]);
+}
+
+/** `(?<![\w+])` on the original characters. */
+function notWordPlusBefore(map: IndexMap, start: number): boolean {
+  if (map.ascii) {
+    if (start <= 0) return true;
+    const code = map.normalized.charCodeAt(start - 1);
+    return !(isAsciiWordCode(code) || code === 0x2b);
+  }
+  const current = sourceAt(map, start);
+  if (current === undefined) return true;
+  if (start > 0 && sourceAt(map, start - 1) === current) return false;
+  const previous = map.chars[current - 1];
+  if (previous === undefined) return true;
+  // A fullwidth plus is the same '+' for this rule, so the whole token still masks.
+  if (previous.value === '+' || previous.value === '＋') return false;
+  return !isOriginalWordChar(previous);
+}
+
+const CC_PHONE_SOURCE = `\\+${DIGIT}{1,3}(?:${SEPARATOR}(?:\\(\\s?${DIGIT}{1,5}\\s?\\)|${DIGIT}{2,4})){2,4}`;
+
 // Order matters: redact wider/more specific tokens first so a lower-priority pattern never
 // claims part of an already-masked span. Matching runs on the normalised copy.
+// Word boundaries and `(?<![\w+])` are deliberately kept out of the regexes: on the
+// normalised copy they would join tokens separated only by a stripped format character,
+// so they are re-evaluated against the original characters after each match.
 const PATTERNS: readonly Pattern[] = [
   {
     kind: 'email',
@@ -176,16 +283,29 @@ const PATTERNS: readonly Pattern[] = [
       'gu',
     ),
   },
-  { kind: 'api_key', regex: /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g },
-  { kind: 'api_key', regex: /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g },
-  { kind: 'api_key', regex: /\b(?:sk|tk|pk)[-_][A-Za-z0-9_-]{8,}\b/g },
-  { kind: 'api_key', regex: /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g },
-  { kind: 'api_key', regex: /\bAIza[0-9A-Za-z_-]{30,40}\b/g },
-  { kind: 'api_key', regex: /\bglpat-[A-Za-z0-9_-]{20,}\b/g },
+  {
+    kind: 'api_key',
+    regex: /(?:AKIA|ASIA)[0-9A-Z]{16}/g,
+    wordBoundary: 'both',
+  },
+  {
+    kind: 'api_key',
+    regex: /(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/g,
+    wordBoundary: 'both',
+  },
+  {
+    kind: 'api_key',
+    regex: /(?:sk|tk|pk)[-_][A-Za-z0-9_-]{8,}/g,
+    wordBoundary: 'both',
+  },
+  { kind: 'api_key', regex: /xox[baprs]-[A-Za-z0-9-]{10,}/g, wordBoundary: 'both' },
+  { kind: 'api_key', regex: /AIza[0-9A-Za-z_-]{30,40}/g, wordBoundary: 'both' },
+  { kind: 'api_key', regex: /glpat-[A-Za-z0-9_-]{20,}/g, wordBoundary: 'both' },
   {
     kind: 'api_key',
     regex:
-      /\b(?:Bearer|bearer)\s+[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}\b/g,
+      /(?:Bearer|bearer)\s+[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}/g,
+    wordBoundary: 'both',
   },
   {
     kind: 'rrn',
@@ -197,43 +317,46 @@ const PATTERNS: readonly Pattern[] = [
     kind: 'phone',
     // +82-(0)2-123-4567.
     regex: new RegExp(
-      `(?<![\\w+])\\+${DIGIT}{1,3}${SEPARATOR}\\(0\\)${SEPARATOR}${DIGIT}{1,2}${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`,
+      `\\+${DIGIT}{1,3}${SEPARATOR}\\(0\\)${SEPARATOR}${DIGIT}{1,2}${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`,
       'gu',
     ),
     digitBoundary: 'end',
+    notWordPlusBefore: true,
   },
   {
     kind: 'phone',
     // Parenthesised country code: (+82) 10-1234-5678.
     regex: new RegExp(
-      `(?<![\\w+])\\(\\+${DIGIT}{1,3}\\)${SEPARATOR}${DIGIT}{1,2}${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`,
+      `\\(\\+${DIGIT}{1,3}\\)${SEPARATOR}${DIGIT}{1,2}${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`,
       'gu',
     ),
     digitBoundary: 'end',
+    notWordPlusBefore: true,
   },
   {
     kind: 'phone',
     // International dialling prefixes: 0082-10-..., 001-82-10-..., 82-10-....
     regex: new RegExp(
-      `(?<![\\w+])(?:00(?:82|[1-9]${DIGIT}{0,2}${SEPARATOR}82)|82)${SEPARATOR}(?:\\(0\\)${SEPARATOR})?0?${DIGIT}{1,2}${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`,
+      `(?:00(?:82|[1-9]${DIGIT}{0,2}${SEPARATOR}82)|82)${SEPARATOR}(?:\\(0\\)${SEPARATOR})?0?${DIGIT}{1,2}${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`,
       'gu',
     ),
     digitBoundary: 'both',
+    notWordPlusBefore: true,
   },
   {
     kind: 'phone',
     // +<cc> followed by 2-4 groups; a group may be parenthesised (area/trunk).
-    regex: new RegExp(
-      `(?<![\\w+])\\+${DIGIT}{1,3}(?:${SEPARATOR}(?:\\(\\s?${DIGIT}{1,5}\\s?\\)|${DIGIT}{2,4})){2,4}`,
-      'gu',
-    ),
+    regex: new RegExp(CC_PHONE_SOURCE, 'gu'),
     digitBoundary: 'end',
+    notWordPlusBefore: true,
+    shorterEnd: new RegExp(`${CC_PHONE_SOURCE}(?![0-9０-９])`, 'gu'),
   },
   // Glued E.164 without separators: +821012345678, +14155552671.
   {
     kind: 'phone',
-    regex: new RegExp(`(?<![\\w+])\\+${DIGIT}{8,15}`, 'gu'),
+    regex: new RegExp(`\\+${DIGIT}{8,15}`, 'gu'),
     digitBoundary: 'end',
+    notWordPlusBefore: true,
   },
   {
     kind: 'phone',
@@ -292,38 +415,109 @@ export function mergeSpans(spans: readonly RedactionSpan[]): RedactionSpan[] {
   return merged;
 }
 
-function overlapsDigitBoundary(
+/**
+ * A word-boundary match may greedily end on a non-word separator (`sk-key-`); JavaScript
+ * `\b` would backtrack it. Trim only trailing non-word original characters to reach the
+ * same boundary, never dropping part of the token itself.
+ */
+function trimmedWordEnd(map: IndexMap, start: number, rawEnd: number): number | undefined {
+  let end = rawEnd;
+  while (end > start) {
+    if (wordBoundaryAfter(map, end)) return end;
+    if (map.ascii) {
+      if (isAsciiWordCode(map.normalized.charCodeAt(end - 1))) return undefined;
+    } else {
+      const current = sourceAt(map, end - 1);
+      if (current === undefined) return undefined;
+      if (isOriginalWordChar(map.chars[current])) return undefined;
+    }
+    end -= 1;
+  }
+  return undefined;
+}
+
+/** Re-run a variable-length match with a trailing digit lookahead so it backtracks. */
+function shorterEndAfter(
   map: IndexMap,
+  shorter: RegExp,
   start: number,
-  end: number,
-  boundary: DigitBoundary | undefined,
-): boolean {
-  if ((boundary === 'start' || boundary === 'both') && !boundaryBefore(map, start)) {
-    return false;
+): number | undefined {
+  const pattern = new RegExp(shorter.source, shorter.flags);
+  pattern.lastIndex = start;
+  const match = pattern.exec(map.normalized);
+  if (match === null || match.index !== start) return undefined;
+  const end = start + match[0].length;
+  if (end <= start) return undefined;
+  const last = sourceAt(map, end - 1);
+  if (last === undefined) return undefined;
+  if (end < sourceLength(map) && sourceAt(map, end) === last) return undefined;
+  if (!boundaryAfter(map, end)) return undefined;
+  return end;
+}
+
+/** Resolve a raw regex match to an accepted end, applying the original-character rules. */
+function resolveEnd(
+  map: IndexMap,
+  pattern: Pattern,
+  start: number,
+  rawEnd: number,
+): number | undefined {
+  const { digitBoundary, wordBoundary, notWordPlusBefore: needsNotWordPlus } = pattern;
+  if ((digitBoundary === 'start' || digitBoundary === 'both') && !boundaryBefore(map, start)) {
+    return undefined;
   }
-  if ((boundary === 'end' || boundary === 'both') && !boundaryAfter(map, end)) {
-    return false;
+  if (needsNotWordPlus === true && !notWordPlusBefore(map, start)) {
+    return undefined;
   }
-  return true;
+  if (
+    (wordBoundary === 'start' || wordBoundary === 'both') &&
+    !wordBoundaryBefore(map, start)
+  ) {
+    return undefined;
+  }
+
+  let end = rawEnd;
+  if (wordBoundary === 'end' || wordBoundary === 'both') {
+    const trimmed = trimmedWordEnd(map, start, end);
+    if (trimmed === undefined) return undefined;
+    end = trimmed;
+  }
+  if ((digitBoundary === 'end' || digitBoundary === 'both') && !boundaryAfter(map, end)) {
+    const shorter = pattern.shorterEnd;
+    if (shorter !== undefined) {
+      const candidate = shorterEndAfter(map, shorter, start);
+      if (candidate !== undefined) return candidate;
+    }
+    return undefined;
+  }
+  return end;
 }
 
 export function redact(text: string): RedactionResult {
+  if (!couldContainMatch(text)) {
+    return { text, report: [] };
+  }
   const map = normalizeWithMap(text);
   const covered = new Uint8Array(map.normalized.length);
   const spans: RedactionSpan[] = [];
 
-  for (const { kind, regex, digitBoundary } of PATTERNS) {
+  for (const patternDef of PATTERNS) {
+    const { kind, regex } = patternDef;
     const pattern = new RegExp(regex.source, regex.flags);
     let match = pattern.exec(map.normalized);
     while (match !== null) {
       const start = match.index;
-      const end = start + match[0].length;
-      if (end === start) {
+      const rawEnd = start + match[0].length;
+      if (rawEnd === start) {
         pattern.lastIndex += 1;
         match = pattern.exec(map.normalized);
         continue;
       }
-      if (!overlapsDigitBoundary(map, start, end, digitBoundary)) {
+      const end = resolveEnd(map, patternDef, start, rawEnd);
+      if (end === undefined) {
+        // Retry one code unit later, not at the rejected span's end: a longer rejected
+        // match can start inside a shorter valid one (the class (a) recall regression).
+        pattern.lastIndex = start + 1;
         match = pattern.exec(map.normalized);
         continue;
       }
@@ -346,6 +540,8 @@ export function redact(text: string): RedactionResult {
           });
         }
       }
+      // Continue after whichever match was accepted so the fallback never rescans its tail.
+      pattern.lastIndex = Math.max(rawEnd, end);
       match = pattern.exec(map.normalized);
     }
   }

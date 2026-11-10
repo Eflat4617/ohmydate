@@ -174,7 +174,92 @@ const boundaryRegressions: readonly BoundaryRegression[] = [
   },
   { input: '1\u200B010-1234-5678', output: '1\u200B[REDACTED_PHONE]', kind: 'phone' },
   { input: '900101-1234567\u200B2', output: '[REDACTED_RRN]\u200B2', kind: 'rrn' },
+  // Class (a): a longer rejected match must not skip the valid match that starts inside it.
+  { input: 'Room 3010 010-1234-5678', output: 'Room 3010 [REDACTED_PHONE]', kind: 'phone' },
+  { input: 'No.1010 010-1234-5678', output: 'No.1010 [REDACTED_PHONE]', kind: 'phone' },
+  { input: '사번 2019010 010-1234-5678', output: '사번 2019010 [REDACTED_PHONE]', kind: 'phone' },
+  { input: '1031 031-1234-5678', output: '1031 [REDACTED_PHONE]', kind: 'phone' },
+  { input: '①9001011234567', output: '①[REDACTED_RRN]', kind: 'rrn' },
+  { input: '⁰9001011234567', output: '⁰[REDACTED_RRN]', kind: 'rrn' },
+  { input: '㉑9001011234567', output: '㉑[REDACTED_RRN]', kind: 'rrn' },
 ];
+
+const endBoundaryFallbacks = [
+  {
+    input: '+82 10 1234 5678 12345',
+    output: '[REDACTED_PHONE] 12345',
+  },
+  {
+    input: '+1 415 555 2671 12345',
+    output: '[REDACTED_PHONE] 12345',
+  },
+  {
+    input: '+82-10-1234-5678 / 12345',
+    output: '[REDACTED_PHONE] / 12345',
+  },
+  {
+    input: '+44 20 7946 0958 123456',
+    output: '[REDACTED_PHONE] 123456',
+  },
+] as const;
+
+test.each(endBoundaryFallbacks)(
+  'falls back to a shorter +cc group count when the trailing check rejects: $input',
+  ({ input, output }) => {
+    const result = redact(input);
+    expect(result.text).toBe(output);
+    expect(result.report).toEqual([{ kind: 'phone', count: 1 }]);
+  },
+);
+
+const originalCharWordBoundaries = [
+  {
+    input: '+82 10-1234-5678\u200B+82 10-9876-5432',
+    output: '[REDACTED_PHONE]\u200B[REDACTED_PHONE]',
+    kind: 'phone',
+    count: 2,
+  },
+  {
+    input: 'AKIAABCDEFGHIJKLMNOP\u200BAKIAABCDEFGHIJKLMNOQ',
+    output: '[REDACTED_API_KEY]\u200B[REDACTED_API_KEY]',
+    kind: 'api_key',
+    count: 2,
+  },
+  { input: '①+82 10-1234-5678', output: '①[REDACTED_PHONE]', kind: 'phone', count: 1 },
+  { input: '²+82 10-1234-5678', output: '²[REDACTED_PHONE]', kind: 'phone', count: 1 },
+  { input: '1\u200B+82 10-1234-5678', output: '1\u200B[REDACTED_PHONE]', kind: 'phone', count: 1 },
+  { input: '①0082-10-1234-5678', output: '①[REDACTED_PHONE]', kind: 'phone', count: 1 },
+  {
+    input: '①sk-abcdefgh12345678',
+    output: '①[REDACTED_API_KEY]',
+    kind: 'api_key',
+    count: 1,
+  },
+] as const;
+
+test.each(originalCharWordBoundaries)(
+  'evaluates word boundaries against original characters: $input',
+  ({ input, output, kind, count }) => {
+    const result = redact(input);
+    expect(result.text).toBe(output);
+    expect(result.report).toEqual([{ kind, count }]);
+  },
+);
+
+test.each([
+  '1010-1234-5678',
+  '010-1234-56789',
+  '1900101-1234567',
+  '900101-12345678',
+  '９010-1234-5678',
+  '010-1234-5678９',
+  'x+82 10-1234-5678',
+  '1+82 10-1234-5678',
+  'abcAKIAABCDEFGHIJKLMNOP',
+  'AKIAABCDEFGHIJKLMNOQabc',
+])('adjacency negative stays unmasked: %s', (input) => {
+  expect(redact(input)).toEqual({ text: input, report: [] });
+});
 
 test.each(boundaryRegressions)(
   'evaluates digit boundaries against original characters for $input',
@@ -228,6 +313,18 @@ const knownLimitations = [
   { name: 'AIza with more than 40 trailing characters', text: `AIza${'A'.repeat(50)}` },
   { name: 'tilde separator', text: '010~1234~5678' },
   { name: 'combining accent inside digits', text: '010\u0301-1234-5678' },
+  {
+    name: 'email local part after more than 320 non-delimiter characters',
+    text: `${'x'.repeat(400)}@example.com`,
+  },
+  {
+    name: 'email inside a long URL query string',
+    text: `https://t.example.com/r?u=${'x'.repeat(380)}&to=jane@example.com`,
+  },
+  {
+    name: 'domain label longer than 63 characters',
+    text: `jane@${'a'.repeat(64)}.com`,
+  },
 ];
 
 test.each(knownLimitations)(
@@ -360,4 +457,228 @@ test('wraps untrusted documents and neutralises closing tags', () => {
 
 test('rejects unsafe document ids', () => {
   expect(() => buildUntrustedBlock('bad"id', 'x')).toThrow(/document id/);
+});
+
+/**
+ * Deterministic port of the M2-01cR-1 recall fuzz: 17 seeds x 1,177 cases (20,009 total),
+ * asserting that every generated token is masked. The generator mixes fullwidth digits,
+ * default-ignorable characters, and AST/astral/CJK/circled/superscript/combining
+ * neighbours around phones, RRNs, emails and API keys. The seeded PRNG makes the run
+ * reproducible in CI (no Math.random, no wall-clock).
+ */
+
+const CASES_PER_SEED = 1_177;
+const SEEDS = 17;
+
+const DEFAULT_IGNORABLES = [
+  '\u00AD',
+  '\u034F',
+  '\u061C',
+  '\u115F',
+  '\u1160',
+  '\u17B4',
+  '\u17B5',
+  '\u180B',
+  '\u180C',
+  '\u180D',
+  '\u180E',
+  '\u200B',
+  '\u200C',
+  '\u200D',
+  '\u200E',
+  '\u200F',
+  '\u202A',
+  '\u202E',
+  '\u2060',
+  '\uFE0F',
+] as const;
+
+const LEFT_NEIGHBOURS = [
+  '',
+  ' ',
+  'Room 3010 ',
+  'No.1010 ',
+  '사번 2019010 ',
+  '😀',
+  '㈜',
+  '\uFDFA',
+  '中',
+  '①',
+  '⑳',
+  '⁰',
+  '¹',
+  '²',
+  '³',
+  '\u0301',
+] as const;
+
+// A right neighbour must not begin with an ASCII word character, or it legitimately
+// extends an API key (and `\b` correctly stops a match there).
+const RIGHT_NEIGHBOURS = [
+  '',
+  ' ',
+  '😀',
+  '㈜',
+  '\uFDFA',
+  '中',
+  '①',
+  '⑳',
+  '⁰',
+  '¹',
+  '²',
+  '³',
+  '\u0301',
+] as const;
+
+type Random = () => number;
+
+function mulberry32(seed: number): Random {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let value = Math.imul(state ^ (state >>> 15), 1 | state);
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
+    return ((value ^ (value >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+function pick<T>(random: Random, values: readonly T[]): T {
+  return values[Math.floor(random() * values.length)] as T;
+}
+
+function int(random: Random, min: number, max: number): number {
+  return min + Math.floor(random() * (max - min + 1));
+}
+
+function digits(random: Random, count: number): string {
+  let value = '';
+  for (let index = 0; index < count; index += 1) value += String(int(random, 0, 9));
+  return value;
+}
+
+function letters(random: Random, count: number, alphabet: string): string {
+  let value = '';
+  for (let index = 0; index < count; index += 1) value += pick(random, [...alphabet]);
+  return value;
+}
+
+function fullwidth(value: string, random: Random, rate: number): string {
+  let out = '';
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    if (char === '@' && random() < rate) {
+      out += '\uFF20';
+    } else if (char === '+' && random() < rate) {
+      out += '\uFF0B';
+    } else if (char === '-' && random() < rate) {
+      out += '\uFF0D';
+    } else if (code >= 0x30 && code <= 0x39 && random() < rate) {
+      out += String.fromCodePoint(0xff10 + (code - 0x30));
+    } else {
+      out += char;
+    }
+  }
+  return out;
+}
+
+function sprinkle(value: string, random: Random): string {
+  let out = '';
+  for (const char of value) {
+    if (random() < 0.15) out += pick(random, DEFAULT_IGNORABLES);
+    out += char;
+  }
+  if (random() < 0.15) out += pick(random, DEFAULT_IGNORABLES);
+  return out;
+}
+
+interface Generated {
+  readonly kind: 'email' | 'phone' | 'rrn' | 'api_key';
+  readonly core: string;
+  readonly text: string;
+}
+
+function makePhone(random: Random): string {
+  switch (int(random, 0, 2)) {
+    case 0:
+      return `01${pick(random, ['0', '1', '6', '7', '8', '9'])}-${digits(random, 4)}-${digits(random, 4)}`;
+    case 1:
+      return `0${pick(random, ['2', '31', '32', '41', '51', '55'])}-${digits(random, 3 + int(random, 0, 1))}-${digits(random, 4)}`;
+    default: {
+      const groups = Array.from({ length: int(random, 2, 4) }, () => digits(random, int(random, 2, 4)));
+      return `+${pick(random, ['82', '1', '44', '61'])} ${groups.join(' ')}`;
+    }
+  }
+}
+
+function makeRrn(random: Random): string {
+  return `${digits(random, 6)}-${pick(random, ['1', '2', '3', '4', '5', '6', '7', '8'])}${digits(random, 6)}`;
+}
+
+function makeEmail(random: Random): string {
+  const local = letters(random, int(random, 8, 16), 'abcdefghijklmnopqrstuvwxyz0123456789');
+  return `${local}@${letters(random, int(random, 4, 8), 'abcdefghijklmnopqrstuvwxyz')}.${pick(random, ['com', 'co.kr', 'net'])}`;
+}
+
+function makeApiKey(random: Random): string {
+  if (random() < 0.5) return `AKIA${letters(random, 16, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')}`;
+  return `sk-${letters(random, int(random, 12, 20), 'abcdefghijklmnopqrstuvwxyz0123456789')}`;
+}
+
+function generate(random: Random): Generated {
+  const kind = pick(random, ['phone', 'rrn', 'email', 'api_key'] as const);
+  let core: string;
+  switch (kind) {
+    case 'phone':
+      core = makePhone(random);
+      break;
+    case 'rrn':
+      core = makeRrn(random);
+      break;
+    case 'email':
+      core = makeEmail(random);
+      break;
+    default:
+      core = makeApiKey(random);
+  }
+
+  let token = sprinkle(fullwidth(core, random, random() < 0.7 ? 0.35 : 0), random);
+  if (kind === 'phone' && core.startsWith('+') && random() < 0.3) {
+    token += ` ${digits(random, int(random, 5, 6))}`;
+  }
+
+  const left = pick(random, LEFT_NEIGHBOURS);
+  const right = pick(random, RIGHT_NEIGHBOURS);
+  return { kind, core, text: `${left}${token}${right}` };
+}
+
+function fold(text: string): string {
+  let out = '';
+  for (const char of text) {
+    if (/\p{Default_Ignorable_Code_Point}/u.test(char)) continue;
+    out += char.normalize('NFKC');
+  }
+  return out;
+}
+
+test('seeded 20,009-case fuzz never leaks generated PII', () => {
+  const failures: string[] = [];
+  let cases = 0;
+  for (let seed = 1; seed <= SEEDS; seed += 1) {
+    const random = mulberry32(seed);
+    for (let index = 0; index < CASES_PER_SEED; index += 1) {
+      cases += 1;
+      const { core, text } = generate(random);
+      const result = redact(text);
+      const leaked = fold(result.text).includes(core);
+      if (leaked || result.report.length === 0) {
+        if (failures.length < 10) {
+          failures.push(
+            `seed=${seed} case=${index} core=${JSON.stringify(core)} text=${JSON.stringify(text)} out=${JSON.stringify(result.text)} report=${JSON.stringify(result.report)}`,
+          );
+        }
+      }
+    }
+  }
+  expect(cases).toBe(SEEDS * CASES_PER_SEED);
+  expect(failures).toEqual([]);
 });
