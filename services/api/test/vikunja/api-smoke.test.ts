@@ -101,6 +101,7 @@ describe.skipIf(!live)('API smoke against live Vikunja with PG stores', () => {
       config: createConfig({
         provider: 'vikunja',
         vikunjaUrl: url,
+        vikunjaSecretsDir: tokenDir,
         reconcileIntervalMs: 0,
         cookieSecure: false,
         logLevel: 'silent',

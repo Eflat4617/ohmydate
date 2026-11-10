@@ -1,6 +1,7 @@
 import type { Id, TaskRepository, Clock } from '@ohmydate/domain';
-import { sql, type Kysely } from 'kysely';
-import type { Database } from '../../db/types.js';
+import pg from 'pg';
+
+const { Client } = pg;
 
 /**
  * Advisory-lock key for the in-process Vikunja reconciler. Kept stable so two
@@ -11,20 +12,40 @@ export const VIKUNJA_RECONCILE_ADVISORY_LOCK_KEY = 5_196_101;
 export type LeaderRun = () => Promise<void>;
 export type LeaderLock = (run: LeaderRun) => Promise<boolean>;
 
+export interface PgSessionLeaderLockOptions {
+  readonly connectionString: string;
+  readonly key?: number;
+}
+
 /**
- * `pg_try_advisory_xact_lock` leader election (08 §4). The lock is held for the
- * transaction that wraps one sweep; a non-leader run returns false immediately.
+ * Session-level `pg_try_advisory_lock` on a dedicated connection (08 §4).
+ *
+ * The lock is intentionally NOT transaction-scoped: a sweep makes HTTP calls,
+ * and holding an idle-in-transaction connection would exhaust the pool (or be
+ * killed by idle_in_transaction_session_timeout). The connection is closed in
+ * `finally`, which also releases the lock if the sweep throws.
  */
-export function createPgAdvisoryLeaderLock(db: Kysely<Database>): LeaderLock {
-  return async (run) =>
-    db.transaction().execute(async (trx) => {
-      const result = await sql<{ locked: boolean }>`
-        SELECT pg_try_advisory_xact_lock(${sql.lit(VIKUNJA_RECONCILE_ADVISORY_LOCK_KEY)}) AS locked
-      `.execute(trx);
-      if (result.rows[0]?.locked !== true) return false;
-      await run();
+export function createPgSessionLeaderLock(options: PgSessionLeaderLockOptions): LeaderLock {
+  const key = options.key ?? VIKUNJA_RECONCILE_ADVISORY_LOCK_KEY;
+  return async (run) => {
+    const client = new Client({ connectionString: options.connectionString });
+    await client.connect();
+    try {
+      const acquired = await client.query<{ locked: boolean }>(
+        'SELECT pg_try_advisory_lock($1) AS locked',
+        [key],
+      );
+      if (acquired.rows[0]?.locked !== true) return false;
+      try {
+        await run();
+      } finally {
+        await client.query('SELECT pg_advisory_unlock($1)', [key]).catch(() => undefined);
+      }
       return true;
-    });
+    } finally {
+      await client.end();
+    }
+  };
 }
 
 export interface ReconcilerLogger {
@@ -57,16 +78,18 @@ export interface VikunjaReconcilerOptions {
 /**
  * Periodic Vikunja reconciliation (08 §4, ADR-016 §3).
  *
- * On each tick the leader lists owners (the query includes owners whose mapping
- * has `needs_reconcile = true`) and calls `listChangedSince(owner, null)`. That
- * adapter call performs the remote `updated >= watermark` scan, the deleted-task
- * scan, and clears/commits any staged `needs_reconcile` rows, so a single pass
- * is both the incremental feed refresh and the reconciliation sweep.
+ * Disabled by default (`VIKUNJA_RECONCILE_INTERVAL_MS=0`) until FU-22 wires
+ * `expectedLocalVersion` into the adapter's non-create mapping puts; see the
+ * config docs. On each tick the leader lists owners (the query includes owners
+ * whose mapping has `needs_reconcile = true`) and calls
+ * `listChangedSince(owner, null)`. That adapter call performs the remote
+ * `updated >= watermark` scan, the deleted-task scan, and clears/commits any
+ * staged `needs_reconcile` rows.
  */
 export class VikunjaReconciler {
   readonly #options: VikunjaReconcilerOptions;
   #timer: { stop(): void } | undefined;
-  #running = false;
+  #inFlight: Promise<boolean> | undefined;
   #lastRunAt: string | undefined;
 
   constructor(options: VikunjaReconcilerOptions) {
@@ -94,35 +117,40 @@ export class VikunjaReconciler {
     }, this.#options.intervalMs);
   }
 
-  stop(): void {
+  /** Stops the timer and awaits any sweep already in flight. */
+  async stop(): Promise<void> {
     this.#timer?.stop();
     this.#timer = undefined;
+    await this.#inFlight?.catch(() => undefined);
   }
 
   /**
    * Runs one sweep. Returns false when another run is in flight or this process
    * is not the leader; the timer treats both as a no-op.
    */
-  async runOnce(): Promise<boolean> {
-    if (this.#running) return false;
-    this.#running = true;
-    try {
-      const owners = await this.#options.ownerIds();
-      return await this.#options.leaderLock(async () => {
-        for (const ownerId of owners) {
-          try {
-            await this.#options.taskRepository.listChangedSince(ownerId, null);
-          } catch (error) {
-            this.#options.logger?.warn('vikunja reconciliation failed for owner', {
-              ownerId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
+  runOnce(): Promise<boolean> {
+    if (this.#inFlight !== undefined) return Promise.resolve(false);
+    const promise = this.#execute().finally(() => {
+      if (this.#inFlight === promise) this.#inFlight = undefined;
+    });
+    this.#inFlight = promise;
+    return promise;
+  }
+
+  async #execute(): Promise<boolean> {
+    const owners = await this.#options.ownerIds();
+    return this.#options.leaderLock(async () => {
+      for (const ownerId of owners) {
+        try {
+          await this.#options.taskRepository.listChangedSince(ownerId, null);
+        } catch (error) {
+          this.#options.logger?.warn('vikunja reconciliation failed for owner', {
+            ownerId,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
-        this.#lastRunAt = this.#options.clock.now();
-      });
-    } finally {
-      this.#running = false;
-    }
+      }
+      this.#lastRunAt = this.#options.clock.now();
+    });
   }
 }
