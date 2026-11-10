@@ -7,13 +7,13 @@ import ts from 'typescript';
 
 const DEFAULT_SOURCE_ROOTS = ['apps', 'services', 'packages'];
 const ALL_SOURCE = /\.(?:js|mjs|cjs|jsx|ts|tsx|mts|cts)$/;
+const FIXTURE_EXCLUSION = 'scripts/__fixtures__/boundaries';
 const ignoredDirs = new Set([
   'node_modules',
   'dist',
   'coverage',
   '.git',
   '.turbo',
-  '__fixtures__',
   'upstream',
 ]);
 const builtins = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
@@ -39,14 +39,15 @@ export function loadWorkspacePackages(repoRoot) {
 export function collectDefaultFiles(repoRoot) {
   const files = [];
   for (const root of DEFAULT_SOURCE_ROOTS) {
-    files.push(...collectSourceFiles(join(repoRoot, root), ALL_SOURCE));
+    files.push(...collectSourceFiles(join(repoRoot, root), ALL_SOURCE, repoRoot));
   }
   for (const entry of safeReadDir(repoRoot)) {
     if (ignoredDirs.has(entry) || !ALL_SOURCE.test(entry)) continue;
     const absolute = join(repoRoot, entry);
+    if (isExcludedPath(repoRoot, absolute)) continue;
     if (statSync(absolute, { throwIfNoEntry: false })?.isFile()) files.push(absolute);
   }
-  files.push(...collectSourceFiles(join(repoRoot, 'scripts'), ALL_SOURCE));
+  files.push(...collectSourceFiles(join(repoRoot, 'scripts'), ALL_SOURCE, repoRoot));
   return [...new Set(files)].sort();
 }
 
@@ -71,19 +72,25 @@ function safeReadDir(dir) {
   }
 }
 
-function collectSourceFiles(dir, pattern) {
+function collectSourceFiles(dir, pattern, repoRoot) {
   const files = [];
   for (const entry of safeReadDir(dir)) {
     if (ignoredDirs.has(entry)) continue;
     const absolute = join(dir, entry);
+    if (isExcludedPath(repoRoot, absolute)) continue;
     const stats = statSync(absolute);
     if (stats.isDirectory()) {
-      files.push(...collectSourceFiles(absolute, pattern));
+      files.push(...collectSourceFiles(absolute, pattern, repoRoot));
     } else if (pattern.test(entry)) {
       files.push(absolute);
     }
   }
   return files;
+}
+
+function isExcludedPath(repoRoot, absolute) {
+  const rel = toPosix(relative(repoRoot, absolute));
+  return rel === FIXTURE_EXCLUSION || rel.startsWith(`${FIXTURE_EXCLUSION}/`);
 }
 
 function toPosix(value) {
@@ -196,6 +203,19 @@ function isTypeOnly(node) {
 function classifySpecifier({ repoRoot, file, workspacePackages }, specifier) {
   if (specifier.startsWith('node:') || builtins.has(specifier)) {
     return { kind: 'builtin' };
+  }
+  if (specifier.startsWith('file:')) {
+    let absolute;
+    try {
+      absolute = fileURLToPath(specifier);
+    } catch {
+      return { kind: 'external', packageName: specifier };
+    }
+    const rel = toPosix(relative(repoRoot, absolute));
+    if (isAbsolute(rel) || rel === '..' || rel.startsWith('../')) {
+      return { kind: 'external', packageName: specifier };
+    }
+    return { kind: 'path', rel };
   }
   if (specifier.startsWith('.')) {
     const absolute = resolve(dirname(file), specifier);
