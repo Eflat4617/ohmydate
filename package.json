@@ -13,10 +13,13 @@
     "test": "vitest run && pnpm --filter @ohmydate/web test",
     "check:api-client": "pnpm --filter @ohmydate/web gen:api && git diff --exit-code apps/web/src/api/schema.d.ts",
     "check:boundaries": "node scripts/check-boundaries.mjs",
+    "e2e": "playwright test -c e2e/playwright.config.ts",
     "ci": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:api-client && pnpm run check:boundaries"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.11.0",
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.65.0",
     "@types/node": "24.19.2",
     "eslint": "10.14.0",
     "typescript": "6.0.3",
