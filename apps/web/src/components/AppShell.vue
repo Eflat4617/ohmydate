@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
+import { nextTick, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
@@ -29,8 +29,14 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function requestNewTask(): void {
-  ui.requestNewTask();
-  if (route.name !== 'inbox') void router.push({ name: 'inbox' });
+  if (route.name === 'inbox') {
+    ui.requestNewTask();
+    return;
+  }
+  void router.push({ name: 'inbox' }).then(async () => {
+    await nextTick();
+    ui.requestNewTask();
+  });
 }
 
 function onKeydown(event: KeyboardEvent): void {

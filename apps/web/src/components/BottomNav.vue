@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useUiStore } from '../stores/ui';
 
@@ -7,8 +8,14 @@ const router = useRouter();
 const route = useRoute();
 
 function newTask(): void {
-  ui.requestNewTask();
-  if (route.name !== 'inbox') void router.push({ name: 'inbox' });
+  if (route.name === 'inbox') {
+    ui.requestNewTask();
+    return;
+  }
+  void router.push({ name: 'inbox' }).then(async () => {
+    await nextTick();
+    ui.requestNewTask();
+  });
 }
 </script>
 
