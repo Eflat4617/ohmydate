@@ -93,6 +93,95 @@ test.each(rrnFormats)('masks RRN format %s without leaking it', (format) => {
   expect(JSON.stringify(result.report)).not.toContain(format);
 });
 
+/**
+ * Mathematical alphanumeric and segmented digits are Unicode `Nd`, not footnote markers,
+ * and NFKC folds them to ASCII digits. They must mask just like ASCII digits at any
+ * position, including the first digit of the token.
+ */
+const DIGIT_STYLE_BASES = {
+  'math-bold': 0x1d7ce,
+  'double-struck': 0x1d7d8,
+  sans: 0x1d7e2,
+  'sans-bold': 0x1d7ec,
+  monospace: 0x1d7f6,
+  segmented: 0x1fbf0,
+} as const;
+
+type DigitStyle = keyof typeof DIGIT_STYLE_BASES;
+
+function styleDigits(style: DigitStyle, core: string): string {
+  const base = DIGIT_STYLE_BASES[style];
+  return [...core]
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      return code >= 0x30 && code <= 0x39
+        ? String.fromCodePoint(base + code - 0x30)
+        : char;
+    })
+    .join('');
+}
+
+const styledDigitForms = [
+  { name: 'mobile phone', core: '010-1234-5678', kind: 'phone' },
+  { name: 'glued mobile phone', core: '01012345678', kind: 'phone' },
+  { name: 'landline phone', core: '02-123-4567', kind: 'phone' },
+  { name: '82-prefix phone', core: '82-10-1234-5678', kind: 'phone' },
+  { name: 'RRN separated', core: '900101-1234567', kind: 'rrn' },
+  { name: 'RRN glued', core: '9001011234567', kind: 'rrn' },
+] as const;
+
+test.each(
+  (Object.keys(DIGIT_STYLE_BASES) as DigitStyle[]).flatMap((style) =>
+    styledDigitForms.map((form) => ({ style, ...form })),
+  ),
+)('masks $style $name without leaking it', ({ style, core, kind }) => {
+  const format = styleDigits(style, core);
+  const mask = kind === 'rrn' ? '[REDACTED_RRN]' : '[REDACTED_PHONE]';
+  const result = redact(`x ${format} y`);
+  expect(result.text).toBe(`x ${mask} y`);
+  expect(result.report).toEqual([{ kind, count: 1 }]);
+  expect(result.text).not.toContain(format);
+});
+
+test.each([
+  '𝟎𝟏𝟎-𝟏𝟐𝟑𝟒-𝟓𝟔𝟕𝟖',
+  '𝟗𝟎𝟎𝟏𝟎𝟏-𝟏𝟐𝟑𝟒𝟓𝟔𝟕',
+  '𝟗𝟎𝟎𝟏𝟎𝟏𝟏𝟐𝟑𝟒𝟓𝟔𝟕',
+  '𝟎𝟐-𝟏𝟐𝟑-𝟒𝟓𝟔𝟕',
+  '𝟖𝟐-𝟏𝟎-𝟏𝟐𝟑𝟒-𝟓𝟔𝟕𝟖',
+  '🯰🯱🯰-🯱🯲🯳🯴-🯵🯶🯷🯸',
+])('masks the literal math/segmented digit token %s', (format) => {
+  const result = redact(format);
+  expect(result.text).not.toBe(format);
+  expect(result.report).toHaveLength(1);
+  expect(result.text).not.toContain(format);
+});
+
+/**
+ * Decision (FU-32): a number written entirely in superscript or subscript digits is a
+ * real number and is masked. A token that mixes them with real digits is a known
+ * limitation (below): the leading glyph stays a marker, so the real-digit start is not
+ * a valid phone/RRN shape.
+ */
+const superSubScriptForms = [
+  { input: '⁰¹⁰-¹²³⁴-⁵⁶⁷⁸', kind: 'phone' },
+  { input: '⁰¹⁰¹²³⁴⁵⁶⁷⁸', kind: 'phone' },
+  { input: '₀₁₀-₁₂₃₄-₅₆₇₈', kind: 'phone' },
+  { input: '₀₁₀₁₂₃₄₅₆₇₈', kind: 'phone' },
+  { input: '⁹⁰⁰¹⁰¹-¹²³⁴⁵⁶⁷', kind: 'rrn' },
+  { input: '₉₀₀₁₀₁-₁₂₃₄₅₆₇', kind: 'rrn' },
+] as const;
+
+test.each(superSubScriptForms)(
+  'masks a number written entirely in super/subscript digits $input',
+  ({ input, kind }) => {
+    const result = redact(input);
+    expect(result.text).toBe(kind === 'rrn' ? '[REDACTED_RRN]' : '[REDACTED_PHONE]');
+    expect(result.report).toEqual([{ kind, count: 1 }]);
+    expect(result.text).not.toContain(input);
+  },
+);
+
 test('masks API-key-like tokens', () => {
   const tokens = [
     'sk-proj-abcdefgh12345678',
@@ -182,6 +271,9 @@ const boundaryRegressions: readonly BoundaryRegression[] = [
   { input: '①9001011234567', output: '①[REDACTED_RRN]', kind: 'rrn' },
   { input: '⁰9001011234567', output: '⁰[REDACTED_RRN]', kind: 'rrn' },
   { input: '㉑9001011234567', output: '㉑[REDACTED_RRN]', kind: 'rrn' },
+  // A footnote marker followed by a math-digit RRN keeps the marker, masks the RRN.
+  { input: '²𝟥𝟤𝟫𝟪𝟩𝟪𝟩𝟩𝟤𝟣ㅤ𝟨𝟪𝟢»', output: '²[REDACTED_RRN]»', kind: 'rrn' },
+  { input: '①𝟎𝟏𝟎-𝟏𝟐𝟑𝟒-𝟓𝟔𝟕𝟖', output: '①[REDACTED_PHONE]', kind: 'phone' },
 ];
 
 const endBoundaryFallbacks = [
@@ -324,6 +416,10 @@ const knownLimitations = [
   {
     name: 'domain label longer than 63 characters',
     text: `jane@${'a'.repeat(64)}.com`,
+  },
+  {
+    name: 'mixed superscript and math digits in one number',
+    text: '⁰¹⁰-¹²³⁴-⁵⁶⁷𝟖',
   },
 ];
 
@@ -782,17 +878,28 @@ function compatibilityChar(char: string, random: Random, rate: number): string {
   return char;
 }
 
+const FUZZ_DIGIT_STYLE_BASES = [0x1d7ce, 0x1d7d8, 0x1d7e2, 0x1d7ec, 0x1d7f6, 0x1fbf0] as const;
+
+/** Mathematical or segmented digit, still Unicode `Nd` and still NFKC-folds to ASCII. */
+function styledDigit(char: string, random: Random): string {
+  const code = char.charCodeAt(0);
+  if (code < 0x30 || code > 0x39) return char;
+  return String.fromCodePoint(pick(random, FUZZ_DIGIT_STYLE_BASES) + code - 0x30);
+}
+
 function buildToken(
   core: string,
   random: Random,
   rate: number,
+  styled: boolean,
 ): { readonly token: string; readonly ranges: readonly CoreRange[] } {
   let token = '';
   const ranges: CoreRange[] = [];
   for (const char of core) {
     if (random() < 0.15) token += pick(random, DEFAULT_IGNORABLES);
     const start = token.length;
-    token += compatibilityChar(char, random, rate);
+    const base = styled ? styledDigit(char, random) : char;
+    token += compatibilityChar(base, random, rate);
     ranges.push({ start, end: token.length });
   }
   if (random() < 0.15) token += pick(random, DEFAULT_IGNORABLES);
@@ -816,7 +923,14 @@ function generate(random: Random): Generated {
       core = makeApiKey(random);
   }
 
-  const { token, ranges } = buildToken(core, random, random() < 0.7 ? 0.35 : 0);
+  const styled =
+    (kind === 'phone' || kind === 'rrn') && random() < 0.5;
+  const { token, ranges } = buildToken(
+    core,
+    random,
+    random() < 0.7 ? 0.35 : 0,
+    styled,
+  );
   let body = token;
   if (kind === 'phone' && core.startsWith('+') && random() < 0.3) {
     body += ` ${digits(random, int(random, 5, 6))}`;
