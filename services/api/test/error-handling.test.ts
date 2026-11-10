@@ -54,7 +54,10 @@ function failingRepos(factory: () => Error): AppRepositories {
       throw factory();
     },
   } as unknown as TaskRepository;
-  return { tasks, projects: {} } as unknown as AppRepositories;
+  const projects = {
+    getInbox: async () => ({ id: '01900000-0000-7000-8000-0000000000aa' }),
+  };
+  return { tasks, projects } as unknown as AppRepositories;
 }
 
 describe.skipIf(!hasDatabase)('500 error handling', () => {
