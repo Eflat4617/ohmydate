@@ -88,3 +88,4 @@
 - `PATCH /user/settings/general`(기본 프로젝트 지정)은 **JWT 전용**이라 토큰으로는 불가 → planner는 기본 프로젝트 쓰기를 best-effort로 취급(FU-23 수정).
 - 토큰 참조는 DB에 `env:VIKUNJA_TOKEN_OWNER_*` 또는 `VIKUNJA_SECRETS_DIR` 내 파일만(FU-27). 회전 절차: 새 토큰 발급(동일 권한) → 시크릿 파일/환경 갱신 → API 재시작 → 구 토큰 폐기. FU-23 배포 시 기존 토큰은 `other:user` 포함으로 재발급 필요.
 - 재조정기(2026-11-11, FU-28): `PROVIDER=vikunja` + DB 설정 시 기본 5분 간격 ON(`VIKUNJA_RECONCILE_INTERVAL_MS=0`으로 끔). 리더는 PG advisory lock 1개 연결. 서버측 TCP keepalive가 길면(기본 7200s) 네트워크 분할 시 다른 인스턴스로의 리더 이전이 지연될 수 있음 → `tcp_keepalives_idle=30`/`interval=10`/`count=3` 권장(FU-33에서 세션 옵션으로 지정 예정).
+- 재조정기 리더 잠금 세션은 서버 keepalive를 `options` 시작 파라미터로 요청한다(FU-33). **주의:** `DATABASE_URL`에 `?options=...`를 넣으면 node-pg 규칙상 URL 값이 이를 덮어써 keepalive가 꺼진다(경고 없음). PgBouncer 등 `options` 시작 파라미터를 거부하는 풀러 뒤에서는 `ignore_startup_parameters = options` 설정 필요 — 아니면 잠금 연결이 매번 실패하고 재조정이 사실상 꺼진다(FU-36에서 경고/병합 처리 예정).
