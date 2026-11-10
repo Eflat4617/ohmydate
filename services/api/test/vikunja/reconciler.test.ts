@@ -158,7 +158,7 @@ describe.skipIf(!hasDatabase)('Vikunja background reconciler', () => {
       ownerIds: async () => [randomUUID() as Id],
       leaderLock: async (run) => {
         await gate;
-        await run(new AbortController().signal);
+        await run({ signal: new AbortController().signal, isLeader: async () => true });
         return true;
       },
       clock,
@@ -194,6 +194,60 @@ describe.skipIf(!hasDatabase)('Vikunja background reconciler', () => {
       config: createConfig({
         provider: 'vikunja',
         vikunjaUrl: 'http://127.0.0.1:3456',
+        logLevel: 'silent',
+      }),
+      repos,
+      clock,
+      ids,
+      db: store.db,
+      logger: false,
+    });
+    try {
+      expect(app).toBeDefined();
+      expect(intervalSpy).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+      intervalSpy.mockRestore();
+    }
+  });
+
+  test('buildApp with vikunja defaults starts the reconciler at five minutes', async () => {
+    const clock = new FakeClock();
+    const ids = createSeededIdGenerator(32, clock);
+    const repos = createInMemoryRepositories({ clock, ids });
+    const intervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const app = await buildApp({
+      config: createConfig({
+        provider: 'vikunja',
+        vikunjaUrl: 'http://127.0.0.1:3456',
+        databaseUrl: requireDatabaseUrl(),
+        logLevel: 'silent',
+      }),
+      repos,
+      clock,
+      ids,
+      db: store.db,
+      logger: false,
+      reconcileLockKey: uniqueLockKey(),
+    });
+    try {
+      expect(app).toBeDefined();
+      expect(intervalSpy).toHaveBeenCalledWith(expect.any(Function), 300_000);
+    } finally {
+      await app.close();
+      intervalSpy.mockRestore();
+    }
+  });
+
+  test('buildApp memory provider never starts the reconciler even with a database URL', async () => {
+    const clock = new FakeClock();
+    const ids = createSeededIdGenerator(33, clock);
+    const repos = createInMemoryRepositories({ clock, ids });
+    const intervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const app = await buildApp({
+      config: createConfig({
+        provider: 'memory',
+        databaseUrl: requireDatabaseUrl(),
         logLevel: 'silent',
       }),
       repos,
