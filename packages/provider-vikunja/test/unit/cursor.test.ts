@@ -19,6 +19,7 @@ describe('change cursor', () => {
   test('round-trips the updated second, external id and sequence', () => {
     const cursor = {
       seconds: 1_794_332_393,
+      remoteSeconds: 1_794_332_390,
       externalId: '42',
       sequence: 7,
       epoch: 'epoch-1',
@@ -30,6 +31,7 @@ describe('change cursor', () => {
   test('overlaps the same second and orders by external id', () => {
     const cursor = {
       seconds: 100,
+      remoteSeconds: 100,
       externalId: '20',
       sequence: 3,
       epoch: 'epoch-1',
@@ -39,6 +41,26 @@ describe('change cursor', () => {
     expect(isChangeAfterCursor({ seconds: 100, externalId: '19' }, cursor)).toBe(false);
     expect(isChangeAfterCursor({ seconds: 100, externalId: '21' }, cursor)).toBe(true);
     expect(isChangeAfterCursor({ seconds: 101, externalId: '1' }, cursor)).toBe(true);
+  });
+
+  test('a cursor without a remote watermark restarts the remote scan at zero', () => {
+    const legacy = Buffer.from(
+      JSON.stringify({
+        s: 500,
+        e: '42',
+        q: 2,
+        ep: 'epoch-1',
+        o: TASK_ID,
+      }),
+    ).toString('base64url');
+    expect(decodeChangeCursor(legacy)).toEqual({
+      seconds: 500,
+      remoteSeconds: 0,
+      externalId: '42',
+      sequence: 2,
+      epoch: 'epoch-1',
+      owner: TASK_ID,
+    });
   });
 
   test('rejects malformed cursors with ValidationFailedError', () => {
