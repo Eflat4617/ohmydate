@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 07:18 | **FU-37R-1 REQUEST_CHANGES (Sol)**: MEDIUM 3(시간 초과 클라이언트가 풀로 재사용됨, 느린 본문이 종료를 15s 강제 종료까지 붙잡음, connectionTimeout 10s가 정상적인 긴 핸들러를 끊음) + LOW(DB 없으면 빌드 점검 건너뜀). 크래시 자체는 수정 확인. 수정 1/2 → ctx_089b3d67a2cc (클라이언트 폐기, 수신 시간 제한과 핸들러 분리, closeAllConnections 드레인) | reviews/FU-37R-1.md | orchestrator |
 | 2026-11-11 07:16 | **M2-03R-1 REQUEST_CHANGES (Sol)**: HIGH 6(승인 중복·부분 실패, 거부된 PATCH 덮어쓰기, 부분 답변 500, 답변 값 미검증, 오류 로그 답변 노출, 생성 실패 시 수동 경로 접근 불가), MEDIUM 4, LOW 1. 수정 라운드 1/2 → ctx_0fc03d38c6d8. 설계 결정: 0006 intake_approval(+step) 리스 + 단계별 사전 배정 plannedId(TaskRepository.create opts, ADR-016 마커 복구), 생성 실패는 201 수동 세션으로 강등, pause는 도메인 지원 전이만, FU-40(title/description) 포함. **범위 MEDIUM 근거:** M2-02R 계약 수정·빌드 목록 수정은 orchestrator가 07:00/07:03 send(msg_64892027fc9d 등)로 승인한 범위 확장 | reviews/M2-03R-1.md | orchestrator |
 | 2026-11-11 07:13 | M2-04 worker_done (a162ae4, web 84 tests, build OK). 리뷰 보류: M2-03 계약 변경 병합 + FU-40(title/description 계약 공백) 반영 후 Sol 리뷰. 워커는 follow-up용으로 유지 | worker report | orchestrator |
 | 2026-11-11 07:03 | **Sol 복귀 확인**: `codex exec -m gpt-6.1-sol -c model_reasoning_effort=high` → 헤더 model: gpt-6.1-sol / reasoning effort: high, 응답 SOL_OK. 이후 신규 리뷰는 Sol(MODEL_BINDINGS §1). 진행 중인 M3-02cR(Opus)은 유지. M2-03 worker_done(de1af71..957017c, DeepSeek-high 136) → 리뷰 전 통합본 병합 + 빌드 목록에 llm 추가 지시 | codex probe | orchestrator |
