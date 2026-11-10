@@ -79,11 +79,16 @@ export function ifNoneMatch(request: FastifyRequest, etag: string): boolean {
   );
 }
 
+/**
+ * 08 §1 pinned rule: hash = method + path (no query string) + normalized body.
+ * If-Match and other headers are deliberately excluded.
+ */
 export function requestHash(request: FastifyRequest, body: unknown): string {
+  const path = request.url.split('?', 1)[0] ?? request.url;
   return sha256Hex(
     canonicalJson({
       method: request.method,
-      url: request.url,
+      path,
       body: body ?? null,
     }),
   );

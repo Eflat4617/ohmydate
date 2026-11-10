@@ -73,6 +73,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
       headers: authHeaders(alice, { 'if-none-match': 'W/"1"' }),
     });
     expect(notModified.statusCode).toBe(304);
+    expect(notModified.headers['etag']).toBe('W/"1"');
   });
 
   test('updates with matching If-Match and rejects stale or missing preconditions', async () => {
@@ -170,6 +171,7 @@ describe.skipIf(!hasDatabase)('projects and tasks', () => {
     });
     expect(dependency.statusCode).toBe(201);
     expect(dependency.json()).toEqual({ taskId: first.id, dependsOnTaskId: second.id });
+    expect(dependency.headers['etag']).toBe('W/"2"');
 
     const fetched = await ctx.app.inject({
       method: 'GET',

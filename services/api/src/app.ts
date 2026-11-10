@@ -106,6 +106,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof ProblemError) {
+      if (error.headers !== undefined) {
+        for (const [name, value] of Object.entries(error.headers)) reply.header(name, value);
+      }
       return sendProblem(
         request,
         reply,
@@ -134,7 +137,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     }
     const statusCode = (error as { statusCode?: number }).statusCode;
     if (statusCode === 401) {
-      return sendProblem(request, reply, 401, 'forbidden', 'Unauthenticated', 'authentication required');
+      return sendProblem(request, reply, 401, 'unauthenticated', 'Unauthenticated', 'authentication required');
     }
     if (statusCode === 429) {
       return sendProblem(request, reply, 429, 'rate_limited', 'Rate limited', 'retry later');
@@ -144,7 +147,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       request,
       reply,
       500,
-      'validation_failed',
+      'internal_error',
       'Internal error',
       'an unexpected error occurred',
     );
@@ -164,7 +167,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     ids,
     ttlMs: config.idempotencyTtlMs,
   });
-  const auth = new AuthService({ users, hasher, sessions, rateLimiter });
+  const dummyPasswordHash = await hasher.hash('ohmydate-login-timing-dummy');
+  const auth = new AuthService({
+    users,
+    hasher,
+    sessions,
+    rateLimiter,
+    dummyPasswordHash,
+  });
 
   const runtime = createRuntime({
     config,

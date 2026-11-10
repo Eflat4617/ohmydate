@@ -52,31 +52,12 @@ export class PgIdempotencyStore implements IdempotencyStore {
 
   async reserve(input: IdempotencyReserveInput): Promise<IdempotencyReservation> {
     const nowMs = instantToEpochMs(this.#clock.now());
+    const expiresAt = new Date(nowMs + this.#ttlMs);
 
-    return this.#db.transaction().execute(async (trx) => {
-      const existing = await trx
-        .selectFrom('idempotency_record')
-        .selectAll()
-        .where('owner_id', '=', input.ownerId)
-        .where('key', '=', input.key)
-        .executeTakeFirst();
-
-      if (existing !== undefined) {
-        if (existing.expires_at.getTime() <= nowMs) {
-          await trx
-            .deleteFrom('idempotency_record')
-            .where('id', '=', existing.id)
-            .execute();
-        } else {
-          if (existing.request_hash !== input.requestHash) return { kind: 'mismatch' };
-          if (existing.status === 'completed' && existing.response !== null) {
-            return { kind: 'replay', response: parseResponse(existing.response) };
-          }
-          return { kind: 'pending' };
-        }
-      }
-
-      await trx
+    // INSERT ... ON CONFLICT DO NOTHING avoids the 23505 race: concurrent
+    // requests with the same (owner, key) never surface a unique violation.
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const inserted = await this.#db
         .insertInto('idempotency_record')
         .values({
           id: this.#ids.next(),
@@ -85,12 +66,42 @@ export class PgIdempotencyStore implements IdempotencyStore {
           route: input.route,
           request_hash: input.requestHash,
           status: 'pending',
-          expires_at: new Date(nowMs + this.#ttlMs),
+          expires_at: expiresAt,
         })
-        .execute();
+        .onConflict((oc) => oc.columns(['owner_id', 'key']).doNothing())
+        .returning('id')
+        .executeTakeFirst();
 
-      return { kind: 'reserved' };
-    });
+      if (inserted !== undefined) return { kind: 'reserved' };
+
+      const existing = await this.#db
+        .selectFrom('idempotency_record')
+        .selectAll()
+        .where('owner_id', '=', input.ownerId)
+        .where('key', '=', input.key)
+        .executeTakeFirst();
+
+      if (existing === undefined) continue;
+
+      if (existing.expires_at.getTime() <= nowMs) {
+        await this.#db
+          .deleteFrom('idempotency_record')
+          .where('id', '=', existing.id)
+          .where('expires_at', '<=', new Date(nowMs))
+          .execute();
+        continue;
+      }
+
+      if (existing.request_hash !== input.requestHash) return { kind: 'mismatch' };
+      if (existing.status === 'completed' && existing.response !== null) {
+        return { kind: 'replay', response: parseResponse(existing.response) };
+      }
+      return { kind: 'pending' };
+    }
+
+    // The row kept changing under us (expiry/release). Treat it as in flight
+    // rather than failing the request with a 500.
+    return { kind: 'pending' };
   }
 
   async complete(input: IdempotencyCompleteInput): Promise<void> {

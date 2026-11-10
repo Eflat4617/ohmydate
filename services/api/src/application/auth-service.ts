@@ -16,6 +16,11 @@ export interface AuthServiceDeps {
   readonly hasher: PasswordHasher;
   readonly sessions: SessionStore;
   readonly rateLimiter: LoginRateLimiter;
+  /**
+   * Argon2id hash produced with the same parameters as real users. Unknown
+   * emails verify against it so login latency does not reveal account existence.
+   */
+  readonly dummyPasswordHash: string;
 }
 
 export interface LoginResult {
@@ -28,12 +33,14 @@ export class AuthService {
   readonly #hasher: AuthServiceDeps['hasher'];
   readonly #sessions: AuthServiceDeps['sessions'];
   readonly #rateLimiter: AuthServiceDeps['rateLimiter'];
+  readonly #dummyPasswordHash: string;
 
   constructor(deps: AuthServiceDeps) {
     this.#users = deps.users;
     this.#hasher = deps.hasher;
     this.#sessions = deps.sessions;
     this.#rateLimiter = deps.rateLimiter;
+    this.#dummyPasswordHash = deps.dummyPasswordHash;
   }
 
   async login(email: string, password: string, ip: string): Promise<LoginResult> {
@@ -48,11 +55,12 @@ export class AuthService {
     }
 
     const user = await this.#users.findByEmail(normalized);
-    const passwordOk = user !== null && (await this.#hasher.verify(user.passwordHash, password));
+    const passwordHash = user?.passwordHash ?? this.#dummyPasswordHash;
+    const passwordOk = await this.#hasher.verify(passwordHash, password);
     if (user === null || !passwordOk) {
       throw new ProblemError({
         status: 401,
-        code: 'forbidden',
+        code: 'unauthenticated',
         title: 'Invalid credentials',
         detail: 'email or password is incorrect',
       });
@@ -71,7 +79,7 @@ export class AuthService {
     if (user === null) {
       throw new ProblemError({
         status: 401,
-        code: 'forbidden',
+        code: 'unauthenticated',
         title: 'Invalid session',
         detail: 'the session user no longer exists',
       });

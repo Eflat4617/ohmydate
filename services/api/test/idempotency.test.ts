@@ -93,7 +93,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
     const key = newIdempotencyKey();
     const payload = { title: 'Pending body' };
     const hash = sha256Hex(
-      canonicalJson({ method: 'POST', url: '/tasks', body: payload }),
+      canonicalJson({ method: 'POST', path: '/tasks', body: payload }),
     );
     await ctx.db
       .insertInto('idempotency_record')
@@ -115,10 +115,19 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
       payload,
     });
     expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ code: 'idempotency_in_progress' });
+    expect(response.headers['retry-after']).toBe('1');
     expect(await listTitles(alice, 'Pending body')).toBe(0);
   });
 
-  test('concurrent requests with the same key create at most one task', async () => {
+  test('concurrent requests with the same key: one create, rest 409/replay, no 5xx', async () => {
+    // Pre-warm the pool so the race is not serialized by connection creation.
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        ctx.db.selectFrom('user').select('id').limit(1).execute(),
+      ),
+    );
+
     const key = newIdempotencyKey();
     const payload = { title: 'Concurrent body' };
     const makeRequest = () =>
@@ -129,9 +138,19 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
         payload,
       });
 
-    const [first, second] = await Promise.all([makeRequest(), makeRequest()]);
-    const statuses = [first.statusCode, second.statusCode].sort((a, b) => a - b);
-    expect(statuses).toEqual([201, 409]);
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, () => makeRequest()),
+    );
+    const statuses = responses.map((response) => response.statusCode);
+    expect(statuses.every((status) => status === 201 || status === 409)).toBe(true);
+    expect(statuses.filter((status) => status === 201).length).toBeGreaterThanOrEqual(1);
+    for (const response of responses.filter((entry) => entry.statusCode === 409)) {
+      expect((response.json() as { code: string }).code).toBe('idempotency_in_progress');
+      expect(response.headers['retry-after']).toBe('1');
+    }
+    const created = responses.filter((entry) => entry.statusCode === 201);
+    const ids = new Set(created.map((entry) => (entry.json() as { id: string }).id));
+    expect(ids.size).toBe(1);
     expect(await listTitles(alice, 'Concurrent body')).toBe(1);
   });
 
@@ -154,6 +173,86 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(201);
     expect((first.json() as { id: string }).id).not.toBe((second.json() as { id: string }).id);
+  });
+
+  test('a stored 422 is replayed even after the domain state changes', async () => {
+    const createTask = async (title: string) => {
+      const response = await ctx.app.inject({
+        method: 'POST',
+        url: '/tasks',
+        headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
+        payload: { title },
+      });
+      expect(response.statusCode).toBe(201);
+      return response.json() as { id: string };
+    };
+    const first = await createTask('Cycle A');
+    const second = await createTask('Cycle B');
+
+    const depends = await ctx.app.inject({
+      method: 'POST',
+      url: `/tasks/${second.id}/dependencies`,
+      headers: authHeaders(alice, {
+        'if-match': 'W/"1"',
+        'idempotency-key': newIdempotencyKey(),
+      }),
+      payload: { dependsOnTaskId: first.id },
+    });
+    expect(depends.statusCode).toBe(201);
+
+    const key = newIdempotencyKey();
+    const cycleBody = { dependsOnTaskId: second.id };
+    const cycle = await ctx.app.inject({
+      method: 'POST',
+      url: `/tasks/${first.id}/dependencies`,
+      headers: authHeaders(alice, { 'if-match': 'W/"1"', 'idempotency-key': key }),
+      payload: cycleBody,
+    });
+    expect(cycle.statusCode).toBe(422);
+    expect(cycle.json()).toMatchObject({ code: 'dependency_cycle' });
+
+    const stored = await ctx.db
+      .selectFrom('idempotency_record')
+      .selectAll()
+      .where('owner_id', '=', aliceId)
+      .where('key', '=', key)
+      .executeTakeFirstOrThrow();
+    expect(stored.status).toBe('completed');
+
+    // Remove the reverse edge so the same request would now succeed.
+    const cleared = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/tasks/${second.id}`,
+      headers: authHeaders(alice, {
+        'if-match': 'W/"2"',
+        'idempotency-key': newIdempotencyKey(),
+      }),
+      payload: { dependsOn: [] },
+    });
+    expect(cleared.statusCode).toBe(200);
+
+    const beforeOutbox = await ctx.db
+      .selectFrom('outbox_event')
+      .select((eb) => eb.fn.countAll<string>().as('count'))
+      .where('owner_id', '=', aliceId)
+      .executeTakeFirstOrThrow();
+
+    const replay = await ctx.app.inject({
+      method: 'POST',
+      url: `/tasks/${first.id}/dependencies`,
+      headers: authHeaders(alice, { 'if-match': 'W/"1"', 'idempotency-key': key }),
+      payload: cycleBody,
+    });
+    expect(replay.statusCode).toBe(422);
+    expect(replay.headers['content-type']).toContain('application/problem+json');
+    expect(replay.json()).toEqual(cycle.json());
+
+    const afterOutbox = await ctx.db
+      .selectFrom('outbox_event')
+      .select((eb) => eb.fn.countAll<string>().as('count'))
+      .where('owner_id', '=', aliceId)
+      .executeTakeFirstOrThrow();
+    expect(Number(afterOutbox.count)).toBe(Number(beforeOutbox.count));
   });
 
   test('a failed mutation releases the key so a corrected retry can run', async () => {

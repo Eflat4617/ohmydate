@@ -52,6 +52,7 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
     });
     expect(wrong.statusCode).toBe(401);
     expect(wrong.headers['content-type']).toContain('application/problem+json');
+    expect(wrong.json()).toMatchObject({ code: 'unauthenticated' });
 
     const unknown = await ctx.app.inject({
       method: 'POST',
@@ -140,6 +141,7 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
       headers: authHeaders(session, { 'if-none-match': 'W/"1"' }),
     });
     expect(notModified.statusCode).toBe(304);
+    expect(notModified.headers['etag']).toBe('W/"1"');
     expect(notModified.body).toBe('');
   });
 

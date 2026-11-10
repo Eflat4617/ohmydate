@@ -45,7 +45,18 @@ export class TaskService {
 
   async remove(ownerId: Id, id: Id, expectedVersion: Version): Promise<Version> {
     await this.#tasks.softDelete(ownerId, id, expectedVersion);
-    return (expectedVersion + 1) as Version;
+    // The port returns void, so read the version the repository actually
+    // recorded instead of assuming expectedVersion + 1.
+    const changes = await this.#tasks.listChangedSince(ownerId, null);
+    let recorded: Version | undefined;
+    for (const change of changes.changes) {
+      if (change.id !== id) continue;
+      if (recorded === undefined || change.version > recorded) recorded = change.version;
+    }
+    if (recorded === undefined) {
+      throw new Error(`task ${id} missing from change feed after soft delete`);
+    }
+    return recorded;
   }
 
   /**

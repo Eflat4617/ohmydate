@@ -15,6 +15,7 @@ import {
   type RouteDefinition,
 } from '@ohmydate/contracts';
 import {
+  DomainError,
   type Id,
   type Page,
   type Project,
@@ -48,7 +49,7 @@ import {
   requestHash,
   headerValue,
 } from './headers.js';
-import { ProblemError } from './problem.js';
+import { ProblemError, domainErrorToProblem, problemBodyFor } from './problem.js';
 
 const SID_COOKIE = 'sid';
 const CSRF_COOKIE = 'csrf';
@@ -184,7 +185,7 @@ function currentAuth(request: FastifyRequest) {
   if (request.authSession === null) {
     throw new ProblemError({
       status: 401,
-      code: 'forbidden',
+      code: 'unauthenticated',
       title: 'Unauthenticated',
       detail: 'a valid session cookie is required',
     });
@@ -280,9 +281,10 @@ async function runIdempotent(
   if (reservation.kind === 'pending') {
     throw new ProblemError({
       status: 409,
-      code: 'validation_failed',
+      code: 'idempotency_in_progress',
       title: 'Idempotency key in progress',
       detail: 'another request with this Idempotency-Key is still pending',
+      headers: { 'Retry-After': '1' },
     });
   }
   if (reservation.kind === 'replay') {
@@ -312,7 +314,27 @@ async function runIdempotent(
     });
     return sendOutcome(reply, outcome);
   } catch (error) {
-    await runtime.idempotency.release(auth.userId, key);
+    // 08 §1 pinned storage rule: 409/422 domain results are stored and replayed
+    // with no outbox rows; everything else releases the reservation.
+    if (error instanceof DomainError) {
+      const problem = domainErrorToProblem(error);
+      if (problem.status === 409 || problem.status === 422) {
+        await runtime.idempotency.complete({
+          ownerId: auth.userId,
+          key,
+          response: {
+            status: problem.status,
+            body: problemBodyFor(request, problem),
+            headers: { 'Content-Type': 'application/problem+json' },
+          },
+          outbox: [],
+        });
+      } else {
+        await runtime.idempotency.release(auth.userId, key);
+      }
+    } else {
+      await runtime.idempotency.release(auth.userId, key);
+    }
     throw error;
   }
 }
@@ -433,6 +455,7 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       return {
         status: 201,
         body,
+        headers: { ETag: etagForVersion(result.version) },
         outbox: [{ topic: 'task.updated', taskId: result.taskId, version: result.version }],
       };
     });
@@ -454,7 +477,7 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       const auth = currentAuth(request);
       const user = await runtime.auth.me(auth.userId);
       const etag = etagForVersion(user.version);
-      if (ifNoneMatch(request, etag)) return reply.code(304).send();
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
       return reply.code(200).header('ETag', etag).send(toUserDto(user));
     },
     updateMySettings: userSettings,
@@ -467,7 +490,7 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       });
       const body = toProjectPageDto(page);
       const etag = etagForBody(body);
-      if (ifNoneMatch(request, etag)) return reply.code(304).send();
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
       return reply.code(200).header('ETag', etag).send(body);
     },
     createProject,
@@ -479,7 +502,7 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       );
       const body = toTaskPageDto(page);
       const etag = etagForBody(body);
-      if (ifNoneMatch(request, etag)) return reply.code(304).send();
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
       return reply.code(200).header('ETag', etag).send(body);
     },
     createTask,
@@ -496,7 +519,7 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
         });
       }
       const etag = etagForVersion(task.version);
-      if (ifNoneMatch(request, etag)) return reply.code(304).send();
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
       return reply.code(200).header('ETag', etag).send(toTaskDto(task));
     },
     updateTask,
@@ -506,8 +529,17 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
   };
 }
 
-function fastifyPath(path: string): string {
-  return path.replace(/\{([^}]+)\}/g, ':$1');
+/**
+ * `/tasks/{id}:complete` -> `/tasks/:id([^:]+)::complete`. find-my-way needs the
+ * `::` escape for a static action suffix; the bare `:id:complete` form would
+ * swallow every POST /tasks/<x> (including /tasks/<id> and other actions).
+ */
+export function toFastifyPath(path: string): string {
+  const withActions = path.replace(
+    /\{([^}]+)\}:([A-Za-z][A-Za-z0-9]*)$/,
+    ':$1([^:]+)::$2',
+  );
+  return withActions.replace(/\{([^}]+)\}/g, ':$1');
 }
 
 function stripSchemaMeta<T>(schema: T): T {
@@ -532,37 +564,14 @@ function responseSchemas(route: RouteDefinition): Record<string, object> {
   return schemas;
 }
 
-/**
- * find-my-way treats `/tasks/:id:complete` as a single parameter named
- * `id:complete` whose value still carries the action suffix. Split it back into
- * `{ id }` before contract param validation runs.
- */
-function normalizeActionParams(request: FastifyRequest): void {
-  const params = request.params;
-  if (params === null || typeof params !== 'object') return;
-  const record = params as Record<string, string>;
-  for (const key of Object.keys(record)) {
-    const separator = key.indexOf(':');
-    if (separator <= 0) continue;
-    const name = key.slice(0, separator);
-    const action = key.slice(separator + 1);
-    const raw = record[key];
-    if (raw === undefined) continue;
-    const suffix = `:${action}`;
-    record[name] = raw.endsWith(suffix) ? raw.slice(0, -suffix.length) : raw;
-    delete record[key];
-  }
-}
-
 function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
   return async function preHandler(request: FastifyRequest): Promise<void> {
-    normalizeActionParams(request);
     if (meta.requiresAuth) {
       const sessionId = request.cookies[SID_COOKIE];
       if (sessionId === undefined || sessionId === '') {
         throw new ProblemError({
           status: 401,
-          code: 'forbidden',
+          code: 'unauthenticated',
           title: 'Unauthenticated',
           detail: 'a valid session cookie is required',
         });
@@ -571,7 +580,7 @@ function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
       if (session === null) {
         throw new ProblemError({
           status: 401,
-          code: 'forbidden',
+          code: 'unauthenticated',
           title: 'Unauthenticated',
           detail: 'the session is missing or expired',
         });
@@ -603,7 +612,7 @@ export function registerRoutes(app: FastifyInstance, runtime: RouteRuntime): voi
 
     app.route({
       method: route.method.toUpperCase() as 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
-      url: fastifyPath(route.path),
+      url: toFastifyPath(route.path),
       schema: schema as never,
       preValidation: buildPreHandler(runtime, meta),
       handler,

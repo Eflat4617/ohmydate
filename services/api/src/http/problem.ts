@@ -17,6 +17,7 @@ export interface ProblemInit {
   readonly title: string;
   readonly detail?: string;
   readonly errors?: readonly ValidationIssue[];
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -29,6 +30,7 @@ export class ProblemError extends Error {
   readonly title: string;
   readonly detail: string | undefined;
   readonly errors: readonly ValidationIssue[] | undefined;
+  readonly headers: Readonly<Record<string, string>> | undefined;
 
   constructor(init: ProblemInit) {
     super(init.detail ?? init.title, init.errors === undefined ? undefined : { cause: init.errors });
@@ -38,6 +40,7 @@ export class ProblemError extends Error {
     this.title = init.title;
     this.detail = init.detail;
     this.errors = init.errors;
+    this.headers = init.headers;
   }
 }
 
@@ -62,6 +65,19 @@ function problemBody(
   };
 }
 
+/** Builds the exact problem body used in responses so it can be persisted. */
+export function problemBodyFor(request: FastifyRequest, init: ProblemInit): Problem {
+  const traceId = typeof request.id === 'string' ? request.id : undefined;
+  return problemBody(
+    init.status,
+    init.code,
+    init.title,
+    init.detail,
+    init.errors,
+    traceId,
+  );
+}
+
 export function sendProblem(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -71,11 +87,10 @@ export function sendProblem(
   detail?: string,
   errors?: readonly ValidationIssue[],
 ): FastifyReply {
-  const traceId = typeof request.id === 'string' ? request.id : undefined;
   return reply
     .code(status)
     .type('application/problem+json')
-    .send(problemBody(status, code, title, detail, errors, traceId));
+    .send(problemBodyFor(request, { status, code, title, ...(detail === undefined ? {} : { detail }), ...(errors === undefined ? {} : { errors }) }));
 }
 
 interface ValidationErrorLike {
@@ -131,7 +146,7 @@ export function domainErrorToProblem(error: DomainError): ProblemInit {
       detail: error.message,
     };
   }
-  return { status: 500, code: 'validation_failed', title: 'Internal error', detail: error.message };
+  return { status: 500, code: 'internal_error', title: 'Internal error', detail: error.message };
 }
 
 export interface FastifyValidationError {
