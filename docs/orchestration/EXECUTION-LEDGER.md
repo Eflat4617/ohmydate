@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 07:50 | **M2-03R2 REQUEST_CHANGES (Sol) → M2-03 BLOCKED** (수정 2회 소진). 해결 확인: 일반 실패 재시도 6개, 다른 키 동시 200/409, PATCH 경합, H2/H4/H5/H6. 남은 HIGH 3: 결과 불명 복구·리스 인계 시 중복(7·12개), cancel/manual이 승인 획득과 비원자적, dueAt 답변 전부 거부(형식 미등록). MEDIUM 2(고아 채택 의존 미기록, 없는 goalId 500), LOW 1. → **ADR-020**(세션별 PG advisory 잠금, 인계 없음) + 좁은 Task **M2-03c**(기존 브랜치 위) | reviews/M2-03R2.md | orchestrator |
 | 2026-11-11 07:46 | **FU-38R2 REQUEST_CHANGES (Sol) → FU-38 BLOCKED** (수정 2회 소진): HIGH 2 — 혼합 RRN 창이 뒤 RRN 시작 건너뜀(뒤 7자리 노출), 짧은 전화번호 대체가 다음 전화번호 건너뜀(통째 노출). 종류 혼합 인접 12k 중 13건 회귀. 공통 원인 → **ADR-019** 재설계, FU-38c 새 worktree(FU-32 기준). 브랜치 fu-38-redaction-lows 병합 안 함 | reviews/FU-38R2.md | orchestrator |
 | 2026-11-11 07:42 | **FU-39R-1 REQUEST_CHANGES (Sol, FU-08 겸)**: 독립 감사 12,691회 생성·16,043 가능 후보에서 하드 제약 위반 0, G12 3,172회 바이트 동일, 성능 p95 412ms. MEDIUM: 중첩 이력에서 생성기 H6 휴식 누락, 독립 H1 기준 약화(H1 끈 변이 생존), bufferBeforeDueMin 미검증으로 마감 우회, 거부 결과에 Infinity 지표, 재계획 변경 범위(기존 결함→FU-41). LOW 비정상 horizon. 수정 1/2 → FU-39 워커 | reviews/FU-39R-1.md | orchestrator |
 | 2026-11-11 07:19 | **FU-38R-1 REQUEST_CHANGES (Sol)**: HIGH — LOW-2 구간 확장이 뒤따르는 RRN 시작을 건너뜀(2-토큰 2,000건 중 1,734 재현 회귀, 뒤 7자리 노출). LOW 각주/지수 과잉 마스킹. 수정 1/2 → ctx_85ad043dda40(원래 끝 이후로 스캔 이동 금지 또는 LOW-2 되돌림, 2-토큰 퍼징, 혼합 위첨자+일반 숫자 마스킹 시도). **GB-1 준비 상태 재평가:** 이 HIGH 해결 전에는 실제 제공자 연결 불가 | reviews/FU-38R-1.md | orchestrator |
