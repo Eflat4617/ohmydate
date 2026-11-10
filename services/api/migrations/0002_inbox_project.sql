@@ -5,8 +5,8 @@
 -- * Existing users get an Inbox and orphan tasks are attached to it before
 --   task.project_id becomes NOT NULL.
 --
--- The backfill uses gen_random_uuid() because there is no application process
--- in a migration; runtime UUIDs remain application-supplied UUIDv7.
+-- The backfill uses uuidv7() because there is no application process in a
+-- migration; runtime UUIDs remain application-supplied.
 
 ALTER TABLE project
   ADD COLUMN kind text NOT NULL DEFAULT 'normal';
@@ -19,7 +19,7 @@ CREATE UNIQUE INDEX project_owner_inbox_unique
   WHERE kind = 'inbox' AND deleted_at IS NULL;
 
 INSERT INTO project (id, owner_id, title, kind)
-SELECT gen_random_uuid(), u.id, 'Inbox', 'inbox'
+SELECT uuidv7(), u.id, 'Inbox', 'inbox'
   FROM "user" AS u
  WHERE NOT EXISTS (
    SELECT 1
