@@ -13,6 +13,8 @@ export interface MockDb {
   projects: Map<string, Project>;
   tasks: Map<string, Task>;
   idempotency: Map<string, StoredResponse>;
+  pendingIdempotency: Set<string>;
+  authenticated: boolean;
   taskRevision: number;
   projectRevision: number;
 }
@@ -95,6 +97,8 @@ export function createMockDb(): MockDb {
     ]),
     tasks: new Map([[seededTask.id, seededTask]]),
     idempotency: new Map(),
+    pendingIdempotency: new Set(),
+    authenticated: true,
     taskRevision: 1,
     projectRevision: 1,
   };
@@ -109,6 +113,8 @@ export function resetMockDb(): void {
   mockDb.projects = fresh.projects;
   mockDb.tasks = fresh.tasks;
   mockDb.idempotency = fresh.idempotency;
+  mockDb.pendingIdempotency = fresh.pendingIdempotency;
+  mockDb.authenticated = fresh.authenticated;
   mockDb.taskRevision = fresh.taskRevision;
   mockDb.projectRevision = fresh.projectRevision;
 }
