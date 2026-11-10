@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -69,6 +69,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| M1-10 | ctx_07698d9d1733 (opus-fallback) | 0212d04 | **APPROVE** | FU-26/27 | **Accepted, merged 1111794**; G3 773 pass/33 skip + web 68, ci 0 |
 | M1-10 | ctx_ea51210611f1 (opus-fallback) | f1467b7 | REQUEST_CHANGES | HIGH: 백그라운드 재조정기가 FU-22 CAS 없이 local_version 역행 | 결정: 재조정기 기본 OFF + CAS 배선은 FU-23 담당(중복 편집 방지); fix 1/2 |
 | FU-18 | ctx_85ddda68a802 (opus-fallback) | 5e8f5d4 | **APPROVE** | FU-23, FU-25 | **Accepted, merged 1e56bec** (domain index additive conflict resolved); G3 733 pass/22 skip + web 68, ci 0 |
 | M2-01c | ctx_4d77b6bde034 (opus-fallback) | c67b23c | **APPROVE** (M2-01 전체) | FU-24(실 공급자 게이트) | **Accepted, merged 804c981**; G3 721 pass/18 skip + web 60, ci 0 |
