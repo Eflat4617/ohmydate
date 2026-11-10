@@ -41,7 +41,7 @@ describe('findInboxProject', () => {
     expect(seen).toEqual([null, 'page-2']);
   });
 
-  it('returns undefined after the final page when no Inbox exists', async () => {
+  it('returns null after the final page when no Inbox exists', async () => {
     server.use(
       http.get('*/api/v1/projects', () =>
         HttpResponse.json({

@@ -1,5 +1,6 @@
 import {
   NotFoundError,
+  ProviderUnavailableError,
   ValidationFailedError,
   VersionConflictError,
   type Clock,
@@ -31,14 +32,6 @@ const CAPABILITIES: RepositoryCapabilities = {
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
-
-/**
- * ADR-018 inbox marker persisted on the project mapping. Project mappings have
- * no use for the task content fingerprint, so it doubles as the durable inbox
- * identity. This keeps the Inbox stable even when the Vikunja default project
- * cannot be written (PATCH settings is JWT-only; API tokens get 401).
- */
-const INBOX_MARKER = 'inbox';
 
 export interface VikunjaProjectRepositoryOptions {
   readonly clients: ReadonlyMap<Id, VikunjaClient>;
@@ -125,10 +118,12 @@ export class VikunjaProjectRepository implements ProjectRepository {
    * ADR-018: the Vikunja user's default project *is* the planner Inbox. The
    * settings write is best effort only (PATCH /user/settings/general is
    * JWT-only and returns 401 for API tokens), so the resolved project also gets
-   * a durable inbox marker on its mapping. When the default is 0, missing or
-   * trashed the same deterministic adoption rule (marker, then title 'Inbox',
-   * then create) keeps get/list/update consistent and never proliferates
-   * Inboxes. Concurrent first calls are coalesced per owner.
+   * a durable `is_inbox` marker on its mapping. When the default is 0, missing
+   * or trashed the same deterministic adoption rule (marker, then title
+   * 'Inbox', then create) keeps get/list/update consistent. The marker is
+   * single-valued: marking one project clears every other one atomically.
+   * Concurrent first calls are coalesced per owner and cross-process races are
+   * rejected by the partial unique index, then re-read.
    */
   async getInbox(ownerId: Id): Promise<Project> {
     const pending = this.#pendingInbox.get(ownerId);
@@ -146,8 +141,8 @@ export class VikunjaProjectRepository implements ProjectRepository {
   async #ensureInbox(ownerId: Id, client: VikunjaClient): Promise<Project> {
     const resolved = await this.#resolveInboxRemote(ownerId, client, true);
     if (resolved === undefined) throw new Error('inbox resolution failed unexpectedly');
-    const { project: remote, needsDefault } = resolved;
-    if (needsDefault) {
+    let { project: remote } = resolved;
+    if (resolved.needsDefault) {
       try {
         await client.updateGeneralSettings({ default_project_id: remote.id });
       } catch {
@@ -157,6 +152,7 @@ export class VikunjaProjectRepository implements ProjectRepository {
 
     const externalId = String(remote.id);
     let mapping = await this.#mappings.getByExternal('vikunja', 'project', externalId);
+    let fresh = false;
     if (mapping === null) {
       const now = this.#clock.now();
       const candidate: ExternalMapping = {
@@ -165,7 +161,6 @@ export class VikunjaProjectRepository implements ProjectRepository {
         entityId: this.#ids.next(),
         externalId,
         ownerId,
-        contentFingerprint: INBOX_MARKER,
         localVersion: 1 as Version,
         createdAt: now,
         updatedAt: now,
@@ -173,6 +168,7 @@ export class VikunjaProjectRepository implements ProjectRepository {
       try {
         await this.#mappings.put(candidate);
         mapping = candidate;
+        fresh = true;
       } catch (error) {
         // Another instance mapped the same default project first.
         const existing = await this.#mappings.getByExternal(
@@ -183,28 +179,50 @@ export class VikunjaProjectRepository implements ProjectRepository {
         if (existing === null) throw error;
         mapping = existing;
       }
-    } else if (mapping.contentFingerprint !== INBOX_MARKER) {
-      const marked: ExternalMapping = {
-        ...mapping,
-        contentFingerprint: INBOX_MARKER,
-      };
-      try {
-        await this.#mappings.put(marked, {
-          expectedLocalVersion: mapping.localVersion,
-        });
-        mapping = marked;
-      } catch (error) {
-        if (!(error instanceof VersionConflictError)) throw error;
-        const current = await this.#mappings.getByExternal(
-          'vikunja',
-          'project',
-          externalId,
-        );
-        if (current !== null) mapping = current;
-      }
     }
     if (mapping.ownerId !== ownerId) throw new NotFoundError('project', externalId);
+
+    if (mapping.inbox !== true) {
+      const targetEntityId = mapping.entityId;
+      try {
+        await this.#mappings.markInbox(ownerId, targetEntityId);
+      } catch (error) {
+        // Another instance won the partial-unique race with a different
+        // project. Adopt its mapping instead of creating a second Inbox.
+        const winner = await this.#mappings.getInboxMapping(ownerId);
+        if (winner === null || winner.ownerId !== ownerId) throw error;
+        if (winner.externalId !== externalId) {
+          const { data } = await client.getProject(winner.externalId);
+          remote = data;
+        }
+        return this.#toProject(ownerId, winner, remote, 'inbox');
+      }
+      const current = await this.#mappings.get('project', targetEntityId);
+      if (current !== null && current.ownerId === ownerId) mapping = current;
+      // A pre-existing normal project that becomes the Inbox changes kind, so
+      // clients holding its old version must conflict. A freshly created Inbox
+      // has no prior "normal" observation.
+      if (!fresh && mapping.inbox === true) {
+        mapping = await this.#bumpForKindChange(mapping);
+      }
+    }
     return this.#toProject(ownerId, mapping, remote, 'inbox');
+  }
+
+  async #bumpForKindChange(mapping: ExternalMapping): Promise<ExternalMapping> {
+    const bumped: ExternalMapping = {
+      ...mapping,
+      localVersion: (mapping.localVersion + 1) as Version,
+      updatedAt: this.#clock.now(),
+    };
+    try {
+      await this.#mappings.put(bumped, { expectedLocalVersion: mapping.localVersion });
+      return bumped;
+    } catch (error) {
+      if (!(error instanceof VersionConflictError)) throw error;
+      const current = await this.#mappings.get('project', mapping.entityId);
+      return current ?? mapping;
+    }
   }
 
   async #resolveInboxRemote(
@@ -215,9 +233,17 @@ export class VikunjaProjectRepository implements ProjectRepository {
     let defaultId: number | undefined;
     try {
       defaultId = (await client.getGeneralSettings()).default_project_id;
-    } catch {
-      // A token without `other:user` cannot read settings. Fall through to the
-      // persisted marker and title adoption.
+    } catch (error) {
+      // Only a token without `other:user` (401 -> provider_auth) is expected to
+      // fail here; fall through to the marker and title adoption. Transient
+      // 5xx/network failures must surface as 503 instead of creating a stray
+      // Inbox.
+      if (
+        !(error instanceof ProviderUnavailableError) ||
+        error.reason !== 'provider_auth'
+      ) {
+        throw error;
+      }
     }
     if (defaultId !== undefined && defaultId > 0) {
       try {
@@ -230,13 +256,8 @@ export class VikunjaProjectRepository implements ProjectRepository {
       }
     }
 
-    const marked = (await this.#mappings.listByOwner(ownerId)).find(
-      (candidate) =>
-        candidate.entityType === 'project' &&
-        candidate.contentFingerprint === INBOX_MARKER &&
-        candidate.deletedAt === undefined,
-    );
-    if (marked !== undefined) {
+    const marked = await this.#mappings.getInboxMapping(ownerId);
+    if (marked !== null && marked.ownerId === ownerId && marked.deletedAt === undefined) {
       try {
         const { data } = await client.getProject(marked.externalId);
         if (data.deleted_at === undefined) {
@@ -390,7 +411,7 @@ export class VikunjaProjectRepository implements ProjectRepository {
       // single Inbox identity and the old one becomes normal.
       return mapping.externalId === inboxExternalId ? 'inbox' : 'normal';
     }
-    return mapping.contentFingerprint === INBOX_MARKER ? 'inbox' : 'normal';
+    return mapping.inbox === true ? 'inbox' : 'normal';
   }
 
   #clientFor(ownerId: Id): VikunjaClient | undefined {

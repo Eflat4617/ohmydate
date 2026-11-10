@@ -325,6 +325,40 @@ describe('inbox scoping', () => {
     wrapper.unmount();
   });
 
+  it('finds an Inbox that appears after the first page of projects', async () => {
+    const inbox = mockDb.projects.get(INBOX_PROJECT_ID);
+    const sample = mockDb.projects.get(SAMPLE_PROJECT_ID);
+    if (inbox === undefined || sample === undefined) throw new Error('missing seed project');
+    const cursors: (string | undefined)[] = [];
+    const listProjects = vi
+      .spyOn(plannerClient, 'listProjects')
+      .mockImplementation(async (options = {}) => {
+        cursors.push(options.cursor);
+        if (options.cursor === undefined) {
+          return { items: [sample], nextCursor: 'page-2' };
+        }
+        return { items: [inbox], nextCursor: null };
+      });
+    const listTasks = vi
+      .spyOn(plannerClient, 'listTasks')
+      .mockResolvedValue({ items: [], nextCursor: null });
+
+    const wrapper = mount(InboxView, {
+      global: { plugins: [createPinia(), VueQueryPlugin] },
+      attachTo: document.body,
+    });
+
+    await vi.waitFor(() => {
+      expect(listTasks).toHaveBeenCalledWith({ projectId: INBOX_PROJECT_ID });
+    });
+    expect(cursors).toEqual([undefined, 'page-2']);
+    expect(wrapper.text()).not.toContain('Inbox project is missing');
+
+    listProjects.mockRestore();
+    listTasks.mockRestore();
+    wrapper.unmount();
+  });
+
   it('shows an explicit error when no Inbox exists instead of listing unscoped tasks', async () => {
     const client = createPlannerClient();
     await client.createTask({ title: 'Unscoped-looking task' }, newActionId('create-inbox'));
