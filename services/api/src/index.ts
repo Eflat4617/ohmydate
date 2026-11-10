@@ -1,6 +1,6 @@
 export const packageName = '@ohmydate/api' as const;
 
-export { buildApp, defaultLoggerOptions, type BuildAppOptions } from './app.js';
+export { buildApp, defaultLoggerOptions, API_PREFIX, type BuildAppOptions } from './app.js';
 export {
   configFromEnv,
   createConfig,

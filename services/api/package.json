@@ -15,6 +15,7 @@
     "db:migrate": "node --experimental-strip-types src/db/migrate.ts up",
     "db:rollback": "node --experimental-strip-types src/db/migrate.ts down",
     "create-user": "tsx src/cli/create-user.ts",
+    "start": "tsx src/main.ts",
     "test": "vitest run --globals",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

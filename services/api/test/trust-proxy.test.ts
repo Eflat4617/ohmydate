@@ -8,7 +8,7 @@ function loginAttempt(
 ) {
   return ctx.app.inject({
     method: 'POST',
-    url: '/auth/login',
+    url: '/api/v1/auth/login',
     headers: { 'x-forwarded-for': forwardedFor },
     payload: { email, password },
   });

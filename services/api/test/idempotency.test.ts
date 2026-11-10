@@ -30,7 +30,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
   async function listTitles(session: TestSession, title: string): Promise<number> {
     const response = await ctx.app.inject({
       method: 'GET',
-      url: '/tasks?limit=100',
+      url: '/api/v1/tasks?limit=100',
       headers: authHeaders(session),
     });
     const body = response.json() as { items: { title: string }[] };
@@ -42,8 +42,8 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
     const payload = { title: 'Replay me' };
     const headers = authHeaders(alice, { 'idempotency-key': key });
 
-    const first = await ctx.app.inject({ method: 'POST', url: '/tasks', headers, payload });
-    const replay = await ctx.app.inject({ method: 'POST', url: '/tasks', headers, payload });
+    const first = await ctx.app.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload });
+    const replay = await ctx.app.inject({ method: 'POST', url: '/api/v1/tasks', headers, payload });
 
     expect(first.statusCode).toBe(201);
     expect(replay.statusCode).toBe(201);
@@ -72,7 +72,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
     const headers = authHeaders(alice, { 'idempotency-key': key });
     const first = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers,
       payload: { title: 'Original body' },
     });
@@ -80,7 +80,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
 
     const mismatch = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers,
       payload: { title: 'Different body' },
     });
@@ -93,7 +93,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
     const key = newIdempotencyKey();
     const payload = { title: 'Pending body' };
     const hash = sha256Hex(
-      canonicalJson({ method: 'POST', path: '/tasks', body: payload }),
+      canonicalJson({ method: 'POST', path: '/api/v1/tasks', body: payload }),
     );
     await ctx.db
       .insertInto('idempotency_record')
@@ -101,7 +101,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
         id: ctx.ids.next(),
         owner_id: aliceId,
         key,
-        route: '/tasks',
+        route: '/api/v1/tasks',
         request_hash: hash,
         status: 'pending',
         expires_at: new Date(Date.parse(ctx.clock.now()) + 60 * 60 * 1000),
@@ -110,7 +110,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
 
     const response = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(alice, { 'idempotency-key': key }),
       payload,
     });
@@ -137,7 +137,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
       const makeRequest = () =>
         ctx.app.inject({
           method: 'POST',
-          url: '/tasks',
+          url: '/api/v1/tasks',
           headers: authHeaders(alice, { 'idempotency-key': key }),
           payload,
         });
@@ -167,13 +167,13 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
 
     const first = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(alice, { 'idempotency-key': key }),
       payload,
     });
     const second = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(bob, { 'idempotency-key': key }),
       payload,
     });
@@ -186,7 +186,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
     const createTask = async (title: string) => {
       const response = await ctx.app.inject({
         method: 'POST',
-        url: '/tasks',
+        url: '/api/v1/tasks',
         headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
         payload: { title },
       });
@@ -198,7 +198,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
 
     const depends = await ctx.app.inject({
       method: 'POST',
-      url: `/tasks/${second.id}/dependencies`,
+      url: `/api/v1/tasks/${second.id}/dependencies`,
       headers: authHeaders(alice, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -211,7 +211,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
     const cycleBody = { dependsOnTaskId: second.id };
     const cycle = await ctx.app.inject({
       method: 'POST',
-      url: `/tasks/${first.id}/dependencies`,
+      url: `/api/v1/tasks/${first.id}/dependencies`,
       headers: authHeaders(alice, { 'if-match': 'W/"1"', 'idempotency-key': key }),
       payload: cycleBody,
     });
@@ -229,7 +229,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
     // Remove the reverse edge so the same request would now succeed.
     const cleared = await ctx.app.inject({
       method: 'PATCH',
-      url: `/tasks/${second.id}`,
+      url: `/api/v1/tasks/${second.id}`,
       headers: authHeaders(alice, {
         'if-match': 'W/"2"',
         'idempotency-key': newIdempotencyKey(),
@@ -246,7 +246,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
 
     const replay = await ctx.app.inject({
       method: 'POST',
-      url: `/tasks/${first.id}/dependencies`,
+      url: `/api/v1/tasks/${first.id}/dependencies`,
       headers: authHeaders(alice, { 'if-match': 'W/"1"', 'idempotency-key': key }),
       payload: cycleBody,
     });
@@ -265,14 +265,14 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
   test('a failed mutation releases the key so a corrected retry can run', async () => {
     const created = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title: 'Retry after conflict' },
     });
     const task = created.json() as { id: string };
     const bump = await ctx.app.inject({
       method: 'PATCH',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -285,7 +285,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
     const body = { title: 'retry body' };
     const stale = await ctx.app.inject({
       method: 'PATCH',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, { 'if-match': 'W/"1"', 'idempotency-key': key }),
       payload: body,
     });
@@ -293,7 +293,7 @@ describe.skipIf(!hasDatabase)('idempotency middleware', () => {
 
     const retry = await ctx.app.inject({
       method: 'PATCH',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, { 'if-match': 'W/"2"', 'idempotency-key': key }),
       payload: body,
     });

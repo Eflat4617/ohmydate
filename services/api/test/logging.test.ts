@@ -25,7 +25,7 @@ test('logger redacts auth headers, cookies and password fields', () => {
     {
       req: {
         method: 'POST',
-        url: '/auth/login',
+        url: '/api/v1/auth/login',
         id: 'req-1',
         headers: {
           authorization: 'Bearer super-secret-token',
