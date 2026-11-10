@@ -40,6 +40,7 @@ export type {
   ExternalProviderRef,
   Project,
   ProjectCreate,
+  ProjectKind,
   ProjectPatch,
   SessionWindow,
   Task,
@@ -52,6 +53,8 @@ export type {
 export type {
   Clock,
   IdGenerator,
+  InboxProjectLookup,
+  InboxProjectRepository,
   Page,
   ProjectQuery,
   ProjectRepository,
@@ -61,6 +64,59 @@ export type {
   TaskQuery,
   TaskRepository,
 } from './ports.js';
+
+export {
+  MAX_DECOMPOSITION_STEPS,
+  MAX_STEP_P50_MINUTES,
+  MIN_DECOMPOSITION_STEPS,
+  validateDecomposition,
+  type DecompositionDraft,
+  type DecompositionEstimate,
+  type DecompositionIssue,
+  type DecompositionIssueCode,
+  type DecompositionStep,
+  type DecompositionStepKind,
+  type DecompositionValidationResult,
+} from './intake/decomposition.js';
+
+export {
+  CONSERVATIVE_DEFAULTS,
+  MAX_QUESTIONS_PER_ROUND,
+  MAX_QUESTION_ROUNDS,
+  OPTIONAL_INTAKE_FIELDS,
+  QUESTION_PROMPTS,
+  REQUIRED_INTAKE_FIELDS,
+  conservativeAssumptions,
+  isFieldKnown,
+  planQuestions,
+  type IntakeAnswer,
+  type IntakeAnswerAction,
+  type IntakeAssumption,
+  type IntakeField,
+  type OptionalIntakeField,
+  type PlannedQuestion,
+  type QuestionPlan,
+  type QuestionPlannerInput,
+  type RequiredIntakeField,
+} from './intake/questions.js';
+
+export {
+  INTAKE_STATES,
+  TERMINAL_INTAKE_STATES,
+  IntakeTransitionError,
+  canTransition,
+  isIntakeState,
+  isTerminalIntakeState,
+  transition,
+  type IntakeEffect,
+  type IntakeEvent,
+  type IntakeEventType,
+  type IntakeState,
+  type IntakeTransitionResult,
+  type TerminalIntakeState,
+} from './intake/state-machine.js';
+
+export { supportsInbox } from './ports.js';
 
 export { epochMsToInstant, instantToEpochMs } from './time.js';
 

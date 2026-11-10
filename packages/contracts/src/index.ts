@@ -37,12 +37,15 @@ export {
 } from './problem.js';
 
 export {
+  PROJECT_KINDS,
   PageProjectSchema,
   ProjectCreateSchema,
+  ProjectKindSchema,
   ProjectPatchSchema,
   ProjectSchema,
   type Project,
   type ProjectCreate,
+  type ProjectKind,
   type ProjectPatch,
 } from './project.js';
 

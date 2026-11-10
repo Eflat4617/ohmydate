@@ -1,0 +1,45 @@
+{
+  "$id": "llm.type_detection.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["classification", "confidence", "reasons"],
+  "properties": {
+    "classification": {
+      "enum": ["new", "similar"]
+    },
+    "templateId": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "reasons": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "missingRequired": {
+      "type": "array",
+      "maxItems": 9,
+      "items": {
+        "enum": [
+          "deliverable",
+          "dueAt",
+          "estimatedScope",
+          "currentProgress",
+          "availabilityConfirmed",
+          "prerequisites",
+          "priority",
+          "maxFocusMinutes",
+          "reviewNeeded"
+        ]
+      }
+    }
+  }
+}

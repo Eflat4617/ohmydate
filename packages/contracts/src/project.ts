@@ -1,7 +1,15 @@
-import { Type, type Static } from '@sinclair/typebox';
+import { Type, type Static, type TLiteral } from '@sinclair/typebox';
 import { IdSchema, InstantSchema, VersionSchema, pageSchema } from './common.js';
 
 const ProjectTitleSchema = Type.String({ minLength: 1, maxLength: 200 });
+
+export const PROJECT_KINDS = ['inbox', 'normal'] as const;
+
+export type ProjectKind = (typeof PROJECT_KINDS)[number];
+
+export const ProjectKindSchema = Type.Union(
+  PROJECT_KINDS.map((kind) => Type.Literal(kind)) as TLiteral<ProjectKind>[],
+);
 
 export const ProjectCreateSchema = Type.Object(
   {
@@ -15,6 +23,7 @@ export const ProjectSchema = Type.Object(
     id: IdSchema,
     ownerId: IdSchema,
     title: ProjectTitleSchema,
+    kind: ProjectKindSchema,
     archived: Type.Boolean(),
     version: VersionSchema,
     createdAt: InstantSchema,

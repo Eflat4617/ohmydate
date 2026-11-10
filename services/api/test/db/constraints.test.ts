@@ -44,13 +44,22 @@ describe.skipIf(!hasDatabase)('M1 schema constraints', () => {
     return id;
   }
 
+  async function insertProject(ownerId: string): Promise<string> {
+    const id = randomUUID();
+    await client.query(
+      'INSERT INTO project (id, owner_id, title, kind) VALUES ($1, $2, $3, $4)',
+      [id, ownerId, 'Project', 'normal'],
+    );
+    return id;
+  }
+
   async function insertTask(ownerId: string): Promise<string> {
     const id = randomUUID();
-    await client.query('INSERT INTO task (id, owner_id, title_cache) VALUES ($1, $2, $3)', [
-      id,
-      ownerId,
-      'task',
-    ]);
+    const projectId = await insertProject(ownerId);
+    await client.query(
+      'INSERT INTO task (id, owner_id, project_id, title_cache) VALUES ($1, $2, $3, $4)',
+      [id, ownerId, projectId, 'task'],
+    );
     return id;
   }
 
