@@ -8,6 +8,10 @@ import type { FastifyInstance } from 'fastify';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import { buildApp } from './app.js';
+import {
+  shutdownControllerFor,
+  shutdownRequestMeta,
+} from './http/shutdown-context.js';
 import { configFromEnv, type AppConfig } from './config.js';
 import type { Database } from './db/types.js';
 
@@ -309,51 +313,103 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
 }
 
 /**
- * Graceful close that cannot be pinned by an incomplete or idle socket:
- * - connections that never became a request (incomplete headers) are dropped;
- * - requests whose message is still incomplete (a trickling body) are dropped,
- *   because their handler can never start with a valid body;
- * - valid in-flight handlers drain up to the budget;
- * - then every remaining connection is force-closed before the hard deadline.
+ * Graceful close that decides per socket, not per request:
+ * - connections that never became a request (incomplete headers) and idle
+ *   keep-alive sockets are dropped immediately;
+ * - a socket that only carries incomplete requests is dropped immediately,
+ *   because no handler can start without a complete body;
+ * - a socket that still carries a complete request whose response is pending
+ *   is preserved until that response finishes, then closed so later incomplete
+ *   pipelined requests are dropped;
+ * - at the drain budget the app signal is aborted (provider retries stop) and
+ *   any still-pending request is force-closed and logged once with its route,
+ *   request id and method, never its body.
  *
  * `server.close()` disables Node's periodic requestTimeout check, so an
  * incomplete request would otherwise keep the server open forever
- * (FU-37R finding 2).
+ * (FU-37R finding 2). The old per-request sweep also destroyed a valid
+ * handler's socket when a later pipelined request was incomplete (FU-37R2).
  */
 export function createApplicationClose(
   app: FastifyInstance,
   drainMs: number = SHUTDOWN_DRAIN_BUDGET_MS,
 ): () => Promise<void> {
   const sockets = new Set<Socket>();
-  const requests = new Set<IncomingMessage>();
+  const pending = new Map<IncomingMessage, ServerResponse>();
+  let closing = false;
+
+  const hasCompletePending = (socket: Socket): boolean => {
+    for (const request of pending.keys()) {
+      if (request.socket === socket && request.complete === true) return true;
+    }
+    return false;
+  };
+
+  const destroyWhenDrained = (socket: Socket): void => {
+    if (!closing || !sockets.has(socket)) return;
+    if (hasCompletePending(socket)) return;
+    destroySocket(socket);
+  };
+
   app.server.on('connection', (socket: Socket) => {
     sockets.add(socket);
     socket.once('close', () => sockets.delete(socket));
   });
   app.server.on('request', (request: IncomingMessage, response: ServerResponse) => {
-    requests.add(request);
-    response.once('close', () => requests.delete(request));
+    pending.set(request, response);
+    const settled = (): void => {
+      if (pending.get(request) !== response) return;
+      pending.delete(request);
+      destroyWhenDrained(request.socket);
+    };
+    // `finish` means the response bytes reached the socket even on a keep-alive
+    // connection; `close` is the fallback for an aborted response.
+    response.once('finish', settled);
+    response.once('close', settled);
   });
 
   return async () => {
+    closing = true;
     app.server.closeIdleConnections();
-    // A request that has not completed its message can never reach a handler.
-    for (const request of [...requests]) {
-      if (request.complete !== true) request.socket.destroy();
-    }
-    // Idle keep-alive sockets and connections stuck in header parsing.
+    // Drop only sockets with no complete request left to answer.
     for (const socket of [...sockets]) {
-      const hasRequest = [...requests].some((request) => request.socket === socket);
-      if (!hasRequest) socket.destroy();
+      if (!hasCompletePending(socket)) destroySocket(socket);
     }
 
-    const force = setTimeout(() => app.server.closeAllConnections(), drainMs);
+    const force = setTimeout(() => {
+      // Drain budget expired: stop provider retries and in-flight fetches.
+      shutdownControllerFor(app)?.abort();
+      for (const request of [...pending.keys()]) {
+        const meta = shutdownRequestMeta(request);
+        app.log.warn(
+          {
+            route: meta?.route ?? request.url ?? '',
+            reqId: meta?.reqId ?? '',
+            method: meta?.method ?? request.method ?? '',
+          },
+          'forced shutdown closure',
+        );
+      }
+      app.server.closeAllConnections();
+    }, drainMs);
     try {
       await app.close();
     } finally {
       clearTimeout(force);
     }
   };
+}
+
+/**
+ * Give a completed response its chance to leave the kernel buffer before the
+ * socket is torn down (the client may still be mid-body on a pipelined
+ * request, so a plain end() would wait for its FIN forever).
+ */
+function destroySocket(socket: Socket): void {
+  if (socket.destroyed) return;
+  const closeSoon = (socket as Socket & { destroySoon?: () => void }).destroySoon;
+  if (typeof closeSoon === 'function') closeSoon.call(socket);
+  else socket.destroy();
 }
 
 /**

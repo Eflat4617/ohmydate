@@ -283,6 +283,67 @@ describe.skipIf(!hasDatabase)('production HTTP timeout regressions', () => {
     },
     60_000,
   );
+
+  test(
+    'a complete handler drains despite an incomplete pipelined body and exits 0',
+    async () => {
+      const port = await freePort();
+      const email = `slow-${randomUUID()}@example.com`;
+      const password = 'slow-handler-pipeline-password';
+      const spawned = spawnApp(slowFixture, {
+        DATABASE_URL: databaseUrl as string,
+        PGOPTIONS: `-c search_path=${schema}`,
+        HOST: '127.0.0.1',
+        PORT: String(port),
+        SLOW_HANDLER_MS: '800',
+        TEST_EMAIL: email,
+        TEST_PASSWORD: password,
+      });
+      let socket: net.Socket | undefined;
+      try {
+        const baseUrl = `http://127.0.0.1:${String(port)}`;
+        await waitForHealth(baseUrl, spawned);
+        const cookie = await login(baseUrl, email, password);
+
+        socket = net.connect(port, '127.0.0.1');
+        const connected = socket;
+        await new Promise<void>((resolve, reject) => {
+          connected.once('connect', resolve);
+          connected.once('error', reject);
+        });
+        let received = '';
+        connected.on('data', (chunk: Buffer) => {
+          received += chunk.toString();
+        });
+        connected.write(
+          `GET /api/v1/projects HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: ${cookie}\r\n` +
+            'Connection: keep-alive\r\n\r\n' +
+            'POST /api/v1/auth/login HTTP/1.1\r\nHost: 127.0.0.1\r\n' +
+            'Content-Type: application/json\r\nContent-Length: 100000\r\n\r\n',
+        );
+        await delay(250);
+
+        const startedAt = Date.now();
+        spawned.child.kill('SIGTERM');
+        const { code, signal } = await waitForExit(spawned.child, 20_000);
+        const elapsed = Date.now() - startedAt;
+
+        expect(code).toBe(0);
+        expect(signal).toBeNull();
+        await vi.waitFor(() => expect(received).toContain('HTTP/1.1 200'), {
+          timeout: 2_000,
+          interval: 25,
+        });
+        expect(elapsed).toBeLessThan(5_000);
+        expect(spawned.stderr()).not.toContain('graceful shutdown timed out');
+      } finally {
+        socket?.destroy();
+        stop(spawned.child);
+        await waitForExit(spawned.child, 5_000).catch(() => undefined);
+      }
+    },
+    60_000,
+  );
 });
 
 describe('build smoke without DATABASE_URL', () => {
