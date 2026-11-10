@@ -127,6 +127,7 @@ function toProjectDto(project: Project): ProjectDto {
     id: project.id,
     ownerId: project.ownerId,
     title: project.title,
+    kind: project.kind ?? 'normal',
     archived: project.archived,
     version: project.version,
     createdAt: project.createdAt,

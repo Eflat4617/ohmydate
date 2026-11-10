@@ -107,6 +107,7 @@ export interface ProjectTable {
   id: Col<'uuid', false, false>;
   owner_id: Col<'uuid', false, false>;
   title: Col<'text', false, false>;
+  kind: Col<'text', false, true>;
   archived: Col<'boolean', false, true>;
   created_at: Col<'timestamptz', false, true>;
   updated_at: Col<'timestamptz', false, true>;
@@ -117,7 +118,7 @@ export interface ProjectTable {
 export interface TaskTable {
   id: Col<'uuid', false, false>;
   owner_id: Col<'uuid', false, false>;
-  project_id: Col<'uuid', true, false>;
+  project_id: Col<'uuid', false, false>;
   title_cache: Col<'text', true, false>;
   status_cache: Col<'text', false, true>;
   due_at: Col<'timestamptz', true, false>;
@@ -275,6 +276,7 @@ export const databaseTables = {
     id: col('uuid', false, false),
     owner_id: col('uuid', false, false),
     title: col('text', false, false),
+    kind: col('text', false, true),
     archived: col('boolean', false, true),
     created_at: col('timestamptz', false, true),
     updated_at: col('timestamptz', false, true),
@@ -284,7 +286,7 @@ export const databaseTables = {
   task: {
     id: col('uuid', false, false),
     owner_id: col('uuid', false, false),
-    project_id: col('uuid', true, false),
+    project_id: col('uuid', false, false),
     title_cache: col('text', true, false),
     status_cache: col('text', false, true),
     due_at: col('timestamptz', true, false),

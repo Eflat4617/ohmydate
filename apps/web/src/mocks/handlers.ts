@@ -298,6 +298,7 @@ export function createHandlers(db: MockDb) {
         id: createUuidV7(),
         ownerId: db.user.id,
         title: body.title.trim(),
+        kind: 'normal',
         archived: false,
         version: 1,
         createdAt: now,

@@ -1,5 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { hash } from '@node-rs/argon2';
+import { PgInboxRepository } from '../../src/adapters/pg-inbox-repository.js';
+import { PgUserRepository } from '../../src/adapters/pg-user-repository.js';
+import { UserService } from '../../src/application/user-service.js';
 import { createConfig, type AppConfig } from '../../src/config.js';
 import { createInMemoryRepositories } from '@ohmydate/provider-native/in-memory';
 import { FakeClock, createSeededIdGenerator } from '@ohmydate/testkit';
@@ -116,16 +119,16 @@ export async function createTestContext(
     async seedUser(input) {
       const id = ids.next();
       const passwordHash = await hash(input.password);
-      await db
-        .insertInto('user')
-        .values({
-          id,
-          email: input.email.trim().toLowerCase(),
-          password_hash: passwordHash,
-          ...(input.timeZone === undefined ? {} : { time_zone: input.timeZone }),
-          ...(input.locale === undefined ? {} : { locale: input.locale }),
-        })
-        .execute();
+      const users = new PgUserRepository(db, clock);
+      const inbox = new PgInboxRepository({ db, clock, ids });
+      const service = new UserService(users, inbox);
+      await service.create({
+        id,
+        email: input.email.trim().toLowerCase(),
+        passwordHash,
+        ...(input.timeZone === undefined ? {} : { timeZone: input.timeZone }),
+        ...(input.locale === undefined ? {} : { locale: input.locale }),
+      });
       return id;
     },
     async close() {

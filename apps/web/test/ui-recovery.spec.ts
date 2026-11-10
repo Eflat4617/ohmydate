@@ -6,7 +6,7 @@ import { createPlannerClient, newActionId, plannerClient, type Task } from '../s
 import TaskItem from '../src/components/TaskItem.vue';
 import TaskList from '../src/components/TaskList.vue';
 import InboxView from '../src/views/InboxView.vue';
-import { SAMPLE_PROJECT_ID } from '../src/mocks/db';
+import { INBOX_PROJECT_ID, SAMPLE_PROJECT_ID, mockDb } from '../src/mocks/db';
 import { useOfflineStore } from '../src/stores/offline';
 
 const API = 'http://localhost:3000/api/v1';
@@ -321,6 +321,23 @@ describe('inbox scoping', () => {
 
     expect(wrapper.text()).toContain('Inbox item');
     expect(wrapper.text()).not.toContain('Project item');
+
+    wrapper.unmount();
+  });
+
+  it('shows an explicit error when no Inbox exists instead of listing unscoped tasks', async () => {
+    const client = createPlannerClient();
+    await client.createTask({ title: 'Unscoped-looking task' }, newActionId('create-inbox'));
+    mockDb.projects.delete(INBOX_PROJECT_ID);
+
+    const wrapper = mount(InboxView, {
+      global: { plugins: [createPinia(), VueQueryPlugin] },
+      attachTo: document.body,
+    });
+    await waitForText(wrapper, 'Inbox project is missing');
+
+    expect(wrapper.text()).not.toContain('Unscoped-looking task');
+    expect(wrapper.get('#quick-add-title').attributes('disabled')).toBeDefined();
 
     wrapper.unmount();
   });

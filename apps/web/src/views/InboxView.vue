@@ -23,19 +23,23 @@ const projectsQuery = useQuery({
   queryFn: () => plannerClient.listProjects(),
 });
 
-const inboxProjectId = computed(() => {
-  const project = projectsQuery.data.value?.items.find(
-    (item) => item.title.trim().toLowerCase() === 'inbox',
-  );
-  return project?.id;
+const inboxProject = computed(() => {
+  const project = projectsQuery.data.value?.items.find((item) => item.kind === 'inbox');
+  return project;
 });
 
+const inboxProjectId = computed(() => inboxProject.value?.id);
+const inboxMissing = computed(
+  () => projectsQuery.isSuccess.value && inboxProject.value === undefined,
+);
+
 const tasksQuery = useQuery({
-  queryKey: computed(() => ['tasks', 'inbox', inboxProjectId.value ?? null]),
-  queryFn: () =>
-    plannerClient.listTasks(
-      inboxProjectId.value === undefined ? {} : { projectId: inboxProjectId.value },
-    ),
+  queryKey: computed(() => ['tasks', 'inbox', inboxProjectId.value ?? 'missing']),
+  queryFn: () => {
+    const projectId = inboxProjectId.value;
+    if (projectId === undefined) throw new Error('Inbox project is missing');
+    return plannerClient.listTasks({ projectId });
+  },
   enabled: computed(() => inboxProjectId.value !== undefined),
 });
 
@@ -46,9 +50,14 @@ const isLoading = computed(
     (inboxProjectId.value !== undefined && tasksQuery.isLoading.value),
 );
 const isError = computed(() => projectsQuery.isError.value || tasksQuery.isError.value);
+const quickAddDisabled = computed(
+  () => !offline.mutationsEnabled || createBusy.value || inboxMissing.value,
+);
 
 async function refetchAll(): Promise<void> {
-  await Promise.all([projectsQuery.refetch(), tasksQuery.refetch()]);
+  const pending: Promise<unknown>[] = [projectsQuery.refetch()];
+  if (inboxProjectId.value !== undefined) pending.push(tasksQuery.refetch());
+  await Promise.all(pending);
 }
 
 watch(
@@ -83,11 +92,7 @@ async function refresh(): Promise<void> {
       </div>
     </header>
 
-    <QuickAddForm
-      ref="quickAdd"
-      :disabled="!offline.mutationsEnabled || createBusy"
-      @submit="addTask"
-    />
+    <QuickAddForm ref="quickAdd" :disabled="quickAddDisabled" @submit="addTask" />
     <p v-if="createError" class="error-text" role="alert">{{ createError }}</p>
 
     <p v-if="!offline.mutationsEnabled" class="offline-note" role="status">
@@ -97,6 +102,12 @@ async function refresh(): Promise<void> {
     <p v-if="isLoading" class="muted">Loading tasks…</p>
     <div v-else-if="isError" class="error-panel">
       <p class="error-text" role="alert">Could not load tasks.</p>
+      <button type="button" @click="refetchAll()">Retry</button>
+    </div>
+    <div v-else-if="inboxMissing" class="error-panel">
+      <p class="error-text" role="alert">
+        Inbox project is missing. Tasks cannot be shown until it exists.
+      </p>
       <button type="button" @click="refetchAll()">Retry</button>
     </div>
     <TaskList v-else :tasks="tasks" :disabled="!offline.mutationsEnabled" @refresh="refresh" />
