@@ -84,6 +84,7 @@
 결제·다중 테넌트 인증(OIDC)·관측성 스택·관리형 DB/오브젝트 스토리지·개인정보 처리방침·약관·DPA·보안 점검. **모두 사용자 승인 및 법률 검토 대상.**
 
 ## 13. Vikunja 서비스 토큰 (2026-11-11 추가, FU-23R)
-- planner가 소유자별로 쓰는 Vikunja API 토큰은 **projects/tasks 권한 + `other:user`**(기본 프로젝트 = Inbox 조회용 `GET /user`)가 필요하다. `other:user`가 없으면 프로젝트 조회가 401 → 현재는 503 `provider_unavailable`로 보인다.
+- planner가 소유자별로 쓰는 Vikunja API 토큰은 **projects/tasks 권한 + `other:user`**(기본 프로젝트 = Inbox 조회용 `GET /user`)가 필요하다. `other:user`가 없으면 `GET /user`가 401(`provider_auth`)이지만 어댑터는 이를 흡수하고 Inbox 표식/제목 기반으로 대체 동작한다(Vikunja 기본 프로젝트 변경을 따라가지 못함). 권장 권한으로 유지.
 - `PATCH /user/settings/general`(기본 프로젝트 지정)은 **JWT 전용**이라 토큰으로는 불가 → planner는 기본 프로젝트 쓰기를 best-effort로 취급(FU-23 수정).
 - 토큰 참조는 DB에 `env:VIKUNJA_TOKEN_OWNER_*` 또는 `VIKUNJA_SECRETS_DIR` 내 파일만(FU-27). 회전 절차: 새 토큰 발급(동일 권한) → 시크릿 파일/환경 갱신 → API 재시작 → 구 토큰 폐기. FU-23 배포 시 기존 토큰은 `other:user` 포함으로 재발급 필요.
+- 재조정기(2026-11-11, FU-28): `PROVIDER=vikunja` + DB 설정 시 기본 5분 간격 ON(`VIKUNJA_RECONCILE_INTERVAL_MS=0`으로 끔). 리더는 PG advisory lock 1개 연결. 서버측 TCP keepalive가 길면(기본 7200s) 네트워크 분할 시 다른 인스턴스로의 리더 이전이 지연될 수 있음 → `tcp_keepalives_idle=30`/`interval=10`/`count=3` 권장(FU-33에서 세션 옵션으로 지정 예정).

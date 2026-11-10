@@ -1,11 +1,10 @@
-import {
-  supportsInbox,
-  type Id,
-  type Page,
-  type Project,
-  type ProjectCreate,
-  type ProjectQuery,
-  type ProjectRepository,
+import type {
+  Id,
+  Page,
+  Project,
+  ProjectCreate,
+  ProjectQuery,
+  ProjectRepository,
 } from '@ohmydate/domain';
 
 export class ProjectService {
@@ -24,12 +23,8 @@ export class ProjectService {
     return this.#projects.create(ownerId, input, idempotencyKey);
   }
 
-  /**
-   * ADR-018: the served repository owns the Inbox. Adapters that have not
-   * adopted getInbox yet (Vikunja) are a no-op until their own task lands.
-   */
-  async ensureInbox(ownerId: Id): Promise<Project | undefined> {
-    if (!supportsInbox(this.#projects)) return undefined;
+  /** ADR-018: the served repository owns the Inbox and creates it on demand. */
+  ensureInbox(ownerId: Id): Promise<Project> {
     return this.#projects.getInbox(ownerId);
   }
 }

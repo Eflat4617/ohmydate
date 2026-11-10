@@ -42,7 +42,7 @@ describe.skipIf(!hasDatabase)('outbox events', () => {
     const key = newIdempotencyKey();
     const create = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(alice, { 'idempotency-key': key }),
       payload: { title: 'Outbox lifecycle' },
     });
@@ -51,7 +51,7 @@ describe.skipIf(!hasDatabase)('outbox events', () => {
 
     const update = await ctx.app.inject({
       method: 'PATCH',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -62,7 +62,7 @@ describe.skipIf(!hasDatabase)('outbox events', () => {
 
     const complete = await ctx.app.inject({
       method: 'POST',
-      url: `/tasks/${task.id}:complete`,
+      url: `/api/v1/tasks/${task.id}:complete`,
       headers: authHeaders(alice, {
         'if-match': 'W/"2"',
         'idempotency-key': newIdempotencyKey(),
@@ -72,7 +72,7 @@ describe.skipIf(!hasDatabase)('outbox events', () => {
 
     const remove = await ctx.app.inject({
       method: 'DELETE',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, {
         'if-match': 'W/"3"',
         'idempotency-key': newIdempotencyKey(),
@@ -101,7 +101,7 @@ describe.skipIf(!hasDatabase)('outbox events', () => {
   test('completing an already done task does not emit a duplicate completed event', async () => {
     const create = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title: 'Already done' },
     });
@@ -109,7 +109,7 @@ describe.skipIf(!hasDatabase)('outbox events', () => {
 
     const first = await ctx.app.inject({
       method: 'POST',
-      url: `/tasks/${task.id}:complete`,
+      url: `/api/v1/tasks/${task.id}:complete`,
       headers: authHeaders(alice, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -126,7 +126,7 @@ describe.skipIf(!hasDatabase)('outbox events', () => {
 
     const second = await ctx.app.inject({
       method: 'POST',
-      url: `/tasks/${task.id}:complete`,
+      url: `/api/v1/tasks/${task.id}:complete`,
       headers: authHeaders(alice, {
         'if-match': 'W/"2"',
         'idempotency-key': newIdempotencyKey(),
@@ -140,7 +140,7 @@ describe.skipIf(!hasDatabase)('outbox events', () => {
   test('a mutation that fails does not write outbox rows for that attempt', async () => {
     const create = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(alice, { 'idempotency-key': newIdempotencyKey() }),
       payload: { title: 'No outbox on failure' },
     });
@@ -149,7 +149,7 @@ describe.skipIf(!hasDatabase)('outbox events', () => {
 
     const failed = await ctx.app.inject({
       method: 'PATCH',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(alice, {
         'if-match': 'W/"99"',
         'idempotency-key': newIdempotencyKey(),

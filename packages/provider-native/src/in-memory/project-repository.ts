@@ -9,7 +9,7 @@ import {
   type ProjectCreate,
   type ProjectPatch,
   type ProjectQuery,
-  type InboxProjectRepository,
+  type ProjectRepository,
   type RepositoryCapabilities,
   type Version,
 } from '@ohmydate/domain';
@@ -35,7 +35,7 @@ const CAPABILITIES: RepositoryCapabilities = {
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
-export class InMemoryProjectRepository implements InboxProjectRepository {
+export class InMemoryProjectRepository implements ProjectRepository {
   readonly capabilities: RepositoryCapabilities = CAPABILITIES;
 
   readonly #clock: InMemoryRepositoryOptions['clock'];
@@ -51,6 +51,7 @@ export class InMemoryProjectRepository implements InboxProjectRepository {
   }
 
   async create(ownerId: Id, input: ProjectCreate, idemKey: string): Promise<Project> {
+    assertNoInboxKind(input);
     const title = validateTitle(input.title);
     const requestHash = canonicalJson({ title });
     const idempotencyId = `${ownerId}:${idemKey}`;
@@ -178,6 +179,19 @@ export class InMemoryProjectRepository implements InboxProjectRepository {
     };
     this.#projects.set(id, project);
     return cloneProject(project);
+  }
+}
+
+/**
+ * ADR-018: the Inbox is created only by `getInbox`. A project create request
+ * carries no kind in the domain port; reject an undeclared one at the adapter
+ * boundary so an untyped caller cannot fabricate a second Inbox.
+ */
+function assertNoInboxKind(input: ProjectCreate): void {
+  if ((input as { readonly kind?: unknown }).kind !== undefined) {
+    throw new ValidationFailedError([
+      { path: 'kind', message: 'the inbox is created by getInbox, not by create' },
+    ]);
   }
 }
 

@@ -9,7 +9,7 @@ import {
 import { FakeClock, createSeededIdGenerator } from '@ohmydate/testkit';
 import { VikunjaClient } from '../../src/client.js';
 import { InMemoryChangeJournalStore } from '../../src/change-journal-store.js';
-import { InMemoryMappingStore } from '../../src/mapping-store.js';
+import { InMemoryMappingStore, type MappingStore } from '../../src/mapping-store.js';
 import {
   InMemoryPlannerFieldStore,
   type PlannerTaskFields,
@@ -23,6 +23,14 @@ const NO_DUE = '0001-01-01T00:00:00Z';
 
 function atSeconds(offsetSeconds: number): string {
   return new Date(BASE_MS + offsetSeconds * 1000).toISOString();
+}
+
+function deferred(): { readonly promise: Promise<void>; readonly resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
 }
 
 interface RemoteTask {
@@ -641,6 +649,74 @@ describe('FU-14R HIGH: create with dependencies', () => {
       (await context.repository.listChangedSince(context.ownerId, initial.cursor))
         .changes,
     ).toEqual([]);
+  });
+});
+
+describe('FU-29 softDelete vs deleted-scan race', () => {
+  test('one tombstone version and exactly one journal entry', async () => {
+    const context = await setup({ tasks: [remoteTask(42, 0)] });
+    const taskA = context.taskIds.get(42) as Id;
+    const initial = await context.repository.listChangedSince(context.ownerId, null);
+    expect(await context.journal.head(context.ownerId)).toBe(1);
+
+    const reachedDelete = deferred();
+    const releaseDelete = deferred();
+    const originalDelete = context.client.deleteTask.bind(context.client);
+    const deleteSpy = vi
+      .spyOn(context.client, 'deleteTask')
+      .mockImplementation(async (externalId) => {
+        const result = await originalDelete(externalId);
+        reachedDelete.resolve();
+        await releaseDelete.promise;
+        return result;
+      });
+
+    const softDelete = context.repository.softDelete(
+      context.ownerId,
+      taskA,
+      1 as Version,
+    );
+    await reachedDelete.promise;
+
+    // The remote DELETE is done but softDelete has not committed its tombstone
+    // yet. The deleted scan now reads the pre-delete mapping.
+    let raced = false;
+    const inner = context.mappings;
+    const wrapper: MappingStore = {
+      get: (entityType, entityId) => inner.get(entityType, entityId),
+      getByExternal: async (provider, entityType, externalId) => {
+        const before = await inner.getByExternal(provider, entityType, externalId);
+        if (!raced && entityType === 'task' && externalId === '42') {
+          raced = true;
+          releaseDelete.resolve();
+          await softDelete;
+        }
+        return before;
+      },
+      put: (mapping, options) => inner.put(mapping, options),
+      listByOwner: (ownerId) => inner.listByOwner(ownerId),
+      getInboxMapping: (ownerId) => inner.getInboxMapping(ownerId),
+      markInbox: (ownerId, entityId) => inner.markInbox(ownerId, entityId),
+    };
+    const racedRepo = new VikunjaTaskRepository({
+      clients: new Map<Id, VikunjaClient>([[context.ownerId, context.client]]),
+      mappings: wrapper,
+      plannerFields: context.plannerFields,
+      journal: context.journal,
+      clock: context.clock,
+      ids: context.ids,
+    });
+
+    const poll = await racedRepo.listChangedSince(context.ownerId, initial.cursor);
+    deleteSpy.mockRestore();
+
+    expect(raced).toBe(true);
+    expect(poll.changes.map((change) => `${change.id}:${change.version}`)).toEqual([
+      `${taskA}:2`,
+    ]);
+    expect(poll.changes[0]?.deletedAt).toBeDefined();
+    expect((await inner.get('task', taskA))?.localVersion).toBe(2);
+    expect(await context.journal.head(context.ownerId)).toBe(2);
   });
 });
 

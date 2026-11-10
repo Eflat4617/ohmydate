@@ -47,7 +47,7 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
   test('login rejects a wrong password and an unknown email', async () => {
     const wrong = await ctx.app.inject({
       method: 'POST',
-      url: '/auth/login',
+      url: '/api/v1/auth/login',
       payload: { email: 'alice@example.com', password: 'wrong' },
     });
     expect(wrong.statusCode).toBe(401);
@@ -56,7 +56,7 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
 
     const unknown = await ctx.app.inject({
       method: 'POST',
-      url: '/auth/login',
+      url: '/api/v1/auth/login',
       payload: { email: 'nobody@example.com', password: 'whatever' },
     });
     expect(unknown.statusCode).toBe(401);
@@ -71,14 +71,14 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
       for (let attempt = 1; attempt <= 5; attempt += 1) {
         const response = await limited.app.inject({
           method: 'POST',
-          url: '/auth/login',
+          url: '/api/v1/auth/login',
           payload: { email: 'limited@example.com', password: 'wrong' },
         });
         expect({ attempt, status: response.statusCode }).toEqual({ attempt, status: 401 });
       }
       const blocked = await limited.app.inject({
         method: 'POST',
-        url: '/auth/login',
+        url: '/api/v1/auth/login',
         payload: { email: 'limited@example.com', password: 'correct-horse' },
       });
       expect(blocked.statusCode).toBe(429);
@@ -94,7 +94,7 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
 
     const missing = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: {
         cookie: session.cookie,
         'idempotency-key': newIdempotencyKey(),
@@ -105,7 +105,7 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
 
     const mismatch = await ctx.app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: {
         cookie: session.cookie,
         'x-csrf-token': 'not-the-token',
@@ -120,24 +120,24 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
     const session = await login(ctx, 'alice@example.com', 'correct-horse');
     const logout = await ctx.app.inject({
       method: 'POST',
-      url: '/auth/logout',
+      url: '/api/v1/auth/logout',
       headers: authHeaders(session),
     });
     expect(logout.statusCode).toBe(204);
 
-    const me = await ctx.app.inject({ method: 'GET', url: '/me', headers: { cookie: session.cookie } });
+    const me = await ctx.app.inject({ method: 'GET', url: '/api/v1/me', headers: { cookie: session.cookie } });
     expect(me.statusCode).toBe(401);
   });
 
   test('GET /me returns ETag and supports If-None-Match', async () => {
     const session = await login(ctx, 'alice@example.com', 'correct-horse');
-    const me = await ctx.app.inject({ method: 'GET', url: '/me', headers: authHeaders(session) });
+    const me = await ctx.app.inject({ method: 'GET', url: '/api/v1/me', headers: authHeaders(session) });
     expect(me.statusCode).toBe(200);
     expect(me.headers['etag']).toBe('W/"1"');
 
     const notModified = await ctx.app.inject({
       method: 'GET',
-      url: '/me',
+      url: '/api/v1/me',
       headers: authHeaders(session, { 'if-none-match': 'W/"1"' }),
     });
     expect(notModified.statusCode).toBe(304);
@@ -150,7 +150,7 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
 
     const missingIfMatch = await ctx.app.inject({
       method: 'PATCH',
-      url: '/me/settings',
+      url: '/api/v1/me/settings',
       headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
       payload: { timeZone: 'Asia/Seoul' },
     });
@@ -158,7 +158,7 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
 
     const missingKey = await ctx.app.inject({
       method: 'PATCH',
-      url: '/me/settings',
+      url: '/api/v1/me/settings',
       headers: authHeaders(session, { 'if-match': 'W/"1"' }),
       payload: { timeZone: 'Asia/Seoul' },
     });
@@ -166,7 +166,7 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
 
     const updated = await ctx.app.inject({
       method: 'PATCH',
-      url: '/me/settings',
+      url: '/api/v1/me/settings',
       headers: authHeaders(session, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -179,7 +179,7 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
 
     const stale = await ctx.app.inject({
       method: 'PATCH',
-      url: '/me/settings',
+      url: '/api/v1/me/settings',
       headers: authHeaders(session, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),
@@ -194,7 +194,7 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
     const session = await login(ctx, 'alice@example.com', 'correct-horse');
     const invalid = await ctx.app.inject({
       method: 'PATCH',
-      url: '/me/settings',
+      url: '/api/v1/me/settings',
       headers: authHeaders(session, {
         'if-match': 'W/"1"',
         'idempotency-key': newIdempotencyKey(),

@@ -6,6 +6,7 @@ import Fastify, {
   type FastifyServerOptions,
 } from 'fastify';
 import type { Kysely } from 'kysely';
+import { sql } from 'kysely';
 import type { AppConfig } from './config.js';
 import type { AppRepositories, IdempotencyStore } from './application/ports.js';
 import { AuthService } from './application/auth-service.js';
@@ -34,6 +35,9 @@ import './http/fastify-augment.js';
 export type LoggerOption = NonNullable<FastifyServerOptions['logger']>;
 export type LoggerInstanceOption = NonNullable<FastifyServerOptions['loggerInstance']>;
 
+/** 08 §1: planner API base path, independent of the Vikunja API version. */
+export const API_PREFIX = '/api/v1' as const;
+
 export interface BuildAppOptions {
   readonly config: AppConfig;
   /**
@@ -55,6 +59,12 @@ export interface BuildAppOptions {
   readonly loggerInstance?: LoggerInstanceOption;
   /** Test override for forcing idempotency-store failures. */
   readonly idempotency?: IdempotencyStore;
+  /**
+   * Test override for the reconciler's advisory-lock key. Production uses the
+   * stable VIKUNJA_RECONCILE_ADVISORY_LOCK_KEY; a distinct key lets parallel
+   * test workers avoid contending on the shared planner database.
+   */
+  readonly reconcileLockKey?: number;
 }
 
 /**
@@ -89,6 +99,53 @@ export function defaultLoggerOptions(config: AppConfig): LoggerOption {
       },
     },
   } as unknown as LoggerOption;
+}
+
+async function databaseReady(db: Kysely<Database>): Promise<boolean> {
+  try {
+    await sql`select 1`.execute(db);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 09 §7: readiness includes Vikunja when it is the repository provider. The
+ * info endpoint is Vikunja's own v1 health surface, not the planner prefix.
+ */
+async function vikunjaReady(config: AppConfig): Promise<'ok' | 'failed' | 'skipped'> {
+  if (config.provider !== 'vikunja') return 'skipped';
+  if (config.vikunjaUrl === null || config.vikunjaUrl.length === 0) return 'failed';
+  const baseUrl = config.vikunjaUrl.replace(/\/+$/, '');
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/info`, {
+      signal: AbortSignal.timeout(3_000),
+    });
+    return response.ok ? 'ok' : 'failed';
+  } catch {
+    return 'failed';
+  }
+}
+
+function registerHealthRoutes(
+  app: FastifyInstance,
+  config: AppConfig,
+  db: Kysely<Database>,
+): void {
+  app.get('/healthz', async (_request, reply) => reply.code(200).send({ status: 'ok' }));
+
+  app.get('/readyz', async (_request, reply) => {
+    const [database, vikunja] = await Promise.all([databaseReady(db), vikunjaReady(config)]);
+    const ready = database && vikunja !== 'failed';
+    return reply.code(ready ? 200 : 503).send({
+      status: ready ? 'ok' : 'unavailable',
+      checks: {
+        database: database ? 'ok' : 'failed',
+        vikunja,
+      },
+    });
+  });
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -234,23 +291,40 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     repos,
   });
 
-  registerRoutes(app, runtime);
+  registerHealthRoutes(app, config, db);
+
+  await app.register(
+    async (instance) => {
+      registerRoutes(instance, runtime);
+    },
+    { prefix: API_PREFIX },
+  );
 
   if (config.provider === 'vikunja' && config.reconcileIntervalMs > 0) {
-    const connectionString = process.env['DATABASE_URL'];
-    if (connectionString === undefined || connectionString.length === 0) {
-      throw new Error('DATABASE_URL is required when VIKUNJA_RECONCILE_INTERVAL_MS > 0');
+    const connectionString = config.databaseUrl;
+    if (connectionString === null || connectionString.length === 0) {
+      throw new Error(
+        'DATABASE_URL is required when VIKUNJA_RECONCILE_INTERVAL_MS > 0 ' +
+          '(set config.databaseUrl)',
+      );
     }
+    const reconcilerLogger = {
+      warn: (message: string, details?: Readonly<Record<string, unknown>>) =>
+        app.log.warn(details ?? {}, message),
+      error: (message: string, details?: Readonly<Record<string, unknown>>) =>
+        app.log.error(details ?? {}, message),
+    };
     const reconciler = new VikunjaReconciler({
       taskRepository: repos.tasks,
       ownerIds: () => listReconcilerOwnerIds(db),
-      leaderLock: createPgSessionLeaderLock({ connectionString }),
+      leaderLock: createPgSessionLeaderLock({
+        connectionString,
+        ...(options.reconcileLockKey === undefined ? {} : { key: options.reconcileLockKey }),
+        logger: reconcilerLogger,
+      }),
       clock,
       intervalMs: config.reconcileIntervalMs,
-      logger: {
-        warn: (message, details) => app.log.warn(details ?? {}, message),
-        error: (message, details) => app.log.error(details ?? {}, message),
-      },
+      logger: reconcilerLogger,
     });
     app.addHook('onClose', async () => {
       await reconciler.stop();

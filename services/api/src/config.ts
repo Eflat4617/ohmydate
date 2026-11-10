@@ -6,12 +6,30 @@ export interface LoginRateLimitConfig {
 export type ProviderKind = 'memory' | 'vikunja';
 
 /**
- * Background reconciliation is OFF by default: enabling it before FU-22 wires
- * `expectedLocalVersion` into the adapter's non-create mapping puts lets a
- * scheduled sweep race request handlers and reuse planner versions. Set
- * VIKUNJA_RECONCILE_INTERVAL_MS (e.g. 300000) only after that wiring lands.
+ * Background reconciliation is ON by default for `PROVIDER=vikunja` with a
+ * `databaseUrl` (five minutes). FU-22's `expectedLocalVersion` CAS wiring and
+ * the FU-28 leader-liveness hardening make a scheduled sweep safe to overlap
+ * request handlers. `PROVIDER=memory` and configs without a lock database stay
+ * at zero because they have no cross-process leader lock to acquire.
  */
-export const DEFAULT_RECONCILE_INTERVAL_MS = 0;
+export const DEFAULT_RECONCILE_INTERVAL_MS = 300_000;
+
+/** Reconciliation is always off for the in-memory provider. */
+export const DISABLED_RECONCILE_INTERVAL_MS = 0;
+
+/**
+ * Effective default before an explicit VIKUNJA_RECONCILE_INTERVAL_MS override:
+ * 300 s only when the Vikunja provider has a database for the session advisory
+ * lock; 0 otherwise.
+ */
+export function defaultReconcileIntervalMs(
+  provider: ProviderKind,
+  databaseUrl: string | null,
+): number {
+  return provider === 'vikunja' && databaseUrl !== null && databaseUrl.length > 0
+    ? DEFAULT_RECONCILE_INTERVAL_MS
+    : DISABLED_RECONCILE_INTERVAL_MS;
+}
 
 export interface AppConfig {
   /**
@@ -28,8 +46,18 @@ export interface AppConfig {
    * never stored in PostgreSQL. Required when any owner uses the default ref.
    */
   readonly vikunjaTokenFile: string | null;
-  /** Background reconciliation interval; 0 (default) disables the timer. */
+  /**
+   * Background reconciliation interval. Defaults to 300000 when
+   * provider=vikunja and databaseUrl is set, and 0 (timer disabled) for the
+   * memory provider or a missing lock database. An explicit 0 disables it.
+   */
   readonly reconcileIntervalMs: number;
+  /**
+   * Database URL for the reconciler's dedicated leader-lock connection. This
+   * must point at the same database as the injected Kysely handle because
+   * advisory locks are per database. Required when reconcileIntervalMs > 0.
+   */
+  readonly databaseUrl: string | null;
   /**
    * Directory that may contain token files referenced as `file:<path>`. Any
    * such file must realpath-resolve inside this directory (or be exactly
@@ -63,7 +91,8 @@ export const defaultConfig: AppConfig = {
   provider: 'memory',
   vikunjaUrl: null,
   vikunjaTokenFile: null,
-  reconcileIntervalMs: DEFAULT_RECONCILE_INTERVAL_MS,
+  reconcileIntervalMs: DISABLED_RECONCILE_INTERVAL_MS,
+  databaseUrl: null,
   vikunjaSecretsDir: null,
   cookieSecure: true,
   sessionTtlMs: DEFAULT_SESSION_TTL_MS,
@@ -84,27 +113,37 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`PROVIDER must be "memory" or "vikunja", got "${provider}"`);
   }
   const interval = env['VIKUNJA_RECONCILE_INTERVAL_MS'];
+  const providerKind = provider ?? 'memory';
+  const databaseUrl = env['DATABASE_URL'] ?? null;
   const reconcileIntervalMs =
-    interval === undefined ? DEFAULT_RECONCILE_INTERVAL_MS : Number.parseInt(interval, 10);
+    interval === undefined
+      ? defaultReconcileIntervalMs(providerKind, databaseUrl)
+      : Number.parseInt(interval, 10);
   if (!Number.isInteger(reconcileIntervalMs) || reconcileIntervalMs < 0) {
     throw new Error('VIKUNJA_RECONCILE_INTERVAL_MS must be a non-negative integer');
   }
   return createConfig({
-    provider: provider ?? 'memory',
+    provider: providerKind,
     vikunjaUrl: env['VIKUNJA_URL'] ?? null,
     vikunjaTokenFile: env['VIKUNJA_TOKEN_FILE'] ?? null,
     reconcileIntervalMs,
+    databaseUrl,
     vikunjaSecretsDir: env['VIKUNJA_SECRETS_DIR'] ?? null,
   });
 }
 
 export function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
-  return {
+  const merged: AppConfig = {
     ...defaultConfig,
     ...overrides,
     loginRateLimit: {
       ...defaultConfig.loginRateLimit,
       ...overrides.loginRateLimit,
     },
+  };
+  if (overrides.reconcileIntervalMs !== undefined) return merged;
+  return {
+    ...merged,
+    reconcileIntervalMs: defaultReconcileIntervalMs(merged.provider, merged.databaseUrl),
   };
 }

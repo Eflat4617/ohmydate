@@ -61,7 +61,6 @@ type IdempotencyRecord = PendingIdempotencyRecord | CommittedIdempotencyRecord;
 const CAPABILITIES: RepositoryCapabilities = {
   strictConcurrency: true,
   idempotentCreate: true,
-  softDeleteReturnsVersion: true,
 };
 
 const DEFAULT_LIMIT = 20;

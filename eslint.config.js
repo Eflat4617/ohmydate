@@ -12,6 +12,8 @@ export default tseslint.config(
       'deploy/**',
       'scripts/__fixtures__/**',
       'pnpm-lock.yaml',
+      'playwright-report/**',
+      'test-results/**',
     ],
   },
   js.configs.recommended,

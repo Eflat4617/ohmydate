@@ -1,4 +1,5 @@
-import { readFile, realpath } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { open, realpath, stat, type FileHandle } from 'node:fs/promises';
 import { isAbsolute, relative } from 'node:path';
 import type { Id } from '@ohmydate/domain';
 import { VikunjaClient } from '@ohmydate/provider-vikunja';
@@ -49,9 +50,16 @@ export async function listReconcilerOwnerIds(db: Kysely<Database>): Promise<read
  * Token files are JSON objects of ownerId -> API token (`{ "tokens": {...} }`
  * is also accepted). Supported references are:
  * - `env:VIKUNJA_TOKEN_*` — only names under that prefix are accepted, so a
- *   writable account row cannot exfiltrate an unrelated env secret.
+ *   writable account row cannot exfiltrate an unrelated env secret. The config
+ *   variable `VIKUNJA_TOKEN_FILE` is explicitly excluded: it holds a path, not
+ *   a token, so `env:VIKUNJA_TOKEN_FILE` would send the path as a Bearer value.
  * - `file:<path>` — the path must realpath-resolve to VIKUNJA_TOKEN_FILE or
  *   inside VIKUNJA_SECRETS_DIR; traversal and symlink escapes are rejected.
+ *   Verification is open-then-check: the canonical path is opened with
+ *   O_RDONLY|O_NOFOLLOW, the opened handle's dev/ino must match the verified
+ *   file, and its /proc/self/fd path must still resolve inside the allowed set.
+ *   Only then is the token read from that handle, so swapping a leaf file or an
+ *   intermediate directory after the path check cannot redirect the read.
  * - `default` — use the configured VIKUNJA_TOKEN_FILE.
  * Bare paths are intentionally unsupported. Cleartext tokens never touch
  * PostgreSQL, logs or error messages, and file errors never echo foreign keys.
@@ -60,39 +68,86 @@ export async function loadVikunjaClients(options: {
   readonly db: Kysely<Database>;
   readonly config: AppConfig;
   readonly env?: NodeJS.ProcessEnv;
-  readonly readTextFile?: (path: string) => Promise<string>;
+  /**
+   * Test-only seam: runs after the path/token-file verification and before the
+   * handle is opened, so a test can deterministically swap a leaf file or an
+   * intermediate directory and assert the open-then-verify path rejects it.
+   */
+  readonly beforeTokenFileOpen?: (resolvedPath: string) => Promise<void>;
 }): Promise<ReadonlyMap<Id, VikunjaClient>> {
   const baseUrl = options.config.vikunjaUrl;
   if (baseUrl === null || baseUrl.length === 0) {
     throw new Error('VIKUNJA_URL is required when PROVIDER=vikunja');
   }
   const env = options.env ?? process.env;
-  const readText = options.readTextFile ?? ((path: string) => readFile(path, 'utf8'));
   const fileCache = new Map<string, ReadonlyMap<string, string>>();
   const accounts = await listVikunjaOwnerAccounts(options.db);
   const clients = new Map<Id, VikunjaClient>();
 
-  const assertAllowedFile = async (path: string): Promise<void> => {
-    const resolved = await realpath(path);
+  const resolvedDefaultFile = async (): Promise<string | null> => {
     const defaultFile = options.config.vikunjaTokenFile;
-    if (defaultFile !== null) {
-      const resolvedDefault = await realpath(defaultFile).catch(() => null);
-      if (resolvedDefault !== null && resolvedDefault === resolved) return;
-    }
+    if (defaultFile === null) return null;
+    return realpath(defaultFile).catch(() => null);
+  };
+
+  const isAllowedCanonicalPath = async (resolved: string): Promise<boolean> => {
+    const resolvedDefault = await resolvedDefaultFile();
+    if (resolvedDefault !== null && resolvedDefault === resolved) return true;
     const secretsDir = options.config.vikunjaSecretsDir;
-    if (secretsDir === null) {
-      throw new Error('VIKUNJA_SECRETS_DIR is required for file token references');
-    }
-    const dir = await realpath(secretsDir);
+    if (secretsDir === null) return false;
+    const dir = await realpath(secretsDir).catch(() => null);
+    if (dir === null) return false;
     const inside = relative(dir, resolved);
-    if (inside === '' || (!inside.startsWith('..') && !isAbsolute(inside))) return;
-    throw new Error('Vikunja token file reference escapes VIKUNJA_SECRETS_DIR');
+    return inside === '' || (!inside.startsWith('..') && !isAbsolute(inside));
+  };
+
+  const resolveAllowedFile = async (
+    path: string,
+  ): Promise<{ resolved: string; dev: number; ino: number }> => {
+    const resolved = await realpath(path);
+    if (!(await isAllowedCanonicalPath(resolved))) {
+      if (options.config.vikunjaSecretsDir === null) {
+        throw new Error('VIKUNJA_SECRETS_DIR is required for file token references');
+      }
+      throw new Error('Vikunja token file reference escapes VIKUNJA_SECRETS_DIR');
+    }
+    const info = await stat(resolved);
+    return { resolved, dev: info.dev, ino: info.ino };
+  };
+
+  const readVerifiedFile = async (path: string): Promise<string> => {
+    const { resolved, dev, ino } = await resolveAllowedFile(path);
+    // Deterministic race window for tests only; undefined in production.
+    await options.beforeTokenFileOpen?.(resolved);
+    let handle: FileHandle;
+    try {
+      handle = await open(resolved, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    } catch {
+      // ELOOP from O_NOFOLLOW: the verified leaf became a symlink.
+      throw new Error('Vikunja token file changed after verification');
+    }
+    try {
+      const opened = await handle.stat();
+      if (opened.dev !== dev || opened.ino !== ino) {
+        throw new Error('Vikunja token file changed after verification');
+      }
+      // On Linux this is the canonical path of the opened inode. It catches an
+      // intermediate directory swapped for a symlink (O_NOFOLLOW only checks
+      // the final component) even when the attacker copies inode metadata.
+      const openedPath = await realpath(`/proc/self/fd/${handle.fd}`).catch(() => null);
+      if (openedPath !== null && !(await isAllowedCanonicalPath(openedPath))) {
+        throw new Error('Vikunja token file reference escapes VIKUNJA_SECRETS_DIR');
+      }
+      return await handle.readFile('utf8');
+    } finally {
+      await handle.close().catch(() => undefined);
+    }
   };
 
   const tokenFromFile = async (path: string, ownerId: Id): Promise<string> => {
     let tokens = fileCache.get(path);
     if (tokens === undefined) {
-      const text = await readText(path);
+      const text = await readVerifiedFile(path);
       tokens = parseTokenFile(path, text);
       fileCache.set(path, tokens);
     }
@@ -108,9 +163,10 @@ export async function loadVikunjaClients(options: {
     let token: string;
     if (ref.startsWith('env:')) {
       const name = ref.slice('env:'.length);
-      if (!/^VIKUNJA_TOKEN_[A-Z0-9_]+$/.test(name)) {
+      if (!/^VIKUNJA_TOKEN_[A-Z0-9_]+$/.test(name) || name === 'VIKUNJA_TOKEN_FILE') {
         throw new Error(
-          `Vikunja token env reference for owner ${account.ownerId} must be env:VIKUNJA_TOKEN_*`,
+          `Vikunja token env reference for owner ${account.ownerId} must be env:VIKUNJA_TOKEN_* ` +
+            '(VIKUNJA_TOKEN_FILE is a path, not a token)',
         );
       }
       const value = env[name];
@@ -127,7 +183,6 @@ export async function loadVikunjaClients(options: {
       token = await tokenFromFile(options.config.vikunjaTokenFile, account.ownerId);
     } else if (ref.startsWith('file:')) {
       const path = ref.slice('file:'.length);
-      await assertAllowedFile(path);
       token = await tokenFromFile(path, account.ownerId);
     } else {
       throw new Error(

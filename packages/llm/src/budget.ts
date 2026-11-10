@@ -31,6 +31,14 @@ function assertValidInitSpend(kind: string, value: number | undefined): void {
   }
 }
 
+function normalizeUnpricedModels(value: unknown): readonly string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new TypeError('allowUnpricedModels must be an array of model-name strings');
+  }
+  return value;
+}
+
 function dayKeyOf(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -71,7 +79,7 @@ export class BudgetGuard {
     this.monthKey = init.monthKey ?? monthKeyOf(current);
     this.spentTodayUsd = init.spentTodayUsd ?? 0;
     this.spentThisMonthUsd = init.spentThisMonthUsd ?? 0;
-    this.unpricedModels = new Set(init.allowUnpricedModels ?? []);
+    this.unpricedModels = new Set(normalizeUnpricedModels(init.allowUnpricedModels));
   }
 
   private rollover(): void {
@@ -134,16 +142,20 @@ export class BudgetGuard {
   }
 
   /**
-   * Record usage. Missing/non-finite/negative cost from a model outside the explicit
-   * unpriced allow-list marks the guard exhausted (fail closed). Recovering from
-   * exhaustion requires constructing a new guard; rollover does not reset the flag.
+   * Record usage. A missing cost is exempt only for an exact unpriced-allow-list model;
+   * a non-finite or negative cost always exhausts the guard (fail closed). Recovering
+   * from exhaustion requires constructing a new guard; rollover does not reset the flag.
    */
   record(cost: number | LlmUsage | undefined, options: BudgetRecordOptions = {}): void {
     const usd = typeof cost === 'number' ? cost : cost?.costUsd;
     const unpricedAllowed = options.model !== undefined && this.unpricedModels.has(options.model);
 
-    if (usd === undefined || !Number.isFinite(usd) || usd < 0) {
+    if (usd === undefined) {
       if (!unpricedAllowed) this.exhausted = true;
+      return;
+    }
+    if (!Number.isFinite(usd) || usd < 0) {
+      this.exhausted = true;
       return;
     }
     if (usd === 0) return;

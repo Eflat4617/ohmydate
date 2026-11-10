@@ -37,6 +37,14 @@ describe('mapVikunjaError', () => {
     ]);
   });
 
+  test('maps 401 to a distinct provider_auth reason without secrets', () => {
+    const error = mapVikunjaError(401, { detail: 'invalid token tk_secret' });
+    expect(error).toBeInstanceOf(ProviderUnavailableError);
+    expect((error as ProviderUnavailableError).reason).toBe('provider_auth');
+    expect(error.message).toContain('provider_auth');
+    expect(error.message).not.toContain('tk_secret');
+  });
+
   test('maps server, auth, rate-limit and unknown statuses to ProviderUnavailableError', () => {
     for (const status of [401, 429, 500, 502, 503]) {
       expect(mapVikunjaError(status)).toBeInstanceOf(ProviderUnavailableError);

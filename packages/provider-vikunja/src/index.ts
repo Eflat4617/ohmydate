@@ -12,10 +12,12 @@ export {
   type RequestOptions,
   type ResponseEnvelope,
   type VikunjaClientOptions,
+  type VikunjaGeneralSettings,
   type VikunjaProblem,
   type VikunjaProject,
   type VikunjaTask,
   type VikunjaUser,
+  type VikunjaUserInfo,
 } from './client.js';
 export {
   InMemoryChangeJournalStore,

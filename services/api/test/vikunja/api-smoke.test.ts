@@ -23,6 +23,7 @@ const TOKEN_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   projects: ['create', 'read_all', 'read_one', 'update', 'delete', 'permanent'],
   tasks: ['create', 'read_all', 'read_one', 'update', 'delete', 'deleted', 'permanent'],
   tasks_relations: ['create', 'delete'],
+  other: ['user'],
 };
 
 interface SyntheticAccount {
@@ -116,7 +117,7 @@ describe.skipIf(!live)('API smoke against live Vikunja with PG stores', () => {
 
     const login = await app.inject({
       method: 'POST',
-      url: '/auth/login',
+      url: '/api/v1/auth/login',
       payload: { email, password },
     });
     expect(login.statusCode).toBe(204);
@@ -124,7 +125,7 @@ describe.skipIf(!live)('API smoke against live Vikunja with PG stores', () => {
 
     const created = await app.inject({
       method: 'POST',
-      url: '/tasks',
+      url: '/api/v1/tasks',
       headers: authHeaders(session, { 'idempotency-key': randomUUID() }),
       payload: { title: 'M1-10 smoke task' },
     });
@@ -139,7 +140,7 @@ describe.skipIf(!live)('API smoke against live Vikunja with PG stores', () => {
 
     const patched = await app.inject({
       method: 'PATCH',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(session, {
         'idempotency-key': randomUUID(),
         'if-match': 'W/"1"',
@@ -151,7 +152,7 @@ describe.skipIf(!live)('API smoke against live Vikunja with PG stores', () => {
 
     const fetched = await app.inject({
       method: 'GET',
-      url: `/tasks/${task.id}`,
+      url: `/api/v1/tasks/${task.id}`,
       headers: authHeaders(session),
     });
     expect(fetched.statusCode).toBe(200);

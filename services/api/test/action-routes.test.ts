@@ -26,7 +26,7 @@ describe.skipIf(!hasDatabase)('action route translation', () => {
     const session = await login(ctx, 'actions@example.com', 'correct-horse');
     const response = await ctx.app.inject({
       method: 'POST',
-      url: `/tasks/${ID}`,
+      url: `/api/v1/tasks/${ID}`,
       headers: authHeaders(session),
     });
     expect(response.statusCode).toBe(404);
@@ -37,7 +37,7 @@ describe.skipIf(!hasDatabase)('action route translation', () => {
     const session = await login(ctx, 'actions@example.com', 'correct-horse');
     const response = await ctx.app.inject({
       method: 'POST',
-      url: `/tasks/${ID}:reopen`,
+      url: `/api/v1/tasks/${ID}:reopen`,
       headers: authHeaders(session),
     });
     expect(response.statusCode).toBe(404);

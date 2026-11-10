@@ -29,6 +29,8 @@ const TOKEN_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
     'permanent',
   ],
   tasks_relations: ['create', 'delete'],
+  // ADR-018 reads the user's default project, which is exposed on GET /user.
+  other: ['user'],
 };
 
 function uniqueSuffix(): string {

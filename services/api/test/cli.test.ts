@@ -77,13 +77,12 @@ describe.skipIf(!hasDatabase)('create-user CLI', () => {
     });
     await client.connect();
     try {
-      const row = await client.query<{ id: string; email: string; password_hash: string }>(
-        'SELECT id, email, password_hash FROM "user" WHERE email = $1',
+      const row = await client.query<{ email: string; password_hash: string }>(
+        'SELECT email, password_hash FROM "user" WHERE email = $1',
         ['seed.user@example.com'],
       );
       expect(row.rowCount).toBe(1);
       expect(row.rows[0]?.password_hash.startsWith('$argon2id$')).toBe(true);
-
     } finally {
       await client.end();
     }
