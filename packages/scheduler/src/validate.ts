@@ -642,6 +642,20 @@ function checkH5(
 
     if (!task.splittable) {
       const required = taskRequiredMinutes(task, opts.riskLevel);
+      if (required === 0) {
+        // An in-progress or finished non-splittable task has no forward need:
+        // the whole existing block is history (06 §7.1). It needs no new
+        // block, and any candidate/locked block would be a duplicate.
+        if (taskBlocks.length > 0) {
+          violations.push({
+            code: 'H5',
+            message: `Non-splittable task "${task.id}" has no remaining minutes and must not have a block.`,
+            taskId: task.id,
+            blocks: taskBlocks.map((parsed) => parsed.block),
+          });
+        }
+        continue;
+      }
       if (required < task.minSessionMin || required > task.maxSessionMin) {
         violations.push({
           code: 'H5',

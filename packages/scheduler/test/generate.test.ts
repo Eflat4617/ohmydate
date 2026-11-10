@@ -421,6 +421,55 @@ describe('plan generator', () => {
     );
   });
 
+  it('N14: deficitMin and coverage ignore history minutes', () => {
+    const input = makeInput({
+      now: '2026-11-09T12:00:00Z',
+      horizon: {
+        start: '2026-11-09T00:00:00Z',
+        end: '2026-11-10T00:00:00Z',
+      },
+      tasks: [
+        makeTask({
+          id: 'A',
+          dueAt: '2026-11-09T17:00:00Z',
+          estimate: { p50Min: 120, p90Min: 120 },
+          remainingMin: 60,
+        }),
+      ],
+      availability: [
+        { weekday: 1, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+      ],
+      prefs: {
+        maxDailyFocusMin: 120,
+        breakAfterMin: 480,
+        breakMin: 15,
+        riskLevel: 'p50',
+        dayStartLocal: '00:00',
+        dayEndLocal: '24:00',
+      },
+      existingBlocks: [
+        {
+          taskId: 'A',
+          start: '2026-11-09T09:00:00Z',
+          end: '2026-11-09T11:00:00Z',
+        },
+      ],
+    });
+    const result = generate(input, { policies: ['front_loaded'] });
+    const [candidate] = result.candidates;
+    expect(candidate?.blocks).toEqual([]);
+    expect(candidate?.feasible).toBe(false);
+    expect(candidate?.deficitMin).toBe(60);
+    expect(candidate?.metrics.deficitMin).toBe(60);
+    expect(candidate?.metrics.p90CoverageRatio).toBe(0);
+    expect(candidate?.explanation.join('\n')).toContain(
+      'Placed 0 of 60 required minutes',
+    );
+    expect(candidate?.explanation.join('\n')).toContain(
+      'Unplaced minutes (H7 shortfall): 60 min.',
+    );
+  });
+
   it('uses remainingMin for p90CoverageRatio', () => {
     const input = makeInput({
       tasks: [

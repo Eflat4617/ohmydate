@@ -211,3 +211,171 @@ describe('replan feasibility property', () => {
     expect(comparisons).toBeGreaterThan(20);
   }, 180000);
 });
+
+const advanceTaskSpec = fc.record({
+  durationUnits: fc.integer({ min: 6, max: 24 }),
+  maxUnits: fc.constantFrom(12, 18, 24, 36),
+  priority: fc.integer({ min: 1, max: 4 }),
+  splittable: fc.boolean(),
+});
+
+const advanceSpec = fc.record({
+  scenario: fc.constantFrom(...SCENARIOS),
+  window: fc.constantFrom(...WINDOWS),
+  windowKind: fc.constantFrom<'all' | 'weekdays'>('all', 'weekdays'),
+  tasks: fc.array(advanceTaskSpec, { minLength: 1, maxLength: 3 }),
+  policy: fc.constantFrom<'front_loaded' | 'balanced' | 'focus_blocked'>(
+    'front_loaded',
+    'balanced',
+    'focus_blocked',
+  ),
+  seed: fc.integer({ min: 0, max: 100000 }),
+  pivotIndex: fc.integer({ min: 0, max: 9 }),
+  pivotOffsetUnits: fc.constantFrom(3, 6, 9, 12, 18),
+});
+
+type AdvanceSpec = {
+  scenario: Scenario;
+  window: [string, string];
+  windowKind: 'all' | 'weekdays';
+  tasks: Array<{
+    durationUnits: number;
+    maxUnits: number;
+    priority: number;
+    splittable: boolean;
+  }>;
+  policy: 'front_loaded' | 'balanced' | 'focus_blocked';
+  seed: number;
+  pivotIndex: number;
+  pivotOffsetUnits: number;
+};
+
+function buildAdvanceInput(specValue: AdvanceSpec): ScheduleInput {
+  const weekdays =
+    specValue.windowKind === 'all' ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5];
+  const availability: AvailabilityRule[] = weekdays.map((weekday) => ({
+    weekday: weekday as Weekday,
+    startLocal: specValue.window[0],
+    endLocal: specValue.window[1],
+    kind: 'work',
+  }));
+  const tasks: Task[] = specValue.tasks.map((entry, index) => {
+    const durationMin = entry.durationUnits * 5;
+    return {
+      id: `T${index}`,
+      dueAt: specValue.scenario.end,
+      earliestStartAt: specValue.scenario.start,
+      estimate: { p50Min: durationMin, p90Min: durationMin },
+      splittable: entry.splittable,
+      minSessionMin: entry.splittable ? Math.min(30, durationMin) : durationMin,
+      maxSessionMin: entry.splittable
+        ? Math.max(entry.durationUnits, entry.maxUnits) * 5
+        : durationMin,
+      priority: entry.priority as 1 | 2 | 3 | 4,
+      dependsOn: [],
+    };
+  });
+  return {
+    now: specValue.scenario.start,
+    timeZone: specValue.scenario.timeZone,
+    horizon: {
+      start: specValue.scenario.start,
+      end: specValue.scenario.end,
+    },
+    tasks,
+    availability,
+    exceptions: [],
+    commitments: [],
+    lockedBlocks: [],
+    prefs: {
+      maxDailyFocusMin: 480,
+      breakAfterMin: 480,
+      breakMin: 15,
+      riskLevel: 'p50',
+      dayStartLocal: '00:00',
+      dayEndLocal: '24:00',
+    },
+    seed: specValue.seed,
+  };
+}
+
+describe('advancing now with remainingMin property', () => {
+  it('stays feasible with changedBlocks 0 when remainingMin = required - history', () => {
+    const MINUTE_MS = 60 * 1000;
+    let comparisons = 0;
+    fc.assert(
+      fc.property(advanceSpec, (specValue) => {
+        const baseInput = buildAdvanceInput(specValue);
+        const base = generate(baseInput, {
+          policies: [specValue.policy],
+          seed: specValue.seed,
+        });
+        const baseCandidate = base.candidates[0];
+        if (baseCandidate === undefined || !baseCandidate.feasible) {
+          fc.pre(false);
+          return;
+        }
+
+        const blocks = baseCandidate.blocks;
+        const longBlocks = blocks.filter(
+          (block) =>
+            Date.parse(block.end) - Date.parse(block.start) >= 30 * MINUTE_MS,
+        );
+        let nowMs = Date.parse(baseInput.now);
+        const pivot =
+          longBlocks[
+            longBlocks.length === 0
+              ? 0
+              : specValue.pivotIndex % longBlocks.length
+          ];
+        if (pivot !== undefined) {
+          const pivotStart = Date.parse(pivot.start);
+          const durationMin =
+            (Date.parse(pivot.end) - pivotStart) / MINUTE_MS;
+          const offsetMin = Math.min(
+            Math.max(5, specValue.pivotOffsetUnits * 5),
+            durationMin - 5,
+          );
+          nowMs = pivotStart + offsetMin * MINUTE_MS;
+        }
+
+        const history = blocks.filter(
+          (block) => Date.parse(block.start) < nowMs,
+        );
+        const historyMinutesByTask = new Map<string, number>();
+        for (const block of history) {
+          historyMinutesByTask.set(
+            block.taskId,
+            (historyMinutesByTask.get(block.taskId) ?? 0) +
+              (Date.parse(block.end) - Date.parse(block.start)) / MINUTE_MS,
+          );
+        }
+
+        const tasks = baseInput.tasks.map((task) => ({
+          ...task,
+          remainingMin: Math.max(
+            0,
+            task.estimate.p50Min - (historyMinutesByTask.get(task.id) ?? 0),
+          ),
+        }));
+        const replanInput: ScheduleInput = {
+          ...baseInput,
+          now: new Date(nowMs).toISOString(),
+          tasks,
+          existingBlocks: blocks,
+        };
+
+        comparisons += 1;
+        const replan = generate(replanInput, {
+          policies: [specValue.policy],
+          seed: specValue.seed,
+        });
+        const candidate = replan.candidates[0];
+        expect(candidate?.feasible).toBe(true);
+        expect(candidate?.metrics.changedBlocks).toBe(0);
+      }),
+      { numRuns: Math.min(NUM_RUNS, 200) },
+    );
+    expect(comparisons).toBeGreaterThan(20);
+  }, 180000);
+});

@@ -592,4 +592,53 @@ describe('replan degradation', () => {
     );
     expect(h1.map((violation) => violation.code)).toContain('H1');
   });
+
+  it('N16: a non-splittable task in progress needs no block (remainingMin=0)', () => {
+    const input = makeInput({
+      now: '2026-11-09T12:00:00Z',
+      tasks: [
+        makeTask({
+          id: 'A',
+          splittable: false,
+          estimate: { p50Min: 90, p90Min: 90 },
+          remainingMin: 0,
+          minSessionMin: 90,
+          maxSessionMin: 90,
+        }),
+        makeTask({ id: 'B', priority: 2 }),
+      ],
+      availability: [
+        { weekday: 1, startLocal: '09:00', endLocal: '17:00', kind: 'work' },
+      ],
+      existingBlocks: [
+        {
+          taskId: 'A',
+          start: '2026-11-09T11:00:00Z',
+          end: '2026-11-09T12:30:00Z',
+        },
+      ],
+    });
+
+    for (const policy of [
+      'front_loaded',
+      'balanced',
+      'focus_blocked',
+    ] as const) {
+      const result = generate(input, { policies: [policy], seed: input.seed });
+      const [candidate] = result.candidates;
+      expect(candidate?.feasible).toBe(true);
+      expect(
+        (candidate?.blocks ?? []).filter((block) => block.taskId === 'A'),
+      ).toEqual([]);
+      const bBlocks = (candidate?.blocks ?? []).filter(
+        (block) => block.taskId === 'B',
+      );
+      expect(bBlocks.length).toBeGreaterThan(0);
+      for (const block of bBlocks) {
+        expect(Date.parse(block.start)).toBeGreaterThanOrEqual(
+          Date.parse('2026-11-09T12:30:00Z'),
+        );
+      }
+    }
+  });
 });

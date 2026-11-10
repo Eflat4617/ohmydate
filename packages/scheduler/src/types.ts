@@ -31,6 +31,12 @@ export interface Task {
   /**
    * Minutes still needed going forward. When supplied it is authoritative and
    * does not include past/in-progress history blocks (06 §7.1).
+   *
+   * A block that started before `now` counts entirely as history, including
+   * the part after `now`: callers send `remainingMin = required - history
+   * minutes`, which is 0 for an in-progress non-splittable task. Omitting
+   * `remainingMin` instead re-schedules the full estimate, because history is
+   * not credited automatically.
    */
   remainingMin?: number;
   splittable: boolean;

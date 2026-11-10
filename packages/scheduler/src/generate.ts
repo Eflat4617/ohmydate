@@ -865,6 +865,8 @@ function generateForPolicy(
     attempt.seeds,
   );
   let retainedSeeds = attempt.seeds.length;
+  let bestResult = result;
+  let bestRetainedSeeds = retainedSeeds;
 
   for (
     let iteration = 0;
@@ -908,10 +910,24 @@ function generateForPolicy(
       attempt.seeds,
     );
     retainedSeeds = attempt.seeds.length;
+    if (
+      isBetterAttempt(
+        result,
+        retainedSeeds,
+        bestResult,
+        bestRetainedSeeds,
+      )
+    ) {
+      bestResult = result;
+      bestRetainedSeeds = retainedSeeds;
+    }
   }
 
   // Final fallback: no seeds. If a still-seeded attempt was feasible we never
-  // get here, so the first feasible attempt wins.
+  // get here, so the first feasible attempt wins. When every attempt is
+  // infeasible, keep the one with the most retained seeds and then the fewest
+  // violations, so the returned partial plan stays as close to the previous
+  // plan as possible.
   if (result.violations.length > 0) {
     const noSeeds = runPlacementAttempt(
       context,
@@ -920,9 +936,13 @@ function generateForPolicy(
       maxImprovement,
       [],
     );
-    result = noSeeds;
-    retainedSeeds = 0;
+    if (isBetterAttempt(noSeeds, 0, bestResult, bestRetainedSeeds)) {
+      bestResult = noSeeds;
+      bestRetainedSeeds = 0;
+    }
   }
+  result = bestResult;
+  retainedSeeds = bestRetainedSeeds;
 
   const finalState = stateFromPlacements(context, result.placements);
   const blocks = blocksFromPlacements(finalState.placements);
@@ -1143,6 +1163,23 @@ function uniqueCodes(violations: Array<{ code: string }>): string {
   return [...new Set(violations.map((violation) => violation.code))]
     .sort()
     .join(', ');
+}
+
+function isBetterAttempt(
+  candidate: PlacementAttempt,
+  candidateSeeds: number,
+  current: PlacementAttempt,
+  currentSeeds: number,
+): boolean {
+  const candidateFeasible = candidate.violations.length === 0;
+  const currentFeasible = current.violations.length === 0;
+  if (candidateFeasible !== currentFeasible) {
+    return candidateFeasible;
+  }
+  if (candidateSeeds !== currentSeeds) {
+    return candidateSeeds > currentSeeds;
+  }
+  return candidate.violations.length < current.violations.length;
 }
 
 function stateFromPlacements(
@@ -2130,8 +2167,17 @@ function buildMetrics(
     }
   }
 
+  // H7, deficitMin and p90CoverageRatio cover the live plan only: candidate
+  // placements plus locked blocks. Past/in-progress history occupies time for
+  // H1/H6 but must not be credited as placed work (06 §7.1).
   const placedByTask = new Map<string, number>();
-  for (const interval of state.intervals) {
+  for (const placement of state.placements) {
+    placedByTask.set(
+      placement.taskId,
+      (placedByTask.get(placement.taskId) ?? 0) + placement.durationMin,
+    );
+  }
+  for (const interval of context.lockedIntervals) {
     placedByTask.set(
       interval.taskId,
       (placedByTask.get(interval.taskId) ?? 0) +
