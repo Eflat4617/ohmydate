@@ -12,6 +12,17 @@
     }
   },
   "scripts": {
+    "generate": "tsx scripts/generate-openapi.ts",
+    "test": "vitest run --globals",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ohmydate/domain": "workspace:*",
+    "@sinclair/typebox": "0.34.52"
+  },
+  "devDependencies": {
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "tsx": "4.23.15"
   }
 }

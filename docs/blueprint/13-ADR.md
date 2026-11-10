@@ -19,6 +19,7 @@
 | 013 | 개발 런타임: rootless 컨테이너, docker 그룹 가입 금지 | Proposed (GD-1) |
 | 014 | 개발 에이전트 바인딩·OpenCode 설정 고정 | Proposed (GM-1) |
 | 015 | 디렉터리·라이선스 구역 | Proposed |
+| 016 | VikunjaTaskRepository 동시성·멱등 보정 (M0-03 결과) | Accepted (Sol 리뷰로 사실 재확인 조건) |
 
 ---
 
@@ -80,3 +81,15 @@
 
 ## ADR-015 디렉터리·라이선스 구역
 - 03 §4 구조. `[OWN]` ↔ `upstream/` 경계 CI 검사, `PATCHES.md`, 서드파티 라이선스 allowlist.
+
+## ADR-016 VikunjaTaskRepository 동시성·멱등 보정
+- **맥락(M0-03 실측, 2026-11-11):** Vikunja v2.8.0은 ETag를 내주지만 PUT/PATCH에서 stale `If-Match`를 거부하지 않음(200), `Idempotency-Key` 무시(중복 생성), 목록 `updated`는 초 단위, 삭제 작업은 `/tasks/deleted`에서만 보이며 since 필터 없음, 완료 동사 없음(`done:true`), 반복 작업 완료 시 서버가 재오픈·날짜 이동. 근거: `docs/blueprint/vendor/vikunja-v2.8.0-capabilities.md`.
+- **결정:**
+  1. planner DB `external_provider_mapping`에 `external_etag`, `external_updated_at`, `local_version`을 두고 **planner가 version의 SoR**. 어댑터 update = (a) GET 현재 ETag (b) mapping의 ETag와 다르면 `VersionConflict` (c) 쓰기 (d) 새 ETag 저장. (a)–(c) 사이 경쟁 창이 남는다 → **보장 수준: "최선 노력 충돌 감지", 완전한 lost-update 방지 아님**을 계약 문서·테스트에 명시.
+  2. 멱등: planner `idempotency_record`가 Vikunja 호출 **이전**에 키를 예약(상태 pending) → 성공 시 외부 ID 저장. 크래시로 pending이 남으면 재조정이 제목+생성시각+planner UUID 마커(설명 끝 HTML 주석 `<!-- ohmydate:<uuid> -->` [가정, Sol 리뷰 대상])로 고아 Vikunja task를 찾아 연결.
+  3. `listChangedSince`: 커서 = `(updated_seconds, externalId)`; `updated >= cursor_seconds`로 겹치게 조회 후 ETag 비교로 중복 제거. 삭제는 `/tasks/deleted` 전체 비교(단일 사용자 규모에서 허용) .
+  4. `complete`: `done:true` PATCH. 반복 작업은 M1에서 **planner 측 완료 이벤트를 SoR**로 기록하고 Vikunja의 재오픈 결과를 재조정으로 반영(테스트 케이스 추가).
+  5. 오류 코드: Vikunja 숫자 코드 → planner `code` enum 매핑 테이블.
+  6. API 토큰은 `/user/*` 불가 → 서비스 계정은 토큰(엔티티 작업) + 필요 시 JWT 부트스트랩.
+- **계약 테스트 영향:** `VersionConflict` 테스트는 InMemory/Native는 "항상 감지", Vikunja는 "순차 시나리오에서 감지"로 구분 표기(동일 스위트, capability flag `strictConcurrency`).
+- **Native 전환 트리거 강화:** 실제 사용에서 lost-update 1건 이상 관측 시 M7 앞당김 검토.

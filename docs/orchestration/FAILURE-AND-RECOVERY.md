@@ -8,7 +8,7 @@
 | 동일 원인 2회 반복 | 즉시 | — | blocked |
 | `worker-start` 실패 | **재실행 금지**, `failedStage` 확인 → `--retry-of <dispatch>` | Orca circuit breaker 3회 | Task failed, 사용자 보고. 새 Task/Run으로 우회 금지 |
 | 설계 불일치·계약 변경 필요 | 자동 수정 금지 | — | ADR 갱신, 영향 Task 재평가 |
-| 모델 사용 불가·한도 | 자동 전환 금지 | — | `BLOCKED_MODEL_UNAVAILABLE` |
+| 모델 사용 불가·한도 | 구현 워커: 자동 전환 금지. **리뷰어(Sol)만 예외: Opus 5.5 xhigh 대체(사용자 승인, MODEL_BINDINGS §6)** | — | 그 외 `BLOCKED_MODEL_UNAVAILABLE` |
 | 같은 파일 충돌(병합 시) | 병합 중단 | — | 소유권 재배치, 후행 Task rebase 지시 |
 | 테스트 삭제/완화 감지 | 리뷰 전 반려 | 1회 | 반복 시 blocked |
 
