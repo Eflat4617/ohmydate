@@ -1,3 +1,3 @@
-import type { Fs } from '../../domain/src/index.js';
+import type { Fs } from '@ohmydate/domain';
 
 export type { Fs };

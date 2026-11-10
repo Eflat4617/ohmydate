@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { builtinModules } from 'node:module';
-import { dirname, join, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const DEFAULT_SOURCE_ROOTS = ['apps', 'services', 'packages'];
-const TS_SOURCE = /\.(?:ts|tsx|mts|cts)$/;
 const ALL_SOURCE = /\.(?:js|mjs|cjs|jsx|ts|tsx|mts|cts)$/;
 const ignoredDirs = new Set([
   'node_modules',
@@ -15,6 +14,7 @@ const ignoredDirs = new Set([
   '.git',
   '.turbo',
   '__fixtures__',
+  'upstream',
 ]);
 const builtins = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
 
@@ -39,12 +39,10 @@ export function loadWorkspacePackages(repoRoot) {
 export function collectDefaultFiles(repoRoot) {
   const files = [];
   for (const root of DEFAULT_SOURCE_ROOTS) {
-    files.push(...collectSourceFiles(join(repoRoot, root), TS_SOURCE));
+    files.push(...collectSourceFiles(join(repoRoot, root), ALL_SOURCE));
   }
   for (const entry of safeReadDir(repoRoot)) {
-    if (ignoredDirs.has(entry) || !ALL_SOURCE.test(entry) || entry.endsWith('.d.ts')) {
-      continue;
-    }
+    if (ignoredDirs.has(entry) || !ALL_SOURCE.test(entry)) continue;
     const absolute = join(repoRoot, entry);
     if (statSync(absolute, { throwIfNoEntry: false })?.isFile()) files.push(absolute);
   }
@@ -81,7 +79,7 @@ function collectSourceFiles(dir, pattern) {
     const stats = statSync(absolute);
     if (stats.isDirectory()) {
       files.push(...collectSourceFiles(absolute, pattern));
-    } else if (pattern.test(entry) && !entry.endsWith('.d.ts')) {
+    } else if (pattern.test(entry)) {
       files.push(absolute);
     }
   }
@@ -101,6 +99,7 @@ function scriptKind(file) {
 
 function checkFile({ repoRoot, file, workspacePackages, violations }) {
   const fileRel = toPosix(relative(repoRoot, file));
+  const isDeclarationFile = file.endsWith('.d.ts');
   const text = readFileSync(file, 'utf8');
   const sourceFile = ts.createSourceFile(
     file,
@@ -122,7 +121,7 @@ function checkFile({ repoRoot, file, workspacePackages, violations }) {
           { repoRoot, fileRel, file, sourceFile, workspacePackages, violations },
           node,
           specifier,
-          isTypeOnly(node),
+          isTypeOnly(node) || isDeclarationFile,
         );
       }
     } else if (ts.isImportTypeNode(node)) {
@@ -203,11 +202,16 @@ function classifySpecifier({ repoRoot, file, workspacePackages }, specifier) {
     const rel = toPosix(relative(repoRoot, absolute));
     return { kind: 'path', rel };
   }
-  if (
-    specifier.startsWith('/') ||
-    /^(?:apps|services|packages|upstream)(?:\/|$)/.test(specifier)
-  ) {
-    return { kind: 'path', rel: specifier.replace(/^\//, '') };
+  if (specifier.startsWith('/')) {
+    const absolute = resolve(specifier);
+    const rel = toPosix(relative(repoRoot, absolute));
+    if (isAbsolute(rel) || rel === '..' || rel.startsWith('../')) {
+      return { kind: 'external', packageName: specifier };
+    }
+    return { kind: 'path', rel };
+  }
+  if (/^(?:apps|services|packages|upstream)(?:\/|$)/.test(specifier)) {
+    return { kind: 'path', rel: specifier };
   }
   for (const [name, rel] of workspacePackages) {
     if (specifier === name || specifier.startsWith(`${name}/`)) {
