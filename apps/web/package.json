@@ -37,5 +37,10 @@
     "vite": "7.3.8",
     "vitest": "5.1.0",
     "vue-tsc": "3.3.14"
+  },
+  "msw": {
+    "workerDirectory": [
+      "public"
+    ]
   }
 }

@@ -1,0 +1,72 @@
+<script setup lang="ts">
+import { computed, nextTick, ref, watch } from 'vue';
+import { useQuery, useQueryClient } from '@tanstack/vue-query';
+import { newActionId, plannerClient, type Task } from '../api';
+import { useTaskActions } from '../composables/useTaskActions';
+import { useOfflineStore } from '../stores/offline';
+import { useUiStore } from '../stores/ui';
+import QuickAddForm from '../components/QuickAddForm.vue';
+import TaskList from '../components/TaskList.vue';
+
+const offline = useOfflineStore();
+const ui = useUiStore();
+const queryClient = useQueryClient();
+const quickAdd = ref<InstanceType<typeof QuickAddForm> | null>(null);
+const { create, error: createError } = useTaskActions();
+const createAction = ref<string | null>(null);
+
+const { data, isLoading, isError, refetch } = useQuery({
+  queryKey: ['tasks', 'inbox'],
+  queryFn: () => plannerClient.listTasks(),
+});
+
+const tasks = computed<Task[]>(() => data.value?.items ?? []);
+
+watch(
+  () => ui.newTaskRequest,
+  () => {
+    void nextTick().then(() => quickAdd.value?.focus());
+  },
+);
+
+async function addTask(title: string): Promise<void> {
+  if (!offline.mutationsEnabled) return;
+  createAction.value ??= newActionId('task:create');
+  try {
+    await create(title, createAction.value);
+    createAction.value = null;
+    await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+  } catch {
+    // `createError` carries the user-facing message.
+  }
+}
+
+async function refresh(): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+}
+</script>
+
+<template>
+  <section class="page">
+    <header class="page-header">
+      <div>
+        <h1>Inbox</h1>
+        <p class="muted">Capture now, organise later.</p>
+      </div>
+    </header>
+
+    <QuickAddForm ref="quickAdd" :disabled="!offline.mutationsEnabled" @submit="addTask" />
+    <p v-if="createError" class="error-text" role="alert">{{ createError }}</p>
+
+    <p v-if="!offline.mutationsEnabled" class="offline-note" role="status">
+      Read-only while offline.
+    </p>
+
+    <p v-if="isLoading" class="muted">Loading tasks…</p>
+    <div v-else-if="isError" class="error-panel">
+      <p class="error-text" role="alert">Could not load tasks.</p>
+      <button type="button" @click="refetch()">Retry</button>
+    </div>
+    <TaskList v-else :tasks="tasks" :disabled="!offline.mutationsEnabled" @refresh="refresh" />
+  </section>
+</template>
