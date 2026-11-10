@@ -33,6 +33,13 @@ interface ExceptionWindow {
 }
 
 /**
+ * Upper bound for every minute-valued input field (estimates, remaining
+ * minutes, session bounds and preferences). Values above this are rejected as
+ * invalid input instead of producing an unreasonably long plan.
+ */
+export const MAX_INPUT_MINUTES = 100_000;
+
+/**
  * Audit a candidate plan against hard constraints H1-H8.
  *
  * H2 uses a genuinely different oracle from `slots.ts`: each block is split at
@@ -63,18 +70,19 @@ export function validate(
   const candidate = parsePlanBlocks(blocks, violations);
   const locked = parsePlanBlocks(input.lockedBlocks, violations);
   const history = parsePlanBlocks(opts.historyBlocks ?? [], violations);
-  // H2-H5/H7 audit the live plan only; history contributes to H1 and H6.
+  // H2-H5/H7 audit the live plan only. History is audited for H1 only against
+  // candidate blocks; H6 counts it only on days/runs with an audited minute
+  // (06 §7.1 history-only exemption).
   const audited = [...candidate, ...locked];
-  const occupied = [...audited, ...history];
 
   checkUnknownTaskIds(input, audited, violations);
   checkHorizon(input, candidate, violations);
-  checkH1(input, occupied, violations);
+  checkH1(input, candidate, audited, history, violations);
   checkH2(input, audited, violations);
   checkH3(input, audited, violations);
   checkH4(input, audited, violations);
   checkH5(input, audited, opts, violations);
-  checkH6(input, occupied, violations);
+  checkH6(input, audited, history, violations);
   checkH7(input, audited, opts, violations);
 
   return violations;
@@ -177,10 +185,15 @@ function parsePlanBlocks(blocks: Block[], violations: Violation[]): ParsedBlock[
 
 function checkH1(
   input: ScheduleInput,
-  plan: ParsedBlock[],
+  candidate: ParsedBlock[],
+  audited: ParsedBlock[],
+  history: ParsedBlock[],
   violations: Violation[],
 ): void {
-  const sorted = [...plan].sort(
+  const candidateSet = new Set(candidate);
+  const historySet = new Set(history);
+  const occupied = [...audited, ...history];
+  const sorted = [...occupied].sort(
     (a, b) => a.startMs - b.startMs || a.endMs - b.endMs,
   );
   for (let index = 0; index < sorted.length; index += 1) {
@@ -194,6 +207,16 @@ function checkH1(
         break;
       }
       if (next.startMs < current.endMs && next.endMs > current.startMs) {
+        // History-only collisions are facts, not plan violations (06 §7.1).
+        // A history block is audited only against a candidate block; locked
+        // blocks are audited against each other and against candidates.
+        const involvesHistory =
+          historySet.has(current) || historySet.has(next);
+        const involvesCandidate =
+          candidateSet.has(current) || candidateSet.has(next);
+        if (involvesHistory && !involvesCandidate) {
+          continue;
+        }
         violations.push({
           code: 'H1',
           message:
@@ -206,7 +229,7 @@ function checkH1(
     }
   }
 
-  for (const parsed of plan) {
+  for (const parsed of audited) {
     for (const commitment of input.commitments) {
       const startMs = tryParseInstant(commitment.start);
       const endMs = tryParseInstant(commitment.end);
@@ -253,7 +276,7 @@ interface OracleSegment {
 }
 
 const ORACLE_DAY_MS = 24 * 60 * MINUTE_MS;
-const ORACLE_MAX_TRANSITIONS = 4096;
+export const ORACLE_MAX_TRANSITIONS = 4096;
 
 function oracleOffsetMsAt(timeZone: string, epochMs: number): number {
   return Math.trunc(
@@ -699,26 +722,35 @@ function checkH5(
 
 function checkH6(
   input: ScheduleInput,
-  plan: ParsedBlock[],
+  audited: ParsedBlock[],
+  history: ParsedBlock[],
   violations: Violation[],
 ): void {
-  const byDate = new Map<string, number>();
-  for (const parsed of plan) {
+  const auditedSet = new Set(audited);
+  const byDate = new Map<string, { total: number; audited: number }>();
+  for (const parsed of [...audited, ...history]) {
     for (const segment of partitionByLocalDateOracle(
       input.timeZone,
       parsed.startMs,
       parsed.endMs,
     )) {
       const minutes = (segment.endMs - segment.startMs) / MINUTE_MS;
-      byDate.set(segment.date, (byDate.get(segment.date) ?? 0) + minutes);
+      const entry = byDate.get(segment.date) ?? { total: 0, audited: 0 };
+      entry.total += minutes;
+      if (auditedSet.has(parsed)) {
+        entry.audited += minutes;
+      }
+      byDate.set(segment.date, entry);
     }
   }
 
-  for (const [date, totalMin] of byDate) {
-    if (totalMin > input.prefs.maxDailyFocusMin) {
+  for (const [date, entry] of byDate) {
+    // A day made of history alone is a fact, not a plan violation; history
+    // minutes still count on days that contain an audited minute (06 §7.1).
+    if (entry.audited > 0 && entry.total > input.prefs.maxDailyFocusMin) {
       violations.push({
         code: 'H6',
-        message: `Daily focus on ${date} is ${totalMin} minutes, above ${input.prefs.maxDailyFocusMin}.`,
+        message: `Daily focus on ${date} is ${entry.total} minutes, above ${input.prefs.maxDailyFocusMin}.`,
       });
     }
   }
@@ -729,47 +761,50 @@ function checkH6(
     return;
   }
 
-  const sortedPlan = [...plan].sort(
+  const sortedPlan = [...audited, ...history].sort(
     (a, b) => a.startMs - b.startMs || a.endMs - b.endMs,
   );
   let runStart: number | undefined;
   let runEnd: number | undefined;
   let runDate = '';
+  let runHasAudited = false;
+  const reportRun = (): void => {
+    if (
+      runHasAudited &&
+      runStart !== undefined &&
+      runEnd !== undefined &&
+      runEnd - runStart > breakAfterMs
+    ) {
+      violations.push({
+        code: 'H6',
+        message: `Continuous focus starting on ${runDate} exceeds ${input.prefs.breakAfterMin} minutes without a ${input.prefs.breakMin}-minute break.`,
+      });
+    }
+  };
   for (const interval of sortedPlan) {
     if (runStart === undefined || runEnd === undefined) {
       runStart = interval.startMs;
       runEnd = interval.endMs;
+      runHasAudited = auditedSet.has(interval);
       runDate = instantToZoned(runStart, input.timeZone)
         .toPlainDate()
         .toString();
       continue;
     }
     if (interval.startMs - runEnd >= breakMs) {
-      if (runEnd - runStart > breakAfterMs) {
-        violations.push({
-          code: 'H6',
-          message: `Continuous focus starting on ${runDate} exceeds ${input.prefs.breakAfterMin} minutes without a ${input.prefs.breakMin}-minute break.`,
-        });
-      }
+      reportRun();
       runStart = interval.startMs;
       runEnd = interval.endMs;
+      runHasAudited = auditedSet.has(interval);
       runDate = instantToZoned(runStart, input.timeZone)
         .toPlainDate()
         .toString();
     } else {
       runEnd = Math.max(runEnd, interval.endMs);
+      runHasAudited = runHasAudited || auditedSet.has(interval);
     }
   }
-  if (
-    runStart !== undefined &&
-    runEnd !== undefined &&
-    runEnd - runStart > breakAfterMs
-  ) {
-    violations.push({
-      code: 'H6',
-      message: `Continuous focus starting on ${runDate} exceeds ${input.prefs.breakAfterMin} minutes without a ${input.prefs.breakMin}-minute break.`,
-    });
-  }
+  reportRun();
 }
 
 function checkH7(
@@ -868,14 +903,25 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
     }
     taskIds.add(task.id);
     validateTaskWindow(task, issues);
+    const estimateFields = [
+      task.estimate.p50Min,
+      task.estimate.p90Min,
+      ...(task.remainingMin === undefined ? [] : [task.remainingMin]),
+    ];
+    if (estimateFields.some((value) => !isWholeMinute(value))) {
+      issues.push({
+        code: 'invalid_estimate',
+        message: `Task "${task.id}" has an estimate that is not a whole number of minutes between 0 and ${MAX_INPUT_MINUTES}.`,
+        taskId: task.id,
+      });
+    }
     if (
-      task.estimate.p50Min < 0 ||
-      task.estimate.p90Min < 0 ||
-      (task.remainingMin !== undefined && task.remainingMin < 0)
+      !isWholeMinute(task.minSessionMin) ||
+      !isWholeMinute(task.maxSessionMin)
     ) {
       issues.push({
         code: 'invalid_estimate',
-        message: `Task "${task.id}" has a negative estimate.`,
+        message: `Task "${task.id}" has a session bound that is not a whole number of minutes between 0 and ${MAX_INPUT_MINUTES}.`,
         taskId: task.id,
       });
     }
@@ -888,6 +934,19 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
         code: 'invalid_session',
         message: `Task "${task.id}" has invalid session bounds.`,
         taskId: task.id,
+      });
+    }
+  }
+
+  for (const [name, value] of [
+    ['maxDailyFocusMin', input.prefs.maxDailyFocusMin],
+    ['breakAfterMin', input.prefs.breakAfterMin],
+    ['breakMin', input.prefs.breakMin],
+  ] as const) {
+    if (!isWholeMinute(value)) {
+      issues.push({
+        code: 'invalid_input',
+        message: `prefs.${name} must be a whole number of minutes between 0 and ${MAX_INPUT_MINUTES}.`,
       });
     }
   }
@@ -1006,6 +1065,16 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
   }
 
   return issues;
+}
+
+/** Whole minutes in `[0, MAX_INPUT_MINUTES]`; rejects NaN and Infinity. */
+function isWholeMinute(value: number): boolean {
+  return (
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= MAX_INPUT_MINUTES
+  );
 }
 
 function validateTaskWindow(task: Task, issues: InputIssue[]): void {

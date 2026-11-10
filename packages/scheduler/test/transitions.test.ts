@@ -19,6 +19,7 @@ import {
   isCoveredByMinutes,
 } from './minuteOracle.js';
 import { MAX_TRANSITIONS, partitionByLocalDate } from '../src/time.js';
+import { ORACLE_MAX_TRANSITIONS } from '../src/validate.js';
 
 const MINUTE_MS = 60 * 1000;
 
@@ -431,6 +432,49 @@ describe('FU-13 edge fixtures', () => {
     try {
       expect(() =>
         partitionByLocalDate(startMs, startMs + 10 * 24 * 60 * MINUTE_MS, 'UTC'),
+      ).toThrow(/exceeded 4096/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('documents the validator oracle runaway transition guard with a real throw', () => {
+    expect(ORACLE_MAX_TRANSITIONS).toBe(4096);
+    const input = makeInput({
+      timeZone: 'UTC',
+      start: '2026-01-01T00:00:00Z',
+      end: '2026-01-11T00:00:00Z',
+      availability: ALL_WEEK_FULL_DAY,
+      task: makeTask({
+        dueAt: '2026-01-02T00:00:00Z',
+        estimate: { p50Min: 60, p90Min: 60 },
+      }),
+    });
+    const startMs = Date.UTC(2026, 0, 1);
+    const prototype = Temporal.ZonedDateTime.prototype;
+    let transitions = 0;
+    const spy = vi
+      .spyOn(prototype, 'getTimeZoneTransition')
+      .mockImplementation(() => {
+        transitions += 1;
+        return Temporal.Instant.fromEpochMilliseconds(
+          startMs + transitions * 1000,
+        ).toZonedDateTimeISO('UTC');
+      });
+
+    try {
+      expect(() =>
+        validate(
+          input,
+          [
+            {
+              taskId: 'A',
+              start: '2026-01-01T00:00:00Z',
+              end: '2026-01-01T02:00:00Z',
+            },
+          ],
+          { riskLevel: 'p50' },
+        ),
       ).toThrow(/exceeded 4096/);
     } finally {
       spy.mockRestore();

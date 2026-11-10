@@ -26,7 +26,7 @@ import { POLICIES, POLICY_NAMES } from './policies.js';
 import { createPrng, type Prng } from './prng.js';
 import { canonicalJson, sha256Hex } from './hash.js';
 
-export const GENERATOR_VERSION = 'm3-02.3';
+export const GENERATOR_VERSION = 'm3-02.4';
 
 interface Interval {
   startMs: number;
@@ -925,9 +925,9 @@ function generateForPolicy(
 
   // Final fallback: no seeds. If a still-seeded attempt was feasible we never
   // get here, so the first feasible attempt wins. When every attempt is
-  // infeasible, keep the one with the most retained seeds and then the fewest
-  // violations, so the returned partial plan stays as close to the previous
-  // plan as possible.
+  // infeasible, rank by the smallest H7 deficit, then the fewest violations,
+  // and only then by retained seeds (plan continuity). Partial plans should
+  // first place as much required work as possible.
   if (result.violations.length > 0) {
     const noSeeds = runPlacementAttempt(
       context,
@@ -996,6 +996,8 @@ interface PlacementAttempt {
   placements: Placement[];
   violations: Violation[];
   reasons: Set<string>;
+  /** H7 shortfall of this attempt, including locked minutes as placed. */
+  deficitMin: number;
 }
 
 function runPlacementAttempt(
@@ -1146,7 +1148,40 @@ function runPlacementAttempt(
 
   const blocks = blocksFromPlacements(finalPlacements);
   const violations = validatePlan(context, blocks);
-  return { placements: finalPlacements, violations, reasons };
+  return {
+    placements: finalPlacements,
+    violations,
+    reasons,
+    deficitMin: attemptDeficitMin(context, finalPlacements),
+  };
+}
+
+/** H7 shortfall for an attempt: required minutes minus live placements. */
+function attemptDeficitMin(
+  context: BuildContext,
+  placements: Placement[],
+): number {
+  const placedByTask = new Map<string, number>();
+  for (const placement of placements) {
+    placedByTask.set(
+      placement.taskId,
+      (placedByTask.get(placement.taskId) ?? 0) + placement.durationMin,
+    );
+  }
+  for (const interval of context.lockedIntervals) {
+    placedByTask.set(
+      interval.taskId,
+      (placedByTask.get(interval.taskId) ?? 0) +
+        (interval.endMs - interval.startMs) / MINUTE_MS,
+    );
+  }
+  let shortfall = 0;
+  for (const task of context.input.tasks) {
+    const required = taskRequiredMinutes(task, context.riskLevel);
+    const placed = placedByTask.get(task.id) ?? 0;
+    shortfall += Math.max(0, required - placed);
+  }
+  return shortfall;
 }
 
 function policySeedOffset(policy: PolicyName): number {
@@ -1176,10 +1211,13 @@ function isBetterAttempt(
   if (candidateFeasible !== currentFeasible) {
     return candidateFeasible;
   }
-  if (candidateSeeds !== currentSeeds) {
-    return candidateSeeds > currentSeeds;
+  if (candidate.deficitMin !== current.deficitMin) {
+    return candidate.deficitMin < current.deficitMin;
   }
-  return candidate.violations.length < current.violations.length;
+  if (candidate.violations.length !== current.violations.length) {
+    return candidate.violations.length < current.violations.length;
+  }
+  return candidateSeeds > currentSeeds;
 }
 
 function stateFromPlacements(
