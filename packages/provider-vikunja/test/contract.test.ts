@@ -292,4 +292,173 @@ if (baseUrl === undefined || baseUrl.length === 0) {
       }
     });
   });
+
+  describe('Vikunja create with dependencies (live)', () => {
+    test('returns v1 and the first write at v1 succeeds without a phantom bump', async () => {
+      const [user] = await users();
+      const clock = new FakeClock(epochMsToInstant(Date.UTC(2026, 0, 1)));
+      const ids = createSeededIdGenerator(20261113, clock);
+      const ownerId = ids.next();
+      const projectId = ids.next();
+      const mappings = new InMemoryMappingStore();
+      const plannerFields = new InMemoryPlannerFieldStore();
+      const remoteProject = await user.client.createProject('FU-14R dependencies');
+      const remoteTaskIds: string[] = [];
+      try {
+        await mappings.put({
+          provider: 'vikunja',
+          entityType: 'project',
+          entityId: projectId,
+          externalId: String(remoteProject.id),
+          ownerId,
+          localVersion: 1 as Version,
+          createdAt: clock.now(),
+          updatedAt: clock.now(),
+        });
+        const repo = new VikunjaTaskRepository({
+          clients: new Map<Id, VikunjaClient>([[ownerId, user.client]]),
+          mappings,
+          plannerFields,
+          clock,
+          ids,
+        });
+
+        const dependency = await repo.create(
+          ownerId,
+          { projectId, title: 'Dependency' },
+          'live-dep-dependency',
+        );
+        remoteTaskIds.push(dependency.external?.[0]?.externalId as string);
+        const forUpdate = await repo.create(
+          ownerId,
+          { projectId, title: 'For update', dependsOn: [dependency.id] },
+          'live-dep-update',
+        );
+        remoteTaskIds.push(forUpdate.external?.[0]?.externalId as string);
+        const forComplete = await repo.create(
+          ownerId,
+          { projectId, title: 'For complete', dependsOn: [dependency.id] },
+          'live-dep-complete',
+        );
+        remoteTaskIds.push(forComplete.external?.[0]?.externalId as string);
+        const forDelete = await repo.create(
+          ownerId,
+          { projectId, title: 'For delete', dependsOn: [dependency.id] },
+          'live-dep-delete',
+        );
+        remoteTaskIds.push(forDelete.external?.[0]?.externalId as string);
+
+        for (const task of [forUpdate, forComplete, forDelete]) {
+          expect(task.version).toBe(1);
+          expect(task.dependsOn).toEqual([dependency.id]);
+        }
+
+        const feed = await repo.listChangedSince(ownerId, null);
+        for (const task of [forUpdate, forComplete, forDelete]) {
+          expect(
+            feed.changes
+              .filter((change) => change.id === task.id)
+              .map((change) => change.version),
+          ).toEqual([1]);
+        }
+
+        const updated = await repo.update(
+          ownerId,
+          forUpdate.id,
+          { title: 'For update 2' },
+          forUpdate.version,
+        );
+        expect(updated.version).toBe(2);
+
+        const completed = await repo.complete(ownerId, forComplete.id, forComplete.version);
+        expect(completed.version).toBe(2);
+
+        await repo.softDelete(ownerId, forDelete.id, forDelete.version);
+        expect(await repo.get(ownerId, forDelete.id)).toBeNull();
+      } finally {
+        for (const externalId of remoteTaskIds) {
+          await user.client.deleteTask(externalId).catch(() => undefined);
+          await user.client.permanentDeleteTask(externalId).catch(() => undefined);
+        }
+        await user.client.deleteProject(String(remoteProject.id)).catch(() => undefined);
+        await user.client
+          .permanentDeleteProject(String(remoteProject.id))
+          .catch(() => undefined);
+      }
+    });
+  });
+
+  describe('Vikunja no-op PATCH (live)', () => {
+    test('treats a 304 status-only update as a planner change, not an outage', async () => {
+      const [user] = await users();
+      const clock = new FakeClock(epochMsToInstant(Date.UTC(2026, 0, 1)));
+      const ids = createSeededIdGenerator(20261114, clock);
+      const ownerId = ids.next();
+      const projectId = ids.next();
+      const mappings = new InMemoryMappingStore();
+      const plannerFields = new InMemoryPlannerFieldStore();
+      const remoteProject = await user.client.createProject('FU-14R 304');
+      let remoteTaskId: string | undefined;
+      try {
+        await mappings.put({
+          provider: 'vikunja',
+          entityType: 'project',
+          entityId: projectId,
+          externalId: String(remoteProject.id),
+          ownerId,
+          localVersion: 1 as Version,
+          createdAt: clock.now(),
+          updatedAt: clock.now(),
+        });
+        const patchStatuses: number[] = [];
+        const recordingFetch: FetchLike = async (input, init) => {
+          const response = await globalThis.fetch(input, init);
+          if ((init?.method ?? 'GET') === 'PATCH') {
+            patchStatuses.push(response.status);
+          }
+          return response;
+        };
+        const recordingClient = new VikunjaClient({
+          baseUrl: liveUrl,
+          token: user.token,
+          fetch: recordingFetch,
+          retries: 0,
+          sleep: async () => {},
+        });
+        const repo = new VikunjaTaskRepository({
+          clients: new Map<Id, VikunjaClient>([[ownerId, recordingClient]]),
+          mappings,
+          plannerFields,
+          clock,
+          ids,
+        });
+
+        const created = await repo.create(
+          ownerId,
+          { projectId, title: 'Status only' },
+          'live-304-create',
+        );
+        remoteTaskId = created.external?.[0]?.externalId;
+
+        const updated = await repo.update(
+          ownerId,
+          created.id,
+          { status: 'in_progress' },
+          created.version,
+        );
+        expect(patchStatuses).toEqual([304]);
+        expect(updated.version).toBe(2);
+        expect(updated.status).toBe('in_progress');
+      } finally {
+        if (remoteTaskId !== undefined) {
+          await user.client.deleteTask(remoteTaskId).catch(() => undefined);
+          await user.client.permanentDeleteTask(remoteTaskId).catch(() => undefined);
+        }
+        await user.client.deleteProject(String(remoteProject.id)).catch(() => undefined);
+        await user.client
+          .permanentDeleteProject(String(remoteProject.id))
+          .catch(() => undefined);
+      }
+    });
+  });
 }
