@@ -15,7 +15,11 @@
     "db:migrate": "node --experimental-strip-types src/db/migrate.ts up",
     "db:rollback": "node --experimental-strip-types src/db/migrate.ts down",
     "create-user": "tsx src/cli/create-user.ts",
-    "start": "tsx src/main.ts",
+    "build": "pnpm run build:api && pnpm run build:workspace-deps",
+    "build:api": "tsc -p tsconfig.build.json",
+    "build:workspace-deps": "TSC_FLAGS='--ignoreConfig --module nodenext --moduleResolution nodenext --target es2024 --strict --exactOptionalPropertyTypes --noUncheckedIndexedAccess --verbatimModuleSyntax --isolatedModules --skipLibCheck --esModuleInterop --resolveJsonModule --types node' && tsc ../../packages/domain/src/index.ts --outDir dist/node_modules/@ohmydate/domain --rootDir ../../packages/domain/src $TSC_FLAGS && tsc ../../packages/contracts/src/index.ts --outDir dist/node_modules/@ohmydate/contracts --rootDir ../../packages/contracts/src $TSC_FLAGS && tsc ../../packages/provider-vikunja/src/index.ts --outDir dist/node_modules/@ohmydate/provider-vikunja --rootDir ../../packages/provider-vikunja/src $TSC_FLAGS && node --input-type=module -e \"import{writeFileSync}from'node:fs';for(const p of ['domain','contracts','provider-vikunja']){writeFileSync('dist/node_modules/@ohmydate/'+p+'/package.json',JSON.stringify({name:'@ohmydate/'+p,type:'module',exports:{'.':{default:'./index.js'}}},null,2))}\"",
+    "dev": "tsx src/main.ts",
+    "start": "node dist/main.js",
     "test": "vitest run --globals",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
