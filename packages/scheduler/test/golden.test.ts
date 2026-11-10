@@ -50,9 +50,12 @@ interface GoldenFixture {
 interface GeneratorExpectation {
   feasibleCount: number;
   deficitMin: number;
+  capacityDeficitMin: number;
   reason?: string;
   maxDailyLoadMin?: number;
   reusesExistingBlock?: boolean;
+  maxChangedBlocks?: number;
+  noBlockBeforeNow?: boolean;
 }
 
 /**
@@ -61,20 +64,61 @@ interface GeneratorExpectation {
  * infeasible candidates that must still explain their violations.
  */
 const GENERATOR_EXPECTATIONS: Record<string, GeneratorExpectation> = {
-  G01: { feasibleCount: 0, deficitMin: 60, reason: 'no_contiguous_window' },
-  G02: { feasibleCount: 1, deficitMin: 0 },
-  G03: { feasibleCount: 1, deficitMin: 0 },
-  G04: { feasibleCount: 2, deficitMin: 0, reusesExistingBlock: true },
-  G05: { feasibleCount: 1, deficitMin: 0, maxDailyLoadMin: 120 },
-  G06: { feasibleCount: 1, deficitMin: 0 },
-  G07: { feasibleCount: 0, deficitMin: 60, reason: 'invalid_window' },
-  G08: { feasibleCount: 1, deficitMin: 0 },
-  G09: { feasibleCount: 0, deficitMin: 60, reason: 'insufficient_available_time' },
-  G10: { feasibleCount: 1, deficitMin: 0 },
-  G11: { feasibleCount: 0, deficitMin: 60, reason: 'insufficient_available_time' },
-  G12: { feasibleCount: 1, deficitMin: 0 },
-  G13: { feasibleCount: 0, deficitMin: 0, reason: 'no_contiguous_window' },
-  G14: { feasibleCount: 1, deficitMin: 0 },
+  G01: {
+    feasibleCount: 0,
+    deficitMin: 180,
+    capacityDeficitMin: 60,
+    reason: 'no_contiguous_window',
+  },
+  G02: { feasibleCount: 1, deficitMin: 0, capacityDeficitMin: 0 },
+  G03: { feasibleCount: 1, deficitMin: 0, capacityDeficitMin: 0 },
+  G04: {
+    feasibleCount: 1,
+    deficitMin: 0,
+    capacityDeficitMin: 0,
+    maxChangedBlocks: 3,
+  },
+  G05: {
+    feasibleCount: 1,
+    deficitMin: 0,
+    capacityDeficitMin: 0,
+    maxDailyLoadMin: 120,
+  },
+  G06: { feasibleCount: 1, deficitMin: 0, capacityDeficitMin: 0 },
+  G07: {
+    feasibleCount: 0,
+    deficitMin: 60,
+    capacityDeficitMin: 60,
+    reason: 'invalid_window',
+  },
+  G08: { feasibleCount: 1, deficitMin: 0, capacityDeficitMin: 0 },
+  G09: {
+    feasibleCount: 0,
+    deficitMin: 120,
+    capacityDeficitMin: 60,
+    reason: 'insufficient_available_time',
+  },
+  G10: { feasibleCount: 1, deficitMin: 0, capacityDeficitMin: 0 },
+  G11: {
+    feasibleCount: 0,
+    deficitMin: 60,
+    capacityDeficitMin: 60,
+    reason: 'insufficient_available_time',
+  },
+  G12: { feasibleCount: 1, deficitMin: 0, capacityDeficitMin: 0 },
+  G13: {
+    feasibleCount: 0,
+    deficitMin: 240,
+    capacityDeficitMin: 0,
+    reason: 'no_contiguous_window',
+  },
+  G14: { feasibleCount: 1, deficitMin: 0, capacityDeficitMin: 0 },
+  G15: {
+    feasibleCount: 1,
+    deficitMin: 0,
+    capacityDeficitMin: 0,
+    noBlockBeforeNow: true,
+  },
 };
 
 const goldenDir = fileURLToPath(new URL('./golden/', import.meta.url));
@@ -92,9 +136,21 @@ function codesOf(violations: Array<{ code: string }>): string[] {
   return violations.map((violation) => violation.code).sort();
 }
 
-describe('golden cases G01-G14', () => {
+function withFixedExistingBlocks(input: ScheduleInput): ScheduleInput {
+  const nowMs = Temporal.Instant.from(input.now).epochMilliseconds;
+  const fixed = (input.existingBlocks ?? []).filter(
+    (block) =>
+      Temporal.Instant.from(block.start).epochMilliseconds < nowMs,
+  );
+  if (fixed.length === 0) {
+    return input;
+  }
+  return { ...input, lockedBlocks: [...input.lockedBlocks, ...fixed] };
+}
+
+describe('golden cases G01-G15', () => {
   it('contains all fourteen fixtures', () => {
-    expect(fixtureFiles).toHaveLength(14);
+    expect(fixtureFiles).toHaveLength(15);
   });
 
   for (const fileName of fixtureFiles) {
@@ -226,18 +282,25 @@ describe('golden cases G01-G14', () => {
         expect(candidate.generatorVersion).toBe(GENERATOR_VERSION);
         expect(candidate.deficitMin).toBe(generatorExpectation.deficitMin);
         expect(candidate.metrics.deficitMin).toBe(candidate.deficitMin);
+        expect(candidate.capacityDeficitMin).toBe(
+          generatorExpectation.capacityDeficitMin,
+        );
+        expect(candidate.metrics.capacityDeficitMin).toBe(
+          candidate.capacityDeficitMin,
+        );
         expect(candidate.explanation.length).toBeGreaterThan(0);
 
+        const effectiveInput = withFixedExistingBlocks(fixture.input);
         if (candidate.feasible) {
           expect(
-            validate(fixture.input, candidate.blocks, {
+            validate(effectiveInput, candidate.blocks, {
               riskLevel: fixture.input.prefs.riskLevel,
             }),
           ).toEqual([]);
         } else {
           expect(
             candidate.blocks.length === 0 ||
-              validate(fixture.input, candidate.blocks, {
+              validate(effectiveInput, candidate.blocks, {
                 riskLevel: fixture.input.prefs.riskLevel,
               }).length > 0 ||
               candidate.explanation.some((line) =>
@@ -250,6 +313,21 @@ describe('golden cases G01-G14', () => {
           expect(candidate.metrics.maxDailyLoadMin).toBeLessThanOrEqual(
             generatorExpectation.maxDailyLoadMin,
           );
+        }
+
+        if (generatorExpectation.maxChangedBlocks !== undefined) {
+          expect(candidate.metrics.changedBlocks).toBeLessThanOrEqual(
+            generatorExpectation.maxChangedBlocks,
+          );
+        }
+
+        if (generatorExpectation.noBlockBeforeNow === true) {
+          const nowMs = Temporal.Instant.from(fixture.input.now).epochMilliseconds;
+          for (const block of candidate.blocks) {
+            expect(
+              Temporal.Instant.from(block.start).epochMilliseconds,
+            ).toBeGreaterThanOrEqual(nowMs);
+          }
         }
       }
 

@@ -41,6 +41,8 @@ export {
   POLICIES,
   POLICY_NAMES,
   POLICY_VERSION,
+  type PolicyOrdering,
   type PolicyProfile,
+  type PolicySlotRule,
   type PolicyWeights,
 } from './policies.js';

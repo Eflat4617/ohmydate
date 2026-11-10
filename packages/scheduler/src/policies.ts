@@ -1,8 +1,9 @@
 import type { PolicyName } from './types.js';
 
 /**
- * Published objective weights (06 §4). The version string is part of every
- * candidate's explanation so stored plans can be traced to a policy revision.
+ * Published objective weights (06 §4). `POLICY_VERSION` covers the weights,
+ * the task ordering and the slot-selection rule together; it is part of every
+ * candidate's explanation so stored plans trace to one versioned contract.
  *
  * Weights are ordered (S1, S2, S3, S4, S5, S6):
  *   S1 early completion, S2 daily spread, S3 preferred windows,
@@ -21,11 +22,23 @@ export interface PolicyWeights {
 
 export type PolicyOrdering = 'edf' | 'priority_then_length' | 'longest_first';
 
+export type PolicySlotRule =
+  | 'chronological-earliest'
+  | 'least-loaded-day'
+  | 'longest-slot-then-fewest-switches';
+
 export interface PolicyProfile {
   name: PolicyName;
   version: string;
   weights: PolicyWeights;
   ordering: PolicyOrdering;
+  /**
+   * The slot-selection rule is part of the versioned policy contract (06 §4).
+   * Weights drive the bounded local-improvement objective; the ordering and
+   * slot rule produce the initial greedy plan. Changing either requires a new
+   * `POLICY_VERSION`.
+   */
+  slotRule: PolicySlotRule;
   summary: string;
 }
 
@@ -42,6 +55,7 @@ export const POLICIES: Readonly<Record<PolicyName, PolicyProfile>> = {
       s6MinSlack: 0.6,
     },
     ordering: 'edf',
+    slotRule: 'chronological-earliest',
     summary: 'Finish work as early as possible and maximise due-date slack.',
   },
   balanced: {
@@ -56,6 +70,7 @@ export const POLICIES: Readonly<Record<PolicyName, PolicyProfile>> = {
       s6MinSlack: 0.4,
     },
     ordering: 'priority_then_length',
+    slotRule: 'least-loaded-day',
     summary: 'Spread work evenly across days.',
   },
   focus_blocked: {
@@ -70,6 +85,7 @@ export const POLICIES: Readonly<Record<PolicyName, PolicyProfile>> = {
       s6MinSlack: 0.4,
     },
     ordering: 'longest_first',
+    slotRule: 'longest-slot-then-fewest-switches',
     summary: 'Prefer long contiguous focus blocks and few context switches.',
   },
 };

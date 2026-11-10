@@ -1,6 +1,6 @@
 {
   "id": "G04",
-  "description": "A commitment inserted into an existing plan: only non-conflicting blocks are valid.",
+  "description": "A commitment inserted over an existing plan block: only the affected task moves and changedBlocks stays minimal.",
   "input": {
     "now": "2026-11-09T00:00:00Z",
     "timeZone": "Asia/Seoul",
@@ -12,7 +12,10 @@
       {
         "id": "A",
         "dueAt": "2026-11-09T08:00:00Z",
-        "estimate": { "p50Min": 60, "p90Min": 60 },
+        "estimate": {
+          "p50Min": 60,
+          "p90Min": 60
+        },
         "splittable": true,
         "minSessionMin": 30,
         "maxSessionMin": 120,
@@ -21,15 +24,27 @@
       }
     ],
     "availability": [
-      { "weekday": 1, "startLocal": "09:00", "endLocal": "17:00", "kind": "work" }
+      {
+        "weekday": 1,
+        "startLocal": "09:00",
+        "endLocal": "17:00",
+        "kind": "work"
+      }
     ],
     "exceptions": [],
     "commitments": [
-      { "start": "2026-11-09T01:00:00Z", "end": "2026-11-09T02:00:00Z" }
+      {
+        "start": "2026-11-09T00:30:00Z",
+        "end": "2026-11-09T01:30:00Z"
+      }
     ],
     "lockedBlocks": [],
     "existingBlocks": [
-      { "taskId": "A", "start": "2026-11-09T00:00:00Z", "end": "2026-11-09T01:00:00Z" }
+      {
+        "taskId": "A",
+        "start": "2026-11-09T00:00:00Z",
+        "end": "2026-11-09T01:00:00Z"
+      }
     ],
     "prefs": {
       "maxDailyFocusMin": 480,
@@ -43,16 +58,26 @@
   },
   "candidateBlocks": {
     "valid": [
-      { "taskId": "A", "start": "2026-11-09T02:00:00Z", "end": "2026-11-09T03:00:00Z" }
+      {
+        "taskId": "A",
+        "start": "2026-11-09T01:30:00Z",
+        "end": "2026-11-09T02:30:00Z"
+      }
     ],
     "invalid": [
-      { "taskId": "A", "start": "2026-11-09T01:30:00Z", "end": "2026-11-09T02:30:00Z" }
+      {
+        "taskId": "A",
+        "start": "2026-11-09T01:00:00Z",
+        "end": "2026-11-09T02:00:00Z"
+      }
     ]
   },
   "expected": {
     "slotTotalMin": 420,
     "slotIntervalCount": 2,
     "validViolationCodes": [],
-    "invalidViolationCodes": ["H1"]
+    "invalidViolationCodes": [
+      "H1"
+    ]
   }
 }

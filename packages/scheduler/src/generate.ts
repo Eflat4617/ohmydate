@@ -25,7 +25,7 @@ import { POLICIES, POLICY_NAMES } from './policies.js';
 import { createPrng, type Prng } from './prng.js';
 import { canonicalJson, sha256Hex } from './hash.js';
 
-export const GENERATOR_VERSION = 'm3-02.1';
+export const GENERATOR_VERSION = 'm3-02.2';
 
 interface Interval {
   startMs: number;
@@ -47,6 +47,15 @@ interface Placement {
   startMs: number;
   endMs: number;
   slotId: number;
+  /** True when the placement was seeded from a still-valid existing block. */
+  seeded: boolean;
+}
+
+interface ReplanPlan {
+  seeds: Placement[];
+  affectedTasks: Set<string>;
+  /** Non-fixed existing blocks, used for the changedBlocks metric. */
+  movableExisting: Interval[];
 }
 
 interface PlanState {
@@ -59,16 +68,27 @@ interface PlanState {
 }
 
 interface BuildContext {
+  /** Original caller input (hash + public metadata). */
   input: ScheduleInput;
+  /** Input with past/in-progress existing blocks added to `lockedBlocks`. */
+  effectiveInput: ScheduleInput;
   slotsByStart: SlotInfo[];
   slotsByLength: SlotInfo[];
+  /**
+   * Fixed intervals: original locked blocks plus existing blocks whose start
+   * is before `now`. They are audited like locked work and are not returned in
+   * `PlanCandidate.blocks`.
+   */
   lockedIntervals: Interval[];
   lockedByTask: Map<string, Interval[]>;
+  /** Keys of `input.lockedBlocks`, to exclude from changedBlocks. */
+  lockedKeys: Set<string>;
   breakAfterMs: number;
   breakMs: number;
   maxDailyFocusMin: number;
   horizonStartMs: number;
   horizonEndMs: number;
+  nowMs: number;
   riskLevel: 'p50' | 'p90';
 }
 
@@ -90,8 +110,14 @@ interface ChunkSpec {
  *
  * The generator and `validate()` are deliberately separate: only candidates
  * whose blocks produce zero violations are marked feasible. Infeasible
- * candidates are still returned with their partial blocks, capacity deficit,
- * validator violations and heuristics reasons, so no hard violation is hidden.
+ * candidates are still returned with their partial blocks, their own H7
+ * shortfall, the separate capacity bound, validator violations and heuristic
+ * reasons, so no hard violation is hidden.
+ *
+ * Replanning seeds still-valid existing blocks (start >= now) and re-places
+ * only conflicting/affected tasks and their successors. Existing blocks whose
+ * start is before `now` are fixed exactly like locked blocks, and new
+ * placements start at or after max(horizon.start, now).
  */
 export function generate(
   input: ScheduleInput,
@@ -99,7 +125,13 @@ export function generate(
 ): GenerateResult {
   const seed = options.seed ?? input.seed;
   const requested = normalizePolicies(options.policies);
-  const inputHash = sha256Hex(canonicalJson(input));
+  const maxImprovement = Math.max(
+    0,
+    Math.min(200, options.maxLocalImprovement ?? 200),
+  );
+  const inputHash = sha256Hex(
+    canonicalJson(canonicalInput(input, seed, maxImprovement)),
+  );
   const issues = validateInput(input);
 
   if (issues.length > 0) {
@@ -114,15 +146,13 @@ export function generate(
   }
 
   const context = buildContext(input);
-  const capacityDeficitMin = capacityDeficit(input);
-  const maxImprovement = Math.max(
-    0,
-    Math.min(200, options.maxLocalImprovement ?? 200),
-  );
+  const replan = prepareReplan(context);
+  const capacityDeficitMin = capacityDeficit(context.effectiveInput);
 
   const candidates = requested.map((policy) =>
     generateForPolicy(
       context,
+      replan,
       policy,
       seed,
       inputHash,
@@ -131,6 +161,66 @@ export function generate(
     ),
   );
   return finalize(candidates);
+}
+
+function canonicalInstant(value: string): string {
+  try {
+    return instantToUtc(parseInstant(value));
+  } catch {
+    return value;
+  }
+}
+
+function canonicalBlock(block: Block): {
+  taskId: string;
+  start: string;
+  end: string;
+} {
+  return {
+    taskId: block.taskId,
+    start: canonicalInstant(block.start),
+    end: canonicalInstant(block.end),
+  };
+}
+
+/**
+ * Hash input with the seed/max-improvement that actually drive generation and
+ * all instants canonicalised to UTC ISO strings, so equivalent spellings hash
+ * identically.
+ */
+function canonicalInput(
+  input: ScheduleInput,
+  seed: number,
+  maxLocalImprovement: number,
+): unknown {
+  return {
+    now: canonicalInstant(input.now),
+    timeZone: input.timeZone,
+    horizon: {
+      start: canonicalInstant(input.horizon.start),
+      end: canonicalInstant(input.horizon.end),
+    },
+    tasks: input.tasks.map((task) => ({
+      ...task,
+      ...(task.dueAt === undefined
+        ? {}
+        : { dueAt: canonicalInstant(task.dueAt) }),
+      ...(task.earliestStartAt === undefined
+        ? {}
+        : { earliestStartAt: canonicalInstant(task.earliestStartAt) }),
+    })),
+    availability: input.availability,
+    exceptions: input.exceptions,
+    commitments: input.commitments.map((commitment) => ({
+      start: canonicalInstant(commitment.start),
+      end: canonicalInstant(commitment.end),
+    })),
+    lockedBlocks: input.lockedBlocks.map(canonicalBlock),
+    existingBlocks: (input.existingBlocks ?? []).map(canonicalBlock),
+    prefs: input.prefs,
+    seed,
+    maxLocalImprovement,
+  };
 }
 
 function normalizePolicies(
@@ -169,9 +259,10 @@ function invalidInputCandidate(
   return {
     policy,
     blocks: [],
-    metrics: emptyMetrics(requiredTotal),
+    metrics: emptyMetrics(requiredTotal, requiredTotal),
     feasible: false,
     deficitMin: requiredTotal,
+    capacityDeficitMin: requiredTotal,
     explanation: [
       `Policy ${policy} v${profile.version}: ${profile.summary}`,
       `Input rejected before generation: ${issues.map((issue) => issue.code).join(', ')}.`,
@@ -182,7 +273,10 @@ function invalidInputCandidate(
   };
 }
 
-function emptyMetrics(deficitMin: number): PlanMetrics {
+function emptyMetrics(
+  deficitMin: number,
+  capacityDeficitMin: number,
+): PlanMetrics {
   return {
     totalFocusMin: 0,
     minSlackMin: 0,
@@ -191,6 +285,7 @@ function emptyMetrics(deficitMin: number): PlanMetrics {
     contextSwitches: 0,
     changedBlocks: 0,
     deficitMin,
+    capacityDeficitMin,
     p90CoverageRatio: 1,
   };
 }
@@ -198,6 +293,7 @@ function emptyMetrics(deficitMin: number): PlanMetrics {
 function buildContext(input: ScheduleInput): BuildContext {
   const horizonStartMs = parseInstant(input.horizon.start);
   const horizonEndMs = parseInstant(input.horizon.end);
+  const nowMs = parseInstant(input.now);
   const slots = computeAvailableSlots(input);
   const slotsByStart: SlotInfo[] = [];
 
@@ -227,9 +323,23 @@ function buildContext(input: ScheduleInput): BuildContext {
       b.endMs - b.startMs - (a.endMs - a.startMs) || a.startMs - b.startMs,
   );
 
+  const lockedKeys = new Set(
+    input.lockedBlocks.map((block) =>
+      blockKey(block.taskId, parseInstant(block.start), parseInstant(block.end)),
+    ),
+  );
+  const fixedExistingBlocks = (input.existingBlocks ?? []).filter((block) => {
+    const startMs = parseInstant(block.start);
+    const endMs = parseInstant(block.end);
+    if (startMs >= nowMs || endMs <= startMs) {
+      return false;
+    }
+    return !lockedKeys.has(blockKey(block.taskId, startMs, endMs));
+  });
+
   const lockedIntervals: Interval[] = [];
   const lockedByTask = new Map<string, Interval[]>();
-  for (const block of input.lockedBlocks) {
+  for (const block of [...input.lockedBlocks, ...fixedExistingBlocks]) {
     const startMs = parseInstant(block.start);
     const endMs = parseInstant(block.end);
     if (endMs <= startMs) {
@@ -242,19 +352,216 @@ function buildContext(input: ScheduleInput): BuildContext {
     lockedByTask.set(block.taskId, list);
   }
 
+  const effectiveInput: ScheduleInput = {
+    ...input,
+    lockedBlocks: [...input.lockedBlocks, ...fixedExistingBlocks],
+  };
+
   return {
     input,
+    effectiveInput,
     slotsByStart,
     slotsByLength,
     lockedIntervals,
     lockedByTask,
+    lockedKeys,
     breakAfterMs: input.prefs.breakAfterMin * MINUTE_MS,
     breakMs: input.prefs.breakMin * MINUTE_MS,
     maxDailyFocusMin: input.prefs.maxDailyFocusMin,
     horizonStartMs,
     horizonEndMs,
+    nowMs,
     riskLevel: input.prefs.riskLevel,
   };
+}
+
+function prepareReplan(context: BuildContext): ReplanPlan {
+  const taskById = new Map(
+    context.input.tasks.map((task) => [task.id, task]),
+  );
+  const movableExisting: Interval[] = [];
+  const movable: Array<{
+    taskId: string;
+    startMs: number;
+    endMs: number;
+  }> = [];
+
+  for (const block of context.input.existingBlocks ?? []) {
+    const startMs = parseInstant(block.start);
+    const endMs = parseInstant(block.end);
+    if (endMs <= startMs) {
+      continue;
+    }
+    if (context.lockedKeys.has(blockKey(block.taskId, startMs, endMs))) {
+      continue;
+    }
+    if (startMs < context.nowMs) {
+      continue;
+    }
+    const interval = { startMs, endMs, taskId: block.taskId };
+    movableExisting.push(interval);
+    movable.push(interval);
+  }
+  movable.sort(
+    (a, b) =>
+      a.startMs - b.startMs ||
+      compareText(a.taskId, b.taskId) ||
+      a.endMs - b.endMs,
+  );
+
+  const affected = new Set<string>();
+  const movableMinutesByTask = new Map<string, number>();
+  for (const item of movable) {
+    const task = taskById.get(item.taskId);
+    const durationMin = (item.endMs - item.startMs) / MINUTE_MS;
+    let valid =
+      task !== undefined &&
+      findContainingSlot(context, item.startMs, item.endMs) !== undefined &&
+      isSessionValid(task, durationMin, context.riskLevel);
+    if (task !== undefined) {
+      const earliestMs =
+        task.earliestStartAt === undefined
+          ? context.horizonStartMs
+          : parseInstant(task.earliestStartAt);
+      const dueMs =
+        task.dueAt === undefined
+          ? context.horizonEndMs
+          : parseInstant(task.dueAt);
+      const windowStartMs = Math.max(
+        context.horizonStartMs,
+        context.nowMs,
+        earliestMs,
+      );
+      const windowEndMs = Math.min(
+        context.horizonEndMs,
+        dueMs - (task.bufferBeforeDueMin ?? 0) * MINUTE_MS,
+      );
+      if (item.startMs < windowStartMs || item.endMs > windowEndMs) {
+        valid = false;
+      }
+    }
+    if (!valid) {
+      affected.add(item.taskId);
+      continue;
+    }
+    movableMinutesByTask.set(
+      item.taskId,
+      (movableMinutesByTask.get(item.taskId) ?? 0) + durationMin,
+    );
+  }
+
+  for (const [taskId, movableMin] of movableMinutesByTask) {
+    const task = taskById.get(taskId);
+    if (task === undefined) {
+      continue;
+    }
+    const fixedMin = minutesOf(context.lockedByTask.get(taskId) ?? []);
+    if (
+      fixedMin + movableMin >
+      taskRequiredMinutes(task, context.riskLevel) + 1e-9
+    ) {
+      affected.add(taskId);
+    }
+  }
+
+  let current = propagateAffected(context, affected);
+  let seeds: Placement[] = [];
+
+  for (let iteration = 0; iteration <= context.input.tasks.length + 1; iteration += 1) {
+    const state = createState(context);
+    seeds = [];
+    let changed = false;
+    for (const item of movable) {
+      if (current.has(item.taskId)) {
+        continue;
+      }
+      const slot = findContainingSlot(context, item.startMs, item.endMs);
+      if (
+        slot === undefined ||
+        !passes(context, state, item.startMs, item.endMs)
+      ) {
+        current.add(item.taskId);
+        changed = true;
+        continue;
+      }
+      const placement: Placement = {
+        taskId: item.taskId,
+        durationMin: (item.endMs - item.startMs) / MINUTE_MS,
+        startMs: item.startMs,
+        endMs: item.endMs,
+        slotId: slot.id,
+        seeded: true,
+      };
+      addPlacement(state, placement);
+      seeds.push(placement);
+    }
+    current = propagateAffected(context, current);
+    if (!changed) {
+      break;
+    }
+  }
+
+  return { seeds, affectedTasks: current, movableExisting };
+}
+
+function propagateAffected(
+  context: BuildContext,
+  initial: Set<string>,
+): Set<string> {
+  const affected = new Set(initial);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const task of context.input.tasks) {
+      if (affected.has(task.id)) {
+        continue;
+      }
+      if (task.dependsOn.some((dependencyId) => affected.has(dependencyId))) {
+        affected.add(task.id);
+        changed = true;
+      }
+    }
+  }
+  return affected;
+}
+
+function findContainingSlot(
+  context: BuildContext,
+  startMs: number,
+  endMs: number,
+): SlotInfo | undefined {
+  for (const slot of context.slotsByStart) {
+    if (slot.startMs > startMs) {
+      break;
+    }
+    if (startMs >= slot.startMs && endMs <= slot.endMs) {
+      return slot;
+    }
+  }
+  return undefined;
+}
+
+function isSessionValid(
+  task: Task,
+  durationMin: number,
+  riskLevel: 'p50' | 'p90',
+): boolean {
+  if (durationMin <= 0 || durationMin % 5 !== 0) {
+    return false;
+  }
+  if (!task.splittable) {
+    return durationMin === taskRequiredMinutes(task, riskLevel);
+  }
+  return (
+    durationMin >= task.minSessionMin && durationMin <= task.maxSessionMin
+  );
+}
+
+function minutesOf(intervals: Interval[]): number {
+  return intervals.reduce(
+    (sum, interval) => sum + (interval.endMs - interval.startMs) / MINUTE_MS,
+    0,
+  );
 }
 
 function dateAt(
@@ -292,6 +599,7 @@ function createState(context: BuildContext): PlanState {
 
 function generateForPolicy(
   context: BuildContext,
+  replan: ReplanPlan,
   policy: PolicyName,
   seed: number,
   inputHash: string,
@@ -300,18 +608,39 @@ function generateForPolicy(
 ): PlanCandidate {
   const profile = POLICIES[policy];
   const state = createState(context);
+  for (const seedPlacement of replan.seeds) {
+    addPlacement(state, { ...seedPlacement });
+  }
+  const seededMinutesByTask = new Map<string, number>();
+  for (const placement of replan.seeds) {
+    seededMinutesByTask.set(
+      placement.taskId,
+      (seededMinutesByTask.get(placement.taskId) ?? 0) + placement.durationMin,
+    );
+  }
+
   const reasons = new Set<string>();
   const completionByTask = new Map<string, number>();
+  for (const interval of state.intervals) {
+    completionByTask.set(
+      interval.taskId,
+      Math.max(
+        completionByTask.get(interval.taskId) ?? Number.NEGATIVE_INFINITY,
+        interval.endMs,
+      ),
+    );
+  }
   const prng = createPrng(seed + policySeedOffset(policy));
 
   for (const task of orderTasks(context, policy)) {
-    const locked = context.lockedByTask.get(task.id) ?? [];
-    const lockedMin = locked.reduce(
+    const fixed = context.lockedByTask.get(task.id) ?? [];
+    const fixedMin = fixed.reduce(
       (sum, interval) => sum + (interval.endMs - interval.startMs) / MINUTE_MS,
       0,
     );
+    const seededMin = seededMinutesByTask.get(task.id) ?? 0;
     const requiredMin = taskRequiredMinutes(task, context.riskLevel);
-    const remainingMin = Math.max(0, requiredMin - lockedMin);
+    const remainingMin = Math.max(0, requiredMin - fixedMin - seededMin);
     const chunks = buildChunks(task, remainingMin);
     if (chunks.reason !== undefined) {
       reasons.add(chunks.reason);
@@ -336,15 +665,18 @@ function generateForPolicy(
     const bufferMs = (task.bufferBeforeDueMin ?? 0) * MINUTE_MS;
     const windowStartMs = Math.max(
       context.horizonStartMs,
+      context.nowMs,
       earliestMs,
       dependencyReadyMs,
     );
     const windowEndMs = Math.min(context.horizonEndMs, dueMs - bufferMs);
 
-    let lastEndMs = locked.reduce(
-      (latest, interval) => Math.max(latest, interval.endMs),
-      Number.NEGATIVE_INFINITY,
-    );
+    let lastEndMs = Number.NEGATIVE_INFINITY;
+    for (const interval of state.intervals) {
+      if (interval.taskId === task.id) {
+        lastEndMs = Math.max(lastEndMs, interval.endMs);
+      }
+    }
 
     if (remainingMin > 0 && windowEndMs <= windowStartMs) {
       reasons.add('insufficient_available_time');
@@ -373,6 +705,7 @@ function generateForPolicy(
           startMs: position.startMs,
           endMs: position.endMs,
           slotId: position.slotId,
+          seeded: false,
         };
         addPlacement(state, placement);
         lastEndMs = Math.max(lastEndMs, placement.endMs);
@@ -390,7 +723,7 @@ function generateForPolicy(
   }
 
   const greedyBlocks = blocksFromPlacements(state.placements);
-  const greedyViolations = validate(context.input, greedyBlocks, {
+  const greedyViolations = validate(context.effectiveInput, greedyBlocks, {
     riskLevel: context.riskLevel,
   });
 
@@ -404,9 +737,11 @@ function generateForPolicy(
       prng,
     );
     const improvedBlocks = blocksFromPlacements(improved);
-    const improvedViolations = validate(context.input, improvedBlocks, {
-      riskLevel: context.riskLevel,
-    });
+    const improvedViolations = validate(
+      context.effectiveInput,
+      improvedBlocks,
+      { riskLevel: context.riskLevel },
+    );
     if (improvedViolations.length === 0) {
       finalPlacements = improved;
     }
@@ -414,23 +749,25 @@ function generateForPolicy(
 
   const finalState = stateFromPlacements(context, finalPlacements);
   const blocks = blocksFromPlacements(finalState.placements);
-  const violations = validate(context.input, blocks, {
+  const violations = validate(context.effectiveInput, blocks, {
     riskLevel: context.riskLevel,
   });
-  const metrics = buildMetrics(context, finalState, capacityDeficitMin);
-  const feasible = violations.length === 0;
-  const placedMin = finalState.placements.reduce(
-    (sum, placement) => sum + placement.durationMin,
-    0,
+  const metrics = buildMetrics(
+    context,
+    finalState,
+    replan,
+    capacityDeficitMin,
   );
+  const feasible = violations.length === 0;
   const requiredTotalMin = context.input.tasks.reduce(
     (sum, task) => sum + taskRequiredMinutes(task, context.riskLevel),
     0,
   );
+  const placedTotalMin = Math.max(0, requiredTotalMin - metrics.deficitMin);
 
   const explanation: string[] = [
     `Policy ${policy} v${profile.version}: ${profile.summary}`,
-    `Placed ${placedMin} of ${requiredTotalMin} required minutes in ${blocks.length} block(s).`,
+    `Placed ${placedTotalMin} of ${requiredTotalMin} required minutes in ${blocks.length} movable block(s), retaining ${replan.seeds.length} existing block(s).`,
     feasible
       ? 'All hard constraints H1-H8 satisfied.'
       : `Infeasible with ${violations.length} hard violation(s): ${uniqueCodes(violations)}.`,
@@ -443,6 +780,9 @@ function generateForPolicy(
   for (const reason of [...reasons].sort()) {
     explanation.push(`Heuristic reason: ${reason}.`);
   }
+  explanation.push(
+    `Unplaced minutes (H7 shortfall): ${metrics.deficitMin} min.`,
+  );
   explanation.push(`Capacity deficit: ${capacityDeficitMin} min.`);
 
   return {
@@ -450,7 +790,8 @@ function generateForPolicy(
     blocks,
     metrics,
     feasible,
-    deficitMin: capacityDeficitMin,
+    deficitMin: metrics.deficitMin,
+    capacityDeficitMin,
     explanation,
     inputHash,
     generatorVersion: GENERATOR_VERSION,
@@ -1056,7 +1397,7 @@ function placementWindow(
   taskId: string,
 ): Window {
   const task = context.input.tasks.find((candidate) => candidate.id === taskId);
-  let minStartMs = context.horizonStartMs;
+  let minStartMs = Math.max(context.horizonStartMs, context.nowMs);
   let maxEndMs = context.horizonEndMs;
   if (task === undefined) {
     return { minStartMs, maxEndMs };
@@ -1092,9 +1433,10 @@ function placementWindow(
 }
 
 /**
- * Bounded local improvement: each block is offered nearby positions (two
- * hours either way inside its own slot) and kept only when the policy
- * objective strictly improves. At most `cap` (<= 200) block moves are tried.
+ * Bounded local improvement: each new block is offered the next 30-minute
+ * position inside its own slot and kept only when the policy objective
+ * strictly improves. Seeded existing blocks are never moved here, preserving
+ * change minimisation. At most `cap` (<= 200) block moves are tried.
  */
 function improvePlacements(
   context: BuildContext,
@@ -1103,7 +1445,9 @@ function improvePlacements(
   cap: number,
   prng: Prng,
 ): Placement[] {
-  const targets = state.placements.map((placement) => ({ ...placement }));
+  const targets = state.placements
+    .filter((placement) => !placement.seeded)
+    .map((placement) => ({ ...placement }));
   for (let index = targets.length - 1; index > 0; index -= 1) {
     const swapIndex = prng.nextInt(index + 1);
     const current = targets[index];
@@ -1172,7 +1516,7 @@ function* neighborPositions(
   const currentIndex = Math.round((target.startMs - slot.startMs) / GRID_MS);
   const limit = slot.cellStarts.length - cellCount;
   const indices = new Set<number>();
-  for (const offset of [-12, -6, 6, 12]) {
+  for (const offset of [6]) {
     const index = currentIndex + offset;
     if (index >= 0 && index <= limit) {
       indices.add(index);
@@ -1405,6 +1749,7 @@ function countContextSwitches(
 function buildMetrics(
   context: BuildContext,
   state: PlanState,
+  replan: ReplanPlan,
   capacityDeficitMin: number,
 ): PlanMetrics {
   let totalFocusMin = 0;
@@ -1426,28 +1771,25 @@ function buildMetrics(
     state.timeZone,
   );
 
-  const existing = context.input.existingBlocks ?? [];
+  const candidateKeys = new Set(
+    state.placements.map((placement) =>
+      blockKey(placement.taskId, placement.startMs, placement.endMs),
+    ),
+  );
+  const existingKeys = new Set(
+    replan.movableExisting.map((interval) =>
+      blockKey(interval.taskId, interval.startMs, interval.endMs),
+    ),
+  );
   let changedBlocks = 0;
-  if (existing.length > 0) {
-    const candidateKeys = new Set(
-      state.intervals.map((interval) =>
-        blockKey(interval.taskId, interval.startMs, interval.endMs),
-      ),
-    );
-    const existingKeys = new Set<string>();
-    for (const block of existing) {
-      const startMs = parseInstant(block.start);
-      const endMs = parseInstant(block.end);
-      const key = blockKey(block.taskId, startMs, endMs);
-      existingKeys.add(key);
-      if (!candidateKeys.has(key)) {
-        changedBlocks += 1;
-      }
+  for (const key of candidateKeys) {
+    if (!existingKeys.has(key)) {
+      changedBlocks += 1;
     }
-    for (const key of candidateKeys) {
-      if (!existingKeys.has(key)) {
-        changedBlocks += 1;
-      }
+  }
+  for (const key of existingKeys) {
+    if (!candidateKeys.has(key)) {
+      changedBlocks += 1;
     }
   }
 
@@ -1459,14 +1801,17 @@ function buildMetrics(
         (interval.endMs - interval.startMs) / MINUTE_MS,
     );
   }
-  let p90Total = 0;
-  let p90Covered = 0;
+
+  let shortfall = 0;
+  let coverageTarget = 0;
+  let coverageCovered = 0;
   for (const task of context.input.tasks) {
-    const p90 = Math.max(0, task.estimate.p90Min);
-    p90Total += p90;
-    p90Covered += Math.min(p90, placedByTask.get(task.id) ?? 0);
+    const required = taskRequiredMinutes(task, context.riskLevel);
+    const placed = placedByTask.get(task.id) ?? 0;
+    shortfall += Math.max(0, required - placed);
+    coverageTarget += required;
+    coverageCovered += Math.min(required, placed);
   }
-  const p90CoverageRatio = p90Total > 0 ? p90Covered / p90Total : 1;
 
   return {
     totalFocusMin,
@@ -1475,8 +1820,10 @@ function buildMetrics(
     avgDailyLoadMin,
     contextSwitches,
     changedBlocks,
-    deficitMin: capacityDeficitMin,
-    p90CoverageRatio,
+    deficitMin: shortfall,
+    capacityDeficitMin,
+    p90CoverageRatio:
+      coverageTarget > 0 ? coverageCovered / coverageTarget : 1,
   };
 }
 
@@ -1488,14 +1835,25 @@ function finalize(candidates: PlanCandidate[]): GenerateResult {
   const kept: PlanCandidate[] = [];
   let dropped = 0;
   for (const candidate of candidates) {
-    const duplicate = kept.some(
+    const duplicateIndex = kept.findIndex(
       (earlier) => candidateDistance(earlier.blocks, candidate.blocks) < 0.15,
     );
-    if (duplicate) {
+    if (duplicateIndex < 0) {
+      kept.push(candidate);
+      continue;
+    }
+    const earlier = kept[duplicateIndex];
+    if (
+      earlier !== undefined &&
+      candidate.feasible &&
+      !earlier.feasible
+    ) {
+      // Feasibility always wins a diversity collision.
+      kept[duplicateIndex] = candidate;
       dropped += 1;
       continue;
     }
-    kept.push(candidate);
+    dropped += 1;
   }
 
   if (dropped > 0) {

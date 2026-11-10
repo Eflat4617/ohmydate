@@ -277,7 +277,8 @@ describe('plan generator', () => {
     const result = generate(input, { policies: ['front_loaded'] });
     const [candidate] = result.candidates;
     expect(candidate?.feasible).toBe(false);
-    expect(candidate?.deficitMin).toBe(60);
+    expect(candidate?.deficitMin).toBe(180);
+    expect(candidate?.capacityDeficitMin).toBe(60);
     expect(candidate?.explanation.join('\n')).toContain('H7');
     expect(
       candidate?.explanation.some((line) => line.includes('no_contiguous_window')),
@@ -311,5 +312,166 @@ describe('plan generator', () => {
         ).toEqual([]);
       }
     }
+  });
+
+  it('lets a feasible candidate win a diversity collision (E1)', () => {
+    const input = makeInput({
+      timeZone: 'UTC',
+      tasks: [
+        makeTask({
+          id: 'Z',
+          dueAt: '2026-11-09T17:00:00Z',
+          estimate: { p50Min: 420, p90Min: 420 },
+          priority: 1,
+        }),
+        makeTask({
+          id: 'Y',
+          dueAt: '2026-11-09T17:00:00Z',
+          estimate: { p50Min: 20, p90Min: 20 },
+          splittable: false,
+          minSessionMin: 20,
+          maxSessionMin: 20,
+          priority: 4,
+        }),
+      ],
+      availability: ALL_WEEK_FULL_DAY.map((rule) => ({
+        ...rule,
+        startLocal: '09:00',
+        endLocal: '17:00',
+      })),
+      horizon: {
+        start: '2026-11-09T00:00:00Z',
+        end: '2026-11-10T00:00:00Z',
+      },
+    });
+    const result = generate(input, {
+      policies: ['balanced', 'focus_blocked'],
+      seed: input.seed,
+    });
+    expect(result.candidates).toHaveLength(1);
+    expect(result.candidates[0]?.policy).toBe('focus_blocked');
+    expect(result.candidates[0]?.feasible).toBe(true);
+  });
+
+  it('hashes the effective seed and maxLocalImprovement', () => {
+    const input = makeInput({
+      tasks: [makeTask({ id: 'A', estimate: { p50Min: 90, p90Min: 90 } })],
+    });
+    const base = generate(input, { policies: ['balanced'], seed: 5 });
+    const otherSeed = generate(input, { policies: ['balanced'], seed: 6 });
+    const otherImprovement = generate(input, {
+      policies: ['balanced'],
+      seed: 5,
+      maxLocalImprovement: 0,
+    });
+    expect(base.candidates[0]?.inputHash).not.toBe(
+      otherSeed.candidates[0]?.inputHash,
+    );
+    expect(base.candidates[0]?.inputHash).not.toBe(
+      otherImprovement.candidates[0]?.inputHash,
+    );
+  });
+
+  it('canonicalises equivalent instant spellings before hashing', () => {
+    const basic = makeInput({
+      tasks: [makeTask({ id: 'A', dueAt: '2026-11-10T00:00:00Z' })],
+    });
+    const spelled = makeInput({
+      now: '2026-11-09T09:00:00+09:00',
+      horizon: {
+        start: '2026-11-09T09:00:00+09:00',
+        end: '2026-11-11T09:00:00+09:00',
+      },
+      tasks: [makeTask({ id: 'A', dueAt: '2026-11-10T09:00:00+09:00' })],
+    });
+    const first = generate(basic, { policies: ['front_loaded'], seed: 7 });
+    const second = generate(spelled, { policies: ['front_loaded'], seed: 7 });
+    expect(second.candidates[0]?.inputHash).toBe(
+      first.candidates[0]?.inputHash,
+    );
+  });
+
+  it('counts candidate-own H7 shortfall separately from capacity deficit', () => {
+    const input = makeInput({
+      tasks: [
+        makeTask({
+          id: 'A',
+          dueAt: '2026-11-09T10:00:00Z',
+          estimate: { p50Min: 120, p90Min: 120 },
+        }),
+      ],
+      availability: [
+        { weekday: 1, startLocal: '09:00', endLocal: '10:00', kind: 'work' },
+      ],
+      horizon: {
+        start: '2026-11-09T00:00:00Z',
+        end: '2026-11-10T00:00:00Z',
+      },
+    });
+    const result = generate(input, { policies: ['front_loaded'] });
+    const [candidate] = result.candidates;
+    expect(candidate?.feasible).toBe(false);
+    expect(candidate?.deficitMin).toBe(120);
+    expect(candidate?.capacityDeficitMin).toBe(60);
+    expect(candidate?.metrics.deficitMin).toBe(120);
+    expect(candidate?.metrics.capacityDeficitMin).toBe(60);
+    expect(candidate?.explanation.join('\n')).toContain('Capacity deficit: 60 min.');
+    expect(candidate?.explanation.join('\n')).toContain(
+      'Unplaced minutes (H7 shortfall): 120 min.',
+    );
+  });
+
+  it('uses remainingMin for p90CoverageRatio', () => {
+    const input = makeInput({
+      tasks: [
+        makeTask({
+          id: 'A',
+          estimate: { p50Min: 240, p90Min: 360 },
+          remainingMin: 120,
+        }),
+      ],
+      availability: [
+        { weekday: 1, startLocal: '09:00', endLocal: '17:00', kind: 'work' },
+      ],
+      horizon: {
+        start: '2026-11-09T00:00:00Z',
+        end: '2026-11-10T00:00:00Z',
+      },
+    });
+    const result = generate(input, { policies: ['front_loaded'] });
+    expect(result.candidates[0]?.feasible).toBe(true);
+    expect(result.candidates[0]?.metrics.p90CoverageRatio).toBe(1);
+  });
+
+  it('documents and versions policy ordering and slot rules', () => {
+    expect(POLICY_VERSION).toBe('1.0.0');
+    expect(
+      Object.fromEntries(
+        Object.values(POLICIES).map((profile) => [
+          profile.name,
+          {
+            version: profile.version,
+            ordering: profile.ordering,
+            slotRule: profile.slotRule,
+          },
+        ]),
+      ),
+    ).toEqual({
+      front_loaded: {
+        version: POLICY_VERSION,
+        ordering: 'edf',
+        slotRule: 'chronological-earliest',
+      },
+      balanced: {
+        version: POLICY_VERSION,
+        ordering: 'priority_then_length',
+        slotRule: 'least-loaded-day',
+      },
+      focus_blocked: {
+        version: POLICY_VERSION,
+        ordering: 'longest_first',
+        slotRule: 'longest-slot-then-fewest-switches',
+      },
+    });
   });
 });

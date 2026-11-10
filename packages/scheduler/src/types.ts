@@ -168,9 +168,13 @@ export type PolicyName = 'front_loaded' | 'balanced' | 'focus_blocked';
  * Daily loads use the ADR-017 local-date semantics, including locked blocks.
  * `minSlackMin` is the smallest due-buffer slack in the final plan; when no
  * task has a deadline it falls back to the horizon end minus the last block.
- * `p90CoverageRatio` caps each task's placed minutes at its P90 estimate.
- * `changedBlocks` is the symmetric difference between candidate blocks and
- * `ScheduleInput.existingBlocks` (0 when the input has no existing blocks).
+ * `p90CoverageRatio` compares each task's placed minutes with its effective
+ * requirement (`remainingMin` when supplied, else P90), capped per task.
+ * `changedBlocks` is the symmetric difference between the returned (movable)
+ * blocks and the non-fixed `ScheduleInput.existingBlocks`; locked and
+ * past/in-progress fixed blocks are excluded. `deficitMin` is the candidate's
+ * own H7 shortfall, while `capacityDeficitMin` is the pre-generation capacity
+ * upper bound from `deficit()`.
  */
 export interface PlanMetrics {
   totalFocusMin: number;
@@ -180,18 +184,29 @@ export interface PlanMetrics {
   contextSwitches: number;
   changedBlocks: number;
   deficitMin: number;
+  capacityDeficitMin: number;
   p90CoverageRatio: number;
 }
 
 export interface PlanCandidate {
   policy: PolicyName;
+  /**
+   * Movable/seeded blocks only. `ScheduleInput.lockedBlocks` and existing
+   * blocks whose start is before `now` are treated as fixed and audited like
+   * locked work, so they are not repeated here.
+   */
   blocks: Block[];
   metrics: PlanMetrics;
   feasible: boolean;
-  /** Capacity deficit from `deficit()` (0 when the horizon has enough room). */
+  /** This candidate's own H7 shortfall in minutes (unplaced work). */
   deficitMin: number;
+  /** Capacity upper bound from `deficit()` before generation. */
+  capacityDeficitMin: number;
   explanation: string[];
-  /** SHA-256 of the canonical JSON of the whole input, including the seed. */
+  /**
+   * SHA-256 of canonical JSON covering the effective seed and
+   * `maxLocalImprovement`, with all instants canonicalised to UTC ISO strings.
+   */
   inputHash: string;
   generatorVersion: string;
 }
