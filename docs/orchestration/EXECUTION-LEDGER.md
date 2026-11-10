@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -75,6 +75,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| M3-02c | ctx_1af22cce1c49 (opus-fallback) | 61597c2 | **APPROVE** (스케줄러 전체 병합 판정) | MEDIUM(이력 전용 H1/H6) → 06 §7.1 확정 + FU-39 | **Accepted, merged b0c565a**; ci 1040 pass/27 skip + web 69 |
 | FU-32 | ctx_00974a8b4db0 (opus-fallback) | 072678f | **APPROVE** | LOW 4 → FU-38; **GB-1 마스킹 관문 완료** | **Accepted, merged 9344caa**; ci 992 pass, DB 마이그레이션 테스트 1건 부하(16) 5s 타임아웃 — 단독 14/14 통과, FU-37에서 timeout 조정 |
 | FU-35 | ctx_56d39c548ab8 (opus-fallback) | 8e8b6f8 | **APPROVE** | MEDIUM(사용 중 연결 소켓 단절 시 크래시, 기존 결함) → FU-37 즉시 착수 | **Accepted, merged 543cbee**; ci 942 pass/27 skip (1차 부하 타임아웃 2건, 재실행 통과) |
 | M2-02 | ctx_e2f20910c6eb (opus-fallback) | 2972a81 | **APPROVE** | 계약 MEDIUM 4건 → M2-03 범위 확장으로 처리 | **Accepted, merged df4244c**; G3 935 pass/27 skip + web 69, ci 0 |
