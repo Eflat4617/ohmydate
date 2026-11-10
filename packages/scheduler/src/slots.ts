@@ -1,11 +1,13 @@
-import { Temporal } from 'temporal-polyfill';
 import type { Block, ScheduleInput, Slot } from './types.js';
+import type { LocalDaySegment } from './time.js';
 import {
+  DAY_MS,
   alignDownToGrid,
   alignUpToGrid,
   instantToUtc,
   parseInstant,
-  projectWallWindowToIntervals,
+  partitionByLocalDate,
+  projectWindowOnSegment,
 } from './time.js';
 
 interface IntervalMs {
@@ -97,38 +99,6 @@ function alignIntervals(intervals: IntervalMs[]): IntervalMs[] {
   );
 }
 
-function fullDayWindow(
-  input: ScheduleInput,
-  date: Temporal.PlainDate,
-): IntervalMs[] {
-  return projectWallWindowToIntervals(input.timeZone, date, '00:00', '24:00');
-}
-
-function exceptionsForDate(input: ScheduleInput, date: string): WindowException[] {
-  return input.exceptions.filter((exception) => exception.date === date);
-}
-
-function intervalsForException(
-  input: ScheduleInput,
-  date: Temporal.PlainDate,
-  exception: WindowException,
-): IntervalMs[] {
-  const hasStart = exception.startLocal !== undefined;
-  const hasEnd = exception.endLocal !== undefined;
-  if (!hasStart && !hasEnd) {
-    return fullDayWindow(input, date);
-  }
-  if (!hasStart || !hasEnd) {
-    return [];
-  }
-  return projectWallWindowToIntervals(
-    input.timeZone,
-    date,
-    exception.startLocal as string,
-    exception.endLocal as string,
-  );
-}
-
 function cutIntervalsOf(blocks: Array<Pick<Block, 'start' | 'end'>>): IntervalMs[] {
   const cuts: IntervalMs[] = [];
   for (const block of blocks) {
@@ -144,12 +114,17 @@ function cutIntervalsOf(blocks: Array<Pick<Block, 'start' | 'end'>>): IntervalMs
 /**
  * Compute merged, UTC availability intervals for the horizon.
  *
- * A day is built from weekly availability rules, then:
- * `+ exceptions(extra)`, `- exceptions(off)`, `- commitments - lockedBlocks`.
- * Only intervals that survive horizon clipping and inward 5-minute grid
- * alignment are returned. The implementation walks days and subtracts
- * interval sets; `validate.ts` deliberately re-implements raw-rule projection
- * and audits the full half-open block interval with a coverage sweep instead.
+ * ADR-017: the horizon is partitioned at every IANA offset transition and then
+ * at local midnights inside each constant-offset piece. Every resulting
+ * segment belongs to exactly one local date, so rules and exceptions are
+ * projected with that segment's offset and clipped to the segment. A date may
+ * appear in several disjoint segments after a backward transition; all of them
+ * contribute.
+ *
+ * Then: `+ exceptions(extra)`, `- exceptions(off)`, `- commitments
+ * - lockedBlocks`. Only intervals that survive horizon clipping and inward
+ * 5-minute grid alignment are returned. `validate.ts` deliberately implements
+ * the ADR-017 partition independently and audits raw local membership.
  */
 export function computeAvailableSlots(input: ScheduleInput): Slot[] {
   const horizonStartMs = parseInstant(input.horizon.start);
@@ -158,37 +133,30 @@ export function computeAvailableSlots(input: ScheduleInput): Slot[] {
     return [];
   }
 
-  const firstDate = Temporal.Instant.fromEpochMilliseconds(horizonStartMs)
-    .toZonedDateTimeISO(input.timeZone)
-    .toPlainDate();
-  const lastDate = Temporal.Instant.fromEpochMilliseconds(horizonEndMs)
-    .toZonedDateTimeISO(input.timeZone)
-    .toPlainDate();
+  const segments = partitionByLocalDate(
+    horizonStartMs,
+    horizonEndMs,
+    input.timeZone,
+  );
 
   const windows: IntervalMs[] = [];
-  for (
-    let date = firstDate;
-    Temporal.PlainDate.compare(date, lastDate) <= 0;
-    date = date.add({ days: 1 })
-  ) {
-    const dateString = date.toString();
-    const exceptions = exceptionsForDate(input, dateString);
-    if (exceptions.some((exception) => exception.kind === 'off' && !hasTimeRange(exception))) {
+  for (const segment of segments) {
+    const exceptions = exceptionsForDate(input, segment.date);
+    if (
+      exceptions.some(
+        (exception) => exception.kind === 'off' && !hasTimeRange(exception),
+      )
+    ) {
       continue;
     }
 
     const dayWindows: IntervalMs[] = [];
     for (const rule of input.availability) {
-      if (rule.weekday !== date.dayOfWeek) {
+      if (rule.weekday !== segment.weekday) {
         continue;
       }
       dayWindows.push(
-        ...projectWallWindowToIntervals(
-          input.timeZone,
-          date,
-          rule.startLocal,
-          rule.endLocal,
-        ),
+        ...projectWindowOnSegment(segment, rule.startLocal, rule.endLocal),
       );
     }
 
@@ -196,7 +164,7 @@ export function computeAvailableSlots(input: ScheduleInput): Slot[] {
       if (exception.kind !== 'extra') {
         continue;
       }
-      dayWindows.push(...intervalsForException(input, date, exception));
+      dayWindows.push(...intervalsForException(segment, exception));
     }
 
     const offCuts: IntervalMs[] = [];
@@ -204,7 +172,7 @@ export function computeAvailableSlots(input: ScheduleInput): Slot[] {
       if (exception.kind !== 'off') {
         continue;
       }
-      offCuts.push(...intervalsForException(input, date, exception));
+      offCuts.push(...intervalsForException(segment, exception));
     }
 
     windows.push(...subtractIntervals(dayWindows, offCuts));
@@ -223,6 +191,37 @@ export function computeAvailableSlots(input: ScheduleInput): Slot[] {
     start: instantToUtc(interval.startMs),
     end: instantToUtc(interval.endMs),
   }));
+}
+
+function exceptionsForDate(
+  input: ScheduleInput,
+  date: string,
+): WindowException[] {
+  return input.exceptions.filter((exception) => exception.date === date);
+}
+
+function intervalsForException(
+  segment: LocalDaySegment,
+  exception: WindowException,
+): IntervalMs[] {
+  const hasStart = exception.startLocal !== undefined;
+  const hasEnd = exception.endLocal !== undefined;
+  if (!hasStart && !hasEnd) {
+    return [
+      {
+        startMs: Math.max(segment.startMs, segment.localMidnightMs),
+        endMs: Math.min(segment.endMs, segment.localMidnightMs + DAY_MS),
+      },
+    ].filter((interval) => interval.endMs > interval.startMs);
+  }
+  if (!hasStart || !hasEnd) {
+    return [];
+  }
+  return projectWindowOnSegment(
+    segment,
+    exception.startLocal as string,
+    exception.endLocal as string,
+  );
 }
 
 function hasTimeRange(exception: WindowException): boolean {

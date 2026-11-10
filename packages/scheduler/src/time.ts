@@ -5,17 +5,36 @@ export const GRID_MINUTES = 5;
 export const GRID_MS = GRID_MINUTES * 60 * 1000;
 export const GRID_NS = 300_000_000_000n;
 export const MINUTE_MS = 60 * 1000;
+export const DAY_MS = 24 * 60 * MINUTE_MS;
+
+/** Hard cap for the transition walk; a runaway walk is a programming error. */
+export const MAX_TRANSITIONS = 4096;
 
 export interface Clock {
   hour: number;
   minute: number;
 }
 
+/**
+ * A UTC interval that maps to exactly one local calendar date. ADR-017
+ * produces these by splitting at every offset transition (constant offset
+ * pieces) and every local midnight inside a piece (using that piece's offset).
+ */
 export interface LocalDaySegment {
   /** Local calendar date, `YYYY-MM-DD`. */
   date: string;
+  /** ISO weekday of `date`, Monday = 1 ... Sunday = 7. */
+  weekday: number;
+  /** UTC offset in milliseconds in effect for the whole segment. */
+  offsetMs: number;
   startMs: number;
   endMs: number;
+  /**
+   * UTC instant of this local date's midnight under `offsetMs`. It is a
+   * virtual instant for skipped midnights, but local clock arithmetic
+   * (`localMidnightMs + minute * MINUTE_MS`) stays exact inside the segment.
+   */
+  localMidnightMs: number;
 }
 
 export function instantNanoseconds(value: Instant): bigint {
@@ -73,164 +92,145 @@ export function clockMinutes(clock: Clock): number {
   return clock.hour * 60 + clock.minute;
 }
 
-export interface WallInterval {
+interface ConstantOffsetPiece {
   startMs: number;
   endMs: number;
-}
-
-interface OffsetPoint {
-  startMs: number;
   offsetMs: number;
 }
 
+function offsetMsAt(epochMs: number, timeZone: IanaTz): number {
+  return Math.trunc(
+    Temporal.Instant.fromEpochMilliseconds(epochMs)
+      .toZonedDateTimeISO(timeZone).offsetNanoseconds / 1_000_000,
+  );
+}
+
 /**
- * Project a local wall-clock window on one local date into exact UTC
- * intervals.
- *
- * The local date is split into constant-offset segments at every time-zone
- * transition. Intersecting the requested wall window with each segment:
- * - clips nonexistent spring-forward wall time (02:30-03:30 NY on 2026-03-08
- *   becomes 07:00Z-07:30Z), and
- * - preserves both repetitions of autumn-fold wall time as disjoint intervals
- *   (01:15-01:45 NY on 2026-11-01 becomes 05:15Z-05:45Z and 06:15Z-06:45Z).
- *
- * Single-rule overnight windows are intentionally unsupported; callers must
- * split them at midnight (23:00-01:00 => 23:00-24:00 plus 00:00-01:00).
+ * ADR-017 steps 1-2: split `[startMs, endMs)` at every IANA offset transition,
+ * then split each constant-offset piece at local midnights computed with that
+ * piece's offset. Every returned segment lies on exactly one local date, and
+ * the same date may appear in several disjoint segments after a backward
+ * transition.
  */
-export function projectWallWindowToIntervals(
+export function partitionByLocalDate(
+  startMs: number,
+  endMs: number,
   timeZone: IanaTz,
-  date: Temporal.PlainDate,
+): LocalDaySegment[] {
+  if (endMs <= startMs) {
+    return [];
+  }
+
+  const boundaries: number[] = [startMs];
+  let cursor = instantToZoned(startMs, timeZone);
+  for (let guard = 0; ; guard += 1) {
+    if (guard >= MAX_TRANSITIONS) {
+      throw new RangeError(
+        `Time zone transition walk exceeded ${MAX_TRANSITIONS} steps for ${timeZone}.`,
+      );
+    }
+    const transition = cursor.getTimeZoneTransition('next');
+    if (transition === null) {
+      break;
+    }
+    const transitionMs = transition.epochMilliseconds;
+    if (transitionMs >= endMs) {
+      break;
+    }
+    if (transitionMs > startMs) {
+      boundaries.push(transitionMs);
+    }
+    cursor = transition;
+  }
+  boundaries.push(endMs);
+  boundaries.sort((a, b) => a - b);
+
+  const segments: LocalDaySegment[] = [];
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const pieceStart = boundaries[index];
+    const pieceEnd = boundaries[index + 1];
+    if (pieceStart === undefined || pieceEnd === undefined || pieceEnd <= pieceStart) {
+      continue;
+    }
+    const piece: ConstantOffsetPiece = {
+      startMs: pieceStart,
+      endMs: pieceEnd,
+      offsetMs: offsetMsAt(pieceStart, timeZone),
+    };
+    for (const segment of splitPieceAtLocalMidnights(piece)) {
+      segments.push(segment);
+    }
+  }
+  return segments;
+}
+
+function splitPieceAtLocalMidnights(
+  piece: ConstantOffsetPiece,
+): LocalDaySegment[] {
+  const localStartMs = piece.startMs + piece.offsetMs;
+  let nextLocalMidnightMs =
+    (Math.floor(localStartMs / DAY_MS) + 1) * DAY_MS;
+
+  const boundaries: number[] = [piece.startMs];
+  while (nextLocalMidnightMs - piece.offsetMs < piece.endMs) {
+    const midnightMs = nextLocalMidnightMs - piece.offsetMs;
+    if (midnightMs > piece.startMs) {
+      boundaries.push(midnightMs);
+    }
+    nextLocalMidnightMs += DAY_MS;
+  }
+  boundaries.push(piece.endMs);
+
+  const segments: LocalDaySegment[] = [];
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const startMs = boundaries[index];
+    const endMs = boundaries[index + 1];
+    if (startMs === undefined || endMs === undefined || endMs <= startMs) {
+      continue;
+    }
+    const localMidnightMs =
+      Math.floor((startMs + piece.offsetMs) / DAY_MS) * DAY_MS -
+      piece.offsetMs;
+    const wall = Temporal.Instant.fromEpochMilliseconds(
+      startMs + piece.offsetMs,
+    ).toZonedDateTimeISO('UTC');
+    segments.push({
+      date: wall.toPlainDate().toString(),
+      weekday: wall.dayOfWeek,
+      offsetMs: piece.offsetMs,
+      startMs,
+      endMs,
+      localMidnightMs,
+    });
+  }
+  return segments;
+}
+
+/**
+ * Project a local wall-clock window on a segment's own local date into UTC and
+ * intersect it with the segment. Local clock arithmetic is linear because the
+ * segment has a constant offset; transitions were already handled by the
+ * partition.
+ */
+export function projectWindowOnSegment(
+  segment: LocalDaySegment,
   startLocal: string,
   endLocal: string,
-): WallInterval[] {
+): Array<{ startMs: number; endMs: number }> {
   const startMinute = clockMinutes(parseClock(startLocal));
   const endMinute = clockMinutes(parseClock(endLocal));
   if (endMinute <= startMinute) {
     return [];
   }
-
-  const dayStart = zonedAtLocalMidnight(timeZone, date);
-  const dayEnd = zonedAtLocalMidnight(timeZone, date.add({ days: 1 }));
-  const offsetPoints = collectOffsetPoints(dayStart, dayEnd.epochMilliseconds);
-  const wallMidnight = Temporal.ZonedDateTime.from({
-    timeZone: 'UTC',
-    year: date.year,
-    month: date.month,
-    day: date.day,
-    hour: 0,
-    minute: 0,
-  }).epochMilliseconds;
-
-  const intervals: WallInterval[] = [];
-  for (let index = 0; index < offsetPoints.length; index += 1) {
-    const point = offsetPoints[index];
-    const next = offsetPoints[index + 1];
-    if (point === undefined || next === undefined) {
-      continue;
-    }
-    const wallStart = (point.startMs + point.offsetMs - wallMidnight) / MINUTE_MS;
-    const wallEnd = (next.startMs + point.offsetMs - wallMidnight) / MINUTE_MS;
-    const intersectStart = Math.max(startMinute, wallStart);
-    const intersectEnd = Math.min(endMinute, wallEnd);
-    if (intersectEnd > intersectStart) {
-      intervals.push({
-        startMs: wallMidnight + intersectStart * MINUTE_MS - point.offsetMs,
-        endMs: wallMidnight + intersectEnd * MINUTE_MS - point.offsetMs,
-      });
-    }
-  }
-
-  return mergeWallIntervals(intervals);
-}
-
-function zonedAtLocalMidnight(
-  timeZone: IanaTz,
-  date: Temporal.PlainDate,
-): Temporal.ZonedDateTime {
-  return Temporal.ZonedDateTime.from(
-    {
-      timeZone,
-      year: date.year,
-      month: date.month,
-      day: date.day,
-      hour: 0,
-      minute: 0,
-    },
-    { disambiguation: 'compatible' },
+  const startMs = Math.max(
+    segment.startMs,
+    segment.localMidnightMs + startMinute * MINUTE_MS,
   );
-}
-
-function collectOffsetPoints(
-  dayStart: Temporal.ZonedDateTime,
-  dayEndMs: number,
-): OffsetPoint[] {
-  const points: OffsetPoint[] = [
-    { startMs: dayStart.epochMilliseconds, offsetMs: offsetMsOf(dayStart) },
-  ];
-  let cursor = dayStart;
-  for (let guard = 0; guard < 16; guard += 1) {
-    const transition = cursor.getTimeZoneTransition('next');
-    if (transition === null || transition.epochMilliseconds >= dayEndMs) {
-      break;
-    }
-    points.push({
-      startMs: transition.epochMilliseconds,
-      offsetMs: offsetMsOf(transition),
-    });
-    cursor = transition;
-  }
-  points.push({ startMs: dayEndMs, offsetMs: points[points.length - 1]?.offsetMs ?? 0 });
-  return points;
-}
-
-function offsetMsOf(zoned: Temporal.ZonedDateTime): number {
-  return Math.trunc(zoned.offsetNanoseconds / 1_000_000);
-}
-
-function mergeWallIntervals(intervals: WallInterval[]): WallInterval[] {
-  const sorted = [...intervals].sort((a, b) => a.startMs - b.startMs);
-  const merged: WallInterval[] = [];
-  for (const interval of sorted) {
-    if (interval.endMs <= interval.startMs) {
-      continue;
-    }
-    const last = merged[merged.length - 1];
-    if (last !== undefined && interval.startMs <= last.endMs) {
-      last.endMs = Math.max(last.endMs, interval.endMs);
-    } else {
-      merged.push({ startMs: interval.startMs, endMs: interval.endMs });
-    }
-  }
-  return merged;
-}
-
-/** Split a UTC interval at local midnights so daily aggregates stay in local time. */
-export function splitByLocalDay(
-  startMs: number,
-  endMs: number,
-  timeZone: IanaTz,
-): LocalDaySegment[] {
-  const segments: LocalDaySegment[] = [];
-  let cursor = startMs;
-  while (cursor < endMs) {
-    const zoned = instantToZoned(cursor, timeZone);
-    const nextDateStart = zoned
-      .toPlainDate()
-      .add({ days: 1 })
-      .toZonedDateTime({ timeZone })
-      .startOfDay().epochMilliseconds;
-    const segmentEnd = Math.min(endMs, nextDateStart);
-    segments.push({
-      date: zoned.toPlainDate().toString(),
-      startMs: cursor,
-      endMs: segmentEnd,
-    });
-    if (segmentEnd <= cursor) {
-      break;
-    }
-    cursor = segmentEnd;
-  }
-  return segments;
+  const endMs = Math.min(
+    segment.endMs,
+    segment.localMidnightMs + endMinute * MINUTE_MS,
+  );
+  return endMs > startMs ? [{ startMs, endMs }] : [];
 }
 
 export function alignUpToGrid(epochMs: number): number {

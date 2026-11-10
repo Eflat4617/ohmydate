@@ -16,17 +16,11 @@ import {
   isValidTimeZone,
   parseClock,
   parseInstant,
-  splitByLocalDay,
 } from './time.js';
 import { taskRequiredMinutes } from './requirements.js';
 
 interface ParsedBlock {
   block: Block;
-  startMs: number;
-  endMs: number;
-}
-
-interface IntervalMs {
   startMs: number;
   endMs: number;
 }
@@ -245,72 +239,144 @@ function checkH2(
   }
 }
 
+/** Independent ADR-017 partition used by the H2 and H6 oracles. */
+interface OracleSegment {
+  date: string;
+  weekday: number;
+  offsetMs: number;
+  startMs: number;
+  endMs: number;
+  localMidnightMs: number;
+}
+
+const ORACLE_DAY_MS = 24 * 60 * MINUTE_MS;
+const ORACLE_MAX_TRANSITIONS = 4096;
+
+function oracleOffsetMsAt(timeZone: string, epochMs: number): number {
+  return Math.trunc(
+    Temporal.Instant.fromEpochMilliseconds(epochMs)
+      .toZonedDateTimeISO(timeZone).offsetNanoseconds / 1_000_000,
+  );
+}
+
 /**
- * Independent H2 oracle: partition the block at rule/exception edges, local
- * midnights and timezone transitions, then test each segment midpoint in local
- * wall time. No interval union is constructed.
+ * ADR-017 steps 1-2, implemented separately from `time.ts`/`slots.ts`: split at
+ * every offset transition, then split each constant-offset piece at local
+ * midnights using that piece's offset. Returned segments always belong to a
+ * single local date, and a date can reappear after a backward transition.
  */
+function partitionByLocalDateOracle(
+  timeZone: string,
+  startMs: number,
+  endMs: number,
+): OracleSegment[] {
+  if (endMs <= startMs) {
+    return [];
+  }
+
+  const boundaries: number[] = [startMs];
+  let cursor = Temporal.Instant.fromEpochMilliseconds(startMs)
+    .toZonedDateTimeISO(timeZone);
+  for (let guard = 0; ; guard += 1) {
+    if (guard >= ORACLE_MAX_TRANSITIONS) {
+      throw new RangeError(
+        `Time zone transition walk exceeded ${ORACLE_MAX_TRANSITIONS} steps for ${timeZone}.`,
+      );
+    }
+    const transition = cursor.getTimeZoneTransition('next');
+    if (transition === null) {
+      break;
+    }
+    const transitionMs = transition.epochMilliseconds;
+    if (transitionMs >= endMs) {
+      break;
+    }
+    if (transitionMs > startMs) {
+      boundaries.push(transitionMs);
+    }
+    cursor = transition;
+  }
+  boundaries.push(endMs);
+  boundaries.sort((a, b) => a - b);
+
+  const segments: OracleSegment[] = [];
+  for (let index = 0; index < boundaries.length - 1; index += 1) {
+    const pieceStart = boundaries[index];
+    const pieceEnd = boundaries[index + 1];
+    if (
+      pieceStart === undefined ||
+      pieceEnd === undefined ||
+      pieceEnd <= pieceStart
+    ) {
+      continue;
+    }
+    const offsetMs = oracleOffsetMsAt(timeZone, pieceStart);
+    const localStartMs = pieceStart + offsetMs;
+    let nextLocalMidnightMs =
+      (Math.floor(localStartMs / ORACLE_DAY_MS) + 1) * ORACLE_DAY_MS;
+
+    const pieceBoundaries: number[] = [pieceStart];
+    while (nextLocalMidnightMs - offsetMs < pieceEnd) {
+      const midnightMs = nextLocalMidnightMs - offsetMs;
+      if (midnightMs > pieceStart) {
+        pieceBoundaries.push(midnightMs);
+      }
+      nextLocalMidnightMs += ORACLE_DAY_MS;
+    }
+    pieceBoundaries.push(pieceEnd);
+
+    for (let sub = 0; sub < pieceBoundaries.length - 1; sub += 1) {
+      const segmentStart = pieceBoundaries[sub];
+      const segmentEnd = pieceBoundaries[sub + 1];
+      if (
+        segmentStart === undefined ||
+        segmentEnd === undefined ||
+        segmentEnd <= segmentStart
+      ) {
+        continue;
+      }
+      const wall = Temporal.Instant.fromEpochMilliseconds(
+        segmentStart + offsetMs,
+      ).toZonedDateTimeISO('UTC');
+      segments.push({
+        date: wall.toPlainDate().toString(),
+        weekday: wall.dayOfWeek,
+        offsetMs,
+        startMs: segmentStart,
+        endMs: segmentEnd,
+        localMidnightMs:
+          Math.floor((segmentStart + offsetMs) / ORACLE_DAY_MS) *
+            ORACLE_DAY_MS -
+          offsetMs,
+      });
+    }
+  }
+  return segments;
+}
+
 function isBlockLocallyCovered(
   input: ScheduleInput,
   startMs: number,
   endMs: number,
 ): boolean {
   const boundaries = new Set<number>([startMs, endMs]);
-  addTransitionBoundaries(input.timeZone, startMs, endMs, boundaries);
 
-  const firstDate = Temporal.Instant.fromEpochMilliseconds(startMs)
-    .toZonedDateTimeISO(input.timeZone)
-    .toPlainDate();
-  const lastDate = Temporal.Instant.fromEpochMilliseconds(endMs - 1)
-    .toZonedDateTimeISO(input.timeZone)
-    .toPlainDate();
-
-  for (
-    let date = firstDate;
-    Temporal.PlainDate.compare(date, lastDate) <= 0;
-    date = date.add({ days: 1 })
-  ) {
-    addBoundary(
-      boundaries,
-      date.toZonedDateTime({ timeZone: input.timeZone }).startOfDay()
-        .epochMilliseconds,
-      startMs,
-      endMs,
-    );
-    addBoundary(
-      boundaries,
-      date
-        .add({ days: 1 })
-        .toZonedDateTime({ timeZone: input.timeZone })
-        .startOfDay().epochMilliseconds,
-      startMs,
-      endMs,
-    );
-
-    const dateString = date.toString();
+  for (const segment of partitionByLocalDateOracle(
+    input.timeZone,
+    startMs,
+    endMs,
+  )) {
+    boundaries.add(segment.startMs);
+    boundaries.add(segment.endMs);
     for (const rule of input.availability) {
-      if (rule.weekday !== date.dayOfWeek) {
+      if (rule.weekday !== segment.weekday) {
         continue;
       }
-      addLocalBoundary(
-        input.timeZone,
-        date,
-        rule.startLocal,
-        boundaries,
-        startMs,
-        endMs,
-      );
-      addLocalBoundary(
-        input.timeZone,
-        date,
-        rule.endLocal,
-        boundaries,
-        startMs,
-        endMs,
-      );
+      addSegmentBoundary(boundaries, segment, rule.startLocal, startMs, endMs);
+      addSegmentBoundary(boundaries, segment, rule.endLocal, startMs, endMs);
     }
     for (const exception of input.exceptions) {
-      if (exception.date !== dateString) {
+      if (exception.date !== segment.date) {
         continue;
       }
       if (
@@ -319,19 +385,17 @@ function isBlockLocallyCovered(
       ) {
         continue;
       }
-      addLocalBoundary(
-        input.timeZone,
-        date,
-        exception.startLocal,
+      addSegmentBoundary(
         boundaries,
+        segment,
+        exception.startLocal,
         startMs,
         endMs,
       );
-      addLocalBoundary(
-        input.timeZone,
-        date,
-        exception.endLocal,
+      addSegmentBoundary(
         boundaries,
+        segment,
+        exception.endLocal,
         startMs,
         endMs,
       );
@@ -353,40 +417,10 @@ function isBlockLocallyCovered(
   return true;
 }
 
-function addBoundary(
+function addSegmentBoundary(
   boundaries: Set<number>,
-  candidateMs: number,
-  startMs: number,
-  endMs: number,
-): void {
-  if (candidateMs > startMs && candidateMs < endMs) {
-    boundaries.add(candidateMs);
-  }
-}
-
-function addTransitionBoundaries(
-  timeZone: string,
-  startMs: number,
-  endMs: number,
-  boundaries: Set<number>,
-): void {
-  let cursor = Temporal.Instant.fromEpochMilliseconds(startMs)
-    .toZonedDateTimeISO(timeZone);
-  for (let guard = 0; guard < 64; guard += 1) {
-    const transition = cursor.getTimeZoneTransition('next');
-    if (transition === null || transition.epochMilliseconds >= endMs) {
-      break;
-    }
-    addBoundary(boundaries, transition.epochMilliseconds, startMs, endMs);
-    cursor = transition;
-  }
-}
-
-function addLocalBoundary(
-  timeZone: string,
-  date: Temporal.PlainDate,
+  segment: OracleSegment,
   clockValue: string,
-  boundaries: Set<number>,
   startMs: number,
   endMs: number,
 ): void {
@@ -394,27 +428,14 @@ function addLocalBoundary(
   if (clock === undefined) {
     return;
   }
-  const targetDate = clock.hour === 24 ? date.add({ days: 1 }) : date;
-  const hour = clock.hour === 24 ? 0 : clock.hour;
-  for (const disambiguation of ['compatible', 'earlier', 'later'] as const) {
-    try {
-      const zoned = Temporal.ZonedDateTime.from(
-        {
-          timeZone,
-          year: targetDate.year,
-          month: targetDate.month,
-          day: targetDate.day,
-          hour,
-          minute: clock.minute,
-        },
-        { disambiguation },
-      );
-      addBoundary(boundaries, zoned.epochMilliseconds, startMs, endMs);
-    } catch {
-      // Unrepresentable boundary; another disambiguation or transition boundary covers it.
-    }
+  const candidateMs =
+    segment.localMidnightMs +
+    (clock.hour * 60 + clock.minute) * MINUTE_MS;
+  if (candidateMs > startMs && candidateMs < endMs) {
+    boundaries.add(candidateMs);
   }
 }
+
 
 function isInstantLocallyAvailable(
   input: ScheduleInput,
@@ -656,24 +677,19 @@ function checkH6(
   plan: ParsedBlock[],
   violations: Violation[],
 ): void {
-  const byDate = new Map<string, IntervalMs[]>();
+  const byDate = new Map<string, number>();
   for (const parsed of plan) {
-    for (const segment of splitByLocalDay(
+    for (const segment of partitionByLocalDateOracle(
+      input.timeZone,
       parsed.startMs,
       parsed.endMs,
-      input.timeZone,
     )) {
-      const list = byDate.get(segment.date) ?? [];
-      list.push({ startMs: segment.startMs, endMs: segment.endMs });
-      byDate.set(segment.date, list);
+      const minutes = (segment.endMs - segment.startMs) / MINUTE_MS;
+      byDate.set(segment.date, (byDate.get(segment.date) ?? 0) + minutes);
     }
   }
 
-  for (const [date, intervals] of byDate) {
-    const totalMin = intervals.reduce(
-      (sum, interval) => sum + (interval.endMs - interval.startMs) / MINUTE_MS,
-      0,
-    );
+  for (const [date, totalMin] of byDate) {
     if (totalMin > input.prefs.maxDailyFocusMin) {
       violations.push({
         code: 'H6',

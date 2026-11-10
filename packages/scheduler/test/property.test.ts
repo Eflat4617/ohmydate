@@ -8,7 +8,13 @@ import type {
   Task,
   Weekday,
 } from '../src/index.js';
-import { computeAvailableSlots, validate } from '../src/index.js';
+import { computeAvailableSlots, slotTotalMin, validate } from '../src/index.js';
+import {
+  alignedAvailableSlotMinutes,
+  dailyLoadsByMinute,
+  hasDailyCapViolationByMinute,
+  isCoveredByMinutes,
+} from './minuteOracle.js';
 
 const MINUTE_MS = 60 * 1000;
 
@@ -64,7 +70,175 @@ const SCENARIOS: Scenario[] = [
     start: '2026-11-08T00:00:00Z',
     end: '2026-11-13T00:00:00Z',
   },
+  {
+    timeZone: 'America/Goose_Bay',
+    start: '2009-10-31T22:00:00Z',
+    end: '2009-11-01T06:00:00Z',
+  },
+  {
+    timeZone: 'America/Goose_Bay',
+    start: '2009-03-08T02:00:00Z',
+    end: '2009-03-08T07:00:00Z',
+  },
+  {
+    timeZone: 'America/St_Johns',
+    start: '2026-03-08T01:00:00Z',
+    end: '2026-03-08T06:00:00Z',
+  },
+  {
+    timeZone: 'America/St_Johns',
+    start: '2026-11-01T00:00:00Z',
+    end: '2026-11-01T05:00:00Z',
+  },
+  {
+    timeZone: 'Australia/Lord_Howe',
+    start: '2026-04-04T13:00:00Z',
+    end: '2026-04-04T17:00:00Z',
+  },
+  {
+    timeZone: 'Australia/Lord_Howe',
+    start: '2026-10-03T13:00:00Z',
+    end: '2026-10-03T17:00:00Z',
+  },
+  {
+    timeZone: 'Europe/London',
+    start: '2026-03-29T00:00:00Z',
+    end: '2026-03-29T04:00:00Z',
+  },
+  {
+    timeZone: 'Europe/London',
+    start: '2026-10-25T00:00:00Z',
+    end: '2026-10-25T04:00:00Z',
+  },
 ];
+
+/**
+ * Short horizons (under ten hours) chosen around real transitions, so the
+ * one-minute UTC oracle stays cheap even at SCHED_PROPERTY_RUNS=10000.
+ */
+const MINUTE_SCENARIOS: Scenario[] = [
+  { timeZone: 'America/Goose_Bay', start: '2009-10-31T22:00:00Z', end: '2009-11-01T06:00:00Z' },
+  { timeZone: 'America/Goose_Bay', start: '2009-03-08T02:00:00Z', end: '2009-03-08T07:00:00Z' },
+  { timeZone: 'America/St_Johns', start: '2026-03-08T01:00:00Z', end: '2026-03-08T06:00:00Z' },
+  { timeZone: 'America/St_Johns', start: '2026-11-01T00:00:00Z', end: '2026-11-01T05:00:00Z' },
+  { timeZone: 'America/Santiago', start: '2026-09-06T01:00:00Z', end: '2026-09-06T07:00:00Z' },
+  { timeZone: 'Australia/Lord_Howe', start: '2026-04-04T13:00:00Z', end: '2026-04-04T17:00:00Z' },
+  { timeZone: 'Australia/Lord_Howe', start: '2026-10-03T13:00:00Z', end: '2026-10-03T17:00:00Z' },
+  { timeZone: 'Asia/Seoul', start: '2026-11-08T00:00:00Z', end: '2026-11-08T08:00:00Z' },
+  { timeZone: 'America/New_York', start: '2026-03-08T05:00:00Z', end: '2026-03-08T10:00:00Z' },
+  { timeZone: 'America/New_York', start: '2026-11-01T04:00:00Z', end: '2026-11-01T09:00:00Z' },
+  { timeZone: 'Europe/London', start: '2026-03-29T00:00:00Z', end: '2026-03-29T04:00:00Z' },
+  { timeZone: 'Europe/London', start: '2026-10-25T00:00:00Z', end: '2026-10-25T04:00:00Z' },
+];
+
+const MINUTE_WINDOWS: Array<[string, string]> = [
+  ['00:00', '24:00'],
+  ['00:00', '02:00'],
+  ['01:00', '04:00'],
+  ['01:30', '02:30'],
+  ['02:00', '03:30'],
+  ['22:00', '24:00'],
+  ['23:00', '24:00'],
+];
+
+function buildMinuteScenarioInput(
+  scenario: Scenario,
+  availability: AvailabilityRule[],
+  exceptions: ExceptionRule[],
+): ScheduleInput {
+  return {
+    now: scenario.start,
+    timeZone: scenario.timeZone,
+    horizon: { start: scenario.start, end: scenario.end },
+    tasks: [],
+    availability,
+    exceptions,
+    commitments: [],
+    lockedBlocks: [],
+    prefs: {
+      maxDailyFocusMin: 1440,
+      breakAfterMin: 1440,
+      breakMin: 15,
+      riskLevel: 'p50',
+      dayStartLocal: '00:00',
+      dayEndLocal: '24:00',
+    },
+    seed: 424242,
+  };
+}
+
+function minuteTask(scenario: Scenario, requiredMin: number): Task {
+  return {
+    id: 'A',
+    dueAt: scenario.end,
+    earliestStartAt: scenario.start,
+    estimate: { p50Min: requiredMin, p90Min: requiredMin },
+    splittable: true,
+    minSessionMin: 5,
+    maxSessionMin: 1440,
+    priority: 1,
+    dependsOn: [],
+  };
+}
+
+function gridBlock(
+  scenario: Scenario,
+  startStep: number,
+  durationSteps: number,
+): Block {
+  const horizonStartMs = instantMs(scenario.start);
+  const startMs =
+    horizonStartMs +
+    (startStep %
+      Math.max(
+        1,
+        Math.floor(
+          (instantMs(scenario.end) - horizonStartMs) / (5 * MINUTE_MS),
+        ) - durationSteps + 1,
+      )) *
+      5 *
+      MINUTE_MS;
+  const endMs = startMs + durationSteps * 5 * MINUTE_MS;
+  return {
+    taskId: 'A',
+    start: instantIso(startMs),
+    end: instantIso(endMs),
+  };
+}
+
+function allWeekRules(window: [string, string]): AvailabilityRule[] {
+  return [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({
+    weekday: weekday as Weekday,
+    startLocal: window[0],
+    endLocal: window[1],
+    kind: 'work' as const,
+  }));
+}
+
+function buildExceptionRule(
+  scenario: Scenario,
+  kind: 'off' | 'extra',
+  dayOffset: number,
+  fullDay: boolean,
+  startStepInDay: number,
+  durationSteps: number,
+): ExceptionRule {
+  const firstDate = Temporal.Instant.from(scenario.start)
+    .toZonedDateTimeISO(scenario.timeZone)
+    .toPlainDate();
+  const date = firstDate.add({ days: dayOffset }).toString();
+  if (fullDay) {
+    return { date, kind };
+  }
+  const startMin = startStepInDay * 5;
+  const endMin = Math.min(1440, startMin + durationSteps * 5);
+  return {
+    date,
+    kind,
+    startLocal: formatClock(startMin),
+    endLocal: formatClock(endMin),
+  };
+}
 
 const COMMIT_SCENARIO: Scenario = {
   timeZone: 'UTC',
@@ -351,37 +525,6 @@ function isCoveredBySlots(
 }
 
 
-function localDailyLoads(
-  blocks: Block[],
-  timeZone: string,
-): Map<string, number> {
-  const loads = new Map<string, number>();
-  for (const block of blocks) {
-    let cursor = instantMs(block.start);
-    const blockEnd = instantMs(block.end);
-    while (cursor < blockEnd) {
-      const zoned = Temporal.Instant.fromEpochMilliseconds(cursor)
-        .toZonedDateTimeISO(timeZone);
-      const nextDateStart = zoned
-        .toPlainDate()
-        .add({ days: 1 })
-        .toZonedDateTime({ timeZone })
-        .startOfDay().epochMilliseconds;
-      const segmentEnd = Math.min(blockEnd, nextDateStart);
-      const date = zoned.toPlainDate().toString();
-      loads.set(
-        date,
-        (loads.get(date) ?? 0) + (segmentEnd - cursor) / MINUTE_MS,
-      );
-      if (segmentEnd <= cursor) {
-        break;
-      }
-      cursor = segmentEnd;
-    }
-  }
-  return loads;
-}
-
 function hasH6Oracle(
   blocks: Block[],
   timeZone: string,
@@ -389,7 +532,7 @@ function hasH6Oracle(
   breakAfterMin: number,
   breakMin: number,
 ): boolean {
-  for (const minutes of localDailyLoads(blocks, timeZone).values()) {
+  for (const minutes of dailyLoadsByMinute(blocks, timeZone).values()) {
     if (minutes > maxDailyFocusMin) {
       return true;
     }
@@ -766,5 +909,149 @@ describe('scheduler properties', () => {
       { numRuns: NUM_RUNS },
     );
   }, 60000);
+
+  it('H2 agrees with the one-minute UTC membership oracle around transitions', () => {
+    const generator = fc.tuple(
+      fc.constantFrom(...MINUTE_SCENARIOS),
+      fc.constantFrom(...MINUTE_WINDOWS),
+      fc.constantFrom<'off' | 'extra'>('off', 'extra'),
+      fc.integer({ min: 0, max: 2 }),
+      fc.boolean(),
+      fc.integer({ min: 0, max: 287 }),
+      fc.integer({ min: 1, max: 24 }),
+      fc.integer({ min: 0, max: 2000 }),
+      fc.integer({ min: 1, max: 2000 }),
+    );
+
+    fc.assert(
+      fc.property(
+        generator,
+        ([
+          scenario,
+          window,
+          kind,
+          dayOffset,
+          fullDay,
+          startStepInDay,
+          exceptionSteps,
+          rawStart,
+          rawDuration,
+        ]) => {
+          const totalSteps =
+            (instantMs(scenario.end) - instantMs(scenario.start)) /
+            (5 * MINUTE_MS);
+          const durationSteps = 1 + (rawDuration % totalSteps);
+          const startStep = rawStart % (totalSteps - durationSteps + 1);
+          const block = gridBlock(scenario, startStep, durationSteps);
+          const input = buildMinuteScenarioInput(
+            scenario,
+            allWeekRules(window),
+            [
+              buildExceptionRule(
+                scenario,
+                kind,
+                dayOffset,
+                fullDay,
+                startStepInDay,
+                exceptionSteps,
+              ),
+            ],
+          );
+          input.tasks = [minuteTask(scenario, durationSteps * 5)];
+
+          const covered = isCoveredByMinutes(
+            input,
+            instantMs(block.start),
+            instantMs(block.end),
+          );
+          const codes = validate(input, [block], { riskLevel: 'p50' })
+            .map((violation) => violation.code)
+            .sort();
+          expect(codes).toEqual(covered ? [] : ['H2']);
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  }, 120000);
+
+  it('H6 daily loads agree with the one-minute UTC oracle around transitions', () => {
+    const generator = fc.tuple(
+      fc.constantFrom(...MINUTE_SCENARIOS),
+      fc.integer({ min: 0, max: 2000 }),
+      fc.integer({ min: 1, max: 2000 }),
+      fc.constantFrom(10, 30, 60, 90, 120, 240, 480),
+    );
+
+    fc.assert(
+      fc.property(
+        generator,
+        ([scenario, rawStart, rawDuration, maxDailyFocusMin]) => {
+          const totalSteps =
+            (instantMs(scenario.end) - instantMs(scenario.start)) /
+            (5 * MINUTE_MS);
+          const durationSteps = 1 + (rawDuration % totalSteps);
+          const startStep = rawStart % (totalSteps - durationSteps + 1);
+          const block = gridBlock(scenario, startStep, durationSteps);
+          const input = buildMinuteScenarioInput(
+            scenario,
+            allWeekRules(['00:00', '24:00']),
+            [],
+          );
+          input.tasks = [minuteTask(scenario, durationSteps * 5)];
+          input.prefs.maxDailyFocusMin = maxDailyFocusMin;
+          input.prefs.breakAfterMin = 100000;
+          input.prefs.breakMin = 15;
+
+          const hasH6 = validate(input, [block], { riskLevel: 'p50' }).some(
+            (violation) => violation.code === 'H6',
+          );
+          expect(hasH6).toBe(
+            hasDailyCapViolationByMinute(input, [block]),
+          );
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  }, 120000);
+
+  it('slot totals agree with the one-minute UTC oracle around transitions', () => {
+    const generator = fc.tuple(
+      fc.constantFrom(...MINUTE_SCENARIOS),
+      fc.array(
+        fc.tuple(
+          fc.constantFrom<'off' | 'extra'>('off', 'extra'),
+          fc.integer({ min: 0, max: 2 }),
+          fc.boolean(),
+          fc.integer({ min: 0, max: 287 }),
+          fc.integer({ min: 1, max: 24 }),
+        ),
+        { maxLength: 2 },
+      ),
+    );
+
+    fc.assert(
+      fc.property(generator, ([scenario, exceptionSpecs]) => {
+        const input = buildMinuteScenarioInput(
+          scenario,
+          allWeekRules(['00:00', '24:00']),
+          exceptionSpecs.map(([kind, dayOffset, fullDay, start, steps]) =>
+            buildExceptionRule(
+              scenario,
+              kind,
+              dayOffset,
+              fullDay,
+              start,
+              steps,
+            ),
+          ),
+        );
+
+        expect(slotTotalMin(computeAvailableSlots(input))).toBe(
+          alignedAvailableSlotMinutes(input),
+        );
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  }, 120000);
 
 });
