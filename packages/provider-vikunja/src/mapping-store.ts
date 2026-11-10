@@ -1,4 +1,4 @@
-import type { Id, Instant, Version } from '@ohmydate/domain';
+import { VersionConflictError, type Id, type Instant, type Version } from '@ohmydate/domain';
 
 export type MappingEntityType = 'task' | 'project';
 
@@ -54,6 +54,16 @@ export interface ExternalMapping {
   readonly pendingCompletion?: PendingCompletion;
 }
 
+export interface MappingPutOptions {
+  /**
+   * Optimistic precondition (FU-22): fail with `VersionConflictError` unless the
+   * stored `local_version` equals this value. Durable implementations should
+   * enforce it in the write itself (conditional UPDATE) so a concurrent writer
+   * cannot stage a mapping under a stale version.
+   */
+  readonly expectedLocalVersion?: Version;
+}
+
 export interface MappingStore {
   get(entityType: MappingEntityType, entityId: Id): Promise<ExternalMapping | null>;
   getByExternal(
@@ -61,7 +71,7 @@ export interface MappingStore {
     entityType: MappingEntityType,
     externalId: string,
   ): Promise<ExternalMapping | null>;
-  put(mapping: ExternalMapping): Promise<void>;
+  put(mapping: ExternalMapping, options?: MappingPutOptions): Promise<void>;
   listByOwner(ownerId: Id): Promise<readonly ExternalMapping[]>;
 }
 
@@ -98,9 +108,15 @@ export class InMemoryMappingStore implements MappingStore {
     return this.#byExternal.get(externalKey(provider, entityType, externalId)) ?? null;
   }
 
-  async put(mapping: ExternalMapping): Promise<void> {
+  async put(mapping: ExternalMapping, options?: MappingPutOptions): Promise<void> {
     const key = entityKey(mapping.entityType, mapping.entityId);
     const previous = this.#byEntity.get(key);
+    if (
+      options?.expectedLocalVersion !== undefined &&
+      previous?.localVersion !== options.expectedLocalVersion
+    ) {
+      throw new VersionConflictError(options.expectedLocalVersion, previous?.localVersion);
+    }
     if (previous !== undefined) {
       this.#byExternal.delete(
         externalKey(previous.provider, previous.entityType, previous.externalId),

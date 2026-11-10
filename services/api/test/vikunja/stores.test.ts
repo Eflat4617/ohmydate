@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Id, Instant, Version } from '@ohmydate/domain';
+import { VersionConflictError, type Id, type Instant, type Version } from '@ohmydate/domain';
 import type { ExternalMapping, JournalAppend } from '@ohmydate/provider-vikunja';
 import { FakeClock } from '@ohmydate/testkit';
 import { PgChangeJournalStore } from '../../src/adapters/vikunja/pg-change-journal-store.js';
@@ -82,6 +82,27 @@ describe.skipIf(!hasDatabase)('durable Vikunja stores (PostgreSQL)', () => {
     expect(stored?.pendingCompletion).toBeUndefined();
     expect(stored?.needsReconcile).toBeUndefined();
     expect(stored?.deletedAt).toBe(deletedAt);
+
+    // FU-22 optimistic precondition: a stale expected version cannot overwrite.
+    const bumped: ExternalMapping = {
+      provider: 'vikunja',
+      entityType: mapping.entityType,
+      entityId: mapping.entityId,
+      externalId: mapping.externalId,
+      ownerId: mapping.ownerId,
+      localVersion: 5 as Version,
+      createdAt: mapping.createdAt,
+      updatedAt: '2026-11-11T03:00:00.000Z' as Instant,
+    };
+    await expect(
+      mappings.put(bumped, { expectedLocalVersion: 3 as Version }),
+    ).rejects.toBeInstanceOf(VersionConflictError);
+    expect((await mappings.get('task', entityId))?.localVersion).toBe(4);
+    await mappings.put(bumped, { expectedLocalVersion: 4 as Version });
+    expect((await mappings.get('task', entityId))?.localVersion).toBe(5);
+    await expect(
+      mappings.put(bumped, { expectedLocalVersion: 4 as Version }),
+    ).rejects.toBeInstanceOf(VersionConflictError);
 
     await expect(
       mappings.put(

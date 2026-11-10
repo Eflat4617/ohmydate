@@ -1,4 +1,5 @@
 import {
+  VersionConflictError,
   epochMsToInstant,
   type Id,
   type Instant,
@@ -7,6 +8,7 @@ import {
 import type {
   ExternalMapping,
   MappingEntityType,
+  MappingPutOptions,
   MappingStore,
   PendingCompletion,
 } from '@ohmydate/provider-vikunja';
@@ -77,7 +79,7 @@ export class PgMappingStore implements MappingStore {
     return row === undefined ? null : toMapping(row);
   }
 
-  async put(mapping: ExternalMapping): Promise<void> {
+  async put(mapping: ExternalMapping, options?: MappingPutOptions): Promise<void> {
     const values = {
       entity_type: mapping.entityType,
       entity_id: mapping.entityId,
@@ -97,22 +99,50 @@ export class PgMappingStore implements MappingStore {
       updated_at: toDate(mapping.updatedAt),
       deleted_at: mapping.deletedAt === undefined ? null : toDate(mapping.deletedAt),
     };
+    const patch = {
+      owner_id: values.owner_id,
+      external_id: values.external_id,
+      external_etag: values.external_etag,
+      external_updated_at: values.external_updated_at,
+      local_version: values.local_version,
+      content_fingerprint: values.content_fingerprint,
+      needs_reconcile: values.needs_reconcile,
+      pending_completion: values.pending_completion,
+      updated_at: values.updated_at,
+      deleted_at: values.deleted_at,
+    };
+
+    const expected = options?.expectedLocalVersion;
+    if (expected !== undefined) {
+      // FU-22: conditional UPDATE so a concurrent writer cannot pass the check
+      // and still overwrite a newer local version.
+      const result = await this.#db
+        .updateTable('vikunja_mapping')
+        .set(patch)
+        .where('entity_type', '=', mapping.entityType)
+        .where('entity_id', '=', mapping.entityId)
+        .where('local_version', '=', expected)
+        .executeTakeFirst();
+      if (Number(result.numUpdatedRows) === 0) {
+        const current = await this.#db
+          .selectFrom('vikunja_mapping')
+          .select('local_version')
+          .where('entity_type', '=', mapping.entityType)
+          .where('entity_id', '=', mapping.entityId)
+          .executeTakeFirst();
+        throw new VersionConflictError(
+          expected,
+          current === undefined ? undefined : (current.local_version as Version),
+        );
+      }
+      return;
+    }
+
     await this.#db
       .insertInto('vikunja_mapping')
       .values(values)
       .onConflict((conflict) =>
-        conflict.columns(['entity_type', 'entity_id']).doUpdateSet({
-          owner_id: values.owner_id,
-          external_id: values.external_id,
-          external_etag: values.external_etag,
-          external_updated_at: values.external_updated_at,
-          local_version: values.local_version,
-          content_fingerprint: values.content_fingerprint,
-          needs_reconcile: values.needs_reconcile,
-          pending_completion: values.pending_completion,
-          updated_at: values.updated_at,
-          deleted_at: values.deleted_at,
-        }),
+        conflict.columns(['entity_type', 'entity_id']).doUpdateSet(patch),
       )
       .execute();
   }
