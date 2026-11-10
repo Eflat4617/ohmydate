@@ -33,6 +33,9 @@ function newTask(): void {
         <RouterLink to="/projects">Projects</RouterLink>
       </li>
       <li>
+        <RouterLink to="/plan/new">Plan</RouterLink>
+      </li>
+      <li>
         <RouterLink to="/today">Today <kbd>t</kbd></RouterLink>
       </li>
     </ul>

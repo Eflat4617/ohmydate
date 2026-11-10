@@ -3,6 +3,7 @@ import InboxView from './views/InboxView.vue';
 import LoginView from './views/LoginView.vue';
 import ProjectDetailView from './views/ProjectDetailView.vue';
 import ProjectListView from './views/ProjectListView.vue';
+import PlanningWizardView from './views/PlanningWizardView.vue';
 import TodayView from './views/TodayView.vue';
 
 export const router = createRouter({
@@ -13,6 +14,8 @@ export const router = createRouter({
     { path: '/inbox', name: 'inbox', component: InboxView },
     { path: '/projects', name: 'projects', component: ProjectListView },
     { path: '/projects/:id', name: 'project', component: ProjectDetailView, props: true },
+    { path: '/plan/new', name: 'plan-new', component: PlanningWizardView },
+    { path: '/plan/:sessionId', name: 'plan-session', component: PlanningWizardView, props: true },
     { path: '/today', name: 'today', component: TodayView },
     { path: '/:pathMatch(.*)*', redirect: '/inbox' },
   ],

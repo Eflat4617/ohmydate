@@ -12,6 +12,7 @@ const PROBLEM_CODES: ReadonlySet<string> = new Set<ProblemCode>([
   'llm_unavailable',
   'budget_exceeded',
   'dependency_cycle',
+  'illegal_transition',
   'not_found',
   'forbidden',
   'rate_limited',

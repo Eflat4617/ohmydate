@@ -9,6 +9,22 @@ export type TaskStatus = Task['status'];
 export type Project = components['schemas']['Project'];
 export type User = components['schemas']['User'];
 export type Page<T> = { items: T[]; nextCursor: string | null };
+export type IntakeInput = components['schemas']['IntakeInput'];
+export type IntakeSession = components['schemas']['IntakeSession'];
+export type IntakeSessionCreate = components['schemas']['IntakeSessionCreate'];
+export type IntakeState = IntakeSession['state'];
+export type IntakeDetectedType = components['schemas']['IntakeDetectedType'];
+export type PlannedQuestion = components['schemas']['PlannedQuestion'];
+export type IntakeAssumption = components['schemas']['IntakeAssumption'];
+export type IntakeAnswer = components['schemas']['IntakeAnswer'];
+export type IntakeAnswerInput = components['schemas']['IntakeAnswersRequest']['answers'][number];
+export type IntakeTypeConfirmation = components['schemas']['IntakeTypeConfirmation'];
+export type DecompositionEstimate = components['schemas']['DecompositionEstimate'];
+export type DecompositionStep = components['schemas']['DecompositionStep'];
+export type DecompositionDraft = components['schemas']['DecompositionDraft'];
+export type DecompositionDraftPatch = components['schemas']['DecompositionDraftPatch'];
+export type TaskTemplate = components['schemas']['TaskTemplate'];
+export type IntakeField = PlannedQuestion['field'];
 
 export interface PlannerClientOptions {
   readonly baseUrl?: string;
@@ -231,6 +247,247 @@ export class PlannerClient {
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error);
     this.versions.delete(`task:${taskId}`);
+  }
+
+  async createIntakeSession(
+    input: IntakeInput,
+    idempotencyKey: string,
+  ): Promise<IntakeSession> {
+    const { data, error, response } = await this.client.POST('/intake-sessions', {
+      body: { input },
+      params: { header: { 'Idempotency-Key': idempotencyKey } },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(
+        response.status,
+        'unknown',
+        'Intake session is still being prepared. Reload to continue.',
+      );
+    }
+    this.remember(`intake:${data.id}`, data.version, response.headers.get('ETag'));
+    return data as IntakeSession;
+  }
+
+  async getIntakeSession(
+    sessionId: string,
+    options: { fresh?: boolean } = {},
+  ): Promise<IntakeSession> {
+    const { data, error, response } = await this.client.GET('/intake-sessions/{id}', {
+      params: { path: { id: sessionId } },
+      ...(options.fresh === true ? { cache: 'no-store' as RequestCache } : {}),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty intake session response');
+    }
+    this.remember(`intake:${data.id}`, data.version, response.headers.get('ETag'));
+    return data as IntakeSession;
+  }
+
+  async answerIntakeQuestions(
+    sessionId: string,
+    answers: readonly IntakeAnswerInput[],
+    idempotencyKey: string,
+    expectedVersion?: number,
+  ): Promise<IntakeSession> {
+    const version = expectedVersion ?? (await this.resolveIntakeVersion(sessionId));
+    const { data, error, response } = await this.client.POST('/intake-sessions/{id}/answers', {
+      params: {
+        path: { id: sessionId },
+        header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
+      },
+      body: { answers: [...answers] },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty intake session response');
+    }
+    this.remember(`intake:${data.id}`, data.version, response.headers.get('ETag'));
+    return data as IntakeSession;
+  }
+
+  async confirmIntakeType(
+    sessionId: string,
+    confirmation: IntakeTypeConfirmation,
+    idempotencyKey: string,
+    expectedVersion?: number,
+  ): Promise<IntakeSession> {
+    const version = expectedVersion ?? (await this.resolveIntakeVersion(sessionId));
+    const { data, error, response } = await this.client.POST(
+      '/intake-sessions/{id}/type-confirmation',
+      {
+        params: {
+          path: { id: sessionId },
+          header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
+        },
+        body: confirmation,
+      },
+    );
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty intake session response');
+    }
+    this.remember(`intake:${data.id}`, data.version, response.headers.get('ETag'));
+    return data as IntakeSession;
+  }
+
+  async getIntakeDraft(sessionId: string): Promise<DecompositionDraft> {
+    const { data, error, response } = await this.client.GET('/intake-sessions/{id}/draft', {
+      params: { path: { id: sessionId } },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty draft response');
+    }
+    this.rememberIntakeFromEtag(sessionId, response.headers.get('ETag'));
+    return data;
+  }
+
+  async updateIntakeDraft(
+    sessionId: string,
+    patch: DecompositionDraftPatch,
+    idempotencyKey: string,
+    expectedVersion?: number,
+  ): Promise<DecompositionDraft> {
+    const version = expectedVersion ?? (await this.resolveIntakeVersion(sessionId));
+    const { data, error, response } = await this.client.PATCH('/intake-sessions/{id}/draft', {
+      params: {
+        path: { id: sessionId },
+        header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
+      },
+      body: patch,
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty draft response');
+    }
+    const etagVersion = versionFromEtag(response.headers.get('ETag'));
+    this.remember(`intake:${sessionId}`, etagVersion ?? version + 1);
+    return data;
+  }
+
+  async approveIntakeDraft(
+    sessionId: string,
+    idempotencyKey: string,
+    expectedVersion?: number,
+  ): Promise<IntakeSession> {
+    const version = expectedVersion ?? (await this.resolveIntakeVersion(sessionId));
+    const { data, error, response } = await this.client.POST(
+      '/intake-sessions/{id}/draft:approve',
+      {
+        params: {
+          path: { id: sessionId },
+          header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
+        },
+      },
+    );
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty intake session response');
+    }
+    this.remember(`intake:${data.id}`, data.version, response.headers.get('ETag'));
+    return data as IntakeSession;
+  }
+
+  async pauseIntakeSession(
+    sessionId: string,
+    idempotencyKey: string,
+    expectedVersion?: number,
+  ): Promise<IntakeSession> {
+    return this.intakeAction(sessionId, 'pause', idempotencyKey, expectedVersion);
+  }
+
+  async resumeIntakeSession(
+    sessionId: string,
+    idempotencyKey: string,
+    expectedVersion?: number,
+  ): Promise<IntakeSession> {
+    return this.intakeAction(sessionId, 'resume', idempotencyKey, expectedVersion);
+  }
+
+  async cancelIntakeSession(
+    sessionId: string,
+    idempotencyKey: string,
+    expectedVersion?: number,
+  ): Promise<IntakeSession> {
+    return this.intakeAction(sessionId, 'cancel', idempotencyKey, expectedVersion);
+  }
+
+  async enterManualIntakeMode(
+    sessionId: string,
+    idempotencyKey: string,
+    expectedVersion?: number,
+  ): Promise<IntakeSession> {
+    return this.intakeAction(sessionId, 'manual', idempotencyKey, expectedVersion);
+  }
+
+  async listTaskTemplates(
+    options: { query?: string; cursor?: string; limit?: number } = {},
+  ): Promise<Page<TaskTemplate>> {
+    const query: { query?: string; cursor?: string; limit?: number } = {};
+    if (options.query !== undefined) query.query = options.query;
+    if (options.cursor !== undefined) query.cursor = options.cursor;
+    if (options.limit !== undefined) query.limit = options.limit;
+    const { data, error, response } = await this.client.GET('/templates', {
+      params: { query },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty template page');
+    }
+    return data;
+  }
+
+  async getTaskTemplate(templateId: string): Promise<TaskTemplate> {
+    const { data, error, response } = await this.client.GET('/templates/{id}', {
+      params: { path: { id: templateId } },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty template response');
+    }
+    return data;
+  }
+
+  private async intakeAction(
+    sessionId: string,
+    action: 'pause' | 'resume' | 'cancel' | 'manual',
+    idempotencyKey: string,
+    expectedVersion?: number,
+  ): Promise<IntakeSession> {
+    const version = expectedVersion ?? (await this.resolveIntakeVersion(sessionId));
+    const params = {
+      path: { id: sessionId },
+      header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
+    };
+    const result =
+      action === 'pause'
+        ? await this.client.POST('/intake-sessions/{id}:pause', { params })
+        : action === 'resume'
+          ? await this.client.POST('/intake-sessions/{id}:resume', { params })
+          : action === 'cancel'
+            ? await this.client.POST('/intake-sessions/{id}:cancel', { params })
+            : await this.client.POST('/intake-sessions/{id}:manual', { params });
+    const { data, error, response } = result;
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty intake session response');
+    }
+    this.remember(`intake:${data.id}`, data.version, response.headers.get('ETag'));
+    return data as IntakeSession;
+  }
+
+  private rememberIntakeFromEtag(sessionId: string, etag: string | null): void {
+    const version = versionFromEtag(etag);
+    if (version !== undefined) this.remember(`intake:${sessionId}`, version);
+  }
+
+  private async resolveIntakeVersion(sessionId: string): Promise<number> {
+    const cached = this.versions.get(`intake:${sessionId}`);
+    if (cached !== undefined) return cached;
+    const session = await this.getIntakeSession(sessionId, { fresh: true });
+    return session.version;
   }
 
   private async resolveTaskVersion(taskId: string): Promise<number> {
