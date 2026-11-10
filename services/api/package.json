@@ -14,14 +14,27 @@
   "scripts": {
     "db:migrate": "node --experimental-strip-types src/db/migrate.ts up",
     "db:rollback": "node --experimental-strip-types src/db/migrate.ts down",
+    "create-user": "node --experimental-strip-types src/cli/create-user.ts",
     "test": "vitest run --globals",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@fastify/cookie": "11.1.5",
+    "@node-rs/argon2": "2.2.2",
+    "@ohmydate/contracts": "workspace:*",
+    "@ohmydate/domain": "workspace:*",
+    "@sinclair/typebox": "0.34.52",
+    "fastify": "5.12.8",
     "kysely": "0.29.8",
     "pg": "8.23.1"
   },
   "devDependencies": {
-    "@types/pg": "8.23.1"
+    "@ohmydate/provider-native": "workspace:*",
+    "@ohmydate/testkit": "workspace:*",
+    "@types/pg": "8.23.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "pino": "10.4.0",
+    "vitest": "5.1.0"
   }
 }

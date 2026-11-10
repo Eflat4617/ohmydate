@@ -1,0 +1,181 @@
+import cookie from '@fastify/cookie';
+import { registerIanaTimeZoneFormat } from '@ohmydate/contracts';
+import { DomainError, type Clock, type IdGenerator } from '@ohmydate/domain';
+import Fastify, {
+  type FastifyInstance,
+  type FastifyServerOptions,
+} from 'fastify';
+import type { Kysely } from 'kysely';
+import type { AppConfig } from './config.js';
+import type { AppRepositories } from './application/ports.js';
+import { AuthService } from './application/auth-service.js';
+import { Argon2PasswordHasher } from './adapters/argon2-password-hasher.js';
+import { InMemoryLoginRateLimiter } from './adapters/in-memory-login-rate-limiter.js';
+import { InMemorySessionStore } from './adapters/in-memory-session-store.js';
+import { PgIdempotencyStore } from './adapters/pg-idempotency-store.js';
+import { PgUserRepository } from './adapters/pg-user-repository.js';
+import type { Database } from './db/types.js';
+import {
+  ProblemError,
+  domainErrorToProblem,
+  sendProblem,
+  sendValidationProblem,
+  type FastifyValidationError,
+} from './http/problem.js';
+import { createRuntime, registerRoutes } from './http/routes.js';
+import './http/fastify-augment.js';
+
+export type LoggerOption = NonNullable<FastifyServerOptions['logger']>;
+
+export interface BuildAppOptions {
+  readonly config: AppConfig;
+  readonly repos: AppRepositories;
+  readonly clock: Clock;
+  readonly ids: IdGenerator;
+  readonly db: Kysely<Database>;
+  /** Test override; production uses the structured pino defaults below. */
+  readonly logger?: LoggerOption;
+}
+
+/**
+ * 09 §7: structured JSON logs with request IDs. Bodies, cookies and auth
+ * headers are never logged; /auth/* bodies are redacted by path as a belt and
+ * braces measure on top of the request serializer.
+ */
+export function defaultLoggerOptions(config: AppConfig): LoggerOption {
+  return {
+    level: config.logLevel,
+    redact: {
+      paths: [
+        'req.headers.authorization',
+        'req.headers.cookie',
+        'req.headers["x-csrf-token"]',
+        'req.headers["set-cookie"]',
+        'res.headers["set-cookie"]',
+        'req.body.password',
+        'req.body.csrf',
+        'req.body.cookie',
+        'password',
+        'token',
+      ],
+      censor: '[REDACTED]',
+    },
+    serializers: {
+      req(request: { method?: string; url?: string; id?: string }) {
+        return { method: request.method ?? '', url: request.url ?? '', id: request.id ?? '' };
+      },
+      res(reply: { statusCode?: number }) {
+        return { statusCode: reply.statusCode ?? 0 };
+      },
+    },
+  } as unknown as LoggerOption;
+}
+
+export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
+  const { config, clock, ids, db } = options;
+  const app = Fastify({
+    logger: options.logger ?? defaultLoggerOptions(config),
+    ajv: {
+      plugins: [
+        (ajv) => {
+          registerIanaTimeZoneFormat(ajv as never);
+          return ajv;
+        },
+      ],
+      customOptions: {
+        removeAdditional: false,
+        coerceTypes: 'array',
+        useDefaults: true,
+        allErrors: true,
+        addUsedSchema: false,
+      },
+    },
+  });
+
+  app.decorateRequest('authSession', null);
+  await app.register(cookie);
+
+  app.addHook('onSend', async (request, reply, payload) => {
+    reply.header('x-trace-id', String(request.id));
+    return payload;
+  });
+
+  app.setNotFoundHandler((request, reply) =>
+    sendProblem(request, reply, 404, 'not_found', 'Not found', 'no route matches this request'),
+  );
+
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof ProblemError) {
+      return sendProblem(
+        request,
+        reply,
+        error.status,
+        error.code,
+        error.title,
+        error.detail,
+        error.errors,
+      );
+    }
+    if (error instanceof DomainError) {
+      const problem = domainErrorToProblem(error);
+      return sendProblem(
+        request,
+        reply,
+        problem.status,
+        problem.code,
+        problem.title,
+        problem.detail,
+        problem.errors,
+      );
+    }
+    const validationError = error as FastifyValidationError;
+    if (validationError.validation !== undefined) {
+      return sendValidationProblem(request, reply, validationError);
+    }
+    const statusCode = (error as { statusCode?: number }).statusCode;
+    if (statusCode === 401) {
+      return sendProblem(request, reply, 401, 'forbidden', 'Unauthenticated', 'authentication required');
+    }
+    if (statusCode === 429) {
+      return sendProblem(request, reply, 429, 'rate_limited', 'Rate limited', 'retry later');
+    }
+    request.log.error({ err: error }, 'unhandled request error');
+    return sendProblem(
+      request,
+      reply,
+      500,
+      'validation_failed',
+      'Internal error',
+      'an unexpected error occurred',
+    );
+  });
+
+  const users = new PgUserRepository(db, clock);
+  const sessions = new InMemorySessionStore({ clock, ttlMs: config.sessionTtlMs });
+  const hasher = new Argon2PasswordHasher();
+  const rateLimiter = new InMemoryLoginRateLimiter({
+    clock,
+    limit: config.loginRateLimit.limit,
+    windowMs: config.loginRateLimit.windowMs,
+  });
+  const idempotency = new PgIdempotencyStore({
+    db,
+    clock,
+    ids,
+    ttlMs: config.idempotencyTtlMs,
+  });
+  const auth = new AuthService({ users, hasher, sessions, rateLimiter });
+
+  const runtime = createRuntime({
+    config,
+    clock,
+    users,
+    sessions,
+    idempotency,
+    auth,
+    repos: options.repos,
+  });
+
+  registerRoutes(app, runtime);
+  return app;
+}
