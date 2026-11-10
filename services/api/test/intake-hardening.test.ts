@@ -341,8 +341,12 @@ describe.skipIf(!hasDatabase)('M2-03 hardening', () => {
           payload: { assumptions: [assumption] },
         });
       const [a, b] = await Promise.all([make('A'), make('B')]);
+      // ADR-020: the loser either hits the session mutation lock (409) or,
+      // when the winner already committed, the version CAS (412). Either way
+      // exactly one write must land.
       const statuses = [a.statusCode, b.statusCode].sort();
-      expect(statuses).toEqual([200, 412]);
+      expect(statuses[0]).toBe(200);
+      expect([409, 412]).toContain(statuses[1]);
       const winner = a.statusCode === 200 ? 'A' : 'B';
       const draft = await ctx.app.inject({
         method: 'GET',
@@ -378,7 +382,10 @@ describe.skipIf(!hasDatabase)('M2-03 hardening', () => {
           payload: { answers: [{ questionKey: 'priority', action: 'answer', value }] },
         });
       const [a, b] = await Promise.all([make(1), make(4)]);
-      expect([a.statusCode, b.statusCode].sort()).toEqual([200, 412]);
+      // ADR-020: lock loss is 409 and a committed winner yields a 412 CAS.
+      const statuses = [a.statusCode, b.statusCode].sort();
+      expect(statuses[0]).toBe(200);
+      expect([409, 412]).toContain(statuses[1]);
       const winner = a.statusCode === 200 ? 1 : 4;
       const rows = await ctx.db
         .selectFrom('intake_answer')
