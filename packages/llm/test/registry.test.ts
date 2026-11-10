@@ -129,12 +129,25 @@ test('prompt registry matches the checked-in markdown files', () => {
   }
 });
 
-test('layout suggestion accepts only 07 §3 registry components and scalar props', () => {
+test('layout suggestion accepts the canonical 07 §2.1 ids plus scalar props', () => {
   const valid = {
     mode: 'focus',
     regions: {
-      primary: [{ component: 'FocusTimer', props: { limit: 1, enabled: true } }],
-      secondary: [{ component: 'RelatedNotes' }],
+      primary: [
+        {
+          component: 'FocusTimer',
+          props: {
+            sessionId: '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b0001',
+            limit: 1,
+            enabled: true,
+          },
+        },
+      ],
+      secondary: [
+        { component: 'CurrentTaskCard', props: { taskId: '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b0002' } },
+        { component: 'RelatedNotes', props: { documentId: '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b0003', limit: 3 } },
+      ],
+      tertiary: [{ component: 'NextUp', props: { count: 2 } }],
     },
     pinned: ['NavRail'],
     reason: 'active_session',
@@ -172,5 +185,37 @@ test('layout suggestion accepts only 07 §3 registry components and scalar props
 
   expect(
     validateOutput('llm.layout_suggestion.v1', { ...valid, pinned: ['UnknownNav'] }).valid,
+  ).toBe(false);
+
+  expect(
+    validateOutput('llm.layout_suggestion.v1', {
+      ...valid,
+      regions: { primary: [{ component: 'FocusTimer', props: { style: { color: 'red' } } }] },
+    }).valid,
+  ).toBe(false);
+
+  expect(
+    validateOutput('llm.layout_suggestion.v1', {
+      ...valid,
+      regions: {
+        primary: [
+          { component: 'FocusTimer', props: { sessionId: 'not-a-uuid' } },
+        ],
+      },
+    }).valid,
+  ).toBe(false);
+
+  expect(
+    validateOutput('llm.layout_suggestion.v1', {
+      ...valid,
+      regions: {
+        primary: [
+          {
+            component: 'FocusTimer',
+            props: { widgetId: '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b0004' },
+          },
+        ],
+      },
+    }).valid,
   ).toBe(false);
 });

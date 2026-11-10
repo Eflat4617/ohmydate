@@ -108,3 +108,57 @@ test('records cost into both windows', () => {
   guard.record(0.25);
   expect(guard.snapshot()).toMatchObject({ spentTodayUsd: 0.5, spentThisMonthUsd: 0.5 });
 });
+
+test.each([
+  { label: 'NaN daily spend', init: { spentTodayUsd: Number.NaN } },
+  { label: 'negative daily spend', init: { spentTodayUsd: -1 } },
+  { label: 'NaN monthly spend', init: { spentThisMonthUsd: Number.NaN } },
+  { label: 'negative monthly spend', init: { spentThisMonthUsd: -1 } },
+])('rejects invalid initial $label', ({ init }) => {
+  expect(() => new BudgetGuard({ dailyUsd: 1, monthlyUsd: 10 }, init)).toThrow(RangeError);
+});
+
+test.each([
+  { label: 'NaN', estimate: Number.NaN },
+  { label: 'Infinity', estimate: Number.POSITIVE_INFINITY },
+  { label: 'negative', estimate: -0.5 },
+])('rejects a $label estimate instead of treating it as zero', ({ estimate }) => {
+  const guard = new BudgetGuard(
+    { dailyUsd: 1, monthlyUsd: 10 },
+    {},
+    at('2026-11-11T12:00:00.000Z'),
+  );
+  expect(() => guard.assertCanSpend(estimate)).toThrow(
+    expect.objectContaining({ kind: 'daily', reason: 'invalid_estimate' }),
+  );
+});
+
+test('real-model usage without costUsd exhausts the guard (fail closed)', () => {
+  const guard = new BudgetGuard(
+    { dailyUsd: 1, monthlyUsd: 10 },
+    {},
+    at('2026-11-11T12:00:00.000Z'),
+  );
+  guard.record({ inputTokens: 100_000, outputTokens: 100_000 }, { model: 'real-adapter' });
+  expect(guard.isExhausted()).toBe(true);
+  expect(() => guard.assertCanSpend()).toThrow(
+    expect.objectContaining({ reason: 'unpriced_usage' }),
+  );
+});
+
+test('real-model usage with a non-finite cost exhausts the guard', () => {
+  const guard = new BudgetGuard({ dailyUsd: 1, monthlyUsd: 10 });
+  guard.record({ inputTokens: 1, outputTokens: 1, costUsd: Number.NaN }, { model: 'real-adapter' });
+  expect(guard.isExhausted()).toBe(true);
+});
+
+test('fake models may omit costUsd without exhausting the guard', () => {
+  const guard = new BudgetGuard(
+    { dailyUsd: 1, monthlyUsd: 10 },
+    {},
+    at('2026-11-11T12:00:00.000Z'),
+  );
+  guard.record({ inputTokens: 100_000, outputTokens: 100_000 }, { model: 'fake-llm' });
+  expect(guard.isExhausted()).toBe(false);
+  expect(() => guard.assertCanSpend()).not.toThrow();
+});

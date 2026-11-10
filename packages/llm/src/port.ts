@@ -13,7 +13,11 @@ export interface LlmBudget {
 export interface LlmUsage {
   readonly inputTokens: number;
   readonly outputTokens: number;
-  /** Provider-reported cost when available; absent for locally priced/fake calls. */
+  /**
+   * Provider-reported cost. Real adapters MUST return a finite, non-negative costUsd;
+   * omitting it makes the BudgetGuard fail closed (05 §8, ADR-008). Fake/local pricing may
+   * omit it only when the model is a fake model.
+   */
   readonly costUsd?: number;
 }
 
@@ -35,6 +39,10 @@ export interface LlmCompleteResponse {
   readonly latencyMs: number;
 }
 
+/**
+ * Provider boundary. Real adapters MUST populate `usage.costUsd` for pricing/budgeting;
+ * `FakeLlm` is the only implementation allowed to omit it.
+ */
 export interface LlmPort {
   complete(request: LlmCompleteRequest): Promise<LlmCompleteResponse>;
 }

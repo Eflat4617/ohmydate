@@ -38,6 +38,18 @@ const phoneFormats = [
   '02-123-4567',
   '031-123-4567',
   '080-1234-5678',
+  '010 - 1234 - 5678',
+  '010 -1234- 5678',
+  '010/1234/5678',
+  '010_1234_5678',
+  '+1 (415) 555-2671',
+  '(010) 1234-5678',
+  '(070) 1234-5678',
+  '０１０-１２３４-５６７８',
+  '０１０１２３４５６７８',
+  '010－1234－5678',
+  '＋82 10-1234-5678',
+  '010\u200B-1234-5678',
 ];
 
 test.each(phoneFormats)('masks phone format %s without leaking it', (format) => {
@@ -54,12 +66,34 @@ test('masks Korean resident registration numbers', () => {
   expect(result.report).toEqual([{ kind: 'rrn', count: 1 }]);
 });
 
+const rrnFormats = [
+  '900101-1234567',
+  '900101–1234567',
+  '900101—1234567',
+  '900101.1234567',
+  '900101 - 1234567',
+  '90010\u200B1–1234567',
+  '９００１０１－１２３４５６７',
+];
+
+test.each(rrnFormats)('masks RRN format %s without leaking it', (format) => {
+  const result = redact(`x ${format} y`);
+  expect(result.text).toBe('x [REDACTED_RRN] y');
+  expect(result.report).toEqual([{ kind: 'rrn', count: 1 }]);
+  expect(result.text).not.toContain(format);
+  expect(JSON.stringify(result.report)).not.toContain(format);
+});
+
 test('masks API-key-like tokens', () => {
   const tokens = [
     'sk-proj-abcdefgh12345678',
     'tk_live_abcdefgh12345678',
     'ghp_abcdefghijklmnopqrstuvwx',
     'AKIAIOSFODNN7EXAMPLE',
+    'xoxb-1234567890-abcdefghij',
+    'AIzaSyA1234567890abcdefghijklmnopqrstuvw',
+    'glpat-abcdefghij1234567890',
+    'Bearer eyJhbGciOi.eyJzdWIiOi.SflKxwRJSM',
   ];
   for (const token of tokens) {
     const result = redact(`token=${token}`);
@@ -86,6 +120,39 @@ test('reports counts per kind', () => {
     { kind: 'phone', count: 1 },
   ]);
 });
+
+const advancedEmailFormats = [
+  'jane＠example.com',
+  'ja\u200Bne@example.com',
+  'jane@exam\u200Bple.com',
+  '홍길동@example.com',
+  'jane@sub_domain.example.com',
+  'x@a.b.c.d.e.kr',
+  `${'a'.repeat(80)}@example.com`,
+];
+
+test.each(advancedEmailFormats)('masks the whole advanced email address %s', (format) => {
+  const result = redact(`x ${format} y`);
+  expect(result.text).toBe('x [REDACTED_EMAIL] y');
+  expect(result.report).toEqual([{ kind: 'email', count: 1 }]);
+  expect(result.text).not.toContain(format);
+  expect(JSON.stringify(result.report)).not.toContain(format);
+});
+
+const knownLimitations = [
+  { name: '[at]/[dot] obfuscation', text: 'jane [at] example [dot] com' },
+  { name: 'Hangul digits', text: '일공일-일이삼사-오육칠팔' },
+  { name: 'business number', text: '1588-1234' },
+  { name: 'unbalanced international paren', text: '+82)10-1234-5678' },
+  { name: 'spaced at-sign email', text: 'jane @ example.com' },
+];
+
+test.each(knownLimitations)(
+  'known limitation remains unmasked: $name',
+  ({ text }) => {
+    expect(redact(text)).toEqual({ text, report: [] });
+  },
+);
 
 const pathologicalEmailInputs = [
   { label: 'dotted local part', text: 'a.'.repeat(50_000) },

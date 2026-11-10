@@ -152,7 +152,7 @@ export async function runStructured(
       throw error;
     }
 
-    budgetGuard?.record(response.usage);
+    budgetGuard?.record(response.usage, { model: response.model });
 
     const validation = validateOutput(request.schemaId, response.output);
     if (validation.valid) {

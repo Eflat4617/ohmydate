@@ -210,8 +210,21 @@ export function planQuestions(input: QuestionPlannerInput = {}): QuestionPlan {
     (candidate) => !asked.has(candidate.field) && !latestAnswer.has(candidate.field),
   );
 
-  const assumptions: IntakeAssumption[] = [...conservativeAssumptions(previousAnswers)];
-  const assumedSoFar = new Set(assumptions.map((assumption) => assumption.field));
+  // Assumptions come from the latest answer per field and only when the field is still
+  // unresolved: a later real answer or a known profile value supersedes an earlier skip/idk.
+  const assumptions: IntakeAssumption[] = [];
+  const assumedSoFar = new Set<IntakeField>();
+  for (const answer of latestAnswer.values()) {
+    if (answer.action === 'answer') continue;
+    if (isProvided(known[answer.field])) continue;
+    if (resolvedByAnswer.has(answer.field)) continue;
+    assumptions.push({
+      field: answer.field,
+      reason: answer.action,
+      value: CONSERVATIVE_DEFAULTS[answer.field],
+    });
+    assumedSoFar.add(answer.field);
+  }
   for (const candidate of askedPending) {
     if (assumedSoFar.has(candidate.field)) continue;
     assumedSoFar.add(candidate.field);
@@ -253,7 +266,7 @@ export function planQuestions(input: QuestionPlannerInput = {}): QuestionPlan {
     questions,
     assumptions,
     complete: pending.length === 0,
-    exhausted: lastRound && pending.length > 0,
+    exhausted: lastRound && remainingFields.length > 0,
     remainingFields,
   };
 }

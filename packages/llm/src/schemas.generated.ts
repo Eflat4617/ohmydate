@@ -180,7 +180,21 @@ export const SCHEMA_SOURCES: Readonly<Record<string, unknown>> = {
         },
         "props": {
           "type": "object",
-          "description": "Non-string scalar props only until per-component prop schemas exist; ui-policy re-validates.",
+          "description": "Non-string scalars plus UUID-valued sessionId/taskId/documentId; ui-policy re-validates.",
+          "properties": {
+            "sessionId": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            },
+            "taskId": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            },
+            "documentId": {
+              "type": "string",
+              "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+            }
+          },
           "additionalProperties": {
             "anyOf": [
               {
@@ -193,12 +207,15 @@ export const SCHEMA_SOURCES: Readonly<Record<string, unknown>> = {
                 "type": "null"
               }
             ]
+          },
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9]{0,40}$"
           }
         }
       }
     }
   },
-  "description": "Structural validation only. packages/ui-policy re-validates the component allowlist and per-component prop schemas before rendering; prop values are limited to non-string scalars here."
+  "description": "Structural validation only. packages/ui-policy re-validates the component allowlist and per-component prop schemas before rendering. Props allow numbers/booleans/null plus id-like string props (sessionId, taskId, documentId) constrained to UUIDs."
 },
   "llm.questions.v1": {
   "$id": "llm.questions.v1",

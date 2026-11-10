@@ -15,6 +15,17 @@ export interface BudgetGuardInit {
   readonly monthKey?: string;
 }
 
+export interface BudgetRecordOptions {
+  /** Provider model name; fake models are allowed to omit `costUsd`. */
+  readonly model?: string;
+}
+
+function assertValidInitSpend(kind: string, value: number | undefined): void {
+  if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
+    throw new RangeError(`budget ${kind} spend must be finite and non-negative`);
+  }
+}
+
 function dayKeyOf(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -40,6 +51,7 @@ export class BudgetGuard {
   private spentThisMonthUsd: number;
   private dayKey: string;
   private monthKey: string;
+  private exhausted = false;
 
   constructor(
     readonly limits: Readonly<Partial<LlmBudget>>,
@@ -47,6 +59,8 @@ export class BudgetGuard {
     private readonly now: () => Date = () => new Date(),
   ) {
     const current = now();
+    assertValidInitSpend('daily', init.spentTodayUsd);
+    assertValidInitSpend('monthly', init.spentThisMonthUsd);
     this.dayKey = init.dayKey ?? dayKeyOf(current);
     this.monthKey = init.monthKey ?? monthKeyOf(current);
     this.spentTodayUsd = init.spentTodayUsd ?? 0;
@@ -85,7 +99,13 @@ export class BudgetGuard {
     this.rollover();
     const dailyLimit = requireLimit('daily', this.limits.dailyUsd);
     const monthlyLimit = requireLimit('monthly', this.limits.monthlyUsd);
-    const estimate = Number.isFinite(estimatedCostUsd) ? Math.max(0, estimatedCostUsd) : 0;
+    if (!Number.isFinite(estimatedCostUsd) || estimatedCostUsd < 0) {
+      throw new BudgetExceeded('daily', dailyLimit, this.spentTodayUsd, 'invalid_estimate');
+    }
+    const estimate = estimatedCostUsd;
+    if (this.exhausted) {
+      throw new BudgetExceeded('daily', dailyLimit, this.spentTodayUsd, 'unpriced_usage');
+    }
 
     if (this.spentTodayUsd >= dailyLimit) {
       throw new BudgetExceeded('daily', dailyLimit, this.spentTodayUsd, 'limit_reached');
@@ -106,12 +126,26 @@ export class BudgetGuard {
     }
   }
 
-  record(cost: number | LlmUsage | undefined): void {
-    if (cost === undefined) return;
-    const usd = typeof cost === 'number' ? cost : (cost.costUsd ?? 0);
-    if (!Number.isFinite(usd) || usd <= 0) return;
+  /**
+   * Record usage. Missing/non-finite/negative cost from a non-fake model marks the guard
+   * exhausted (fail closed); fake models may omit `costUsd`.
+   */
+  record(cost: number | LlmUsage | undefined, options: BudgetRecordOptions = {}): void {
+    const usd = typeof cost === 'number' ? cost : cost?.costUsd;
+    const fakeModel = options.model !== undefined && (options.model === 'fake-llm' || options.model.startsWith('fake'));
+
+    if (usd === undefined || !Number.isFinite(usd) || usd < 0) {
+      if (!fakeModel) this.exhausted = true;
+      return;
+    }
+    if (usd === 0) return;
     this.rollover();
     this.spentTodayUsd += usd;
     this.spentThisMonthUsd += usd;
+  }
+
+  /** True once an unpriced/non-finite real-model usage forced fail-closed behaviour. */
+  isExhausted(): boolean {
+    return this.exhausted;
   }
 }

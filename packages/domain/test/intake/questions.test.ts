@@ -190,3 +190,43 @@ test('Date, zero and false values count as provided', () => {
 test.each([0, -1, 1.5, Number.NaN])('an invalid round %s is rejected', (round) => {
   expect(() => planQuestions({ round })).toThrow(RangeError);
 });
+
+test('a later real answer supersedes an earlier skip assumption', () => {
+  const plan = planQuestions({
+    round: 2,
+    requiredFields: ['dueAt'],
+    optionalFields: [],
+    askedFields: ['dueAt'],
+    previousAnswers: [
+      { field: 'dueAt', action: 'skip' },
+      { field: 'dueAt', action: 'answer', value: '2026-11-20T14:59:00Z' },
+    ],
+  });
+  expect(plan.assumptions).toEqual([]);
+  expect(plan.complete).toBe(true);
+  expect(plan.remainingFields).toEqual([]);
+});
+
+test('an earlier skip does not emit an assumption when the field is already known', () => {
+  const plan = planQuestions({
+    requiredFields: ['dueAt'],
+    optionalFields: [],
+    known: { dueAt: '2026-11-20T14:59:00Z' },
+    previousAnswers: [{ field: 'dueAt', action: 'skip' }],
+  });
+  expect(plan.assumptions).toEqual([]);
+  expect(plan.questions).toEqual([]);
+  expect(plan.complete).toBe(true);
+});
+
+test('round 2 with every pending field fitting the round is not exhausted', () => {
+  const plan = planQuestions({
+    round: 2,
+    requiredFields: ['dueAt'],
+    optionalFields: ['reviewNeeded'],
+    known: { dueAt: '2026-11-20T14:59:00Z' },
+  });
+  expect(plan.questions.map((question) => question.field)).toEqual(['reviewNeeded']);
+  expect(plan.remainingFields).toEqual([]);
+  expect(plan.exhausted).toBe(false);
+});

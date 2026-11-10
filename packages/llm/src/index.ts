@@ -3,6 +3,7 @@ export const packageName = '@ohmydate/llm' as const;
 export {
   BudgetGuard,
   type BudgetGuardInit,
+  type BudgetRecordOptions,
   type BudgetSnapshot,
 } from './budget.js';
 

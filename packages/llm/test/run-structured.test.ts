@@ -206,6 +206,32 @@ test('a mid-flight abort is not retried', async () => {
   expect(calls).toBe(1);
 });
 
+test('real-model usage without costUsd blocks the next call', async () => {
+  const guard = new BudgetGuard(
+    { dailyUsd: 1, monthlyUsd: 10 },
+    {},
+    () => new Date('2026-11-11T00:00:00.000Z'),
+  );
+  const llm = new FakeLlm([
+    {
+      promptId: 'type_detection',
+      input: request.input,
+      response: {
+        output: validTypeDetection,
+        usage: { inputTokens: 1, outputTokens: 1 },
+        model: 'real-adapter',
+      },
+    },
+  ]);
+
+  await runStructured(llm, request, { budgetGuard: guard });
+  expect(guard.isExhausted()).toBe(true);
+  await expect(runStructured(llm, request, { budgetGuard: guard })).rejects.toBeInstanceOf(
+    BudgetExceeded,
+  );
+  expect(llm.calls).toHaveLength(1);
+});
+
 test('budget guard is consulted before the call', async () => {
   const guard = new BudgetGuard(
     { dailyUsd: 0.01, monthlyUsd: 1 },

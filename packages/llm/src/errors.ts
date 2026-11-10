@@ -37,6 +37,8 @@ export type BudgetLimitKind = 'daily' | 'monthly';
 export type BudgetBlockReason =
   | 'not_configured'
   | 'invalid_limit'
+  | 'invalid_estimate'
+  | 'unpriced_usage'
   | 'limit_reached'
   | 'projected_limit';
 
@@ -67,6 +69,10 @@ export class BudgetExceeded extends LlmError {
         return 'LLM budget is not configured; provider calls are disabled';
       case 'invalid_limit':
         return `${kind} LLM budget limit is missing, non-finite or non-positive`;
+      case 'invalid_estimate':
+        return `${kind} LLM budget estimate is non-finite or negative`;
+      case 'unpriced_usage':
+        return 'LLM usage had no finite cost; treating the budget as exhausted';
       case 'limit_reached':
         return `${kind} LLM budget reached: spent $${spentUsd.toFixed(4)} of $${limitUsd.toFixed(4)}`;
       case 'projected_limit':
