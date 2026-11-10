@@ -69,6 +69,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-23 | ctx_a2f5adb00de2 (opus-fallback) | 5a805ff | REQUEST_CHANGES | HIGH: 기본 프로젝트 없는 계정에서 getInbox가 JWT 전용 PATCH에 의존해 영구 503; MEDIUM×3 (P10 planner 필드, 재조정 stale 재기록, 토큰 권한 문서) | 문서 09 §13 오케스트레이터 작성 + fix 1/2 |
 | FU-24 | ctx_ce9adf251800 (opus-fallback) | dcea051 | REQUEST_CHANGES | HIGH: shorterEnd/키 패턴 2차 시간 DoS; MEDIUM: 전각 키 재현율 회귀 | fix 1/2 |
 | M1-10 | ctx_07698d9d1733 (opus-fallback) | 0212d04 | **APPROVE** | FU-26/27 | **Accepted, merged 1111794**; G3 773 pass/33 skip + web 68, ci 0 |
 | M1-10 | ctx_ea51210611f1 (opus-fallback) | f1467b7 | REQUEST_CHANGES | HIGH: 백그라운드 재조정기가 FU-22 CAS 없이 local_version 역행 | 결정: 재조정기 기본 OFF + CAS 배선은 FU-23 담당(중복 편집 방지); fix 1/2 |
