@@ -411,6 +411,45 @@ function bestOfFive(run: () => void): number {
   return best;
 }
 
+const separatorlessRrnRegressions = [
+  {
+    input: '⁰176７2\u200E4５\u200F19899\u20696|',
+    output: '⁰[REDACTED_RRN]|',
+  },
+  { input: '⁰1767245198996|', output: '⁰[REDACTED_RRN]|' },
+  { input: '¹1767245198996|', output: '¹[REDACTED_RRN]|' },
+  { input: '²1767245198996|', output: '²[REDACTED_RRN]|' },
+  { input: '³1767245198996|', output: '³[REDACTED_RRN]|' },
+  { input: '①1767245198996|', output: '①[REDACTED_RRN]|' },
+  { input: '⑳1767245198996|', output: '⑳[REDACTED_RRN]|' },
+  { input: '㉑1767245198996|', output: '㉑[REDACTED_RRN]|' },
+  { input: '9001011234567|', output: '[REDACTED_RRN]|' },
+] as const;
+
+test.each(separatorlessRrnRegressions)(
+  'masks a separator-less RRN without leaking its tail: $input',
+  ({ input, output }) => {
+    const result = redact(input);
+    expect(result.text).toBe(output);
+    expect(result.report).toEqual([{ kind: 'rrn', count: 1 }]);
+  },
+);
+
+const wordEdgeRegressions = [
+  { input: 'sk-abcdefgh12345678-', output: '[REDACTED_API_KEY]-' },
+  { input: 'AKIAABCDEFGHIJKLMNOP-', output: '[REDACTED_API_KEY]-' },
+  { input: '-sk-abcdefgh12345678', output: '-[REDACTED_API_KEY]' },
+] as const;
+
+test.each(wordEdgeRegressions)(
+  'word boundaries at input edges only mask the token itself: $input',
+  ({ input, output }) => {
+    const result = redact(input);
+    expect(result.text).toBe(output);
+    expect(result.report).toEqual([{ kind: 'api_key', count: 1 }]);
+  },
+);
+
 const pathologicalEmailInputs = [
   { label: 'dotted local part', text: 'a.'.repeat(50_000) },
   { label: 'dashed labels', text: 'foo-bar-baz-'.repeat(8_334) },
@@ -512,6 +551,37 @@ test.each(adversarialPerfInputs)(
   },
 );
 
+const separatorRun = (run: string): string => `+1 12 34${run}567899999`;
+
+const separatorRunPerfInputs = [
+  { label: 'space + rejected final group', text: separatorRun(' '.repeat(100_000)) },
+  {
+    label: 'space + 2-group head',
+    text: `+1 12 34 56${' '.repeat(100_000)}78999`,
+  },
+  { label: 'tab run', text: separatorRun('\t'.repeat(100_000)) },
+  {
+    label: 'newline run',
+    text: `+1 12 34 56${'\n'.repeat(100_000)}78999`,
+  },
+  { label: '-._/ run', text: separatorRun('-._/'.repeat(25_000)) },
+  { label: 'ideographic space run', text: separatorRun('\u3000'.repeat(100_000)) },
+  { label: 'em space run', text: separatorRun('\u2003'.repeat(100_000)) },
+  {
+    label: 'fullwidth digits and ideographic space',
+    text: `＋１ １２ ３４${'　'.repeat(100_000)}５６７８９９９９９`,
+  },
+] as const;
+
+test.each(separatorRunPerfInputs)(
+  'rejected +cc final group scans separators linearly on $label',
+  ({ text }) => {
+    expect(text.length).toBeGreaterThanOrEqual(100_000);
+    redact(text.slice(0, 1_000));
+    expect(bestOfFive(() => redact(text))).toBeLessThan(50);
+  },
+);
+
 const closingTagVariants = [
   '</untrusted_document>',
   '</ untrusted_document>',
@@ -599,6 +669,7 @@ const LEFT_NEIGHBOURS = [
   '中',
   '①',
   '⑳',
+  '㉑',
   '⁰',
   '¹',
   '²',
@@ -682,7 +753,10 @@ function makePhone(random: Random): string {
 }
 
 function makeRrn(random: Random): string {
-  return `${digits(random, 6)}-${pick(random, ['1', '2', '3', '4', '5', '6', '7', '8'])}${digits(random, 6)}`;
+  const front = digits(random, 6);
+  const gender = pick(random, ['1', '2', '3', '4', '5', '6', '7', '8']);
+  const back = digits(random, 6);
+  return random() < 0.5 ? `${front}${gender}${back}` : `${front}-${gender}${back}`;
 }
 
 function makeEmail(random: Random): string {

@@ -106,6 +106,31 @@ function isBoundaryChar(char: OriginalChar | undefined): boolean {
   return true;
 }
 
+function isDigitCode(code: number): boolean {
+  return (
+    (code >= 0x30 && code <= 0x39) ||
+    (code >= FULLWIDTH_DIGIT_FIRST && code <= FULLWIDTH_DIGIT_LAST)
+  );
+}
+
+function isOriginalDigitChar(char: OriginalChar | undefined): boolean {
+  if (char === undefined || char.stripped) return false;
+  if (char.value.length !== 1) return false;
+  return isDigitCode(char.value.charCodeAt(0));
+}
+
+/** True when the normalised match starts on a digit code unit. */
+function startsOnDigit(map: IndexMap, start: number): boolean {
+  return isDigitCode(map.normalized.charCodeAt(start));
+}
+
+/** True when that digit comes from an original digit, not a folded footnote marker. */
+function startsOnOriginalDigit(map: IndexMap, start: number): boolean {
+  if (map.ascii) return isDigitCode(map.normalized.charCodeAt(start));
+  const current = sourceAt(map, start);
+  return isOriginalDigitChar(current === undefined ? undefined : map.chars[current]);
+}
+
 function normalizeWithMap(text: string): IndexMap {
   if (!NON_ASCII.test(text)) {
     return { normalized: text, ascii: true, source: EMPTY_NUMBERS, chars: EMPTY_CHARS };
@@ -113,6 +138,8 @@ function normalizeWithMap(text: string): IndexMap {
 
   const chars: OriginalChar[] = [];
   const source: number[] = [];
+  // Long separator runs repeat one code point; fold and test it once per call.
+  const folded = new Map<string, { readonly stripped: boolean; readonly expanded: string }>();
   let normalized = '';
   let offset = 0;
   let index = 0;
@@ -130,15 +157,20 @@ function normalizeWithMap(text: string): IndexMap {
       continue;
     }
 
-    if (IGNORABLE.test(char)) {
+    let entry = folded.get(char);
+    if (entry === undefined) {
+      entry = { stripped: IGNORABLE.test(char), expanded: char.normalize('NFKC') };
+      folded.set(char, entry);
+    }
+
+    if (entry.stripped) {
       chars.push({ start, end: offset, value: char, stripped: true });
       continue;
     }
 
     chars.push({ start, end: offset, value: char, stripped: false });
-    const expanded = char.normalize('NFKC');
-    normalized += expanded;
-    for (let unit = 0; unit < expanded.length; unit += 1) source.push(current);
+    normalized += entry.expanded;
+    for (let unit = 0; unit < entry.expanded.length; unit += 1) source.push(current);
   }
 
   return { normalized, ascii: false, source, chars };
@@ -238,14 +270,21 @@ function isOriginalWordChar(char: OriginalChar | undefined): boolean {
  */
 function wordBoundaryBefore(map: IndexMap, start: number): boolean {
   if (map.ascii) {
-    if (start <= 0 || start >= map.normalized.length) return true;
-    return (
-      isAsciiWordCode(map.normalized.charCodeAt(start - 1)) !==
-      isAsciiWordCode(map.normalized.charCodeAt(start))
-    );
+    const before =
+      start > 0 && start <= map.normalized.length
+        ? isAsciiWordCode(map.normalized.charCodeAt(start - 1))
+        : false;
+    const here =
+      start >= 0 && start < map.normalized.length
+        ? isAsciiWordCode(map.normalized.charCodeAt(start))
+        : false;
+    return before !== here;
   }
   const current = sourceAt(map, start);
-  if (current === undefined) return true;
+  if (current === undefined) {
+    if (map.chars.length === 0) return false;
+    return isOriginalWordChar(map.chars[start <= 0 ? 0 : map.chars.length - 1]);
+  }
   if (start > 0 && sourceAt(map, start - 1) === current) return false;
   return (
     isOriginalWordChar(map.chars[current - 1]) !== isOriginalWordChar(map.chars[current])
@@ -254,14 +293,23 @@ function wordBoundaryBefore(map: IndexMap, start: number): boolean {
 
 function wordBoundaryAfter(map: IndexMap, end: number): boolean {
   if (map.ascii) {
-    if (end <= 0 || end >= map.normalized.length) return true;
-    return (
-      isAsciiWordCode(map.normalized.charCodeAt(end - 1)) !==
-      isAsciiWordCode(map.normalized.charCodeAt(end))
-    );
+    const here =
+      end > 0 && end <= map.normalized.length
+        ? isAsciiWordCode(map.normalized.charCodeAt(end - 1))
+        : false;
+    const next =
+      end >= 0 && end < map.normalized.length
+        ? isAsciiWordCode(map.normalized.charCodeAt(end))
+        : false;
+    return here !== next;
+  }
+  if (end <= 0) {
+    return map.chars.length === 0 ? false : isOriginalWordChar(map.chars[0]);
   }
   const current = sourceAt(map, end - 1);
-  if (current === undefined) return true;
+  if (current === undefined) {
+    return map.chars.length === 0 ? false : isOriginalWordChar(map.chars[map.chars.length - 1]);
+  }
   if (end < sourceLength(map) && sourceAt(map, end) === current) return false;
   return isOriginalWordChar(map.chars[current]) !== isOriginalWordChar(map.chars[current + 1]);
 }
@@ -515,6 +563,10 @@ function shorterEndAfter(
   // original-char digit boundary (e.g. ⑳ or a stripped ZWSP), so each candidate end is
   // tested with the original-character rule and the exact pattern.
   for (let end = rawEnd; end > start; end -= 1) {
+    // A CC match can only end on a digit or a closing paren. Separator runs can be
+    // arbitrarily long, so testing every position there is O(L^2) (FU-24R-2 HIGH).
+    const last = map.normalized.charCodeAt(end - 1);
+    if (!(isDigitCode(last) || last === 0x29)) continue;
     if (!boundaryAfter(map, end)) continue;
     if (CC_PHONE_EXACT.test(map.normalized.slice(start, end))) return end;
   }
@@ -524,6 +576,15 @@ function shorterEndAfter(
 function startAllowed(map: IndexMap, pattern: Pattern, start: number): boolean {
   const { digitBoundary, wordBoundary, notWordPlusBefore: needsNotWordPlus } = pattern;
   if ((digitBoundary === 'start' || digitBoundary === 'both') && !boundaryBefore(map, start)) {
+    return false;
+  }
+  // A digit pattern must not begin on a footnote marker that only folds to a digit
+  // (⁰/①/㉑); that start would let its end land on a stripped char before a real digit.
+  if (
+    (digitBoundary === 'start' || digitBoundary === 'both') &&
+    startsOnDigit(map, start) &&
+    !startsOnOriginalDigit(map, start)
+  ) {
     return false;
   }
   if (needsNotWordPlus === true && !notWordPlusBefore(map, start)) return false;
