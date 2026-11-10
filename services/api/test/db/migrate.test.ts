@@ -25,7 +25,11 @@ function migrationFilenames(dir = migrationsDir): string[] {
     .sort();
 }
 
-const MIGRATION_FILES = migrationFilenames();
+const MIGRATION_FILES = [
+  '0001_init.sql',
+  '0002_inbox_project.sql',
+  '0003_vikunja_durable_stores.sql',
+] as const;
 
 const M1_TABLES = [
   'audit_event',
