@@ -328,6 +328,11 @@ async function runIdempotent(
         await runtime.idempotency.release(auth.userId, key);
       } catch {
         // Always surface the original failure; a failed release is recoverable.
+        // Log key metadata only: request bodies and headers stay out of logs.
+        request.log.warn(
+          { ownerId: auth.userId, key, route },
+          'idempotency release failed',
+        );
       }
     };
 

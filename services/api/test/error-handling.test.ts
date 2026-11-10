@@ -1,6 +1,6 @@
 import { Writable } from 'node:stream';
 import type { TaskRepository } from '@ohmydate/domain';
-import { DomainError } from '@ohmydate/domain';
+import { DomainError, ProviderUnavailableError } from '@ohmydate/domain';
 import pino from 'pino';
 import type { LoggerInstanceOption } from '../src/app.js';
 import type { AppRepositories } from '../src/application/ports.js';
@@ -48,6 +48,9 @@ function captureStream(): { stream: Writable; output: () => string } {
 function failingRepos(factory: () => Error): AppRepositories {
   const tasks = {
     get: async () => {
+      throw factory();
+    },
+    update: async () => {
       throw factory();
     },
   } as unknown as TaskRepository;
@@ -103,6 +106,86 @@ describe.skipIf(!hasDatabase)('500 error handling', () => {
       });
       expect(response.body).not.toContain('secret generic detail');
       expect(output()).toContain('unhandled request error');
+    } finally {
+      await ctx.close();
+    }
+  });
+});
+
+describe.skipIf(!hasDatabase)('provider unavailable mapping', () => {
+  test('a provider outage on a read keeps the contracted 503 provider_unavailable', async () => {
+    const ctx = await createTestContext({
+      repos: failingRepos(() => new ProviderUnavailableError('vikunja')),
+    });
+    try {
+      await ctx.seedUser({ email: 'provider@example.com', password: 'correct-horse' });
+      const session = await login(ctx, 'provider@example.com', 'correct-horse');
+      const response = await ctx.app.inject({
+        method: 'GET',
+        url: `/tasks/${ID}`,
+        headers: authHeaders(session),
+      });
+      expect(response.statusCode).toBe(503);
+      expect(response.headers['content-type']).toContain('application/problem+json');
+      const body = response.json() as {
+        status: number;
+        code: string;
+        title: string;
+        traceId?: string;
+      };
+      expect(body).toMatchObject({
+        status: 503,
+        code: 'provider_unavailable',
+        title: 'Provider unavailable',
+      });
+      expect(typeof body.traceId).toBe('string');
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('a provider outage on a mutation returns 503 and releases the idempotency key', async () => {
+    const ctx = await createTestContext({
+      repos: failingRepos(() => new ProviderUnavailableError('vikunja')),
+    });
+    try {
+      const ownerId = await ctx.seedUser({
+        email: 'provider-write@example.com',
+        password: 'correct-horse',
+      });
+      const session = await login(ctx, 'provider-write@example.com', 'correct-horse');
+      const key = newIdempotencyKey();
+      const response = await ctx.app.inject({
+        method: 'PATCH',
+        url: `/tasks/${ID}`,
+        headers: authHeaders(session, {
+          'if-match': 'W/"1"',
+          'idempotency-key': key,
+        }),
+        payload: { title: 'provider outage write' },
+      });
+      expect(response.statusCode).toBe(503);
+      expect(response.headers['content-type']).toContain('application/problem+json');
+      const body = response.json() as {
+        status: number;
+        code: string;
+        title: string;
+        traceId?: string;
+      };
+      expect(body).toMatchObject({
+        status: 503,
+        code: 'provider_unavailable',
+        title: 'Provider unavailable',
+      });
+      expect(typeof body.traceId).toBe('string');
+
+      const rows = await ctx.db
+        .selectFrom('idempotency_record')
+        .select((eb) => eb.fn.countAll<string>().as('count'))
+        .where('owner_id', '=', ownerId)
+        .where('key', '=', key)
+        .executeTakeFirstOrThrow();
+      expect(Number(rows.count)).toBe(0);
     } finally {
       await ctx.close();
     }

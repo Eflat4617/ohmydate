@@ -36,7 +36,11 @@ export interface BuildAppOptions {
   readonly db: Kysely<Database>;
   /** Test override; production uses the structured pino defaults below. */
   readonly logger?: LoggerOption;
-  /** Test override for capturing logs with a pre-built pino instance. */
+  /**
+   * Test-only override for capturing logs with a pre-built pino instance.
+   * It bypasses `defaultLoggerOptions`, so redaction and serializers are not
+   * applied; never pass a caller-supplied instance in production.
+   */
   readonly loggerInstance?: LoggerInstanceOption;
   /** Test override for forcing idempotency-store failures. */
   readonly idempotency?: IdempotencyStore;
@@ -84,7 +88,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       : { loggerInstance: options.loggerInstance };
   const app = Fastify({
     ...logging,
-    trustProxy: config.trustProxy,
+    trustProxy: config.trustProxy as NonNullable<FastifyServerOptions['trustProxy']>,
     ajv: {
       plugins: [
         (ajv) => {
@@ -131,7 +135,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     }
     if (error instanceof DomainError) {
       const problem = domainErrorToProblem(error);
-      if (problem.status >= 500) {
+      if (problem.status === 500) {
         request.log.error({ err: error }, 'unhandled domain error');
         return sendProblem(
           request,

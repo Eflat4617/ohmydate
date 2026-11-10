@@ -19,8 +19,9 @@ export interface AppConfig {
   /**
    * Fastify trustProxy. Default false: only enable when the API sits behind a
    * trusted reverse proxy (09 §5 tailnet proxy) and X-Forwarded-For is stripped.
+   * A boolean, proxy address (string), list of addresses, or hop count.
    */
-  readonly trustProxy: boolean;
+  readonly trustProxy: boolean | string | string[] | number;
 }
 
 export const DEFAULT_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
