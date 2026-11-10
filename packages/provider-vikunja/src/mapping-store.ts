@@ -24,6 +24,13 @@ export interface ExternalMapping {
   readonly createdAt: Instant;
   readonly updatedAt: Instant;
   readonly deletedAt?: Instant;
+  /**
+   * Set after a remote mutation partially succeeded (e.g. task write committed
+   * but a relation write or the final ETag read failed). The next read/update
+   * must reconcile from Vikunja before serving state so a staged planner field
+   * can never become visible under an unchanged version.
+   */
+  readonly needsReconcile?: boolean;
 }
 
 export interface MappingStore {

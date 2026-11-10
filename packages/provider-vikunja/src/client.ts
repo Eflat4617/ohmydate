@@ -442,6 +442,7 @@ export class VikunjaClient {
       }
     }
 
+    if (isNetworkError(lastError)) throw new ProviderUnavailableError('vikunja');
     if (lastError instanceof Error) throw lastError;
     throw new ProviderUnavailableError('vikunja');
   }
@@ -464,13 +465,17 @@ export class VikunjaClient {
     if (options.ifMatch !== undefined) headers['If-Match'] = options.ifMatch;
 
     let response: Response;
+    let text: string;
     try {
+      // Keep the abort timer active through body consumption: a provider that
+      // sends headers quickly but stalls the body must still time out.
       response = await this.#fetch(url, {
         method,
         headers,
         signal: controller.signal,
         ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
       });
+      text = await response.text();
     } catch (error) {
       if (isAbortError(error)) {
         throw new TransportFailure(new ProviderUnavailableError('vikunja'), true);
@@ -480,7 +485,6 @@ export class VikunjaClient {
       clearTimeout(timer);
     }
 
-    const text = await response.text();
     if (response.status >= 200 && response.status < 300) {
       return {
         data: (text.length === 0 ? undefined : (JSON.parse(text) as T)) as T,

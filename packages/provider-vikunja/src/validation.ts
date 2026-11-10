@@ -12,7 +12,7 @@ import {
 } from '@ohmydate/domain';
 
 const ISO_WITH_OFFSET =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(?:Z|[+-]\d{2}:\d{2})$/;
 
 const TASK_STATUSES: ReadonlySet<string> = new Set(['todo', 'in_progress', 'done']);
 const MAX_TITLE_LENGTH = 200;
@@ -33,7 +33,7 @@ export function validateInstant(value: unknown, path = 'instant'): Instant {
   }
   const match = ISO_WITH_OFFSET.exec(value);
   if (match === null) fail(path, 'invalid date-time');
-  const [, year, month, day, hour, minute, second] = match;
+  const [, year, month, day, hour, minute, second, fraction] = match;
   if (
     year === undefined ||
     month === undefined ||
@@ -50,6 +50,7 @@ export function validateInstant(value: unknown, path = 'instant'): Instant {
   const hourNumber = Number(hour);
   const minuteNumber = Number(minute);
   const secondNumber = Number(second);
+  const millisecond = Number((fraction ?? '').slice(0, 3).padEnd(3, '0'));
   const localMs = Date.UTC(
     yearNumber,
     monthNumber - 1,
@@ -57,6 +58,7 @@ export function validateInstant(value: unknown, path = 'instant'): Instant {
     hourNumber,
     minuteNumber,
     secondNumber,
+    millisecond,
   );
   const local = new Date(localMs);
   if (

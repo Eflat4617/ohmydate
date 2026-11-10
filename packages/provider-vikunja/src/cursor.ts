@@ -15,12 +15,14 @@ export interface ChangeCursor {
   readonly seconds: number;
   readonly externalId: string;
   readonly sequence: number;
+  readonly epoch: string;
 }
 
 export const EMPTY_CHANGE_CURSOR: ChangeCursor = {
   seconds: 0,
   externalId: '',
   sequence: 0,
+  epoch: '',
 };
 
 function encode(value: unknown): string {
@@ -55,12 +57,22 @@ export function decodeListCursor(value: string): ListCursor {
 }
 
 export function encodeChangeCursor(cursor: ChangeCursor): string {
-  return encode({ s: cursor.seconds, e: cursor.externalId, q: cursor.sequence });
+  return encode({
+    s: cursor.seconds,
+    e: cursor.externalId,
+    q: cursor.sequence,
+    ep: cursor.epoch,
+  });
 }
 
 export function decodeChangeCursor(value: string | null): ChangeCursor {
   if (value === null) return EMPTY_CHANGE_CURSOR;
-  const parsed = decode(value) as { s?: unknown; e?: unknown; q?: unknown } | null;
+  const parsed = decode(value) as {
+    s?: unknown;
+    e?: unknown;
+    q?: unknown;
+    ep?: unknown;
+  } | null;
   if (
     parsed !== null &&
     typeof parsed === 'object' &&
@@ -70,9 +82,16 @@ export function decodeChangeCursor(value: string | null): ChangeCursor {
     typeof parsed.e === 'string' &&
     typeof parsed.q === 'number' &&
     Number.isInteger(parsed.q) &&
-    parsed.q >= 0
+    parsed.q >= 0 &&
+    typeof parsed.ep === 'string' &&
+    parsed.ep.length > 0
   ) {
-    return { seconds: parsed.s, externalId: parsed.e, sequence: parsed.q };
+    return {
+      seconds: parsed.s,
+      externalId: parsed.e,
+      sequence: parsed.q,
+      epoch: parsed.ep,
+    };
   }
   throw new ValidationFailedError([{ path: 'cursor', message: 'invalid change cursor' }]);
 }

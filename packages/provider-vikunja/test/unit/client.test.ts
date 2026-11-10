@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import {
   NotFoundError,
   ProviderUnavailableError,
@@ -118,5 +119,71 @@ describe('VikunjaClient transport behaviour', () => {
       'application/merge-patch+json',
     );
     expect(http.calls[0]?.body).toEqual({ done: true });
+  });
+});
+
+describe('VikunjaClient failure normalization', () => {
+  test('GET retries exhausted network errors into ProviderUnavailableError', async () => {
+    let calls = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      token: 'tk_secret',
+      fetch: async () => {
+        calls += 1;
+        throw new TypeError('fetch failed https://user:pass@vikunja.test tk_secret');
+      },
+      sleep: async () => {},
+    });
+
+    const error = await client.getTask('1').catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(ProviderUnavailableError);
+    expect(String((error as Error).message)).not.toContain('tk_secret');
+    expect(String((error as Error).message)).not.toContain('user:pass');
+    expect(calls).toBe(3);
+  });
+
+  test('writes do not retry and normalize network errors immediately', async () => {
+    let calls = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      token: 'tk_secret',
+      fetch: async () => {
+        calls += 1;
+        throw new TypeError('fetch failed');
+      },
+      sleep: async () => {},
+    });
+
+    await expect(client.patchTask('1', { done: true })).rejects.toBeInstanceOf(
+      ProviderUnavailableError,
+    );
+    expect(calls).toBe(1);
+  });
+
+  test('the timeout stays active while the response body is consumed', async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.write('{"id":');
+      setTimeout(() => response.end('1}'), 250);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') {
+      server.close();
+      throw new Error('test server did not expose a port');
+    }
+    try {
+      const client = new VikunjaClient({
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        timeoutMs: 40,
+        retries: 0,
+        sleep: async () => {},
+      });
+      await expect(client.getTask('1')).rejects.toBeInstanceOf(
+        ProviderUnavailableError,
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });

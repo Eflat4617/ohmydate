@@ -9,9 +9,21 @@ describe('timestamp validation', () => {
     );
   });
 
+  test('keeps fractional milliseconds for UTC and offset values', () => {
+    expect(validateInstant('2026-11-20T14:59:00.123Z')).toBe(
+      '2026-11-20T14:59:00.123Z',
+    );
+    expect(validateInstant('2026-11-20T23:59:00.123+09:00')).toBe(
+      '2026-11-20T14:59:00.123Z',
+    );
+  });
+
   test('rejects timezone-less and impossible calendar dates', () => {
     expect(() => validateInstant('2026-11-20T14:59:00')).toThrow(ValidationFailedError);
     expect(() => validateInstant('2026-02-30T00:00:00Z')).toThrow(
+      ValidationFailedError,
+    );
+    expect(() => validateInstant('2026-02-30T00:00:00.123Z')).toThrow(
       ValidationFailedError,
     );
   });

@@ -17,12 +17,12 @@ describe('change cursor', () => {
   });
 
   test('round-trips the updated second, external id and sequence', () => {
-    const cursor = { seconds: 1_794_332_393, externalId: '42', sequence: 7 };
+    const cursor = { seconds: 1_794_332_393, externalId: '42', sequence: 7, epoch: 'epoch-1' };
     expect(decodeChangeCursor(encodeChangeCursor(cursor))).toEqual(cursor);
   });
 
   test('overlaps the same second and orders by external id', () => {
-    const cursor = { seconds: 100, externalId: '20', sequence: 3 };
+    const cursor = { seconds: 100, externalId: '20', sequence: 3, epoch: 'epoch-1' };
     expect(isChangeAfterCursor({ seconds: 99, externalId: '99' }, cursor)).toBe(false);
     expect(isChangeAfterCursor({ seconds: 100, externalId: '19' }, cursor)).toBe(false);
     expect(isChangeAfterCursor({ seconds: 100, externalId: '21' }, cursor)).toBe(true);
@@ -33,7 +33,12 @@ describe('change cursor', () => {
     expect(() => decodeChangeCursor('not-base64-json')).toThrow(ValidationFailedError);
     expect(() =>
       decodeChangeCursor(
-        Buffer.from(JSON.stringify({ s: -1, e: '1', q: 0 })).toString('base64url'),
+        Buffer.from(JSON.stringify({ s: 0, e: '', q: 0 })).toString('base64url'),
+      ),
+    ).toThrow(ValidationFailedError);
+    expect(() =>
+      decodeChangeCursor(
+        Buffer.from(JSON.stringify({ s: -1, e: '1', q: 0, ep: 'epoch-1' })).toString('base64url'),
       ),
     ).toThrow(ValidationFailedError);
   });

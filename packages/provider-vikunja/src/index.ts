@@ -18,6 +18,12 @@ export {
   type VikunjaUser,
 } from './client.js';
 export {
+  InMemoryChangeJournalStore,
+  type ChangeJournalStore,
+  type JournalAppend,
+  type JournalRecord,
+} from './change-journal-store.js';
+export {
   EMPTY_CHANGE_CURSOR,
   compareListPosition,
   decodeChangeCursor,
