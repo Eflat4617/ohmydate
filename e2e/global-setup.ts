@@ -34,27 +34,6 @@ function uniqueSuffix(): string {
   return `${Date.now().toString(36)}-${randomBytes(4).toString('hex')}`;
 }
 
-function uuidv7(): string {
-  const now = BigInt(Date.now());
-  const bytes = randomBytes(16);
-  bytes[0] = Number((now >> 40n) & 0xffn);
-  bytes[1] = Number((now >> 32n) & 0xffn);
-  bytes[2] = Number((now >> 24n) & 0xffn);
-  bytes[3] = Number((now >> 16n) & 0xffn);
-  bytes[4] = Number((now >> 8n) & 0xffn);
-  bytes[5] = Number(now & 0xffn);
-  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x70;
-  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
-  const hex = bytes.toString('hex');
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 16),
-    hex.slice(16, 20),
-    hex.slice(20, 32),
-  ].join('-');
-}
-
 function scopedDatabaseUrl(baseUrl: string, schema: string): string {
   const url = new URL(baseUrl);
   url.searchParams.set('options', `-csearch_path=${schema}`);
@@ -186,7 +165,6 @@ async function insertOwnerAccount(options: {
   databaseUrl: string;
   ownerId: string;
   vikunjaUserId: number;
-  inboxExternalId: string;
 }): Promise<void> {
   const client = new pg.Client({ connectionString: options.databaseUrl });
   await client.connect();
@@ -195,11 +173,6 @@ async function insertOwnerAccount(options: {
       `INSERT INTO vikunja_owner_account (owner_id, vikunja_user_id, token_secret_ref)
        VALUES ($1, $2, $3)`,
       [options.ownerId, options.vikunjaUserId, 'env:VIKUNJA_TOKEN_OWNER_E2E'],
-    );
-    await client.query(
-      `INSERT INTO vikunja_mapping (entity_type, entity_id, owner_id, external_id, local_version)
-       VALUES ('project', $1, $2, $3, 1)`,
-      [uuidv7(), options.ownerId, options.inboxExternalId],
     );
   } finally {
     await client.end();
@@ -273,12 +246,7 @@ export default async function globalSetup(): Promise<void> {
   );
   const ownerId = parsePlannerUserId(createUser.stdout);
 
-  await insertOwnerAccount({
-    databaseUrl,
-    ownerId,
-    vikunjaUserId,
-    inboxExternalId: String(inbox.id),
-  });
+  await insertOwnerAccount({ databaseUrl, ownerId, vikunjaUserId });
 
   const apiPort = await freePort();
   const apiUrl = `http://127.0.0.1:${apiPort}`;
