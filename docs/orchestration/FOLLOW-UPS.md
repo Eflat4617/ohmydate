@@ -19,3 +19,5 @@
 | FU-15 | M1-05R3 | vikunja feed: fresh-epoch snapshot on first use of an owner (any read/append) or null path always snapshots mappings | MEDIUM | FU-14 task (now) |
 | FU-16 | M1-05R3 | vikunja: content fingerprint on mapping so same-second lost-response updates are detected (ETag is per-second) | MEDIUM | FU-14 task (now) |
 | FU-17 | M1-05R3 | vikunja LOWs: create follow-up spurious bump; lost-response recurring completion status; completedOccurrenceAt semantics = completed occurrence dueAt (coordinator: use dueAtBefore); concurrent null polls | LOW | FU-14 task (now) |
+| FU-18 | FU-09R / ADR-018 | Project.kind inbox (contracts, domain, migration 0002, in-memory, vikunja, api user-create, web) | MEDIUM | after M1-06 merges |
+| FU-19 | FU-09R | web: overwrite double-click (disable dialog actions while busy; rotate key only when If-Match changed); focus trap via inert/focusin; real-path overwrite test; conflictOpen counter; claim drift fixes | MEDIUM/LOW | with FU-18 web part |
