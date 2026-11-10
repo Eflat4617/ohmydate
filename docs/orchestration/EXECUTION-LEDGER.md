@@ -65,6 +65,7 @@
 |---|---|---|---|---|---|
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
+| M1-06 | ctx_4a10ac2847dc (opus-fallback) | e41237c | REQUEST_CHANGES | HIGH: 동시 동일키 500; MEDIUM×4: :action 라우트, 409/422 저장 규칙, 로그인 타이밍, 오류 코드 | 오케스트레이터 계약 변경(문제 코드 3종, 403/404/409 선언) + fix 1/2 ctx_28f5becc0d93 |
 | M1-07 | ctx_bbaaf9ea56c5 (opus-fallback) | f63af71 | **APPROVE** | FU-09..11 | **Accepted, merged de307fc** + lockfile repair; G3: 164+45 tests, build 0, ci 0 |
 | M1-05 | ctx_8337a614cdd8 (opus-fallback) | 538eeba | REQUEST_CHANGES | R1 6건 해결; HIGH: 결과 불명 쓰기(적용 후 5xx) 미재조정·반복완료 기록 유실; MEDIUM: epoch 변경 후 full resync 누락 | **fix 2/2 FINAL** ctx_f08ed070e742 |
 | M1-03 | ctx_5f2d362794c9 | 6c0e433 | **APPROVE** | FU-05..07 | **Accepted, merged e49d336**, G3: 164 pass/9 gated skip, ci 0 |
