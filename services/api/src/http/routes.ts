@@ -1,5 +1,12 @@
 import {
   routes,
+  type DecompositionDraftDto,
+  type DecompositionDraftPatch,
+  type IntakeAnswersRequest,
+  type IntakeSessionCreate,
+  type IntakeSessionDto,
+  type IntakeSessionIdParams,
+  type IntakeTypeConfirmation,
   type LoginRequest,
   type Project as ProjectDto,
   type ProjectCreate,
@@ -10,6 +17,9 @@ import {
   type TaskIdParams,
   type TaskListQuery,
   type TaskPatch,
+  type TaskTemplate,
+  type TaskTemplateIdParams,
+  type TaskTemplateListQuery,
   type User as UserDto,
   type UserSettingsPatch,
   type RouteDefinition,
@@ -39,8 +49,17 @@ import type {
   UserRepository,
 } from '../application/ports.js';
 import { AuthService } from '../application/auth-service.js';
+import { IntakeError } from '../application/intake/intake-error.js';
+import { IntakeService } from '../application/intake/intake-service.js';
+import { PgAgentRunRepository } from '../adapters/pg-agent-run-repository.js';
+import { PgIntakeSessionRepository } from '../adapters/pg-intake-session-repository.js';
+import { PgTaskTemplateRepository } from '../adapters/pg-task-template-repository.js';
 import { ProjectService } from '../application/project-service.js';
 import { TaskService } from '../application/task-service.js';
+import type { Database } from '../db/types.js';
+import type { BudgetGuard, LlmPort } from '@ohmydate/llm';
+import type { IdGenerator } from '@ohmydate/domain';
+import type { Kysely } from 'kysely';
 import {
   etagForBody,
   etagForVersion,
@@ -64,6 +83,7 @@ export interface RouteRuntime {
   readonly auth: AuthService;
   readonly projects: ProjectService;
   readonly tasks: TaskService;
+  readonly intake: IntakeService;
 }
 
 interface RouteMeta {
@@ -337,24 +357,31 @@ async function runIdempotent(
       }
     };
 
-    if (error instanceof DomainError) {
-      const problem = domainErrorToProblem(error);
-      if (problem.status === 409 || problem.status === 422) {
-        try {
-          await runtime.idempotency.complete({
-            ownerId: auth.userId,
-            key,
-            response: {
-              status: problem.status,
-              body: problemBodyFor(request, problem),
-              headers: { 'Content-Type': 'application/problem+json' },
-            },
-            outbox: [],
-          });
-        } catch {
-          await releaseQuietly();
-        }
-      } else {
+    const problem =
+      error instanceof DomainError
+        ? domainErrorToProblem(error)
+        : error instanceof IntakeError
+          ? {
+              status: error.status,
+              code: error.code,
+              title: error.title,
+              detail: error.detail,
+            }
+          : undefined;
+
+    if (problem !== undefined && (problem.status === 409 || problem.status === 422)) {
+      try {
+        await runtime.idempotency.complete({
+          ownerId: auth.userId,
+          key,
+          response: {
+            status: problem.status,
+            body: problemBodyFor(request, problem),
+            headers: { 'Content-Type': 'application/problem+json' },
+          },
+          outbox: [],
+        });
+      } catch {
         await releaseQuietly();
       }
     } else {
@@ -557,6 +584,182 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
     completeTask,
     deleteTask,
     createTaskDependency,
+    createIntakeSession: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const session = await runtime.intake.create(
+          auth.userId,
+          request.body as IntakeSessionCreate,
+        );
+        return {
+          status: 201,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    getIntakeSession: async (request, reply) => {
+      const auth = currentAuth(request);
+      const id = (request.params as IntakeSessionIdParams).id as Id;
+      const session: IntakeSessionDto = await runtime.intake.get(auth.userId, id);
+      const etag = etagForVersion(session.version);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(session);
+    },
+    answerIntakeQuestions: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const expected = requireIfMatch(request);
+        const session = await runtime.intake.submitAnswers(
+          auth.userId,
+          id,
+          request.body as IntakeAnswersRequest,
+          expected,
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    confirmIntakeType: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const expected = requireIfMatch(request);
+        const session = await runtime.intake.confirmType(
+          auth.userId,
+          id,
+          request.body as IntakeTypeConfirmation,
+          expected,
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    getIntakeDraft: async (request, reply) => {
+      const auth = currentAuth(request);
+      const id = (request.params as IntakeSessionIdParams).id as Id;
+      const result = await runtime.intake.getDraft(auth.userId, id);
+      const etag = etagForVersion(result.version);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(result.draft);
+    },
+    updateIntakeDraft: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const expected = requireIfMatch(request);
+        const result = await runtime.intake.patchDraft(
+          auth.userId,
+          id,
+          request.body as DecompositionDraftPatch,
+          expected,
+        );
+        return {
+          status: 200,
+          body: result.draft as DecompositionDraftDto,
+          headers: { ETag: etagForVersion(result.version) },
+        };
+      }),
+    approveIntakeDraft: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const expected = requireIfMatch(request);
+        const result = await runtime.intake.approveDraft(auth.userId, id, expected);
+        return {
+          status: 200,
+          body: result.session,
+          headers: { ETag: etagForVersion(result.session.version) },
+          outbox: result.tasks.map((task) => ({
+            topic: 'task.created',
+            taskId: task.id,
+            version: task.version,
+          })),
+        };
+      }),
+    pauseIntakeSession: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const session = await runtime.intake.pause(
+          auth.userId,
+          id,
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    resumeIntakeSession: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const session = await runtime.intake.resume(
+          auth.userId,
+          id,
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    cancelIntakeSession: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const session = await runtime.intake.cancel(
+          auth.userId,
+          id,
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    enterManualIntakeMode: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const session = await runtime.intake.enterManual(
+          auth.userId,
+          id,
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    listTaskTemplates: async (request, reply) => {
+      const auth = currentAuth(request);
+      const page = await runtime.intake.listTemplates(
+        auth.userId,
+        request.query as TaskTemplateListQuery,
+      );
+      const body = { items: page.items, nextCursor: page.nextCursor };
+      const etag = etagForBody(body);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(body);
+    },
+    getTaskTemplate: async (request, reply) => {
+      const auth = currentAuth(request);
+      const id = (request.params as TaskTemplateIdParams).id as Id;
+      const template: TaskTemplate = await runtime.intake.getTemplate(auth.userId, id);
+      const etag = etagForVersion(template.version);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(template);
+    },
   };
 }
 
@@ -669,12 +872,26 @@ export function registerRoutes(app: FastifyInstance, runtime: RouteRuntime): voi
 export function createRuntime(options: {
   config: AppConfig;
   clock: Clock;
+  ids: IdGenerator;
+  db: Kysely<Database>;
   users: UserRepository;
   sessions: SessionStore;
   idempotency: IdempotencyStore;
   auth: AuthService;
   repos: AppRepositories;
+  llm: LlmPort | null;
+  budgetGuard: BudgetGuard;
 }): RouteRuntime {
+  const intake = new IntakeService({
+    clock: options.clock,
+    ids: options.ids,
+    sessions: new PgIntakeSessionRepository(options.db, options.clock, options.ids),
+    templates: new PgTaskTemplateRepository(options.db),
+    agentRuns: new PgAgentRunRepository(options.db),
+    tasks: options.repos.tasks,
+    llm: options.llm,
+    budgetGuard: options.budgetGuard,
+  });
   return {
     config: options.config,
     clock: options.clock,
@@ -684,6 +901,7 @@ export function createRuntime(options: {
     auth: options.auth,
     projects: new ProjectService(options.repos.projects),
     tasks: new TaskService(options.repos.tasks),
+    intake,
   };
 }
 

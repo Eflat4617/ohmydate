@@ -1,6 +1,7 @@
 import cookie from '@fastify/cookie';
 import { registerIanaTimeZoneFormat } from '@ohmydate/contracts';
 import { DomainError, type Clock, type IdGenerator } from '@ohmydate/domain';
+import { BudgetGuard, FakeLlm, type LlmPort } from '@ohmydate/llm';
 import Fastify, {
   type FastifyInstance,
   type FastifyServerOptions,
@@ -13,8 +14,12 @@ import { AuthService } from './application/auth-service.js';
 import { Argon2PasswordHasher } from './adapters/argon2-password-hasher.js';
 import { InMemoryLoginRateLimiter } from './adapters/in-memory-login-rate-limiter.js';
 import { InMemorySessionStore } from './adapters/in-memory-session-store.js';
+import { PgAgentRunRepository } from './adapters/pg-agent-run-repository.js';
 import { PgIdempotencyStore } from './adapters/pg-idempotency-store.js';
+import { PgIntakeSessionRepository } from './adapters/pg-intake-session-repository.js';
+import { PgTaskTemplateRepository } from './adapters/pg-task-template-repository.js';
 import { PgUserRepository } from './adapters/pg-user-repository.js';
+import { IntakeError } from './application/intake/intake-error.js';
 import { createVikunjaRepositories } from './adapters/vikunja/composition.js';
 import { listReconcilerOwnerIds } from './adapters/vikunja/owner-accounts.js';
 import {
@@ -59,6 +64,13 @@ export interface BuildAppOptions {
   readonly loggerInstance?: LoggerInstanceOption;
   /** Test override for forcing idempotency-store failures. */
   readonly idempotency?: IdempotencyStore;
+  /**
+   * Injected LLM adapter. Default composition uses FakeLlm only when
+   * `LLM_PROVIDER=fake`; otherwise no provider is wired (GB-1 pending).
+   */
+  readonly llm?: LlmPort;
+  /** Test override for the fail-closed budget guard. */
+  readonly budgetGuard?: BudgetGuard;
   /**
    * Test override for the reconciler's advisory-lock key. Production uses the
    * stable VIKUNJA_RECONCILE_ADVISORY_LOCK_KEY; a distinct key lets parallel
@@ -201,6 +213,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         error.errors,
       );
     }
+    if (error instanceof IntakeError) {
+      return sendProblem(request, reply, error.status, error.code, error.title, error.detail);
+    }
     if (error instanceof DomainError) {
       const problem = domainErrorToProblem(error);
       if (problem.status === 500) {
@@ -281,14 +296,30 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     repos = (await createVikunjaRepositories({ db, config, clock, ids })).repos;
   }
 
+  const llm =
+    options.llm ?? (config.llmProvider === 'fake' ? new FakeLlm() : null);
+  const budgetGuard =
+    options.budgetGuard ??
+    new BudgetGuard(
+      {
+        dailyUsd: config.llmDailyBudgetUsd,
+        monthlyUsd: config.llmMonthlyBudgetUsd,
+      },
+      { allowUnpricedModels: ['fake-llm'] },
+    );
+
   const runtime = createRuntime({
     config,
     clock,
+    ids,
+    db,
     users,
     sessions,
     idempotency,
     auth,
     repos,
+    llm,
+    budgetGuard,
   });
 
   registerHealthRoutes(app, config, db);

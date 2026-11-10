@@ -336,6 +336,9 @@ importers:
       '@ohmydate/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@ohmydate/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
       '@ohmydate/provider-vikunja':
         specifier: workspace:*
         version: link:../../packages/provider-vikunja
