@@ -18,6 +18,8 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 | **Orca 런타임 장애 및 복구:** 06:10경 그래픽 세션 종료(GDM greeter)로 Orca 앱 런타임 소실 → CLI runtime_unavailable(BLOCKED: ORCA_RUNTIME). 데몬·워커 프로세스는 생존. `xvfb-run -a dbus-run-session -- orca serve --bind 127.0.0.1 --no-pairing --refuse-public`로 로컬 전용 헤드리스 런타임 기동 → ready(ws://127.0.0.1:6768), Run/Task/Dispatch 상태 보존, 대기 중이던 worker_done 3건 정상 수신. 직전 부하 평균 206 급증(동시 테스트+시스템 업데이트) 관측 | orca status, serve log | orchestrator |
+| 2026-11-11 | M3-02 체인 BLOCKED(R3 HIGH: 진행 중 비분할 작업 remainingMin=0 표현 불가) → 범위 축소 M3-02c | M3-02R-3 | orchestrator |
 | 2026-11-11 | 라이선스 기록: @axe-core/playwright·axe-core = MPL-2.0, E2E 개발/테스트 전용(배포 안 함) → 허용. 루트 devDependencies 2개(@playwright/test, @axe-core/playwright) 추가는 e2e 스크립트에 필수라 범위 초과 승인 (M1-08R LOW-5/6) | M1-08R-1 | orchestrator |
 | 2026-11-11 | 성능 단언 best-of-5 전환 승인: 임계값 동일, 2차 시간 회귀는 5회 모두 실패하므로 약화 아님; 부하 플레이크 제거 목적 (FU-24R-2 LOW) | FU-24R-2 | orchestrator |
 | 2026-11-11 | M1-10R HIGH(FU-22 미배선) 처리: M1-10은 재조정기 기본 OFF로 노출 제거, CAS 호출 배선은 이미 배정된 FU-23이 담당(같은 파일 동시 편집 회피). FU-23 병합 후 재조정기 기본 ON 재검토 | M1-10R-1 | orchestrator |
@@ -71,6 +73,8 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-30 | ctx_469f7ad52705 (opus-fallback) | 86a4629 | **APPROVE** | FU-35 | merging |
+| M3-02 | ctx_9bf783255b42 (opus-fallback) | 8577453 | REQUEST_CHANGES | R2 HIGH 해결; HIGH: 비분할 진행 중 작업 H5 불가; MEDIUM: deficit 이력 포함, 성능 단언 게이팅=약화 | **체인 BLOCKED** → M3-02c |
 | FU-28 | ctx_5edc8b1d55db (opus-fallback) | 881384f | **APPROVE** (기본 ON GO) | FU-33 | **Accepted, merged 194b747**; G3 900 pass/27 skip + web 68, ci 0 |
 | FU-24 | ctx_17d53a27d228 (opus-fallback) | 257b328 | **APPROVE** | FU-32 (GB-1 마지막 게이트) | **Accepted, merged 08512de**; G3 891 pass/27 skip + web 68, ci 0 |
 | M1-08 | ctx_58ac44891763 (opus-fallback) | bf5b686 | **APPROVE — M1 마일스톤 G4 통과** | FU-30/31 | **Accepted, merged**; 통합 브랜치에서 ci 0 (809+68) + `pnpm run e2e` 4/4 passed; lint ignore 수정(오케스트레이터) |
