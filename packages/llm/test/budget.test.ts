@@ -152,13 +152,36 @@ test('real-model usage with a non-finite cost exhausts the guard', () => {
   expect(guard.isExhausted()).toBe(true);
 });
 
-test('fake models may omit costUsd without exhausting the guard', () => {
+test('fake models may omit costUsd only when explicitly allow-listed', () => {
+  const guard = new BudgetGuard(
+    { dailyUsd: 1, monthlyUsd: 10 },
+    { allowUnpricedModels: ['fake-llm'] },
+    at('2026-11-11T12:00:00.000Z'),
+  );
+  guard.record({ inputTokens: 100_000, outputTokens: 100_000 }, { model: 'fake-llm' });
+  expect(guard.isExhausted()).toBe(false);
+  expect(() => guard.assertCanSpend()).not.toThrow();
+});
+
+test('a fake-prefixed model is not exempt without an exact allow-list match', () => {
   const guard = new BudgetGuard(
     { dailyUsd: 1, monthlyUsd: 10 },
     {},
     at('2026-11-11T12:00:00.000Z'),
   );
   guard.record({ inputTokens: 100_000, outputTokens: 100_000 }, { model: 'fake-llm' });
-  expect(guard.isExhausted()).toBe(false);
-  expect(() => guard.assertCanSpend()).not.toThrow();
+  expect(guard.isExhausted()).toBe(true);
+  expect(() => guard.assertCanSpend()).toThrow(
+    expect.objectContaining({ reason: 'unpriced_usage' }),
+  );
+});
+
+test('the unpriced allow-list requires an exact model match', () => {
+  const guard = new BudgetGuard(
+    { dailyUsd: 1, monthlyUsd: 10 },
+    { allowUnpricedModels: ['fake-llm'] },
+    at('2026-11-11T12:00:00.000Z'),
+  );
+  guard.record({ inputTokens: 100_000, outputTokens: 100_000 }, { model: 'fake-llm-real' });
+  expect(guard.isExhausted()).toBe(true);
 });

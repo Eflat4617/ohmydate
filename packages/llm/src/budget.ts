@@ -13,10 +13,15 @@ export interface BudgetGuardInit {
   readonly spentThisMonthUsd?: number;
   readonly dayKey?: string;
   readonly monthKey?: string;
+  /**
+   * Exact model names allowed to omit `costUsd`. Tests opt in with `['fake-llm']`;
+   * production guards must leave this empty so an unpriced real response fails closed.
+   */
+  readonly allowUnpricedModels?: readonly string[];
 }
 
 export interface BudgetRecordOptions {
-  /** Provider model name; fake models are allowed to omit `costUsd`. */
+  /** Provider model name used for the exact unpriced-model allow-list match. */
   readonly model?: string;
 }
 
@@ -52,6 +57,7 @@ export class BudgetGuard {
   private dayKey: string;
   private monthKey: string;
   private exhausted = false;
+  private readonly unpricedModels: ReadonlySet<string>;
 
   constructor(
     readonly limits: Readonly<Partial<LlmBudget>>,
@@ -65,6 +71,7 @@ export class BudgetGuard {
     this.monthKey = init.monthKey ?? monthKeyOf(current);
     this.spentTodayUsd = init.spentTodayUsd ?? 0;
     this.spentThisMonthUsd = init.spentThisMonthUsd ?? 0;
+    this.unpricedModels = new Set(init.allowUnpricedModels ?? []);
   }
 
   private rollover(): void {
@@ -127,15 +134,16 @@ export class BudgetGuard {
   }
 
   /**
-   * Record usage. Missing/non-finite/negative cost from a non-fake model marks the guard
-   * exhausted (fail closed); fake models may omit `costUsd`.
+   * Record usage. Missing/non-finite/negative cost from a model outside the explicit
+   * unpriced allow-list marks the guard exhausted (fail closed). Recovering from
+   * exhaustion requires constructing a new guard; rollover does not reset the flag.
    */
   record(cost: number | LlmUsage | undefined, options: BudgetRecordOptions = {}): void {
     const usd = typeof cost === 'number' ? cost : cost?.costUsd;
-    const fakeModel = options.model !== undefined && (options.model === 'fake-llm' || options.model.startsWith('fake'));
+    const unpricedAllowed = options.model !== undefined && this.unpricedModels.has(options.model);
 
     if (usd === undefined || !Number.isFinite(usd) || usd < 0) {
-      if (!fakeModel) this.exhausted = true;
+      if (!unpricedAllowed) this.exhausted = true;
       return;
     }
     if (usd === 0) return;

@@ -1,4 +1,5 @@
 import { buildUntrustedBlock, redact } from '../src/index.js';
+import { mergeSpans } from '../src/privacy.js';
 
 test('masks emails', () => {
   const input = 'Contact me at jane.doe+plan@example.co.kr before Friday.';
@@ -50,6 +51,13 @@ const phoneFormats = [
   '010－1234－5678',
   '＋82 10-1234-5678',
   '010\u200B-1234-5678',
+  '010\u22121234\u22125678',
+  '010\u00B71234\u00B75678',
+  '0082-10-1234-5678',
+  '001-82-10-1234-5678',
+  '82-10-1234-5678',
+  '(+82) 10-1234-5678',
+  '+82-(0)2-123-4567',
 ];
 
 test.each(phoneFormats)('masks phone format %s without leaking it', (format) => {
@@ -74,6 +82,7 @@ const rrnFormats = [
   '900101 - 1234567',
   '90010\u200B1–1234567',
   '９００１０１－１２３４５６７',
+  '900101\u22121234567',
 ];
 
 test.each(rrnFormats)('masks RRN format %s without leaking it', (format) => {
@@ -94,6 +103,7 @@ test('masks API-key-like tokens', () => {
     'AIzaSyA1234567890abcdefghijklmnopqrstuvw',
     'glpat-abcdefghij1234567890',
     'Bearer eyJhbGciOi.eyJzdWIiOi.SflKxwRJSM',
+    'bearer eyJhbGciOi.eyJzdWIiOi.SflKxwRJSM',
   ];
   for (const token of tokens) {
     const result = redact(`token=${token}`);
@@ -139,12 +149,85 @@ test.each(advancedEmailFormats)('masks the whole advanced email address %s', (fo
   expect(JSON.stringify(result.report)).not.toContain(format);
 });
 
+interface BoundaryRegression {
+  readonly input: string;
+  readonly output: string;
+  readonly kind: 'rrn' | 'phone';
+  readonly count?: number;
+}
+
+const boundaryRegressions: readonly BoundaryRegression[] = [
+  { input: '900101-1234567³', output: '[REDACTED_RRN]³', kind: 'rrn' },
+  { input: '주민번호:900101-1234567¹', output: '주민번호:[REDACTED_RRN]¹', kind: 'rrn' },
+  { input: '②900101-1234567', output: '②[REDACTED_RRN]', kind: 'rrn' },
+  { input: '010-1234-5678²', output: '[REDACTED_PHONE]²', kind: 'phone' },
+  { input: '010-1234-5678⁰', output: '[REDACTED_PHONE]⁰', kind: 'phone' },
+  { input: '①010-1234-5678', output: '①[REDACTED_PHONE]', kind: 'phone' },
+  { input: '㉑010-1234-5678', output: '㉑[REDACTED_PHONE]', kind: 'phone' },
+  { input: '010-1234-5678㉑', output: '[REDACTED_PHONE]㉑', kind: 'phone' },
+  { input: '02-123-4567²', output: '[REDACTED_PHONE]²', kind: 'phone' },
+  {
+    input: '010-1234-5678\u200B010-9876-5432',
+    output: '[REDACTED_PHONE]\u200B[REDACTED_PHONE]',
+    kind: 'phone',
+    count: 2,
+  },
+  { input: '1\u200B010-1234-5678', output: '1\u200B[REDACTED_PHONE]', kind: 'phone' },
+  { input: '900101-1234567\u200B2', output: '[REDACTED_RRN]\u200B2', kind: 'rrn' },
+];
+
+test.each(boundaryRegressions)(
+  'evaluates digit boundaries against original characters for $input',
+  ({ input, output, kind, count }) => {
+    const result = redact(input);
+    expect(result.text).toBe(output);
+    expect(result.report).toEqual([{ kind, count: count ?? 1 }]);
+    expect(result.text).not.toContain(input);
+  },
+);
+
+const defaultIgnorables = [
+  '\u200E',
+  '\u200F',
+  '\u202C',
+  '\u2061',
+  '\u2062',
+  '\u2063',
+  '\u2064',
+  '\u2066',
+  '\u2069',
+  '\u034F',
+  '\uFE0F',
+  '\u180E',
+  '\u{E0020}',
+];
+
+test.each(defaultIgnorables)(
+  'strips default-ignorable code point %# between digits',
+  (ignorable) => {
+    const result = redact(`010${ignorable}-1234-5678`);
+    expect(result.text).toBe('[REDACTED_PHONE]');
+    expect(result.report).toEqual([{ kind: 'phone', count: 1 }]);
+  },
+);
+
 const knownLimitations = [
   { name: '[at]/[dot] obfuscation', text: 'jane [at] example [dot] com' },
   { name: 'Hangul digits', text: '일공일-일이삼사-오육칠팔' },
   { name: 'business number', text: '1588-1234' },
   { name: 'unbalanced international paren', text: '+82)10-1234-5678' },
   { name: 'spaced at-sign email', text: 'jane @ example.com' },
+  { name: 'ideographic full stop domain', text: 'jane@example\u3002com' },
+  { name: 'IDN domain', text: 'jane@exämple.com' },
+  { name: 'quoted local part', text: '"jane.doe"@example.com' },
+  { name: 'opaque bearer token', text: 'bearer opaque-token-value' },
+  {
+    name: 'bare JWT',
+    text: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefgh',
+  },
+  { name: 'AIza with more than 40 trailing characters', text: `AIza${'A'.repeat(50)}` },
+  { name: 'tilde separator', text: '010~1234~5678' },
+  { name: 'combining accent inside digits', text: '010\u0301-1234-5678' },
 ];
 
 test.each(knownLimitations)(
@@ -177,6 +260,65 @@ test('text without secrets is returned unchanged with an empty report', () => {
   const result = redact('No personal data here, just a plan.');
   expect(result.text).toBe('No personal data here, just a plan.');
   expect(result.report).toEqual([]);
+});
+
+test('merges overlapping spans into their union instead of dropping the earlier match', () => {
+  expect(
+    mergeSpans([
+      { start: 0, end: 10, kind: 'email' },
+      { start: 6, end: 14, kind: 'email' },
+    ]),
+  ).toEqual([{ start: 0, end: 14, kind: 'email' }]);
+  expect(
+    mergeSpans([
+      { start: 0, end: 5, kind: 'phone' },
+      { start: 5, end: 9, kind: 'rrn' },
+    ]),
+  ).toEqual([
+    { start: 0, end: 5, kind: 'phone' },
+    { start: 5, end: 9, kind: 'rrn' },
+  ]);
+});
+
+test('known limitation: a partial mask remains after nine domain labels', () => {
+  const text = 'x@a.b.c.d.e.f.g.h.i.j.kr';
+  const result = redact(text);
+  expect(result.report).toEqual([{ kind: 'email', count: 1 }]);
+  expect(result.text).toBe('[REDACTED_EMAIL].j.kr');
+});
+
+const perfInputs = [
+  {
+    label: '15K emails in 105KB',
+    text: 'a@b.cd '.repeat(15_000),
+    expect: { kind: 'email', count: 15_000 },
+  },
+  {
+    label: '10K phones in 110KB',
+    text: '0101234567 '.repeat(10_000),
+    expect: { kind: 'phone', count: 10_000 },
+  },
+  {
+    label: '100KB astral emoji',
+    text: '😀'.repeat(50_000),
+    expect: undefined,
+  },
+  {
+    label: '200KB contact CSV',
+    text: 'Kim,010-1234-5678,kim@example.com\n'.repeat(6_000),
+    expect: { kind: 'phone', count: 6_000 },
+  },
+] as const;
+
+test.each(perfInputs)('redaction of many matches stays under 50ms on $label', ({ text, expect: expected }) => {
+  redact(text.slice(0, 1_000));
+  const start = performance.now();
+  const result = redact(text);
+  const elapsed = performance.now() - start;
+  if (expected !== undefined) {
+    expect(result.report).toContainEqual(expected);
+  }
+  expect(elapsed).toBeLessThan(50);
 });
 
 const closingTagVariants = [
