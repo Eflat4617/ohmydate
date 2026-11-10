@@ -17,6 +17,18 @@ export type IanaTimeZone = Brand<string, 'IanaTimeZone'>;
 
 export type Version = Brand<number, 'Version'>;
 
+/** Lowest supported Instant: 1970-01-01T00:00:00.000Z. */
+export const MIN_INSTANT_MS = 0;
+
+/** Highest supported Instant: 9999-12-31T23:59:59.999Z. */
+export const MAX_INSTANT_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+
+const IANA_TIME_ZONES: ReadonlySet<string> = new Set([
+  ...Intl.supportedValuesOf('timeZone'),
+  'UTC',
+  'Etc/UTC',
+]);
+
 const UUID_V7_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -49,14 +61,9 @@ export function isInstant(value: unknown): value is Instant {
   ) {
     return false;
   }
-  const timestamp = Date.UTC(
-    Number(year),
-    Number(month) - 1,
-    Number(day),
-    Number(hour),
-    Number(minute),
-    Number(second),
-  );
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return false;
+  if (timestamp < MIN_INSTANT_MS || timestamp > MAX_INSTANT_MS) return false;
   const parsed = new Date(timestamp);
   return (
     parsed.getUTCFullYear() === Number(year) &&
@@ -78,13 +85,7 @@ export function assertInstant(value: unknown, path = 'instant'): Instant {
 }
 
 export function isIanaTimeZone(value: unknown): value is IanaTimeZone {
-  if (typeof value !== 'string' || value.length === 0) return false;
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
+  return typeof value === 'string' && IANA_TIME_ZONES.has(value);
 }
 
 export function assertIanaTimeZone(value: unknown, path = 'timeZone'): IanaTimeZone {

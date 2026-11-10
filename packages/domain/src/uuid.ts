@@ -5,6 +5,7 @@ import { instantToEpochMs } from './time.js';
 export type RandomBytes = (length: number) => Uint8Array;
 
 const MAX_RAND_A = 0xfff;
+const MAX_TIMESTAMP_MS = 0xffffffffffff;
 const HEX = '0123456789abcdef';
 
 function assertRandomBytes(bytes: Uint8Array, length: number): Uint8Array {
@@ -27,8 +28,8 @@ function formatUuid(bytes: Uint8Array): Id {
 }
 
 function writeTimestamp(bytes: Uint8Array, nowMs: number): void {
-  if (!Number.isInteger(nowMs) || nowMs < 0 || nowMs > Number.MAX_SAFE_INTEGER) {
-    throw new RangeError('nowMs must be a non-negative integer');
+  if (!Number.isInteger(nowMs) || nowMs < 0 || nowMs > MAX_TIMESTAMP_MS) {
+    throw new RangeError('nowMs must be an integer between 0 and 0xffffffffffff');
   }
   const timestamp = BigInt(nowMs);
   bytes[0] = Number((timestamp >> 40n) & 0xffn);

@@ -1,5 +1,5 @@
 import { Type, type Static } from '@sinclair/typebox';
-import { IdSchema, InstantSchema, VersionSchema } from './common.js';
+import { IanaTimeZoneSchema, IdSchema, InstantSchema, VersionSchema } from './common.js';
 
 export const LoginRequestSchema = Type.Object(
   {
@@ -13,7 +13,7 @@ export const UserSchema = Type.Object(
   {
     id: IdSchema,
     email: Type.String({ format: 'email', maxLength: 320 }),
-    timeZone: Type.String({ minLength: 1 }),
+    timeZone: IanaTimeZoneSchema,
     locale: Type.String({ minLength: 2, maxLength: 35 }),
     version: VersionSchema,
     createdAt: InstantSchema,
@@ -24,7 +24,7 @@ export const UserSchema = Type.Object(
 
 export const UserSettingsPatchSchema = Type.Object(
   {
-    timeZone: Type.Optional(Type.String({ minLength: 1 })),
+    timeZone: Type.Optional(IanaTimeZoneSchema),
     locale: Type.Optional(Type.String({ minLength: 2, maxLength: 35 })),
   },
   { additionalProperties: false, $id: 'UserSettingsPatch' },

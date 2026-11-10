@@ -55,3 +55,27 @@ test('cycle path nodes are branded ids from the graph', () => {
   const cycle = cycleOf([edge(a, b), edge(b, a)]);
   for (const id of cycle) expect([a, b]).toContain(id);
 });
+
+
+test('a 50,000-node valid chain passes without recursion overflow', () => {
+  const edges: DependencyEdge[] = [];
+  for (let index = 0; index < 50_000; index += 1) {
+    edges.push(edge(`n${index}` as Id, `n${index + 1}` as Id));
+  }
+  expect(() => assertAcyclic(edges)).not.toThrow();
+});
+
+test('a 50,000-node chain with a closing edge reports the full cycle', () => {
+  const edges: DependencyEdge[] = [];
+  for (let index = 0; index < 50_000; index += 1) {
+    edges.push(edge(`n${index}` as Id, `n${index + 1}` as Id));
+  }
+  edges.push(edge('n50000' as Id, 'n0' as Id));
+
+  const cycle = cycleOf(edges);
+  expect(cycle).toHaveLength(50_002);
+  expect(cycle[0]).toBe('n0');
+  expect(cycle[1]).toBe('n1');
+  expect(cycle[cycle.length - 2]).toBe('n50000');
+  expect(cycle[cycle.length - 1]).toBe('n0');
+});

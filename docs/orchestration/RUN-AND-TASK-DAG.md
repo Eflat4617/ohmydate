@@ -92,3 +92,5 @@ orca orchestration gate-resolve --id <GATE_ID> --resolution "<user answer>" --js
 | M1-07 | M1-02 merged | opencode | E/F (동시성 2 유지) |
 | M1-08 | M1-05..07 merged | opencode | G |
 | M1-09 | GD-1 | opencode | 여유 슬롯 |
+
+> **주의(2026-11-11 확인):** `orca orchestration inbox`는 `--full` 없이 본문을 ~280자로 자른다. 리뷰 보관·claims 추출은 반드시 `inbox --full`.

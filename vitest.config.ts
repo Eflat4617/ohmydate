@@ -8,6 +8,7 @@ export default defineConfig({
       'apps/**/test/**/*.test.ts',
       'services/**/test/**/*.test.ts',
       'packages/**/test/**/*.test.ts',
+      'scripts/**/*.test.{ts,mjs,cjs}',
     ],
     exclude: ['**/node_modules/**', '**/dist/**', '**/coverage/**'],
     passWithNoTests: false,

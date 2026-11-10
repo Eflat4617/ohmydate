@@ -9,6 +9,8 @@ export {
   isInstant,
   isUuidV7,
   isVersion,
+  MAX_INSTANT_MS,
+  MIN_INSTANT_MS,
   type Brand,
   type IanaTimeZone,
   type Id,

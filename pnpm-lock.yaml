@@ -159,7 +159,7 @@ snapshots:
 lockfileVersion: '9.0'
 
 settings:
-  autoInstallPeers: true
+  autoInstallPeers: false
   excludeLinksFromLockfile: false
 
 importers:
@@ -192,6 +192,9 @@ importers:
 
   packages/contracts:
     dependencies:
+      '@ohmydate/domain':
+        specifier: workspace:*
+        version: link:../domain
       '@sinclair/typebox':
         specifier: 0.34.52
         version: 0.34.52

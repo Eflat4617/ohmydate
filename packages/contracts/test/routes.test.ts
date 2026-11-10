@@ -1,6 +1,107 @@
-import { routes } from '../src/index.js';
+import { ProblemSchema, routes, type RouteDefinition } from '../src/index.js';
+import { compile } from './ajv.js';
+
+const ID = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55';
+
+interface ExpectedRoute {
+  readonly requiredHeaders: readonly string[];
+  readonly optionalHeaders: readonly string[];
+  readonly statuses: readonly number[];
+}
+
+const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
+  login: {
+    requiredHeaders: [],
+    optionalHeaders: [],
+    statuses: [204, 400, 401, 429],
+  },
+  logout: {
+    requiredHeaders: [],
+    optionalHeaders: [],
+    statuses: [204, 401],
+  },
+  getMe: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401],
+  },
+  updateMySettings: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 412, 422, 428],
+  },
+  listProjects: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 422],
+  },
+  createProject: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 409, 422],
+  },
+  listTasks: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 422, 503],
+  },
+  createTask: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 422, 503],
+  },
+  getTask: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 404, 503],
+  },
+  updateTask: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 404, 409, 412, 422, 428, 503],
+  },
+  completeTask: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 404, 409, 412, 422, 428, 503],
+  },
+  deleteTask: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [204, 400, 401, 404, 409, 412, 422, 428, 503],
+  },
+  createTaskDependency: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 404, 409, 412, 422, 428, 503],
+  },
+};
 
 const keyOf = (method: string, path: string): string => `${method.toUpperCase()} ${path}`;
+
+interface HeaderShape {
+  readonly properties?: Readonly<Record<string, unknown>>;
+  readonly required?: readonly string[];
+}
+
+function headerShape(route: RouteDefinition): HeaderShape {
+  return (route.headers ?? {}) as HeaderShape;
+}
+
+function validHeaders(route: RouteDefinition): Record<string, string> {
+  const headers: Record<string, string> = {};
+  for (const name of Object.keys(headerShape(route).properties ?? {})) {
+    if (name === 'If-Match' || name === 'If-None-Match') headers[name] = 'W/"3"';
+    if (name === 'Idempotency-Key') headers[name] = ID;
+  }
+  return headers;
+}
+
+function invalidHeader(name: string): string {
+  if (name === 'If-Match') return '3';
+  if (name === 'If-None-Match') return '';
+  return 'not-a-uuid';
+}
 
 test('route table covers auth and account endpoints from 08 §2.1', () => {
   const keys = new Set(routes.map((route) => keyOf(route.method, route.path)));
@@ -31,33 +132,116 @@ test('route table covers task and project endpoints from 08 §2.2', () => {
   }
 });
 
-test('problem responses cover the required error statuses', () => {
-  const statuses = new Set<number>();
+test('every route matches the explicit header and status matrix', () => {
+  expect(routes.map((route) => route.operationId).sort()).toEqual(Object.keys(EXPECTED).sort());
+
   for (const route of routes) {
-    for (const status of Object.keys(route.responses)) statuses.add(Number(status));
-  }
-  for (const status of [400, 401, 404, 409, 412, 422, 428, 503]) {
-    expect({ status, present: statuses.has(status) }).toEqual({ status, present: true });
+    const expected = EXPECTED[route.operationId];
+    expect(expected).toBeDefined();
+    if (expected === undefined) continue;
+
+    const shape = headerShape(route);
+    expect({
+      route: route.operationId,
+      required: [...(shape.required ?? [])].sort(),
+    }).toEqual({ route: route.operationId, required: [...expected.requiredHeaders].sort() });
+    expect({
+      route: route.operationId,
+      headers: Object.keys(shape.properties ?? {}).sort(),
+    }).toEqual({
+      route: route.operationId,
+      headers: [...expected.requiredHeaders, ...expected.optionalHeaders].sort(),
+    });
+    expect({
+      route: route.operationId,
+      statuses: Object.keys(route.responses)
+        .map(Number)
+        .sort((left, right) => left - right),
+    }).toEqual({ route: route.operationId, statuses: [...expected.statuses] });
   }
 });
 
-test('mutating routes require If-Match or Idempotency-Key headers', () => {
+test('each declared header schema rejects missing and invalid required headers', () => {
   for (const route of routes) {
-    if (route.method === 'get' || route.path === '/auth/login' || route.path === '/auth/logout') {
-      continue;
+    if (route.headers === undefined) continue;
+    const shape = headerShape(route);
+    const validate = compile(route.headers);
+    const valid = validHeaders(route);
+
+    expect({ route: route.operationId, valid: validate(valid) }).toEqual({
+      route: route.operationId,
+      valid: true,
+    });
+    expect({
+      route: route.operationId,
+      extra: validate({ ...valid, 'X-Unknown': 'value' }),
+    }).toEqual({ route: route.operationId, extra: false });
+
+    for (const name of shape.required ?? []) {
+      const missing = { ...valid };
+      delete missing[name];
+      expect({ route: route.operationId, header: name, missing: validate(missing) }).toEqual({
+        route: route.operationId,
+        header: name,
+        missing: false,
+      });
     }
-    expect({ route: `${route.method} ${route.path}`, hasHeaders: route.headers !== undefined }).toEqual(
-      { route: `${route.method} ${route.path}`, hasHeaders: true },
-    );
+
+    for (const name of Object.keys(shape.properties ?? {})) {
+      expect({
+        route: route.operationId,
+        header: name,
+        invalid: validate({ ...valid, [name]: invalidHeader(name) }),
+      }).toEqual({ route: route.operationId, header: name, invalid: false });
+    }
   }
 });
 
-test('every route declares an operation id and at least one response', () => {
-  const operationIds = new Set<string>();
-  for (const route of routes) {
-    expect(route.operationId.length).toBeGreaterThan(0);
-    expect(Object.keys(route.responses).length).toBeGreaterThan(0);
-    expect(operationIds.has(route.operationId)).toBe(false);
-    operationIds.add(route.operationId);
+test('existing-resource mutations require both If-Match and Idempotency-Key', () => {
+  for (const operationId of [
+    'updateMySettings',
+    'updateTask',
+    'completeTask',
+    'deleteTask',
+    'createTaskDependency',
+  ]) {
+    const route = routes.find((candidate) => candidate.operationId === operationId);
+    expect(route).toBeDefined();
+    expect([...(headerShape(route as RouteDefinition).required ?? [])].sort()).toEqual([
+      'Idempotency-Key',
+      'If-Match',
+    ]);
   }
+});
+
+test('creation POSTs require Idempotency-Key without If-Match', () => {
+  for (const operationId of ['createProject', 'createTask']) {
+    const route = routes.find((candidate) => candidate.operationId === operationId);
+    expect(route).toBeDefined();
+    expect(headerShape(route as RouteDefinition).required).toEqual(['Idempotency-Key']);
+  }
+});
+
+test('every problem status declares a Problem schema', () => {
+  for (const route of routes) {
+    for (const [status, response] of Object.entries(route.responses)) {
+      if (Number(status) < 400) continue;
+      expect({ route: route.operationId, status, hasSchema: response.schema !== undefined }).toEqual({
+        route: route.operationId,
+        status,
+        hasSchema: true,
+      });
+    }
+  }
+});
+
+test('getMe rejects empty If-None-Match and declares a 400 Problem', () => {
+  const route = routes.find((candidate) => candidate.operationId === 'getMe');
+  expect(route).toBeDefined();
+  if (route === undefined || route.headers === undefined) throw new Error('getMe headers missing');
+
+  const validate = compile(route.headers);
+  expect(validate({ 'If-None-Match': '' })).toBe(false);
+  expect(validate({ 'If-None-Match': 'W/"3"' })).toBe(true);
+  expect(route.responses[400]?.schema).toBe(ProblemSchema);
 });
