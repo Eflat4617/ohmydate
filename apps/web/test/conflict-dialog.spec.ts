@@ -99,6 +99,25 @@ describe('ConflictDialog', () => {
     wrapper.unmount();
   });
 
+  it('reclaims focus that escapes the dialog', async () => {
+    const wrapper = mount(ConflictDialog, {
+      props: { serverVersion: 2, serverTitle: 'Server', localTitle: 'Local' },
+      attachTo: document.body,
+    });
+    await nextTick();
+    await nextTick();
+
+    const outside = document.createElement('button');
+    outside.textContent = 'Outside';
+    document.body.appendChild(outside);
+    outside.focus();
+
+    expect(document.activeElement).toBe(wrapper.findAll('button')[0]?.element);
+
+    outside.remove();
+    wrapper.unmount();
+  });
+
   it('treats Escape as Keep editing and stops it reaching global shortcuts', async () => {
     const wrapper = mount(ConflictDialog, {
       props: { serverVersion: 2, serverTitle: 'Server', localTitle: 'Local' },

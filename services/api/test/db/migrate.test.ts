@@ -1,4 +1,4 @@
-import { copyFile, cp, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -136,7 +136,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
     }
   });
 
-  test('rolls back the latest migration and can apply it again', async () => {
+  test('rolls back every migration and can apply them again', async () => {
     await runMigrations();
 
     const filenames = await migrationFilenames();
@@ -152,26 +152,69 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
 
     const client = await connect(schema);
     try {
-      const gone = await client.query<{ name: string | null }>(
-        `SELECT to_regclass('vikunja_mapping')::text AS name`,
-      );
-      expect(gone.rows[0]?.name).toBeNull();
-      // Rolling back only the latest keeps everything below it applied.
-      const stillThere = await client.query<{ name: string | null }>(
-        `SELECT to_regclass('"user"')::text AS name`,
-      );
-      expect(stillThere.rows[0]?.name).not.toBeNull();
+      if (latest === '0003_vikunja_durable_stores.sql') {
+        const gone = await client.query<{ name: string | null }>(
+          `SELECT to_regclass('vikunja_mapping')::text AS name`,
+        );
+        expect(gone.rows[0]?.name).toBeNull();
+        // Rolling back only the latest keeps everything below it applied.
+        const stillThere = await client.query<{ name: string | null }>(
+          `SELECT to_regclass('"user"')::text AS name`,
+        );
+        expect(stillThere.rows[0]?.name).not.toBeNull();
+      }
+      if (latest === '0002_inbox_project.sql') {
+        const column = await client.query<{ name: string | null }>(
+          `SELECT column_name AS name
+             FROM information_schema.columns
+            WHERE table_schema = $1 AND table_name = 'project' AND column_name = 'kind'`,
+          [schema],
+        );
+        expect(column.rows[0]?.name).toBeUndefined();
+        const taskColumn = await client.query<{ is_nullable: string }>(
+          `SELECT is_nullable
+             FROM information_schema.columns
+            WHERE table_schema = $1 AND table_name = 'task' AND column_name = 'project_id'`,
+          [schema],
+        );
+        expect(taskColumn.rows[0]?.is_nullable).toBe('YES');
+        const index = await client.query<{ name: string | null }>(
+          `SELECT indexname AS name FROM pg_indexes
+            WHERE schemaname = $1 AND indexname = 'project_owner_inbox_unique'`,
+          [schema],
+        );
+        expect(index.rowCount).toBe(0);
+      }
     } finally {
       await client.end();
     }
 
+    for (let index = filenames.length - 2; index >= 0; index -= 1) {
+      const rolledBackAgain = await rollbackLatest({
+        databaseUrl: requireDatabaseUrl(),
+        schema,
+        migrationsDir,
+      });
+      expect(rolledBackAgain).toBe(filenames[index]);
+    }
+
+    const clientAfterRollback = await connect(schema);
+    try {
+      const gone = await clientAfterRollback.query<{ name: string | null }>(
+        `SELECT to_regclass('"user"')::text AS name`,
+      );
+      expect(gone.rows[0]?.name).toBeNull();
+    } finally {
+      await clientAfterRollback.end();
+    }
+
     const reapplied = await runMigrations();
-    expect(reapplied.applied).toEqual([latest]);
+    expect(reapplied.applied).toEqual(filenames);
 
     const clientAfter = await connect(schema);
     try {
       const present = await clientAfter.query<{ name: string | null }>(
-        `SELECT to_regclass('vikunja_mapping')::text AS name`,
+        `SELECT to_regclass('"user"')::text AS name`,
       );
       expect(present.rows[0]?.name).not.toBeNull();
     } finally {
@@ -211,12 +254,17 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
     const tmpRoot = await mkdtemp(join(tmpdir(), 'ohmydate-migrations-'));
     const copyDir = join(tmpRoot, 'migrations');
     try {
-      await cp(migrationsDir, copyDir, { recursive: true });
+      await mkdir(copyDir, { recursive: true });
+      await copyFile(join(migrationsDir, '0001_init.sql'), join(copyDir, '0001_init.sql'));
+      await copyFile(
+        join(migrationsDir, '0001_init.down.sql'),
+        join(copyDir, '0001_init.down.sql'),
+      );
       await rename(join(copyDir, '0001_init.sql'), join(copyDir, '0002_init.sql'));
       await rename(join(copyDir, '0001_init.down.sql'), join(copyDir, '0002_init.down.sql'));
 
       const first = await runMigrations(schema, copyDir);
-      expect(first.applied).toEqual(await migrationFilenames(copyDir));
+      expect(first.applied).toEqual(['0002_init.sql']);
 
       await copyFile(join(migrationsDir, '0001_init.sql'), join(copyDir, '0001_init.sql'));
       await copyFile(
@@ -239,7 +287,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
 
       await rm(join(copyDir, '0001_init.sql'));
       await rm(join(copyDir, '0001_init.down.sql'));
-      await writeFile(join(copyDir, '0002_other.sql'), 'SELECT 1;', 'utf8');
+      await writeFile(join(copyDir, '9999_other.sql'), 'SELECT 1;', 'utf8');
 
       await expect(runMigrations(schema, copyDir)).rejects.toThrow(/missing from/);
     } finally {

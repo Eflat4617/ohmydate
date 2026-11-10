@@ -174,6 +174,7 @@ export interface components {
                 createdAt: string;
                 /** Format: uuid */
                 id: string;
+                kind: "inbox" | "normal";
                 /** Format: uuid */
                 ownerId: string;
                 title: string;
@@ -237,6 +238,7 @@ export interface components {
             createdAt: string;
             /** Format: uuid */
             id: string;
+            kind: "inbox" | "normal";
             /** Format: uuid */
             ownerId: string;
             title: string;
