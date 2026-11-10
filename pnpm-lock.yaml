@@ -213,13 +213,32 @@ importers:
 
   packages/llm: {}
 
-  packages/provider-native: {}
+  packages/provider-native:
+    dependencies:
+      '@ohmydate/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      '@ohmydate/testkit':
+        specifier: workspace:*
+        version: link:../testkit
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@types/node@24.19.2)(vite@7.3.8(@types/node@24.19.2)(tsx@4.23.15))
 
   packages/provider-vikunja: {}
 
   packages/scheduler: {}
 
-  packages/testkit: {}
+  packages/testkit:
+    dependencies:
+      '@ohmydate/domain':
+        specifier: workspace:*
+        version: link:../domain
+    devDependencies:
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@types/node@24.19.2)(vite@7.3.8(@types/node@24.19.2)(tsx@4.23.15))
 
   packages/ui-policy: {}
 

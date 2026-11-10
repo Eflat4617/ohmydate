@@ -12,6 +12,13 @@
     }
   },
   "scripts": {
+    "test": "vitest run --globals",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ohmydate/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "5.1.0"
   }
 }
