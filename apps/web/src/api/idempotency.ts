@@ -60,6 +60,8 @@ export function newActionId(prefix: string): string {
 export interface IdempotentAction<T> {
   readonly payload: T;
   readonly key: string;
+  /** If-Match last sent under this key; a change rotates the key. */
+  readonly ifMatch?: number;
 }
 
 /**
@@ -70,10 +72,27 @@ export interface IdempotentAction<T> {
 export class ActionStore {
   private readonly actions = new Map<string, IdempotentAction<unknown>>();
 
-  begin<T>(scope: string, payload: T, same: (left: T, right: T) => boolean): IdempotentAction<T> {
+  begin<T>(
+    scope: string,
+    payload: T,
+    same: (left: T, right: T) => boolean,
+    ifMatch?: number,
+  ): IdempotentAction<T> {
     const existing = this.actions.get(scope) as IdempotentAction<T> | undefined;
-    if (existing !== undefined && same(existing.payload, payload)) return existing;
-    const action: IdempotentAction<T> = { payload, key: uuidV7Key() };
+    if (existing !== undefined && same(existing.payload, payload)) {
+      if (
+        ifMatch === undefined ||
+        existing.ifMatch === undefined ||
+        existing.ifMatch === ifMatch
+      ) {
+        return existing;
+      }
+    }
+    const action: IdempotentAction<T> = {
+      payload,
+      key: uuidV7Key(),
+      ...(ifMatch === undefined ? {} : { ifMatch }),
+    };
     this.actions.set(scope, action as IdempotentAction<unknown>);
     return action;
   }

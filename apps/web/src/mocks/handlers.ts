@@ -142,6 +142,22 @@ function remember(
   db.idempotency.set(token.key, { hash: token.hash, status, body, headers });
 }
 
+function ensureInboxProject(db: MockDb): void {
+  if (db.projects.has(db.inboxProjectId)) return;
+  const now = new Date().toISOString();
+  db.projects.set(db.inboxProjectId, {
+    id: db.inboxProjectId,
+    ownerId: db.user.id,
+    title: 'Inbox',
+    kind: 'inbox',
+    archived: false,
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  db.projectRevision += 1;
+}
+
 function findTask(db: MockDb, taskId: string): Task | undefined {
   const task = db.tasks.get(taskId);
   if (task === undefined || task.deletedAt !== undefined) return undefined;
@@ -298,6 +314,7 @@ export function createHandlers(db: MockDb) {
         id: createUuidV7(),
         ownerId: db.user.id,
         title: body.title.trim(),
+        kind: 'normal',
         archived: false,
         version: 1,
         createdAt: now,
@@ -347,6 +364,7 @@ export function createHandlers(db: MockDb) {
       if (body.projectId !== undefined && !db.projects.has(body.projectId)) {
         return problem(404, 'not_found', 'projectId does not exist');
       }
+      if (body.projectId === undefined) ensureInboxProject(db);
       const now = new Date().toISOString();
       const taskId = createUuidV7();
       if (body.dependsOn !== undefined) {

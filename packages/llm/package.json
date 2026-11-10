@@ -12,6 +12,15 @@
     }
   },
   "scripts": {
+    "generate": "node scripts/generate-prompts.mjs && node scripts/generate-schemas.mjs",
+    "test": "vitest run --globals",
     "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "ajv": "8.20.0"
+  },
+  "devDependencies": {
+    "@ohmydate/domain": "workspace:*",
+    "fast-check": "4.10.2"
   }
 }

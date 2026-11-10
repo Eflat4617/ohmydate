@@ -61,6 +61,7 @@ type IdempotencyRecord = PendingIdempotencyRecord | CommittedIdempotencyRecord;
 const CAPABILITIES: RepositoryCapabilities = {
   strictConcurrency: true,
   idempotentCreate: true,
+  softDeleteReturnsVersion: true,
 };
 
 const DEFAULT_LIMIT = 20;
@@ -112,7 +113,7 @@ export class InMemoryTaskRepository implements TaskRepository {
     try {
       const projectId =
         normalized.projectId === undefined
-          ? (await this.#projects.ensureInbox(ownerId)).id
+          ? (await this.#projects.getInbox(ownerId)).id
           : await this.#requireProject(ownerId, normalized.projectId);
 
       const id = this.#ids.next();
@@ -257,7 +258,7 @@ export class InMemoryTaskRepository implements TaskRepository {
     return cloneTask(task);
   }
 
-  async softDelete(ownerId: Id, id: Id, expectedVersion: Version): Promise<void> {
+  async softDelete(ownerId: Id, id: Id, expectedVersion: Version): Promise<Version> {
     const current = this.#requireOwned(ownerId, id);
     this.#assertVersion(current, expectedVersion);
 
@@ -270,6 +271,7 @@ export class InMemoryTaskRepository implements TaskRepository {
     };
     this.#tasks.set(id, task);
     this.#recordChange(ownerId, task);
+    return task.version;
   }
 
   async listChangedSince(ownerId: Id, cursor: string | null): Promise<TaskChangePage> {
