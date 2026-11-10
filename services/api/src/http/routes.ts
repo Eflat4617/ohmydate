@@ -127,6 +127,7 @@ function toProjectDto(project: Project): ProjectDto {
     id: project.id,
     ownerId: project.ownerId,
     title: project.title,
+    kind: project.kind ?? 'normal',
     archived: project.archived,
     version: project.version,
     createdAt: project.createdAt,
@@ -402,6 +403,9 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       const auth = currentAuth(request);
       const key = requireIdempotencyKey(request);
       const input = request.body as TaskCreate;
+      if (input.projectId === undefined) {
+        await runtime.projects.ensureInbox(auth.userId);
+      }
       const task = await runtime.tasks.create(
         auth.userId,
         toDomainTaskCreate(input),

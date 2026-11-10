@@ -40,6 +40,7 @@ export type {
   ExternalProviderRef,
   Project,
   ProjectCreate,
+  ProjectKind,
   ProjectPatch,
   SessionWindow,
   Task,
@@ -52,6 +53,8 @@ export type {
 export type {
   Clock,
   IdGenerator,
+  InboxProjectLookup,
+  InboxProjectRepository,
   Page,
   ProjectQuery,
   ProjectRepository,
@@ -112,6 +115,8 @@ export {
   type IntakeTransitionResult,
   type TerminalIntakeState,
 } from './intake/state-machine.js';
+
+export { supportsInbox } from './ports.js';
 
 export { epochMsToInstant, instantToEpochMs } from './time.js';
 

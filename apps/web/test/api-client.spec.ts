@@ -56,6 +56,7 @@ describe('planner API client', () => {
       id: '01900000-0000-7000-8000-0000000000aa',
       ownerId: USER_ID,
       title: 'CSRF',
+      kind: 'normal',
       archived: false,
       version: 1,
       createdAt: '2026-11-01T08:00:00.000Z',
