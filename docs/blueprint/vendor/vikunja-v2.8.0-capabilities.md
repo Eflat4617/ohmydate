@@ -6,7 +6,14 @@
   session and a scoped API token. No upstream source was modified; no production data
   was read or written.
 - Probe script: `scripts/probe/vikunja/probe.sh` (`bash scripts/probe/vikunja/probe.sh --check`)
-- Probe result: 47 calls executed, 0 transport errors, 0 server (5xx) errors, exit 0.
+- Probe result: 47 calls executed, 0 transport errors, 0 server (5xx) errors, `ok:true`,
+  `incomplete:false`, exit 0. A missing feature is recorded as an observation; a
+  register/login/project/task prerequisite failure instead yields `ok:false` +
+  `incomplete:true` and a non-zero exit.
+- Negative self-test: `bash scripts/probe/vikunja/probe.sh --self-test` starts a local
+  node HTTP fixture on a random `127.0.0.1` port that returns `403` for
+  `POST /api/v2/projects`; the child probe reports `ok:false` + `incomplete:true` and
+  exits 1, proving the prerequisite-failure path (the wrapper mirrors that non-zero exit).
   Full machine-readable output is the JSON summary printed by the script.
 
 ## OpenAPI artifact
@@ -51,7 +58,7 @@
 | Task create | `POST /api/v2/projects/{project}/tasks` | req: `Task` fields (`title` min 1; `description`, dates, reminders, repeat, labels/assignees read-only); `project_id` comes from URL; resp: `Task` | n/a | 201 | Create response can have `created_by:null`, zeroed `created` for some fields. |
 | Task list | `GET /api/v2/tasks`, `GET /api/v2/projects/{project}/tasks` | query: `page`, `per_page` (≤50), `q`, `filter`, `filter_timezone`, `filter_include_nulls`, `sort_by`, `order_by`, `expand`, `format`; resp: `PaginatedTask` | none on list | 200 | Envelope: `{items,total,page,per_page,total_pages}`. |
 | Task get | `GET /api/v2/tasks/{task}` | resp: `TaskReadOneBody` + response header `ETag` | ETag opaque e.g. `"1794329691000000000-2"`, `Cache-Control: no-store`. Matching `If-Match` → 200; **stale `If-Match` → 304** (non-standard); matching `If-None-Match` → 304; stale `If-None-Match` → 200 | 200, 304 | `expand` supports `subtasks,buckets,reactions,comments,comment_count,time_entries_count,is_unread`. |
-| Task update | `PUT /api/v2/tasks/{task}` (full replace), `PATCH /api/v2/tasks/{task}` (`application/json-patch+json`, `application/merge-patch+json`, `application/merge-patch+shorthand`) | req: `TaskReadOneBody` / patch doc; resp: `Task` | **Writes do not enforce preconditions**: stale `If-Match` still returns 200; no 412/428; no `version` field in the payload | 200 | This is the single biggest gap for `update(expectedVersion)`. |
+| Task update | `PUT /api/v2/tasks/{task}` (full replace), `PATCH /api/v2/tasks/{task}` (`application/json-patch+json`, `application/merge-patch+json`, `application/merge-patch+shorthand`) | req: `TaskReadOneBody` / patch doc; resp: `Task` | **Provider-side atomic CAS is unsupported**: stale `If-Match` is accepted on PUT (200), PATCH (200) and even DELETE (204); no 412/428; no `version` field in the payload | 200 (write), 204 (delete) | The single biggest gap for `update(expectedVersion)`; application-level serialization is required. |
 | Task delete / trash | `DELETE /api/v2/tasks/{task}`, `GET /api/v2/tasks/deleted`, `POST /api/v2/tasks/{task}/restore`, `DELETE /api/v2/tasks/{task}/permanent` | `deleted_at`, `deleted_by`, `can_delete_permanently`; trash envelope | none | 204; 404 `code:4040`; 200; 204 | `DELETE` is a soft delete (30 days). GET after delete → 404 `"This task is in the trash."` with `details`. |
 | Labels | `GET/POST /api/v2/labels`, `GET/PATCH/PUT/DELETE /api/v2/labels/{id}`, `GET/POST /api/v2/tasks/{task}/labels`, `DELETE /api/v2/tasks/{task}/labels/{label}`, `POST /api/v2/tasks/{task}/labels/bulk` | `Label{title,hex_color,description}`; `LabelTask{label_id}`; bulk body is the complete label set | none | 201, 200, 204 | `task.labels` is read-only on Task; manage via these routes. |
 | Relations | `POST /api/v2/tasks/{task}/relations`, `DELETE /api/v2/tasks/{task}/relations/{relationKind}/{otherTask}` — **no GET relations route** | req: `{other_task_id, relation_kind}`; resp: `TaskRelation{task_id,other_task_id,relation_kind,created,created_by}`; inverse relation auto-created | none | 201, 204 | Read relations from `task.related_tasks` (grouped by kind). |
@@ -142,13 +149,17 @@ Conditional GET matrix (observed, task unchanged):
 | `If-None-Match: "1794329691000000000-2"` | 304 | empty |
 | `If-None-Match: "stale-etag"` | 200 | task |
 
-Write preconditions (`PUT`/`PATCH`, task unchanged):
+Write preconditions (`PUT`/`PATCH`/`DELETE`, task unchanged) — **no provider-side CAS**:
 
-| Request header | Status |
+| Request | Status |
 |---|---|
 | `PUT` + matching `If-Match` | 200 |
 | `PUT` + stale `If-Match` | 200 |
 | `PATCH` merge-patch + stale `If-Match` | 200 |
+| `DELETE` + stale `If-Match` | 204 |
+
+The delete with a stale `If-Match` was confirmed by the reviewer and is now also
+covered by the probe (`task-delete` records the observed status).
 
 404 error (raw, `Content-Type: application/problem+json`):
 
@@ -216,10 +227,27 @@ softDelete / listChangedSince`.
 | `create` | Partial | Create is project-scoped (`POST /projects/{project}/tasks`), not a top-level `POST /tasks`. IDs are numeric `int64`, not UUIDv7; needs an external id mapping or a project-accepted deviation. Create responses can omit `created_by` and zero some date fields, so a follow-up GET is advisable. |
 | `get` | Met | `GET /tasks/{task}` returns the aggregate plus an ETag (but not a writable version). |
 | `list` | Partial | Page-based pagination (`page`/`per_page`, max 50), filter DSL instead of typed predicates, and no stable ordering guarantee without `sort_by`. Envelope must be unpacked. |
-| `update(expectedVersion)` | **Not met** | The API exposes an ETag but **does not enforce `If-Match` on PUT/PATCH** (stale version still 200) and has no `version` column. Optimistic concurrency must be implemented in OhMyDate (read-compare-write or a local version table) or accepted as unsupported. |
-| `complete` | Not met (no verb) | No completion endpoint; set `done:true` via PUT/PATCH. Completing a repeating task re-opens it and bumps due dates/reminders server-side, which may surprise an idempotent `complete` use-case. There is no `completed_at` supplied by the caller (`done_at` is server-set). |
-| `softDelete` | Met | `DELETE /tasks/{task}` soft-deletes for 30 days; restore and permanent purge endpoints exist. No version precondition. |
+| `update(expectedVersion)` | **Not met** | **Provider-side atomic compare-and-swap (CAS) is unsupported.** The API exposes an ETag but does not enforce `If-Match` on any write: stale versions are accepted by PUT (200), PATCH (200) and DELETE (204), and there is no `version` column. Read-compare-write in OhMyDate is only **best-effort with a race window** between our read and write. Correctness therefore assumes a **single writer / externally serialized writer** for each task; direct writes through the Vikunja UI, CalDAV, other API clients or webhooks cannot be fenced by OhMyDate. A local version/lock table or an outbox that serializes all writes is required, or the guarantee must be explicitly downgraded. |
+| `complete` | Not met | Two independent gaps: there is no completion endpoint (set `done:true` via PUT/PATCH), and **the update carries no `expectedVersion` precondition** (stale `If-Match` is accepted), so a completion cannot be fenced against a concurrent edit. Completing a repeating task also re-opens it and bumps due dates/reminders server-side, which may surprise an idempotent `complete` use-case; `done_at` is server-set and cannot be supplied. |
+| `softDelete` | Partial — expectedVersion not met | `DELETE /tasks/{task}` soft-deletes for 30 days (restore and permanent purge exist), but **the delete accepts a stale `If-Match` and returns 204**, so `softDelete(expectedVersion)` cannot be enforced by the provider. Treat it as an unconditional delete gated only by our own serialization. |
 | `listChangedSince` | Partial | `filter=updated > <ts>` + `sort_by=updated&order_by=desc` works, but list `updated` has second precision (same-second changes are indistinguishable / can be missed with a strict `>` cursor), there is no cursor token, and soft-deleted tasks are excluded from `/tasks` — deletions must be discovered via `GET /tasks/deleted` (which has no `deleted_since` filter). |
+
+### Concurrency implications
+
+- **Provider-side atomic CAS: UNSUPPORTED.** There is no conditional write and no
+  version token that the server checks. `If-Match` is honoured (partially, and
+  non-standardly) only on GET. A stale version succeeds on `PUT` (200), `PATCH`
+  (200) and `DELETE` (204).
+- Any read-compare-write OhMyDate performs is **best-effort and has a race window**
+  between the read and the write; two of our own writers can still lose an update
+  unless they are serialized.
+- The design therefore relies on a **single-writer / serialization assumption**
+  (one writer per task, or an application-level lock/queue/version table in
+  OhMyDate).
+- **Direct writers cannot be fenced**: edits made through the Vikunja UI, CalDAV,
+  another API client, migrations or automations bypass any OhMyDate-side
+  precondition and may be overwritten by our next write. ETags cannot detect that
+  race because writes ignore them.
 
 Additional cross-cutting gaps:
 

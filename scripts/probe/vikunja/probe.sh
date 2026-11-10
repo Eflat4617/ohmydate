@@ -4,10 +4,13 @@
 # Creates a synthetic user, authenticates, mints an API token and exercises the
 # endpoints OhMyDate's TaskRepository is expected to need.  Every call is
 # recorded; a missing/unsupported feature is a recorded observation, not a
-# failure.  The script exits 0 once all planned probe calls ran, and 1 only for
-# setup failures or transport/5xx errors.
+# failure.  The script exits 0 once all planned probe calls ran, and non-zero
+# for a required-prerequisite failure (register/login/project/task creation),
+# a transport error or a 5xx.  In that case the JSON summary has
+# "ok": false and "incomplete": true.
 #
 # Usage: bash scripts/probe/vikunja/probe.sh [--check]
+#        bash scripts/probe/vikunja/probe.sh --self-test
 # Env:   VIKUNJA_BASE_URL (default http://127.0.0.1:3456)
 #
 # No dependencies beyond bash, curl and node.  Synthetic data only.
@@ -18,10 +21,12 @@ BASE="${VIKUNJA_BASE_URL:-http://127.0.0.1:3456}"
 API="$BASE/api/v2"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/vikunja-probe.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
-case "${1:-}" in
-  ""|--check) ;;
-  *) echo "usage: $0 [--check]" >&2; exit 2 ;;
+MODE="${1:-}"
+case "$MODE" in
+  ""|--check|--self-test) ;;
+  *) echo "usage: $0 [--check|--self-test]" >&2; exit 2 ;;
 esac
 
 RESULTS="$TMP/results.tsv"
@@ -36,6 +41,8 @@ SERVER_ERRORS=0
 TRANSPORT_ERRORS=0
 SETUP_OK=0
 TOKEN_ACTIVE=0
+INCOMPLETE=0
+REQUIRED_FAILURES=""
 
 # jget <dot.path> <json-file>  -> scalar or compact JSON, empty on failure
 jget() {
@@ -70,6 +77,11 @@ record() { # name method path status note
   printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$4" "$note" >> "$RESULTS"
 }
 
+fail_required() { # required-prerequisite failure: marks the run incomplete
+  INCOMPLETE=1
+  REQUIRED_FAILURES="${REQUIRED_FAILURES:+$REQUIRED_FAILURES; }$1"
+}
+
 api() { # name method path [extra curl args...]
   local name="$1" method="$2" path="$3"
   shift 3
@@ -92,6 +104,8 @@ print_summary() {
   PROBE_SERVER_ERRORS="$SERVER_ERRORS" \
   PROBE_SETUP_OK="$SETUP_OK" \
   PROBE_TOKEN_ACTIVE="$TOKEN_ACTIVE" \
+  PROBE_INCOMPLETE="$INCOMPLETE" \
+  PROBE_REQUIRED_FAILURES="$REQUIRED_FAILURES" \
   PROBE_BASE="$BASE" \
   PROBE_USER="$PROBE_USERNAME" \
   PROBE_EMAIL="$PROBE_EMAIL" \
@@ -129,7 +143,8 @@ print_summary() {
       writePreconditions: {
         "put-matching-if-match": status("task-put"),
         "put-stale-if-match": status("task-put-stale-if-match"),
-        "patch-stale-if-match": status("task-patch-stale-if-match")
+        "patch-stale-if-match": status("task-patch-stale-if-match"),
+        "delete-stale-if-match": status("task-delete")
       },
       idempotencyKey: {
         ignored: idemIds.length === 2 && idemIds[0] !== idemIds[1],
@@ -155,7 +170,12 @@ print_summary() {
       tokenPermissions: token ? Object.keys(token.permissions || {}) : []
     };
     const summary = {
-      ok: process.env.PROBE_SETUP_OK === "1" && Number(process.env.PROBE_TRANSPORT_ERRORS) === 0 && Number(process.env.PROBE_SERVER_ERRORS) === 0,
+      ok: process.env.PROBE_SETUP_OK === "1"
+        && process.env.PROBE_INCOMPLETE !== "1"
+        && Number(process.env.PROBE_TRANSPORT_ERRORS) === 0
+        && Number(process.env.PROBE_SERVER_ERRORS) === 0,
+      incomplete: process.env.PROBE_INCOMPLETE === "1",
+      requiredFailures: (process.env.PROBE_REQUIRED_FAILURES || "").split("; ").filter(Boolean),
       base: process.env.PROBE_BASE,
       syntheticUser: { username: process.env.PROBE_USER, email: process.env.PROBE_EMAIL },
       authFlows: {
@@ -177,11 +197,93 @@ print_summary() {
 
 final_exit() {
   print_summary
-  if [ "$SETUP_OK" != "1" ] || [ "$TRANSPORT_ERRORS" -ne 0 ] || [ "$SERVER_ERRORS" -ne 0 ]; then
+  if [ "$SETUP_OK" != "1" ] || [ "$INCOMPLETE" -ne 0 ] || [ "$TRANSPORT_ERRORS" -ne 0 ] || [ "$SERVER_ERRORS" -ne 0 ]; then
     exit 1
   fi
   exit 0
 }
+
+# Negative self-test: a tiny throwaway fixture on 127.0.0.1 answers the auth
+# bootstrap but returns 403 for POST /api/v2/projects.  The child probe must
+# then report ok:false + incomplete:true and exit non-zero.  The wrapper mirrors
+# that non-zero exit on success (this is intentionally a negative test) and
+# exits 2 if the expected failure was NOT reproduced.
+run_self_test() {
+  local port_file="$TMP/fixture.port"
+  node -e '
+    const http = require("http");
+    const fs = require("fs");
+    const portFile = process.argv[1];
+    const json = (res, code, obj) => {
+      const body = JSON.stringify(obj);
+      res.writeHead(code, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
+      res.end(body);
+    };
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => { body += c; });
+      req.on("end", () => {
+        const path = req.url.split("?")[0];
+        if (req.method === "POST" && path === "/api/v2/register") return json(res, 201, { id: 1, username: "fixture" });
+        if (req.method === "POST" && path === "/api/v2/login") return json(res, 200, { token: "fixture-jwt" });
+        if (req.method === "GET" && path === "/api/v2/routes") return json(res, 200, { tasks: { read_all: { path: "/api/v1/tasks", method: "GET" } } });
+        if (req.method === "POST" && path === "/api/v2/tokens") return json(res, 201, { id: 1, token: "tk_fixture", permissions: { tasks: ["read_all"] } });
+        if (req.method === "GET" && path === "/api/v2/tokens") return json(res, 200, { items: [], total: 0, page: 1, per_page: 5, total_pages: 0 });
+        if (req.method === "GET" && path === "/api/v2/info") return json(res, 200, { version: "fixture" });
+        if (req.method === "POST" && path === "/api/v2/projects") return json(res, 403, { title: "Forbidden", status: 403, detail: "fixture denies project creation", code: 4003 });
+        return json(res, 404, { title: "Not Found", status: 404, detail: "fixture", code: 4002 });
+      });
+    });
+    server.listen(0, "127.0.0.1", () => fs.writeFileSync(portFile, String(server.address().port)));
+    process.on("SIGTERM", () => server.close(() => process.exit(0)));
+  ' "$port_file" >/dev/null 2>"$TMP/fixture.err" &
+  local fixture_pid=$!
+  local i=0
+  while [ ! -s "$port_file" ] && [ "$i" -lt 100 ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  if [ ! -s "$port_file" ]; then
+    echo '{"selfTest":true,"passed":false,"error":"fixture server did not start"}'
+    kill "$fixture_pid" 2>/dev/null || true
+    exit 2
+  fi
+  local port out="$TMP/self-test-child.json" child_exit=0
+  IFS= read -r port < "$port_file"
+  VIKUNJA_BASE_URL="http://127.0.0.1:${port}" bash "$SCRIPT_PATH" --check > "$out" 2>"$TMP/self-test-child.err" || child_exit=$?
+  kill "$fixture_pid" 2>/dev/null || true
+  wait "$fixture_pid" 2>/dev/null || true
+  CHILD_EXIT="$child_exit" node -e '
+    const fs = require("fs");
+    const out = process.argv[1];
+    const port = process.argv[2];
+    let summary = null;
+    try { summary = JSON.parse(fs.readFileSync(out, "utf8")); } catch (e) { summary = null; }
+    const childExit = Number(process.env.CHILD_EXIT);
+    const passed = childExit !== 0 && summary !== null && summary.ok === false && summary.incomplete === true;
+    const report = {
+      selfTest: true,
+      passed,
+      scenario: "fixture returns 403 for POST /api/v2/projects",
+      fixturePort: Number(port),
+      childExit,
+      childOk: summary ? summary.ok : null,
+      childIncomplete: summary ? summary.incomplete : null,
+      requiredFailures: summary && summary.requiredFailures ? summary.requiredFailures : null,
+      counts: summary ? summary.counts : null,
+      note: passed
+        ? "expected prerequisite failure reproduced; wrapper exits 1 (negative test passed)"
+        : "unexpected child result; wrapper exits 2"
+    };
+    process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+    process.exit(passed ? 1 : 2);
+  ' "$out" "$port"
+  exit $?
+}
+
+if [ "$MODE" = "--self-test" ]; then
+  run_self_test
+fi
 
 SUFFIX="$(date +%s)-${RANDOM}${RANDOM}"
 PROBE_USERNAME="probe-${SUFFIX}"
@@ -195,6 +297,7 @@ api register POST "/register" \
   --data "{\"username\":\"${PROBE_USERNAME}\",\"email\":\"${PROBE_EMAIL}\",\"password\":\"${PROBE_PASSWORD}\"}"
 if [ "$LAST_STATUS" != "201" ]; then
   NOTE="setup failed: cannot register synthetic user"
+  fail_required "register failed with status ${LAST_STATUS}"
   final_exit
 fi
 
@@ -205,6 +308,7 @@ api login POST "/login" \
 JWT="$(jget token "$LAST_BODY")"
 if [ -z "$JWT" ]; then
   NOTE="setup failed: no JWT from login"
+  fail_required "login did not return a JWT (status ${LAST_STATUS})"
   final_exit
 fi
 AUTH="$JWT"
@@ -243,7 +347,8 @@ api project-create POST "/projects" \
   --data "{\"title\":\"Probe Project ${SUFFIX}\"}"
 PID="$(jget id "$LAST_BODY")"
 if [ -z "$PID" ]; then
-  NOTE="setup failed: no project id"
+  NOTE="required prerequisite failed: no project id"
+  fail_required "project creation did not return an id (status ${LAST_STATUS})"
   final_exit
 fi
 api projects-list GET "/projects"
@@ -255,7 +360,8 @@ api task-create POST "/projects/${PID}/tasks" \
   --data '{"title":"probe task one","description":"probe description"}'
 T1="$(jget id "$LAST_BODY")"
 if [ -z "$T1" ]; then
-  NOTE="setup failed: no task id"
+  NOTE="required prerequisite failed: no task id"
+  fail_required "task creation did not return an id (status ${LAST_STATUS})"
   final_exit
 fi
 
@@ -287,6 +393,11 @@ api task2-create POST "/projects/${PID}/tasks" \
   -H 'Content-Type: application/json' \
   --data '{"title":"probe task two"}'
 T2="$(jget id "$LAST_BODY")"
+if [ -z "$T2" ]; then
+  NOTE="required prerequisite failed: no second task id"
+  fail_required "second task creation did not return an id (status ${LAST_STATUS})"
+  final_exit
+fi
 
 # Idempotency-Key replay (two identical creates with the same key)
 NOTE="same Idempotency-Key sent twice"
@@ -374,7 +485,8 @@ ERROR_CT="$(grep -i '^content-type:' "$LAST_HDR" | head -n1 | tr -d '\r')"
 NOTE=""
 
 # --- 12. soft delete / trash / restore ---------------------------------------
-api task-delete DELETE "/tasks/${T2}"
+NOTE="stale If-Match on DELETE (probe expects 412 if enforced)"
+api task-delete DELETE "/tasks/${T2}" -H 'If-Match: "stale-etag"'
 api task-get-deleted GET "/tasks/${T2}"
 api tasks-trash-list GET "/tasks/deleted?per_page=5"
 api task-restore POST "/tasks/${T2}/restore"
