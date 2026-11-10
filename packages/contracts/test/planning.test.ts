@@ -98,6 +98,9 @@ test('metrics mirror the scheduler shape and keep fractional loads', () => {
     p90CoverageRatio: 0.9,
   };
   expect(validate(metrics)).toBe(true);
+  expect(validate({ ...metrics, minSlackMin: 0.5 })).toBe(true);
+  expect(validate({ ...metrics, minSlackMin: -60 })).toBe(true);
+  expect(validate({ ...metrics, minSlackMin: Number.POSITIVE_INFINITY })).toBe(false);
   expect(validate({ ...metrics, extra: true })).toBe(false);
   expect(validate({ ...metrics, totalFocusMin: -1 })).toBe(false);
   expect(validate({ ...metrics, avgDailyLoadMin: 'many' })).toBe(false);
@@ -142,6 +145,8 @@ test('plan response carries scope, availability version and candidates', () => {
     scope: { taskIds: [ID] },
     status: 'draft',
     availabilityVersion: 4,
+    horizon: { start: '2026-11-11T00:00:00Z', end: '2026-11-25T00:00:00Z' },
+    timeZone: 'UTC',
     candidates: [],
     version: 1,
     createdAt: '2026-11-11T00:00:00Z',
@@ -269,4 +274,31 @@ test('commitments bound rrule strings and list occurrences within the period', (
   expect(
     validateQuery({ from: '2026-11-11T00:00:00Z', to: '2026-11-25T00:00:00Z', extra: true }),
   ).toBe(false);
+});
+
+test('plan carries the persisted horizon and time zone', () => {
+  const validate = compile(PlanSchema);
+  const plan = {
+    id: ID,
+    ownerId: OTHER_ID,
+    scope: { taskIds: [ID] },
+    status: 'active',
+    availabilityVersion: 4,
+    currentVersionId: OTHER_ID,
+    horizon: { start: '2026-11-11T00:00:00Z', end: '2026-11-25T00:00:00Z' },
+    timeZone: 'Asia/Seoul',
+    candidates: [],
+    version: 2,
+    createdAt: '2026-11-11T00:00:00Z',
+    updatedAt: '2026-11-11T00:00:00Z',
+  };
+  expect(validate(plan)).toBe(true);
+  // Round-trip through JSON keeps the exact requested bounds.
+  expect(validate(JSON.parse(JSON.stringify(plan)))).toBe(true);
+  expect(validate({ ...plan, horizon: undefined })).toBe(false);
+  expect(validate({ ...plan, timeZone: undefined })).toBe(false);
+  expect(validate({ ...plan, timeZone: '+09:00' })).toBe(false);
+  expect(
+    validate({ ...plan, horizon: { start: plan.horizon.end, end: plan.horizon.start } }),
+  ).toBe(true);
 });

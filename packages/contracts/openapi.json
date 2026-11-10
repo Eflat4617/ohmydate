@@ -3010,8 +3010,7 @@
                       "type": "integer"
                     },
                     "minSlackMin": {
-                      "minimum": 0,
-                      "type": "integer"
+                      "type": "number"
                     },
                     "p90CoverageRatio": {
                       "minimum": 0,
@@ -3078,6 +3077,24 @@
             "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
             "type": "string"
           },
+          "horizon": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "start": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "start",
+              "end"
+            ],
+            "type": "object"
+          },
           "id": {
             "format": "uuid",
             "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
@@ -3141,6 +3158,10 @@
               }
             ]
           },
+          "timeZone": {
+            "format": "iana-time-zone",
+            "type": "string"
+          },
           "updatedAt": {
             "format": "date-time",
             "type": "string"
@@ -3156,6 +3177,8 @@
           "scope",
           "status",
           "availabilityVersion",
+          "horizon",
+          "timeZone",
           "candidates",
           "version",
           "createdAt",
@@ -3284,8 +3307,7 @@
                 "type": "integer"
               },
               "minSlackMin": {
-                "minimum": 0,
-                "type": "integer"
+                "type": "number"
               },
               "p90CoverageRatio": {
                 "minimum": 0,
@@ -3507,8 +3529,7 @@
             "type": "integer"
           },
           "minSlackMin": {
-            "minimum": 0,
-            "type": "integer"
+            "type": "number"
           },
           "p90CoverageRatio": {
             "minimum": 0,
@@ -7198,6 +7219,7 @@
     },
     "/plans/{id}/candidates/{cid}:approve": {
       "post": {
+        "description": "The same pre-flight mapping as preview-edit applies: edited blocks outside the persisted plan horizon or plan task scope fail with 422 validation_failed errors[{path: \"/editedBlocks/<i>\", message}], while scheduler findings use 422 constraint_violation with violations[].",
         "operationId": "approvePlanCandidate",
         "parameters": [
           {
@@ -7356,6 +7378,7 @@
     },
     "/plans/{id}/candidates/{cid}:preview-edit": {
       "post": {
+        "description": "Pre-flight validation maps edited blocks outside the persisted plan horizon or outside the plan task scope to 422 validation_failed with errors[{path: \"/editedBlocks/<i>\", message}] before H1-H8 validation. Validator findings use 422 constraint_violation with violations[].",
         "operationId": "previewPlanCandidateEdit",
         "parameters": [
           {
@@ -7494,6 +7517,7 @@
     },
     "/plans/{id}:regenerate": {
       "post": {
+        "description": "Candidates are regenerated against the plan's original persisted horizon and time zone; the response Plan DTO echoes them unchanged.",
         "operationId": "regeneratePlan",
         "parameters": [
           {

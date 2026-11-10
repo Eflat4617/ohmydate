@@ -1,5 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { Ajv } from 'ajv';
+import addFormatsModule from 'ajv-formats';
+import { PlanSchema, registerIanaTimeZoneFormat } from '@ohmydate/contracts';
+import { uuidV7 } from '@ohmydate/domain';
 import { migrate, rollbackLatest } from '../../src/db/migrate.js';
 import {
   connect,
@@ -13,6 +18,10 @@ import {
 } from './helpers.js';
 
 const migrationsDir = fileURLToPath(new URL('../../migrations/', import.meta.url));
+const addFormats = addFormatsModule as unknown as (ajv: Ajv) => unknown;
+
+const nextUuid = (): string =>
+  uuidV7((length) => new Uint8Array(randomBytes(length)), Date.now());
 
 const PLANNING_TABLES = [
   'availability_exception',
@@ -42,8 +51,7 @@ describe.skipIf(!hasDatabase)('0007 planning core schema', () => {
     await dropSchema(schema);
   });
 
-  async function insertUser(): Promise<string> {
-    const id = randomUUID();
+  async function insertUser(id = nextUuid()): Promise<string> {
     await client.query('INSERT INTO "user" (id, email, password_hash) VALUES ($1, $2, $3)', [
       id,
       `${id}@example.test`,
@@ -69,9 +77,17 @@ describe.skipIf(!hasDatabase)('0007 planning core schema', () => {
   async function insertPlan(ownerId: string): Promise<string> {
     const id = randomUUID();
     await client.query(
-      `INSERT INTO plan (id, owner_id, scope, status, availability_version)
-       VALUES ($1, $2, $3, 'draft', 1)`,
-      [id, ownerId, { taskIds: [] }],
+      `INSERT INTO plan
+         (id, owner_id, scope, status, availability_version,
+          horizon_start, horizon_end, time_zone)
+       VALUES ($1, $2, $3, 'draft', 1, $4, $5, 'UTC')`,
+      [
+        id,
+        ownerId,
+        { taskIds: [] },
+        '2026-11-11T00:00:00Z',
+        '2026-11-25T00:00:00Z',
+      ],
     );
     return id;
   }
@@ -148,6 +164,9 @@ describe.skipIf(!hasDatabase)('0007 planning core schema', () => {
       'status',
       'current_version_id',
       'availability_version',
+      'horizon_start',
+      'horizon_end',
+      'time_zone',
       'created_at',
       'updated_at',
       'version',
@@ -299,6 +318,152 @@ describe.skipIf(!hasDatabase)('0007 planning core schema', () => {
     );
     expect(duplicateApproval.code).toBe('23505');
     expect(duplicateApproval.constraint).toBe('schedule_approval_idempotency_key_unique');
+  });
+
+  test('plan persists horizon and time zone and round-trips into the Plan DTO', async () => {
+    const ownerId = await insertUser();
+    const planId = nextUuid();
+    const scopeTaskId = nextUuid();
+    const horizonStart = '2026-11-11T00:00:00Z';
+    const horizonEnd = '2026-11-25T00:00:00Z';
+    await client.query(
+      `INSERT INTO plan
+         (id, owner_id, scope, status, availability_version,
+          horizon_start, horizon_end, time_zone)
+       VALUES ($1, $2, $3, 'active', 2, $4, $5, $6)`,
+      [planId, ownerId, { taskIds: [scopeTaskId] }, horizonStart, horizonEnd, 'Asia/Seoul'],
+    );
+
+    const row = await client.query<{
+      scope: unknown;
+      status: string;
+      availability_version: number;
+      horizon_start: Date;
+      horizon_end: Date;
+      time_zone: string;
+      version: number;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT scope, status, availability_version, horizon_start, horizon_end,
+              time_zone, version, created_at, updated_at
+         FROM plan WHERE id = $1`,
+      [planId],
+    );
+    const stored = row.rows[0];
+    if (stored === undefined) throw new Error('plan row missing');
+
+    const ajv = new Ajv({ strict: true, allErrors: true });
+    addFormats(ajv);
+    registerIanaTimeZoneFormat(ajv);
+    const validate = ajv.compile(PlanSchema as object);
+    const dto = {
+      id: planId,
+      ownerId,
+      scope: stored.scope,
+      status: stored.status,
+      availabilityVersion: stored.availability_version,
+      horizon: {
+        start: stored.horizon_start.toISOString(),
+        end: stored.horizon_end.toISOString(),
+      },
+      timeZone: stored.time_zone,
+      candidates: [],
+      version: stored.version,
+      createdAt: stored.created_at.toISOString(),
+      updatedAt: stored.updated_at.toISOString(),
+    };
+    expect({ valid: validate(dto), errors: validate.errors }).toEqual({
+      valid: true,
+      errors: null,
+    });
+    expect(dto.horizon).toEqual({
+      start: new Date(horizonStart).toISOString(),
+      end: new Date(horizonEnd).toISOString(),
+    });
+
+    const reversed = await queryFailure(
+      client.query(
+        `INSERT INTO plan
+           (id, owner_id, scope, horizon_start, horizon_end, time_zone)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [randomUUID(), ownerId, { taskIds: [] }, horizonEnd, horizonStart, 'Asia/Seoul'],
+      ),
+    );
+    expect(reversed.code).toBe('23514');
+    expect(reversed.constraint).toBe('plan_horizon_ordered');
+  });
+
+  test('plan current version must belong to the same plan and owner', async () => {
+    const ownerA = await insertUser();
+    const ownerB = await insertUser();
+    const planA = await insertPlan(ownerA);
+    const planB = await insertPlan(ownerA);
+    const planC = await insertPlan(ownerB);
+    const versionA = await insertVersion(ownerA, planA, 1);
+    const versionC = await insertVersion(ownerB, planC, 1);
+
+    await client.query('UPDATE plan SET current_version_id = $1 WHERE id = $2', [
+      versionA,
+      planA,
+    ]);
+
+    const wrongPlan = await queryFailure(
+      client.query('UPDATE plan SET current_version_id = $1 WHERE id = $2', [
+        versionA,
+        planB,
+      ]),
+    );
+    expect(wrongPlan.code).toBe('23503');
+    expect(wrongPlan.constraint).toBe('plan_current_version_fk');
+
+    const crossOwner = await queryFailure(
+      client.query('UPDATE plan SET current_version_id = $1 WHERE id = $2', [
+        versionA,
+        planC,
+      ]),
+    );
+    expect(crossOwner.code).toBe('23503');
+    expect(crossOwner.constraint).toBe('plan_current_version_fk');
+
+    // A version of the plan's own owner still works.
+    await client.query('UPDATE plan SET current_version_id = $1 WHERE id = $2', [
+      versionC,
+      planC,
+    ]);
+  });
+
+  test('0007 applies when btree_gist is already installed and documents bootstrap', async () => {
+    const extension = await client.query(
+      "SELECT extname FROM pg_extension WHERE extname = 'btree_gist'",
+    );
+    expect(extension.rowCount).toBe(1);
+
+    const fresh = makeSchemaName();
+    await createSchema(fresh);
+    try {
+      const applied = await migrate({
+        databaseUrl: requireDatabaseUrl(),
+        schema: fresh,
+        migrationsDir,
+      });
+      expect(applied.applied).toContain('0007_planning_core.sql');
+      const freshClient = await connect(fresh);
+      try {
+        const plan = await freshClient.query<{ name: string | null }>(
+          `SELECT to_regclass('plan')::text AS name`,
+        );
+        expect(plan.rows[0]?.name).not.toBeNull();
+      } finally {
+        await freshClient.end();
+      }
+    } finally {
+      await dropSchema(fresh);
+    }
+
+    const sql = readFileSync(`${migrationsDir}0007_planning_core.sql`, 'utf8');
+    expect(sql).toMatch(/superuser/i);
+    expect(sql).toMatch(/trusted[- ]extension/i);
   });
 
   test('rolls back 0007 with seeded rows and can reapply it', async () => {

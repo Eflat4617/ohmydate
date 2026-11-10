@@ -88,6 +88,8 @@ export interface RouteDefinition {
   readonly path: string;
   readonly operationId: string;
   readonly summary: string;
+  /** Longer operation description rendered into OpenAPI. */
+  readonly description?: string;
   readonly params?: TSchema;
   readonly query?: TSchema;
   readonly headers?: TSchema;
@@ -538,6 +540,8 @@ export const planningRoutes: readonly RouteDefinition[] = [
     path: '/plans/{id}/candidates/{cid}:preview-edit',
     operationId: 'previewPlanCandidateEdit',
     summary: 'Validate an edited candidate without side effects',
+    description:
+      'Pre-flight validation maps edited blocks outside the persisted plan horizon or outside the plan task scope to 422 validation_failed with errors[{path: "/editedBlocks/<i>", message}] before H1-H8 validation. Validator findings use 422 constraint_violation with violations[].',
     params: PlanCandidateParamsSchema,
     headers: IfMatchAndIdempotencyHeadersSchema,
     body: PreviewEditRequestSchema,
@@ -551,6 +555,8 @@ export const planningRoutes: readonly RouteDefinition[] = [
     path: '/plans/{id}/candidates/{cid}:approve',
     operationId: 'approvePlanCandidate',
     summary: 'Approve a candidate as a new plan version',
+    description:
+      'The same pre-flight mapping as preview-edit applies: edited blocks outside the persisted plan horizon or plan task scope fail with 422 validation_failed errors[{path: "/editedBlocks/<i>", message}], while scheduler findings use 422 constraint_violation with violations[].',
     params: PlanCandidateParamsSchema,
     headers: IfMatchAvailabilityAndIdempotencyHeadersSchema,
     body: ApprovePlanRequestSchema,
@@ -564,6 +570,8 @@ export const planningRoutes: readonly RouteDefinition[] = [
     path: '/plans/{id}:regenerate',
     operationId: 'regeneratePlan',
     summary: 'Regenerate candidates after a stale availability version',
+    description:
+      'Candidates are regenerated against the plan\'s original persisted horizon and time zone; the response Plan DTO echoes them unchanged.',
     params: PlanIdParamsSchema,
     headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {

@@ -337,7 +337,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Approve a candidate as a new plan version */
+        /**
+         * Approve a candidate as a new plan version
+         * @description The same pre-flight mapping as preview-edit applies: edited blocks outside the persisted plan horizon or plan task scope fail with 422 validation_failed errors[{path: "/editedBlocks/<i>", message}], while scheduler findings use 422 constraint_violation with violations[].
+         */
         post: operations["approvePlanCandidate"];
         delete?: never;
         options?: never;
@@ -354,7 +357,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Validate an edited candidate without side effects */
+        /**
+         * Validate an edited candidate without side effects
+         * @description Pre-flight validation maps edited blocks outside the persisted plan horizon or outside the plan task scope to 422 validation_failed with errors[{path: "/editedBlocks/<i>", message}] before H1-H8 validation. Validator findings use 422 constraint_violation with violations[].
+         */
         post: operations["previewPlanCandidateEdit"];
         delete?: never;
         options?: never;
@@ -371,7 +377,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Regenerate candidates after a stale availability version */
+        /**
+         * Regenerate candidates after a stale availability version
+         * @description Candidates are regenerated against the plan's original persisted horizon and time zone; the response Plan DTO echoes them unchanged.
+         */
         post: operations["regeneratePlan"];
         delete?: never;
         options?: never;
@@ -1020,6 +1029,12 @@ export interface components {
             createdAt: string;
             /** Format: uuid */
             currentVersionId?: string;
+            horizon: {
+                /** Format: date-time */
+                end: string;
+                /** Format: date-time */
+                start: string;
+            };
             /** Format: uuid */
             id: string;
             /** Format: uuid */
@@ -1031,6 +1046,8 @@ export interface components {
                 taskIds: string[];
             };
             status: "draft" | "active" | "superseded";
+            /** Format: iana-time-zone */
+            timeZone: string;
             /** Format: date-time */
             updatedAt: string;
             version: number;

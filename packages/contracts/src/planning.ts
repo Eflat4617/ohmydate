@@ -255,12 +255,14 @@ export const PlanBlockSchema = Type.Object(
 
 /**
  * Deterministic candidate metrics (06 §6), field-for-field with the scheduler's
- * `PlanMetrics`. Load/slack values may be fractional; minute totals cannot.
+ * `PlanMetrics`. `minSlackMin` is signed and may be fractional (a 30-second
+ * overdue deadline is -0.5) and must never be rounded or clamped; Ajv rejects
+ * non-finite numbers. Average loads and coverage ratios are also fractional.
  */
 export const PlanMetricsSchema = Type.Object(
   {
     totalFocusMin: Type.Integer({ minimum: 0 }),
-    minSlackMin: Type.Integer({ minimum: 0 }),
+    minSlackMin: Type.Number(),
     maxDailyLoadMin: Type.Integer({ minimum: 0 }),
     avgDailyLoadMin: Type.Number({ minimum: 0 }),
     contextSwitches: Type.Integer({ minimum: 0 }),
@@ -305,6 +307,8 @@ export const PlanSchema = Type.Object(
     status: PlanStatusSchema,
     availabilityVersion: Type.Integer({ minimum: 1 }),
     currentVersionId: Type.Optional(IdSchema),
+    horizon: PlanHorizonSchema,
+    timeZone: IanaTimeZoneSchema,
     candidates: Type.Array(PlanCandidateSchema, { maxItems: 3 }),
     version: VersionSchema,
     createdAt: InstantSchema,

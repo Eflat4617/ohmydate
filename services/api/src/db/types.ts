@@ -422,6 +422,9 @@ export interface PlanTable {
   status: Col<'text', false, true>;
   current_version_id: Col<'uuid', true, false>;
   availability_version: Col<'integer', false, true>;
+  horizon_start: Col<'timestamptz', false, false>;
+  horizon_end: Col<'timestamptz', false, false>;
+  time_zone: Col<'text', false, false>;
   created_at: Col<'timestamptz', false, true>;
   updated_at: Col<'timestamptz', false, true>;
   version: Col<'integer', false, true>;
@@ -887,6 +890,9 @@ export const databaseTables = {
     status: col('text', false, true),
     current_version_id: col('uuid', true, false),
     availability_version: col('integer', false, true),
+    horizon_start: col('timestamptz', false, false),
+    horizon_end: col('timestamptz', false, false),
+    time_zone: col('text', false, false),
     created_at: col('timestamptz', false, true),
     updated_at: col('timestamptz', false, true),
     version: col('integer', false, true),

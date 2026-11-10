@@ -44,9 +44,11 @@ export const ViolationCodeSchema = Type.Union(
 );
 
 /**
- * Validator finding attached to a `constraint_violation` problem. The codes are
- * the scheduler's public hard-constraint labels (06 §3); the scheduler-only H0
- * preconditions stay internal because callers cannot express them.
+ * Validator finding attached to a `constraint_violation` problem. Only H1-H8
+ * are public contract codes. H0 preflight findings are a request-shape error,
+ * not a planning constraint: edited blocks outside the persisted plan horizon
+ * or outside the plan's task scope are reported as 422 `validation_failed` with
+ * errors[{path: "/editedBlocks/<i>", message}] before H1-H8 validation runs.
  */
 export const ViolationSchema = Type.Object(
   {

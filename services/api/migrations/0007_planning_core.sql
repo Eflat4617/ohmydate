@@ -8,6 +8,14 @@
 -- `btree_gist` is installed in `public` and its uuid operator class is
 -- schema-qualified in the EXCLUDE constraint because the migration runner sets
 -- `search_path` to the target schema (tests use one schema per suite).
+--
+-- Privilege note: CREATE EXTENSION requires a superuser or a role holding
+-- trusted-extension rights. Deployments whose application role is not a
+-- superuser must bootstrap btree_gist once (as a superuser or database owner)
+-- before applying 0007; this migration then finds it in public and only
+-- schema-qualifies the operator class. If the extension is already installed,
+-- the CREATE EXTENSION IF NOT EXISTS step is a no-op.
+--
 -- Forward-only; rollback lives in 0007_planning_core.down.sql.
 
 CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA public;
@@ -119,6 +127,9 @@ CREATE TABLE plan (
   status text NOT NULL DEFAULT 'draft',
   current_version_id uuid,
   availability_version integer NOT NULL DEFAULT 1,
+  horizon_start timestamptz NOT NULL,
+  horizon_end timestamptz NOT NULL,
+  time_zone text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   version integer NOT NULL DEFAULT 1,
@@ -126,6 +137,8 @@ CREATE TABLE plan (
   CONSTRAINT plan_scope_object CHECK (jsonb_typeof(scope) = 'object'),
   CONSTRAINT plan_status_valid CHECK (status IN ('draft', 'active', 'superseded')),
   CONSTRAINT plan_availability_version_positive CHECK (availability_version > 0),
+  CONSTRAINT plan_horizon_ordered CHECK (horizon_end > horizon_start),
+  CONSTRAINT plan_time_zone_present CHECK (char_length(time_zone) > 0),
   CONSTRAINT plan_version_positive CHECK (version > 0),
   CONSTRAINT plan_id_owner_unique UNIQUE (id, owner_id)
 );
@@ -178,6 +191,7 @@ CREATE TABLE plan_version (
   CONSTRAINT plan_version_availability_version_positive CHECK (availability_version > 0),
   CONSTRAINT plan_version_version_positive CHECK (version > 0),
   CONSTRAINT plan_version_id_owner_unique UNIQUE (id, owner_id),
+  CONSTRAINT plan_version_id_plan_owner_unique UNIQUE (id, plan_id, owner_id),
   CONSTRAINT plan_version_plan_seq_unique UNIQUE (plan_id, seq),
   CONSTRAINT plan_version_plan_fk FOREIGN KEY (plan_id, owner_id)
     REFERENCES plan (id, owner_id) ON DELETE CASCADE
@@ -186,12 +200,16 @@ CREATE TABLE plan_version (
 CREATE INDEX plan_version_plan_idx ON plan_version (plan_id);
 CREATE INDEX plan_version_candidate_idx ON plan_version (candidate_id);
 
--- plan.current_version_id is a composite FK to a version of the same owner.
--- Candidate deletion (30-day retention) must not remove approved history, so
+-- plan.current_version_id is a composite FK that pins the version to the same
+-- plan AND owner; (id, owner_id) alone would let one of the owner's plans point
+-- at a sibling plan's version. DEFERRABLE lets approval insert the version and
+-- update the plan in either order inside one transaction. Candidate deletion
+-- (30-day retention) must not remove approved history, so
 -- plan_version.candidate_id intentionally has no FK.
 ALTER TABLE plan ADD CONSTRAINT plan_current_version_fk
-  FOREIGN KEY (current_version_id, owner_id)
-  REFERENCES plan_version (id, owner_id);
+  FOREIGN KEY (current_version_id, id, owner_id)
+  REFERENCES plan_version (id, plan_id, owner_id)
+  DEFERRABLE INITIALLY DEFERRED;
 
 CREATE TABLE schedule_block (
   id uuid PRIMARY KEY,
