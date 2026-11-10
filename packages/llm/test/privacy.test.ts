@@ -417,16 +417,41 @@ const knownLimitations = [
     name: 'domain label longer than 63 characters',
     text: `jane@${'a'.repeat(64)}.com`,
   },
-  {
-    name: 'mixed superscript and math digits in one number',
-    text: '⁰¹⁰-¹²³⁴-⁵⁶⁷𝟖',
-  },
 ];
 
 test.each(knownLimitations)(
   'known limitation remains unmasked: $name',
   ({ text }) => {
     expect(redact(text)).toEqual({ text, report: [] });
+  },
+);
+
+/**
+ * FU-38c item 6: mixed super/subscript + real-digit tokens now validate the whole
+ * normalised shape and mask completely. The former `⁰¹⁰-¹²³⁴-⁵⁶⁷𝟖` known-limitation case
+ * is asserted positively here (stronger than the previous unmasked assertion).
+ */
+const mixedDigitTokens: readonly {
+  readonly input: string;
+  readonly kind: 'rrn' | 'phone';
+  readonly suffix?: string;
+}[] = [
+  { input: '¹²³⁴⁵⁶-1234567', kind: 'rrn' },
+  { input: '⁰¹⁰-1234-5678', kind: 'phone' },
+  { input: '¹⁹00101¹²³⁴⁵⁶𝟕', kind: 'rrn' },
+  { input: '⁰¹⁰-¹²³⁴-⁵⁶⁷𝟖', kind: 'phone' },
+  { input: '⁰¹⁰-¹²³⁴-⁵⁶⁷⁸²', kind: 'phone', suffix: '²' },
+  { input: '⁹⁰⁰¹⁰¹-¹²³⁴⁵⁶⁷²', kind: 'rrn', suffix: '²' },
+];
+
+test.each(mixedDigitTokens)(
+  'masks the mixed super/subscript + Nd token $input completely',
+  ({ input, kind, suffix }) => {
+    const result = redact(`x ${input} y`);
+    const mask = kind === 'rrn' ? '[REDACTED_RRN]' : '[REDACTED_PHONE]';
+    expect(result.text).toBe(`x ${mask}${suffix ?? ''} y`);
+    expect(result.report).toEqual([{ kind, count: 1 }]);
+    expect(result.text).not.toContain(input);
   },
 );
 

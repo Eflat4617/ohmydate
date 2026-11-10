@@ -7,6 +7,31 @@
  * lookarounds are evaluated against the original characters, so a superscript/circled
  * footnote marker or a stripped format character still terminates a number. The report
  * contains only kinds and counts, never the matched values.
+ *
+ * Scanner architecture (ADR-019):
+ * - Every pattern independently explores every candidate start. After an accepted match
+ *   the next attempt starts at `start + 1` in normalised coordinates, so a match can never
+ *   skip a later valid start that overlaps it (the cause of the FU-38 recall regressions).
+ * - Every pattern has a bounded maximum match length (`Pattern.maxLength`), and every
+ *   unbounded quantifier is capped, so a scan is O(n * L_max) in the input length.
+ * - Accepted spans are unioned in original coordinates; overlapping spans get the highest
+ *   priority kind (RRN > phone > email > API key). Superscript/subscript run extension is
+ *   reserved for this union stage (none is applied: FU-32 pins attached markers as visible,
+ *   see the precision note below).
+ * - A token glued directly to an accepted token (no separator) is discovered by an
+ *   adjacency pass from the accepted end, because the ordinary start boundary correctly
+ *   keeps `1010-1234-5678` from being treated as a phone.
+ *
+ * Precision tradeoffs (05 §12 best effort):
+ * - A number written entirely in super/subscript digits is treated as a real number. When
+ *   a trailing circled marker is required to complete its shape it is masked with the
+ *   number (`⁰¹⁰-¹²³⁴-⁵⁶⁷⑧`); an attached super/subscript suffix that the shape does not
+ *   need stays visible (`900101-1234567²`).
+ * - A mixed super/subscript + real-digit token is masked when the whole normalised token
+ *   validates as a phone/RRN shape. If a real-digit start exists in the same aligned run,
+ *   the aligned start wins so a leading marker stays visible (`⁰9001011234567`).
+ * - Email obfuscation, IDN/spaced addresses, opaque tokens, names, addresses and account
+ *   numbers are outside these guarantees.
  */
 
 export type RedactionKind = 'email' | 'phone' | 'rrn' | 'api_key';
@@ -30,11 +55,25 @@ const MASKS: Readonly<Record<RedactionKind, string>> = {
 
 const REPORT_ORDER: readonly RedactionKind[] = ['email', 'phone', 'rrn', 'api_key'];
 
+/** ADR-019 overlap label priority: lower wins. */
+const KIND_PRIORITY: Readonly<Record<RedactionKind, number>> = {
+  rrn: 0,
+  phone: 1,
+  email: 2,
+  api_key: 3,
+};
+
 const IGNORABLE = /\p{Default_Ignorable_Code_Point}/u;
 const ORIGINAL_DIGIT = /^\p{Nd}$/u;
 
 const DIGIT = '[0-9０-９]';
-const SEPARATOR = '[.\\s\\-_/\\u2010-\\u2015\\u2212\\u00B7]*';
+
+/**
+ * Separator runs are bounded so `L_max` is a real constant: an unbounded `*` would let a
+ * rejected attempt scan a multi-megabyte run for every candidate start (FU-24R-2 HIGH).
+ */
+const MAX_SEPARATOR = 32;
+const SEPARATOR = `[.\\s\\-_/\\u2010-\\u2015\\u2212\\u00B7]{0,${MAX_SEPARATOR}}`;
 const DOMAIN_LABEL = '[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?';
 
 type DigitBoundary = 'start' | 'end' | 'both';
@@ -64,6 +103,13 @@ interface Pattern {
   readonly prefix?: RegExp;
   /** Sticky backtracking variant used when a bounded word token ends mid-run. */
   readonly shorterWordEnd?: RegExp;
+  /** Anchored full-match variant used to validate a shorter end. */
+  readonly exact?: RegExp;
+  /**
+   * Upper bound on the number of normalised code units this pattern can match (`L_max`).
+   * Documented per pattern; the scanner never reads more than this from a start.
+   */
+  readonly maxLength: number;
 }
 
 interface OriginalChar {
@@ -78,6 +124,8 @@ interface IndexMap {
   readonly ascii: boolean;
   /** Normalised code-unit index -> index in `chars`. */
   readonly source: readonly number[];
+  /** Original char index -> first normalised code-unit index (or -1 when stripped). */
+  readonly firstNorm: readonly number[];
   readonly chars: readonly OriginalChar[];
 }
 
@@ -122,8 +170,8 @@ function isOriginalDigitChar(char: OriginalChar | undefined): boolean {
 /**
  * Superscript (⁰¹²³⁴⁵⁶⁷⁸⁹) and subscript (₀₁₂₃₄₅₆₇₈₉) digits are `No`, not `Nd`, so
  * they still act as footnote markers by default. A number written entirely in these
- * digits is a real number though: the decision (FU-32) is to mask it when every digit
- * in the matched token is super/subscript.
+ * digits is a real number though: the decision (FU-32, FU-38R-1) is to mask it when every
+ * `Nd` digit in the matched token is absent, while circled markers (`No`) may be consumed.
  */
 function isSuperSubDigit(value: string): boolean {
   if (value.length !== 1) return false;
@@ -145,28 +193,6 @@ function startsOnSuperSubDigit(map: IndexMap, start: number): boolean {
   return char !== undefined && !char.stripped && isSuperSubDigit(char.value);
 }
 
-/** True when every digit that the match spans is a super/subscript digit. */
-function allDigitsSuperSub(map: IndexMap, start: number, end: number): boolean {
-  if (map.ascii) return false;
-  const first = sourceAt(map, start);
-  const last = sourceAt(map, end - 1);
-  if (first === undefined || last === undefined) return false;
-  let digits = 0;
-  for (let index = first; index <= last; index += 1) {
-    const char = map.chars[index];
-    if (char === undefined || char.stripped) continue;
-    if (isSuperSubDigit(char.value)) {
-      digits += 1;
-      continue;
-    }
-    // Any other character that folds to a digit (ASCII/fullwidth/math Nd, circled No)
-    // means the token mixes real digits with super/subscript markers.
-    const folded = char.value.normalize('NFKC');
-    if (folded.length === 1 && isDigitCode(folded.charCodeAt(0))) return false;
-  }
-  return digits > 0;
-}
-
 /** True when the normalised match starts on a digit code unit. */
 function startsOnDigit(map: IndexMap, start: number): boolean {
   return isDigitCode(map.normalized.charCodeAt(start));
@@ -179,13 +205,41 @@ function startsOnOriginalDigit(map: IndexMap, start: number): boolean {
   return isOriginalDigitChar(current === undefined ? undefined : map.chars[current]);
 }
 
+/**
+ * First normalised position in the digit run at `start` that comes from a real `Nd` digit,
+ * limited to `limit` (the current match end, so the probe is bounded by `L_max`). A
+ * super/subscript glyph before it is indistinguishable from a footnote marker, so probing
+ * the real-digit start decides whether shifting the window recovers more.
+ */
+function firstOriginalDigitInRun(
+  map: IndexMap,
+  start: number,
+  limit: number,
+): number | undefined {
+  if (map.ascii) return start;
+  const stop = Math.min(limit, sourceLength(map));
+  let index = start;
+  while (index < stop && isDigitCode(map.normalized.charCodeAt(index))) {
+    if (startsOnOriginalDigit(map, index)) return index;
+    index += 1;
+  }
+  return undefined;
+}
+
 function normalizeWithMap(text: string): IndexMap {
   if (!NON_ASCII.test(text)) {
-    return { normalized: text, ascii: true, source: EMPTY_NUMBERS, chars: EMPTY_CHARS };
+    return {
+      normalized: text,
+      ascii: true,
+      source: EMPTY_NUMBERS,
+      firstNorm: EMPTY_NUMBERS,
+      chars: EMPTY_CHARS,
+    };
   }
 
   const chars: OriginalChar[] = [];
   const source: number[] = [];
+  const firstNorm: number[] = [];
   // Long separator runs repeat one code point; fold and test it once per call.
   const folded = new Map<string, { readonly stripped: boolean; readonly expanded: string }>();
   let normalized = '';
@@ -201,6 +255,7 @@ function normalizeWithMap(text: string): IndexMap {
     if (isAscii(char)) {
       chars.push({ start, end: offset, value: char, stripped: false });
       source.push(current);
+      firstNorm.push(normalized.length);
       normalized += char;
       continue;
     }
@@ -213,15 +268,17 @@ function normalizeWithMap(text: string): IndexMap {
 
     if (entry.stripped) {
       chars.push({ start, end: offset, value: char, stripped: true });
+      firstNorm.push(-1);
       continue;
     }
 
     chars.push({ start, end: offset, value: char, stripped: false });
+    firstNorm.push(normalized.length);
     normalized += entry.expanded;
     for (let unit = 0; unit < entry.expanded.length; unit += 1) source.push(current);
   }
 
-  return { normalized, ascii: false, source, chars };
+  return { normalized, ascii: false, source, firstNorm, chars };
 }
 
 /**
@@ -245,11 +302,29 @@ function couldContainMatch(text: string): boolean {
 }
 
 function sourceAt(map: IndexMap, index: number): number | undefined {
-  return map.ascii ? (index >= 0 && index < map.normalized.length ? index : undefined) : map.source[index];
+  return map.ascii
+    ? index >= 0 && index < map.normalized.length
+      ? index
+      : undefined
+    : map.source[index];
 }
 
 function sourceLength(map: IndexMap): number {
   return map.ascii ? map.normalized.length : map.source.length;
+}
+
+/**
+ * Next candidate start after a normalised position. Advances one code point, not one code
+ * unit: a `u`-flag regex whose `lastIndex` sits inside a surrogate pair backs up to the
+ * pair start, so `start + 1` would return the same match forever.
+ */
+function nextStart(map: IndexMap, index: number): number {
+  const code = map.normalized.charCodeAt(index);
+  if (code >= 0xd800 && code <= 0xdbff) {
+    const next = map.normalized.charCodeAt(index + 1);
+    if (next >= 0xdc00 && next <= 0xdfff) return index + 2;
+  }
+  return index + 1;
 }
 
 function charStart(map: IndexMap, index: number): number {
@@ -258,6 +333,26 @@ function charStart(map: IndexMap, index: number): number {
 
 function charEnd(map: IndexMap, index: number): number {
   return map.ascii ? index + 1 : (map.chars[index]?.end ?? index + 1);
+}
+
+/** Original coordinate -> normalised position of the char that starts there. */
+function toNormalized(map: IndexMap, originalStart: number): number | undefined {
+  if (map.ascii) return originalStart;
+  let low = 0;
+  let high = map.chars.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    const char = map.chars[middle] as OriginalChar;
+    if (char.start < originalStart) {
+      low = middle + 1;
+    } else if (char.start > originalStart) {
+      high = middle - 1;
+    } else {
+      const position = map.firstNorm[middle];
+      return position !== undefined && position >= 0 ? position : undefined;
+    }
+  }
+  return undefined;
 }
 
 function charBoundary(map: IndexMap, index: number): boolean {
@@ -390,17 +485,27 @@ function notWordPlusBefore(map: IndexMap, start: number): boolean {
 
 const CC_PHONE_SOURCE = `\\+${DIGIT}{1,3}(?:${SEPARATOR}(?:\\(\\s?${DIGIT}{1,5}\\s?\\)|${DIGIT}{2,4})){2,4}`;
 const CC_PHONE_EXACT = new RegExp(`^(?:${CC_PHONE_SOURCE})$`, 'u');
+const INTL_82_PHONE_SOURCE = `(?:00(?:82|[1-9]${DIGIT}{0,2}${SEPARATOR}82)|82)${SEPARATOR}(?:\\(0\\)${SEPARATOR})?0?${DIGIT}{1,2}${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`;
+const KR_PAREN_PREFIX_SOURCE = `\\(\\s?0(?:1[016789]|2|[3-6][1-5]|50${DIGIT}?|70|80)\\s?\\)${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`;
+const KR_MOBILE_SOURCE = `(?:01[016789]|070|080)${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`;
+const KR_050_SOURCE = `050${DIGIT}?${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`;
+const KR_LANDLINE_SOURCE = `0(?:2|[3-6][1-5])${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`;
+const RRN_SOURCE = `${DIGIT}{6}${SEPARATOR}[1-8]${DIGIT}{6}`;
 
-// Order matters: redact wider/more specific tokens first so a lower-priority pattern never
-// claims part of an already-masked span. Matching runs on the normalised copy.
-// Word boundaries and `(?<![\w+])` are deliberately kept out of the regexes: on the
-// normalised copy they would join tokens separated only by a stripped format character,
-// so they are re-evaluated against the original characters after each match.
+function exactSource(source: string): RegExp {
+  return new RegExp(`^(?:${source})$`, 'u');
+}
+
+/**
+ * `maxLength` is the documented per-pattern `L_max` in normalised code units. Unbounded
+ * payload quantifiers (API-key bodies, Bearer segments) are capped at 256/2048 so the bound
+ * is a constant; separators are capped at `MAX_SEPARATOR`.
+ */
 const PATTERNS: readonly Pattern[] = [
   {
     kind: 'email',
-    // The local-part start is anchored so the engine cannot rescan 320 characters from
-    // every position (the quadratic cause of the R3 regression).
+    // 320 local + '@' + 8 labels of at most 63 + 8 dots.
+    maxLength: 840,
     regex: new RegExp(
       `(?<![^\\s@<>()\\[\\],;:'"])[^\\s@<>()\\[\\],;:'"]{1,320}@${DOMAIN_LABEL}(?:\\.${DOMAIN_LABEL}){1,8}`,
       'gu',
@@ -408,30 +513,35 @@ const PATTERNS: readonly Pattern[] = [
   },
   {
     kind: 'api_key',
+    maxLength: 20,
     prefix: /(?:AKIA|ASIA)/g,
     regex: /(?:AKIA|ASIA)[0-9A-Z]{16}/y,
     wordBoundary: 'both',
   },
   {
     kind: 'api_key',
+    maxLength: 267,
     prefix: /(?:gh[pousr]_|github_pat_)/g,
-    regex: /(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})/y,
+    regex: /(?:gh[pousr]_[A-Za-z0-9]{20,256}|github_pat_[A-Za-z0-9_]{20,256})/y,
     wordBoundary: 'both',
   },
   {
     kind: 'api_key',
+    maxLength: 259,
     prefix: /(?:sk|tk|pk)[-_]/g,
-    regex: /(?:sk|tk|pk)[-_][A-Za-z0-9_-]{8,}/y,
+    regex: /(?:sk|tk|pk)[-_][A-Za-z0-9_-]{8,256}/y,
     wordBoundary: 'both',
   },
   {
     kind: 'api_key',
+    maxLength: 262,
     prefix: /xox[baprs]-/g,
-    regex: /xox[baprs]-[A-Za-z0-9-]{10,}/y,
+    regex: /xox[baprs]-[A-Za-z0-9-]{10,256}/y,
     wordBoundary: 'both',
   },
   {
     kind: 'api_key',
+    maxLength: 43,
     prefix: /AIza/g,
     regex: /AIza[0-9A-Za-z_-]{30,40}/y,
     wordBoundary: 'both',
@@ -439,26 +549,31 @@ const PATTERNS: readonly Pattern[] = [
   },
   {
     kind: 'api_key',
+    maxLength: 258,
     prefix: /glpat-/g,
-    regex: /glpat-[A-Za-z0-9_-]{20,}/y,
+    regex: /glpat-[A-Za-z0-9_-]{20,256}/y,
     wordBoundary: 'both',
   },
   {
     kind: 'api_key',
-    prefix: /(?:Bearer|bearer)\s+/g,
+    maxLength: 6200,
+    prefix: /(?:Bearer|bearer)\s{1,32}/g,
     regex:
-      /(?:Bearer|bearer)\s+[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}/y,
+      /(?:Bearer|bearer)\s{1,32}[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}\.[A-Za-z0-9_-]{8,2048}/y,
     wordBoundary: 'both',
   },
   {
     kind: 'rrn',
     // Korean RRN shares the phone separator class (dot, slash, Unicode dash, spaced dash).
-    regex: new RegExp(`${DIGIT}{6}${SEPARATOR}[1-8]${DIGIT}{6}`, 'gu'),
+    maxLength: 45,
+    regex: new RegExp(RRN_SOURCE, 'gu'),
     digitBoundary: 'both',
+    exact: exactSource(RRN_SOURCE),
   },
   {
     kind: 'phone',
     // +82-(0)2-123-4567.
+    maxLength: 120,
     regex: new RegExp(
       `\\+${DIGIT}{1,3}${SEPARATOR}\\(0\\)${SEPARATOR}${DIGIT}{1,2}${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`,
       'gu',
@@ -469,6 +584,7 @@ const PATTERNS: readonly Pattern[] = [
   {
     kind: 'phone',
     // Parenthesised country code: (+82) 10-1234-5678.
+    maxLength: 120,
     regex: new RegExp(
       `\\(\\+${DIGIT}{1,3}\\)${SEPARATOR}${DIGIT}{1,2}${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`,
       'gu',
@@ -479,24 +595,26 @@ const PATTERNS: readonly Pattern[] = [
   {
     kind: 'phone',
     // International dialling prefixes: 0082-10-..., 001-82-10-..., 82-10-....
-    regex: new RegExp(
-      `(?:00(?:82|[1-9]${DIGIT}{0,2}${SEPARATOR}82)|82)${SEPARATOR}(?:\\(0\\)${SEPARATOR})?0?${DIGIT}{1,2}${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`,
-      'gu',
-    ),
+    maxLength: 150,
+    regex: new RegExp(INTL_82_PHONE_SOURCE, 'gu'),
     digitBoundary: 'both',
     notWordPlusBefore: true,
+    exact: exactSource(INTL_82_PHONE_SOURCE),
   },
   {
     kind: 'phone',
     // +<cc> followed by 2-4 groups; a group may be parenthesised (area/trunk).
+    maxLength: 200,
     regex: new RegExp(CC_PHONE_SOURCE, 'gu'),
     digitBoundary: 'end',
     notWordPlusBefore: true,
     shorterEnd: new RegExp(`${CC_PHONE_SOURCE}(?![0-9０-９])`, 'yu'),
+    exact: CC_PHONE_EXACT,
   },
   // Glued E.164 without separators: +821012345678, +14155552671.
   {
     kind: 'phone',
+    maxLength: 16,
     regex: new RegExp(`\\+${DIGIT}{8,15}`, 'gu'),
     digitBoundary: 'end',
     notWordPlusBefore: true,
@@ -504,34 +622,58 @@ const PATTERNS: readonly Pattern[] = [
   {
     kind: 'phone',
     // Parenthesised KR prefix: (02), (031), (010), (070), (0505).
-    regex: new RegExp(
-      `\\(\\s?0(?:1[016789]|2|[3-6][1-5]|50${DIGIT}?|70|80)\\s?\\)${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`,
-      'gu',
-    ),
+    maxLength: 120,
+    regex: new RegExp(KR_PAREN_PREFIX_SOURCE, 'gu'),
     digitBoundary: 'end',
+    exact: exactSource(KR_PAREN_PREFIX_SOURCE),
   },
   // Korean mobile plus 070 VoIP and 080 toll-free ranges.
   {
     kind: 'phone',
-    regex: new RegExp(
-      `(?:01[016789]|070|080)${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`,
-      'gu',
-    ),
+    maxLength: 85,
+    regex: new RegExp(KR_MOBILE_SOURCE, 'gu'),
     digitBoundary: 'both',
+    exact: exactSource(KR_MOBILE_SOURCE),
   },
   // 050x VoIP ranges (050, 0505, ...).
   {
     kind: 'phone',
-    regex: new RegExp(`050${DIGIT}?${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`, 'gu'),
+    maxLength: 85,
+    regex: new RegExp(KR_050_SOURCE, 'gu'),
     digitBoundary: 'both',
+    exact: exactSource(KR_050_SOURCE),
   },
   // Korean landline: 02, 031-065.
   {
     kind: 'phone',
-    regex: new RegExp(`0(?:2|[3-6][1-5])${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`, 'gu'),
+    maxLength: 85,
+    regex: new RegExp(KR_LANDLINE_SOURCE, 'gu'),
     digitBoundary: 'both',
+    exact: exactSource(KR_LANDLINE_SOURCE),
   },
 ];
+
+/**
+ * Digit patterns used to decide whether a rejected right boundary is actually a glued
+ * second token (`900101123456701012345678`). Raw sticky shapes only: no boundary checks,
+ * because the continuation token's left boundary is the accepted token's end.
+ */
+const DIGIT_PROBES: readonly { readonly pattern: Pattern; readonly probe: RegExp }[] =
+  PATTERNS.filter((pattern) => pattern.digitBoundary !== undefined).map((pattern) => ({
+    pattern,
+    probe: new RegExp(pattern.regex.source, 'yu'),
+  }));
+
+function startsDigitTokenAt(map: IndexMap, start: number): boolean {
+  if (start <= 0 || start >= sourceLength(map)) return false;
+  if (!isDigitCode(map.normalized.charCodeAt(start))) return false;
+  for (const { probe } of DIGIT_PROBES) {
+    probe.lastIndex = start;
+    const match = probe.exec(map.normalized);
+    if (match !== null && match.index === start && match[0].length > 0) return true;
+  }
+  return false;
+}
 
 export interface RedactionSpan {
   readonly start: number;
@@ -539,21 +681,46 @@ export interface RedactionSpan {
   readonly kind: RedactionKind;
 }
 
+interface MutableSpan {
+  start: number;
+  end: number;
+  kind: RedactionKind;
+}
+
 /** Merge overlapping spans into their union, keeping the first span's mask kind. */
 export function mergeSpans(spans: readonly RedactionSpan[]): RedactionSpan[] {
   const sorted = [...spans].sort(
     (left, right) => left.start - right.start || left.end - right.end,
   );
-  const merged: RedactionSpan[] = [];
+  const merged: MutableSpan[] = [];
   for (const span of sorted) {
     const last = merged[merged.length - 1];
     if (last !== undefined && span.start < last.end) {
-      if (span.end > last.end) {
-        merged[merged.length - 1] = { start: last.start, end: span.end, kind: last.kind };
-      }
+      if (span.end > last.end) last.end = span.end;
       continue;
     }
-    merged.push(span);
+    merged.push({ start: span.start, end: span.end, kind: span.kind });
+  }
+  return merged;
+}
+
+/**
+ * Union overlapped spans and pick the deterministic kind priority for each component
+ * (ADR-019: RRN > phone > email > API key). Adjacent spans stay separate.
+ */
+function unionSpans(spans: readonly RedactionSpan[]): RedactionSpan[] {
+  const sorted = [...spans].sort(
+    (left, right) => left.start - right.start || left.end - right.end,
+  );
+  const merged: MutableSpan[] = [];
+  for (const span of sorted) {
+    const last = merged[merged.length - 1];
+    if (last !== undefined && span.start < last.end) {
+      if (span.end > last.end) last.end = span.end;
+      if (KIND_PRIORITY[span.kind] < KIND_PRIORITY[last.kind]) last.kind = span.kind;
+      continue;
+    }
+    merged.push({ start: span.start, end: span.end, kind: span.kind });
   }
   return merged;
 }
@@ -579,7 +746,29 @@ function trimmedWordEnd(map: IndexMap, start: number, rawEnd: number): number | 
   return undefined;
 }
 
-/** A shorter +cc end must satisfy the original-character digit boundary. */
+/** A shorter end must not split a glyph, satisfy the boundary and match exactly. */
+function acceptedShorterEnd(
+  map: IndexMap,
+  pattern: Pattern,
+  start: number,
+  end: number,
+): boolean {
+  if (end <= start) return false;
+  const last = sourceAt(map, end - 1);
+  if (last !== undefined && end < sourceLength(map) && sourceAt(map, end) === last) {
+    return false;
+  }
+  if (!boundaryAfter(map, end)) return false;
+  const exact = pattern.exact;
+  return exact === undefined || exact.test(map.normalized.slice(start, end));
+}
+
+/**
+ * Walk the rejected end backwards to the longest end that satisfies the original-character
+ * digit boundary. Every digit pattern supplies an anchored `exact` shape, so a greedy
+ * variable group that swallowed a marker digit (⑳/㉑/⑧) can be shortened instead of
+ * dropping the whole token. The walk is bounded by `L_max`.
+ */
 function shorterEndAfter(
   map: IndexMap,
   pattern: Pattern,
@@ -587,49 +776,44 @@ function shorterEndAfter(
   rawEnd: number,
 ): number | undefined {
   const shorter = pattern.shorterEnd;
-  if (shorter === undefined) return undefined;
-  // Sticky fast path: contiguous digits can be split across groups, yielding a match
-  // longer than the rejected greedy one. Sticky exec scans only at `start`.
-  shorter.lastIndex = start;
-  const candidate = shorter.exec(map.normalized);
-  if (candidate !== null) {
-    const end = start + candidate[0].length;
-    if (end > rawEnd) {
-      const last = sourceAt(map, end - 1);
-      const splits =
-        last !== undefined && end < sourceLength(map) && sourceAt(map, end) === last;
-      if (
-        !splits &&
-        boundaryAfter(map, end) &&
-        CC_PHONE_EXACT.test(map.normalized.slice(start, end))
-      ) {
-        return end;
-      }
+  if (shorter !== undefined) {
+    // Sticky fast path: contiguous digits can be split across groups, yielding a match
+    // longer than the rejected greedy one. Sticky exec scans only at `start`.
+    shorter.lastIndex = start;
+    const candidate = shorter.exec(map.normalized);
+    if (candidate !== null && candidate.index === start) {
+      const end = start + candidate[0].length;
+      if (end > rawEnd && acceptedShorterEnd(map, pattern, start, end)) return end;
     }
   }
-  // Walk the rejected span's ends longest-first. A normalised lookahead cannot see an
-  // original-char digit boundary (e.g. ⑳ or a stripped ZWSP), so each candidate end is
-  // tested with the original-character rule and the exact pattern.
+  if (pattern.exact === undefined) return undefined;
   for (let end = rawEnd; end > start; end -= 1) {
-    // A CC match can only end on a digit or a closing paren. Separator runs can be
-    // arbitrarily long, so testing every position there is O(L^2) (FU-24R-2 HIGH).
+    // A match can only end on a digit or a closing paren. Separator runs are bounded, but
+    // skipping them avoids testing every position (FU-24R-2 HIGH).
     const last = map.normalized.charCodeAt(end - 1);
     if (!(isDigitCode(last) || last === 0x29)) continue;
-    if (!boundaryAfter(map, end)) continue;
-    if (CC_PHONE_EXACT.test(map.normalized.slice(start, end))) return end;
+    if (acceptedShorterEnd(map, pattern, start, end)) return end;
   }
   return undefined;
 }
 
-function startAllowed(map: IndexMap, pattern: Pattern, start: number): boolean {
+function startAllowed(
+  map: IndexMap,
+  pattern: Pattern,
+  start: number,
+  adjacent: boolean,
+): boolean {
   const { digitBoundary, wordBoundary, notWordPlusBefore: needsNotWordPlus } = pattern;
-  if ((digitBoundary === 'start' || digitBoundary === 'both') && !boundaryBefore(map, start)) {
+  if (
+    !adjacent &&
+    (digitBoundary === 'start' || digitBoundary === 'both') &&
+    !boundaryBefore(map, start)
+  ) {
     return false;
   }
   // A digit pattern must not begin on a footnote marker that only folds to a digit
-  // (⁰/①/㉑); that start would let its end land on a stripped char before a real digit.
-  // Super/subscript digits are the exception: a token made entirely of them is a real
-  // number, checked after the end is resolved.
+  // (①/⑳/㉑); that start would let its end land on a real digit. Super/subscript digits
+  // are the exception: a token made entirely of them is a real number.
   if (
     (digitBoundary === 'start' || digitBoundary === 'both') &&
     startsOnDigit(map, start) &&
@@ -638,14 +822,34 @@ function startAllowed(map: IndexMap, pattern: Pattern, start: number): boolean {
   ) {
     return false;
   }
-  if (needsNotWordPlus === true && !notWordPlusBefore(map, start)) return false;
-  if (
-    (wordBoundary === 'start' || wordBoundary === 'both') &&
-    !wordBoundaryBefore(map, start)
-  ) {
-    return false;
+  if (!adjacent && needsNotWordPlus === true && !notWordPlusBefore(map, start)) return false;
+  if (!adjacent && (wordBoundary === 'start' || wordBoundary === 'both')) {
+    return wordBoundaryBefore(map, start);
   }
   return true;
+}
+
+/** Raw sticky match at `start`, used only to probe an aligned real-digit start. */
+function probeAt(map: IndexMap, pattern: Pattern, start: number): number | undefined {
+  const probe = new RegExp(pattern.regex.source, 'yu');
+  probe.lastIndex = start;
+  const match = probe.exec(map.normalized);
+  if (match === null || match.index !== start || match[0].length === 0) return undefined;
+  let end = start + match[0].length;
+  if (pattern.wordBoundary === 'end' || pattern.wordBoundary === 'both') {
+    const trimmed = trimmedWordEnd(map, start, end);
+    if (trimmed === undefined) return undefined;
+    end = trimmed;
+  }
+  if (
+    (pattern.digitBoundary === 'end' || pattern.digitBoundary === 'both') &&
+    !boundaryAfter(map, end)
+  ) {
+    const shorter = shorterEndAfter(map, pattern, start, end);
+    if (shorter === undefined) return undefined;
+    end = shorter;
+  }
+  return end;
 }
 
 /** Resolve a raw regex match to an accepted end, applying the original-character rules. */
@@ -654,9 +858,10 @@ function resolveEnd(
   pattern: Pattern,
   start: number,
   rawEnd: number,
+  adjacent: boolean,
 ): number | undefined {
   const { digitBoundary, wordBoundary } = pattern;
-  if (!startAllowed(map, pattern, start)) return undefined;
+  if (!startAllowed(map, pattern, start, adjacent)) return undefined;
 
   let end = rawEnd;
   if (wordBoundary === 'end' || wordBoundary === 'both') {
@@ -683,20 +888,28 @@ function resolveEnd(
     end = trimmed;
   }
   if ((digitBoundary === 'end' || digitBoundary === 'both') && !boundaryAfter(map, end)) {
+    // A glued supported token immediately after this one is a valid right boundary: the
+    // scanner will accept the continuation at the adjacency pass.
+    if (startsDigitTokenAt(map, rawEnd)) return rawEnd;
     const candidate = shorterEndAfter(map, pattern, start, rawEnd);
     if (candidate === undefined) return undefined;
     end = candidate;
   }
-  // A match that starts on a super/subscript digit is only a real number when every
-  // digit it spans is super/subscript; otherwise the leading glyph is a marker and a
-  // real-digit start later in the token must be the one that masks.
+  // A match may start on a super/subscript glyph and mix it with real digits. The regex
+  // validates the whole normalised token as a supported shape. When the contiguous digit
+  // run behind that start contains a real `Nd` digit whose aligned window covers at least
+  // as much, prefer the aligned start so a leading marker stays visible.
   if (
     (digitBoundary === 'start' || digitBoundary === 'both') &&
     startsOnDigit(map, start) &&
     !startsOnOriginalDigit(map, start) &&
-    !allDigitsSuperSub(map, start, end)
+    startsOnSuperSubDigit(map, start)
   ) {
-    return undefined;
+    const aligned = firstOriginalDigitInRun(map, start, end);
+    if (aligned !== undefined && aligned > start) {
+      const alignedEnd = probeAt(map, pattern, aligned);
+      if (alignedEnd !== undefined && alignedEnd >= end) return undefined;
+    }
   }
   return end;
 }
@@ -705,46 +918,90 @@ export interface RedactionWithSpansResult extends RedactionResult {
   readonly spans: readonly RedactionSpan[];
 }
 
-/**
- * Record a matched span. A fully-contained lower-priority span adds nothing; a partial
- * overlap is kept so `mergeSpans` takes the union instead of dropping the wider match
- * (e.g. a 82-prefix inner match inside a full +cc span).
- */
-function addSpan(
+/** Coalesce a span into the per-pattern list; starts arrive in increasing order. */
+function recordSpan(
   map: IndexMap,
-  covered: Uint8Array,
-  spans: RedactionSpan[],
+  spans: MutableSpan[],
+  ends: Set<number>,
   start: number,
   end: number,
   kind: RedactionKind,
 ): void {
-  let allCovered = true;
-  for (let index = start; index < end; index += 1) {
-    if (covered[index] === 0) {
-      allCovered = false;
-      break;
-    }
-  }
-  if (allCovered) return;
-  for (let index = start; index < end; index += 1) covered[index] = 1;
+  if (end <= start) return;
   const first = sourceAt(map, start);
   const last = sourceAt(map, end - 1);
-  if (first !== undefined && last !== undefined) {
-    spans.push({ start: charStart(map, first), end: charEnd(map, last), kind });
+  if (first === undefined || last === undefined) return;
+  const originalStart = charStart(map, first);
+  const originalEnd = charEnd(map, last);
+  ends.add(originalEnd);
+  const previous = spans[spans.length - 1];
+  if (
+    previous !== undefined &&
+    previous.kind === kind &&
+    originalStart >= previous.start &&
+    originalStart <= previous.end
+  ) {
+    if (originalEnd > previous.end) previous.end = originalEnd;
+    return;
+  }
+  spans.push({ start: originalStart, end: originalEnd, kind });
+}
+
+/**
+ * Find tokens glued directly after an already-accepted token. Their ordinary start
+ * boundary is a digit/word character, so only the adjacency context (an accepted span ends
+ * exactly here) makes them a valid start. This keeps `1010-1234-5678` untouched while
+ * `900101123456701012345678` masks both tokens. The work list is bounded by the number of
+ * accepted spans (each original end is queued at most once), and each probe is sticky at
+ * one position, so the pass stays linear.
+ */
+function scanAdjacent(
+  map: IndexMap,
+  spans: MutableSpan[],
+  ends: Set<number>,
+): void {
+  const sticky = new Map<Pattern, RegExp>();
+  const queue = [...ends].sort((left, right) => left - right);
+  const newEnds = new Set<number>(ends);
+  let cursor = 0;
+  while (cursor < queue.length) {
+    const originalEnd = queue[cursor] as number;
+    cursor += 1;
+    const start = toNormalized(map, originalEnd);
+    if (start === undefined || start >= map.normalized.length) continue;
+    for (const pattern of PATTERNS) {
+      let probe = sticky.get(pattern);
+      if (probe === undefined) {
+        probe = new RegExp(pattern.regex.source, 'yu');
+        sticky.set(pattern, probe);
+      }
+      probe.lastIndex = start;
+      const match = probe.exec(map.normalized);
+      if (match === null || match.index !== start || match[0].length === 0) continue;
+      const rawEnd = start + match[0].length;
+      const end = resolveEnd(map, pattern, start, rawEnd, true);
+      if (end === undefined) continue;
+      recordSpan(map, spans, ends, start, end, pattern.kind);
+      const last = spans[spans.length - 1];
+      if (last !== undefined && !newEnds.has(last.end)) {
+        newEnds.add(last.end);
+        queue.push(last.end);
+      }
+    }
   }
 }
 
 /**
  * Redact and also return the merged original-character spans. The spans are used by the
- * fuzz test to prove every character of a token was covered, not just the whole token.
+ * gate tests to prove every character of a token was covered, not just the whole token.
  */
 export function redactWithSpans(text: string): RedactionWithSpansResult {
   if (!couldContainMatch(text)) {
     return { text, report: [], spans: [] };
   }
   const map = normalizeWithMap(text);
-  const covered = new Uint8Array(map.normalized.length);
-  const spans: RedactionSpan[] = [];
+  const spans: MutableSpan[] = [];
+  const ends = new Set<number>();
 
   for (const patternDef of PATTERNS) {
     const { kind, regex } = patternDef;
@@ -752,32 +1009,27 @@ export function redactWithSpans(text: string): RedactionWithSpansResult {
       // Word-boundary patterns: scan only candidate prefix starts, so a rejected start
       // never runs the greedy body (the quadratic cause of the FU-24R HIGH).
       const prefix = new RegExp(patternDef.prefix.source, patternDef.prefix.flags);
-      const body = new RegExp(regex.source, regex.flags);
+      const body = new RegExp(regex.source, 'yu');
       let candidate = prefix.exec(map.normalized);
       while (candidate !== null) {
         const start = candidate.index;
-        if (!startAllowed(map, patternDef, start)) {
-          prefix.lastIndex = start + 1;
-          candidate = prefix.exec(map.normalized);
-          continue;
-        }
         body.lastIndex = start;
         const raw = body.exec(map.normalized);
-        if (raw === null) {
-          prefix.lastIndex = start + 1;
+        if (raw === null || raw.index !== start || raw[0].length === 0) {
+          prefix.lastIndex = nextStart(map, start);
           candidate = prefix.exec(map.normalized);
           continue;
         }
         const rawEnd = start + raw[0].length;
-        const end = rawEnd === start ? undefined : resolveEnd(map, patternDef, start, rawEnd);
+        const end = resolveEnd(map, patternDef, start, rawEnd, false);
         if (end === undefined) {
-          prefix.lastIndex = start + 1;
+          prefix.lastIndex = nextStart(map, start);
           candidate = prefix.exec(map.normalized);
           continue;
         }
-        addSpan(map, covered, spans, start, end, kind);
-        // Resume at the accepted end so a shorter word fallback never skips the next token.
-        prefix.lastIndex = Math.max(end, start + 1);
+        recordSpan(map, spans, ends, start, end, kind);
+        // ADR-019: continue at the next candidate start, never at the accepted end.
+        prefix.lastIndex = nextStart(map, start);
         candidate = prefix.exec(map.normalized);
       }
       continue;
@@ -789,26 +1041,31 @@ export function redactWithSpans(text: string): RedactionWithSpansResult {
       const start = match.index;
       const rawEnd = start + match[0].length;
       if (rawEnd === start) {
-        pattern.lastIndex += 1;
+        pattern.lastIndex = nextStart(map, start);
         match = pattern.exec(map.normalized);
         continue;
       }
-      const end = resolveEnd(map, patternDef, start, rawEnd);
+      const end = resolveEnd(map, patternDef, start, rawEnd, false);
       if (end === undefined) {
         // Retry one code unit later, not at the rejected span's end: a longer rejected
         // match can start inside a shorter valid one (the class (a) recall regression).
-        pattern.lastIndex = start + 1;
+        pattern.lastIndex = nextStart(map, start);
         match = pattern.exec(map.normalized);
         continue;
       }
-      addSpan(map, covered, spans, start, end, kind);
-      // Continue after whichever match was accepted so the fallback never rescans its tail.
-      pattern.lastIndex = Math.max(rawEnd, end);
+      recordSpan(map, spans, ends, start, end, kind);
+      // ADR-019: continue at the next candidate start, never at the accepted end.
+      pattern.lastIndex = nextStart(map, start);
       match = pattern.exec(map.normalized);
     }
   }
 
-  const merged = mergeSpans(spans);
+  scanAdjacent(map, spans, ends);
+
+  // All span extensions (super/subscript runs) belong here, after acceptance. FU-32 pins
+  // an attached super/subscript suffix as visible (`900101-1234567²`), so none is applied;
+  // the start-at-every-position scan already covers the digits of multi-token runs.
+  const merged = unionSpans(spans);
   const counts = new Map<RedactionKind, number>();
   for (const span of merged) {
     counts.set(span.kind, (counts.get(span.kind) ?? 0) + 1);
