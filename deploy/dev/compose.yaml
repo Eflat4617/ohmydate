@@ -1,0 +1,38 @@
+# Dev-only infrastructure (orchestrator-managed). Bind to 127.0.0.1 only. Synthetic data only.
+# Start/stop is done by the orchestrator (sudo docker); workers must NOT run docker.
+name: ohmydate-dev
+services:
+  postgres:
+    image: postgres:18@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
+    environment:
+      POSTGRES_USER: ohmydate
+      POSTGRES_PASSWORD: ohmydate-dev-only
+      POSTGRES_DB: planner
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ohmydate -d planner"]
+      interval: 5s
+      retries: 20
+  vikunja-db-init:
+    image: postgres:18@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
+    depends_on: { postgres: { condition: service_healthy } }
+    environment: { PGPASSWORD: ohmydate-dev-only }
+    entrypoint: ["sh", "-c", "psql -h postgres -U ohmydate -d planner -tc \"SELECT 1 FROM pg_database WHERE datname='vikunja'\" | grep -q 1 || psql -h postgres -U ohmydate -d planner -c 'CREATE DATABASE vikunja'; psql -h postgres -U ohmydate -d planner -tc \"SELECT 1 FROM pg_database WHERE datname='planner_test'\" | grep -q 1 || psql -h postgres -U ohmydate -d planner -c 'CREATE DATABASE planner_test'"]
+    restart: "no"
+  vikunja:
+    image: vikunja/vikunja:2.8.0@sha256:35d937baf3b5d5803bed6b9e11d007448b7b536df9e4346dc35551e1072636c3
+    depends_on: { vikunja-db-init: { condition: service_completed_successfully } }
+    environment:
+      VIKUNJA_SERVICE_PUBLICURL: http://127.0.0.1:3456/
+      VIKUNJA_SERVICE_SECRET: dev-only-secret-not-for-prod-0123456789
+      VIKUNJA_SERVICE_ENABLEREGISTRATION: "true"
+      VIKUNJA_DATABASE_TYPE: postgres
+      VIKUNJA_DATABASE_HOST: postgres
+      VIKUNJA_DATABASE_USER: ohmydate
+      VIKUNJA_DATABASE_PASSWORD: ohmydate-dev-only
+      VIKUNJA_DATABASE_DATABASE: vikunja
+    ports: ["127.0.0.1:3456:3456"]
+    volumes: ["${HOME}/.local/share/ohmydate-dev/vikunja-files:/app/vikunja/files"]
+volumes:
+  pgdata: {}

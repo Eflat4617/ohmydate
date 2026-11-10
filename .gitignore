@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+deploy/secrets/
+*.log
+.turbo/
+playwright-report/
+test-results/
+.probe-tmp/

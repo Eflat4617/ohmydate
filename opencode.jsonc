@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // OhMyDate worker binding (ADR-014): DeepSeek V4.1 Flash, reasoning effort high.
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "agent": {
+    "build": { "model": "opencode-go/deepseek-v4.1-flash", "variant": "high" }
+  },
+  "provider": {
+    "opencode-go": {
+      "models": { "deepseek-v4.1-flash": { "options": { "reasoningEffort": "high" } } }
+    }
+  },
+  "permission": { "external_directory": "deny", "doom_loop": "deny" }
+}

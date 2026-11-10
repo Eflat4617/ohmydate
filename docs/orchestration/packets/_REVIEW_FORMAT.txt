@@ -1,0 +1,10 @@
+REVIEW VERDICT: APPROVE | REQUEST_CHANGES | BLOCKED
+Findings (most severe first):
+  [CRITICAL|HIGH|MEDIUM|LOW] <title>
+    Evidence: <file>:<line> + reproduction or test output
+    Required change | Suggestion
+Contract / license / security / migration impact: <text or "none">
+Missing tests: <list>
+Verification actually executed: yes|no — exact commands + exit codes
+git status --porcelain after review: <must be empty>
+Residual risks: <list>
