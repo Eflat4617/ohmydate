@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 07:46 | **FU-38R2 REQUEST_CHANGES (Sol) → FU-38 BLOCKED** (수정 2회 소진): HIGH 2 — 혼합 RRN 창이 뒤 RRN 시작 건너뜀(뒤 7자리 노출), 짧은 전화번호 대체가 다음 전화번호 건너뜀(통째 노출). 종류 혼합 인접 12k 중 13건 회귀. 공통 원인 → **ADR-019** 재설계, FU-38c 새 worktree(FU-32 기준). 브랜치 fu-38-redaction-lows 병합 안 함 | reviews/FU-38R2.md | orchestrator |
 | 2026-11-11 07:42 | **FU-39R-1 REQUEST_CHANGES (Sol, FU-08 겸)**: 독립 감사 12,691회 생성·16,043 가능 후보에서 하드 제약 위반 0, G12 3,172회 바이트 동일, 성능 p95 412ms. MEDIUM: 중첩 이력에서 생성기 H6 휴식 누락, 독립 H1 기준 약화(H1 끈 변이 생존), bufferBeforeDueMin 미검증으로 마감 우회, 거부 결과에 Infinity 지표, 재계획 변경 범위(기존 결함→FU-41). LOW 비정상 horizon. 수정 1/2 → FU-39 워커 | reviews/FU-39R-1.md | orchestrator |
 | 2026-11-11 07:19 | **FU-38R-1 REQUEST_CHANGES (Sol)**: HIGH — LOW-2 구간 확장이 뒤따르는 RRN 시작을 건너뜀(2-토큰 2,000건 중 1,734 재현 회귀, 뒤 7자리 노출). LOW 각주/지수 과잉 마스킹. 수정 1/2 → ctx_85ad043dda40(원래 끝 이후로 스캔 이동 금지 또는 LOW-2 되돌림, 2-토큰 퍼징, 혼합 위첨자+일반 숫자 마스킹 시도). **GB-1 준비 상태 재평가:** 이 HIGH 해결 전에는 실제 제공자 연결 불가 | reviews/FU-38R-1.md | orchestrator |
 | 2026-11-11 07:18 | **FU-37R-1 REQUEST_CHANGES (Sol)**: MEDIUM 3(시간 초과 클라이언트가 풀로 재사용됨, 느린 본문이 종료를 15s 강제 종료까지 붙잡음, connectionTimeout 10s가 정상적인 긴 핸들러를 끊음) + LOW(DB 없으면 빌드 점검 건너뜀). 크래시 자체는 수정 확인. 수정 1/2 → ctx_089b3d67a2cc (클라이언트 폐기, 수신 시간 제한과 핸들러 분리, closeAllConnections 드레인) | reviews/FU-37R-1.md | orchestrator |

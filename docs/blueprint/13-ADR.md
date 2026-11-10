@@ -110,3 +110,12 @@
 - **맥락:** FU-09R: 웹이 제목 'inbox'로 Inbox를 찾고 실패 시 범위 없는 목록으로 대체 → 잘못된 표시·누락. 계약에 Inbox 표식 없음, task.project_id nullable.
 - **결정:** `Project.kind: 'inbox' | 'normal'`(계약·도메인·DB `project.kind text not null default 'normal'` + owner당 inbox 1개 partial unique). 서빙 중인 ProjectRepository가 첫 읽기/쓰기에서 Inbox를 보장(getInbox, 멱등; FU-18R2에 따라 '사용자 생성 시 생성'에서 수정). `createTask`에 projectId 없으면 owner의 Inbox로 배정(task.project_id는 NOT NULL로 강화). Vikunja 어댑터는 Vikunja의 기본 프로젝트를 Inbox로 매핑. 웹은 `kind==='inbox'`로만 찾고, 없으면 명시적 오류 상태(범위 없는 목록 대체 금지).
 - **영향:** contracts(Project schema), domain(Project), migrations(0002), provider-native/in-memory, provider-vikunja, api(user create), web. → FU-18 단일 Task로 계약 우선 구현 후 소비자 반영.
+
+## ADR-019 개인정보 마스킹 스캐너: 시작 위치 비건너뜀 + 구간 합집합 (FU-38 BLOCKED 후 재설계)
+- **맥락(2026-11-11):** FU-38 2회 리뷰에서 HIGH 3건(R1: 위첨자 구간 확장 후 다음 RRN 시작 건너뜀, R2: 혼합 RRN 창이 뒤 RRN 시작 건너뜀, 짧은 전화번호 대체 후 원래 끝으로 이동해 다음 전화번호 건너뜀)이 모두 같은 원인 — **수락된 일치의 끝(또는 더 먼 끝)으로 lastIndex를 옮겨 그 안의 다른 유효 시작을 탐색하지 않음**. 증상별 수정이 새 회귀를 만들었다.
+- **결정:**
+  1. 각 패턴(전화·RRN·이메일·키 등)은 **모든 후보 시작 위치**를 독립적으로 탐색한다. 수락된 일치가 있어도 다음 탐색은 `start + 1`(정규화 좌표의 다음 후보 시작)에서 이어간다. 단 후보 시작은 경계 규칙을 만족하는 위치로 한정하고, 패턴당 일치 길이 상한(L_max)을 두어 전체 O(n·L_max)를 보장한다.
+  2. 최종 마스킹 = 모든 패턴·모든 수락 일치 구간의 **합집합**(정규화→원문 좌표 매핑 후). 종류 라벨은 겹치는 구간에서 결정론적 우선순위(RRN > 카드/계좌 > 전화 > 이메일 > 키)로 선택한다. 구간 확장(위첨자 연속 등)은 수락 후 합집합 단계에서만 적용하며 탐색 위치에 영향을 주지 않는다.
+  3. **수용 게이트(병합 조건):** 독립 A/B 퍼징에서 torgal/ohmydate(FU-32) 대비 **토큰별·핵심 글자별 재현율 회귀 0**: 단일 토큰 120k, 같은 종류 2·3 토큰, **종류 혼합 인접(RRN↔전화, 전화↔이메일/키, 3토큰 순열)**, 구분자(붙음/공백/ZWSP/ZWNJ/U+00AD), 자리별 혼합 숫자(Nd/전각/위·아래첨자). 8MiB까지 선형.
+  4. 혼합 위첨자+일반 숫자 마스킹, 각주 보존 같은 정밀도 개선은 게이트를 통과할 때만 유지하고, 아니면 knownLimitations로 고정한다.
+- **결과:** FU-38 브랜치(04809ca, 571ea09)는 병합하지 않는다. FU-38c가 FU-32 상태에서 새로 시작한다. GB-1 실제 제공자 연결은 FU-38c 승인 + 05 §12 최선 노력 범위·동의 고지 확정 뒤에만 가능.
