@@ -47,7 +47,7 @@ import {
   type ChangeJournalStore,
   type JournalAppend,
 } from './change-journal-store.js';
-import { appendMarker, stripMarker } from './marker.js';
+import { appendMarker, extractMarker, stripMarker } from './marker.js';
 import { normalizeRemoteInstant } from './time.js';
 import {
   defaultPlannerTaskFields,
@@ -55,7 +55,7 @@ import {
   type PlannerFieldStore,
   type PlannerTaskFields,
 } from './planner-field-store.js';
-import { validateTaskCreate, validateTaskPatch } from './validation.js';
+import { type NormalizedTaskCreate, validateTaskCreate, validateTaskPatch } from './validation.js';
 import { VikunjaProjectRepository } from './project-repository.js';
 
 /**
@@ -208,7 +208,12 @@ export class VikunjaTaskRepository implements TaskRepository {
       });
   }
 
-  async create(ownerId: Id, input: TaskCreate, _idemKey: string): Promise<Task> {
+  async create(
+    ownerId: Id,
+    input: TaskCreate,
+    _idemKey: string,
+    opts?: { readonly plannedId?: Id },
+  ): Promise<Task> {
     void _idemKey;
     await this.#ensureSnapshot(ownerId);
     const client = this.#requireClient(ownerId);
@@ -220,7 +225,25 @@ export class VikunjaTaskRepository implements TaskRepository {
     );
     await this.#assertDependencies(ownerId, normalized.dependsOn);
 
-    const id = this.#ids.next();
+    if (opts?.plannedId !== undefined) {
+      const plannedId = opts.plannedId;
+      const mapping = await this.#mappings.get('task', plannedId);
+      if (mapping !== null && mapping.ownerId === ownerId && mapping.deletedAt === undefined) {
+        const existing = await this.get(ownerId, plannedId);
+        if (existing !== null) return existing;
+      }
+      // ADR-016 §2: recover an upstream task whose marker already carries the
+      // planned planner id before attempting a re-create.
+      const candidates = await client.listAllProjectTasks(projectMapping.externalId);
+      const orphan = candidates.find(
+        (candidate) => extractMarker(candidate.description) === plannedId,
+      );
+      if (orphan !== undefined) {
+        return this.#adoptOrphan(ownerId, client, plannedId, normalized, orphan);
+      }
+    }
+
+    const id = opts?.plannedId ?? this.#ids.next();
     await this.#assertAcyclic(client, ownerId, id, normalized.dependsOn);
 
     const created = await client.createTask(projectMapping.externalId, {
@@ -335,6 +358,50 @@ export class VikunjaTaskRepository implements TaskRepository {
 
     await this.#appendJournal(ownerId, mapping, mapping.externalUpdatedAt ?? now);
     return this.#toTask(ownerId, mapping, remote, fields, normalized.dependsOn);
+  }
+
+  async #adoptOrphan(
+    ownerId: Id,
+    client: VikunjaClient,
+    id: Id,
+    normalized: NormalizedTaskCreate,
+    remote: VikunjaTask,
+  ): Promise<Task> {
+    let full = remote;
+    let etag: string | null = null;
+    try {
+      const fetched = await client.getTask(String(remote.id));
+      full = fetched.data;
+      etag = fetched.etag;
+    } catch {
+      // Keep the list payload; a later get/list refreshes the ETag.
+    }
+    const now = this.#clock.now();
+    const remoteUpdatedAt = normalizeRemoteInstant(full.updated);
+    const mapping: ExternalMapping = {
+      provider: 'vikunja',
+      entityType: 'task',
+      entityId: id,
+      externalId: String(full.id),
+      ownerId,
+      ...(etag === null ? {} : { externalEtag: etag }),
+      ...(remoteUpdatedAt === undefined ? {} : { externalUpdatedAt: remoteUpdatedAt }),
+      contentFingerprint: contentFingerprint(full),
+      localVersion: 1 as Version,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.#mappings.put(mapping);
+    const fields: PlannerTaskFields = {
+      splittable: normalized.splittable,
+      ...(normalized.session === undefined ? {} : { session: normalized.session }),
+      priority: normalized.priority,
+      status: normalized.status,
+      dependsOn: [...normalized.dependsOn],
+    };
+    await this.#plannerFields.putTask(id, fields);
+    await this.#appendJournal(ownerId, mapping, mapping.externalUpdatedAt ?? now);
+    return this.#toTask(ownerId, mapping, full, fields, normalized.dependsOn);
   }
 
   async get(ownerId: Id, id: Id): Promise<Task | null> {

@@ -50,7 +50,17 @@ export interface RepositoryCapabilities {
 
 export interface TaskRepository {
   readonly capabilities: RepositoryCapabilities;
-  create(ownerId: Id, input: TaskCreate, idemKey: string): Promise<Task>;
+  /**
+   * `opts.plannedId` lets the caller supply the planner UUID (UUIDv7) before the
+   * provider call so a retried create can be resolved by id/marker instead of
+   * duplicating the upstream task. HTTP `POST /tasks` never sets it.
+   */
+  create(
+    ownerId: Id,
+    input: TaskCreate,
+    idemKey: string,
+    opts?: { readonly plannedId?: Id },
+  ): Promise<Task>;
   get(ownerId: Id, id: Id): Promise<Task | null>;
   list(ownerId: Id, query: TaskQuery): Promise<Page<Task>>;
   update(ownerId: Id, id: Id, patch: TaskPatch, expectedVersion: Version): Promise<Task>;

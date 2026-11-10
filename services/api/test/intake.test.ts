@@ -17,6 +17,7 @@ import {
 const hasDatabaseEnv = hasDatabase;
 
 const readyInput: IntakeInput = {
+  title: 'Quarterly report',
   deliverable: 'Write the quarterly report for Q3 (contact alice@example.com)',
   dueAt: '2026-12-01T00:00:00.000Z',
   estimatedScope: 'medium',
@@ -285,27 +286,18 @@ describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
       });
       expect(stranger.statusCode).toBe(404);
 
-      const paused = await ctx.app.inject({
+      const illegalPause = await ctx.app.inject({
         method: 'POST',
         url: `/api/v1/intake-sessions/${session.id}:pause`,
         headers: actionHeaders(alice, approvedSession.version),
       });
-      expect(paused.statusCode).toBe(200);
-      const pausedSession = paused.json() as IntakeSessionDto;
-      expect(pausedSession.state).toBe('needs_input');
-
-      const resumed = await ctx.app.inject({
-        method: 'POST',
-        url: `/api/v1/intake-sessions/${session.id}:resume`,
-        headers: actionHeaders(alice, pausedSession.version),
-      });
-      expect(resumed.statusCode).toBe(200);
-      expect((resumed.json() as IntakeSessionDto).state).toBe('feasibility_check');
+      expect(illegalPause.statusCode).toBe(409);
+      expect(illegalPause.json()).toMatchObject({ code: 'illegal_transition' });
 
       const cancelled = await ctx.app.inject({
         method: 'POST',
         url: `/api/v1/intake-sessions/${session.id}:cancel`,
-        headers: actionHeaders(alice, (resumed.json() as IntakeSessionDto).version),
+        headers: actionHeaders(alice, approvedSession.version),
       });
       expect(cancelled.statusCode).toBe(200);
       expect((cancelled.json() as IntakeSessionDto).state).toBe('cancelled');
@@ -334,6 +326,7 @@ describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
     const session = await login(ctx, 'intake-similar@example.com', 'correct-horse');
     try {
       const created = await createSession(ctx, session, {
+        title: 'Quarterly report for Q3',
         deliverable: 'Quarterly report for Q3',
       });
       expect(created.response.statusCode).toBe(201);
@@ -374,7 +367,7 @@ describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
   });
 
   test('schema failure is repaired once and falls back to manual mode', async () => {
-    const detectionInput = buildDetectionLlmInput({ deliverable: 'Write a poem' }, []);
+    const detectionInput = buildDetectionLlmInput({ title: 'Write a poem', deliverable: 'Write a poem' }, []);
     const invalidOutput = { classification: 'bogus', confidence: 2 };
     const repairInput = appendValidationErrors(
       detectionInput.input,
@@ -396,7 +389,7 @@ describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
     await ctx.seedUser({ email: 'intake-schema@example.com', password: 'correct-horse' });
     const session = await login(ctx, 'intake-schema@example.com', 'correct-horse');
     try {
-      const created = await createSession(ctx, session, { deliverable: 'Write a poem' });
+      const created = await createSession(ctx, session, { title: 'Write a poem', deliverable: 'Write a poem' });
       expect(created.response.statusCode).toBe(201);
       const body = created.body as IntakeSessionDto;
       expect(body.manual).toBe(true);
@@ -408,7 +401,7 @@ describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
     }
   });
 
-  test('budget exhaustion returns 503 but leaves a usable manual session', async () => {
+  test('budget exhaustion degrades to 201 manual with Location/ETag', async () => {
     const guard = new BudgetGuard(
       { dailyUsd: 0.01, monthlyUsd: 0.01 },
       {
@@ -425,8 +418,13 @@ describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
     const session = await login(ctx, 'intake-budget@example.com', 'correct-horse');
     try {
       const created = await createSession(ctx, session, readyInput);
-      expect(created.response.statusCode).toBe(503);
-      expect(created.response.json()).toMatchObject({ code: 'budget_exceeded' });
+      expect(created.response.statusCode).toBe(201);
+      expect(created.response.headers['location']).toBe(
+        `/api/v1/intake-sessions/${(created.body as IntakeSessionDto).id}`,
+      );
+      expect(created.response.headers['etag']).toMatch(/^W\/"\d+"$/);
+      expect((created.body as IntakeSessionDto).manual).toBe(true);
+      expect((created.body as IntakeSessionDto).error?.code).toBe('budget_exceeded');
 
       const list = await ctx.db
         .selectFrom('intake_session')
@@ -457,14 +455,15 @@ describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
     }
   });
 
-  test('missing LLM provider returns 503 llm_unavailable and manual draft still works', async () => {
+  test('missing LLM provider degrades to 201 llm_unavailable and manual still works', async () => {
     const ctx = await createTestContext();
     await ctx.seedUser({ email: 'intake-no-llm@example.com', password: 'correct-horse' });
     const session = await login(ctx, 'intake-no-llm@example.com', 'correct-horse');
     try {
-      const created = await createSession(ctx, session, { deliverable: 'Offline plan' });
-      expect(created.response.statusCode).toBe(503);
-      expect(created.response.json()).toMatchObject({ code: 'llm_unavailable' });
+      const created = await createSession(ctx, session, { title: 'Offline plan', deliverable: 'Offline plan' });
+      expect(created.response.statusCode).toBe(201);
+      expect((created.body as IntakeSessionDto).manual).toBe(true);
+      expect((created.body as IntakeSessionDto).error?.code).toBe('llm_unavailable');
 
       const row = await ctx.db.selectFrom('intake_session').selectAll().executeTakeFirstOrThrow();
       const read = await ctx.app.inject({

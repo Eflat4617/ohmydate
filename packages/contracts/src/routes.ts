@@ -300,7 +300,7 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     body: IntakeSessionCreateSchema,
     responses: {
       201: { description: 'Intake session created', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 409, 422, 503),
+      ...problems(400, 401, 403, 409, 422),
     },
   },
   {

@@ -78,7 +78,7 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
   createIntakeSession: {
     requiredHeaders: ['Idempotency-Key'],
     optionalHeaders: [],
-    statuses: [201, 400, 401, 403, 409, 422, 503],
+    statuses: [201, 400, 401, 403, 409, 422],
   },
   getIntakeSession: {
     requiredHeaders: [],

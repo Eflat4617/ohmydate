@@ -37,13 +37,8 @@ function jaccard(left: ReadonlySet<string>, right: ReadonlySet<string>): number 
 }
 
 function inputTokens(input: IntakeInput): ReadonlySet<string> {
-  const parts: string[] = [];
-  for (const value of Object.values(input)) {
-    if (typeof value === 'string') parts.push(value);
-    else if (Array.isArray(value)) parts.push(value.join(' '));
-    else if (typeof value === 'number' || typeof value === 'boolean') parts.push(String(value));
-  }
-  return tokenizeText(parts.join(' '));
+  // FU-40: the user-facing title is the canonical similarity text.
+  return tokenizeText(input.title);
 }
 
 function templateNameTokens(template: TaskTemplate): ReadonlySet<string> {
@@ -78,22 +73,34 @@ export function scoreTemplate(
   input: IntakeInput,
   template: TaskTemplate,
   config: IntakeAgentConfig = INTAKE_AGENT_CONFIG,
+  falsePositiveCount = 0,
 ): ScoredTemplate {
   const weights = config.similarity.weights;
   const tags = jaccard(inputTokens(input), templateNameTokens(template));
   const text = jaccard(inputTokens(input), templateTextTokens(template));
   const project = 1;
   const meta = metaMatch(template);
+  const cappedFalsePositives = Math.min(
+    Math.max(0, falsePositiveCount),
+    config.similarity.maxFalsePositiveCount,
+  );
+  const penalty =
+    weights.falsePositivePenalty *
+    (cappedFalsePositives / config.similarity.maxFalsePositiveCount);
   const score = clamp01(
     weights.tagJaccard * tags +
       weights.projectMatch * project +
       weights.textSimilarity * text +
-      weights.metaMatch * meta,
+      weights.metaMatch * meta -
+      penalty,
   );
   const reasons = [
     `config:${config.version}`,
     `tag_jaccard=${tags.toFixed(3)}`,
     `text_similarity=${text.toFixed(3)}`,
+    ...(cappedFalsePositives > 0
+      ? [`false_positive_penalty=${penalty.toFixed(3)}`]
+      : []),
     `template=${template.name.slice(0, 120)}`,
   ];
   if (score < config.similarity.similarThreshold && score >= config.similarity.weakThreshold) {
@@ -112,10 +119,16 @@ export function detectTypeDeterministic(
   templates: readonly TaskTemplate[],
   missingRequired: readonly IntakeFieldName[],
   config: IntakeAgentConfig = INTAKE_AGENT_CONFIG,
+  falsePositiveCounts: ReadonlyMap<string, number> = new Map(),
 ): DeterministicDetection {
   let best: ScoredTemplate | undefined;
   for (const template of templates) {
-    const scored = scoreTemplate(input, template, config);
+    const scored = scoreTemplate(
+      input,
+      template,
+      config,
+      falsePositiveCounts.get(template.id) ?? 0,
+    );
     if (best === undefined || scored.score > best.score) best = scored;
   }
 

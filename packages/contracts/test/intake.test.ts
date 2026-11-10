@@ -2,6 +2,7 @@ import { INTAKE_STATES, REQUIRED_INTAKE_FIELDS } from '@ohmydate/domain';
 import {
   DecompositionDraftSchema,
   IntakeAssumptionSchema,
+  IntakeInputSchema,
   IntakeSessionSchema,
   IntakeStateSchema,
   IntakeTypeConfirmationSchema,
@@ -77,7 +78,7 @@ test('intake session rejects unknown state/fields and accepts manual mode', () =
     id: ID,
     ownerId: ID,
     state: 'clarification',
-    input: { deliverable: 'report' },
+    input: { title: 'Report', deliverable: 'report' },
     round: 1,
     manual: false,
     version: 1,
@@ -118,4 +119,14 @@ test('task templates mirror the decomposition step shape', () => {
   expect(validate(template)).toBe(true);
   expect(validate({ ...template, source: 'imported' })).toBe(false);
   expect(validate({ ...template, stats: { sampleCount: 2, extra: 1 } })).toBe(false);
+});
+
+test('intake input requires a title and bounds free-text fields (FU-40)', () => {
+  const validate = compile(IntakeInputSchema);
+  expect(validate({ title: 'Plan the launch' })).toBe(true);
+  expect(validate({ deliverable: 'no title' })).toBe(false);
+  expect(validate({ title: '' })).toBe(false);
+  expect(validate({ title: 'x'.repeat(201) })).toBe(false);
+  expect(validate({ title: 'Plan', description: 'x'.repeat(4_001) })).toBe(false);
+  expect(validate({ title: 'Plan', unexpected: true })).toBe(false);
 });

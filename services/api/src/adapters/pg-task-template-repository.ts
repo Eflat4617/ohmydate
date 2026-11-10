@@ -159,6 +159,22 @@ export class PgTaskTemplateRepository implements TaskTemplateRepository {
     return row === undefined ? null : mapTemplate(row);
   }
 
+  async falsePositiveCounts(ownerId: Id): Promise<ReadonlyMap<string, number>> {
+    const rows = await this.#db
+      .selectFrom('task_type_fingerprint')
+      .select(['template_id', 'false_positive_count'])
+      .where('owner_id', '=', ownerId)
+      .execute();
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      counts.set(
+        row.template_id,
+        (counts.get(row.template_id) ?? 0) + row.false_positive_count,
+      );
+    }
+    return counts;
+  }
+
   async incrementFalsePositive(ownerId: Id, templateId: Id): Promise<void> {
     await this.#db
       .updateTable('task_type_fingerprint')

@@ -46,6 +46,8 @@ export interface IntakeAnswerRecord {
 
 export interface IntakeSessionRepository {
   create(record: IntakeSessionRecord): Promise<IntakeSessionRecord>;
+  /** FU-40: sessions without a goal get one named from the intake title. */
+  createGoal(ownerId: Id, goalId: Id, title: string): Promise<void>;
   get(ownerId: Id, id: Id): Promise<IntakeSessionRecord | null>;
   update(
     ownerId: Id,
@@ -59,6 +61,27 @@ export interface IntakeSessionRepository {
     sessionId: Id,
     answers: readonly IntakeAnswerRecord[],
   ): Promise<void>;
+  /** H2: answers + input/state/round + version CAS in one transaction. */
+  appendAnswersAndUpdate(
+    ownerId: Id,
+    sessionId: Id,
+    answers: readonly IntakeAnswerRecord[],
+    patch: IntakeSessionUpdate,
+    expectedVersion: number,
+  ): Promise<IntakeSessionRecord>;
+  /** H2: draft proposal write + session version bump in one transaction. */
+  patchDraftAndUpdate(
+    ownerId: Id,
+    sessionId: Id,
+    input: {
+      readonly draft: DecompositionDraftDto;
+      readonly schemaOk: boolean;
+      readonly policyOk: boolean;
+      readonly constraintOk: boolean;
+      readonly issues: readonly { readonly code: string; readonly message: string }[];
+    },
+    expectedVersion: number,
+  ): Promise<IntakeSessionRecord>;
 }
 
 export interface TemplatePage {
@@ -74,6 +97,8 @@ export interface TaskTemplateRepository {
   get(ownerId: Id, id: Id): Promise<TaskTemplate | null>;
   /** 05 §3: a rejected similar proposal increments `false_positive_count`. */
   incrementFalsePositive(ownerId: Id, templateId: Id): Promise<void>;
+  /** 05 §3: penalty term input keyed by template id. */
+  falsePositiveCounts(ownerId: Id): Promise<ReadonlyMap<string, number>>;
 }
 
 export type AgentRunStatus = 'pending' | 'succeeded' | 'failed' | 'budget_exceeded';
@@ -139,4 +164,61 @@ export interface AgentRunRepository {
 
 export function draftKind(sessionId: Id): string {
   return `intake.decomposition:${sessionId}`;
+}
+
+
+export interface ApprovalStepRecord {
+  readonly stepKey: string;
+  readonly plannedTaskId: Id;
+  readonly state: 'pending' | 'created' | 'unknown';
+  readonly taskId?: Id;
+  readonly dependencyState?: string;
+}
+
+export interface IntakeApprovalRecord {
+  readonly sessionId: Id;
+  readonly ownerId: Id;
+  readonly draftVersion: number;
+  readonly state: 'in_progress' | 'completed' | 'failed';
+  readonly leaseExpiresAt: Instant;
+  readonly idempotencyKey: string;
+  readonly steps: readonly ApprovalStepRecord[];
+}
+
+export type BeginApprovalResult =
+  | { readonly kind: 'started'; readonly approval: IntakeApprovalRecord }
+  | { readonly kind: 'completed'; readonly session: IntakeSessionRecord }
+  | { readonly kind: 'not_found' }
+  | { readonly kind: 'illegal_state'; readonly state: IntakeState }
+  | { readonly kind: 'version_conflict'; readonly actualVersion: number }
+  | { readonly kind: 'in_progress' };
+
+export interface IntakeApprovalStore {
+  begin(input: {
+    readonly ownerId: Id;
+    readonly sessionId: Id;
+    readonly expectedVersion: number;
+    readonly idempotencyKey: string;
+    readonly leaseMs: number;
+    readonly steps: readonly { readonly stepKey: string; readonly plannedTaskId: Id }[];
+  }): Promise<BeginApprovalResult>;
+  load(ownerId: Id, sessionId: Id): Promise<IntakeApprovalRecord | null>;
+  markStep(
+    ownerId: Id,
+    sessionId: Id,
+    stepKey: string,
+    patch: {
+      readonly state: 'pending' | 'created' | 'unknown';
+      readonly taskId?: Id;
+      readonly dependencyState?: string;
+    },
+  ): Promise<void>;
+  fail(ownerId: Id, sessionId: Id): Promise<void>;
+  complete(input: {
+    readonly ownerId: Id;
+    readonly sessionId: Id;
+    readonly expectedSessionVersion: number;
+    readonly outboxId: Id;
+  }): Promise<IntakeSessionRecord>;
+  hasActive(ownerId: Id, sessionId: Id): Promise<boolean>;
 }

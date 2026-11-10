@@ -54,6 +54,8 @@ const IntakeInputValueSchema = Type.Union([
  */
 export const IntakeInputSchema = Type.Object(
   {
+    title: Type.String({ minLength: 1, maxLength: 200 }),
+    description: Type.Optional(Type.String({ maxLength: 4_000 })),
     deliverable: Type.Optional(Type.String({ maxLength: 2_000 })),
     dueAt: Type.Optional(InstantSchema),
     estimatedScope: Type.Optional(Type.Union([

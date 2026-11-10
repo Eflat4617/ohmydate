@@ -227,7 +227,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     if (error instanceof DomainError) {
       const problem = domainErrorToProblem(error);
       if (problem.status === 500) {
-        request.log.error({ err: error }, 'unhandled domain error');
+        request.log.error(
+          {
+            code: problem.code,
+            name: (error as Error).name,
+            route: request.routeOptions.url ?? request.url.split('?', 1)[0],
+            reqId: request.id,
+          },
+          'unhandled domain error',
+        );
         return sendProblem(
           request,
           reply,
@@ -258,7 +266,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     if (statusCode === 429) {
       return sendProblem(request, reply, 429, 'rate_limited', 'Rate limited', 'retry later');
     }
-    request.log.error({ err: error }, 'unhandled request error');
+    request.log.error(
+      {
+        code: 'internal_error',
+        name: (error as Error).name,
+        route: request.routeOptions.url ?? request.url.split('?', 1)[0],
+        reqId: request.id,
+      },
+      'unhandled request error',
+    );
     return sendProblem(
       request,
       reply,

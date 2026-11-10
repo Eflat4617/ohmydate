@@ -52,6 +52,7 @@ import { AuthService } from '../application/auth-service.js';
 import { IntakeError } from '../application/intake/intake-error.js';
 import { IntakeService } from '../application/intake/intake-service.js';
 import { PgAgentRunRepository } from '../adapters/pg-agent-run-repository.js';
+import { PgIntakeApprovalRepository } from '../adapters/pg-intake-approval-repository.js';
 import { PgIntakeSessionRepository } from '../adapters/pg-intake-session-repository.js';
 import { PgTaskTemplateRepository } from '../adapters/pg-task-template-repository.js';
 import { ProjectService } from '../application/project-service.js';
@@ -594,7 +595,10 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
         return {
           status: 201,
           body: session,
-          headers: { ETag: etagForVersion(session.version) },
+          headers: {
+            ETag: etagForVersion(session.version),
+            Location: `/api/v1/intake-sessions/${session.id}`,
+          },
         };
       }),
     getIntakeSession: async (request, reply) => {
@@ -669,7 +673,12 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
         const auth = currentAuth(request);
         const id = (request.params as IntakeSessionIdParams).id as Id;
         const expected = requireIfMatch(request);
-        const result = await runtime.intake.approveDraft(auth.userId, id, expected);
+        const result = await runtime.intake.approveDraft(
+          auth.userId,
+          id,
+          expected,
+          requireIdempotencyKey(request),
+        );
         return {
           status: 200,
           body: result.session,
@@ -892,6 +901,7 @@ export function createRuntime(options: {
     sessions: new PgIntakeSessionRepository(options.db, options.clock, options.ids),
     templates: new PgTaskTemplateRepository(options.db),
     agentRuns: new PgAgentRunRepository(options.db),
+    approvals: new PgIntakeApprovalRepository(options.db, options.clock),
     tasks: options.repos.tasks,
     llm: options.llm,
     budgetGuard: options.budgetGuard,

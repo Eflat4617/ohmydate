@@ -831,6 +831,10 @@
             "maxLength": 2000,
             "type": "string"
           },
+          "description": {
+            "maxLength": 4000,
+            "type": "string"
+          },
           "dueAt": {
             "format": "date-time",
             "type": "string"
@@ -888,8 +892,16 @@
           },
           "reviewNeeded": {
             "type": "boolean"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
           }
         },
+        "required": [
+          "title"
+        ],
         "type": "object"
       },
       "IntakeSession": {
@@ -1327,6 +1339,10 @@
                 "maxLength": 2000,
                 "type": "string"
               },
+              "description": {
+                "maxLength": 4000,
+                "type": "string"
+              },
               "dueAt": {
                 "format": "date-time",
                 "type": "string"
@@ -1384,8 +1400,16 @@
               },
               "reviewNeeded": {
                 "type": "boolean"
+              },
+              "title": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
               }
             },
+            "required": [
+              "title"
+            ],
             "type": "object"
           },
           "manual": {
@@ -1591,6 +1615,10 @@
                 "maxLength": 2000,
                 "type": "string"
               },
+              "description": {
+                "maxLength": 4000,
+                "type": "string"
+              },
               "dueAt": {
                 "format": "date-time",
                 "type": "string"
@@ -1648,8 +1676,16 @@
               },
               "reviewNeeded": {
                 "type": "boolean"
+              },
+              "title": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
               }
             },
+            "required": [
+              "title"
+            ],
             "type": "object"
           }
         },
@@ -2286,6 +2322,10 @@
               },
               {
                 "const": "illegal_transition",
+                "type": "string"
+              },
+              {
+                "const": "approval_in_progress",
                 "type": "string"
               },
               {
@@ -3302,16 +3342,6 @@
               }
             },
             "description": "Domain validation failed"
-          },
-          "503": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            },
-            "description": "Provider unavailable"
           }
         },
         "summary": "Start an intake interview"

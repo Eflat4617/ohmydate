@@ -1,3 +1,4 @@
+import { IntakeInputSchema } from '@ohmydate/contracts';
 import type {
   DecompositionDraftDto,
   DecompositionDraftPatch,
@@ -23,7 +24,6 @@ import {
   VersionConflictError,
   ValidationFailedError,
   isFieldKnown,
-  isIntakeState,
   planQuestions,
   transition,
   validateDecomposition,
@@ -53,7 +53,9 @@ import {
   type LlmPort,
   type RedactionKind,
 } from '@ohmydate/llm';
-import { NotFoundError } from '@ohmydate/domain';
+import { NotFoundError, isInstant } from '@ohmydate/domain';
+import { Value } from '@sinclair/typebox/value';
+import type { TSchema } from '@sinclair/typebox';
 import { INTAKE_AGENT_CONFIG, type IntakeAgentConfig } from './config.js';
 import { detectTypeDeterministic } from './detection.js';
 import { IntakeError } from './intake-error.js';
@@ -62,6 +64,7 @@ import {
   type AgentRunRepository,
   type AgentRunStatus,
   type IntakeAnswerRecord,
+  type IntakeApprovalStore,
   type IntakeSessionRecord,
   type IntakeSessionRepository,
   type IntakeSessionUpdate,
@@ -88,6 +91,7 @@ export interface IntakeServiceOptions {
   readonly templates: TaskTemplateRepository;
   readonly agentRuns: AgentRunRepository;
   readonly tasks: TaskRepository;
+  readonly approvals: IntakeApprovalStore;
   /** `null` means no provider is configured: LLM-dependent steps notify manual mode. */
   readonly llm: LlmPort | null;
   readonly budgetGuard: BudgetGuard;
@@ -137,36 +141,89 @@ function redactValue(value: unknown, report: Record<string, number>): unknown {
   return value;
 }
 
-function redactedTemplate(template: TaskTemplate, report: Record<string, number>): unknown {
-  return redactValue(
-    {
-      id: template.id,
-      name: template.name,
-      source: template.source,
-      confidence: template.confidence,
-      steps: template.steps.map((step) => ({
-        key: step.key,
-        title: step.title,
-        deliverable: step.deliverable,
-        doneCriteria: step.doneCriteria,
-        kind: step.kind,
-      })),
-    },
-    report,
-  );
+/**
+ * H? / M untrusted: only non-free-text fields stay in the structured LLM
+ * object. Every user-authored string goes through an escaped
+ * `<untrusted_document>` block. Template text follows the same rule.
+ */
+function untrustedBlock(
+  id: string,
+  value: unknown,
+  report: Record<string, number>,
+): string | undefined {
+  if (typeof value !== 'string' || value.trim().length === 0) return undefined;
+  const redacted = redact(value);
+  mergeRedaction(report, redacted.report);
+  return buildUntrustedBlock(id, redacted.text);
 }
 
-/** Wraps the already-redacted free text so redaction is counted exactly once. */
-function untrustedDocuments(task: Record<string, unknown>): string[] {
+function redactedStructuredTask(input: IntakeInput, report: Record<string, number>): unknown {
+  const structured: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (
+      key === 'title' ||
+      key === 'description' ||
+      key === 'deliverable' ||
+      key === 'currentProgress' ||
+      key === 'prerequisites'
+    ) {
+      continue;
+    }
+    structured[key] = value;
+  }
+  if (typeof input.prerequisites !== 'string' && !Array.isArray(input.prerequisites)) {
+    structured['prerequisites'] = input.prerequisites;
+  }
+  return redactValue(structured, report);
+}
+
+function taskDocuments(input: IntakeInput, report: Record<string, number>): string[] {
   const documents: string[] = [];
-  const deliverable = task['deliverable'];
-  if (typeof deliverable === 'string' && deliverable.trim().length > 0) {
-    documents.push(buildUntrustedBlock('intake-deliverable', deliverable));
+  const push = (id: string, value: unknown): void => {
+    const block = untrustedBlock(id, value, report);
+    if (block !== undefined) documents.push(block);
+  };
+  push('intake-title', input.title);
+  push('intake-description', input.description);
+  push('intake-deliverable', input.deliverable);
+  if (typeof input.currentProgress === 'string') {
+    push('intake-current-progress', input.currentProgress);
   }
-  const prerequisites = task['prerequisites'];
-  if (typeof prerequisites === 'string' && prerequisites.trim().length > 0) {
-    documents.push(buildUntrustedBlock('intake-prerequisites', prerequisites));
+  if (typeof input.prerequisites === 'string') {
+    push('intake-prerequisites', input.prerequisites);
+  } else if (Array.isArray(input.prerequisites)) {
+    input.prerequisites.forEach((entry, index) => {
+      push(`intake-prerequisites-${index}`, entry);
+    });
   }
+  return documents;
+}
+
+function templateStructured(template: TaskTemplate): unknown {
+  return {
+    id: template.id,
+    source: template.source,
+    confidence: template.confidence,
+    stats: template.stats,
+    stepKeys: template.steps.map((step) => ({ key: step.key, kind: step.kind })),
+  };
+}
+
+function templateDocuments(
+  template: TaskTemplate,
+  report: Record<string, number>,
+): string[] {
+  const documents: string[] = [];
+  const push = (id: string, value: unknown): void => {
+    const block = untrustedBlock(id, value, report);
+    if (block !== undefined) documents.push(block);
+  };
+  push(`template-${template.id}-name`, template.name);
+  template.steps.forEach((step, index) => {
+    push(`template-${template.id}-s${index}-title`, step.title);
+    push(`template-${template.id}-s${index}-deliverable`, step.deliverable);
+    push(`template-${template.id}-s${index}-done`, step.doneCriteria);
+  });
   return documents;
 }
 
@@ -176,14 +233,16 @@ export function buildDetectionLlmInput(
   templates: readonly TaskTemplate[],
 ): LlmInputBundle {
   const report: Record<string, number> = {};
-  const task = redactValue(input, report) as Record<string, unknown>;
-  const documents = untrustedDocuments(task);
+  const documents = [
+    ...taskDocuments(input, report),
+    ...templates.flatMap((template) => templateDocuments(template, report)),
+  ];
   return {
     input: {
       configVersion: INTAKE_AGENT_CONFIG.version,
       knownFields: Object.keys(input).sort(),
-      task,
-      candidates: templates.map((template) => redactedTemplate(template, report)),
+      task: redactedStructuredTask(input, report),
+      candidates: templates.map((template) => templateStructured(template)),
       documents,
     },
     redactionReport: report,
@@ -196,13 +255,15 @@ export function buildDecompositionLlmInput(
   template: TaskTemplate | undefined,
 ): LlmInputBundle {
   const report: Record<string, number> = {};
-  const task = redactValue(input, report) as Record<string, unknown>;
-  const documents = untrustedDocuments(task);
+  const documents = [
+    ...taskDocuments(input, report),
+    ...(template === undefined ? [] : templateDocuments(template, report)),
+  ];
   return {
     input: {
       configVersion: INTAKE_AGENT_CONFIG.version,
-      task,
-      template: template === undefined ? null : redactedTemplate(template, report),
+      task: redactedStructuredTask(input, report),
+      template: template === undefined ? null : templateStructured(template),
       documents,
     },
     redactionReport: report,
@@ -311,8 +372,8 @@ function manualDraft(input: IntakeInput, assumptions: readonly string[]): Decomp
       },
       {
         key: 's2',
-        title: truncate(input.deliverable ?? 'Complete the main deliverable', 120),
-        deliverable: truncate(input.deliverable ?? 'Main deliverable', 300),
+        title: truncate(input.title, 120),
+        deliverable: truncate(input.deliverable ?? input.title, 300),
         doneCriteria: 'Deliverable reviewed against the stated requirements',
         kind: 'work',
         estimate: work,
@@ -357,6 +418,7 @@ export class IntakeService {
   readonly #templates: TaskTemplateRepository;
   readonly #agentRuns: AgentRunRepository;
   readonly #tasks: TaskRepository;
+  readonly #approvals: IntakeApprovalStore;
   readonly #llm: LlmPort | null;
   readonly #budgetGuard: BudgetGuard;
   readonly #config: IntakeAgentConfig;
@@ -368,6 +430,7 @@ export class IntakeService {
     this.#templates = options.templates;
     this.#agentRuns = options.agentRuns;
     this.#tasks = options.tasks;
+    this.#approvals = options.approvals;
     this.#llm = options.llm;
     this.#budgetGuard = options.budgetGuard;
     this.#config = options.config ?? INTAKE_AGENT_CONFIG;
@@ -393,10 +456,14 @@ export class IntakeService {
   async create(ownerId: Id, body: IntakeSessionCreate): Promise<IntakeSessionDto> {
     const now = this.#clock.now();
     const accepted = transition('created', { type: 'input_accepted' });
+    const goalId = body.goalId === undefined ? this.#ids.next() : (body.goalId as Id);
+    if (body.goalId === undefined) {
+      await this.#sessions.createGoal(ownerId, goalId, body.input.title);
+    }
     let session = await this.#sessions.create({
       id: this.#ids.next(),
       ownerId,
-      ...(body.goalId === undefined ? {} : { goalId: body.goalId as Id }),
+      goalId,
       state: accepted.state,
       input: body.input,
       round: 1,
@@ -407,17 +474,21 @@ export class IntakeService {
     });
 
     const templates = await this.#templates.list(ownerId, { limit: 100 });
+    const falsePositiveCounts = await this.#templates.falsePositiveCounts(ownerId);
     const missing = requiredMissing(body.input, []);
-    let detection = detectTypeDeterministic(body.input, templates.items, missing, this.#config);
+    let detection = detectTypeDeterministic(
+      body.input,
+      templates.items,
+      missing,
+      this.#config,
+      falsePositiveCounts,
+    );
 
     let manual = false;
     let error: IntakeErrorDto | undefined;
-    let budgetFailure: IntakeError | undefined;
-    let unavailableWithoutProvider = false;
 
     if (this.#llm === null) {
       manual = true;
-      unavailableWithoutProvider = true;
       error = { code: 'llm_unavailable', message: 'no LLM provider configured; manual mode' };
     } else {
       try {
@@ -435,7 +506,6 @@ export class IntakeService {
       } catch (caught) {
         manual = true;
         if (caught instanceof BudgetExceeded) {
-          budgetFailure = IntakeError.budgetExceeded(caught.message);
           error = { code: 'budget_exceeded', message: truncate(caught.message, 500) };
         } else if (caught instanceof SchemaViolation || caught instanceof LlmUnavailable) {
           const message =
@@ -470,12 +540,6 @@ export class IntakeService {
       session.version,
     );
 
-    if (budgetFailure !== undefined) throw budgetFailure;
-    if (unavailableWithoutProvider) {
-      throw IntakeError.llmUnavailable(
-        'no LLM provider configured (set LLM_PROVIDER=fake); the session remains usable via :manual',
-      );
-    }
     return this.#toDto(session);
   }
 
@@ -497,24 +561,63 @@ export class IntakeService {
 
     const input: Record<string, unknown> = { ...session.input };
     const answerRecords: IntakeAnswerRecord[] = [];
+    const issues: { path: string; message: string }[] = [];
     const now = this.#clock.now();
-    for (const answer of request.answers) {
+    const properties = (
+      IntakeInputSchema as unknown as { properties: Record<string, TSchema> }
+    ).properties;
+
+    request.answers.forEach((answer, index) => {
       const field = answer.questionKey as IntakeField;
-      const value = answer.action === 'answer' ? answer.value : undefined;
-      if (answer.action === 'answer') input[field] = answer.value;
+      if (answer.action !== 'answer') {
+        answerRecords.push({
+          field,
+          action: answer.action,
+          questionText: truncate(QUESTION_PROMPTS[field], 300),
+          skipped: true,
+          createdAt: now,
+        });
+        return;
+      }
+      const schema = properties[field];
+      const validShape = schema !== undefined && Value.Check(schema, answer.value);
+      const validInstant = field !== 'dueAt' || (typeof answer.value === 'string' && isInstant(answer.value));
+      if (!validShape || !validInstant) {
+        issues.push({
+          path: `/answers/${index}/value`,
+          message: `invalid value for ${field}`,
+        });
+        return;
+      }
+      input[field] = answer.value;
       answerRecords.push({
         field,
-        action: answer.action,
-        ...(value === undefined ? {} : { value }),
+        action: 'answer',
+        value: answer.value,
         questionText: truncate(QUESTION_PROMPTS[field], 300),
-        skipped: answer.action !== 'answer',
+        skipped: false,
         createdAt: now,
       });
-    }
+    });
 
-    await this.#sessions.appendAnswers(ownerId, id, answerRecords);
-    const previous = await this.#sessions.listAnswers(ownerId, id);
     const nextInput = input as IntakeInput;
+    for (const [key, value] of Object.entries(nextInput)) {
+      const schema = properties[key];
+      if (schema === undefined) {
+        issues.push({ path: `/input/${key}`, message: `unknown intake field ${key}` });
+        continue;
+      }
+      const valid =
+        key === 'dueAt'
+          ? typeof value === 'string' && isInstant(value)
+          : Value.Check(schema, value);
+      if (!valid) {
+        issues.push({ path: `/input/${key}`, message: `invalid value for ${key}` });
+      }
+    }
+    if (issues.length > 0) throw new ValidationFailedError(issues);
+
+    const previous = [...(await this.#sessions.listAnswers(ownerId, id)), ...answerRecords];
     const plan = planQuestions({
       known: nextInput,
       previousAnswers: toDomainAnswers(previous),
@@ -525,18 +628,30 @@ export class IntakeService {
 
     const proceed = requiredMissing(nextInput, previous).length === 0 || plan.exhausted;
     let next: IntakeSessionUpdate;
-    if (proceed) {
-      const result = transition(session.state, { type: 'proceed_with_defaults' });
-      next = { state: result.state, input: nextInput };
-    } else {
-      next = {
-        state: transition(session.state, { type: 'user_answered' }).state,
-        input: nextInput,
-        round: Math.min(session.round + 1, MAX_QUESTION_ROUNDS),
-      };
+    try {
+      if (proceed) {
+        const result = transition(session.state, { type: 'proceed_with_defaults' });
+        next = { state: result.state, input: nextInput };
+      } else {
+        // The domain machine has no clarification->clarification event; a
+        // partial round stays in the same legal state and advances the round.
+        next = {
+          state: session.state,
+          input: nextInput,
+          round: Math.min(session.round + 1, MAX_QUESTION_ROUNDS),
+        };
+      }
+    } catch {
+      throw IntakeError.illegalTransition(session.state, 'user_answered');
     }
 
-    let updated = await this.#sessions.update(ownerId, id, next, session.version);
+    let updated = await this.#sessions.appendAnswersAndUpdate(
+      ownerId,
+      id,
+      answerRecords,
+      next,
+      session.version,
+    );
     if (updated.state === 'decomposition') {
       updated = await this.#generateDraft(updated, previous);
     }
@@ -640,14 +755,18 @@ export class IntakeService {
       );
     }
 
-    await this.#agentRuns.updateDraft(ownerId, id, {
-      draft: validation.draft as DecompositionDraftDto,
-      schemaOk: true,
-      policyOk: !validation.splitRequested,
-      constraintOk: validation.issues.length === 0,
-      issues: validation.issues.map((issue) => ({ code: issue.code, message: issue.message })),
-    });
-    const updated = await this.#sessions.update(ownerId, id, {}, session.version);
+    const updated = await this.#sessions.patchDraftAndUpdate(
+      ownerId,
+      id,
+      {
+        draft: validation.draft as DecompositionDraftDto,
+        schemaOk: true,
+        policyOk: !validation.splitRequested,
+        constraintOk: validation.issues.length === 0,
+        issues: validation.issues.map((issue) => ({ code: issue.code, message: issue.message })),
+      },
+      expectedVersion,
+    );
     return { draft: validation.draft as DecompositionDraftDto, version: updated.version };
   }
 
@@ -655,6 +774,7 @@ export class IntakeService {
     ownerId: Id,
     id: Id,
     expectedVersion: number,
+    idempotencyKey: string,
   ): Promise<ApprovalResult> {
     const session = await this.#requireSession(ownerId, id);
     this.#assertVersion(session, expectedVersion);
@@ -673,63 +793,168 @@ export class IntakeService {
     }
 
     const ordered = topoSortSteps(validation.draft.steps);
-    const taskIds = new Map<string, Id>();
-    const created: { id: Id; version: Version }[] = [];
-    const priority = (session.input.priority ?? 3) as TaskPriority;
-    const maxFocus = session.input.maxFocusMinutes;
-    for (const step of ordered) {
-      const dependsOn = step.dependsOn
-        .map((ref) => taskIds.get(ref))
-        .filter((taskId): taskId is Id => taskId !== undefined);
-      const input: TaskCreate = {
-        title: step.title,
-        description: truncate(
-          `${step.deliverable}\n\nDone when: ${step.doneCriteria}`,
-          2_000,
-        ),
-        priority,
-        splittable: step.splittable,
-        dependsOn,
-        ...(session.input.dueAt === undefined
-          ? {}
-          : { dueAt: session.input.dueAt as Instant }),
-        ...(maxFocus === undefined
-          ? {}
-          : { session: { minMinutes: Math.min(15, maxFocus), maxMinutes: maxFocus } }),
-      };
-      const task = await this.#tasks.create(
-        ownerId,
-        input,
-        `intake:${session.id}:${step.key}`,
+    const plannedSteps = ordered.map((step) => ({
+      stepKey: step.key,
+      plannedTaskId: this.#ids.next(),
+    }));
+
+    const begun = await this.#approvals.begin({
+      ownerId,
+      sessionId: id,
+      expectedVersion,
+      idempotencyKey,
+      leaseMs: 60_000,
+      steps: plannedSteps,
+    });
+    if (begun.kind === 'not_found') throw new NotFoundError('intake session', id);
+    if (begun.kind === 'version_conflict') {
+      throw new VersionConflictError(expectedVersion as Version, begun.actualVersion as Version);
+    }
+    if (begun.kind === 'illegal_state') {
+      throw IntakeError.illegalTransition(begun.state, 'draft_approved');
+    }
+    if (begun.kind === 'in_progress') {
+      throw new IntakeError(
+        409,
+        'approval_in_progress',
+        'Approval in progress',
+        'another approval for this intake session is in progress',
       );
-      taskIds.set(step.key, task.id);
-      created.push({ id: task.id, version: task.version });
+    }
+    if (begun.kind === 'completed') {
+      const approval = await this.#approvals.load(ownerId, id);
+      const tasks: { id: Id; version: Version }[] = [];
+      for (const approvalStep of approval?.steps ?? []) {
+        if (approvalStep.taskId === undefined) continue;
+        const task = await this.#tasks.get(ownerId, approvalStep.taskId);
+        if (task !== null) tasks.push({ id: task.id, version: task.version });
+      }
+      return { session: await this.#toDto(begun.session), tasks };
     }
 
-    const result = transition(session.state, { type: 'draft_approved' });
-    const updated = await this.#sessions.update(
-      ownerId,
-      id,
-      { state: result.state },
-      session.version,
+    const approvalSteps = new Map(
+      begun.approval.steps.map((step) => [step.stepKey, step] as const),
     );
-    await this.#agentRuns.markDraftDecision(ownerId, id, 'approved');
+    const taskIds = new Map<string, Id>();
+    const created: { id: Id; version: Version }[] = [];
+    const plannedIdByKey = new Map(
+      plannedSteps.map((step) => [step.stepKey, step.plannedTaskId] as const),
+    );
+    const priority = (session.input.priority ?? 3) as TaskPriority;
+    const maxFocus = session.input.maxFocusMinutes;
+
+    try {
+      for (const step of ordered) {
+        const plannedTaskId = plannedIdByKey.get(step.key);
+        if (plannedTaskId === undefined) continue;
+        const existingStep = approvalSteps.get(step.key);
+        if (existingStep?.state === 'created' && existingStep.taskId !== undefined) {
+          taskIds.set(step.key, existingStep.taskId);
+          created.push({ id: existingStep.taskId, version: 1 as Version });
+          continue;
+        }
+
+        const existing = await this.#tasks.get(ownerId, plannedTaskId);
+        if (existing !== null) {
+          await this.#approvals.markStep(ownerId, id, step.key, {
+            state: 'created',
+            taskId: existing.id,
+          });
+          taskIds.set(step.key, existing.id);
+          created.push({ id: existing.id, version: existing.version });
+          continue;
+        }
+
+        const dependsOn = step.dependsOn
+          .map((ref) => taskIds.get(ref))
+          .filter((taskId): taskId is Id => taskId !== undefined);
+        const dependencyState =
+          dependsOn.length === step.dependsOn.length
+            ? 'satisfied'
+            : `missing:${step.dependsOn.filter((ref) => !taskIds.has(ref)).join(',')}`;
+
+        await this.#approvals.markStep(ownerId, id, step.key, {
+          state: 'pending',
+          dependencyState,
+        });
+        if (dependsOn.length !== step.dependsOn.length) {
+          throw new ValidationFailedError(
+            step.dependsOn
+              .filter((ref) => !taskIds.has(ref))
+              .map((ref) => ({ path: step.key, message: `missing dependency ${ref}` })),
+          );
+        }
+
+        const input: TaskCreate = {
+          title: step.title,
+          description: truncate(
+            `Goal: ${session.input.title}\n\n${step.deliverable}\n\nDone when: ${step.doneCriteria}`,
+            2_000,
+          ),
+          priority,
+          splittable: step.splittable,
+          dependsOn,
+          ...(session.input.dueAt === undefined
+            ? {}
+            : { dueAt: session.input.dueAt as Instant }),
+          ...(maxFocus === undefined
+            ? {}
+            : { session: { minMinutes: Math.min(15, maxFocus), maxMinutes: maxFocus } }),
+        };
+        const task = await this.#tasks.create(
+          ownerId,
+          input,
+          `intake-approval:${id}:${step.key}`,
+          { plannedId: plannedTaskId },
+        );
+        await this.#approvals.markStep(ownerId, id, step.key, {
+          state: 'created',
+          taskId: task.id,
+          dependencyState,
+        });
+        taskIds.set(step.key, task.id);
+        created.push({ id: task.id, version: task.version });
+      }
+    } catch (error) {
+      if (error instanceof ValidationFailedError) {
+        await this.#approvals.fail(ownerId, id);
+        throw error;
+      }
+      const stepKey = ordered.find((step) => !taskIds.has(step.key))?.key;
+      if (stepKey !== undefined) {
+        await this.#approvals.markStep(ownerId, id, stepKey, { state: 'unknown' });
+      }
+      await this.#approvals.fail(ownerId, id);
+      throw error instanceof IntakeError
+        ? error
+        : new IntakeError(
+            503,
+            'provider_unavailable',
+            'Provider unavailable',
+            'task creation failed; approval can be retried',
+          );
+    }
+
+    const updated = await this.#approvals.complete({
+      ownerId,
+      sessionId: id,
+      expectedSessionVersion: session.version,
+      outboxId: this.#ids.next(),
+    });
     return { session: await this.#toDto(updated), tasks: created };
   }
 
   async pause(ownerId: Id, id: Id, expectedVersion: number): Promise<IntakeSessionDto> {
     const session = await this.#requireSession(ownerId, id);
     this.#assertVersion(session, expectedVersion);
-    if (session.state === 'cancelled' || session.state === 'failed' || session.state === 'needs_input') {
+    if (session.state !== 'clarification') {
       throw IntakeError.illegalTransition(session.state, 'user_requested_more_time');
     }
+    const result = transition(session.state, { type: 'user_requested_more_time' });
     const updated = await this.#sessions.update(
       ownerId,
       id,
-      {
-        state: 'needs_input',
-        error: { code: 'paused', message: `paused from ${session.state}` },
-      },
+      { state: result.state },
       session.version,
     );
     return this.#toDto(updated);
@@ -741,16 +966,11 @@ export class IntakeService {
     if (session.state !== 'needs_input') {
       throw IntakeError.illegalTransition(session.state, 'user_answered');
     }
-    const previous = session.error?.code === 'paused' ? session.error.message : undefined;
-    const restored =
-      previous !== undefined && previous.startsWith('paused from ')
-        ? previous.slice('paused from '.length)
-        : undefined;
-    const state = isIntakeState(restored) ? restored : 'clarification';
+    const result = transition(session.state, { type: 'user_answered' });
     const updated = await this.#sessions.update(
       ownerId,
       id,
-      { state, error: null },
+      { state: result.state },
       session.version,
     );
     return this.#toDto(updated);
@@ -759,6 +979,14 @@ export class IntakeService {
   async cancel(ownerId: Id, id: Id, expectedVersion: number): Promise<IntakeSessionDto> {
     const session = await this.#requireSession(ownerId, id);
     this.#assertVersion(session, expectedVersion);
+    if (await this.#approvals.hasActive(ownerId, id)) {
+      throw new IntakeError(
+        409,
+        'approval_in_progress',
+        'Approval in progress',
+        'the intake draft is already being approved',
+      );
+    }
     let state: IntakeState;
     try {
       state = transition(session.state, { type: 'user_cancelled' }).state;
@@ -774,6 +1002,14 @@ export class IntakeService {
     this.#assertVersion(session, expectedVersion);
     if (session.state === 'cancelled' || session.state === 'failed') {
       throw IntakeError.illegalTransition(session.state, 'enter_manual_mode');
+    }
+    if (await this.#approvals.hasActive(ownerId, id)) {
+      throw new IntakeError(
+        409,
+        'approval_in_progress',
+        'Approval in progress',
+        'the intake draft is already being approved',
+      );
     }
     let updated = await this.#sessions.update(
       ownerId,
