@@ -58,6 +58,17 @@
 | POST /intake-sessions/{id}:manual | 수동 모드 전환(LLM 없이) |
 | GET /templates?query= | 템플릿 검색, GET /templates/{id} |
 
+#### 2.3.1 긴 AI 호출: 대기·취소·재개 (FU-76, 2026-11-12)
+계약(스키마/OpenAPI)은 바꾸지 않고 기존 필드와 엔드포인트의 의미만 정한다.
+
+- **호출 방식**: 생성(`POST /intake-sessions` → 유형 탐지)과 `answers`·`type-confirmation`·`:resume`(→ 단계 분해)은 AI 호출이 끝날 때까지 응답을 붙잡는다. 단계 분해는 보통 30–45초, 최대는 아래 상한.
+- **진행 중 판정 규칙**(재접속 클라이언트용, 서버도 같은 규칙으로 고아를 판정): `error`가 없고 ① `state=decomposition`·`manual=false`·`draft` 없음, 또는 ② `state=type_detection`·`detectedType` 없음이면 AI 결과를 기다리는 중이다. 클라이언트는 이 상태에서 같은 요청을 다시 보내지 않고 `GET /intake-sessions/{id}`를 폴링한다(웹: 3초). 세션 id를 아직 모르는 생성 요청은 **같은 Idempotency-Key로 재전송**해 저장된 결과를 받는다(처리 중이면 409 `idempotency_in_progress` + `Retry-After`). 둘 다 멱등이라 두 번째 실행·이중 과금이 없다.
+- **연결 끊김은 취소가 아니다**: 새로고침·네트워크 끊김이 있어도 서버는 진행 중인 시도를 끝내고 초안/결과를 저장한다.
+- **명시적 취소**: 대기 중 `POST /intake-sessions/{id}:manual`(웹의 "취소"·"직접 작성으로 계속")은 그 세션의 진행 중 AI 실행(프로세스 내 레지스트리)을 중단하고, 실행이 지출을 정산(예약 → `reserved_fallback`, 실제 사용량이 있으면 그 값)하며 `agent_run.status='cancelled'`를 기록할 때까지 최대 5초 기다린 뒤 직접 작성 모드로 넘어간다. 이때 `error={code:'ai_cancelled'}`이며 입력은 그대로다. `:cancel`도 진행 중 실행을 먼저 중단한다.
+- **종료/크래시**: graceful shutdown은 드레인 예산(12초) 뒤 AI 호출을 중단·정산하고 세션에 `error={code:'ai_interrupted'}`를 남긴다(초안 없음, `manual=false`). 재시작 후 사용자는 "다시 시도"를 보고 `POST :resume`이 단계 분해를 다시 실행한다(사용자 행동에 의한 새 과금 1회). 유형 탐지가 중단되면 `ai_interrupted` + 직접 작성 모드로 이어 간다. 크래시로 남은 `pending` 실행과 진행 중처럼 보이는 세션은 요청 상한보다 오래되면 시작 시 스윕(그리고 `GET` 시 지연 판정)으로 각각 `cancelled` / `ai_interrupted`가 된다.
+- **session.error.code**(자유 문자열): `ai_interrupted`(중단, `:resume`으로 재시도 가능), `ai_cancelled`(사용자 취소, 직접 작성 계속), 기존 `llm_unavailable`·`budget_exceeded`. 클라이언트는 모르는 코드를 일반 실패 문구로 보여 준다.
+- **유효 상한**: 구조화 호출 1회 = 시도 시간 × 2(1회 + repair 1회) + 10초(단계 분해 기본 250초, 유형 탐지 70초, `runStructured totalTimeoutMs`); 인테이크 AI 요청 1회 = 270초(고아 판정 기준); HTTP 소켓 비활성 가드 300초; 웹 클라이언트 315초(이보다 먼저 포기하지 않으며, 넘으면 재전송 대신 폴링).
+
 ### 2.4 Planning (M3)
 | 메서드 경로 | 설명 |
 |---|---|

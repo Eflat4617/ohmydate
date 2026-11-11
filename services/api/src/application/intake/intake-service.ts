@@ -776,7 +776,7 @@ export class IntakeService {
     return this.#toDto(session);
   }
 
-  /** FU-76 in-progress rule (08 §2.7): the session waits for an AI result. */
+  /** FU-76 in-progress rule (08 §2.3.1): the session waits for an AI result. */
   async #looksInFlight(session: IntakeSessionRecord): Promise<boolean> {
     if (session.error !== undefined) return false;
     if (session.state === 'type_detection') return session.detectedType === undefined;

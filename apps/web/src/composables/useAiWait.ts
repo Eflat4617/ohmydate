@@ -49,7 +49,7 @@ export const AI_WAIT_STORAGE_MAX_AGE_MS = 60 * 60 * 1000;
 /** Requests that answer quickly never flash the panel. */
 export const AI_WAIT_REVEAL_AFTER_MS = 700;
 
-/** The in-progress rule (docs/blueprint/08 §2.7): the session still waits for an AI result. */
+/** The in-progress rule (docs/blueprint/08 §2.3.1): the session still waits for an AI result. */
 export function sessionAwaitsAi(session: IntakeSession): AiWaitKind | null {
   if (session.error !== undefined) return null;
   if (session.state === 'type_detection' && session.detectedType === undefined) return 'type_detection';
