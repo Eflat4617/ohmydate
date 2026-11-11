@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 17:11 | **M4-UIcR-1 REQUEST_CHANGES (Opus 대체)**: P1/P2 해결 확인. HIGH — 인증 저장소(me 새로고침·LLM 동의/예산)가 epoch 미적용, 늦은 응답이 A를 재설치. MEDIUM(필수) — 격리 알림이 사라질 수 있음, E2E 재배치 단언이 오래된 ID로 통과 가능. 제안도 필수화(격리 전 /me 확인, 탭 간 storage 이벤트, fetch에 signal, 격리 쓰기 성공 후 삭제). 수정 1/2 → ctx_fd0accacb7a9 | reviews/M4-UIcR-1.md | orchestrator |
 | 2026-11-11 16:30 | **M4-UIR2 REQUEST_CHANGES (Opus 대체) → M4-UI BLOCKED**: 1차 H1·H2·H4·타이머·푸시 해결 확인, H3은 순차 전환만 해결. HIGH — 요청 진행 중 계정 전환 시 A의 세션·이벤트가 B 저장소로 이동(A 손실, B 대기열 영구 정지; P1/P2 재현). → 좁은 Task **M4-UIc**(소유자 epoch·시작 시 소유자 고정·403/404 격리) | reviews/M4-UIR2.md | orchestrator |
 | 2026-11-11 16:21 | **Sol 한도 재도달**(17:12 재시도 안내). M4-UIR2(ctx_52e0d001e37b) errored — 중단 직전 'account-switch race remains the blocking finding' 언급 → 패킷에 메모 추가 후 Opus 5.5 xhigh 대체로 retry-of. gpt-6-luna 전환 제안 거부 | worker-read | orchestrator |
 | 2026-11-11 16:13 | FU-52c 질문 → 범위 확장 승인: llm_spend.settle_reason(CHECK) + db/types.ts 최소 2줄 | msg_3e93b822108f | orchestrator |
