@@ -74,3 +74,6 @@
 - 적용: M4-UId 현재 수정 라운드(DeepSeek)가 끝난 **뒤부터**, `apps/web/**`(화면·컴포넌트·스타일·UX)을 주로 다루는 **구현 Task**는 `--agent claude --model claude-opus-5-5 --effort xhigh` 워커로 실행(`scripts/orca/start-claude-worker.sh`). 백엔드·계약·스케줄러 등 비 UI 구현은 계속 DeepSeek v4.1 flash high.
 - 리뷰는 기존대로 Sol 6.1 medium(한도 시 Opus 5.5 xhigh 대체). UI Task를 Opus가 구현한 경우 리뷰는 **Sol**로 해서 구현자와 리뷰어 모델을 분리(Sol 한도 시에는 별도 Opus 세션이 리뷰하되 원장에 "같은 모델 계열" 표시).
 - 확인: worker-start 영수증의 model/effort를 원장에 기록.
+- **추가 지시(2026-11-11 18:20):** "직접 써보기 전에 opus가 화면들의 디자인을 통일해서 다듬는데 낫겠다. 대신, 이번 수정라운드가 끝나고 deepseek의 능력이 의심되면 바로 opus로 전환해".
+  - UI-POLISH(디자인 통일) Task를 M4 종료 후, GU-1 전에 Opus 5.5 xhigh 워커로 실행.
+  - M4-UId 수정 라운드 1(DeepSeek) 결과가 리뷰에서 다시 HIGH이거나 수정이 지시를 제대로 따르지 못하면(능력 의심) 남은 M4-UId 작업은 수정 예산 소모 여부와 무관하게 **즉시 Opus 5.5 xhigh 워커로 전환**(같은 worktree, 새 Task).
