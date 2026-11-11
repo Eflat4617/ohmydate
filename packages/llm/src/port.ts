@@ -47,6 +47,13 @@ export interface LlmCompleteRequest {
    * not throw and must not be serialised into the prompt.
    */
   readonly onDispatch?: () => void;
+  /**
+   * Per-call output bound (prompt limits). Policy reservation and the adapter's
+   * `max_tokens` both use it (see `effectiveMaxOutputTokens`); absent -> configured default.
+   */
+  readonly maxOutputTokens?: number;
+  /** Per-call provider attempt timeout; absent -> the adapter's configured timeout. */
+  readonly timeoutMs?: number;
 }
 
 export interface LlmCompleteResponse {

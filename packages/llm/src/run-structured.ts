@@ -6,8 +6,15 @@ import {
   LlmUnavailable,
   SchemaViolation,
 } from './errors.js';
+import { renderOutputContract } from './output-contract.js';
 import type { LlmCompleteResponse, LlmPort, LlmUsage } from './port.js';
-import { validateOutput } from './schema-registry.js';
+import {
+  DEFAULT_PROMPT_LIMIT_OVERRIDES,
+  DEFAULT_STRUCTURED_TIMEOUT_MS,
+  promptLimitsFor,
+  type PromptLimitOverrides,
+} from './prompt-limits.js';
+import { hasSchema, validateOutput } from './schema-registry.js';
 
 export interface StructuredLlmRequest {
   readonly promptId: string;
@@ -21,6 +28,8 @@ export interface StructuredLlmRequest {
   readonly budget?: import('./port.js').LlmBudget;
   /** Forwarded to the port on every attempt (see `LlmCompleteRequest.onDispatch`). */
   readonly onDispatch?: () => void;
+  /** Explicit per-call output bound; otherwise the prompt's limit override (if any). */
+  readonly maxOutputTokens?: number;
 }
 
 export interface RunStructuredOptions {
@@ -28,7 +37,10 @@ export interface RunStructuredOptions {
   /** Retries after an `LlmUnavailable` (default 2, per 05 §8). */
   readonly maxUnavailableRetries?: number;
   readonly backoffBaseMs?: number;
+  /** Explicit per-call timeout; otherwise the prompt's override, else 30 s. */
   readonly timeoutMs?: number;
+  /** Per-prompt limits (default: DEFAULT_PROMPT_LIMIT_OVERRIDES, decomposition 8000 / 120 s). */
+  readonly promptLimits?: PromptLimitOverrides;
   readonly budgetGuard?: BudgetGuard;
   /** Explicit opt-out for tests only (FakeLlm); production calls require a guard. */
   readonly allowUnbudgeted?: boolean;
@@ -54,11 +66,22 @@ const defaultSleep = (ms: number): Promise<void> =>
   });
 
 /**
- * Append validation errors to the input for the single repair attempt.
- * Exported so tests can register the exact repaired fixture in `FakeLlm`.
+ * Append validation errors to the input for the single repair attempt. With a
+ * `schemaId` the rendered output contract is repeated next to the errors (it is
+ * also in the system message). Exported so tests can register the exact repaired
+ * fixture in `FakeLlm`.
  */
-export function appendValidationErrors(input: unknown, errors: readonly string[]): unknown {
-  const repair = { schemaValidationErrors: [...errors] };
+export function appendValidationErrors(
+  input: unknown,
+  errors: readonly string[],
+  schemaId?: string,
+): unknown {
+  const repair = {
+    schemaValidationErrors: [...errors],
+    ...(schemaId !== undefined && hasSchema(schemaId)
+      ? { outputContract: renderOutputContract(schemaId) }
+      : {}),
+  };
   if (input !== null && typeof input === 'object' && !Array.isArray(input)) {
     return { ...(input as Record<string, unknown>), ...repair };
   }
@@ -114,7 +137,15 @@ export async function runStructured(
   const sleep = options.sleep ?? defaultSleep;
   const maxUnavailableRetries = Math.max(0, options.maxUnavailableRetries ?? 2);
   const backoffBaseMs = Math.max(0, options.backoffBaseMs ?? 250);
-  const timeoutMs = options.timeoutMs ?? 30_000;
+  const limits = promptLimitsFor(
+    request.promptId,
+    options.promptLimits ?? DEFAULT_PROMPT_LIMIT_OVERRIDES,
+  );
+  const timeoutMs = options.timeoutMs ?? limits?.timeoutMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS;
+  const maxOutputTokens = request.maxOutputTokens ?? limits?.maxOutputTokens;
+  // Forward the timeout to the adapter only when it is not the historical default,
+  // so the adapter's own per-attempt timer never undercuts a longer call budget.
+  const forwardTimeout = options.timeoutMs !== undefined || limits !== undefined;
   const budgetGuard = options.budgetGuard;
 
   if (budgetGuard === undefined && options.allowUnbudgeted !== true) {
@@ -169,6 +200,8 @@ export async function runStructured(
             ...(request.sessionKey === undefined ? {} : { sessionKey: request.sessionKey }),
             ...(request.budget === undefined ? {} : { budget: request.budget }),
             ...(request.onDispatch === undefined ? {} : { onDispatch: request.onDispatch }),
+            ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+            ...(forwardTimeout ? { timeoutMs } : {}),
           },
           timeoutMs,
           options.signal,
@@ -213,7 +246,7 @@ export async function runStructured(
 
       if (repairs === 0) {
         repairs += 1;
-        input = appendValidationErrors(request.input, validation.errors);
+        input = appendValidationErrors(request.input, validation.errors, request.schemaId);
         continue;
       }
 

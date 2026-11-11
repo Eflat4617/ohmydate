@@ -9,7 +9,8 @@ import {
 } from './errors.js';
 import type { LlmCompleteRequest, LlmCompleteResponse, LlmPort, LlmUsage } from './port.js';
 import { assertRedactInputSize } from './privacy.js';
-import { getPrompt } from './prompt-registry.js';
+import { structuredSystemPrompt } from './output-contract.js';
+import { effectiveMaxOutputTokens } from './prompt-limits.js';
 
 /**
  * ADR-022 product adapter: OpenAI-compatible chat completions.
@@ -185,12 +186,18 @@ export class OpenAICompatibleLlm implements LlmPort {
   async complete(request: LlmCompleteRequest): Promise<LlmCompleteResponse> {
     const startedAt = this.#options.now();
     const messages = this.#messages(request);
-    const body = this.#body(messages, true);
+    // Per-call limits (prompt overrides); the policy reserved with the same bound.
+    const maxTokens = effectiveMaxOutputTokens(request.maxOutputTokens, this.#options.maxOutputTokens);
+    const timeoutMs =
+      request.timeoutMs !== undefined && Number.isInteger(request.timeoutMs) && request.timeoutMs > 0
+        ? request.timeoutMs
+        : this.#options.timeoutMs;
+    const body = this.#body(messages, true, maxTokens);
     const sessionId = this.#sessionId(request);
 
     let responseBody: ChatResponseBody;
     try {
-      responseBody = await this.#send(body, request.signal, sessionId, request.onDispatch);
+      responseBody = await this.#send(body, request.signal, sessionId, request.onDispatch, timeoutMs);
     } catch (error) {
       if (!(error instanceof ResponseFormatUnsupportedError)) throw error;
       // Exactly one fallback, never part of the outage retry loop.
@@ -200,10 +207,11 @@ export class OpenAICompatibleLlm implements LlmPort {
           : message,
       );
       responseBody = await this.#send(
-        this.#body(fallbackMessages, false),
+        this.#body(fallbackMessages, false, maxTokens),
         request.signal,
         sessionId,
         request.onDispatch,
+        timeoutMs,
       );
     }
 
@@ -227,7 +235,8 @@ export class OpenAICompatibleLlm implements LlmPort {
   }
 
   #messages(request: LlmCompleteRequest): ChatMessage[] {
-    const system = getPrompt(request.promptId, request.version);
+    // The prompt file plus the output contract generated from the schema registry.
+    const system = structuredSystemPrompt(request.promptId, request.version, request.schemaId);
     const user = JSON.stringify(request.input ?? {}) ?? '{}';
     assertRedactInputSize(system);
     assertRedactInputSize(user);
@@ -237,7 +246,7 @@ export class OpenAICompatibleLlm implements LlmPort {
     ];
   }
 
-  #body(messages: readonly ChatMessage[], jsonMode: boolean): ChatRequestBody {
+  #body(messages: readonly ChatMessage[], jsonMode: boolean, maxTokens: number): ChatRequestBody {
     return {
       model: this.#options.model,
       messages,
@@ -245,7 +254,7 @@ export class OpenAICompatibleLlm implements LlmPort {
         ? {}
         : { reasoning_effort: this.#options.reasoningEffort }),
       ...(jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
-      max_tokens: this.#options.maxOutputTokens,
+      max_tokens: maxTokens,
     };
   }
 
@@ -265,12 +274,13 @@ export class OpenAICompatibleLlm implements LlmPort {
     outerSignal: AbortSignal | undefined,
     sessionId: string | undefined,
     onDispatch: (() => void) | undefined,
+    timeoutMs: number,
   ): Promise<ChatResponseBody> {
     let attempt = 0;
     for (;;) {
       // M6-01: every network attempt carries the prompt off the machine.
       onDispatch?.();
-      const result = await this.#once(body, outerSignal, sessionId);
+      const result = await this.#once(body, outerSignal, sessionId, timeoutMs);
       if (result.ok) return result.body;
       if (result.retryable && attempt < this.#options.maxRetries) {
         attempt += 1;
@@ -287,12 +297,13 @@ export class OpenAICompatibleLlm implements LlmPort {
     body: ChatRequestBody,
     outerSignal: AbortSignal | undefined,
     sessionId: string | undefined,
+    timeoutMs: number,
   ): Promise<
     | { readonly ok: true; readonly body: ChatResponseBody }
     | { readonly ok: false; readonly retryable: boolean; readonly error: LlmUnavailable }
   > {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort('timeout'), this.#options.timeoutMs);
+    const timer = setTimeout(() => controller.abort('timeout'), timeoutMs);
     const onAbort = (): void => controller.abort('caller');
     if (outerSignal?.aborted === true) controller.abort('caller');
     else outerSignal?.addEventListener('abort', onAbort, { once: true });
@@ -359,7 +370,7 @@ export class OpenAICompatibleLlm implements LlmPort {
             error: new LlmUnavailable('llm call aborted by caller', 'aborted', false),
           };
         }
-        throw new LlmTimeoutError(this.#options.timeoutMs);
+        throw new LlmTimeoutError(timeoutMs);
       }
       if (error instanceof LlmUnavailable) throw error;
       return {

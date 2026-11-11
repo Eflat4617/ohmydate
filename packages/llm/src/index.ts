@@ -123,6 +123,27 @@ export {
 } from './privacy.js';
 
 export {
+  exampleForPattern,
+  exampleForSchema,
+  renderOutputContract,
+  schemaIdForPrompt,
+  structuredSystemPrompt,
+} from './output-contract.js';
+
+export {
+  DEFAULT_DECOMPOSITION_MAX_OUTPUT_TOKENS,
+  DEFAULT_DECOMPOSITION_TIMEOUT_MS,
+  DEFAULT_PROMPT_LIMIT_OVERRIDES,
+  DEFAULT_STRUCTURED_TIMEOUT_MS,
+  MAX_OUTPUT_TOKENS_CEILING,
+  effectiveMaxOutputTokens,
+  maxPromptTimeoutMs,
+  promptLimitsFor,
+  type PromptLimitOverrides,
+  type PromptLimits,
+} from './prompt-limits.js';
+
+export {
   getPrompt,
   hasPrompt,
   listPromptKeys,

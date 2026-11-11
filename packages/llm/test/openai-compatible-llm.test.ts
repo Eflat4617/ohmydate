@@ -20,6 +20,7 @@ import {
   appendValidationErrors,
   getPrompt,
   runStructured,
+  structuredSystemPrompt,
   validateOutput,
   type LlmCompleteResponse,
   type LlmPort,
@@ -340,7 +341,13 @@ describe('OpenAICompatibleLlm', () => {
           content: JSON.stringify(request.input),
         });
       }
-      expect(messages[0]).toEqual({ role: 'system', content: getPrompt('type_detection', 'v1') });
+      // Fix round 1: the system message is the prompt file plus the contract
+      // generated from the schema registry.
+      expect(messages[0]).toEqual({
+        role: 'system',
+        content: structuredSystemPrompt('type_detection', 'v1', 'llm.type_detection.v1'),
+      });
+      expect(messages[0]?.content.startsWith(getPrompt('type_detection', 'v1').trimEnd())).toBe(true);
       for (const forbidden of fixture.forbidden) {
         expect(JSON.stringify(captured)).not.toContain(forbidden);
       }
@@ -906,7 +913,8 @@ describe('PolicyLlm + runStructured attempt accounting', () => {
   test('a schema repair charges both attempts and aggregates run usage', async () => {
     const invalid = { classification: 'maybe' };
     const errors = validateOutput('llm.type_detection.v1', invalid).errors;
-    const repairedInput = appendValidationErrors(request.input, errors);
+    // Fix round 1: the repair input repeats the rendered output contract.
+    const repairedInput = appendValidationErrors(request.input, errors, request.schemaId);
     const inner = new FakeLlm([
       {
         promptId: 'type_detection',
@@ -936,7 +944,8 @@ describe('PolicyLlm + runStructured attempt accounting', () => {
   test('two invalid outputs still charge both attempts and expose aggregate usage', async () => {
     const invalid = { classification: 'maybe' };
     const errors = validateOutput('llm.type_detection.v1', invalid).errors;
-    const repairedInput = appendValidationErrors(request.input, errors);
+    // Fix round 1: the repair input repeats the rendered output contract.
+    const repairedInput = appendValidationErrors(request.input, errors, request.schemaId);
     const inner = new FakeLlm([
       {
         promptId: 'type_detection',
