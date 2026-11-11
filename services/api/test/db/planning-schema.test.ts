@@ -508,6 +508,13 @@ describe.skipIf(!hasDatabase)('0007 planning core schema', () => {
     await client.end();
     client = await connect(schema);
 
+    const rolledBack0009 = await rollbackLatest({
+      databaseUrl: requireDatabaseUrl(),
+      schema,
+      migrationsDir,
+    });
+    expect(rolledBack0009).toBe('0009_today_sessions.sql');
+
     const rolledBack0008 = await rollbackLatest({
       databaseUrl: requireDatabaseUrl(),
       schema,
@@ -542,6 +549,7 @@ describe.skipIf(!hasDatabase)('0007 planning core schema', () => {
     expect(reapplied.applied).toEqual([
       '0007_planning_core.sql',
       '0008_plan_api_persistence.sql',
+      '0009_today_sessions.sql',
     ]);
   });
 });
