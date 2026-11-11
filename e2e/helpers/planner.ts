@@ -161,6 +161,7 @@ export async function createIntakeGoal(
     readonly description?: string;
     readonly dueAt?: string;
     readonly estimatedScope?: 'small' | 'medium' | 'large';
+    readonly maxFocusMinutes?: number;
   },
 ): Promise<IntakeSessionDto> {
   const response = await apiFetch(page, state, '/intake-sessions', {
@@ -196,6 +197,27 @@ export async function answerIntakeWithSkip(
     session = (await expectOk(response, 'POST /intake-sessions/{id}/answers')) as IntakeSessionDto;
   }
   throw new Error('intake interview did not finish within six rounds');
+}
+
+export async function replaceIntakeDraftWithSteps(
+  page: Page,
+  state: E2EState,
+  session: IntakeSessionDto,
+  steps: readonly Record<string, unknown>[],
+): Promise<IntakeSessionDto> {
+  const response = await apiFetch(page, state, `/intake-sessions/${session.id}/draft`, {
+    method: 'PATCH',
+    headers: {
+      'If-Match': `W/"${session.version}"`,
+      'Idempotency-Key': idempotencyKey(),
+    },
+    body: { steps },
+  });
+  await expectOk(response, 'PATCH /intake-sessions/{id}/draft');
+  const etag = response.headers()['etag'] ?? '';
+  const match = /W\/"(\d+)"/.exec(etag);
+  if (match?.[1] === undefined) throw new Error(`draft PATCH returned no version ETag: ${etag}`);
+  return { ...session, version: Number(match[1]) };
 }
 
 export async function replaceIntakeDraftWithIndependentSteps(
@@ -245,19 +267,7 @@ export async function replaceIntakeDraftWithIndependentSteps(
       splittable: false,
     },
   ];
-  const response = await apiFetch(page, state, `/intake-sessions/${session.id}/draft`, {
-    method: 'PATCH',
-    headers: {
-      'If-Match': `W/"${session.version}"`,
-      'Idempotency-Key': idempotencyKey(),
-    },
-    body: { steps },
-  });
-  await expectOk(response, 'PATCH /intake-sessions/{id}/draft');
-  const etag = response.headers()['etag'] ?? '';
-  const match = /W\/"(\d+)"/.exec(etag);
-  if (match?.[1] === undefined) throw new Error(`draft PATCH returned no version ETag: ${etag}`);
-  return { ...session, version: Number(match[1]) };
+  return replaceIntakeDraftWithSteps(page, state, session, steps);
 }
 
 export async function approveIntakeDraft(
@@ -303,6 +313,57 @@ export async function createApprovedGoal(
   return approved;
 }
 
+export async function createApprovedGoalWithSingleStep(
+  page: Page,
+  state: E2EState,
+  title: string,
+): Promise<IntakeSessionDto> {
+  const dueAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const created = await createIntakeGoal(page, state, {
+    title,
+    description: 'E2E single-block goal for the two-plan regression.',
+    dueAt,
+    estimatedScope: 'small',
+    maxFocusMinutes: 30,
+  });
+  const answered = await answerIntakeWithSkip(page, state, created);
+  const prepared = await replaceIntakeDraftWithSteps(page, state, answered, [
+    {
+      key: 's1',
+      title: `${title} prep`,
+      deliverable: 'Inputs',
+      doneCriteria: 'Inputs collected',
+      kind: 'prep',
+      estimate: { p50Minutes: 15, p90Minutes: 25 },
+      dependsOn: [],
+      splittable: true,
+    },
+    {
+      key: 's2',
+      title: `${title} work`,
+      deliverable: 'Deliverable',
+      doneCriteria: 'Deliverable exists',
+      kind: 'work',
+      estimate: { p50Minutes: 15, p90Minutes: 25 },
+      dependsOn: [],
+      splittable: true,
+    },
+    {
+      key: 's3',
+      title: `${title} review`,
+      deliverable: 'Review',
+      doneCriteria: 'Review complete',
+      kind: 'review',
+      estimate: { p50Minutes: 15, p90Minutes: 25 },
+      dependsOn: [],
+      splittable: false,
+    },
+  ]);
+  const approved = await approveIntakeDraft(page, state, prepared);
+  expect(approved.goalId, 'approved intake session should expose its goal id').toBeTruthy();
+  return approved;
+}
+
 export async function createPlanFromGoal(
   page: Page,
   state: E2EState,
@@ -336,4 +397,153 @@ export async function createOverlappingCommitment(
     body: { title, startAt, endAt, timeZone: 'UTC' },
   });
   await expectOk(response, 'POST /commitments');
+}
+
+export interface ApprovedBlockDto {
+  readonly id: string;
+  readonly planVersionId: string;
+  readonly taskId: string;
+  readonly startAt: string;
+  readonly endAt: string;
+  readonly status: string;
+  readonly locked: boolean;
+  readonly version: number;
+}
+
+export interface PlanVersionDto {
+  readonly id: string;
+  readonly planId: string;
+  readonly seq: number;
+  readonly availabilityVersion: number;
+  readonly version: number;
+  readonly blocks: readonly ApprovedBlockDto[];
+}
+
+export interface WorkSessionDto {
+  readonly id: string;
+  readonly taskId: string;
+  readonly blockId?: string;
+  readonly state: 'active' | 'paused' | 'completed' | 'abandoned';
+  readonly startedAt: string;
+  readonly endedAt?: string;
+  readonly focusedSec: number;
+  readonly pausedSec: number;
+  readonly clientId: string;
+  readonly version: number;
+}
+
+export interface NotificationDto {
+  readonly id: string;
+  readonly kind: string;
+  readonly dedupeKey: string;
+  readonly scheduledAt: string;
+  readonly sentAt?: string;
+  readonly channel: string;
+  readonly state: string;
+  readonly version: number;
+}
+
+export async function setContinuousWeeklyAvailability(
+  page: Page,
+  state: E2EState,
+  maxDailyFocusMin = 600,
+): Promise<AvailabilityDto> {
+  const current = await getAvailability(page, state);
+  const rules = Array.from({ length: 7 }, (_, index) => index + 1).map((weekday) => ({
+    weekday,
+    startLocal: '00:00',
+    endLocal: '24:00',
+    kind: 'work' as const,
+  }));
+  const response = await apiFetch(page, state, '/availability', {
+    method: 'PUT',
+    headers: {
+      'If-Match': `W/"availability:${current.version}"`,
+      'Idempotency-Key': idempotencyKey(),
+    },
+    body: {
+      timeZone: 'UTC',
+      rules,
+      exceptions: [],
+      prefs: {
+        maxDailyFocusMin,
+        breakAfterMin: 600,
+        breakMin: 15,
+        dayStartLocal: '00:00',
+        dayEndLocal: '24:00',
+        riskLevel: 'p50',
+      },
+    },
+  });
+  return (await expectOk(response, 'PUT /availability')) as AvailabilityDto;
+}
+
+export function editableBlocksForToday(
+  plan: PlanDto,
+  now: number = Date.now(),
+): readonly { taskId: string; startAt: string; endAt: string }[] {
+  const candidate = plan.candidates.find((entry) => entry.feasible) ?? plan.candidates[0];
+  if (candidate === undefined) throw new Error('plan has no candidate to approve');
+  const sorted = [...candidate.blocks].sort(
+    (left, right) => Date.parse(left.startAt) - Date.parse(right.startAt),
+  );
+  const grid = 5 * 60_000;
+  let cursor = Math.ceil((now + 5 * 60_000) / grid) * grid;
+  return sorted.map((block) => {
+    const duration = Date.parse(block.endAt) - Date.parse(block.startAt);
+    const startAt = cursor;
+    cursor += duration + grid;
+    return {
+      taskId: block.taskId,
+      startAt: new Date(startAt).toISOString(),
+      endAt: new Date(startAt + duration).toISOString(),
+    };
+  });
+}
+
+export async function approveCandidateWithBlocks(
+  page: Page,
+  state: E2EState,
+  plan: PlanDto,
+  editedBlocks: readonly { taskId: string; startAt: string; endAt: string }[],
+): Promise<PlanVersionDto> {
+  const candidate = plan.candidates.find((entry) => entry.feasible) ?? plan.candidates[0];
+  if (candidate === undefined) throw new Error('plan has no candidate to approve');
+  const response = await apiFetch(
+    page,
+    state,
+    `/plans/${plan.id}/candidates/${candidate.id}:approve`,
+    {
+      method: 'POST',
+      headers: {
+        'If-Match': `W/"availability:${plan.availabilityVersion}"`,
+        'Idempotency-Key': idempotencyKey(),
+      },
+      body: { editedBlocks },
+    },
+  );
+  return (await expectOk(
+    response,
+    'POST /plans/{id}/candidates/{cid}:approve',
+  )) as PlanVersionDto;
+}
+
+export async function getWorkSession(
+  page: Page,
+  state: E2EState,
+  sessionId: string,
+): Promise<WorkSessionDto> {
+  const response = await apiFetch(page, state, `/sessions/${sessionId}`);
+  return (await expectOk(response, 'GET /sessions/{id}')) as WorkSessionDto;
+}
+
+export async function listNotifications(
+  page: Page,
+  state: E2EState,
+): Promise<readonly NotificationDto[]> {
+  const response = await apiFetch(page, state, '/notifications?limit=100');
+  const body = (await expectOk(response, 'GET /notifications')) as {
+    items: NotificationDto[];
+  };
+  return body.items;
 }

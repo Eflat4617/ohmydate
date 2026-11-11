@@ -129,20 +129,64 @@ describe.skipIf(!hasDatabase)('authentication and sessions', () => {
     expect(me.statusCode).toBe(401);
   });
 
-  test('GET /me returns ETag and supports If-None-Match', async () => {
+  test('GET /me returns a user-scoped ETag, no-store headers and supports If-None-Match', async () => {
     const session = await login(ctx, 'alice@example.com', 'correct-horse');
     const me = await ctx.app.inject({ method: 'GET', url: '/api/v1/me', headers: authHeaders(session) });
     expect(me.statusCode).toBe(200);
-    expect(me.headers['etag']).toBe('W/"1"');
+    const user = me.json() as { id: string; version: number };
+    const etag = `W/"${user.id}:${user.version}"`;
+    expect(me.headers['etag']).toBe(etag);
+    expect(me.headers['cache-control']).toBe('private, no-store');
+    expect(String(me.headers['vary']).toLowerCase()).toContain('cookie');
 
     const notModified = await ctx.app.inject({
       method: 'GET',
       url: '/api/v1/me',
-      headers: authHeaders(session, { 'if-none-match': 'W/"1"' }),
+      headers: authHeaders(session, { 'if-none-match': etag }),
     });
     expect(notModified.statusCode).toBe(304);
-    expect(notModified.headers['etag']).toBe('W/"1"');
+    expect(notModified.headers['etag']).toBe(etag);
+    expect(notModified.headers['cache-control']).toBe('private, no-store');
+    expect(String(notModified.headers['vary']).toLowerCase()).toContain('cookie');
     expect(notModified.body).toBe('');
+  });
+
+  test('GET /me never revalidates another owner to 304', async () => {
+    await ctx.seedUser({ email: 'bob@example.com', password: 'correct-horse' });
+    const alice = await login(ctx, 'alice@example.com', 'correct-horse');
+    const bob = await login(ctx, 'bob@example.com', 'correct-horse');
+
+    const aliceMe = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/me',
+      headers: authHeaders(alice),
+    });
+    expect(aliceMe.statusCode).toBe(200);
+    const aliceUser = aliceMe.json() as { id: string; version: number };
+    const aliceEtag = `W/"${aliceUser.id}:${aliceUser.version}"`;
+    expect(aliceMe.headers['etag']).toBe(aliceEtag);
+
+    const bobMe = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/me',
+      headers: authHeaders(bob, { 'if-none-match': aliceEtag }),
+    });
+    expect(bobMe.statusCode).toBe(200);
+    const bobUser = bobMe.json() as { id: string; version: number };
+    expect(bobUser.id).not.toBe(aliceUser.id);
+    const bobEtag = `W/"${bobUser.id}:${bobUser.version}"`;
+    expect(bobMe.headers['etag']).toBe(bobEtag);
+    expect(bobEtag).not.toBe(aliceEtag);
+    expect(bobMe.headers['cache-control']).toBe('private, no-store');
+    expect(String(bobMe.headers['vary']).toLowerCase()).toContain('cookie');
+
+    const bobNotModified = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/me',
+      headers: authHeaders(bob, { 'if-none-match': bobEtag }),
+    });
+    expect(bobNotModified.statusCode).toBe(304);
+    expect(bobNotModified.headers['etag']).toBe(bobEtag);
   });
 
   test('PATCH /me/settings enforces If-Match and Idempotency-Key', async () => {

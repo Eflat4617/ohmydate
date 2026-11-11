@@ -16,11 +16,15 @@ export interface VikunjaTaskBody {
   readonly project_id?: number;
 }
 
-export async function login(page: Page, state: E2EState): Promise<void> {
+export async function login(
+  page: Page,
+  state: E2EState,
+  account: { readonly email: string; readonly password: string } = state,
+): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await page.goto(`${state.webUrl}/login`);
-    await page.getByLabel('Email').fill(state.email);
-    await page.getByLabel('Password').fill(state.password);
+    await page.getByLabel('Email').fill(account.email);
+    await page.getByLabel('Password').fill(account.password);
     const responsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&

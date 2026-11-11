@@ -11,6 +11,16 @@ export interface E2EState {
   readonly vikunjaToken: string;
   readonly vikunjaUserId: number;
   readonly inboxExternalId: string;
+  readonly todayEmail: string;
+  readonly todayPassword: string;
+  readonly todayVikunjaToken: string;
+  readonly todayVikunjaUserId: number;
+  readonly todayInboxExternalId: string;
+  readonly plansEmail: string;
+  readonly plansPassword: string;
+  readonly plansVikunjaToken: string;
+  readonly plansVikunjaUserId: number;
+  readonly plansInboxExternalId: string;
   readonly apiPid: number;
   readonly webPid: number;
 }

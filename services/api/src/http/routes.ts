@@ -926,7 +926,9 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
     getMe: async (request, reply) => {
       const auth = currentAuth(request);
       const user = await runtime.auth.me(auth.userId);
-      const etag = etagForVersion(user.version);
+      const etag = `W/"${user.id}:${user.version}"`;
+      reply.header('Cache-Control', 'private, no-store');
+      reply.header('Vary', 'Cookie');
       if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
       return reply.code(200).header('ETag', etag).send(toUserDto(user, runtime.config.llmProvider));
     },

@@ -179,6 +179,7 @@ async function insertOwnerAccount(options: {
   databaseUrl: string;
   ownerId: string;
   vikunjaUserId: number;
+  tokenSecretRef: string;
 }): Promise<void> {
   const client = new pg.Client({ connectionString: options.databaseUrl });
   await client.connect();
@@ -186,11 +187,98 @@ async function insertOwnerAccount(options: {
     await client.query(
       `INSERT INTO vikunja_owner_account (owner_id, vikunja_user_id, token_secret_ref)
        VALUES ($1, $2, $3)`,
-      [options.ownerId, options.vikunjaUserId, 'env:VIKUNJA_TOKEN_OWNER_E2E'],
+      [options.ownerId, options.vikunjaUserId, options.tokenSecretRef],
     );
   } finally {
     await client.end();
   }
+}
+
+interface VikunjaFixture {
+  readonly username: string;
+  readonly password: string;
+  readonly email: string;
+  readonly token: string;
+  readonly vikunjaUserId: number;
+  readonly inboxExternalId: string;
+}
+
+async function createVikunjaFixture(
+  vikunjaUrl: string,
+  label: string,
+): Promise<VikunjaFixture> {
+  const suffix = uniqueSuffix();
+  const username = `e2e-${label}-${suffix}`;
+  const password = `pw-${suffix}-${suffix}`;
+  const email = `${username}@example.invalid`;
+
+  const registered = (await vikunja(vikunjaUrl, '/register', {
+    method: 'POST',
+    body: { username, email, password },
+  })) as { id?: number };
+  if (registered.id === undefined) throw new Error('Vikunja register returned no user id');
+  const vikunjaUserId = registered.id;
+
+  const login = (await vikunja(vikunjaUrl, '/login', {
+    method: 'POST',
+    body: { username, password },
+  })) as { token?: string };
+  if (login.token === undefined) throw new Error('Vikunja login returned no JWT');
+
+  const projects = (await vikunja(vikunjaUrl, '/projects?per_page=50', {
+    token: login.token,
+  })) as { items?: { id: number; title: string }[] };
+  let inbox = (projects.items ?? []).find(
+    (project) => project.id > 0 && project.title.toLowerCase() === 'inbox',
+  );
+  if (inbox === undefined) {
+    inbox = (await vikunja(vikunjaUrl, '/projects', {
+      method: 'POST',
+      token: login.token,
+      body: { title: 'Inbox' },
+    })) as { id: number; title: string };
+  }
+
+  const createdToken = (await vikunja(vikunjaUrl, '/tokens', {
+    method: 'POST',
+    token: login.token,
+    body: {
+      title: `e2e ${username}`,
+      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      permissions: VIKUNJA_TOKEN_PERMISSIONS,
+    },
+  })) as { token?: string };
+  if (createdToken.token === undefined) throw new Error('Vikunja token creation returned no token');
+
+  return {
+    username,
+    password,
+    email,
+    token: createdToken.token,
+    vikunjaUserId,
+    inboxExternalId: String(inbox.id),
+  };
+}
+
+async function createPlannerOwner(
+  databaseUrl: string,
+  fixture: VikunjaFixture,
+  tokenEnvName: string,
+): Promise<string> {
+  const createUser = await run(
+    path.join(repoRoot, 'services/api/node_modules/.bin/tsx'),
+    [path.join(repoRoot, 'services/api/src/cli/create-user.ts'), fixture.email],
+    { DATABASE_URL: databaseUrl },
+    fixture.password,
+  );
+  const ownerId = parsePlannerUserId(createUser.stdout);
+  await insertOwnerAccount({
+    databaseUrl,
+    ownerId,
+    vikunjaUserId: fixture.vikunjaUserId,
+    tokenSecretRef: `env:${tokenEnvName}`,
+  });
+  return ownerId;
 }
 
 function signal(pid: number, name: NodeJS.Signals): boolean {
@@ -254,58 +342,13 @@ export default async function globalSetup(): Promise<void> {
       { DATABASE_URL: databaseUrl },
     );
 
-    const suffix = uniqueSuffix();
-    const username = `e2e-${suffix}`;
-    const password = `pw-${suffix}-${suffix}`;
-    const email = `${username}@example.invalid`;
+    const fixture = await createVikunjaFixture(vikunjaUrl, 'main');
+    const todayFixture = await createVikunjaFixture(vikunjaUrl, 'today');
+    const plansFixture = await createVikunjaFixture(vikunjaUrl, 'plans');
 
-    const registered = (await vikunja(vikunjaUrl, '/register', {
-      method: 'POST',
-      body: { username, email, password },
-    })) as { id?: number };
-    if (registered.id === undefined) throw new Error('Vikunja register returned no user id');
-    const vikunjaUserId = registered.id;
-
-    const login = (await vikunja(vikunjaUrl, '/login', {
-      method: 'POST',
-      body: { username, password },
-    })) as { token?: string };
-    if (login.token === undefined) throw new Error('Vikunja login returned no JWT');
-
-    const projects = (await vikunja(vikunjaUrl, '/projects?per_page=50', {
-      token: login.token,
-    })) as { items?: { id: number; title: string }[] };
-    let inbox = (projects.items ?? []).find(
-      (project) => project.id > 0 && project.title.toLowerCase() === 'inbox',
-    );
-    if (inbox === undefined) {
-      inbox = (await vikunja(vikunjaUrl, '/projects', {
-        method: 'POST',
-        token: login.token,
-        body: { title: 'Inbox' },
-      })) as { id: number; title: string };
-    }
-
-    const createdToken = (await vikunja(vikunjaUrl, '/tokens', {
-      method: 'POST',
-      token: login.token,
-      body: {
-        title: `e2e ${username}`,
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        permissions: VIKUNJA_TOKEN_PERMISSIONS,
-      },
-    })) as { token?: string };
-    if (createdToken.token === undefined) throw new Error('Vikunja token creation returned no token');
-
-    const createUser = await run(
-      path.join(repoRoot, 'services/api/node_modules/.bin/tsx'),
-      [path.join(repoRoot, 'services/api/src/cli/create-user.ts'), email],
-      { DATABASE_URL: databaseUrl },
-      password,
-    );
-    const ownerId = parsePlannerUserId(createUser.stdout);
-
-    await insertOwnerAccount({ databaseUrl, ownerId, vikunjaUserId });
+    await createPlannerOwner(databaseUrl, fixture, 'VIKUNJA_TOKEN_OWNER_E2E');
+    await createPlannerOwner(databaseUrl, todayFixture, 'VIKUNJA_TOKEN_OWNER_E2E_TODAY');
+    await createPlannerOwner(databaseUrl, plansFixture, 'VIKUNJA_TOKEN_OWNER_E2E_PLANS');
 
     const apiPort = await freePort();
     const apiUrl = `http://127.0.0.1:${apiPort}`;
@@ -317,7 +360,9 @@ export default async function globalSetup(): Promise<void> {
         PROVIDER: 'vikunja',
         DATABASE_URL: databaseUrl,
         VIKUNJA_URL: vikunjaUrl,
-        VIKUNJA_TOKEN_OWNER_E2E: createdToken.token,
+        VIKUNJA_TOKEN_OWNER_E2E: fixture.token,
+        VIKUNJA_TOKEN_OWNER_E2E_TODAY: todayFixture.token,
+        VIKUNJA_TOKEN_OWNER_E2E_PLANS: plansFixture.token,
         PORT: String(apiPort),
         HOST: '127.0.0.1',
         LOG_LEVEL: 'warn',
@@ -358,11 +403,21 @@ export default async function globalSetup(): Promise<void> {
       vikunjaUrl,
       databaseSchema: schema,
       baseDatabaseUrl,
-      email,
-      password,
-      vikunjaToken: createdToken.token,
-      vikunjaUserId,
-      inboxExternalId: String(inbox.id),
+      email: fixture.email,
+      password: fixture.password,
+      vikunjaToken: fixture.token,
+      vikunjaUserId: fixture.vikunjaUserId,
+      inboxExternalId: fixture.inboxExternalId,
+      todayEmail: todayFixture.email,
+      todayPassword: todayFixture.password,
+      todayVikunjaToken: todayFixture.token,
+      todayVikunjaUserId: todayFixture.vikunjaUserId,
+      todayInboxExternalId: todayFixture.inboxExternalId,
+      plansEmail: plansFixture.email,
+      plansPassword: plansFixture.password,
+      plansVikunjaToken: plansFixture.token,
+      plansVikunjaUserId: plansFixture.vikunjaUserId,
+      plansInboxExternalId: plansFixture.inboxExternalId,
       apiPid,
       webPid,
     };

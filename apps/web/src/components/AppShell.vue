@@ -1,19 +1,22 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
+import { useSessionStore } from '../stores/session';
 import BottomNav from './BottomNav.vue';
 import HelpDialog from './HelpDialog.vue';
 import LlmConsentDialog from './LlmConsentDialog.vue';
 import NavRail from './NavRail.vue';
 import OfflineBanner from './OfflineBanner.vue';
+import NotificationsPanel from './NotificationsPanel.vue';
 import SearchDialog from './SearchDialog.vue';
 import ToastHost from './ToastHost.vue';
 
 const ui = useUiStore();
 const offline = useOfflineStore();
+const sessions = useSessionStore();
 const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
@@ -26,6 +29,25 @@ const consentOpen = computed(
 );
 
 let teardownOffline: (() => void) | null = null;
+let revalidating = false;
+
+async function revalidateIdentity(): Promise<void> {
+  if (!auth.confirmed || revalidating) return;
+  revalidating = true;
+  try {
+    await auth.loadCurrent();
+  } finally {
+    revalidating = false;
+  }
+}
+
+function onVisibilityChange(): void {
+  if (document.visibilityState === 'visible') void revalidateIdentity();
+}
+
+function onWindowFocus(): void {
+  void revalidateIdentity();
+}
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -59,7 +81,7 @@ function onKeydown(event: KeyboardEvent): void {
     return;
   }
 
-  if (ui.helpOpen || ui.searchOpen) {
+  if (ui.helpOpen || ui.searchOpen || ui.notificationsOpen) {
     if (event.key === 'Escape') {
       event.preventDefault();
       ui.closeDialogs();
@@ -84,6 +106,11 @@ function onKeydown(event: KeyboardEvent): void {
       event.preventDefault();
       ui.openHelp();
       break;
+    case 'f':
+      if (route.name === 'focus') return;
+      event.preventDefault();
+      void router.push(sessions.active === null ? { name: 'today' } : `/focus/${sessions.active.id}`);
+      break;
     default:
       break;
   }
@@ -92,29 +119,48 @@ function onKeydown(event: KeyboardEvent): void {
 onMounted(() => {
   teardownOffline = offline.initialize();
   window.addEventListener('keydown', onKeydown);
-  if (auth.user === null) void auth.loadCurrent();
+  window.addEventListener('focus', onWindowFocus);
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  void auth.ensureOwnerConfirmed();
 });
+
+watch(
+  () => auth.bootstrapState,
+  (state) => {
+    if (state === 'anonymous' && route.name !== 'login' && router.hasRoute('login')) {
+      void router.replace({ name: 'login' });
+    }
+  },
+);
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('focus', onWindowFocus);
+  document.removeEventListener('visibilitychange', onVisibilityChange);
   teardownOffline?.();
 });
 </script>
 
 <template>
-  <a class="skip-link" href="#main-content">Skip to content</a>
-  <div class="app-shell">
-    <NavRail />
-    <div class="app-main">
-      <OfflineBanner />
-      <main id="main-content" tabindex="-1">
-        <slot />
-      </main>
-    </div>
-    <BottomNav />
+  <div v-if="!auth.confirmed" class="app-shell app-shell--loading" role="status" aria-live="polite">
+    <p class="muted">Loading OhMyDate…</p>
   </div>
-  <ToastHost />
-  <HelpDialog :open="ui.helpOpen" @close="ui.closeDialogs()" />
-  <SearchDialog :open="ui.searchOpen" @close="ui.closeDialogs()" />
-  <LlmConsentDialog :open="consentOpen" @close="consentDismissed = true" />
+  <template v-else>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <div class="app-shell">
+      <NavRail />
+      <div class="app-main">
+        <OfflineBanner />
+        <main id="main-content" tabindex="-1">
+          <slot />
+        </main>
+      </div>
+      <BottomNav />
+    </div>
+    <ToastHost />
+    <HelpDialog :open="ui.helpOpen" @close="ui.closeDialogs()" />
+    <SearchDialog :open="ui.searchOpen" @close="ui.closeDialogs()" />
+    <NotificationsPanel :open="ui.notificationsOpen" @close="ui.closeDialogs()" />
+    <LlmConsentDialog :open="consentOpen" @close="consentDismissed = true" />
+  </template>
 </template>

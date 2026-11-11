@@ -28,6 +28,7 @@ function newTask(): void {
     <RouterLink to="/today">Today</RouterLink>
     <RouterLink to="/commitments">Commitments</RouterLink>
     <RouterLink to="/settings/availability">Availability</RouterLink>
+    <button type="button" aria-label="Notifications" @click="ui.openNotifications">Alerts</button>
     <button type="button" aria-label="Help" @click="ui.openHelp">?</button>
   </nav>
 </template>
