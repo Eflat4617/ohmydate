@@ -2,8 +2,10 @@
 import { onMounted, ref } from 'vue';
 import { plannerClient, uuidV7Key, type Notification as PlannerNotification } from '../api';
 import { notificationLabel, useNotifications } from '../notifications/useNotifications';
-import { formatClock } from '../format';
 import { useOfflineStore } from '../stores/offline';
+import { useAuthStore } from '../stores/auth';
+import { t } from '../i18n';
+import { browserTimeZone, formatDateTime } from '../i18n/format';
 import UiBadge from './ui/UiBadge.vue';
 import UiBanner from './ui/UiBanner.vue';
 import UiButton from './ui/UiButton.vue';
@@ -16,6 +18,7 @@ const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
 
 const offline = useOfflineStore();
+const auth = useAuthStore();
 const { items, visibleItems, loading, error, start, dismiss } = useNotifications();
 const busyId = ref<string | null>(null);
 const pushSupported = ref(false);
@@ -32,7 +35,15 @@ onMounted(() => {
 });
 
 function clock(item: PlannerNotification): string {
-  return formatClock(item.sentAt ?? item.scheduledAt);
+  return formatDateTime(item.sentAt ?? item.scheduledAt, auth.user?.timeZone ?? browserTimeZone());
+}
+
+function meta(item: PlannerNotification): string {
+  return t('notifications.meta', {
+    state: t(`notifications.state.${item.state}`),
+    time: clock(item),
+    channel: t(`notifications.channel.${item.channel}`),
+  });
 }
 
 async function onDismiss(item: PlannerNotification): Promise<void> {
@@ -111,14 +122,14 @@ async function enablePush(): Promise<void> {
   >
     <header class="dialog-header">
       <div class="dialog-heading">
-        <h2 id="notifications-title" class="dialog-title">Notifications</h2>
-        <p class="muted">Reminders and daily summaries for this account.</p>
+        <h2 id="notifications-title" class="dialog-title">{{ t('notifications.title') }}</h2>
+        <p class="muted">{{ t('notifications.lede') }}</p>
       </div>
       <UiButton
         variant="ghost"
         size="sm"
         icon-only
-        aria-label="Close notifications"
+        :aria-label="t('notifications.close')"
         @click="emit('close')"
       >
         <UiIcon name="close" />
@@ -126,10 +137,10 @@ async function enablePush(): Promise<void> {
     </header>
 
     <UiBadge v-if="!offline.online" as="p" tone="offline" dot class="chip--offline" role="status">
-      Read-only while offline
+      {{ t('common.readOnlyOffline') }}
     </UiBadge>
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
-    <p v-if="loading && items.length === 0" class="loading-row"><UiSpinner /> Loading notifications…</p>
+    <p v-if="loading && items.length === 0" class="loading-row"><UiSpinner /> {{ t('notifications.loading') }}</p>
 
     <ul v-if="visibleItems.length > 0" class="notification-list">
       <li
@@ -143,30 +154,26 @@ async function enablePush(): Promise<void> {
         </span>
         <div class="notification-body">
           <p class="notification-kind">{{ notificationLabel(item) }}</p>
-          <p class="notification-meta">
-            <span class="notification-state">{{ item.state }}</span> · {{ clock(item) }} · {{ item.channel }}
-          </p>
+          <p class="notification-meta">{{ meta(item) }}</p>
         </div>
         <UiButton
           size="sm"
           variant="ghost"
           :disabled="!offline.online || busyId === item.id"
           :busy="busyId === item.id"
-          :aria-label="`Dismiss notification: ${notificationLabel(item)}`"
+          :aria-label="t('notifications.dismissAria', { label: notificationLabel(item) })"
           @click="onDismiss(item)"
         >
-          {{ busyId === item.id ? 'Dismissing…' : 'Dismiss' }}
+          {{ busyId === item.id ? t('notifications.dismissing') : t('notifications.dismiss') }}
         </UiButton>
       </li>
     </ul>
-    <UiEmptyState v-else icon="bell" title="No notifications right now." compact />
+    <UiEmptyState v-else icon="bell" :title="t('notifications.empty')" compact />
 
     <section class="push-opt-in" aria-labelledby="push-title">
       <div class="push-opt-in-text">
-        <h3 id="push-title">Push notifications</h3>
-        <p class="muted">
-          In-app toasts work today. Browser push is opt-in and only registered when the browser grants permission.
-        </p>
+        <h3 id="push-title">{{ t('notifications.push.title') }}</h3>
+        <p class="muted">{{ t('notifications.push.lede') }}</p>
       </div>
       <UiButton
         :disabled="!pushSupported || pushBusy || !offline.online"
@@ -174,16 +181,16 @@ async function enablePush(): Promise<void> {
         icon="bell"
         @click="enablePush"
       >
-        {{ pushBusy ? 'Enabling…' : 'Enable push notifications' }}
+        {{ pushBusy ? t('notifications.push.enabling') : t('notifications.push.enable') }}
       </UiButton>
-      <p v-if="!offline.online" class="muted" role="status">Connect to enable push notifications.</p>
-      <p v-else-if="!pushSupported" class="muted">Push is not supported in this browser.</p>
+      <p v-if="!offline.online" class="muted" role="status">{{ t('notifications.push.connect') }}</p>
+      <p v-else-if="!pushSupported" class="muted">{{ t('notifications.push.unsupported') }}</p>
       <p v-else-if="pushStatus === 'denied'" class="error-text" role="alert">
-        Permission was not granted, so no push subscription was sent.
+        {{ t('notifications.push.denied') }}
       </p>
-      <p v-else-if="pushStatus === 'enabled'" class="muted" role="status">Push subscription saved.</p>
+      <p v-else-if="pushStatus === 'enabled'" class="muted" role="status">{{ t('notifications.push.saved') }}</p>
       <p v-else-if="pushStatus === 'unavailable'" class="error-text" role="alert">
-        The browser subscription could not be created.
+        {{ t('notifications.push.failed') }}
       </p>
     </section>
   </UiDialog>

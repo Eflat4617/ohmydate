@@ -162,7 +162,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
 
       await test.step(`projects + project detail (${size})`, async () => {
         await page.goto(`${state.webUrl}/projects`);
-        await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '프로젝트', level: 1 })).toBeVisible();
         const firstProject = page.locator('.project-link').first();
         await expect(firstProject).toBeVisible();
         await expectAccessible(page, `projects ${size}`);
@@ -170,45 +170,45 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         const projectTitle = (await firstProject.locator('.project-title').innerText()).trim();
         await firstProject.click();
         await expect(page.getByRole('heading', { name: projectTitle, level: 1 })).toBeVisible();
-        await expect(page.getByText(/^\d+ tasks?$/)).toBeVisible();
+        await expect(page.getByText(/^작업 \d+개$/)).toBeVisible();
         await expectAccessible(page, `project detail ${size}`);
       });
 
       await test.step(`availability (${size})`, async () => {
         await page.goto(`${state.webUrl}/settings/availability`);
-        await expect(page.getByRole('heading', { name: 'Availability', level: 1 })).toBeVisible();
-        await expect(page.getByRole('button', { name: 'Save availability' })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '가용 시간', level: 1 })).toBeVisible();
+        await expect(page.getByRole('button', { name: '가용 시간 저장' })).toBeVisible();
         await expectAccessible(page, `availability ${size}`);
       });
 
       await test.step(`commitments (${size})`, async () => {
         await page.goto(`${state.webUrl}/commitments`);
-        await expect(page.getByRole('heading', { name: 'Commitments', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '약속', level: 1 })).toBeVisible();
         await expect(page.locator('.commitment-title', { hasText: commitmentTitle })).toBeVisible();
         await expectAccessible(page, `commitments ${size}`);
       });
 
       await test.step(`AI settings (${size})`, async () => {
         await page.goto(`${state.webUrl}/settings/ai`);
-        await expect(page.getByRole('heading', { name: 'AI settings', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'AI 설정', level: 1 })).toBeVisible();
         await expectAccessible(page, `AI settings ${size}`);
       });
 
       await test.step(`notifications panel (${size})`, async () => {
         await page.goto(`${state.webUrl}/today`);
-        await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '오늘', level: 1 })).toBeVisible();
         if (viewport === PHONE) {
-          await page.getByRole('button', { name: 'More', exact: true }).click();
+          await page.getByRole('button', { name: '더 보기', exact: true }).click();
           await page
-            .getByRole('dialog', { name: 'More' })
-            .getByRole('button', { name: 'Notifications' })
+            .getByRole('dialog', { name: '더 보기' })
+            .getByRole('button', { name: '알림' })
             .click();
         } else {
-          await page.locator('.nav-rail').getByRole('button', { name: 'Notifications' }).click();
+          await page.locator('.nav-rail').getByRole('button', { name: '알림' }).click();
         }
-        const panel = page.getByRole('dialog', { name: 'Notifications' });
+        const panel = page.getByRole('dialog', { name: '알림' });
         await expect(panel).toBeVisible();
-        await expect(panel.getByText('Loading notifications…')).toHaveCount(0);
+        await expect(panel.getByText('알림을 불러오는 중…')).toHaveCount(0);
         await expectAccessible(page, `notifications ${size}`);
         await page.keyboard.press('Escape');
         await expect(panel).toBeHidden();
@@ -228,16 +228,16 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await page.goto(`${state.webUrl}/today`);
         const card = page.locator('.today-card', { hasText: run.block });
         await expect(card).toBeVisible({ timeout: 20_000 });
-        await card.getByRole('button', { name: 'Start focus' }).click();
+        await card.getByRole('button', { name: '집중 시작' }).click();
         await page.waitForURL(/\/focus\/[0-9a-f-]{36}$/);
         await expect(page.locator('.focus-timer')).toBeVisible();
-        await expect(page.getByText('Focusing', { exact: true })).toBeVisible();
+        await expect(page.getByText('집중하는 중', { exact: true })).toBeVisible();
         const nav = page.locator(run.nav);
-        const back = page.getByRole('button', { name: 'Back to Today' });
+        const back = page.getByRole('button', { name: '오늘로 돌아가기' });
         await expect(nav).toBeVisible();
         await expectAccessible(page, `focus ${size}`);
 
-        const calm = page.getByRole('button', { name: 'Calm mode' });
+        const calm = page.getByRole('button', { name: '몰입 모드' });
         await calm.click();
         await expect(calm).toHaveAttribute('aria-pressed', 'true');
         await expect(nav).toBeHidden();
@@ -245,23 +245,23 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expectAccessible(page, `focus calm mode ${size}`);
 
         // Complete without leaving Calm mode first.
-        await page.getByRole('button', { name: 'Complete' }).click();
-        await expect(page.getByRole('heading', { name: 'How did the session go?' })).toBeVisible();
+        await page.getByRole('button', { name: '완료' }).click();
+        await expect(page.getByRole('heading', { name: '이번 세션은 어땠나요?' })).toBeVisible();
         await expect(calm).toHaveCount(0);
         await expect(back).toBeVisible();
         await expect(nav).toBeVisible();
-        await page.getByRole('radio', { name: 'Partial' }).check();
-        await page.getByRole('checkbox', { name: 'Task was larger' }).check();
+        await page.getByRole('radio', { name: '일부만' }).check();
+        await page.getByRole('checkbox', { name: '생각보다 컸어요' }).check();
         await expectAccessible(page, `review sheet after calm ${size}`);
 
-        await page.getByRole('button', { name: 'Submit review' }).click();
-        await expect(page.getByRole('heading', { name: 'Estimation feedback' })).toBeVisible();
+        await page.getByRole('button', { name: '회고 저장' }).click();
+        await expect(page.getByRole('heading', { name: '추정 피드백' })).toBeVisible();
         await expect(back).toBeVisible();
         await expect(nav).toBeVisible();
         await expectAccessible(page, `review feedback after calm ${size}`);
 
         await back.click();
-        await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '오늘', level: 1 })).toBeVisible();
         await expect(nav).toBeVisible();
       });
     }

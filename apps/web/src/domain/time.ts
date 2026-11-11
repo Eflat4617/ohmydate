@@ -228,24 +228,6 @@ export function todayInZone(timeZone: string, nowMs: number = Date.now()): strin
   return localDateOf(new Date(nowMs).toISOString(), timeZone);
 }
 
-/** Minutes as a compact duration, keeping fractional minutes intact. */
-export function formatMinuteValue(value: number): string {
-  if (Number.isInteger(value)) return `${value} min`;
-  const rounded = Math.round(value * 100) / 100;
-  return `${rounded} min`;
-}
-
-export function formatSignedMinuteValue(value: number): string {
-  const formatted = formatMinuteValue(Math.abs(value));
-  if (value < 0) return `−${formatted}`;
-  if (value === 0) return '0 min';
-  return `+${formatted}`;
-}
-
-export function formatRatio(value: number): string {
-  return `${Math.round(value * 1000) / 10}%`;
-}
-
 export function shiftInstant(instant: string, minutes: number): string {
   const millis = Date.parse(instant);
   if (!Number.isFinite(millis)) throw new RangeError(`Invalid instant: ${instant}`);

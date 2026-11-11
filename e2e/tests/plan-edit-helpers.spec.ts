@@ -2,9 +2,12 @@ import { expect, test } from '@playwright/test';
 import {
   availabilityWindows,
   calendarBlockSelector,
+  dateFromKoreanLabel,
   findAvailabilityExitEdit,
   findFeasibleNudge,
   findOverlapEdit,
+  koreanClock,
+  koreanDateLabel,
   localDate,
   nudgeBlocker,
   weekStartOf,
@@ -184,7 +187,17 @@ test.describe('E2E-3 plan edit pickers', () => {
     expect(weekStartOf('2026-11-16')).toBe('2026-11-16');
     expect(localDate('2026-11-12T16:30:00Z', 'Asia/Seoul')).toBe('2026-11-13');
     expect(calendarBlockSelector(block('a', '16:30', '17:00'), 'Asia/Seoul')).toBe(
-      '.calendar-block[aria-label*=", 2026-11-13 01:30 to "]',
+      '.calendar-block[aria-label*=", 11월 13일 (금) 오전 1:30~"]',
     );
+  });
+
+  test('writes dates and clocks the way the Korean UI renders them', () => {
+    expect(koreanDateLabel('2026-11-13')).toBe('11월 13일 (금)');
+    expect(koreanDateLabel('2026-11-16', true)).toBe('2026년 11월 16일 (월)');
+    expect(dateFromKoreanLabel('주간 보기 · 2026년 11월 16일 (월) ~ 11월 22일 (일)')).toBe('2026-11-16');
+    expect(dateFromKoreanLabel('주간 보기 · 11월 16일 (월)')).toBeUndefined();
+    expect(koreanClock('2026-11-12T15:00:00Z', 'Asia/Seoul')).toBe('오전 12:00');
+    expect(koreanClock('2026-11-13T03:05:00Z', 'Asia/Seoul')).toBe('오후 12:05');
+    expect(koreanClock('2026-11-13T10:00:00Z', 'Asia/Seoul')).toBe('오후 7:00');
   });
 });

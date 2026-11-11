@@ -6,6 +6,7 @@ import BrandMark from '../components/BrandMark.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
 import UiField from '../components/ui/UiField.vue';
+import { t } from '../i18n';
 
 const email = ref('');
 const password = ref('');
@@ -27,11 +28,11 @@ async function submit(): Promise<void> {
     <section class="auth-card" aria-labelledby="login-heading">
       <header class="auth-header">
         <BrandMark :size="44" />
-        <h1 id="login-heading">Sign in to OhMyDate</h1>
-        <p class="muted">One next action, easy to find.</p>
+        <h1 id="login-heading">{{ t('login.title') }}</h1>
+        <p class="muted">{{ t('login.lede') }}</p>
       </header>
       <form class="auth-form" aria-labelledby="login-heading" @submit.prevent="submit">
-        <UiField id="login-email" label="Email">
+        <UiField id="login-email" :label="t('login.email')">
           <input
             id="login-email"
             v-model="email"
@@ -42,7 +43,7 @@ async function submit(): Promise<void> {
           />
         </UiField>
 
-        <UiField id="login-password" label="Password">
+        <UiField id="login-password" :label="t('login.password')">
           <input
             id="login-password"
             v-model="password"
@@ -56,7 +57,7 @@ async function submit(): Promise<void> {
         <UiBanner v-if="auth.error" tone="error" role="alert">{{ auth.error }}</UiBanner>
 
         <UiButton type="submit" variant="primary" size="lg" block :disabled="auth.loading" :busy="auth.loading">
-          {{ auth.loading ? 'Signing in…' : 'Sign in' }}
+          {{ auth.loading ? t('login.submitting') : t('login.submit') }}
         </UiButton>
       </form>
     </section>

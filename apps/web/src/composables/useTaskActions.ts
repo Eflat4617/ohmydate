@@ -6,6 +6,8 @@ import {
   type PlannerClient,
   type Task,
 } from '../api';
+import { t } from '../i18n';
+import { errorMessage, UserFacingError } from '../i18n/problem';
 
 export type ConflictOperation = 'rename' | 'complete' | 'delete';
 
@@ -30,9 +32,9 @@ export interface TaskActions {
   discard: (scope: string) => void;
 }
 
-export class OfflineMutationError extends Error {
+export class OfflineMutationError extends UserFacingError {
   constructor() {
-    super('You are offline. Editing is disabled until the connection returns.');
+    super(t('errors.offlineEdit'));
     this.name = 'OfflineMutationError';
   }
 }
@@ -52,12 +54,6 @@ const sameRename = (left: RenamePayload, right: RenamePayload): boolean =>
 
 const sameIntent = (left: IntentPayload, right: IntentPayload): boolean =>
   left.taskId === right.taskId && left.intent === right.intent;
-
-function messageFor(cause: unknown): string {
-  if (cause instanceof ApiError) return cause.detail;
-  if (cause instanceof Error) return cause.message;
-  return 'Something went wrong. Please try again.';
-}
 
 function isVersionConflict(cause: unknown): cause is ApiError {
   return cause instanceof ApiError && cause.status === 412;
@@ -98,7 +94,7 @@ export function useTaskActions(
     try {
       return await operation();
     } catch (cause) {
-      error.value = messageFor(cause);
+      error.value = errorMessage(cause);
       throw cause;
     } finally {
       pendingCount.value -= 1;

@@ -843,10 +843,6 @@
   font-size: var(--text-sm);
 }
 
-.notification-state {
-  text-transform: capitalize;
-}
-
 .push-opt-in {
   display: flex;
   flex-direction: column;
@@ -1409,6 +1405,11 @@
   line-height: var(--leading-snug);
 }
 
+.candidate-summary {
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
 .candidate-note {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
@@ -1511,7 +1512,7 @@
 
 .calendar-week {
   display: grid;
-  grid-template-columns: 3.5rem repeat(7, minmax(5.5rem, 1fr));
+  grid-template-columns: 4rem repeat(7, minmax(5.5rem, 1fr));
 }
 
 .calendar-corner,
@@ -2019,4 +2020,38 @@
 
 .dialog-header--start .dialog-heading {
   flex: 1;
+}
+
+/* ── AI disclosure (consent dialog + AI settings) ───────────────────── */
+.llm-disclosure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.llm-disclosure p {
+  margin: 0;
+}
+
+/* Server-generated English diagnostics, collapsed under each candidate card
+   (outside the card's select button: no interactive content inside it). */
+.candidate-card {
+  flex-direction: column;
+}
+
+.candidate-explanation {
+  padding: 0 var(--space-5) var(--space-4);
+}
+
+.candidate-explanation summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height-sm);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.candidate-explanation[open] summary {
+  margin-bottom: var(--space-1);
 }

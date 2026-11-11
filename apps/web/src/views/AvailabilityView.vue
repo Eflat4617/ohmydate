@@ -19,20 +19,14 @@ import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiField from '../components/ui/UiField.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
+import { t } from '../i18n';
+import { errorMessage } from '../i18n/problem';
 
 const offline = useOfflineStore();
 const queryClient = useQueryClient();
 const actions = new ActionStore();
 
-const WEEKDAYS = [
-  { value: 1, label: 'Monday' },
-  { value: 2, label: 'Tuesday' },
-  { value: 3, label: 'Wednesday' },
-  { value: 4, label: 'Thursday' },
-  { value: 5, label: 'Friday' },
-  { value: 6, label: 'Saturday' },
-  { value: 7, label: 'Sunday' },
-];
+const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
 
 const FALLBACK_ZONES = [
   'UTC',
@@ -143,18 +137,18 @@ function removeException(index: number): void {
 }
 
 function ruleError(rule: AvailabilityRule, index: number): string | null {
-  if (rule.endLocal < rule.startLocal) return `Rule ${index + 1}: end must be after start`;
+  if (rule.endLocal < rule.startLocal) return t('availability.ruleEndError', { index: index + 1 });
   return null;
 }
 
 function exceptionError(exception: AvailabilityException, index: number): string | null {
-  if (exception.date.length === 0) return `Exception ${index + 1}: a date is required`;
+  if (exception.date.length === 0) return t('availability.exceptionDateError', { index: index + 1 });
   if (
     exception.startLocal !== undefined &&
     exception.endLocal !== undefined &&
     exception.endLocal <= exception.startLocal
   ) {
-    return `Exception ${index + 1}: end must be after start`;
+    return t('availability.exceptionEndError', { index: index + 1 });
   }
   return null;
 }
@@ -197,7 +191,7 @@ async function save(): Promise<void> {
     draft.value = cloneAvailability(updated);
     dirty.value = false;
     queryClient.setQueryData(['availability'], updated);
-    message.value = `Availability saved as version ${updated.version}.`;
+    message.value = t('availability.savedMessage', { version: updated.version });
   } catch (cause) {
     if (cause instanceof ApiError && cause.status === 412) {
       const server = await plannerClient.getAvailability({ fresh: true });
@@ -209,7 +203,7 @@ async function save(): Promise<void> {
       conflictHeading.value?.focus();
       return;
     }
-    error.value = cause instanceof ApiError ? cause.detail : 'Could not save availability.';
+    error.value = errorMessage(cause, t('availability.saveError'));
   } finally {
     saving.value = false;
   }
@@ -220,7 +214,7 @@ function keepLocal(): void {
   draft.value = { ...conflict.value.local, version: conflict.value.server.version };
   conflict.value = null;
   dirty.value = true;
-  message.value = 'Your edits were kept. Review the server version and save again.';
+  message.value = t('availability.keptLocal');
   void nextTick().then(() => document.getElementById('availability-save')?.focus());
 }
 
@@ -229,7 +223,7 @@ function useServer(): void {
   draft.value = cloneAvailability(conflict.value.server);
   conflict.value = null;
   dirty.value = false;
-  message.value = 'Reloaded the server version. Your local edits were discarded.';
+  message.value = t('availability.usedServer');
 }
 
 function retry(): void {
@@ -241,32 +235,32 @@ function retry(): void {
   <section class="page page--wide availability-page">
     <header class="page-header">
       <div class="page-heading">
-        <h1>Availability</h1>
-        <p class="page-lede">Weekly rules, exceptions and focus preferences used to generate plans.</p>
+        <h1>{{ t('availability.title') }}</h1>
+        <p class="page-lede">{{ t('availability.lede') }}</p>
       </div>
     </header>
 
     <UiBanner v-if="!offline.mutationsEnabled" tone="offline" class="offline-note" role="status">
-      Read-only while offline. Availability edits are disabled.
+      {{ t('availability.offline') }}
     </UiBanner>
     <p class="status-region status-note" role="status" aria-live="polite">{{ message }}</p>
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
 
     <div v-if="availabilityQuery.isLoading.value">
-      <p class="visually-hidden" role="status">Loading availability…</p>
+      <p class="visually-hidden" role="status">{{ t('availability.loading') }}</p>
       <UiSkeleton variant="card" :count="3" :lines="3" />
     </div>
     <UiBanner v-else-if="availabilityQuery.isError.value" tone="error" class="error-panel">
-      <p class="error-text" role="alert">Could not load availability.</p>
+      <p class="error-text" role="alert">{{ t('availability.loadError') }}</p>
       <template #actions>
-        <UiButton size="sm" icon="sync" @click="retry">Retry</UiButton>
+        <UiButton size="sm" icon="sync" @click="retry">{{ t('common.retry') }}</UiButton>
       </template>
     </UiBanner>
 
     <form v-else-if="draft" class="settings-form" @submit.prevent="save">
       <fieldset class="settings-group">
-        <legend>Time zone</legend>
-        <UiField id="availability-timezone" label="IANA time zone" class="field--narrow">
+        <legend>{{ t('availability.timeZone') }}</legend>
+        <UiField id="availability-timezone" :label="t('availability.timeZoneLabel')" class="field--narrow">
           <select
             id="availability-timezone"
             v-model="draft.timeZone"
@@ -279,15 +273,15 @@ function retry(): void {
       </fieldset>
 
       <fieldset class="settings-group">
-        <legend>Weekly rules</legend>
-        <p class="muted">Local wall-clock windows. Availability repeats every week.</p>
-        <div class="rule-table" role="table" aria-label="Weekly availability rules">
+        <legend>{{ t('availability.rules') }}</legend>
+        <p class="muted">{{ t('availability.rulesLede') }}</p>
+        <div class="rule-table" role="table" :aria-label="t('availability.rulesTable')">
           <div class="rule-row rule-head" role="row">
-            <span role="columnheader">Weekday</span>
-            <span role="columnheader">Start</span>
-            <span role="columnheader">End</span>
-            <span role="columnheader">Kind</span>
-            <span role="columnheader"><span class="visually-hidden">Actions</span></span>
+            <span role="columnheader">{{ t('availability.colWeekday') }}</span>
+            <span role="columnheader">{{ t('availability.colStart') }}</span>
+            <span role="columnheader">{{ t('availability.colEnd') }}</span>
+            <span role="columnheader">{{ t('availability.colKind') }}</span>
+            <span role="columnheader"><span class="visually-hidden">{{ t('availability.colActions') }}</span></span>
           </div>
           <div
             v-for="(rule, index) in draft.rules"
@@ -296,18 +290,18 @@ function retry(): void {
             role="row"
           >
             <div role="cell" class="rule-cell rule-cell--weekday">
-              <label class="sr-only" :for="`rule-weekday-${index}`">Weekday for rule {{ index + 1 }}</label>
+              <label class="sr-only" :for="`rule-weekday-${index}`">{{ t('availability.ruleWeekday', { index: index + 1 }) }}</label>
               <select
                 :id="`rule-weekday-${index}`"
                 v-model.number="rule.weekday"
                 :disabled="!offline.mutationsEnabled"
                 @change="markDirty"
               >
-                <option v-for="day in WEEKDAYS" :key="day.value" :value="day.value">{{ day.label }}</option>
+                <option v-for="day in WEEKDAYS" :key="day" :value="day">{{ t(`availability.weekday.${day}`) }}</option>
               </select>
             </div>
             <div role="cell" class="rule-cell">
-              <label class="sr-only" :for="`rule-start-${index}`">Start for rule {{ index + 1 }}</label>
+              <label class="sr-only" :for="`rule-start-${index}`">{{ t('availability.ruleStart', { index: index + 1 }) }}</label>
               <input
                 :id="`rule-start-${index}`"
                 v-model="rule.startLocal"
@@ -317,7 +311,7 @@ function retry(): void {
               />
             </div>
             <div role="cell" class="rule-cell">
-              <label class="sr-only" :for="`rule-end-${index}`">End for rule {{ index + 1 }}</label>
+              <label class="sr-only" :for="`rule-end-${index}`">{{ t('availability.ruleEnd', { index: index + 1 }) }}</label>
               <input
                 :id="`rule-end-${index}`"
                 v-model="rule.endLocal"
@@ -327,15 +321,15 @@ function retry(): void {
               />
             </div>
             <div role="cell" class="rule-cell">
-              <label class="sr-only" :for="`rule-kind-${index}`">Kind for rule {{ index + 1 }}</label>
+              <label class="sr-only" :for="`rule-kind-${index}`">{{ t('availability.ruleKind', { index: index + 1 }) }}</label>
               <select
                 :id="`rule-kind-${index}`"
                 v-model="rule.kind"
                 :disabled="!offline.mutationsEnabled"
                 @change="markDirty"
               >
-                <option value="work">Work</option>
-                <option value="focus">Focus</option>
+                <option value="work">{{ t('availability.kindWork') }}</option>
+                <option value="focus">{{ t('availability.kindFocus') }}</option>
               </select>
             </div>
             <div role="cell" class="rule-cell rule-cell--action">
@@ -347,29 +341,35 @@ function retry(): void {
                 :disabled="!offline.mutationsEnabled"
                 @click="removeRule(index)"
               >
-                Remove<span class="visually-hidden"> rule {{ index + 1 }}</span>
+                <span class="visually-hidden">{{ t('availability.ruleRemovePrefix', { index: index + 1 }) }}</span
+                >{{ t('common.remove') }}
               </UiButton>
             </div>
           </div>
         </div>
         <div>
           <UiButton icon="plus" size="sm" :disabled="!offline.mutationsEnabled" @click="addRule">
-            Add weekly rule
+            {{ t('availability.addRule') }}
           </UiButton>
         </div>
       </fieldset>
 
       <fieldset class="settings-group">
-        <legend>Exceptions</legend>
-        <p class="muted">A dated exception either removes availability (off) or adds a window (extra).</p>
-        <UiEmptyState v-if="draft.exceptions.length === 0" compact icon="today" title="No exceptions." />
+        <legend>{{ t('availability.exceptions') }}</legend>
+        <p class="muted">{{ t('availability.exceptionsLede') }}</p>
+        <UiEmptyState
+          v-if="draft.exceptions.length === 0"
+          compact
+          icon="today"
+          :title="t('availability.exceptionsEmpty')"
+        />
         <div
           v-for="(exception, index) in draft.exceptions"
           :key="`exception-${index}`"
           class="rule-row exception-row"
         >
           <div class="rule-cell rule-cell--weekday">
-            <label class="sr-only" :for="`exception-date-${index}`">Date for exception {{ index + 1 }}</label>
+            <label class="sr-only" :for="`exception-date-${index}`">{{ t('availability.exceptionDate', { index: index + 1 }) }}</label>
             <input
               :id="`exception-date-${index}`"
               v-model="exception.date"
@@ -379,19 +379,19 @@ function retry(): void {
             />
           </div>
           <div class="rule-cell">
-            <label class="sr-only" :for="`exception-kind-${index}`">Kind for exception {{ index + 1 }}</label>
+            <label class="sr-only" :for="`exception-kind-${index}`">{{ t('availability.exceptionKind', { index: index + 1 }) }}</label>
             <select
               :id="`exception-kind-${index}`"
               v-model="exception.kind"
               :disabled="!offline.mutationsEnabled"
               @change="markDirty"
             >
-              <option value="off">Off</option>
-              <option value="extra">Extra</option>
+              <option value="off">{{ t('availability.kindOff') }}</option>
+              <option value="extra">{{ t('availability.kindExtra') }}</option>
             </select>
           </div>
           <div class="rule-cell">
-            <label class="sr-only" :for="`exception-start-${index}`">Start for exception {{ index + 1 }}</label>
+            <label class="sr-only" :for="`exception-start-${index}`">{{ t('availability.exceptionStart', { index: index + 1 }) }}</label>
             <input
               :id="`exception-start-${index}`"
               v-model="exception.startLocal"
@@ -401,7 +401,7 @@ function retry(): void {
             />
           </div>
           <div class="rule-cell">
-            <label class="sr-only" :for="`exception-end-${index}`">End for exception {{ index + 1 }}</label>
+            <label class="sr-only" :for="`exception-end-${index}`">{{ t('availability.exceptionEnd', { index: index + 1 }) }}</label>
             <input
               :id="`exception-end-${index}`"
               v-model="exception.endLocal"
@@ -419,21 +419,22 @@ function retry(): void {
               :disabled="!offline.mutationsEnabled"
               @click="removeException(index)"
             >
-              Remove<span class="visually-hidden"> exception {{ index + 1 }}</span>
+              <span class="visually-hidden">{{ t('availability.exceptionRemovePrefix', { index: index + 1 }) }}</span
+              >{{ t('common.remove') }}
             </UiButton>
           </div>
         </div>
         <div>
           <UiButton icon="plus" size="sm" :disabled="!offline.mutationsEnabled" @click="addException">
-            Add exception
+            {{ t('availability.addException') }}
           </UiButton>
         </div>
       </fieldset>
 
       <fieldset class="settings-group">
-        <legend>Focus preferences</legend>
+        <legend>{{ t('availability.prefs') }}</legend>
         <div class="prefs-grid">
-          <UiField id="pref-max-focus" label="Max daily focus (minutes)">
+          <UiField id="pref-max-focus" :label="t('availability.maxDailyFocus')">
             <input
               id="pref-max-focus"
               v-model.number="draft.prefs.maxDailyFocusMin"
@@ -444,7 +445,7 @@ function retry(): void {
               @input="markDirty"
             />
           </UiField>
-          <UiField id="pref-break-after" label="Break after (minutes)">
+          <UiField id="pref-break-after" :label="t('availability.breakAfter')">
             <input
               id="pref-break-after"
               v-model.number="draft.prefs.breakAfterMin"
@@ -455,7 +456,7 @@ function retry(): void {
               @input="markDirty"
             />
           </UiField>
-          <UiField id="pref-break" label="Break length (minutes)">
+          <UiField id="pref-break" :label="t('availability.breakLength')">
             <input
               id="pref-break"
               v-model.number="draft.prefs.breakMin"
@@ -466,7 +467,7 @@ function retry(): void {
               @input="markDirty"
             />
           </UiField>
-          <UiField id="pref-day-start" label="Day start">
+          <UiField id="pref-day-start" :label="t('availability.dayStart')">
             <input
               id="pref-day-start"
               v-model="draft.prefs.dayStartLocal"
@@ -475,7 +476,7 @@ function retry(): void {
               @input="markDirty"
             />
           </UiField>
-          <UiField id="pref-day-end" label="Day end">
+          <UiField id="pref-day-end" :label="t('availability.dayEnd')">
             <input
               id="pref-day-end"
               v-model="draft.prefs.dayEndLocal"
@@ -484,15 +485,15 @@ function retry(): void {
               @input="markDirty"
             />
           </UiField>
-          <UiField id="pref-risk" label="Risk level">
+          <UiField id="pref-risk" :label="t('availability.riskLevel')">
             <select
               id="pref-risk"
               v-model="draft.prefs.riskLevel"
               :disabled="!offline.mutationsEnabled"
               @change="markDirty"
             >
-              <option value="p50">P50 (typical)</option>
-              <option value="p90">P90 (safe)</option>
+              <option value="p50">{{ t('availability.riskP50') }}</option>
+              <option value="p90">{{ t('availability.riskP90') }}</option>
             </select>
           </UiField>
         </div>
@@ -506,10 +507,15 @@ function retry(): void {
 
       <div class="form-actions form-actions--sticky">
         <UiButton id="availability-save" type="submit" variant="primary" :busy="saving" :disabled="!canSave">
-          {{ saving ? 'Saving…' : 'Save availability' }}
+          {{ saving ? t('common.saving') : t('availability.save') }}
         </UiButton>
         <UiBadge :tone="dirty ? 'warn' : 'success'" dot>
-          Version {{ draft.version }} · {{ dirty ? 'Unsaved changes' : 'Saved' }}
+          {{
+            t('availability.status', {
+              version: draft.version,
+              state: dirty ? t('availability.unsaved') : t('availability.saved'),
+            })
+          }}
         </UiBadge>
       </div>
     </form>
@@ -525,30 +531,27 @@ function retry(): void {
         <span class="dialog-icon dialog-icon--warn"><UiIcon name="sync" :size="22" /></span>
         <div class="dialog-heading">
           <h2 id="availability-conflict-title" ref="conflictHeading" class="dialog-title" tabindex="-1">
-            Availability changed elsewhere
+            {{ t('availability.conflictTitle') }}
           </h2>
-          <p class="muted">
-            The server is at version {{ conflict.server.version }}. Your local edits are preserved
-            until you choose. Review the server rules before merging.
-          </p>
+          <p class="muted">{{ t('availability.conflictBody', { version: conflict.server.version }) }}</p>
         </div>
       </header>
       <dl class="conflict-summary">
-        <dt>Local rules</dt>
+        <dt>{{ t('availability.localRules') }}</dt>
         <dd>{{ conflict.local.rules.length }}</dd>
-        <dt>Server rules</dt>
+        <dt>{{ t('availability.serverRules') }}</dt>
         <dd>{{ conflict.server.rules.length }}</dd>
-        <dt>Local time zone</dt>
+        <dt>{{ t('availability.localTimeZone') }}</dt>
         <dd>{{ conflict.local.timeZone }}</dd>
-        <dt>Server time zone</dt>
+        <dt>{{ t('availability.serverTimeZone') }}</dt>
         <dd>{{ conflict.server.timeZone }}</dd>
       </dl>
       <div class="dialog-actions dialog-actions--start">
         <UiButton variant="primary" :disabled="!offline.mutationsEnabled" @click="keepLocal">
-          Keep my changes and retry
+          {{ t('availability.keepLocal') }}
         </UiButton>
-        <UiButton @click="useServer">Use server version</UiButton>
-        <UiButton variant="ghost" @click="conflict = null">Keep editing</UiButton>
+        <UiButton @click="useServer">{{ t('availability.useServer') }}</UiButton>
+        <UiButton variant="ghost" @click="conflict = null">{{ t('availability.keepEditing') }}</UiButton>
       </div>
     </UiDialog>
   </section>

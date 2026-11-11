@@ -18,13 +18,13 @@ describe('new plan route', () => {
     const wrapper = mountWithPlugins(PlanNewView, { router });
     await settle();
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('New plan');
+      expect(wrapper.text()).toContain('새 일정안');
     });
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('1 task');
+      expect(wrapper.text()).toContain('작업 1개');
     });
 
-    const generate = buttonByText(wrapper, 'Generate candidates');
+    const generate = buttonByText(wrapper, '후보 만들기');
     await generate.trigger('click');
 
     await vi.waitFor(

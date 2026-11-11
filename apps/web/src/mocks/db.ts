@@ -81,13 +81,13 @@ export const USER_ID = '01900000-0000-7000-8000-000000000002';
 export const INBOX_PROJECT_ID = '01900000-0000-7000-8000-000000000001';
 export const SAMPLE_PROJECT_ID = '01900000-0000-7000-8000-000000000003';
 export const REPORT_TEMPLATE_ID = '01900000-0000-7000-8000-0000000000b1';
-export const SEED_TASK_TITLE = 'Review weekly plan';
+export const SEED_TASK_TITLE = '주간 계획 돌아보기';
 export const TODAY_TASK_ONE_ID = '01900000-0000-7000-8000-0000000000a1';
 export const TODAY_TASK_TWO_ID = '01900000-0000-7000-8000-0000000000a2';
 export const TODAY_BLOCK_ONE_ID = '01900000-0000-7000-8000-0000000000b1';
 export const TODAY_BLOCK_TWO_ID = '01900000-0000-7000-8000-0000000000b2';
-export const TODAY_TASK_ONE_TITLE = 'Summarise research notes';
-export const TODAY_TASK_TWO_TITLE = 'Draft presentation outline';
+export const TODAY_TASK_ONE_TITLE = '연구 노트 요약';
+export const TODAY_TASK_TWO_TITLE = '발표 개요 초안';
 export const SEED_NOTIFICATION_ID = '01900000-0000-7000-8000-0000000000c1';
 export const SEED_SCHEDULED_NOTIFICATION_ID = '01900000-0000-7000-8000-0000000000c2';
 
@@ -190,7 +190,8 @@ function createToday(): Today {
     slackMin: 200,
     risk: {
       level: 'medium',
-      reasons: ['One block ends close to a task deadline'],
+      // Same reason code the API emits (today-service: `daily_focus_cap_exceeded:<min>`).
+      reasons: ['daily_focus_cap_exceeded:310'],
     },
     version: 1,
     blocks: [
@@ -263,7 +264,7 @@ export function createMockDb(): MockDb {
   const sample: Project = {
     id: SAMPLE_PROJECT_ID,
     ownerId: USER_ID,
-    title: 'Thesis',
+    title: '졸업 논문',
     kind: 'normal',
     archived: false,
     version: 1,
@@ -298,7 +299,7 @@ export function createMockDb(): MockDb {
   const teamSync: Commitment = {
     id: SEED_COMMITMENT_ID,
     ownerId: USER_ID,
-    title: 'Team sync',
+    title: '팀 회의',
     startAt: '2026-11-09T00:00:00.000Z',
     endAt: '2026-11-09T01:00:00.000Z',
     timeZone: 'Asia/Seoul',
@@ -311,7 +312,7 @@ export function createMockDb(): MockDb {
   const thesisReview: Commitment = {
     id: SEED_ONE_OFF_COMMITMENT_ID,
     ownerId: USER_ID,
-    title: 'Thesis review',
+    title: '논문 검토',
     startAt: '2026-11-11T10:00:00.000Z',
     endAt: '2026-11-11T11:00:00.000Z',
     timeZone: 'Asia/Seoul',

@@ -7,21 +7,31 @@ import UiButton from '../components/ui/UiButton.vue';
 import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiField from '../components/ui/UiField.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
+import LlmDisclosure from '../components/LlmDisclosure.vue';
+import { t } from '../i18n';
+import { browserTimeZone, formatDateTime, formatUsd } from '../i18n/format';
 
 const auth = useAuthStore();
 const busy = ref(false);
 const error = ref<string | null>(null);
-const dailyUsd = ref(0.2);
-const monthlyUsd = ref(5);
+const DEFAULT_DAILY_USD = 0.2;
+const DEFAULT_MONTHLY_USD = 5;
+const dailyUsd = ref(DEFAULT_DAILY_USD);
+const monthlyUsd = ref(DEFAULT_MONTHLY_USD);
 
 const consent = computed(() => auth.user?.llm?.consent);
 const budget = computed(() => auth.user?.llm?.budget);
 const deepseek = computed(() => auth.user?.llmProvider === 'deepseek');
 const ready = computed(() => auth.confirmed && auth.user !== null);
+const consentAt = computed(() => {
+  const at = consent.value?.at;
+  if (at === undefined) return '';
+  return formatDateTime(at, auth.user?.timeZone ?? browserTimeZone(), { year: true });
+});
 
 function syncBudget(): void {
-  dailyUsd.value = budget.value?.dailyUsd ?? 0.2;
-  monthlyUsd.value = budget.value?.monthlyUsd ?? 5;
+  dailyUsd.value = budget.value?.dailyUsd ?? DEFAULT_DAILY_USD;
+  monthlyUsd.value = budget.value?.monthlyUsd ?? DEFAULT_MONTHLY_USD;
 }
 
 onMounted(async () => {
@@ -35,7 +45,7 @@ async function setConsent(granted: boolean): Promise<void> {
   try {
     await auth.setLlmConsent(granted);
   } catch {
-    error.value = 'Could not update AI consent. Please try again.';
+    error.value = t('llm.settings.updateError');
   } finally {
     busy.value = false;
   }
@@ -47,7 +57,7 @@ async function saveBudget(): Promise<void> {
   try {
     await auth.setLlmBudget(dailyUsd.value, monthlyUsd.value);
   } catch {
-    error.value = 'Could not save the AI budget. Please try again.';
+    error.value = t('llm.settings.budgetError');
   } finally {
     busy.value = false;
   }
@@ -59,39 +69,36 @@ async function saveBudget(): Promise<void> {
     <template v-if="ready">
       <header class="page-header">
         <div class="page-heading">
-          <h1>AI settings</h1>
+          <h1>{{ t('llm.settings.title') }}</h1>
           <p class="page-lede">
-            AI planning uses the OpenCode Go gateway with the DeepSeek model
-            (deepseek-v4.1-flash). Requests include only your intake input and the task step
-            information needed for the current step.
+            {{
+              t('llm.settings.lede', {
+                provider: t('llm.providerName'),
+                model: t('llm.modelName'),
+                modelId: t('llm.modelId'),
+              })
+            }}
           </p>
         </div>
       </header>
 
-      <UiEmptyState v-if="!deepseek" icon="shield" title="No AI consent needed">
-        <p>This build uses the deterministic offline planner, so no AI consent is required.</p>
+      <UiEmptyState v-if="!deepseek" icon="shield" :title="t('llm.settings.noConsentTitle')">
+        <p>{{ t('llm.settings.noConsentBody') }}</p>
       </UiEmptyState>
 
       <template v-else>
         <fieldset class="settings-group">
-          <legend>Consent</legend>
+          <legend>{{ t('llm.settings.consentLegend') }}</legend>
           <div class="settings-status">
             <UiBadge :tone="consent?.granted ? 'success' : 'neutral'" dot size="lg">
-              {{ consent?.granted ? 'AI planning on' : 'Manual mode' }}
+              {{ consent?.granted ? t('llm.settings.on') : t('llm.settings.off') }}
             </UiBadge>
           </div>
           <p v-if="consent?.granted">
-            AI planning is <strong>on</strong>. Consent was recorded
-            {{ new Date(consent.at).toLocaleString() }} for {{ consent.provider }}.
+            {{ t('llm.settings.onBody', { at: consentAt, provider: consent.provider }) }}
           </p>
-          <p v-else>
-            AI planning is <strong>off</strong>. OhMyDate is in manual planning mode and makes no
-            AI calls.
-          </p>
-          <UiBanner tone="warn" title="Masking is best effort">
-            Email, phone and account-number patterns are masked, but names, addresses and
-            account numbers are not guaranteed to be removed.
-          </UiBanner>
+          <p v-else>{{ t('llm.settings.offBody') }}</p>
+          <LlmDisclosure />
           <div class="settings-actions">
             <UiButton
               v-if="!consent?.granted"
@@ -100,31 +107,26 @@ async function saveBudget(): Promise<void> {
               :busy="busy"
               @click="setConsent(true)"
             >
-              Enable AI planning
+              {{ t('llm.settings.enable') }}
             </UiButton>
             <UiButton v-else variant="danger-ghost" :disabled="busy" :busy="busy" @click="setConsent(false)">
-              Revoke consent (manual mode)
+              {{ t('llm.settings.revoke') }}
             </UiButton>
           </div>
           <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
         </fieldset>
 
         <fieldset class="settings-group">
-          <legend>Budget</legend>
+          <legend>{{ t('llm.settings.budgetLegend') }}</legend>
           <p class="muted">
-            Conservative defaults are <strong>$0.20 per day</strong> and
-            <strong>$5.00 per month</strong>. When the budget is reached, planning falls back to
-            manual mode instead of making more paid calls.
+            {{ t('llm.settings.budgetLede', { daily: formatUsd(DEFAULT_DAILY_USD), monthly: formatUsd(DEFAULT_MONTHLY_USD) }) }}
           </p>
           <p v-if="budget" class="settings-current">
-            Current limits: ${{ budget.dailyUsd.toFixed(2) }} per day, ${{
-              budget.monthlyUsd.toFixed(2)
-            }}
-            per month.
+            {{ t('llm.settings.budgetCurrent', { daily: formatUsd(budget.dailyUsd), monthly: formatUsd(budget.monthlyUsd) }) }}
           </p>
           <form class="settings-form" @submit.prevent="saveBudget">
             <div class="field-grid">
-              <UiField id="llm-daily-budget" label="Daily limit (USD)">
+              <UiField id="llm-daily-budget" :label="t('llm.settings.daily')">
                 <input
                   id="llm-daily-budget"
                   v-model.number="dailyUsd"
@@ -134,7 +136,7 @@ async function saveBudget(): Promise<void> {
                   required
                 />
               </UiField>
-              <UiField id="llm-monthly-budget" label="Monthly limit (USD)">
+              <UiField id="llm-monthly-budget" :label="t('llm.settings.monthly')">
                 <input
                   id="llm-monthly-budget"
                   v-model.number="monthlyUsd"
@@ -146,14 +148,14 @@ async function saveBudget(): Promise<void> {
               </UiField>
             </div>
             <div class="form-actions">
-              <UiButton type="submit" :disabled="busy" :busy="busy">Save budget</UiButton>
+              <UiButton type="submit" :disabled="busy" :busy="busy">{{ t('llm.settings.saveBudget') }}</UiButton>
             </div>
           </form>
         </fieldset>
       </template>
     </template>
     <div v-else>
-      <p class="visually-hidden" role="status">Loading AI settings…</p>
+      <p class="visually-hidden" role="status">{{ t('llm.settings.loading') }}</p>
       <UiSkeleton variant="card" :count="2" :lines="3" />
     </div>
   </section>

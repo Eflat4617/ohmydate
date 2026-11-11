@@ -25,15 +25,15 @@ describe('ConflictDialog', () => {
     expect(dialog.attributes('aria-modal')).toBe('true');
     expect(dialog.attributes('aria-labelledby')).toBe('conflict-title');
     expect(dialog.attributes('aria-describedby')).toBe('conflict-detail');
-    expect(wrapper.text()).toContain('version 7');
+    expect(wrapper.text()).toContain('더 새로운 버전(7)');
     expect(wrapper.text()).toContain('Server title');
     expect(wrapper.text()).toContain('Local title');
 
     const buttons = wrapper.findAll('button');
     expect(buttons.map((button) => button.text())).toEqual([
-      'Reload server version',
-      'Overwrite with my edit',
-      'Keep editing',
+      '서버 버전 불러오기',
+      '내 수정으로 덮어쓰기',
+      '계속 편집',
     ]);
     expect(document.activeElement).toBe(buttons[0]?.element);
 
@@ -49,15 +49,15 @@ describe('ConflictDialog', () => {
         disabled: true,
       },
     });
-    expect(complete.text()).toContain('Complete anyway');
-    expect(complete.text()).toContain('Mark as complete');
-    expect(buttonByText(complete, 'Complete anyway').attributes('disabled')).toBeDefined();
+    expect(complete.text()).toContain('그래도 완료');
+    expect(complete.text()).toContain('완료로 표시');
+    expect(buttonByText(complete, '그래도 완료').attributes('disabled')).toBeDefined();
 
     const remove = mount(ConflictDialog, {
       props: { serverVersion: 3, serverTitle: 'Server', operation: 'delete' },
     });
-    expect(remove.text()).toContain('Delete anyway');
-    expect(remove.text()).toContain('Delete this task');
+    expect(remove.text()).toContain('그래도 삭제');
+    expect(remove.text()).toContain('이 작업 삭제');
   });
 
   it('emits reload, overwrite, and cancel without mutating anything itself', async () => {

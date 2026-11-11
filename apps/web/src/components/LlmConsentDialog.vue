@@ -5,6 +5,8 @@ import UiBanner from './ui/UiBanner.vue';
 import UiButton from './ui/UiButton.vue';
 import UiDialog from './ui/UiDialog.vue';
 import UiIcon from './ui/UiIcon.vue';
+import LlmDisclosure from './LlmDisclosure.vue';
+import { t } from '../i18n';
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
@@ -28,7 +30,7 @@ async function grant(): Promise<void> {
     await auth.setLlmConsent(true);
     emit('close');
   } catch {
-    error.value = 'Could not save consent. Please try again.';
+    error.value = t('llm.consent.error');
   } finally {
     busy.value = false;
   }
@@ -59,30 +61,18 @@ async function manualMode(): Promise<void> {
     <header class="dialog-header dialog-header--start">
       <span class="dialog-icon"><UiIcon name="shield" :size="22" /></span>
       <div class="dialog-heading">
-        <h2 id="llm-consent-title" class="dialog-title">Use AI planning assistance?</h2>
-        <p class="muted">You can change this any time in AI settings.</p>
+        <h2 id="llm-consent-title" class="dialog-title">{{ t('llm.consent.title') }}</h2>
+        <p class="muted">{{ t('llm.consent.lede') }}</p>
       </div>
     </header>
     <div id="llm-consent-body" class="dialog-body consent-body">
-      <p>
-        AI planning sends your intake input and task step information to the
-        <strong>OpenCode Go gateway</strong>, which runs the
-        <strong>DeepSeek model</strong> (deepseek-v4.1-flash).
-      </p>
-      <UiBanner tone="warn" title="Masking is best effort">
-        Email, phone and account-number patterns are masked, but names, addresses and
-        account numbers are <strong>not guaranteed</strong> to be removed.
-      </UiBanner>
-      <p class="muted">
-        You can revoke consent at any time in AI settings. Without consent, OhMyDate stays
-        in manual planning mode and makes no AI calls.
-      </p>
+      <LlmDisclosure />
     </div>
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
     <div class="dialog-actions">
-      <UiButton variant="ghost" :disabled="busy" @click="manualMode">Use manual mode</UiButton>
+      <UiButton variant="ghost" :disabled="busy" @click="manualMode">{{ t('llm.consent.manual') }}</UiButton>
       <UiButton variant="primary" :disabled="busy" :busy="busy" data-autofocus @click="grant">
-        {{ busy ? 'Saving…' : 'Allow AI planning' }}
+        {{ busy ? t('common.saving') : t('llm.consent.allow') }}
       </UiButton>
     </div>
   </UiDialog>

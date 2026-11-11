@@ -94,7 +94,7 @@ describe('retry after a real response loss', () => {
     const actions = useTaskActions(client, new ActionStore());
 
     await expect(actions.create('Survive retry')).rejects.toThrow('socket closed');
-    expect(actions.error.value).toContain('socket closed');
+    expect(actions.error.value).toBe('서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.');
 
     const created = await actions.create('Survive retry');
     expect(created.title).toBe('Survive retry');

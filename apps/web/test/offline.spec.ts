@@ -40,7 +40,7 @@ describe('offline banner and disabled mutations', () => {
     const banner = wrapper.get('.offline-banner');
     expect(banner.attributes('role')).toBe('status');
     expect(banner.attributes('aria-live')).toBe('polite');
-    expect(banner.text()).toContain('editing is disabled');
+    expect(banner.text()).toContain('다시 연결되면 편집할 수 있어요');
 
     setOnline(true);
     window.dispatchEvent(new Event('online'));
@@ -69,7 +69,7 @@ describe('offline banner and disabled mutations', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '?' }));
     await nextTick();
 
-    expect(wrapper.text()).toContain('Keyboard shortcuts');
+    expect(wrapper.text()).toContain('키보드 단축키');
     wrapper.unmount();
   });
 });

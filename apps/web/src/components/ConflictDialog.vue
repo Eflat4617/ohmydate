@@ -4,6 +4,8 @@ import type { ConflictOperation } from '../composables/useTaskActions';
 import UiButton from './ui/UiButton.vue';
 import UiDialog from './ui/UiDialog.vue';
 import UiIcon from './ui/UiIcon.vue';
+import { t } from '../i18n';
+import I18nT from '../i18n/I18nT';
 
 const props = withDefaults(
   defineProps<{
@@ -22,26 +24,26 @@ const emit = defineEmits<{ reload: []; overwrite: []; cancel: [] }>();
 const heading = computed(() => {
   switch (props.operation) {
     case 'complete':
-      return 'This task changed before completion';
+      return t('conflict.headingComplete');
     case 'delete':
-      return 'This task changed before deletion';
+      return t('conflict.headingDelete');
     default:
-      return 'This task changed elsewhere';
+      return t('conflict.headingRename');
   }
 });
 
 const overwriteLabel = computed(() => {
   switch (props.operation) {
     case 'complete':
-      return 'Complete anyway';
+      return t('conflict.overwriteComplete');
     case 'delete':
-      return 'Delete anyway';
+      return t('conflict.overwriteDelete');
     default:
-      return 'Overwrite with my edit';
+      return t('conflict.overwriteRename');
   }
 });
 
-const cancelLabel = computed(() => (props.operation === 'rename' ? 'Keep editing' : 'Cancel'));
+const cancelLabel = computed(() => (props.operation === 'rename' ? t('conflict.keepEditing') : t('common.cancel')));
 </script>
 
 <template>
@@ -58,26 +60,27 @@ const cancelLabel = computed(() => (props.operation === 'rename' ? 'Keep editing
       <div class="dialog-heading">
         <h2 id="conflict-title" class="dialog-title">{{ heading }}</h2>
         <p id="conflict-detail" class="muted">
-          The server has version <strong>{{ serverVersion }}</strong
-          >. Your change was based on an older version.
+          <I18nT keypath="conflict.detail">
+            <template #version><strong>{{ serverVersion }}</strong></template>
+          </I18nT>
         </p>
       </div>
     </header>
     <dl class="conflict-summary">
       <template v-if="operation === 'rename'">
-        <dt>Server title</dt>
+        <dt>{{ t('conflict.serverTitle') }}</dt>
         <dd>{{ serverTitle }}</dd>
-        <dt>Your edit</dt>
+        <dt>{{ t('conflict.yourEdit') }}</dt>
         <dd>{{ localTitle ?? '' }}</dd>
       </template>
       <template v-else>
-        <dt>Server title</dt>
+        <dt>{{ t('conflict.serverTitle') }}</dt>
         <dd>{{ serverTitle }}</dd>
-        <dt>Your change</dt>
-        <dd>{{ operation === 'complete' ? 'Mark as complete' : 'Delete this task' }}</dd>
+        <dt>{{ t('conflict.yourChange') }}</dt>
+        <dd>{{ operation === 'complete' ? t('conflict.markComplete') : t('conflict.deleteTask') }}</dd>
       </template>
     </dl>
-    <p class="muted">Reload keeps the server version. Overwrite re-fetches and re-applies your change.</p>
+    <p class="muted">{{ t('conflict.help') }}</p>
     <div class="dialog-actions dialog-actions--start" :aria-busy="busy ? 'true' : undefined">
       <UiButton
         variant="primary"
@@ -85,7 +88,7 @@ const cancelLabel = computed(() => (props.operation === 'rename' ? 'Keep editing
         :disabled="disabled || busy"
         @click="emit('reload')"
       >
-        Reload server version
+        {{ t('conflict.reload') }}
       </UiButton>
       <UiButton :disabled="disabled || busy" @click="emit('overwrite')">
         {{ overwriteLabel }}

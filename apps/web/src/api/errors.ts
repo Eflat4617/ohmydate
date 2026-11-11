@@ -32,9 +32,14 @@ const PROBLEM_CODE_MAP: Record<ProblemCode, true> = {
   internal_error: true,
 };
 
-const PROBLEM_CODES: ReadonlySet<string> = new Set<ProblemCode>(
-  Object.keys(PROBLEM_CODE_MAP) as ProblemCode[],
-);
+/** Every contract problem code (for exhaustiveness tests such as the i18n catalog). */
+export const PROBLEM_CODE_LIST: readonly ProblemCode[] = Object.keys(PROBLEM_CODE_MAP) as ProblemCode[];
+
+const PROBLEM_CODES: ReadonlySet<string> = new Set<ProblemCode>(PROBLEM_CODE_LIST);
+
+export function isProblemCode(value: string): value is ProblemCode {
+  return PROBLEM_CODES.has(value);
+}
 
 export type ApiErrorCode = ProblemCode | 'unknown';
 
