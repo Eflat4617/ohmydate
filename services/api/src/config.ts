@@ -5,6 +5,7 @@ import {
   MAX_OUTPUT_TOKENS_CEILING,
   type PromptLimitOverrides,
 } from '@ohmydate/llm';
+import { isLlmFakeScenario, type LlmFakeScenario } from './adapters/fake-llm-scenarios.js';
 
 export interface LoginRateLimitConfig {
   readonly limit: number;
@@ -92,6 +93,12 @@ export interface AppConfig {
    * falls through to a paid provider; `deepseek` must be explicit.
    */
   readonly llmProvider: LlmProviderKind;
+  /**
+   * E2E-only deterministic fake scenario (env `LLM_FAKE_SCENARIO`, M6-03).
+   * Only valid with `llmProvider: 'fake'`; refused under NODE_ENV=production.
+   * `null` (default) keeps the plain fixture-less FakeLlm.
+   */
+  readonly llmFakeScenario: LlmFakeScenario | null;
   /** ADR-022 OpenCode Go gateway (OpenAI-compatible). */
   readonly llmBaseUrl: string;
   readonly llmModel: string;
@@ -183,6 +190,7 @@ export const defaultConfig: AppConfig = {
   loginRateLimit: { limit: 5, windowMs: 60_000 },
   logLevel: 'info',
   llmProvider: 'fake',
+  llmFakeScenario: null,
   llmBaseUrl: DEFAULT_LLM_BASE_URL,
   llmModel: DEFAULT_LLM_MODEL,
   llmReasoningEffort: DEFAULT_LLM_REASONING_EFFORT,
@@ -231,6 +239,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('VIKUNJA_RECONCILE_INTERVAL_MS must be a non-negative integer');
   }
   const llmProvider = parseLlmProvider(env['LLM_PROVIDER']);
+  const llmFakeScenario = parseLlmFakeScenario(llmProvider, env['LLM_FAKE_SCENARIO'], env['NODE_ENV']);
   const llmApiKeyFile = parseApiKeyFile(llmProvider, env['LLM_API_KEY_FILE']);
   const llmSessionHeader = parseSessionHeader(env['LLM_SESSION_HEADER']);
   const llmSessionSecretFile = parseSessionSecretFile(
@@ -246,6 +255,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl,
     vikunjaSecretsDir: env['VIKUNJA_SECRETS_DIR'] ?? null,
     llmProvider,
+    llmFakeScenario,
     llmBaseUrl: env['LLM_BASE_URL'] ?? DEFAULT_LLM_BASE_URL,
     llmModel: env['LLM_MODEL'] ?? DEFAULT_LLM_MODEL,
     llmReasoningEffort: env['LLM_REASONING_EFFORT'] ?? DEFAULT_LLM_REASONING_EFFORT,
@@ -308,6 +318,29 @@ function parseLlmProvider(raw: string | undefined): LlmProviderKind {
   const value = raw.trim();
   if (value !== 'fake' && value !== 'deepseek') {
     throw new Error(`LLM_PROVIDER must be "fake" or "deepseek", got "${value}"`);
+  }
+  return value;
+}
+
+/**
+ * M6-03: E2E-only fake scenario. Fail closed at boot: unknown names, a real
+ * provider, or a production environment are configuration errors.
+ */
+export function parseLlmFakeScenario(
+  provider: LlmProviderKind,
+  raw: string | undefined,
+  nodeEnv: string | undefined,
+): LlmFakeScenario | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const value = raw.trim();
+  if (!isLlmFakeScenario(value)) {
+    throw new Error(`LLM_FAKE_SCENARIO must be "e2e-grounded", got "${value}"`);
+  }
+  if (provider !== 'fake') {
+    throw new Error('LLM_FAKE_SCENARIO is only allowed with LLM_PROVIDER=fake');
+  }
+  if (nodeEnv !== undefined && nodeEnv.trim().toLowerCase() === 'production') {
+    throw new Error('LLM_FAKE_SCENARIO is refused when NODE_ENV=production');
   }
   return value;
 }
