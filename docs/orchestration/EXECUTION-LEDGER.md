@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 19:09 | FU-55 질문: 빈 주(週)에서 WeekCalendar 스크롤 영역이 포커스 불가(axe serious) → 옵션 B 승인(WeekCalendar.vue 최소 수정 + 단위 테스트, 범위 확장), UI-POLISH에 유지 안내 | msg_6919cbcf6d9e | orchestrator |
 | 2026-11-11 19:05 | **M4 기능 완료**: M4-01/02/UI 병합, E2E-4·E2E-5 통과. 남은 E2E 실패 1 = FU-55(진행 중, Opus). 다음: UI-POLISH(Opus) 후 GU-1 준비, 병행해 M5 계약 착수 | e2e | orchestrator |
 | 2026-11-11 18:52 | M4-UId 수정 1 완료(5384216): /me no-store·서버 헤더·실제 두 탭 E2E-5 통과. E2E-3 실패는 통합 브랜치에서도 재현(09:50 UTC, 시각 의존) → FU-55(Opus 첫 구현 워커). DeepSeek 이번 라운드는 지시 이행 양호 → 리뷰 결과로 전환 판단 | worker report, e2e3 재현 | orchestrator |
 | 2026-11-11 18:20 | **사용자 지시**: GU-1 전 Opus가 전체 화면 디자인 통일(UI-POLISH, M4 후). M4-UId 이번 라운드 후 DeepSeek 능력 의심 시 즉시 Opus 전환 | 사용자 메시지 | orchestrator |
