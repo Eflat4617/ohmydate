@@ -625,23 +625,20 @@ function bestOfN(run: () => void, attempts = 5): number {
  * quadratic one grows ~16x, so super-linear behaviour still fails. The ratio is
  * invariant under uniform host load, which is exactly what made the old bound flaky.
  *
- * The timed samples use a small S on purpose: a single 100KB+ call spans tens of
- * milliseconds, so on a loaded host it is frequently preempted and no attempt sees the
- * true cost. At a few KB a call takes tens of microseconds, so a best-of-many search
- * finds a genuinely quiet window; the 4x size jump, not the absolute size, is what
- * detects super-linearity. An opt-in (PRIVACY_PERF_ASSERT=1) absolute ceiling still runs
- * the original >=100KB sizes to catch catastrophic regressions; default CI runs the ratio.
- *
- * Timing uses per-thread CPU time, not wall clock: when the whole monorepo suite runs
- * concurrently a wall-clock sample of the 4S call can absorb a scheduler timeslice that
- * the much shorter S call escapes, which inflates the ratio even for linear code. Each
- * sample is also batched to at least LINEARITY_SAMPLE_MS so the CPU clock and GC noise
- * are amortised, and the assertion uses the least-noisy S/4S pair out of several
- * interleaved measurements. A super-linear implementation cannot produce a quiet pair
- * that hides it: the mutant below still lands near 16x on every attempt.
+ * The timed scale is the original adversarial one: S = 25KB and 4S = 100KB. Measuring at
+ * the original scale keeps super-linear behaviour that only appears once the input is
+ * large. Timing uses per-thread CPU time, not wall clock: when the whole monorepo suite
+ * runs concurrently a wall-clock sample of the 4S call can absorb a scheduler timeslice
+ * that the shorter S call escapes, which inflates the ratio even for linear code. Each
+ * sample is batched to at least LINEARITY_SAMPLE_MS so the CPU clock and GC noise are
+ * amortised, and the assertion uses the least-noisy S/4S pair out of several interleaved
+ * measurements. A super-linear implementation cannot produce a quiet pair that hides it:
+ * the mutant below still lands near 16x. An opt-in (PRIVACY_PERF_ASSERT=1) absolute
+ * ceiling also runs the original >=100KB sizes to catch catastrophic regressions; default
+ * CI runs the ratio.
  */
 const LINEARITY_RATIO_LIMIT = 5;
-const LINEARITY_SMALL_SIZE = 1_000;
+const LINEARITY_SMALL_SIZE = 25_000;
 const LINEARITY_ATTEMPTS = 10;
 const LINEARITY_WARMUP = 50;
 const LINEARITY_CALIBRATION_CALLS = 20;
@@ -928,27 +925,28 @@ test.each(separatorRunPerfInputs)(
 
 /**
  * The ratio gate must still catch super-linear behaviour. This deliberately quadratic
- * mutant is measured by the same helper across the same 4x size jump, so the gate's
- * ability to fail is itself under test rather than assumed.
+ * mutant is measured by the same helper at the same S = 25KB / 4S = 100KB sizes, so the
+ * gate's ability to fail is itself under test rather than assumed. Its double loop runs
+ * over text.length / 64 so the 100KB case stays runnable in CI; the growth is still
+ * exactly quadratic (4x input -> 16x work) and lands well above the ratio limit.
  */
+const QUADRATIC_MUTANT_DIVISOR = 64;
 let quadraticSink = 0;
 
 function quadraticMutant(text: string): void {
+  const length = Math.max(1, Math.floor(text.length / QUADRATIC_MUTANT_DIVISOR));
   let accumulator = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    for (let other = 0; other < text.length; other += 1) {
-      accumulator += (text.charCodeAt(index) ^ text.charCodeAt(other)) & 1;
+  for (let index = 0; index < length; index += 1) {
+    for (let other = 0; other < length; other += 1) {
+      accumulator = (accumulator + index + other) | 0;
     }
   }
   quadraticSink = accumulator;
 }
 
-test('linearity gate rejects a deliberately quadratic mutant', () => {
+test('linearity gate rejects a deliberately quadratic mutant at S=25KB/4S=100KB', () => {
   expect(() =>
-    assertLinearScaling('quadratic mutant', quadraticMutant, (size) => 'x'.repeat(size), {
-      smallSize: 256,
-      attempts: 5,
-    }),
+    assertLinearScaling('quadratic mutant', quadraticMutant, (size) => 'x'.repeat(size)),
   ).toThrow(/super-linear/);
   expect(quadraticSink).toBeGreaterThanOrEqual(0);
 });
