@@ -7,6 +7,7 @@ import type {
   SessionReviewRequest,
   TodayProposal,
   WorkSession,
+  Export,
 } from '../api/client';
 import type { ProblemCode } from '../api/errors';
 import { createUuidV7, type MockDb } from './db';
@@ -552,6 +553,34 @@ export function createDailyHandlers(db: MockDb) {
       const current = etag(subscription.version);
       remember(db, token, 201, subscription, { ETag: current });
       return json(subscription, 201, { ETag: current });
+    }),
+
+    http.post(/\/api\/v1\/exports$/, async ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
+      const raw = await request.text();
+      const token = parseIdempotency(db, request, raw);
+      if (token instanceof Response) return token;
+      const exportJob: Export = {
+        id: createUuidV7(),
+        state: 'queued',
+        createdAt: new Date().toISOString(),
+      };
+      db.exports.set(exportJob.id, exportJob);
+      remember(db, token, 202, { exportId: exportJob.id });
+      return json({ exportId: exportJob.id }, 202);
+    }),
+
+    http.get(/\/api\/v1\/exports\/([^/]+)$/, ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
+      const match = /\/api\/v1\/exports\/([^/]+)$/.exec(new URL(request.url).pathname);
+      const exportId = match?.[1] === undefined ? '' : decodeURIComponent(match[1]);
+      const exportJob = db.exports.get(exportId);
+      if (exportJob === undefined) return problem(404, 'not_found', 'Export not found');
+      const current = `W/"export-${exportJob.id}-${exportJob.state}"`;
+      if (request.headers.get('If-None-Match') === current) {
+        return new HttpResponse(null, { status: 304, headers: { ETag: current } });
+      }
+      return json(exportJob, 200, { ETag: current });
     }),
 
     http.delete(/\/api\/v1\/push-subscriptions\/([^/]+)$/, async ({ request }) => {

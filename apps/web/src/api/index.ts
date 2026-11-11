@@ -62,6 +62,8 @@ export {
   type NotificationQuery,
   type PushSubscription,
   type PushSubscriptionCreate,
+  type Export,
+  type ExportStartResponse,
 } from './client';
 export { ApiError, apiErrorFromPayload, apiErrorFromResponse, parseProblem, type ApiErrorCode, type Problem, type ProblemCode } from './errors';
 export { findInboxProject } from './inbox';

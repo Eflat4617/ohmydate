@@ -1,5 +1,6 @@
 import type {
   Availability,
+  Export,
   Notification,
   Commitment,
   DecompositionStep,
@@ -63,6 +64,7 @@ export interface MockDb {
   activeSessionId: string | null;
   notifications: Map<string, Notification>;
   pushSubscriptions: Map<string, PushSubscription>;
+  exports: Map<string, Export>;
   idempotency: Map<string, StoredResponse>;
   pendingIdempotency: Set<string>;
   authenticated: boolean;
@@ -348,6 +350,7 @@ export function createMockDb(): MockDb {
       [scheduledNotification.id, scheduledNotification],
     ]),
     pushSubscriptions: new Map(),
+    exports: new Map(),
     idempotency: new Map(),
     pendingIdempotency: new Set(),
     authenticated: true,
@@ -379,6 +382,7 @@ export function resetMockDb(): void {
   mockDb.activeSessionId = fresh.activeSessionId;
   mockDb.notifications = fresh.notifications;
   mockDb.pushSubscriptions = fresh.pushSubscriptions;
+  mockDb.exports = fresh.exports;
   mockDb.idempotency = fresh.idempotency;
   mockDb.pendingIdempotency = fresh.pendingIdempotency;
   mockDb.authenticated = fresh.authenticated;
