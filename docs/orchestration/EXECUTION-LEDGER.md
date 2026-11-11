@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 22:16 | **M5-02R-1 REQUEST_CHANGES (Sol medium; 구현 Opus)**: HIGH 2 — 재계획이 잠긴 블록을 이동·잠금 상실(assembleScheduleInput의 기존 결함, 재생성에도 영향 가능), 거절과 동시 요청이 24h 억제 우회. MEDIUM 2 — replan_suppressed 멱등 미저장(08 §1상 저장 대상), packages/domain/test 범위 밖(→ 범위 확장 승인). 수정 1/2 → ctx_52cd84edd09c | reviews/M5-02R-1.md | orchestrator |
 | 2026-11-11 21:40 | **사용자 허가: 막힘/돌파구 작업에 Fable 5.2 medium 워커 사용 가능**(MODEL_BINDINGS §10). 호출 확인 FABLE_OK(modelUsage claude-fable-5-2). start-claude-worker.sh에 MODEL/EFFORT 변수 추가 | 사용자 메시지, claude -p probe | orchestrator |
 | 2026-11-11 21:30 | **사용자 선택(가속): 복잡한 백엔드도 Opus 구현**(MODEL_BINDINGS §9). M5-02 DeepSeek 워커(ctx_3c0c0ba78df2, 미커밋 FU-59 3파일) 중지 → 같은 worktree에서 Opus 5.5 xhigh로 재개. M6 병행·세션 6개·미리 써보기는 미선택 | AskUserQuestion | orchestrator |
 | 2026-11-11 20:33 | UI-POLISH worker_done(9c22a02, Opus): 토큰·공통 부품·레이아웃, MSW axe 14→0/130, 신규 실 API axe E2E, E2E 22/22 → Sol 리뷰(ctx_ae4617faec28). 스크린샷 확인 중 영어 문구·분 단위 원값 발견 → **사용자 결정: 한국어로 변경** → UI-I18N(Opus, UI-POLISH 병합 직후) | 스크린샷, AskUserQuestion | orchestrator |
