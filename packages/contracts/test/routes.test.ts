@@ -293,7 +293,9 @@ function validHeaders(route: RouteDefinition): Record<string, string> {
   for (const name of Object.keys(headerShape(route).properties ?? {})) {
     if (name === 'If-Match') {
       headers[name] =
-        route.operationId === 'approvePlanCandidate' || route.operationId === 'putAvailability'
+        route.operationId === 'approvePlanCandidate' ||
+        route.operationId === 'putAvailability' ||
+        route.operationId === 'approveTodayProposal'
           ? 'W/"availability:3"'
           : 'W/"3"';
     }
@@ -403,7 +405,7 @@ test('route table covers today, session, notification and export endpoints from 
 });
 
 test('approval and availability replacement pin If-Match to availability versions', () => {
-  for (const operationId of ['approvePlanCandidate', 'putAvailability']) {
+  for (const operationId of ['approvePlanCandidate', 'putAvailability', 'approveTodayProposal']) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();
     if (route?.headers === undefined) throw new Error(`${operationId} headers missing`);

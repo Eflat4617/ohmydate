@@ -122,8 +122,10 @@ export const TodayProposalBlockSchema = Type.Object(
 /**
  * A shrink/reschedule proposal returned by `POST /today:shrink|:reschedule`.
  * Nothing is applied until `POST /today/proposals/{id}:approve` with
- * `If-Match: W/"<proposal.version>"`; approval creates a new plan version, the
- * same shape the planning approval flow returns (08 §2.5).
+ * `If-Match: W/"availability:<n>"`. The proposal persists the base plan
+ * version and the availability snapshot it was computed against so approval
+ * can repeat the 08 §2.4 atomic stale-snapshot check before creating a new
+ * plan version. `version` is the proposal's own optimistic version.
  */
 export const TodayProposalSchema = Type.Object(
   {
@@ -131,12 +133,21 @@ export const TodayProposalSchema = Type.Object(
     kind: TodayProposalKindSchema,
     date: LocalDateSchema,
     timeZone: IanaTimeZoneSchema,
+    /** Plan version the proposal was computed from. */
+    basePlanVersionId: IdSchema,
+    /** Availability snapshot used for the stale-snapshot check at approval. */
+    availabilityVersion: Type.Integer({ minimum: 1 }),
     blocks: Type.Array(TodayProposalBlockSchema, { maxItems: 50 }),
     version: VersionSchema,
     createdAt: InstantSchema,
     expiresAt: Type.Optional(InstantSchema),
   },
-  { additionalProperties: false, $id: 'TodayProposal' },
+  {
+    additionalProperties: false,
+    $id: 'TodayProposal',
+    description:
+      'Persisted shrink/reschedule proposal with its base plan version and availability snapshot. Approval re-validates availability atomically (08 §2.4).',
+  },
 );
 
 export const TodayProposalParamsSchema = Type.Object(
@@ -174,10 +185,19 @@ export const SessionCreateSchema = Type.Object(
   {
     taskId: IdSchema,
     blockId: Type.Optional(IdSchema),
-    clientStartedAt: InstantSchema,
+    clientStartedAt: Type.String({
+      format: 'date-time',
+      description:
+        'Device clock at session start. The server accepts it within [serverNow - 24 h, serverNow + 2 min] and clamps values outside that window, recording the clamp.',
+    }),
     clientId: Type.String({ minLength: 1, maxLength: 200 }),
   },
-  { additionalProperties: false, $id: 'SessionCreate' },
+  {
+    additionalProperties: false,
+    $id: 'SessionCreate',
+    description:
+      'Starts a focus session. clientStartedAt is clamped to [serverNow - 24 h, serverNow + 2 min]; the clamp is recorded so offline replay is exactly-once but observable.',
+  },
 );
 
 export const SessionIdParamsSchema = Type.Object(
@@ -189,18 +209,26 @@ export const SessionIdParamsSchema = Type.Object(
 
 /**
  * Offline replay body for :pause/:resume/:complete. `clientAt` is the device
- * clock at the event. The server accepts it within the session bounds: values
- * before `startedAt` clamp to `startedAt`, values more than five minutes ahead
- * of the server clock clamp to the server time at receipt, and out-of-order
- * events are rejected with 409 `session_state_conflict`. The clamp is
- * documented rather than rejected so that a flapping offline clock can still
- * upload a completed session exactly once.
+ * clock at the event. It is accepted within [session.startedAt,
+ * serverNow + 2 min] and must be monotonic per session. Out-of-range and
+ * out-of-order values are clamped to the nearest accepted bound and the clamp
+ * is recorded, so a flapping offline clock can still upload a completed session
+ * exactly once. Illegal state transitions remain 409 `session_state_conflict`.
  */
 export const SessionEventRequestSchema = Type.Object(
   {
-    clientAt: InstantSchema,
+    clientAt: Type.String({
+      format: 'date-time',
+      description:
+        'Device clock at the event. Accepted within [session.startedAt, serverNow + 2 min] and monotonic per session; out-of-range or out-of-order values are clamped to the nearest bound and the clamp is recorded.',
+    }),
   },
-  { additionalProperties: false, $id: 'SessionEventRequest' },
+  {
+    additionalProperties: false,
+    $id: 'SessionEventRequest',
+    description:
+      'Session event with its client timestamp. Clamping rules are [session.startedAt, serverNow + 2 min] plus per-session monotonicity; clamped values are recorded.',
+  },
 );
 
 export const SESSION_OUTCOMES = ['done', 'partial', 'blocked'] as const;

@@ -140,8 +140,15 @@ CREATE TABLE notification (
   CONSTRAINT notification_channel_valid CHECK (channel IN ('in_app', 'push')),
   CONSTRAINT notification_state_valid
     CHECK (state IN ('scheduled', 'sent', 'dismissed', 'failed', 'expired')),
-  CONSTRAINT notification_sent_consistent
-    CHECK ((state = 'sent') = (sent_at IS NOT NULL)),
+  -- A sent notification must record its delivery time. Dismissal is a later
+  -- state transition, so it may keep the original sent_at as history (or be
+  -- NULL when a never-sent notification was dismissed). States that were never
+  -- sent must not carry a delivery timestamp.
+  CONSTRAINT notification_sent_consistent CHECK (
+    (state = 'sent' AND sent_at IS NOT NULL)
+    OR (state IN ('scheduled', 'failed', 'expired') AND sent_at IS NULL)
+    OR state = 'dismissed'
+  ),
   CONSTRAINT notification_version_positive CHECK (version > 0),
   CONSTRAINT notification_id_owner_unique UNIQUE (id, owner_id),
   CONSTRAINT notification_owner_dedupe_unique UNIQUE (owner_id, dedupe_key)

@@ -753,9 +753,9 @@ export const dailyRoutes: readonly RouteDefinition[] = [
     operationId: 'approveTodayProposal',
     summary: 'Apply a today shrink/reschedule proposal',
     description:
-      'If-Match is the proposal version W/"<proposal.version>"; approval creates a new plan version.',
+      'If-Match is the user-wide availability version W/"availability:<n>", the same lock as plan approval (08 §2.4). The proposal persists its base plan version and availability snapshot; in one transaction the server re-reads availability and locked blocks, re-runs validation, supersedes prior active blocks and creates a new plan version. A stale snapshot returns 412 availability_changed.',
     params: TodayProposalParamsSchema,
-    headers: IfMatchAndIdempotencyHeadersSchema,
+    headers: IfMatchAvailabilityAndIdempotencyHeadersSchema,
     responses: {
       201: { description: 'Approved plan version', schema: PlanVersionSchema },
       ...problems(400, 401, 403, 404, 409, 412, 422, 428),
