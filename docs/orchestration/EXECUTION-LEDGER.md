@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 06:55 | live contract smoke 재실행(FU-76 병합 후 통합 브랜치, 합성 입력): **12/12 schema-valid, 형식 재요청 0**(분해 v1 p50 20 s, v2 30 s) | evals/2026-11-12-contract-live-post-fu76.json | orchestrator |
 | 2026-11-12 06:45 | **FU-76 + FU-54 merged d3e7ed0** (FU-76R2 APPROVE, Sol). 통합 CI 2087 pass + web 376, boundaries 0. 병합 순서 변경: FU-76 먼저 → M6-03 수정 라운드에서 가짜 시나리오를 FU-76 공통 guard·ScriptedFakeLlm 기반에 결합하도록 지시. 메시지 생성 코드 변경으로 live contract smoke 재실행 | reviews/FU-76R2.md | orchestrator |
 | 2026-11-12 06:20 | **FU-53 + FU-72 merged cbd213c** (FU-53-72R2 APPROVE, Sol; 바뀐 단언 ['task']→[]는 리뷰어가 정당하다고 확인 — maxBytes=1이면 첫 조회 전에 거부, 별도 회귀가 task-only 검증). 통합 CI 2054 pass + web 354, boundaries 0 (load 23에서 첫 실행 통과). LOW → FU-78 | reviews/FU-53-72R2.md | orchestrator |
 | 2026-11-12 06:02 | **M6-03R-1 REQUEST_CHANGES** (Sol medium): HIGH 1 — 연결 대상(프로젝트/작업) 페이지 조회가 사용자 전환 뒤에도 계속되어 A 캐시에 B 데이터 혼입(**사용자 격리 결함 4회째** → FU-77 우선). MEDIUM 2 — 링크 412 복구가 로컬 본문 편집을 최신 버전 위로 조용히 재배치(덮어쓰기), 승격 409가 첫 페이지만 찾음. 수정 1/2 → ctx_b426e7c8c2a0. 병합 순서 결정: M6-03 → FU-76(가짜 LLM 설정 결합은 FU-76 쪽에서) | reviews/M6-03R-1.md | orchestrator |
