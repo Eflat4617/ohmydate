@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 15:25 | **FU-52 실호출 스모크 성공**(세션 헤더 포함, 합성 입력): model deepseek-v4.1-flash, 5.7s, 입력 201/출력 221 토큰, $0.00016, 스키마 필드 4개. CI 흔들림 원인 = FU-50 선형성 테스트가 부하 시 기본 5s 테스트 시간 제한 초과 → 테스트별 시간 제한 지정 지시(기준 불변) | 스모크 출력 | orchestrator |
 | 2026-11-11 15:15 | **사용자 결정: 제품 LLM 경로 = OpenCode Go 유지**(위험 감수: 설계 용도 밖·남용 감시, 워커와 한도 공유). ADR-022 보강 2 | AskUserQuestion 응답 | orchestrator |
 | 2026-11-11 15:12 | FU-52 worker_done(47c6311,b217b53). **orchestrator 실호출 스모크(합성 입력)**: OpenCode Go 게이트웨이 400 MissingSessionID(x-opencode-session 필요). 문서 확인: "designed for OpenCode and other coding agents… Traffic is monitored for abuse", 비코딩 앱 사용 명시 금지는 없음, 월·5시간·주간 한도는 개발 워커와 공유 가능. 어댑터에 세션 헤더(HMAC 파생) 추가 지시, **공급 경로는 사용자 결정 요청** | 스모크 출력, opencode docs | orchestrator |
 | 2026-11-11 14:44 | FU-52 질문 → 범위 확장 승인: routes.ts(PATCH /me/settings 동의·예산 필드), ports.ts, auth-service.ts, pg-user-repository.ts(user.settings jsonb, 마이그레이션 없음), intake-service.ts(실제 공급자 id·ownerId 전달). M4-02와 routes.ts/app.ts 충돌 예상 → 최소·추가 변경만, 병합은 orchestrator | msg_477c93b2f97c | orchestrator |
