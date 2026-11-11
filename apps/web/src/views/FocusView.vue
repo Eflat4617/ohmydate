@@ -124,6 +124,17 @@ function toggleCalm(): void {
   setCalmMode(!calmMode.value);
 }
 
+// Calm mode only exists while the timer runs. Once the session is completed
+// (or no longer loaded) leave it, so the review sheet and the post-review
+// state keep "Back to Today" and the shell's navigation visible — otherwise
+// touch users have no in-app way out (UI-POLISHR-1). Runs before render.
+watch(
+  () => session.value?.state ?? null,
+  (state) => {
+    if (calmMode.value && state !== 'active' && state !== 'paused') setCalmMode(false);
+  },
+);
+
 const canPause = computed(() => session.value?.state === 'active');
 const canResume = computed(() => session.value?.state === 'paused');
 const canComplete = computed(

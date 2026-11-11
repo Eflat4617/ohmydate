@@ -18,7 +18,9 @@ import { readState } from '../helpers/state';
 // API + Vikunja. E2E-1 covers login/inbox, E2E-2 the wizard, E2E-3 the plan
 // comparison and E2E-4 Today/Focus; this adds projects, availability,
 // commitments, focus (incl. calm mode), the review sheet, notifications and
-// AI settings, at desktop width (nav rail) and phone width (bottom nav).
+// AI settings, at desktop width (nav rail) and phone width (bottom nav). It
+// also completes and reviews a session with Calm mode on at both widths and
+// checks that "Back to Today" and the navigation come back (UI-POLISHR-1).
 
 const state = readState();
 const account = { email: state.plansEmail, password: state.plansPassword };
@@ -110,7 +112,7 @@ function blocksAroundBusy(
 test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
   test.describe.configure({ mode: 'serial', timeout: 240_000 });
 
-  test('projects, availability, commitments, focus, review, notifications and AI settings have no critical or serious axe violations', async ({
+  test('projects, availability, commitments, focus, review, notifications and AI settings have no critical or serious axe violations; Calm mode keeps an exit after completing', async ({
     browser,
   }) => {
     const suffix = Date.now().toString(36);
@@ -213,34 +215,56 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
       });
     }
 
-    await test.step('focus, calm mode and review sheet (desktop)', async () => {
-      await page.setViewportSize(DESKTOP);
-      await page.goto(`${state.webUrl}/today`);
-      const card = page.locator('.today-card', { hasText: `${title} prep` });
-      await expect(card).toBeVisible({ timeout: 20_000 });
-      await card.getByRole('button', { name: 'Start focus' }).click();
-      await page.waitForURL(/\/focus\/[0-9a-f-]{36}$/);
-      await expect(page.locator('.focus-timer')).toBeVisible();
-      await expect(page.getByText('Focusing', { exact: true })).toBeVisible();
-      await expectAccessible(page, 'focus');
+    // UI-POLISHR-1: complete and review with Calm mode still on. Completing
+    // must leave Calm mode so "Back to Today" and the navigation come back.
+    const calmRuns = [
+      { viewport: DESKTOP, block: `${title} prep`, nav: '.nav-rail' },
+      { viewport: PHONE, block: `${title} work`, nav: '.bottom-nav' },
+    ];
+    for (const run of calmRuns) {
+      const size = `${run.viewport.width}x${run.viewport.height}`;
+      await test.step(`focus, calm mode, complete and review while calm (${size})`, async () => {
+        await page.setViewportSize(run.viewport);
+        await page.goto(`${state.webUrl}/today`);
+        const card = page.locator('.today-card', { hasText: run.block });
+        await expect(card).toBeVisible({ timeout: 20_000 });
+        await card.getByRole('button', { name: 'Start focus' }).click();
+        await page.waitForURL(/\/focus\/[0-9a-f-]{36}$/);
+        await expect(page.locator('.focus-timer')).toBeVisible();
+        await expect(page.getByText('Focusing', { exact: true })).toBeVisible();
+        const nav = page.locator(run.nav);
+        const back = page.getByRole('button', { name: 'Back to Today' });
+        await expect(nav).toBeVisible();
+        await expectAccessible(page, `focus ${size}`);
 
-      const calm = page.getByRole('button', { name: 'Calm mode' });
-      await calm.click();
-      await expect(calm).toHaveAttribute('aria-pressed', 'true');
-      await expectAccessible(page, 'focus calm mode');
-      await calm.click();
-      await expect(calm).toHaveAttribute('aria-pressed', 'false');
+        const calm = page.getByRole('button', { name: 'Calm mode' });
+        await calm.click();
+        await expect(calm).toHaveAttribute('aria-pressed', 'true');
+        await expect(nav).toBeHidden();
+        await expect(back).toBeHidden();
+        await expectAccessible(page, `focus calm mode ${size}`);
 
-      await page.getByRole('button', { name: 'Complete' }).click();
-      await expect(page.getByRole('heading', { name: 'How did the session go?' })).toBeVisible();
-      await page.getByRole('radio', { name: 'Partial' }).check();
-      await page.getByRole('checkbox', { name: 'Task was larger' }).check();
-      await expectAccessible(page, 'review sheet');
+        // Complete without leaving Calm mode first.
+        await page.getByRole('button', { name: 'Complete' }).click();
+        await expect(page.getByRole('heading', { name: 'How did the session go?' })).toBeVisible();
+        await expect(calm).toHaveCount(0);
+        await expect(back).toBeVisible();
+        await expect(nav).toBeVisible();
+        await page.getByRole('radio', { name: 'Partial' }).check();
+        await page.getByRole('checkbox', { name: 'Task was larger' }).check();
+        await expectAccessible(page, `review sheet after calm ${size}`);
 
-      await page.getByRole('button', { name: 'Submit review' }).click();
-      await expect(page.getByRole('heading', { name: 'Estimation feedback' })).toBeVisible();
-      await expectAccessible(page, 'review feedback');
-    });
+        await page.getByRole('button', { name: 'Submit review' }).click();
+        await expect(page.getByRole('heading', { name: 'Estimation feedback' })).toBeVisible();
+        await expect(back).toBeVisible();
+        await expect(nav).toBeVisible();
+        await expectAccessible(page, `review feedback after calm ${size}`);
+
+        await back.click();
+        await expect(page.getByRole('heading', { name: 'Today', level: 1 })).toBeVisible();
+        await expect(nav).toBeVisible();
+      });
+    }
 
     await context.close();
   });

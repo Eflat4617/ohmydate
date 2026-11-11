@@ -181,6 +181,151 @@ describe('UiDialog (FU-09 primitive)', () => {
   });
 });
 
+/**
+ * An outer dialog with a button that opens an inner one. `inside` renders the
+ * inner dialog in the outer panel (a confirm step inside a dialog);
+ * `stacked` renders it in a separate host next to the outer one (app-level
+ * dialogs such as consent opening over a view's dialog).
+ */
+function nestedHarness(layout: 'inside' | 'stacked', innerProps: Record<string, unknown> = {}) {
+  const innerOpen = ref(false);
+  const outerClosed = ref(0);
+  const innerClosed = ref(0);
+  const inner = () =>
+    innerOpen.value
+      ? h(
+          UiDialog,
+          {
+            labelledby: 'inner-title',
+            onClose: () => {
+              innerClosed.value += 1;
+              innerOpen.value = false;
+            },
+            ...innerProps,
+          },
+          () => [
+            h('h2', { id: 'inner-title' }, 'Inner dialog'),
+            h('button', { id: 'inner-first', 'data-autofocus': '' }, 'Inner first'),
+            h('button', { id: 'inner-last' }, 'Inner last'),
+          ],
+        )
+      : null;
+  const Harness = defineComponent({
+    setup() {
+      return () =>
+        h('div', { id: 'page' }, [
+          h('div', { id: 'editor' }, [h('input', { id: 'editor-input' })]),
+          h('section', { id: 'outer-host' }, [
+            h(
+              UiDialog,
+              {
+                labelledby: 'outer-title',
+                onClose: () => {
+                  outerClosed.value += 1;
+                },
+              },
+              () => [
+                h('h2', { id: 'outer-title' }, 'Outer dialog'),
+                h('button', { id: 'outer-first' }, 'Outer first'),
+                h(
+                  'button',
+                  {
+                    id: 'open-inner',
+                    onClick: () => {
+                      innerOpen.value = true;
+                    },
+                  },
+                  'Open inner',
+                ),
+                layout === 'inside' ? inner() : null,
+              ],
+            ),
+          ]),
+          layout === 'stacked' ? h('section', { id: 'inner-host' }, [inner()]) : null,
+        ]);
+    },
+  });
+  return { Harness, outerClosed, innerClosed };
+}
+
+describe('UiDialog nested dialogs (UI-POLISHR-1)', () => {
+  for (const layout of ['inside', 'stacked'] as const) {
+    it(`focuses the inner dialog, wraps Tab in it, closes only it on Escape and returns focus to the outer opener (${layout})`, async () => {
+      const { Harness, outerClosed, innerClosed } = nestedHarness(layout);
+      const wrapper = mount(Harness, { attachTo: document.body });
+      await ticks();
+      expect(document.activeElement?.id).toBe('outer-first');
+      expect(wrapper.get('#editor').attributes('inert')).toBeDefined();
+
+      const openInner = wrapper.get('#open-inner');
+      (openInner.element as HTMLElement).focus();
+      await openInner.trigger('click');
+      await ticks();
+
+      expect(wrapper.findAll('[role="dialog"]')).toHaveLength(2);
+      expect(document.activeElement?.id).toBe('inner-first');
+      if (layout === 'inside') {
+        // The rest of the outer dialog is inert while the inner one is open.
+        expect(wrapper.get('#outer-first').attributes('inert')).toBeDefined();
+        expect(wrapper.get('#open-inner').attributes('inert')).toBeDefined();
+      }
+
+      const innerPanel = wrapper.get('[aria-labelledby="inner-title"]');
+      (wrapper.get('#inner-last').element as HTMLElement).focus();
+      await innerPanel.trigger('keydown', { key: 'Tab' });
+      expect(document.activeElement?.id).toBe('inner-first');
+      await innerPanel.trigger('keydown', { key: 'Tab', shiftKey: true });
+      expect(document.activeElement?.id).toBe('inner-last');
+
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      innerPanel.element.dispatchEvent(escape);
+      await ticks();
+
+      expect(innerClosed.value).toBe(1);
+      expect(outerClosed.value).toBe(0);
+      expect(wrapper.findAll('[role="dialog"]')).toHaveLength(1);
+      expect(wrapper.find('[aria-labelledby="outer-title"]').exists()).toBe(true);
+      expect(document.activeElement?.id).toBe('open-inner');
+      expect(wrapper.get('#outer-first').attributes('inert')).toBeUndefined();
+      expect(wrapper.get('#open-inner').attributes('inert')).toBeUndefined();
+      // The page under the outer dialog stays inert: the outer dialog still owns it.
+      expect(wrapper.get('#editor').attributes('inert')).toBeDefined();
+
+      // The outer dialog keeps working once the inner one is gone.
+      const outerPanel = wrapper.get('[aria-labelledby="outer-title"]');
+      await outerPanel.trigger('keydown', { key: 'Tab' });
+      expect(document.activeElement?.id).toBe('outer-first');
+      outerPanel.element.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      expect(outerClosed.value).toBe(1);
+      wrapper.unmount();
+    });
+  }
+
+  for (const layout of ['inside', 'stacked'] as const) {
+    it(`keeps Escape on a non-dismissible inner dialog from closing either dialog (negative, ${layout})`, async () => {
+      const { Harness, outerClosed, innerClosed } = nestedHarness(layout, { dismissible: false });
+      const wrapper = mount(Harness, { attachTo: document.body });
+      await ticks();
+      (wrapper.get('#open-inner').element as HTMLElement).focus();
+      await wrapper.get('#open-inner').trigger('click');
+      await ticks();
+
+      const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      wrapper.get('[aria-labelledby="inner-title"]').element.dispatchEvent(escape);
+      await ticks();
+
+      expect(escape.defaultPrevented).toBe(true);
+      expect(innerClosed.value).toBe(0);
+      expect(outerClosed.value).toBe(0);
+      expect(wrapper.findAll('[role="dialog"]')).toHaveLength(2);
+      expect(document.activeElement?.id).toBe('inner-first');
+      wrapper.unmount();
+    });
+  }
+});
+
 describe('UiButton', () => {
   it('renders a native button with variant classes and a busy spinner', () => {
     const wrapper = mount(UiButton, {

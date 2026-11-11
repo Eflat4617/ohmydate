@@ -116,7 +116,11 @@ Shrink, the Availability conflict and the bottom-nav More sheet all use it.
 | ≥ 1280px | rail | multi-panel: Today adds a *Day at a glance* aside; plan comparison shows its candidates side by side with the calendar |
 
 Focus has a **calm mode**: the shell steps back (no rail, no bottom nav), the
-timer is set in display type, and planned progress shows under it.
+timer is set in display type, and planned progress shows under it. Calm mode
+only lasts while the timer runs. When the session completes, or is no longer
+loaded, it switches off on its own, so the review sheet and the state after
+the review always show *Back to Today* and the navigation. Escape or the
+toggle also leave it.
 
 A 360px viewport never scrolls the page horizontally. Wide content (week
 calendar, candidate cards) scrolls inside its own labelled region.
@@ -174,7 +178,8 @@ The real API is covered too. `e2e/tests/e2e-a11y-screens.spec.ts` runs the
 same axe tags against PostgreSQL + Vikunja on the screens E2E-1..4 do not
 scan. Projects, project detail, availability, commitments, AI settings and
 notifications are checked at 1280×800 (nav rail) and 390×844 (bottom nav and
-More sheet). Focus, calm mode, the review sheet and the review feedback are
-checked at desktop width. The spec waits for finite entrance animations to end
+More sheet). At both widths the spec also runs Focus, switches calm mode on,
+completes and reviews the session without leaving calm mode, and checks that
+*Back to Today* and the navigation are visible at each step. The spec waits for finite entrance animations to end
 before each scan, because a sheet that is still fading in reports false
 contrast failures.
