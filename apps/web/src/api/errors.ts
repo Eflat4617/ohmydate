@@ -20,6 +20,8 @@ const PROBLEM_CODE_MAP: Record<ProblemCode, true> = {
   dependency_cycle: true,
   illegal_transition: true,
   approval_in_progress: true,
+  active_session_exists: true,
+  session_state_conflict: true,
   not_found: true,
   forbidden: true,
   rate_limited: true,
