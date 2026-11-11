@@ -1,5 +1,10 @@
 import { redact } from '../src/index.js';
-import { redactWithSpans, type RedactionSpan } from '../src/privacy.js';
+import {
+  MAX_REDACT_INPUT,
+  assertRedactInputSize,
+  redactWithSpans,
+  type RedactionSpan,
+} from '../src/privacy.js';
 import type { RedactionKind } from '../src/privacy.js';
 import { redactWithSpans as snapshotRedactWithSpans } from './fixtures/privacy-fu32-snapshot.js';
 import { oracleCoverage } from './fixtures/privacy-oracle.js';
@@ -123,6 +128,33 @@ const LITERAL_TOKENS: readonly TokenSpec[] = [
   { kind: 'api_key', prefix: '', groups: [], literal: 'glpat-abcdefghij1234567890' },
 ];
 
+/** Realistic and over-cap API-key bodies (FU-38cR-1 HIGH). */
+const LONG_SK_PROJECT = `sk-proj-${'Ab3'.repeat(52)}`;
+const LONG_GITHUB_PAT = `github_pat_${'a'.repeat(93)}`;
+const LONG_GHP = `ghp_${'a'.repeat(93)}`;
+const LONG_XOX = `xoxb-${'a'.repeat(93)}`;
+const LONG_GLPAT = `glpat-${'a'.repeat(93)}`;
+const OVER_CAP_SK = `sk-${'b'.repeat(300)}`;
+const OVER_CAP_GHP = `ghp_${'b'.repeat(300)}`;
+const OVER_CAP_XOX = `xoxb-${'b'.repeat(300)}`;
+const OVER_CAP_GLPAT = `glpat-${'b'.repeat(300)}`;
+const OVER_CAP_GITHUB = `github_pat_${'b'.repeat(300)}`;
+
+const KEY_TOKENS: readonly TokenSpec[] = [
+  { kind: 'api_key', prefix: '', groups: [], literal: LONG_SK_PROJECT },
+  { kind: 'api_key', prefix: '', groups: [], literal: LONG_GITHUB_PAT },
+  { kind: 'api_key', prefix: '', groups: [], literal: LONG_GHP },
+  { kind: 'api_key', prefix: '', groups: [], literal: LONG_XOX },
+  { kind: 'api_key', prefix: '', groups: [], literal: LONG_GLPAT },
+  { kind: 'api_key', prefix: '', groups: [], literal: OVER_CAP_SK },
+  { kind: 'api_key', prefix: '', groups: [], literal: OVER_CAP_GHP },
+  { kind: 'api_key', prefix: '', groups: [], literal: OVER_CAP_XOX },
+  { kind: 'api_key', prefix: '', groups: [], literal: OVER_CAP_GLPAT },
+  { kind: 'api_key', prefix: '', groups: [], literal: OVER_CAP_GITHUB },
+];
+
+const KEY_JOIN_SEPARATORS = ['', ' ', '\u200B', '\u200C', '\u00AD', '\u2060', '\uFEFF'] as const;
+
 interface Built {
   readonly text: string;
   readonly core: readonly CoreRange[];
@@ -178,6 +210,8 @@ function joinTokens(parts: readonly Built[], separator: string): Built {
 }
 
 const JOIN_SEPARATORS = ['', ' ', '\u200B', '\u200C', '\u00AD'] as const;
+/** Same-kind numeric windows inside one glued digit run are ambiguous (ADR-019 (7)). */
+const NUMERIC_RUN_SEPARATORS = [' ', '\u200B', '\u200C', '\u00AD'] as const;
 
 const RRN_SPEC = NUMERIC_TOKENS[0] as TokenSpec;
 const MOBILE_SPEC = NUMERIC_TOKENS[2] as TokenSpec;
@@ -208,7 +242,7 @@ function buildCases(): Case[] {
 
   // Same-kind 2- and 3-token runs.
   for (const spec of NUMERIC_TOKENS) {
-    for (const separator of JOIN_SEPARATORS) {
+    for (const separator of NUMERIC_RUN_SEPARATORS) {
       for (const style of ['ascii', 'super', 'sub', 'mixed'] as const) {
         const rate = mulberry32(0x51 + cases.length);
         const first = buildToken(spec, style, '-', rate);
@@ -218,7 +252,7 @@ function buildCases(): Case[] {
       }
     }
   }
-  for (const separator of JOIN_SEPARATORS) {
+  for (const separator of NUMERIC_RUN_SEPARATORS) {
     const parts = [
       buildToken(RRN_SPEC, 'super', '-', next),
       buildToken(MOBILE_SPEC, 'ascii', '-', next),
@@ -261,6 +295,31 @@ function buildCases(): Case[] {
     }
   }
 
+  // Same-kind API-key runs with realistic and over-cap bodies, joined by stripped
+  // characters (ZWSP/ZWNJ/SHY/WJ/BOM) as well as space/glued.
+  for (const spec of KEY_TOKENS) {
+    cases.push({ name: `single key ${spec.literal?.slice(0, 16)}`, ...buildToken(spec, 'ascii', '-', next) });
+  }
+  for (const separator of KEY_JOIN_SEPARATORS) {
+    for (const spec of KEY_TOKENS) {
+      const first = buildToken(spec, 'ascii', '-', next);
+      const second = buildToken(spec, 'ascii', '-', next);
+      cases.push({
+        name: `key pair ${spec.literal?.slice(0, 12)} join=${JSON.stringify(separator)}`,
+        ...joinTokens([first, second], separator),
+      });
+    }
+    const triple = [
+      buildToken(KEY_TOKENS[1] as TokenSpec, 'ascii', '-', next),
+      buildToken(KEY_TOKENS[1] as TokenSpec, 'ascii', '-', next),
+      buildToken(KEY_TOKENS[1] as TokenSpec, 'ascii', '-', next),
+    ];
+    cases.push({
+      name: `key triple github_pat join=${JSON.stringify(separator)}`,
+      ...joinTokens(triple, separator),
+    });
+  }
+
   return cases;
 }
 
@@ -286,20 +345,18 @@ test('scanner masks every core glyph the independent oracle finds', () => {
     }
     for (const range of entry.core) {
       for (let index = range.start; index < range.end; index += 1) {
-        if (requiredDigit(entry.text[index] as string) && oracle[index] !== 1) {
+        if (oracle[index] !== 1) {
           failures.push(
             `${entry.name} oracle missed core glyph ${index}:${JSON.stringify(entry.text[index])} text=${JSON.stringify(entry.text)}`,
           );
           break;
         }
-      }
-    }
-    for (let index = 0; index < entry.text.length; index += 1) {
-      if (oracle[index] === 1 && coverage[index] === 0 && requiredDigit(entry.text[index] as string)) {
-        failures.push(
-          `${entry.name} scanner missed oracle glyph ${index}:${JSON.stringify(entry.text[index])} text=${JSON.stringify(entry.text)}`,
-        );
-        break;
+        if (coverage[index] !== 1) {
+          failures.push(
+            `${entry.name} scanner missed core glyph ${index}:${JSON.stringify(entry.text[index])} text=${JSON.stringify(entry.text)}`,
+          );
+          break;
+        }
       }
     }
     if (failures.length > 10) break;
@@ -384,6 +441,9 @@ const PRECISION_NEGATIVES = [
   '10⁻¹²³⁴',
   'x² + y² = z²',
   'a₁ + a₂ + a₃',
+  '301017393922089022553716133087249092',
+  'order 0101234567890123456789012',
+  '3.14159265358979323846264338',
 ] as const;
 
 test.each(PRECISION_NEGATIVES)(
@@ -406,6 +466,137 @@ test('attached superscript suffix tradeoff is pinned', () => {
   expect(redact('⁸⁵¹²²⁷¹⁴⁸⁶⁹⁹⁷²').text).toBe('[REDACTED_RRN]');
 });
 
+/** No letter/digit glyph of a key run may survive (HIGH key-cap regression). */
+function leakedWordGlyphs(text: string, spans: readonly RedactionSpan[]): string[] {
+  const coverage = coverageFromSpans(text.length, spans);
+  const leaked: string[] = [];
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index] as string;
+    if (/[A-Za-z0-9_]/.test(char) && coverage[index] === 0) leaked.push(`${index}:${char}`);
+  }
+  return leaked;
+}
+
+const STRIPPED_JOINERS = ['\u200B', '\u200C', '\u00AD', '\u2060', '\uFEFF'] as const;
+
+test.each(STRIPPED_JOINERS)(
+  'realistic sk-proj key joined by %j to another key masks both',
+  (joiner) => {
+    const input = `${LONG_SK_PROJECT}${joiner}${LONG_SK_PROJECT}`;
+    const result = redactWithSpans(input);
+    expect(leakedWordGlyphs(input, result.spans)).toEqual([]);
+    expect(result.text).not.toContain('sk-proj-');
+  },
+);
+
+test.each(STRIPPED_JOINERS)(
+  'realistic sk-proj key joined by %j to a 120-char word masks the key',
+  (joiner) => {
+    const word = 'w'.repeat(120);
+    const input = `${LONG_SK_PROJECT}${joiner}${word}`;
+    const result = redactWithSpans(input);
+    expect(result.report.length).toBeGreaterThan(0);
+    expect(result.text).not.toContain('sk-proj-');
+    expect(result.text).not.toContain('Ab3Ab3');
+  },
+);
+
+test.each(STRIPPED_JOINERS)(
+  'three 93-char github_pat keys joined by %j mask fully',
+  (joiner) => {
+    const input = `${LONG_GITHUB_PAT}${joiner}${LONG_GITHUB_PAT}${joiner}${LONG_GITHUB_PAT}`;
+    const result = redactWithSpans(input);
+    expect(leakedWordGlyphs(input, result.spans)).toEqual([]);
+    expect(result.text).not.toContain('github_pat_');
+  },
+);
+
+test.each([
+  `sk-${'b'.repeat(257)}`,
+  `ghp_${'b'.repeat(257)}`,
+  `xoxb-${'b'.repeat(257)}`,
+  `glpat-${'b'.repeat(257)}`,
+  `sk-${'b'.repeat(600)}`,
+  `ghp_${'b'.repeat(600)}`,
+  `xoxb-${'b'.repeat(600)}`,
+  `glpat-${'b'.repeat(600)}`,
+])('over-cap key body is masked, not rejected: %s', (input) => {
+  const result = redactWithSpans(input);
+  expect(leakedWordGlyphs(input, result.spans)).toEqual([]);
+  expect(result.report).toEqual([{ kind: 'api_key', count: 1 }]);
+});
+
+/** Reviewer separator repros: whitespace-class runs fold to one separator unit. */
+const SEPARATOR_REPROS = [
+  `tel 010${' '.repeat(33)}1234-5678`,
+  `900101${' '.repeat(40)}-1234567`,
+  `주민번호: 900101-\n${' '.repeat(40)}1234567`,
+  `010${'\u3000'.repeat(33)}1234\u30005678`,
+  `Bearer${' '.repeat(33)}eyJhbGciOi.eyJzdWIiOi.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c`,
+] as const;
+
+test.each(SEPARATOR_REPROS)('long whitespace separator run still masks: %j', (input) => {
+  const result = redactWithSpans(input);
+  const leaked = uncoveredText(input, result.spans);
+  expect(leaked).toEqual([]);
+  expect(result.report.length).toBeGreaterThan(0);
+});
+
+test('random whitespace runs of length 1..80 never lose masking', () => {
+  const random = mulberry32(0x5e9a);
+  const whitespace = [' ', '\t', '\n', '\u3000', '\u00A0', '\u2003', '\u202F'] as const;
+  const failures: string[] = [];
+  for (let run = 1; run <= 80; run += 1) {
+    for (const space of whitespace) {
+      const chars = Array.from({ length: run }, () => space).join('');
+      const phone = `tel 010${chars}1234-5678`;
+      const rrn = `900101${chars}-1234567`;
+      for (const input of [phone, rrn]) {
+        const result = redactWithSpans(input);
+        if (result.report.length === 0 || uncoveredText(input, result.spans).length > 0) {
+          failures.push(`${run}:${JSON.stringify(space)} ${JSON.stringify(input)}`);
+        }
+      }
+    }
+    const randomRun = Array.from(
+      { length: run },
+      () => whitespace[Math.floor(random() * whitespace.length)] as string,
+    ).join('');
+    const input = `tel 010${randomRun}1234-5678`;
+    const result = redactWithSpans(input);
+    if (result.report.length === 0 || uncoveredText(input, result.spans).length > 0) {
+      failures.push(`random:${run}`);
+    }
+  }
+  expect(failures).toEqual([]);
+});
+
+/** GB-1: Seoul/single-digit-area international phone formats. */
+const SINGLE_DIGIT_AREA_PHONES = [
+  '+82-2-1234-5678',
+  '+82 2 1234 5678',
+  '+82-2-123-4567',
+  '+81 3-1234-5678',
+  '+33 1 23 45 67 89',
+] as const;
+
+test.each(SINGLE_DIGIT_AREA_PHONES)(
+  'international phone with a 1-digit area masks: %s',
+  (input) => {
+    const result = redact(input);
+    expect(result.text).toBe('[REDACTED_PHONE]');
+    expect(result.report).toEqual([{ kind: 'phone', count: 1 }]);
+  },
+);
+
+test('MAX_REDACT_INPUT guard documents and enforces the input cap', () => {
+  expect(MAX_REDACT_INPUT).toBe(1024 * 1024);
+  expect(() => assertRedactInputSize('x'.repeat(MAX_REDACT_INPUT))).not.toThrow();
+  expect(() => assertRedactInputSize('x'.repeat(MAX_REDACT_INPUT + 1))).toThrow(
+    /MAX_REDACT_INPUT/,
+  );
+});
+
 /**
  * ADR-019 perf gate: linear scaling to 8 MiB for the adversarial shapes from FU-38R2.
  * Heavy sizes only run with PRIVACY_HEAVY=1; the assertion itself needs
@@ -425,9 +616,16 @@ const PERF_SHAPES: readonly { readonly label: string; readonly unit: string }[] 
     label: 'overlapping super RRNs',
     unit: '⁸⁵¹²²⁷¹⁴⁸⁶⁹⁹⁷⁹⁰⁰¹⁰¹-¹²³⁴⁵⁶⁷',
   },
+  { label: 'uniform super run', unit: '⁵' },
+  { label: 'uniform sub run', unit: '₅' },
   { label: 'alternating super/ASCII', unit: '⁰1⁰1²²³³⁴⁴⁵⁵⁶⁶⁷⁷⁸⁸⁹⁹' },
   { label: 'long ZWSP chain in RRN', unit: '900101\u200B\u200B\u200B\u200B\u200B1234567 ' },
-  { label: 'many retries', unit: '+1 12 34 56 78999 ' },
+  { label: 'separator run over old cap', unit: `tel 010${' '.repeat(40)}1234-5678 ` },
+  { label: 'ideographic separator over old cap', unit: `010${'\u3000'.repeat(40)}1234\u30005678 ` },
+  { label: 'many +cc retries', unit: '+1 12 34 56 78999 ' },
+  { label: 'prefix-dense sk words', unit: 'sk-abcdefgh ' },
+  { label: 'Bearer near-misses', unit: 'Bearer abcdefghij ' },
+  { label: 'glued ASCII phone chain', unit: '01012345678 ' },
   { label: 'glued mixed RRN+phone', unit: '900101123456701012345678 ' },
 ];
 
@@ -443,16 +641,19 @@ perfTest(
       for (const size of sizes) {
         const text = repeatToSize(shape.unit, size);
         redact(text.slice(0, 2_000));
-        const started = performance.now();
-        redact(text);
-        const elapsed = performance.now() - started;
-        timings.push(elapsed);
+        let best = Number.POSITIVE_INFINITY;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const started = performance.now();
+          redact(text);
+          best = Math.min(best, performance.now() - started);
+        }
+        timings.push(best);
       }
       for (let index = 1; index < timings.length; index += 1) {
         const previous = timings[index - 1] as number;
         const current = timings[index] as number;
         const ratio = current / Math.max(previous, 0.5);
-        if (ratio > 4.5) {
+        if (ratio > 3.0) {
           failures.push(
             `${shape.label} at ${sizes[index]} grew ${ratio.toFixed(2)}x (${previous.toFixed(1)}ms -> ${current.toFixed(1)}ms)`,
           );
