@@ -140,6 +140,61 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     optionalHeaders: ['If-None-Match'],
     statuses: [200, 304, 400, 401, 404],
   },
+  createPlan: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 422],
+  },
+  getPlan: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 404],
+  },
+  previewPlanCandidateEdit: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 412, 422, 428],
+  },
+  approvePlanCandidate: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 404, 409, 412, 422, 428, 503],
+  },
+  regeneratePlan: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  getAvailability: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401],
+  },
+  putAvailability: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 409, 412, 422, 428],
+  },
+  listCommitments: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 422],
+  },
+  createCommitment: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 422],
+  },
+  updateCommitment: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  deleteCommitment: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [204, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
 };
 
 const keyOf = (method: string, path: string): string => `${method.toUpperCase()} ${path}`;
@@ -156,7 +211,13 @@ function headerShape(route: RouteDefinition): HeaderShape {
 function validHeaders(route: RouteDefinition): Record<string, string> {
   const headers: Record<string, string> = {};
   for (const name of Object.keys(headerShape(route).properties ?? {})) {
-    if (name === 'If-Match' || name === 'If-None-Match') headers[name] = 'W/"3"';
+    if (name === 'If-Match') {
+      headers[name] =
+        route.operationId === 'approvePlanCandidate' || route.operationId === 'putAvailability'
+          ? 'W/"availability:3"'
+          : 'W/"3"';
+    }
+    if (name === 'If-None-Match') headers[name] = 'W/"3"';
     if (name === 'Idempotency-Key') headers[name] = ID;
   }
   return headers;
@@ -215,6 +276,36 @@ test('route table covers intake and template endpoints from 08 §2.3', () => {
     'GET /templates/{id}',
   ]) {
     expect({ expected, present: keys.has(expected) }).toEqual({ expected, present: true });
+  }
+});
+
+test('route table covers availability, commitment and planning endpoints from 08 §2.4/§2.4a', () => {
+  const keys = new Set(routes.map((route) => keyOf(route.method, route.path)));
+  for (const expected of [
+    'POST /plans',
+    'GET /plans/{id}',
+    'POST /plans/{id}/candidates/{cid}:preview-edit',
+    'POST /plans/{id}/candidates/{cid}:approve',
+    'POST /plans/{id}:regenerate',
+    'GET /availability',
+    'PUT /availability',
+    'GET /commitments',
+    'POST /commitments',
+    'PATCH /commitments/{id}',
+    'DELETE /commitments/{id}',
+  ]) {
+    expect({ expected, present: keys.has(expected) }).toEqual({ expected, present: true });
+  }
+});
+
+test('approval and availability replacement pin If-Match to availability versions', () => {
+  for (const operationId of ['approvePlanCandidate', 'putAvailability']) {
+    const route = routes.find((candidate) => candidate.operationId === operationId);
+    expect(route).toBeDefined();
+    if (route?.headers === undefined) throw new Error(`${operationId} headers missing`);
+    const validate = compile(route.headers);
+    expect(validate({ 'If-Match': 'W/"availability:7"', 'Idempotency-Key': ID })).toBe(true);
+    expect(validate({ 'If-Match': 'W/"7"', 'Idempotency-Key': ID })).toBe(false);
   }
 });
 
@@ -298,6 +389,12 @@ test('existing-resource mutations require both If-Match and Idempotency-Key', ()
     'resumeIntakeSession',
     'cancelIntakeSession',
     'enterManualIntakeMode',
+    'previewPlanCandidateEdit',
+    'approvePlanCandidate',
+    'regeneratePlan',
+    'putAvailability',
+    'updateCommitment',
+    'deleteCommitment',
   ]) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();
@@ -309,7 +406,13 @@ test('existing-resource mutations require both If-Match and Idempotency-Key', ()
 });
 
 test('creation POSTs require Idempotency-Key without If-Match', () => {
-  for (const operationId of ['createProject', 'createTask', 'createIntakeSession']) {
+  for (const operationId of [
+    'createProject',
+    'createTask',
+    'createIntakeSession',
+    'createPlan',
+    'createCommitment',
+  ]) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();
     expect(headerShape(route as RouteDefinition).required).toEqual(['Idempotency-Key']);

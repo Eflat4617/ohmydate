@@ -137,6 +137,7 @@ function buildPaths(): Record<string, unknown> {
       summary: route.summary,
       responses: responsesFor(route),
     };
+    if (route.description !== undefined) operation.description = route.description;
 
     const parameters = parametersFor(route);
     if (parameters.length > 0) operation.parameters = parameters;

@@ -1,6 +1,845 @@
 {
   "components": {
     "schemas": {
+      "ApprovePlanRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "editedBlocks": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "endAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "startAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "taskId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "taskId",
+                "startAt",
+                "endAt"
+              ],
+              "type": "object"
+            },
+            "maxItems": 5000,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Availability": {
+        "additionalProperties": false,
+        "properties": {
+          "exceptions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "date": {
+                  "format": "date",
+                  "type": "string"
+                },
+                "endLocal": {
+                  "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+                  "type": "string"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "const": "off",
+                      "type": "string"
+                    },
+                    {
+                      "const": "extra",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "startLocal": {
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "maxItems": 400,
+            "type": "array"
+          },
+          "prefs": {
+            "additionalProperties": false,
+            "properties": {
+              "breakAfterMin": {
+                "maximum": 100000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "breakMin": {
+                "maximum": 100000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "dayEndLocal": {
+                "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+                "type": "string"
+              },
+              "dayStartLocal": {
+                "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                "type": "string"
+              },
+              "maxDailyFocusMin": {
+                "maximum": 100000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "riskLevel": {
+                "anyOf": [
+                  {
+                    "const": "p50",
+                    "type": "string"
+                  },
+                  {
+                    "const": "p90",
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "maxDailyFocusMin",
+              "breakAfterMin",
+              "breakMin",
+              "dayStartLocal",
+              "dayEndLocal",
+              "riskLevel"
+            ],
+            "type": "object"
+          },
+          "rules": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "endLocal": {
+                  "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+                  "type": "string"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "const": "work",
+                      "type": "string"
+                    },
+                    {
+                      "const": "focus",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "startLocal": {
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                  "type": "string"
+                },
+                "weekday": {
+                  "maximum": 7,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "weekday",
+                "startLocal",
+                "endLocal",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "timeZone": {
+            "format": "iana-time-zone",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "timeZone",
+          "rules",
+          "exceptions",
+          "prefs"
+        ],
+        "type": "object"
+      },
+      "AvailabilityException": {
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "format": "date",
+            "type": "string"
+          },
+          "endLocal": {
+            "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+            "type": "string"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "const": "off",
+                "type": "string"
+              },
+              {
+                "const": "extra",
+                "type": "string"
+              }
+            ]
+          },
+          "startLocal": {
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "AvailabilityPreferences": {
+        "additionalProperties": false,
+        "properties": {
+          "breakAfterMin": {
+            "maximum": 100000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "breakMin": {
+            "maximum": 100000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "dayEndLocal": {
+            "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+            "type": "string"
+          },
+          "dayStartLocal": {
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "type": "string"
+          },
+          "maxDailyFocusMin": {
+            "maximum": 100000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "riskLevel": {
+            "anyOf": [
+              {
+                "const": "p50",
+                "type": "string"
+              },
+              {
+                "const": "p90",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "maxDailyFocusMin",
+          "breakAfterMin",
+          "breakMin",
+          "dayStartLocal",
+          "dayEndLocal",
+          "riskLevel"
+        ],
+        "type": "object"
+      },
+      "AvailabilityPut": {
+        "additionalProperties": false,
+        "properties": {
+          "exceptions": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "date": {
+                  "format": "date",
+                  "type": "string"
+                },
+                "endLocal": {
+                  "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+                  "type": "string"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "const": "off",
+                      "type": "string"
+                    },
+                    {
+                      "const": "extra",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "startLocal": {
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "maxItems": 400,
+            "type": "array"
+          },
+          "prefs": {
+            "additionalProperties": false,
+            "properties": {
+              "breakAfterMin": {
+                "maximum": 100000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "breakMin": {
+                "maximum": 100000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "dayEndLocal": {
+                "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+                "type": "string"
+              },
+              "dayStartLocal": {
+                "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                "type": "string"
+              },
+              "maxDailyFocusMin": {
+                "maximum": 100000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "riskLevel": {
+                "anyOf": [
+                  {
+                    "const": "p50",
+                    "type": "string"
+                  },
+                  {
+                    "const": "p90",
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "maxDailyFocusMin",
+              "breakAfterMin",
+              "breakMin",
+              "dayStartLocal",
+              "dayEndLocal",
+              "riskLevel"
+            ],
+            "type": "object"
+          },
+          "rules": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "endLocal": {
+                  "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+                  "type": "string"
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "const": "work",
+                      "type": "string"
+                    },
+                    {
+                      "const": "focus",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "startLocal": {
+                  "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+                  "type": "string"
+                },
+                "weekday": {
+                  "maximum": 7,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "weekday",
+                "startLocal",
+                "endLocal",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "timeZone": {
+            "format": "iana-time-zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timeZone",
+          "rules",
+          "exceptions",
+          "prefs"
+        ],
+        "type": "object"
+      },
+      "AvailabilityRule": {
+        "additionalProperties": false,
+        "properties": {
+          "endLocal": {
+            "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+            "type": "string"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "const": "work",
+                "type": "string"
+              },
+              {
+                "const": "focus",
+                "type": "string"
+              }
+            ]
+          },
+          "startLocal": {
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "type": "string"
+          },
+          "weekday": {
+            "maximum": 7,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "weekday",
+          "startLocal",
+          "endLocal",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "Commitment": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "endAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "occurrences": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "commitmentId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "endAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "startAt": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "commitmentId",
+                "startAt",
+                "endAt"
+              ],
+              "type": "object"
+            },
+            "maxItems": 2000,
+            "type": "array"
+          },
+          "ownerId": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "rrule": {
+            "maxLength": 500,
+            "minLength": 5,
+            "pattern": "^FREQ=",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "const": "manual",
+                "type": "string"
+              },
+              {
+                "const": "caldav",
+                "type": "string"
+              },
+              {
+                "const": "vikunja",
+                "type": "string"
+              }
+            ]
+          },
+          "startAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "timeZone": {
+            "format": "iana-time-zone",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "ownerId",
+          "title",
+          "startAt",
+          "endAt",
+          "timeZone",
+          "source",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "CommitmentCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "endAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "rrule": {
+            "maxLength": 500,
+            "minLength": 5,
+            "pattern": "^FREQ=",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "const": "manual",
+                "type": "string"
+              },
+              {
+                "const": "caldav",
+                "type": "string"
+              },
+              {
+                "const": "vikunja",
+                "type": "string"
+              }
+            ]
+          },
+          "startAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "timeZone": {
+            "format": "iana-time-zone",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "startAt",
+          "endAt",
+          "timeZone"
+        ],
+        "type": "object"
+      },
+      "CommitmentListQuery": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
+      "CommitmentOccurrence": {
+        "additionalProperties": false,
+        "properties": {
+          "commitmentId": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "endAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "startAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "commitmentId",
+          "startAt",
+          "endAt"
+        ],
+        "type": "object"
+      },
+      "CommitmentPage": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "createdAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "endAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "occurrences": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "commitmentId": {
+                        "format": "uuid",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                        "type": "string"
+                      },
+                      "endAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "startAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "commitmentId",
+                      "startAt",
+                      "endAt"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 2000,
+                  "type": "array"
+                },
+                "ownerId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "rrule": {
+                  "maxLength": 500,
+                  "minLength": 5,
+                  "pattern": "^FREQ=",
+                  "type": "string"
+                },
+                "source": {
+                  "anyOf": [
+                    {
+                      "const": "manual",
+                      "type": "string"
+                    },
+                    {
+                      "const": "caldav",
+                      "type": "string"
+                    },
+                    {
+                      "const": "vikunja",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "startAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "timeZone": {
+                  "format": "iana-time-zone",
+                  "type": "string"
+                },
+                "title": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "version": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "ownerId",
+                "title",
+                "startAt",
+                "endAt",
+                "timeZone",
+                "source",
+                "version",
+                "createdAt",
+                "updatedAt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "CommitmentPatch": {
+        "additionalProperties": false,
+        "properties": {
+          "endAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "rrule": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 5,
+                "pattern": "^FREQ=",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "anyOf": [
+              {
+                "const": "manual",
+                "type": "string"
+              },
+              {
+                "const": "caldav",
+                "type": "string"
+              },
+              {
+                "const": "vikunja",
+                "type": "string"
+              }
+            ]
+          },
+          "startAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "timeZone": {
+            "format": "iana-time-zone",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "DecompositionDraft": {
         "additionalProperties": false,
         "properties": {
@@ -2203,6 +3042,828 @@
         ],
         "type": "object"
       },
+      "Plan": {
+        "additionalProperties": false,
+        "properties": {
+          "availabilityVersion": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "candidates": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "blocks": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "endAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "startAt": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "taskId": {
+                        "format": "uuid",
+                        "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "taskId",
+                      "startAt",
+                      "endAt"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 5000,
+                  "type": "array"
+                },
+                "capacityDeficitMin": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "deficitMin": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "diversityNote": {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                "explanation": {
+                  "items": {
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "maxItems": 50,
+                  "type": "array"
+                },
+                "feasible": {
+                  "type": "boolean"
+                },
+                "generatorVersion": {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "inputHash": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "metrics": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "avgDailyLoadMin": {
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "capacityDeficitMin": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "changedBlocks": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "contextSwitches": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "deficitMin": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "maxDailyLoadMin": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "minSlackMin": {
+                      "type": "number"
+                    },
+                    "p90CoverageRatio": {
+                      "minimum": 0,
+                      "type": "number"
+                    },
+                    "totalFocusMin": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "totalFocusMin",
+                    "minSlackMin",
+                    "maxDailyLoadMin",
+                    "avgDailyLoadMin",
+                    "contextSwitches",
+                    "changedBlocks",
+                    "deficitMin",
+                    "capacityDeficitMin",
+                    "p90CoverageRatio"
+                  ],
+                  "type": "object"
+                },
+                "policy": {
+                  "anyOf": [
+                    {
+                      "const": "front_loaded",
+                      "type": "string"
+                    },
+                    {
+                      "const": "balanced",
+                      "type": "string"
+                    },
+                    {
+                      "const": "focus_blocked",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "policy",
+                "blocks",
+                "metrics",
+                "feasible",
+                "deficitMin",
+                "capacityDeficitMin",
+                "explanation",
+                "generatorVersion",
+                "inputHash"
+              ],
+              "type": "object"
+            },
+            "maxItems": 3,
+            "type": "array"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "currentVersionId": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "horizon": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "start": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "start",
+              "end"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "ownerId": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "goalId": {
+                    "format": "uuid",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "goalId"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "taskIds": {
+                    "items": {
+                      "format": "uuid",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                      "type": "string"
+                    },
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "taskIds"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "status": {
+            "anyOf": [
+              {
+                "const": "draft",
+                "type": "string"
+              },
+              {
+                "const": "active",
+                "type": "string"
+              },
+              {
+                "const": "superseded",
+                "type": "string"
+              }
+            ]
+          },
+          "timeZone": {
+            "format": "iana-time-zone",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "ownerId",
+          "scope",
+          "status",
+          "availabilityVersion",
+          "horizon",
+          "timeZone",
+          "candidates",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "PlanBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "endAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "startAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "taskId": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "startAt",
+          "endAt"
+        ],
+        "type": "object"
+      },
+      "PlanCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "blocks": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "endAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "startAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "taskId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "taskId",
+                "startAt",
+                "endAt"
+              ],
+              "type": "object"
+            },
+            "maxItems": 5000,
+            "type": "array"
+          },
+          "capacityDeficitMin": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deficitMin": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "diversityNote": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "explanation": {
+            "items": {
+              "maxLength": 500,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "feasible": {
+            "type": "boolean"
+          },
+          "generatorVersion": {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "inputHash": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": false,
+            "properties": {
+              "avgDailyLoadMin": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "capacityDeficitMin": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "changedBlocks": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "contextSwitches": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "deficitMin": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "maxDailyLoadMin": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "minSlackMin": {
+                "type": "number"
+              },
+              "p90CoverageRatio": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "totalFocusMin": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "totalFocusMin",
+              "minSlackMin",
+              "maxDailyLoadMin",
+              "avgDailyLoadMin",
+              "contextSwitches",
+              "changedBlocks",
+              "deficitMin",
+              "capacityDeficitMin",
+              "p90CoverageRatio"
+            ],
+            "type": "object"
+          },
+          "policy": {
+            "anyOf": [
+              {
+                "const": "front_loaded",
+                "type": "string"
+              },
+              {
+                "const": "balanced",
+                "type": "string"
+              },
+              {
+                "const": "focus_blocked",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "policy",
+          "blocks",
+          "metrics",
+          "feasible",
+          "deficitMin",
+          "capacityDeficitMin",
+          "explanation",
+          "generatorVersion",
+          "inputHash"
+        ],
+        "type": "object"
+      },
+      "PlanCandidateParams": {
+        "additionalProperties": false,
+        "properties": {
+          "cid": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "cid"
+        ],
+        "type": "object"
+      },
+      "PlanCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "horizon": {
+            "additionalProperties": false,
+            "properties": {
+              "end": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "start": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "start",
+              "end"
+            ],
+            "type": "object"
+          },
+          "policies": {
+            "items": {
+              "anyOf": [
+                {
+                  "const": "front_loaded",
+                  "type": "string"
+                },
+                {
+                  "const": "balanced",
+                  "type": "string"
+                },
+                {
+                  "const": "focus_blocked",
+                  "type": "string"
+                }
+              ]
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "goalId": {
+                    "format": "uuid",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "goalId"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "taskIds": {
+                    "items": {
+                      "format": "uuid",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                      "type": "string"
+                    },
+                    "maxItems": 100,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "taskIds"
+                ],
+                "type": "object"
+              }
+            ]
+          }
+        },
+        "required": [
+          "scope",
+          "horizon"
+        ],
+        "type": "object"
+      },
+      "PlanHorizon": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "start": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
+      "PlanIdParams": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "PlanMetrics": {
+        "additionalProperties": false,
+        "properties": {
+          "avgDailyLoadMin": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "capacityDeficitMin": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "changedBlocks": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "contextSwitches": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "deficitMin": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxDailyLoadMin": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "minSlackMin": {
+            "type": "number"
+          },
+          "p90CoverageRatio": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "totalFocusMin": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "totalFocusMin",
+          "minSlackMin",
+          "maxDailyLoadMin",
+          "avgDailyLoadMin",
+          "contextSwitches",
+          "changedBlocks",
+          "deficitMin",
+          "capacityDeficitMin",
+          "p90CoverageRatio"
+        ],
+        "type": "object"
+      },
+      "PlanScope": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "goalId": {
+                "format": "uuid",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                "type": "string"
+              }
+            },
+            "required": [
+              "goalId"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "taskIds": {
+                "items": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
+              }
+            },
+            "required": [
+              "taskIds"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "PlanVersion": {
+        "additionalProperties": false,
+        "properties": {
+          "availabilityVersion": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "blocks": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "endAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "planVersionId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "startAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "status": {
+                  "anyOf": [
+                    {
+                      "const": "planned",
+                      "type": "string"
+                    },
+                    {
+                      "const": "done",
+                      "type": "string"
+                    },
+                    {
+                      "const": "skipped",
+                      "type": "string"
+                    },
+                    {
+                      "const": "moved",
+                      "type": "string"
+                    },
+                    {
+                      "const": "superseded",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "taskId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "version": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "planVersionId",
+                "taskId",
+                "startAt",
+                "endAt",
+                "locked",
+                "status",
+                "version"
+              ],
+              "type": "object"
+            },
+            "maxItems": 5000,
+            "type": "array"
+          },
+          "candidateId": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdBy": {
+            "anyOf": [
+              {
+                "const": "user",
+                "type": "string"
+              },
+              {
+                "const": "replan",
+                "type": "string"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "planId": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "type": "string"
+          },
+          "seq": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "planId",
+          "seq",
+          "createdBy",
+          "availabilityVersion",
+          "blocks",
+          "version",
+          "createdAt"
+        ],
+        "type": "object"
+      },
       "PlannedQuestion": {
         "additionalProperties": false,
         "properties": {
@@ -2283,6 +3944,121 @@
         ],
         "type": "object"
       },
+      "PreviewEditRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "blocks": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "endAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "startAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "taskId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "taskId",
+                "startAt",
+                "endAt"
+              ],
+              "type": "object"
+            },
+            "maxItems": 5000,
+            "type": "array"
+          }
+        },
+        "required": [
+          "blocks"
+        ],
+        "type": "object"
+      },
+      "PreviewEditResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "deficitMin": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "feasible": {
+            "type": "boolean"
+          },
+          "violations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "anyOf": [
+                    {
+                      "const": "H1",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H2",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H3",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H4",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H5",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H6",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H7",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H8",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "message": {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "taskId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "type": "object"
+            },
+            "maxItems": 1000,
+            "type": "array"
+          }
+        },
+        "required": [
+          "feasible",
+          "violations",
+          "deficitMin"
+        ],
+        "type": "object"
+      },
       "Problem": {
         "additionalProperties": false,
         "properties": {
@@ -2298,6 +4074,10 @@
               },
               {
                 "const": "availability_changed",
+                "type": "string"
+              },
+              {
+                "const": "constraint_violation",
                 "type": "string"
               },
               {
@@ -2390,6 +4170,66 @@
           "type": {
             "format": "uri",
             "type": "string"
+          },
+          "violations": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "anyOf": [
+                    {
+                      "const": "H1",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H2",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H3",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H4",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H5",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H6",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H7",
+                      "type": "string"
+                    },
+                    {
+                      "const": "H8",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "message": {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "taskId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "type": "object"
+            },
+            "maxItems": 1000,
+            "type": "array"
           }
         },
         "required": [
@@ -2484,6 +4324,76 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "ScheduleBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "endAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "planVersionId": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "startAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "const": "planned",
+                "type": "string"
+              },
+              {
+                "const": "done",
+                "type": "string"
+              },
+              {
+                "const": "skipped",
+                "type": "string"
+              },
+              {
+                "const": "moved",
+                "type": "string"
+              },
+              {
+                "const": "superseded",
+                "type": "string"
+              }
+            ]
+          },
+          "taskId": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
+          "version": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "planVersionId",
+          "taskId",
+          "startAt",
+          "endAt",
+          "locked",
+          "status",
+          "version"
+        ],
         "type": "object"
       },
       "Task": {
@@ -3256,6 +5166,607 @@
           }
         },
         "summary": "Destroy the current session"
+      }
+    },
+    "/availability": {
+      "get": {
+        "operationId": "getAvailability",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Availability"
+                }
+              }
+            },
+            "description": "Availability"
+          },
+          "304": {
+            "description": "Not modified"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          }
+        },
+        "summary": "Read availability rules, exceptions and preferences"
+      },
+      "put": {
+        "operationId": "putAvailability",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "pattern": "^W/\"availability:[1-9][0-9]*\"$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvailabilityPut"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Availability"
+                }
+              }
+            },
+            "description": "Updated availability"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "State conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Version precondition failed"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "If-Match header required"
+          }
+        },
+        "summary": "Replace availability and bump availability_version"
+      }
+    },
+    "/commitments": {
+      "get": {
+        "operationId": "listCommitments",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitmentPage"
+                }
+              }
+            },
+            "description": "Commitment page with expanded occurrences"
+          },
+          "304": {
+            "description": "Not modified"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          }
+        },
+        "summary": "List commitments expanded within a bounded period"
+      },
+      "post": {
+        "operationId": "createCommitment",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitmentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Commitment"
+                }
+              }
+            },
+            "description": "Created commitment"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          }
+        },
+        "summary": "Create a fixed commitment"
+      }
+    },
+    "/commitments/{id}": {
+      "delete": {
+        "operationId": "deleteCommitment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "pattern": "^W/\"[1-9][0-9]*\"$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Commitment deleted"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "State conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Version precondition failed"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "If-Match header required"
+          }
+        },
+        "summary": "Soft delete a commitment"
+      },
+      "patch": {
+        "operationId": "updateCommitment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "pattern": "^W/\"[1-9][0-9]*\"$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitmentPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Commitment"
+                }
+              }
+            },
+            "description": "Updated commitment"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "State conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Version precondition failed"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "If-Match header required"
+          }
+        },
+        "summary": "Update a commitment"
       }
     },
     "/intake-sessions": {
@@ -4741,6 +7252,584 @@
           }
         },
         "summary": "Update user settings"
+      }
+    },
+    "/plans": {
+      "post": {
+        "operationId": "createPlan",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Plan with up to three candidates"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          }
+        },
+        "summary": "Generate plan candidates for a goal or task set"
+      }
+    },
+    "/plans/{id}": {
+      "get": {
+        "operationId": "getPlan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Plan"
+          },
+          "304": {
+            "description": "Not modified"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Read a plan with its candidates and metrics"
+      }
+    },
+    "/plans/{id}/candidates/{cid}:approve": {
+      "post": {
+        "description": "The same pre-flight mapping as preview-edit applies: edited blocks outside the persisted plan horizon or plan task scope fail with 422 validation_failed errors[{path: \"/editedBlocks/<i>\", message}], while scheduler findings use 422 constraint_violation with violations[].",
+        "operationId": "approvePlanCandidate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "pattern": "^W/\"availability:[1-9][0-9]*\"$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovePlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanVersion"
+                }
+              }
+            },
+            "description": "Approved plan version"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "State conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Version precondition failed"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "If-Match header required"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Provider unavailable"
+          }
+        },
+        "summary": "Approve a candidate as a new plan version"
+      }
+    },
+    "/plans/{id}/candidates/{cid}:preview-edit": {
+      "post": {
+        "description": "Pre-flight validation maps edited blocks outside the persisted plan horizon or outside the plan task scope to 422 validation_failed with errors[{path: \"/editedBlocks/<i>\", message}] before H1-H8 validation. Validator findings use 422 constraint_violation with violations[].",
+        "operationId": "previewPlanCandidateEdit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "cid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "pattern": "^W/\"[1-9][0-9]*\"$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewEditRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewEditResponse"
+                }
+              }
+            },
+            "description": "Validator result"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Version precondition failed"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "If-Match header required"
+          }
+        },
+        "summary": "Validate an edited candidate without side effects"
+      }
+    },
+    "/plans/{id}:regenerate": {
+      "post": {
+        "description": "Candidates are regenerated against the plan's original persisted horizon and time zone; the response Plan DTO echoes them unchanged.",
+        "operationId": "regeneratePlan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "pattern": "^W/\"[1-9][0-9]*\"$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Plan"
+                }
+              }
+            },
+            "description": "Regenerated plan"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "State conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Version precondition failed"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "If-Match header required"
+          }
+        },
+        "summary": "Regenerate candidates after a stale availability version"
       }
     },
     "/projects": {

@@ -249,6 +249,9 @@ importers:
         specifier: 0.34.52
         version: 0.34.52
     devDependencies:
+      '@ohmydate/scheduler':
+        specifier: workspace:*
+        version: link:../scheduler
       ajv:
         specifier: 8.20.0
         version: 8.20.0

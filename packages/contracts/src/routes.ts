@@ -3,10 +3,38 @@ import { LoginRequestSchema, UserSchema, UserSettingsPatchSchema } from './auth.
 import {
   CursorSchema,
   IdempotencyKeyHeaderSchema,
+  IfMatchAvailabilityHeaderSchema,
   IfMatchHeaderSchema,
   IfNoneMatchHeaderSchema,
 } from './common.js';
 import { ProblemSchema } from './problem.js';
+import {
+  ApprovePlanRequestSchema,
+  AvailabilityExceptionSchema,
+  AvailabilityPreferencesSchema,
+  AvailabilityPutSchema,
+  AvailabilityRuleSchema,
+  AvailabilitySchema,
+  CommitmentCreateSchema,
+  CommitmentListQuerySchema,
+  CommitmentOccurrenceSchema,
+  CommitmentPageSchema,
+  CommitmentPatchSchema,
+  CommitmentSchema,
+  PlanBlockSchema,
+  PlanCandidateParamsSchema,
+  PlanCandidateSchema,
+  PlanCreateSchema,
+  PlanHorizonSchema,
+  PlanIdParamsSchema,
+  PlanMetricsSchema,
+  PlanSchema,
+  PlanScopeSchema,
+  PlanVersionSchema,
+  PreviewEditRequestSchema,
+  PreviewEditResponseSchema,
+  ScheduleBlockSchema,
+} from './planning.js';
 import {
   PageProjectSchema,
   ProjectCreateSchema,
@@ -60,6 +88,8 @@ export interface RouteDefinition {
   readonly path: string;
   readonly operationId: string;
   readonly summary: string;
+  /** Longer operation description rendered into OpenAPI. */
+  readonly description?: string;
   readonly params?: TSchema;
   readonly query?: TSchema;
   readonly headers?: TSchema;
@@ -112,6 +142,18 @@ const IfNoneMatchHeadersSchema = Type.Object(
     'If-None-Match': Type.Optional(IfNoneMatchHeaderSchema),
   },
   { additionalProperties: false },
+);
+
+/**
+ * Approval and availability replacement are keyed to the user-wide
+ * `availability_version`, not to the plan/entity version (08 §2.4, §2.4a).
+ */
+const IfMatchAvailabilityAndIdempotencyHeadersSchema = Type.Object(
+  {
+    'If-Match': IfMatchAvailabilityHeaderSchema,
+    'Idempotency-Key': IdempotencyKeyHeaderSchema,
+  },
+  { additionalProperties: false, required: ['If-Match', 'Idempotency-Key'] },
 );
 
 const PageQuerySchema = Type.Object(
@@ -463,7 +505,161 @@ export const intakeRoutes: readonly RouteDefinition[] = [
  */
 export const routes: readonly RouteDefinition[] = [...coreRoutes, ...intakeRoutes];
 
-export const contractRoutes: readonly RouteDefinition[] = [...routes];
+/**
+ * Planning, availability and commitment routes (08 §2.4, §2.4a).
+ *
+ * Contract-only like `intakeRoutes`: M3-04 supplies the handlers. Approval and
+ * regeneration are `:action` POSTs on an existing plan and therefore require
+ * both `If-Match` and `Idempotency-Key`; approve pins `If-Match` to the
+ * user-wide `W/"availability:<n>"` tag.
+ */
+export const planningRoutes: readonly RouteDefinition[] = [
+  {
+    method: 'post',
+    path: '/plans',
+    operationId: 'createPlan',
+    summary: 'Generate plan candidates for a goal or task set',
+    headers: IdempotencyHeadersSchema,
+    body: PlanCreateSchema,
+    responses: {
+      201: { description: 'Plan with up to three candidates', schema: PlanSchema },
+      ...problems(400, 401, 403, 422),
+    },
+  },
+  {
+    method: 'get',
+    path: '/plans/{id}',
+    operationId: 'getPlan',
+    summary: 'Read a plan with its candidates and metrics',
+    params: PlanIdParamsSchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Plan', schema: PlanSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 404),
+    },
+  },
+  {
+    method: 'post',
+    path: '/plans/{id}/candidates/{cid}:preview-edit',
+    operationId: 'previewPlanCandidateEdit',
+    summary: 'Validate an edited candidate without side effects',
+    description:
+      'Pre-flight validation maps edited blocks outside the persisted plan horizon or outside the plan task scope to 422 validation_failed with errors[{path: "/editedBlocks/<i>", message}] before H1-H8 validation. Validator findings use 422 constraint_violation with violations[].',
+    params: PlanCandidateParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: PreviewEditRequestSchema,
+    responses: {
+      200: { description: 'Validator result', schema: PreviewEditResponseSchema },
+      ...problems(400, 401, 403, 404, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/plans/{id}/candidates/{cid}:approve',
+    operationId: 'approvePlanCandidate',
+    summary: 'Approve a candidate as a new plan version',
+    description:
+      'The same pre-flight mapping as preview-edit applies: edited blocks outside the persisted plan horizon or plan task scope fail with 422 validation_failed errors[{path: "/editedBlocks/<i>", message}], while scheduler findings use 422 constraint_violation with violations[].',
+    params: PlanCandidateParamsSchema,
+    headers: IfMatchAvailabilityAndIdempotencyHeadersSchema,
+    body: ApprovePlanRequestSchema,
+    responses: {
+      201: { description: 'Approved plan version', schema: PlanVersionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
+    },
+  },
+  {
+    method: 'post',
+    path: '/plans/{id}:regenerate',
+    operationId: 'regeneratePlan',
+    summary: 'Regenerate candidates after a stale availability version',
+    description:
+      'Candidates are regenerated against the plan\'s original persisted horizon and time zone; the response Plan DTO echoes them unchanged.',
+    params: PlanIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      201: { description: 'Regenerated plan', schema: PlanSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'get',
+    path: '/availability',
+    operationId: 'getAvailability',
+    summary: 'Read availability rules, exceptions and preferences',
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Availability', schema: AvailabilitySchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401),
+    },
+  },
+  {
+    method: 'put',
+    path: '/availability',
+    operationId: 'putAvailability',
+    summary: 'Replace availability and bump availability_version',
+    headers: IfMatchAvailabilityAndIdempotencyHeadersSchema,
+    body: AvailabilityPutSchema,
+    responses: {
+      200: { description: 'Updated availability', schema: AvailabilitySchema },
+      ...problems(400, 401, 403, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'get',
+    path: '/commitments',
+    operationId: 'listCommitments',
+    summary: 'List commitments expanded within a bounded period',
+    query: CommitmentListQuerySchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Commitment page with expanded occurrences', schema: CommitmentPageSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 422),
+    },
+  },
+  {
+    method: 'post',
+    path: '/commitments',
+    operationId: 'createCommitment',
+    summary: 'Create a fixed commitment',
+    headers: IdempotencyHeadersSchema,
+    body: CommitmentCreateSchema,
+    responses: {
+      201: { description: 'Created commitment', schema: CommitmentSchema },
+      ...problems(400, 401, 403, 422),
+    },
+  },
+  {
+    method: 'patch',
+    path: '/commitments/{id}',
+    operationId: 'updateCommitment',
+    summary: 'Update a commitment',
+    params: PlanIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: CommitmentPatchSchema,
+    responses: {
+      200: { description: 'Updated commitment', schema: CommitmentSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/commitments/{id}',
+    operationId: 'deleteCommitment',
+    summary: 'Soft delete a commitment',
+    params: PlanIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      204: { description: 'Commitment deleted' },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+];
+
+export const contractRoutes: readonly RouteDefinition[] = [...routes, ...planningRoutes];
 
 export const schemaRegistry = {
   Problem: ProblemSchema,
@@ -502,6 +698,31 @@ export const schemaRegistry = {
   PageTaskTemplate: PageTaskTemplateSchema,
   TaskTemplateListQuery: TaskTemplateListQuerySchema,
   TaskTemplateIdParams: TaskTemplateIdParamsSchema,
+  AvailabilityRule: AvailabilityRuleSchema,
+  AvailabilityException: AvailabilityExceptionSchema,
+  AvailabilityPreferences: AvailabilityPreferencesSchema,
+  Availability: AvailabilitySchema,
+  AvailabilityPut: AvailabilityPutSchema,
+  CommitmentOccurrence: CommitmentOccurrenceSchema,
+  Commitment: CommitmentSchema,
+  CommitmentCreate: CommitmentCreateSchema,
+  CommitmentPatch: CommitmentPatchSchema,
+  CommitmentListQuery: CommitmentListQuerySchema,
+  CommitmentPage: CommitmentPageSchema,
+  PlanScope: PlanScopeSchema,
+  PlanHorizon: PlanHorizonSchema,
+  PlanCreate: PlanCreateSchema,
+  PlanBlock: PlanBlockSchema,
+  PlanMetrics: PlanMetricsSchema,
+  PlanCandidate: PlanCandidateSchema,
+  Plan: PlanSchema,
+  PlanIdParams: PlanIdParamsSchema,
+  PlanCandidateParams: PlanCandidateParamsSchema,
+  PreviewEditRequest: PreviewEditRequestSchema,
+  PreviewEditResponse: PreviewEditResponseSchema,
+  ApprovePlanRequest: ApprovePlanRequestSchema,
+  ScheduleBlock: ScheduleBlockSchema,
+  PlanVersion: PlanVersionSchema,
 } as const;
 
 export type SchemaRegistry = typeof schemaRegistry;
