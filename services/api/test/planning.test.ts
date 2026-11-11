@@ -1156,6 +1156,394 @@ describe.skipIf(!hasDatabase)('planning API (M3-04)', () => {
     expect(record?.status).toBe('completed');
   });
 
+  test('regenerate drops a completed task future block and re-approval releases it (probe H)', async () => {
+    const ownerId = await ctx.seedUser({
+      email: 'probe-h@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'probe-h@example.com', 'correct-horse');
+    const availabilityVersion = await putAvailability(ctx, session);
+    const done = await seedTask(ctx, ownerId, {
+      title: 'Completed after approval',
+      estimate: { p50Min: 60, p90Min: 60 },
+      splittable: false,
+    });
+    const plan = await createPlan(ctx, session, [done.task.id]);
+    const candidate = plan.candidates[0];
+    expect(candidate).toBeDefined();
+    const firstApprove = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/plans/${plan.id}/candidates/${candidate?.id}:approve`,
+      headers: authHeaders(session, {
+        'if-match': `W/"availability:${availabilityVersion}"`,
+        'idempotency-key': newIdempotencyKey(),
+      }),
+      payload: {},
+    });
+    expect(firstApprove.statusCode).toBe(201);
+
+    const completed = await ctx.repos.tasks.complete(
+      ownerId,
+      done.task.id,
+      done.task.version,
+    );
+    expect(completed.status).toBe('done');
+
+    const currentPlan = await ctx.app.inject({
+      method: 'GET',
+      url: `/api/v1/plans/${plan.id}`,
+      headers: authHeaders(session),
+    });
+    expect(currentPlan.statusCode).toBe(200);
+    const currentVersion = (currentPlan.json() as Plan).version;
+    const regenerated = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/plans/${plan.id}:regenerate`,
+      headers: authHeaders(session, {
+        'if-match': `W/"${currentVersion}"`,
+        'idempotency-key': newIdempotencyKey(),
+      }),
+    });
+    expect(regenerated.statusCode).toBe(201);
+    const regeneratedPlan = regenerated.json() as Plan;
+    const regeneratedCandidate = regeneratedPlan.candidates[0];
+    expect(regeneratedCandidate).toBeDefined();
+    expect(
+      regeneratedCandidate?.blocks.some((block) => block.taskId === done.task.id),
+    ).toBe(false);
+    expect(regeneratedCandidate?.feasible).toBe(true);
+
+    const secondApprove = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/plans/${plan.id}/candidates/${regeneratedCandidate?.id}:approve`,
+      headers: authHeaders(session, {
+        'if-match': `W/"availability:${availabilityVersion}"`,
+        'idempotency-key': newIdempotencyKey(),
+      }),
+      payload: {},
+    });
+    expect(secondApprove.statusCode).toBe(201);
+    const active = await ctx.db
+      .selectFrom('schedule_block')
+      .select(['id'])
+      .where('owner_id', '=', ownerId)
+      .where('task_id', '=', done.task.id)
+      .where('status', '<>', 'superseded')
+      .execute();
+    expect(active).toHaveLength(0);
+  });
+
+  test('regenerate does not move a completed task under a displacing commitment (probe H2)', async () => {
+    const ownerId = await ctx.seedUser({
+      email: 'probe-h2@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'probe-h2@example.com', 'correct-horse');
+    const availabilityVersion = await putAvailability(ctx, session);
+    const done = await seedTask(ctx, ownerId, {
+      title: 'Completed under pressure',
+      estimate: { p50Min: 60, p90Min: 60 },
+      splittable: false,
+    });
+    const plan = await createPlan(ctx, session, [done.task.id]);
+    const candidate = plan.candidates[0];
+    expect(candidate).toBeDefined();
+    const firstApprove = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/plans/${plan.id}/candidates/${candidate?.id}:approve`,
+      headers: authHeaders(session, {
+        'if-match': `W/"availability:${availabilityVersion}"`,
+        'idempotency-key': newIdempotencyKey(),
+      }),
+      payload: {},
+    });
+    expect(firstApprove.statusCode).toBe(201);
+    const approvedBlock = (firstApprove.json() as { blocks: { startAt: string; endAt: string }[] })
+      .blocks[0];
+    expect(approvedBlock).toBeDefined();
+    if (approvedBlock === undefined) throw new Error('no approved block');
+
+    const completed = await ctx.repos.tasks.complete(
+      ownerId,
+      done.task.id,
+      done.task.version,
+    );
+    expect(completed.status).toBe('done');
+    const commitment = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/commitments',
+      headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+      payload: {
+        title: 'Displacing commitment',
+        startAt: approvedBlock.startAt,
+        endAt: approvedBlock.endAt,
+        timeZone: 'UTC',
+      },
+    });
+    expect(commitment.statusCode).toBe(201);
+    const bumpedAvailability = await currentAvailabilityVersion(ctx, session);
+
+    const currentPlan = await ctx.app.inject({
+      method: 'GET',
+      url: `/api/v1/plans/${plan.id}`,
+      headers: authHeaders(session),
+    });
+    const currentVersion = (currentPlan.json() as Plan).version;
+    const regenerated = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/plans/${plan.id}:regenerate`,
+      headers: authHeaders(session, {
+        'if-match': `W/"${currentVersion}"`,
+        'idempotency-key': newIdempotencyKey(),
+      }),
+    });
+    expect(regenerated.statusCode).toBe(201);
+    const regeneratedCandidate = (regenerated.json() as Plan).candidates[0];
+    expect(regeneratedCandidate).toBeDefined();
+    expect(
+      regeneratedCandidate?.blocks.some((block) => block.taskId === done.task.id),
+    ).toBe(false);
+    expect(regeneratedCandidate?.feasible).toBe(true);
+
+    const secondApprove = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/plans/${plan.id}/candidates/${regeneratedCandidate?.id}:approve`,
+      headers: authHeaders(session, {
+        'if-match': `W/"availability:${bumpedAvailability}"`,
+        'idempotency-key': newIdempotencyKey(),
+      }),
+      payload: {},
+    });
+    expect(secondApprove.statusCode).toBe(201);
+    const active = await ctx.db
+      .selectFrom('schedule_block')
+      .select(['id'])
+      .where('owner_id', '=', ownerId)
+      .where('task_id', '=', done.task.id)
+      .where('status', '<>', 'superseded')
+      .execute();
+    expect(active).toHaveLength(0);
+  });
+
+  test('a provider-deleted task releases its future blocks instead of locking planning (probe K)', async () => {
+    const ownerId = await ctx.seedUser({
+      email: 'probe-k@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'probe-k@example.com', 'correct-horse');
+    const availabilityVersion = await putAvailability(ctx, session);
+    const k1 = await seedTask(ctx, ownerId, {
+      title: 'Deleted upstream',
+      estimate: { p50Min: 60, p90Min: 60 },
+      splittable: false,
+    });
+    const firstPlan = await createPlan(ctx, session, [k1.task.id]);
+    const firstCandidate = firstPlan.candidates[0];
+    expect(firstCandidate).toBeDefined();
+    const firstApprove = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/plans/${firstPlan.id}/candidates/${firstCandidate?.id}:approve`,
+      headers: authHeaders(session, {
+        'if-match': `W/"availability:${availabilityVersion}"`,
+        'idempotency-key': newIdempotencyKey(),
+      }),
+      payload: {},
+    });
+    expect(firstApprove.statusCode).toBe(201);
+
+    await ctx.repos.tasks.softDelete(ownerId, k1.task.id, k1.task.version);
+    const k2 = await seedTask(ctx, ownerId, {
+      title: 'New work after deletion',
+      estimate: { p50Min: 60, p90Min: 60 },
+      splittable: false,
+    });
+    const secondPlan = await createPlan(ctx, session, [k2.task.id]);
+    const secondCandidate = secondPlan.candidates[0];
+    expect(secondCandidate).toBeDefined();
+    expect(secondCandidate?.blocks.some((block) => block.taskId === k1.task.id)).toBe(false);
+    const secondApprove = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/plans/${secondPlan.id}/candidates/${secondCandidate?.id}:approve`,
+      headers: authHeaders(session, {
+        'if-match': `W/"availability:${availabilityVersion}"`,
+        'idempotency-key': newIdempotencyKey(),
+      }),
+      payload: {},
+    });
+    expect(secondApprove.statusCode).toBe(201);
+    const released = await ctx.db
+      .selectFrom('schedule_block')
+      .select(['id', 'status'])
+      .where('owner_id', '=', ownerId)
+      .where('task_id', '=', k1.task.id)
+      .execute();
+    expect(released.length).toBeGreaterThan(0);
+    expect(released.every((block) => block.status === 'superseded')).toBe(true);
+  });
+
+  test('stored old or finished recurrences never poison commitments or plans (probe R)', async () => {
+    const ownerId = await ctx.seedUser({
+      email: 'probe-r@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'probe-r@example.com', 'correct-horse');
+    await putAvailability(ctx, session);
+
+    const rejected = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/commitments',
+      headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+      payload: {
+        title: 'Too old',
+        startAt: '2010-03-01T09:00:00Z',
+        endAt: '2010-03-01T10:00:00Z',
+        timeZone: 'UTC',
+        rrule: 'FREQ=WEEKLY;UNTIL=20110301T000000Z',
+      },
+    });
+    expect(rejected.statusCode).toBe(422);
+    expect(JSON.stringify(rejected.json())).toContain('/startAt');
+
+    const legacyId = ctx.ids.next();
+    await ctx.db
+      .insertInto('commitment_event')
+      .values({
+        id: legacyId,
+        owner_id: ownerId,
+        title: 'Legacy finished recurrence',
+        start_at: new Date('2010-03-01T09:00:00Z'),
+        end_at: new Date('2010-03-01T10:00:00Z'),
+        rrule: 'FREQ=WEEKLY;UNTIL=20110301T000000Z',
+        time_zone: 'UTC',
+        source: 'manual',
+      })
+      .execute();
+    const liveOldId = ctx.ids.next();
+    await ctx.db
+      .insertInto('commitment_event')
+      .values({
+        id: liveOldId,
+        owner_id: ownerId,
+        title: 'Legacy live recurrence',
+        start_at: new Date('2010-03-03T09:00:00Z'),
+        end_at: new Date('2010-03-03T10:00:00Z'),
+        rrule: 'FREQ=WEEKLY;BYDAY=WE',
+        time_zone: 'UTC',
+        source: 'manual',
+      })
+      .execute();
+
+    const listed = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/commitments?from=2026-11-11T00:00:00Z&to=2026-11-14T00:00:00Z',
+      headers: authHeaders(session),
+    });
+    expect(listed.statusCode).toBe(200);
+    const page = listed.json() as {
+      items: { id: string; occurrences: { startAt: string }[] }[];
+    };
+    expect(page.items.find((item) => item.id === legacyId)?.occurrences).toEqual([]);
+    const liveOccurrences =
+      page.items.find((item) => item.id === liveOldId)?.occurrences ?? [];
+    expect(liveOccurrences.length).toBeGreaterThan(0);
+    expect(liveOccurrences[0]?.startAt).toBe('2026-11-11T09:00:00Z');
+
+    const task = await seedTask(ctx, ownerId, {
+      title: 'Plan with legacy commitment',
+      estimate: { p50Min: 30, p90Min: 30 },
+    });
+    const created = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/plans',
+      headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+      payload: {
+        scope: { taskIds: [task.task.id] },
+        policies: ['balanced'],
+        horizon: HORIZON,
+      },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const fresh = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/commitments',
+      headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+      payload: {
+        title: 'Fresh then patched old',
+        startAt: '2026-11-17T09:00:00Z',
+        endAt: '2026-11-17T10:00:00Z',
+        timeZone: 'UTC',
+      },
+    });
+    expect(fresh.statusCode).toBe(201);
+    const freshBody = fresh.json() as { id: string; version: number };
+    const patched = await ctx.app.inject({
+      method: 'PATCH',
+      url: `/api/v1/commitments/${freshBody.id}`,
+      headers: authHeaders(session, {
+        'if-match': `W/"${freshBody.version}"`,
+        'idempotency-key': newIdempotencyKey(),
+      }),
+      payload: { startAt: '2010-03-01T09:00:00Z' },
+    });
+    expect(patched.statusCode).toBe(422);
+    expect(JSON.stringify(patched.json())).toContain('/startAt');
+  });
+
+  test('planner cache project rows use a neutral title unless a provider title is known (LOW)', async () => {
+    const { ensurePlannerTaskIdentity } = await import(
+      '../src/adapters/planner-task-identity.js'
+    );
+    const ownerId = await ctx.seedUser({
+      email: 'planner-cache@example.com',
+      password: 'correct-horse',
+    });
+    const project = await ctx.repos.projects.create(
+      ownerId,
+      { title: 'Provider project name' },
+      randomUUID(),
+    );
+    const task = await ctx.repos.tasks.create(
+      ownerId,
+      { projectId: project.id, title: 'First task title' },
+      randomUUID(),
+    );
+    await ctx.db.transaction().execute(async (trx) => {
+      await ensurePlannerTaskIdentity(trx, ownerId, [task]);
+    });
+    const cached = await ctx.db
+      .selectFrom('project')
+      .select(['title'])
+      .where('id', '=', project.id)
+      .executeTakeFirst();
+    expect(cached?.title).toBe('planner cache');
+
+    const otherProject = await ctx.repos.projects.create(
+      ownerId,
+      { title: 'Known provider project' },
+      randomUUID(),
+    );
+    const otherTask = await ctx.repos.tasks.create(
+      ownerId,
+      { projectId: otherProject.id, title: 'Second task title' },
+      randomUUID(),
+    );
+    await ctx.db.transaction().execute(async (trx) => {
+      await ensurePlannerTaskIdentity(
+        trx,
+        ownerId,
+        [otherTask],
+        new Map([[otherProject.id, 'Known provider project']]),
+      );
+    });
+    const titled = await ctx.db
+      .selectFrom('project')
+      .select(['title'])
+      .where('id', '=', otherProject.id)
+      .executeTakeFirst();
+    expect(titled?.title).toBe('Known provider project');
+  });
+
   test('route walk: every planning route returns a declared status', async () => {
     const id = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55';
     const authorised = await login(ctx, 'planner@example.com', 'correct-horse');

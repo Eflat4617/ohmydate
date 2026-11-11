@@ -88,6 +88,11 @@ export interface ApprovalRequest {
   readonly planningTaskIds: readonly Id[];
   /** Provider tasks whose planner identity rows must exist before block insert. */
   readonly identityTasks: readonly import('@ohmydate/domain').Task[];
+  /**
+   * Provider-deleted tasks: supersede their future approved blocks in this TX
+   * so a stranded block never locks the owner out of planning (probe K).
+   */
+  readonly releaseVanishedTaskIds?: readonly Id[] | undefined;
   prepare(snapshot: ApprovalSnapshot): Promise<PreparedApproval>;
 }
 

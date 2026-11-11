@@ -591,6 +591,7 @@ export class PgPlanningStore implements PlanningStore {
       taskIds: readonly Id[];
       planningTaskIds: readonly Id[];
       identityTasks: readonly import('@ohmydate/domain').Task[];
+      releaseVanishedTaskIds?: readonly Id[] | undefined;
       prepare: (snapshot: ApprovalSnapshot) => Promise<import('../application/planning-ports.js').PreparedApproval>;
     },
   ): Promise<PlanVersionDto> {
@@ -689,6 +690,26 @@ export class PgPlanningStore implements PlanningStore {
               'in',
               planVersionIds.map((row) => row.id),
             )
+            .where('status', '<>', 'superseded')
+            .where('start_at', '>=', now)
+            .execute();
+        }
+
+        // Probe K: a provider-deleted task can no longer own future blocks.
+        // Release them in any approval TX of this owner so planning recovers.
+        if (
+          request.releaseVanishedTaskIds !== undefined &&
+          request.releaseVanishedTaskIds.length > 0
+        ) {
+          await trx
+            .updateTable('schedule_block')
+            .set({
+              status: 'superseded',
+              version: sql<number>`version + 1`,
+              updated_at: now,
+            })
+            .where('owner_id', '=', ownerId)
+            .where('task_id', 'in', request.releaseVanishedTaskIds)
             .where('status', '<>', 'superseded')
             .where('start_at', '>=', now)
             .execute();

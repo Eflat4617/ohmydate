@@ -238,13 +238,11 @@ interface Assembled {
   readonly lockedBlocks: SchedulerBlock[];
 }
 
-function futureMinutes(blocks: readonly ApprovedBlock[], taskId: Id, now: string): number {
-  const nowMs = Date.parse(now);
+function blockMinutes(blocks: readonly SchedulerBlock[], taskId: Id): number {
   let minutes = 0;
   for (const block of blocks) {
     if (block.taskId !== taskId) continue;
-    if (Date.parse(block.startAt) < nowMs) continue;
-    minutes += Math.max(0, (Date.parse(block.endAt) - Date.parse(block.startAt)) / MINUTE_MS);
+    minutes += Math.max(0, (Date.parse(block.end) - Date.parse(block.start)) / MINUTE_MS);
   }
   return minutes;
 }
@@ -267,14 +265,26 @@ function assembleScheduleInput(source: AssemblyInput): Assembled {
       start: block.startAt,
       end: block.endAt,
     };
+    const task = allTasks.get(block.taskId);
+    const inPlanningSet = planningIds.has(block.taskId);
     if (Date.parse(block.startAt) < nowMs) {
       // 06 §7.1: history is a fact. The scheduler consumes it through
       // existingBlocks (its documented history channel), not lockedBlocks.
       historyBlocks.push(schedulerBlock);
       existingBlocks.push(schedulerBlock);
-    } else if (source.currentPlanId !== undefined && block.planId === source.currentPlanId) {
+    } else if (!inPlanningSet && (task === undefined || task.status === 'done')) {
+      // Done/vanished work must not spend capacity on re-approval. Dropping
+      // the future block releases its time; the approval TX supersedes the
+      // stored row (probes H/H2/K).
+      continue;
+    } else if (
+      inPlanningSet &&
+      source.currentPlanId !== undefined &&
+      block.planId === source.currentPlanId
+    ) {
       existingBlocks.push(schedulerBlock);
     } else {
+      // Blocks of other live (non-planning-set) tasks are fixed commitments.
       lockedBlocks.push(schedulerBlock);
     }
   }
@@ -292,7 +302,7 @@ function assembleScheduleInput(source: AssemblyInput): Assembled {
     const required = riskLevel === 'p90' ? effective.p90Min : effective.p50Min;
     const remainingMin = inPlanningSet
       ? Math.max(0, required - historyMinutes(source.activeBlocks, task.id, source.now))
-      : futureMinutes(source.activeBlocks, task.id, source.now);
+      : blockMinutes(lockedBlocks, task.id);
     // Non-splittable work is one block equal to the remaining requirement.
     // Out-of-scope locked/history tasks are not re-placed; keep their bounds
     // permissive so auditing the already-approved blocks cannot invent an H5.
@@ -373,7 +383,7 @@ export class PlanService {
   }
 
   async createCommitment(ownerId: Id, input: CommitmentCreate): Promise<Commitment> {
-    validateCommitment(input);
+    validateCommitment(input, this.#clock.now());
     return this.#store.createCommitment(ownerId, input);
   }
 
@@ -385,6 +395,9 @@ export class PlanService {
   ): Promise<Commitment> {
     if (patch.rrule !== undefined && patch.rrule !== null) {
       validateRRule(patch.rrule);
+    }
+    if (patch.startAt !== undefined) {
+      assertStartNotTooOld(patch.startAt, this.#clock.now());
     }
     if (patch.startAt !== undefined && patch.endAt !== undefined) {
       assertInterval(patch.startAt, patch.endAt);
@@ -403,7 +416,7 @@ export class PlanService {
     const availability = await this.#store.getAvailability(ownerId);
     const planning = await this.#planningTaskSet(ownerId, request.scope, 'create');
     const activeBlocks = await this.#store.listActiveBlocks(ownerId);
-    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids, now);
+    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids);
     const allTasks = [...planning.tasks, ...extras.tasks];
     const taskIds = allTasks.map((task) => task.id);
     const estimates = await this.#store.getCurrent(ownerId, taskIds);
@@ -470,7 +483,7 @@ export class PlanService {
       this.#preflightBlock(block, index, plan.horizon, planning.ids, '/blocks');
     });
     const activeBlocks = await this.#store.listActiveBlocks(ownerId);
-    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids, now);
+    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids);
     const taskIds = [...planning.tasks, ...extras.tasks].map((task) => task.id);
     const estimates = await this.#store.getCurrent(ownerId, taskIds);
     const commitments = await this.#store.listCommitmentsInRange(
@@ -541,7 +554,7 @@ export class PlanService {
       });
     }
     const activeBlocks = await this.#store.listActiveBlocks(ownerId);
-    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids, now);
+    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids);
     const allTasks = [...planning.tasks, ...extras.tasks];
     const taskIds = allTasks.map((task) => task.id);
 
@@ -554,6 +567,7 @@ export class PlanService {
       taskIds,
       planningTaskIds: [...planning.ids] as Id[],
       identityTasks: allTasks,
+      releaseVanishedTaskIds: extras.vanishedTaskIds,
       prepare: async (snapshot) =>
         this.#prepareApproval(snapshot, {
           now,
@@ -576,7 +590,7 @@ export class PlanService {
     const availability = await this.#store.getAvailability(ownerId);
     const planning = await this.#planningTaskSet(ownerId, plan.scope, 'conflict');
     const activeBlocks = await this.#store.listActiveBlocks(ownerId);
-    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids, now);
+    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids);
     const taskIds = [...planning.tasks, ...extras.tasks].map((task) => task.id);
     const estimates = await this.#store.getCurrent(ownerId, taskIds);
     const commitments = await this.#store.listCommitmentsInRange(
@@ -755,8 +769,11 @@ export class PlanService {
     ownerId: Id,
     activeBlocks: readonly ApprovedBlock[],
     planningIds: ReadonlySet<string>,
-    now: string,
-  ): Promise<{ tasks: readonly Task[]; blocks: readonly ApprovedBlock[] }> {
+  ): Promise<{
+    tasks: readonly Task[];
+    blocks: readonly ApprovedBlock[];
+    vanishedTaskIds: readonly Id[];
+  }> {
     const ids = [
       ...new Set(
         activeBlocks
@@ -765,26 +782,28 @@ export class PlanService {
       ),
     ];
     const tasks: Task[] = [];
-    const missing = new Set<string>();
+    const vanished = new Set<string>();
+    const done = new Set<string>();
     for (const id of ids) {
       const task = await this.#tasks.get(ownerId, id);
-      if (task === null) missing.add(id);
-      else tasks.push(task);
-    }
-    const nowMs = Date.parse(now);
-    const futureMissing = activeBlocks.filter(
-      (block) => missing.has(block.taskId) && Date.parse(block.startAt) >= nowMs,
-    );
-    if (futureMissing.length > 0) {
-      throw new PlanConflictError(
-        `locked task vanished: ${[...new Set(futureMissing.map((block) => block.taskId))].join(', ')}`,
-      );
+      if (task === null) {
+        vanished.add(id);
+        continue;
+      }
+      if (task.status === 'done') {
+        done.add(id);
+        continue;
+      }
+      tasks.push(task);
     }
     return {
       tasks,
-      // History of a vanished task is not schedulable state; drop that fact
-      // rather than failing every future plan for the owner.
-      blocks: activeBlocks.filter((block) => !missing.has(block.taskId)),
+      // Done/vanished work is not schedulable state: drop its blocks rather
+      // than failing or locking every future plan for the owner (probes
+      // H/H2/K). The approval TX supersedes vanished tasks' stored future
+      // blocks.
+      blocks: activeBlocks.filter((block) => !vanished.has(block.taskId) && !done.has(block.taskId)),
+      vanishedTaskIds: [...vanished] as Id[],
     };
   }
 
@@ -838,9 +857,28 @@ export function validateRRule(rrule: string): void {
   }
 }
 
-function validateCommitment(input: CommitmentCreate): void {
+function validateCommitment(input: CommitmentCreate, now: string): void {
+  assertStartNotTooOld(input.startAt, now);
   assertInterval(input.startAt, input.endAt);
   if (input.rrule !== undefined) validateRRule(input.rrule);
+}
+
+const MAX_RRULE_LOOKBACK_MS = 10 * 366 * DAY_MS;
+
+function assertStartNotTooOld(startAt: string, now: string): void {
+  const startMs = Date.parse(startAt);
+  const nowMs = Date.parse(now);
+  if (!Number.isFinite(startMs)) {
+    throw new ValidationFailedError([{ path: '/startAt', message: 'invalid instant' }]);
+  }
+  if (nowMs - startMs > MAX_RRULE_LOOKBACK_MS) {
+    throw new ValidationFailedError([
+      {
+        path: '/startAt',
+        message: 'commitment starts more than ten years before now',
+      },
+    ]);
+  }
 }
 
 function assertInterval(startAt: string, endAt: string): void {

@@ -116,17 +116,58 @@ describe('bounded RRULE adapter', () => {
     ]);
   });
 
-  test('rejects a recurrence that starts more than ten years before the range', () => {
-    expect(() =>
+  test('fast-forwards a recurrence that starts more than ten years before the range', () => {
+    const occurrences = expandOccurrences(
+      commitment(
+        '2000-01-01T09:00:00Z',
+        '2000-01-01T10:00:00Z',
+        'FREQ=YEARLY',
+      ),
+      '2026-01-01T00:00:00Z',
+      '2026-12-01T00:00:00Z',
+    );
+    expect(occurrences.map((entry) => entry.startAt)).toEqual([
+      '2026-01-01T09:00:00Z',
+    ]);
+
+    const weekly = expandOccurrences(
+      commitment(
+        '2010-03-03T09:00:00Z',
+        '2010-03-03T10:00:00Z',
+        'FREQ=WEEKLY;BYDAY=WE',
+      ),
+      '2026-11-11T00:00:00Z',
+      '2026-11-14T00:00:00Z',
+    );
+    expect(weekly.map((entry) => entry.startAt)).toEqual(['2026-11-11T09:00:00Z']);
+  });
+
+  test('skips a recurrence whose UNTIL ends before the range without expanding', () => {
+    expect(
       expandOccurrences(
         commitment(
-          '2000-01-01T09:00:00Z',
-          '2000-01-01T10:00:00Z',
-          'FREQ=YEARLY',
+          '2010-03-01T09:00:00Z',
+          '2010-03-01T10:00:00Z',
+          'FREQ=WEEKLY;UNTIL=20110301T000000Z',
         ),
-        '2026-01-01T00:00:00Z',
-        '2026-12-01T00:00:00Z',
+        '2026-11-11T00:00:00Z',
+        '2026-11-14T00:00:00Z',
       ),
-    ).toThrow(InvalidRRuleError);
+    ).toEqual([]);
+  });
+
+  test('COUNT still works after a fast-forward', () => {
+    const occurrences = expandOccurrences(
+      commitment(
+        '2000-01-01T09:00:00Z',
+        '2000-01-01T10:00:00Z',
+        'FREQ=YEARLY;COUNT=30',
+      ),
+      '2026-01-01T00:00:00Z',
+      '2026-12-01T00:00:00Z',
+    );
+    expect(occurrences.map((entry) => entry.startAt)).toEqual([
+      '2026-01-01T09:00:00Z',
+    ]);
   });
 });

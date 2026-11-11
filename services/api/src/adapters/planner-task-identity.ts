@@ -13,22 +13,25 @@ type Trx = Transaction<Database>;
  * here: the composite (id, owner_id) FK on task/schedule_block fails, which
  * the caller maps to a 409 rather than overwriting another owner's row.
  */
+const PLANNER_CACHE_PROJECT_TITLE = 'planner cache';
+
 export async function ensurePlannerTaskIdentity(
   trx: Trx,
   ownerId: Id,
   tasks: readonly Task[],
+  projectTitles?: ReadonlyMap<string, string>,
 ): Promise<void> {
-  const projects = new Map<string, Task>();
-  for (const task of tasks) {
-    if (!projects.has(task.projectId)) projects.set(task.projectId, task);
-  }
-  for (const [projectId, task] of projects) {
+  const projectIds = [...new Set(tasks.map((task) => task.projectId))];
+  for (const projectId of projectIds) {
     await trx
       .insertInto('project')
       .values({
         id: projectId,
         owner_id: ownerId,
-        title: task.title,
+        // M3-04c LOW: the planner row is a cache only. Use the provider
+        // project title when the caller knows it; otherwise a neutral title
+        // instead of leaking the first task's title as the project name.
+        title: projectTitles?.get(projectId) ?? PLANNER_CACHE_PROJECT_TITLE,
         kind: 'normal',
       })
       .onConflict((conflict) => conflict.column('id').doNothing())
