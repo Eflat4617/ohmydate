@@ -230,6 +230,47 @@ describe.skipIf(!hasDatabase)('replan proposals API (M5-02)', () => {
     expect(newTag.json()).toMatchObject({ code: 'availability_changed' });
   });
 
+  test('approve maps edited-block preflight to 422 validation_failed and scheduler findings to 422 constraint_violation', async () => {
+    const { ownerId, session } = await newOwner('edit');
+    const a = await seedPlanTask(ctx, ownerId, { title: 'A' });
+    const b = await seedPlanTask(ctx, ownerId, { title: 'B' });
+    const { plan } = await approvedPlan(ctx, session, [a.id, b.id]);
+    const proposal = (await requestReplan(ctx, session, { planId: plan.id })).json() as ReplanProposal;
+
+    const outside = await approveProposal(ctx, session, proposal, {
+      body: {
+        editedBlocks: [
+          { taskId: a.id, startAt: '2026-11-20T09:00:00Z', endAt: '2026-11-20T10:00:00Z' },
+        ],
+      },
+    });
+    expect(outside.statusCode).toBe(422);
+    expect(outside.json()).toMatchObject({
+      code: 'validation_failed',
+      errors: [{ path: '/editedBlocks/0' }],
+    });
+
+    const first = proposal.candidate.blocks.find((block) => block.taskId === a.id);
+    if (first === undefined) throw new Error('A block missing');
+    const shortened = [
+      ...proposal.candidate.blocks.filter((block) => block.taskId !== a.id),
+      {
+        taskId: a.id,
+        startAt: first.startAt,
+        endAt: new Date(Date.parse(first.startAt) + 30 * 60_000).toISOString(),
+      },
+    ];
+    const short = await approveProposal(ctx, session, proposal, { body: { editedBlocks: shortened } });
+    expect(short.statusCode).toBe(422);
+    const problem = short.json() as { code: string; violations: { code: string; taskId?: string }[] };
+    expect(problem.code).toBe('constraint_violation');
+    expect(problem.violations).toContainEqual(expect.objectContaining({ code: 'H7', taskId: a.id }));
+
+    // Both rejections rolled back: the proposal is still pending and approvable.
+    const approved = await approveProposal(ctx, session, proposal);
+    expect(approved.statusCode).toBe(201);
+  });
+
   test('reject suppresses the reason for 24 h; the daily cap returns 409 replan_suppressed with Retry-After', async () => {
     const { ownerId, session } = await newOwner('reject');
     const a = await seedPlanTask(ctx, ownerId, { title: 'A' });
