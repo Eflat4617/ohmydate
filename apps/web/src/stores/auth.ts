@@ -17,6 +17,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       const current = await plannerClient.getMe();
       user.value = current;
+      if (current.id !== sessions.ownerId) sessions.setOwner(current.id);
       return current;
     } catch {
       return null;

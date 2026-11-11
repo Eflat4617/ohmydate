@@ -153,6 +153,28 @@ describe('owner-bound Focus and Today client operations', () => {
     expect(storedFor(ownerA.id)[session.id]?.state).toBe('paused');
   });
 
+  it('applies a different owner discovered by a me-refresh bootstrap', async () => {
+    const pinia = createPinia();
+    const auth = useAuthStore(pinia);
+    const sessions = useSessionStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    const ownerB = owner(mockDb.user, 'owner-b');
+    const login = vi.spyOn(plannerClient, 'login');
+    const getMe = vi.spyOn(plannerClient, 'getMe');
+
+    await signIn(pinia, ownerA, login, getMe);
+    const epochBefore = auth.epoch;
+    getMe.mockResolvedValue(ownerB);
+    const current = await auth.loadCurrent();
+
+    expect(current?.id).toBe(ownerB.id);
+    expect(auth.ownerId).toBe(ownerB.id);
+    expect(auth.epoch).toBeGreaterThan(epochBefore);
+    expect(sessions.ownerId).toBe(ownerB.id);
+    expect(sessions.active).toBeNull();
+    expect(await sessionJournal.list(undefined, ownerA.id)).toHaveLength(0);
+  });
+
   it('P2: never writes owner A replay results into owner B after a switch', async () => {
     const pinia = createPinia();
     const sessions = useSessionStore(pinia);
