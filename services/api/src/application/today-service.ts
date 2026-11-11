@@ -828,5 +828,7 @@ function toContractViolation(violation: SchedulerViolation) {
     code: violation.code as 'H1' | 'H2' | 'H3' | 'H4' | 'H5' | 'H6' | 'H7' | 'H8',
     ...(violation.taskId === undefined ? {} : { taskId: violation.taskId as Id }),
     message: violation.message,
+    messageCode: violation.messageCode,
+    params: { ...violation.params },
   };
 }

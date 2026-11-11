@@ -32,6 +32,23 @@ export type {
   WindowKind,
 } from './types.js';
 
+export {
+  EXPLANATION_CODES,
+  INPUT_ISSUE_MESSAGE_CODES,
+  VIOLATION_MESSAGE_CODES,
+  itemFromMessage,
+  type CodedItem,
+  type ExplanationCode,
+  type ExplanationItem,
+  type ExplanationParamMap,
+  type ExplanationParamValue,
+  type GeneratorExplanationCode,
+  type InputIssueMessageCode,
+  type InputIssueParamMap,
+  type PreferenceMinuteField,
+  type ViolationMessageCode,
+  type ViolationParamMap,
+} from './codes.js';
 export { computeAvailableSlots, maxContiguousMin, slotTotalMin } from './slots.js';
 export {
   MAX_HORIZON_DAYS,

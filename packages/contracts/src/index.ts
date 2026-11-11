@@ -54,6 +54,24 @@ export {
 } from './problem.js';
 
 export {
+  API_VIOLATION_MESSAGE_CODES,
+  EXPLANATION_CODES,
+  EXPLANATION_PARAM_TOKEN_PATTERN,
+  ExplanationCodeSchema,
+  ExplanationItemSchema,
+  ExplanationItemsSchema,
+  ExplanationParamsSchema,
+  GENERATOR_EXPLANATION_CODES,
+  INPUT_ISSUE_MESSAGE_CODES,
+  VIOLATION_MESSAGE_CODES,
+  ViolationMessageCodeSchema,
+  type ExplanationCode,
+  type ExplanationItem,
+  type ExplanationParams,
+  type ViolationMessageCode,
+} from './explanation.js';
+
+export {
   PROJECT_KINDS,
   PageProjectSchema,
   ProjectCreateSchema,

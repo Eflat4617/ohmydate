@@ -1333,6 +1333,12 @@ export interface components {
             /** Format: uuid */
             templateId?: string;
         };
+        ExplanationItem: {
+            code: "policy_summary" | "placement_summary" | "constraints_satisfied" | "infeasible_summary" | "heuristic_insufficient_available_time" | "heuristic_no_contiguous_window" | "heuristic_estimate_not_grid_aligned" | "heuristic_estimate_below_grid" | "heuristic_session_bounds_infeasible" | "unplaced_minutes" | "capacity_deficit" | "replan_bound_exceeded" | "input_rejected" | "input_invalid_time_zone" | "input_invalid_horizon_instant" | "input_horizon_not_increasing" | "input_horizon_too_long" | "input_invalid_now" | "input_duplicate_task" | "input_invalid_estimate" | "input_invalid_buffer" | "input_invalid_session_minutes" | "input_invalid_session_bounds" | "input_invalid_task_window_instant" | "input_task_window_empty" | "input_invalid_preference" | "input_unknown_dependency" | "input_dependency_cycle" | "input_invalid_weekday" | "input_invalid_availability_window" | "input_invalid_exception_date" | "input_exception_partial_window" | "input_invalid_exception_window" | "input_commitment_invalid_instant" | "input_commitment_end_before_start" | "input_commitment_too_long" | "input_unknown_block_task" | "input_invalid_block_instant" | "input_block_sub_millisecond" | "input_block_off_grid" | "input_block_end_before_start" | "input_block_too_long" | "h0_unknown_task" | "h0_outside_horizon" | "h1_same_task_overlap" | "h1_tasks_overlap" | "h1_commitment_overlap" | "h1_active_block_overlap" | "h2_outside_availability" | "h3_dependency_order" | "h4_before_earliest_start" | "h4_inside_due_buffer" | "h4_after_due" | "h5_unsplittable_no_remaining" | "h5_unsplittable_required_out_of_bounds" | "h5_unsplittable_single_block" | "h5_session_out_of_bounds" | "h6_daily_focus_exceeded" | "h6_break_missing" | "h7_deficit" | "h7_overallocated" | "h8_invalid_time_zone" | "h8_invalid_horizon" | "h8_invalid_instant" | "h8_sub_millisecond" | "h8_off_grid" | "h8_end_before_start";
+            params: {
+                [key: string]: string | number;
+            };
+        };
         Export: {
             /** Format: date-time */
             createdAt: string;
@@ -1691,6 +1697,12 @@ export interface components {
                 deficitMin: number;
                 diversityNote?: string;
                 explanation: string[];
+                explanationItems?: {
+                    code: "policy_summary" | "placement_summary" | "constraints_satisfied" | "infeasible_summary" | "heuristic_insufficient_available_time" | "heuristic_no_contiguous_window" | "heuristic_estimate_not_grid_aligned" | "heuristic_estimate_below_grid" | "heuristic_session_bounds_infeasible" | "unplaced_minutes" | "capacity_deficit" | "replan_bound_exceeded" | "input_rejected" | "input_invalid_time_zone" | "input_invalid_horizon_instant" | "input_horizon_not_increasing" | "input_horizon_too_long" | "input_invalid_now" | "input_duplicate_task" | "input_invalid_estimate" | "input_invalid_buffer" | "input_invalid_session_minutes" | "input_invalid_session_bounds" | "input_invalid_task_window_instant" | "input_task_window_empty" | "input_invalid_preference" | "input_unknown_dependency" | "input_dependency_cycle" | "input_invalid_weekday" | "input_invalid_availability_window" | "input_invalid_exception_date" | "input_exception_partial_window" | "input_invalid_exception_window" | "input_commitment_invalid_instant" | "input_commitment_end_before_start" | "input_commitment_too_long" | "input_unknown_block_task" | "input_invalid_block_instant" | "input_block_sub_millisecond" | "input_block_off_grid" | "input_block_end_before_start" | "input_block_too_long" | "h0_unknown_task" | "h0_outside_horizon" | "h1_same_task_overlap" | "h1_tasks_overlap" | "h1_commitment_overlap" | "h1_active_block_overlap" | "h2_outside_availability" | "h3_dependency_order" | "h4_before_earliest_start" | "h4_inside_due_buffer" | "h4_after_due" | "h5_unsplittable_no_remaining" | "h5_unsplittable_required_out_of_bounds" | "h5_unsplittable_single_block" | "h5_session_out_of_bounds" | "h6_daily_focus_exceeded" | "h6_break_missing" | "h7_deficit" | "h7_overallocated" | "h8_invalid_time_zone" | "h8_invalid_horizon" | "h8_invalid_instant" | "h8_sub_millisecond" | "h8_off_grid" | "h8_end_before_start";
+                    params: {
+                        [key: string]: string | number;
+                    };
+                }[];
                 feasible: boolean;
                 generatorVersion: string;
                 /** Format: uuid */
@@ -1757,6 +1769,12 @@ export interface components {
             deficitMin: number;
             diversityNote?: string;
             explanation: string[];
+            explanationItems?: {
+                code: "policy_summary" | "placement_summary" | "constraints_satisfied" | "infeasible_summary" | "heuristic_insufficient_available_time" | "heuristic_no_contiguous_window" | "heuristic_estimate_not_grid_aligned" | "heuristic_estimate_below_grid" | "heuristic_session_bounds_infeasible" | "unplaced_minutes" | "capacity_deficit" | "replan_bound_exceeded" | "input_rejected" | "input_invalid_time_zone" | "input_invalid_horizon_instant" | "input_horizon_not_increasing" | "input_horizon_too_long" | "input_invalid_now" | "input_duplicate_task" | "input_invalid_estimate" | "input_invalid_buffer" | "input_invalid_session_minutes" | "input_invalid_session_bounds" | "input_invalid_task_window_instant" | "input_task_window_empty" | "input_invalid_preference" | "input_unknown_dependency" | "input_dependency_cycle" | "input_invalid_weekday" | "input_invalid_availability_window" | "input_invalid_exception_date" | "input_exception_partial_window" | "input_invalid_exception_window" | "input_commitment_invalid_instant" | "input_commitment_end_before_start" | "input_commitment_too_long" | "input_unknown_block_task" | "input_invalid_block_instant" | "input_block_sub_millisecond" | "input_block_off_grid" | "input_block_end_before_start" | "input_block_too_long" | "h0_unknown_task" | "h0_outside_horizon" | "h1_same_task_overlap" | "h1_tasks_overlap" | "h1_commitment_overlap" | "h1_active_block_overlap" | "h2_outside_availability" | "h3_dependency_order" | "h4_before_earliest_start" | "h4_inside_due_buffer" | "h4_after_due" | "h5_unsplittable_no_remaining" | "h5_unsplittable_required_out_of_bounds" | "h5_unsplittable_single_block" | "h5_session_out_of_bounds" | "h6_daily_focus_exceeded" | "h6_break_missing" | "h7_deficit" | "h7_overallocated" | "h8_invalid_time_zone" | "h8_invalid_horizon" | "h8_invalid_instant" | "h8_sub_millisecond" | "h8_off_grid" | "h8_end_before_start";
+                params: {
+                    [key: string]: string | number;
+                };
+            }[];
             feasible: boolean;
             generatorVersion: string;
             /** Format: uuid */
@@ -1879,6 +1897,10 @@ export interface components {
             violations: {
                 code: "H1" | "H2" | "H3" | "H4" | "H5" | "H6" | "H7" | "H8";
                 message: string;
+                messageCode?: "h0_unknown_task" | "h0_outside_horizon" | "h1_same_task_overlap" | "h1_tasks_overlap" | "h1_commitment_overlap" | "h1_active_block_overlap" | "h2_outside_availability" | "h3_dependency_order" | "h4_before_earliest_start" | "h4_inside_due_buffer" | "h4_after_due" | "h5_unsplittable_no_remaining" | "h5_unsplittable_required_out_of_bounds" | "h5_unsplittable_single_block" | "h5_session_out_of_bounds" | "h6_daily_focus_exceeded" | "h6_break_missing" | "h7_deficit" | "h7_overallocated" | "h8_invalid_time_zone" | "h8_invalid_horizon" | "h8_invalid_instant" | "h8_sub_millisecond" | "h8_off_grid" | "h8_end_before_start";
+                params?: {
+                    [key: string]: string | number;
+                };
                 /** Format: uuid */
                 taskId?: string;
             }[];
@@ -1898,6 +1920,10 @@ export interface components {
             violations?: {
                 code: "H1" | "H2" | "H3" | "H4" | "H5" | "H6" | "H7" | "H8";
                 message: string;
+                messageCode?: "h0_unknown_task" | "h0_outside_horizon" | "h1_same_task_overlap" | "h1_tasks_overlap" | "h1_commitment_overlap" | "h1_active_block_overlap" | "h2_outside_availability" | "h3_dependency_order" | "h4_before_earliest_start" | "h4_inside_due_buffer" | "h4_after_due" | "h5_unsplittable_no_remaining" | "h5_unsplittable_required_out_of_bounds" | "h5_unsplittable_single_block" | "h5_session_out_of_bounds" | "h6_daily_focus_exceeded" | "h6_break_missing" | "h7_deficit" | "h7_overallocated" | "h8_invalid_time_zone" | "h8_invalid_horizon" | "h8_invalid_instant" | "h8_sub_millisecond" | "h8_off_grid" | "h8_end_before_start";
+                params?: {
+                    [key: string]: string | number;
+                };
                 /** Format: uuid */
                 taskId?: string;
             }[];
@@ -1972,6 +1998,12 @@ export interface components {
             bound: number;
             changedBlocks: number;
             explanation: string[];
+            explanationItems?: {
+                code: "policy_summary" | "placement_summary" | "constraints_satisfied" | "infeasible_summary" | "heuristic_insufficient_available_time" | "heuristic_no_contiguous_window" | "heuristic_estimate_not_grid_aligned" | "heuristic_estimate_below_grid" | "heuristic_session_bounds_infeasible" | "unplaced_minutes" | "capacity_deficit" | "replan_bound_exceeded" | "input_rejected" | "input_invalid_time_zone" | "input_invalid_horizon_instant" | "input_horizon_not_increasing" | "input_horizon_too_long" | "input_invalid_now" | "input_duplicate_task" | "input_invalid_estimate" | "input_invalid_buffer" | "input_invalid_session_minutes" | "input_invalid_session_bounds" | "input_invalid_task_window_instant" | "input_task_window_empty" | "input_invalid_preference" | "input_unknown_dependency" | "input_dependency_cycle" | "input_invalid_weekday" | "input_invalid_availability_window" | "input_invalid_exception_date" | "input_exception_partial_window" | "input_invalid_exception_window" | "input_commitment_invalid_instant" | "input_commitment_end_before_start" | "input_commitment_too_long" | "input_unknown_block_task" | "input_invalid_block_instant" | "input_block_sub_millisecond" | "input_block_off_grid" | "input_block_end_before_start" | "input_block_too_long" | "h0_unknown_task" | "h0_outside_horizon" | "h1_same_task_overlap" | "h1_tasks_overlap" | "h1_commitment_overlap" | "h1_active_block_overlap" | "h2_outside_availability" | "h3_dependency_order" | "h4_before_earliest_start" | "h4_inside_due_buffer" | "h4_after_due" | "h5_unsplittable_no_remaining" | "h5_unsplittable_required_out_of_bounds" | "h5_unsplittable_single_block" | "h5_session_out_of_bounds" | "h6_daily_focus_exceeded" | "h6_break_missing" | "h7_deficit" | "h7_overallocated" | "h8_invalid_time_zone" | "h8_invalid_horizon" | "h8_invalid_instant" | "h8_sub_millisecond" | "h8_off_grid" | "h8_end_before_start";
+                params: {
+                    [key: string]: string | number;
+                };
+            }[];
             flags: ("infeasible" | "bound_exceeded" | "scope_extended" | "capacity_deficit")[];
             metrics: {
                 avgDailyLoadMin: number;
@@ -2001,6 +2033,12 @@ export interface components {
                 bound: number;
                 changedBlocks: number;
                 explanation: string[];
+                explanationItems?: {
+                    code: "policy_summary" | "placement_summary" | "constraints_satisfied" | "infeasible_summary" | "heuristic_insufficient_available_time" | "heuristic_no_contiguous_window" | "heuristic_estimate_not_grid_aligned" | "heuristic_estimate_below_grid" | "heuristic_session_bounds_infeasible" | "unplaced_minutes" | "capacity_deficit" | "replan_bound_exceeded" | "input_rejected" | "input_invalid_time_zone" | "input_invalid_horizon_instant" | "input_horizon_not_increasing" | "input_horizon_too_long" | "input_invalid_now" | "input_duplicate_task" | "input_invalid_estimate" | "input_invalid_buffer" | "input_invalid_session_minutes" | "input_invalid_session_bounds" | "input_invalid_task_window_instant" | "input_task_window_empty" | "input_invalid_preference" | "input_unknown_dependency" | "input_dependency_cycle" | "input_invalid_weekday" | "input_invalid_availability_window" | "input_invalid_exception_date" | "input_exception_partial_window" | "input_invalid_exception_window" | "input_commitment_invalid_instant" | "input_commitment_end_before_start" | "input_commitment_too_long" | "input_unknown_block_task" | "input_invalid_block_instant" | "input_block_sub_millisecond" | "input_block_off_grid" | "input_block_end_before_start" | "input_block_too_long" | "h0_unknown_task" | "h0_outside_horizon" | "h1_same_task_overlap" | "h1_tasks_overlap" | "h1_commitment_overlap" | "h1_active_block_overlap" | "h2_outside_availability" | "h3_dependency_order" | "h4_before_earliest_start" | "h4_inside_due_buffer" | "h4_after_due" | "h5_unsplittable_no_remaining" | "h5_unsplittable_required_out_of_bounds" | "h5_unsplittable_single_block" | "h5_session_out_of_bounds" | "h6_daily_focus_exceeded" | "h6_break_missing" | "h7_deficit" | "h7_overallocated" | "h8_invalid_time_zone" | "h8_invalid_horizon" | "h8_invalid_instant" | "h8_sub_millisecond" | "h8_off_grid" | "h8_end_before_start";
+                    params: {
+                        [key: string]: string | number;
+                    };
+                }[];
                 flags: ("infeasible" | "bound_exceeded" | "scope_extended" | "capacity_deficit")[];
                 metrics: {
                     avgDailyLoadMin: number;
@@ -2057,6 +2095,12 @@ export interface components {
                     bound: number;
                     changedBlocks: number;
                     explanation: string[];
+                    explanationItems?: {
+                        code: "policy_summary" | "placement_summary" | "constraints_satisfied" | "infeasible_summary" | "heuristic_insufficient_available_time" | "heuristic_no_contiguous_window" | "heuristic_estimate_not_grid_aligned" | "heuristic_estimate_below_grid" | "heuristic_session_bounds_infeasible" | "unplaced_minutes" | "capacity_deficit" | "replan_bound_exceeded" | "input_rejected" | "input_invalid_time_zone" | "input_invalid_horizon_instant" | "input_horizon_not_increasing" | "input_horizon_too_long" | "input_invalid_now" | "input_duplicate_task" | "input_invalid_estimate" | "input_invalid_buffer" | "input_invalid_session_minutes" | "input_invalid_session_bounds" | "input_invalid_task_window_instant" | "input_task_window_empty" | "input_invalid_preference" | "input_unknown_dependency" | "input_dependency_cycle" | "input_invalid_weekday" | "input_invalid_availability_window" | "input_invalid_exception_date" | "input_exception_partial_window" | "input_invalid_exception_window" | "input_commitment_invalid_instant" | "input_commitment_end_before_start" | "input_commitment_too_long" | "input_unknown_block_task" | "input_invalid_block_instant" | "input_block_sub_millisecond" | "input_block_off_grid" | "input_block_end_before_start" | "input_block_too_long" | "h0_unknown_task" | "h0_outside_horizon" | "h1_same_task_overlap" | "h1_tasks_overlap" | "h1_commitment_overlap" | "h1_active_block_overlap" | "h2_outside_availability" | "h3_dependency_order" | "h4_before_earliest_start" | "h4_inside_due_buffer" | "h4_after_due" | "h5_unsplittable_no_remaining" | "h5_unsplittable_required_out_of_bounds" | "h5_unsplittable_single_block" | "h5_session_out_of_bounds" | "h6_daily_focus_exceeded" | "h6_break_missing" | "h7_deficit" | "h7_overallocated" | "h8_invalid_time_zone" | "h8_invalid_horizon" | "h8_invalid_instant" | "h8_sub_millisecond" | "h8_off_grid" | "h8_end_before_start";
+                        params: {
+                            [key: string]: string | number;
+                        };
+                    }[];
                     flags: ("infeasible" | "bound_exceeded" | "scope_extended" | "capacity_deficit")[];
                     metrics: {
                         avgDailyLoadMin: number;

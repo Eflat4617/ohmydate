@@ -12,6 +12,7 @@ import {
   GRID_NS,
   MINUTE_MS,
   instantNanoseconds,
+  instantToUtc,
   instantToZoned,
   isValidTimeZone,
   parseClock,
@@ -72,6 +73,8 @@ export function validate(
       {
         code: 'H8',
         message: `Invalid IANA time zone: ${input.timeZone}`,
+        messageCode: 'h8_invalid_time_zone',
+        params: {},
       },
     ];
   }
@@ -108,6 +111,8 @@ function checkUnknownTaskIds(
       violations.push({
         code: 'H0_unknown_task',
         message: `Block references unknown task "${parsed.block.taskId}".`,
+        messageCode: 'h0_unknown_task',
+        params: { taskId: parsed.block.taskId },
         taskId: parsed.block.taskId,
         blocks: [parsed.block],
       });
@@ -126,6 +131,8 @@ function checkHorizon(
     violations.push({
       code: 'H8',
       message: 'Horizon contains an invalid instant.',
+      messageCode: 'h8_invalid_horizon',
+      params: {},
     });
     return;
   }
@@ -134,6 +141,8 @@ function checkHorizon(
       violations.push({
         code: 'H0_horizon',
         message: `Block for task "${parsed.block.taskId}" is outside the planning horizon.`,
+        messageCode: 'h0_outside_horizon',
+        params: blockParams(parsed),
         taskId: parsed.block.taskId,
         blocks: [parsed.block],
       });
@@ -153,6 +162,8 @@ function parsePlanBlocks(blocks: Block[], violations: Violation[]): ParsedBlock[
       violations.push({
         code: 'H8',
         message: `Block for task "${block.taskId}" has an invalid instant.`,
+        messageCode: 'h8_invalid_instant',
+        params: { taskId: block.taskId },
         taskId: block.taskId,
         blocks: [block],
       });
@@ -162,6 +173,8 @@ function parsePlanBlocks(blocks: Block[], violations: Violation[]): ParsedBlock[
       violations.push({
         code: 'H8',
         message: `Block for task "${block.taskId}" has sub-millisecond precision.`,
+        messageCode: 'h8_sub_millisecond',
+        params: { taskId: block.taskId },
         taskId: block.taskId,
         blocks: [block],
       });
@@ -171,6 +184,8 @@ function parsePlanBlocks(blocks: Block[], violations: Violation[]): ParsedBlock[
       violations.push({
         code: 'H8',
         message: `Block for task "${block.taskId}" is not aligned to the 5-minute grid.`,
+        messageCode: 'h8_off_grid',
+        params: { taskId: block.taskId },
         taskId: block.taskId,
         blocks: [block],
       });
@@ -182,6 +197,8 @@ function parsePlanBlocks(blocks: Block[], violations: Violation[]): ParsedBlock[
       violations.push({
         code: 'H8',
         message: `Block for task "${block.taskId}" ends before it starts.`,
+        messageCode: 'h8_end_before_start',
+        params: { taskId: block.taskId },
         taskId: block.taskId,
         blocks: [block],
       });
@@ -228,10 +245,20 @@ function checkH1(
         }
         violations.push({
           code: 'H1',
-          message:
-            current.block.taskId === next.block.taskId
-              ? `Blocks for task "${current.block.taskId}" overlap.`
-              : `Blocks for tasks "${current.block.taskId}" and "${next.block.taskId}" overlap.`,
+          ...(current.block.taskId === next.block.taskId
+            ? {
+                message: `Blocks for task "${current.block.taskId}" overlap.`,
+                messageCode: 'h1_same_task_overlap' as const,
+                params: { taskId: current.block.taskId },
+              }
+            : {
+                message: `Blocks for tasks "${current.block.taskId}" and "${next.block.taskId}" overlap.`,
+                messageCode: 'h1_tasks_overlap' as const,
+                params: {
+                  taskId: current.block.taskId,
+                  otherTaskId: next.block.taskId,
+                },
+              }),
           blocks: [current.block, next.block],
         });
       }
@@ -249,6 +276,8 @@ function checkH1(
         violations.push({
           code: 'H1',
           message: `Block for task "${parsed.block.taskId}" overlaps a commitment.`,
+          messageCode: 'h1_commitment_overlap',
+          params: blockParams(parsed),
           taskId: parsed.block.taskId,
           blocks: [parsed.block],
         });
@@ -267,6 +296,8 @@ function checkH2(
       violations.push({
         code: 'H2',
         message: `Block for task "${parsed.block.taskId}" is outside availability.`,
+        messageCode: 'h2_outside_availability',
+        params: blockParams(parsed),
         taskId: parsed.block.taskId,
         blocks: [parsed.block],
       });
@@ -604,6 +635,8 @@ function checkH3(
         violations.push({
           code: 'H3',
           message: `Task "${task.id}" starts before dependency "${dependencyId}" finishes.`,
+          messageCode: 'h3_dependency_order',
+          params: { taskId: task.id, dependencyId },
           taskId: task.id,
           blocks: [dependencyLast.block, successorFirst.block],
         });
@@ -635,6 +668,8 @@ function checkH4(
         violations.push({
           code: 'H4',
           message: `Task "${task.id}" starts before earliestStartAt.`,
+          messageCode: 'h4_before_earliest_start',
+          params: { taskId: task.id, earliestStartAt: instantToUtc(earliestMs) },
           taskId: task.id,
           blocks: [first.block],
         });
@@ -645,12 +680,20 @@ function checkH4(
       const dueMs = tryParseInstant(task.dueAt);
       const bufferMs = usableBufferMinutes(task) * MINUTE_MS;
       if (dueMs !== undefined && last.endMs > dueMs - bufferMs) {
+        const dueAt = instantToUtc(dueMs);
         violations.push({
           code: 'H4',
-          message:
-            bufferMs > 0
-              ? `Task "${task.id}" ends inside its pre-due buffer.`
-              : `Task "${task.id}" ends after its due time.`,
+          ...(bufferMs > 0
+            ? {
+                message: `Task "${task.id}" ends inside its pre-due buffer.`,
+                messageCode: 'h4_inside_due_buffer' as const,
+                params: { taskId: task.id, dueAt, bufferMin: bufferMs / MINUTE_MS },
+              }
+            : {
+                message: `Task "${task.id}" ends after its due time.`,
+                messageCode: 'h4_after_due' as const,
+                params: { taskId: task.id, dueAt },
+              }),
           taskId: task.id,
           blocks: [last.block],
         });
@@ -682,6 +725,8 @@ function checkH5(
           violations.push({
             code: 'H5',
             message: `Non-splittable task "${task.id}" has no remaining minutes and must not have a block.`,
+            messageCode: 'h5_unsplittable_no_remaining',
+            params: { taskId: task.id },
             taskId: task.id,
             blocks: taskBlocks.map((parsed) => parsed.block),
           });
@@ -692,6 +737,13 @@ function checkH5(
         violations.push({
           code: 'H5',
           message: `Non-splittable task "${task.id}" requires ${required} minutes, outside [${task.minSessionMin}, ${task.maxSessionMin}].`,
+          messageCode: 'h5_unsplittable_required_out_of_bounds',
+          params: {
+            taskId: task.id,
+            requiredMin: required,
+            minSessionMin: task.minSessionMin,
+            maxSessionMin: task.maxSessionMin,
+          },
           taskId: task.id,
           ...(taskBlocks.length === 0
             ? {}
@@ -704,6 +756,8 @@ function checkH5(
         violations.push({
           code: 'H5',
           message: `Non-splittable task "${task.id}" must be one block covering ${required} minutes.`,
+          messageCode: 'h5_unsplittable_single_block',
+          params: { taskId: task.id, requiredMin: required },
           taskId: task.id,
           blocks: taskBlocks.map((parsed) => parsed.block),
         });
@@ -718,11 +772,23 @@ function checkH5(
         (duration < task.minSessionMin || duration > task.maxSessionMin)
       ) {
         const parsed = taskBlocks[index];
+        if (parsed === undefined) {
+          continue;
+        }
         violations.push({
           code: 'H5',
           message: `Task "${task.id}" has a ${duration}-minute session outside [${task.minSessionMin}, ${task.maxSessionMin}].`,
+          messageCode: 'h5_session_out_of_bounds',
+          params: {
+            taskId: task.id,
+            durationMin: duration,
+            minSessionMin: task.minSessionMin,
+            maxSessionMin: task.maxSessionMin,
+            startAt: instantToUtc(parsed.startMs),
+            endAt: instantToUtc(parsed.endMs),
+          },
           taskId: task.id,
-          ...(parsed === undefined ? {} : { blocks: [parsed.block] }),
+          blocks: [parsed.block],
         });
       }
     }
@@ -760,6 +826,12 @@ function checkH6(
       violations.push({
         code: 'H6',
         message: `Daily focus on ${date} is ${entry.total} minutes, above ${input.prefs.maxDailyFocusMin}.`,
+        messageCode: 'h6_daily_focus_exceeded',
+        params: {
+          date,
+          totalMin: entry.total,
+          maxDailyFocusMin: input.prefs.maxDailyFocusMin,
+        },
       });
     }
   }
@@ -787,6 +859,12 @@ function checkH6(
       violations.push({
         code: 'H6',
         message: `Continuous focus starting on ${runDate} exceeds ${input.prefs.breakAfterMin} minutes without a ${input.prefs.breakMin}-minute break.`,
+        messageCode: 'h6_break_missing',
+        params: {
+          date: runDate,
+          breakAfterMin: input.prefs.breakAfterMin,
+          breakMin: input.prefs.breakMin,
+        },
       });
     }
   };
@@ -834,10 +912,17 @@ function checkH7(
       const difference = Math.abs(required - placed);
       violations.push({
         code: 'H7',
-        message:
-          placed < required
-            ? `Task "${task.id}" is short by ${difference} minutes (deficit).`
-            : `Task "${task.id}" is overallocated by ${difference} minutes.`,
+        ...(placed < required
+          ? {
+              message: `Task "${task.id}" is short by ${difference} minutes (deficit).`,
+              messageCode: 'h7_deficit' as const,
+              params: { taskId: task.id, shortMin: difference },
+            }
+          : {
+              message: `Task "${task.id}" is overallocated by ${difference} minutes.`,
+              messageCode: 'h7_overallocated' as const,
+              params: { taskId: task.id, excessMin: difference },
+            }),
         taskId: task.id,
         ...(taskBlocks.length === 0
           ? {}
@@ -845,6 +930,19 @@ function checkH7(
       });
     }
   }
+}
+
+/** Coded params for a finding about one parsed block (UTC instants, FU-62). */
+function blockParams(parsed: ParsedBlock): {
+  taskId: string;
+  startAt: Instant;
+  endAt: Instant;
+} {
+  return {
+    taskId: parsed.block.taskId,
+    startAt: instantToUtc(parsed.startMs),
+    endAt: instantToUtc(parsed.endMs),
+  };
 }
 
 function groupByTask(plan: ParsedBlock[]): Map<string, ParsedBlock[]> {
@@ -880,6 +978,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
     issues.push({
       code: 'invalid_timezone',
       message: `Invalid IANA time zone: ${input.timeZone}`,
+      messageCode: 'input_invalid_time_zone',
+      params: {},
     });
   }
 
@@ -889,21 +989,32 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
     issues.push({
       code: 'invalid_instant',
       message: 'Horizon contains an invalid instant.',
+      messageCode: 'input_invalid_horizon_instant',
+      params: {},
     });
   } else if (horizonEnd <= horizonStart) {
     issues.push({
       code: 'invalid_window',
       message: 'Horizon end must be after horizon start.',
+      messageCode: 'input_horizon_not_increasing',
+      params: {},
     });
   } else if (horizonEnd - horizonStart > MAX_HORIZON_MS) {
     issues.push({
       code: 'invalid_input',
       message: `Horizon spans more than ${MAX_HORIZON_DAYS} days, the maximum supported length.`,
+      messageCode: 'input_horizon_too_long',
+      params: { maxDays: MAX_HORIZON_DAYS },
     });
   }
 
   if (tryParseInstant(input.now) === undefined) {
-    issues.push({ code: 'invalid_instant', message: 'now is not a valid instant.' });
+    issues.push({
+      code: 'invalid_instant',
+      message: 'now is not a valid instant.',
+      messageCode: 'input_invalid_now',
+      params: {},
+    });
   }
 
   const taskIds = new Set<string>();
@@ -912,6 +1023,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'duplicate_task',
         message: `Task id "${task.id}" is duplicated.`,
+        messageCode: 'input_duplicate_task',
+        params: { taskId: task.id },
         taskId: task.id,
       });
     }
@@ -927,6 +1040,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_estimate',
         message: `Task "${task.id}" has an estimate that is not a whole number of minutes between 0 and ${MAX_INPUT_MINUTES}.`,
+        messageCode: 'input_invalid_estimate',
+        params: { taskId: task.id, maxMin: MAX_INPUT_MINUTES },
         taskId: task.id,
       });
     }
@@ -937,6 +1052,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_estimate',
         message: `Task "${task.id}" has a bufferBeforeDueMin that is not a whole number of minutes between 0 and ${MAX_INPUT_MINUTES}.`,
+        messageCode: 'input_invalid_buffer',
+        params: { taskId: task.id, maxMin: MAX_INPUT_MINUTES },
         taskId: task.id,
       });
     }
@@ -947,6 +1064,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_estimate',
         message: `Task "${task.id}" has a session bound that is not a whole number of minutes between 0 and ${MAX_INPUT_MINUTES}.`,
+        messageCode: 'input_invalid_session_minutes',
+        params: { taskId: task.id, maxMin: MAX_INPUT_MINUTES },
         taskId: task.id,
       });
     }
@@ -958,6 +1077,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_session',
         message: `Task "${task.id}" has invalid session bounds.`,
+        messageCode: 'input_invalid_session_bounds',
+        params: { taskId: task.id },
         taskId: task.id,
       });
     }
@@ -973,6 +1094,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_input',
         message: `prefs.${name} must be a whole number of minutes between 0 and ${MAX_INPUT_MINUTES}.`,
+        messageCode: 'input_invalid_preference',
+        params: { field: name, maxMin: MAX_INPUT_MINUTES },
       });
     }
   }
@@ -983,6 +1106,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
         issues.push({
           code: 'unknown_dependency',
           message: `Task "${task.id}" depends on unknown task "${dependency}".`,
+          messageCode: 'input_unknown_dependency',
+          params: { taskId: task.id, dependencyId: dependency },
           taskId: task.id,
         });
       }
@@ -993,6 +1118,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
     issues.push({
       code: 'dependency_cycle',
       message: 'Task dependencies contain a cycle.',
+      messageCode: 'input_dependency_cycle',
+      params: {},
     });
   }
 
@@ -1001,6 +1128,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_window',
         message: `Availability weekday ${rule.weekday} is outside 1-7.`,
+        messageCode: 'input_invalid_weekday',
+        params: {},
       });
       continue;
     }
@@ -1008,6 +1137,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_window',
         message: `Availability window ${rule.startLocal}-${rule.endLocal} is invalid.`,
+        messageCode: 'input_invalid_availability_window',
+        params: { weekday: rule.weekday },
       });
     }
   }
@@ -1017,6 +1148,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_window',
         message: `Exception date "${exception.date}" is invalid.`,
+        messageCode: 'input_invalid_exception_date',
+        params: {},
       });
     }
     const hasStart = exception.startLocal !== undefined;
@@ -1025,6 +1158,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_window',
         message: `Exception on "${exception.date}" must have both start and end or neither.`,
+        messageCode: 'input_exception_partial_window',
+        params: {},
       });
     } else if (
       hasStart &&
@@ -1037,6 +1172,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_window',
         message: `Exception window on "${exception.date}" is invalid.`,
+        messageCode: 'input_invalid_exception_window',
+        params: {},
       });
     }
   }
@@ -1046,7 +1183,7 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
     horizonEnd !== undefined &&
     horizonEnd > horizonStart;
   for (const commitment of input.commitments) {
-    validateBlockInterval(commitment.start, commitment.end, issues, 'commitment');
+    validateCommitmentInterval(commitment.start, commitment.end, issues);
     const startMs = tryParseInstant(commitment.start);
     const endMs = tryParseInstant(commitment.end);
     if (startMs === undefined || endMs === undefined) {
@@ -1066,6 +1203,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_input',
         message: `Commitment spans more than ${MAX_HORIZON_DAYS} days, the maximum supported length.`,
+        messageCode: 'input_commitment_too_long',
+        params: { maxDays: MAX_HORIZON_DAYS },
       });
     }
   }
@@ -1074,6 +1213,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'unknown_task',
         message: `Block references unknown task "${block.taskId}".`,
+        messageCode: 'input_unknown_block_task',
+        params: { taskId: block.taskId },
         taskId: block.taskId,
       });
     }
@@ -1086,6 +1227,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_instant',
         message: `Block for task "${block.taskId}" has an invalid instant.`,
+        messageCode: 'input_invalid_block_instant',
+        params: { taskId: block.taskId },
         taskId: block.taskId,
       });
       continue;
@@ -1094,6 +1237,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_precision',
         message: `Block for task "${block.taskId}" has sub-millisecond precision.`,
+        messageCode: 'input_block_sub_millisecond',
+        params: { taskId: block.taskId },
         taskId: block.taskId,
       });
       continue;
@@ -1102,6 +1247,8 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_precision',
         message: `Block for task "${block.taskId}" is not on the 5-minute grid.`,
+        messageCode: 'input_block_off_grid',
+        params: { taskId: block.taskId },
         taskId: block.taskId,
       });
       continue;
@@ -1112,12 +1259,16 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
       issues.push({
         code: 'invalid_window',
         message: `Block for task "${block.taskId}" ends before it starts.`,
+        messageCode: 'input_block_end_before_start',
+        params: { taskId: block.taskId },
         taskId: block.taskId,
       });
     } else if (endMs - startMs > MAX_HORIZON_MS) {
       issues.push({
         code: 'invalid_input',
         message: `Block for task "${block.taskId}" spans more than ${MAX_HORIZON_DAYS} days, the maximum supported length.`,
+        messageCode: 'input_block_too_long',
+        params: { taskId: block.taskId, maxDays: MAX_HORIZON_DAYS },
         taskId: block.taskId,
       });
     }
@@ -1152,6 +1303,8 @@ function validateTaskWindow(task: Task, issues: InputIssue[]): void {
     issues.push({
       code: 'invalid_window',
       message: `Task "${task.id}" contains an invalid window instant.`,
+      messageCode: 'input_invalid_task_window_instant',
+      params: { taskId: task.id },
       taskId: task.id,
     });
     return;
@@ -1162,31 +1315,36 @@ function validateTaskWindow(task: Task, issues: InputIssue[]): void {
       issues.push({
         code: 'invalid_window',
         message: `Task "${task.id}" has earliestStartAt at or after its due window.`,
+        messageCode: 'input_task_window_empty',
+        params: { taskId: task.id },
         taskId: task.id,
       });
     }
   }
 }
 
-function validateBlockInterval(
+function validateCommitmentInterval(
   start: Instant,
   end: Instant,
   issues: InputIssue[],
-  label: string,
 ): void {
   const startMs = tryParseInstant(start);
   const endMs = tryParseInstant(end);
   if (startMs === undefined || endMs === undefined) {
     issues.push({
       code: 'invalid_instant',
-      message: `${label} has an invalid instant.`,
+      message: 'commitment has an invalid instant.',
+      messageCode: 'input_commitment_invalid_instant',
+      params: {},
     });
     return;
   }
   if (endMs <= startMs) {
     issues.push({
       code: 'invalid_window',
-      message: `${label} ends before it starts.`,
+      message: 'commitment ends before it starts.',
+      messageCode: 'input_commitment_end_before_start',
+      params: {},
     });
   }
 }

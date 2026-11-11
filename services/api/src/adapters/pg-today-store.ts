@@ -438,7 +438,12 @@ export class PgTodayStore implements TodayStore {
     } catch (error) {
       if (isPgError(error, '23P01')) {
         throw new ConstraintViolationError([
-          { code: 'H1', message: 'an approved block overlaps an active schedule block' },
+          {
+            code: 'H1',
+            message: 'an approved block overlaps an active schedule block',
+            messageCode: 'h1_active_block_overlap',
+            params: {},
+          },
         ]);
       }
       if (isPgError(error, '23503')) {

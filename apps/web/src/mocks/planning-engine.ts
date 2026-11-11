@@ -142,6 +142,7 @@ export function candidateToDto(
     deficitMin: candidate.deficitMin,
     capacityDeficitMin: candidate.capacityDeficitMin,
     explanation: candidate.explanation,
+    explanationItems: candidate.explanationItems,
     ...(diversityNote === undefined ? {} : { diversityNote }),
     generatorVersion: candidate.generatorVersion,
     inputHash: candidate.inputHash,
@@ -231,6 +232,8 @@ function publicViolation(violation: SchedulerViolation): Violation | null {
   return {
     code,
     message: violation.message,
+    messageCode: violation.messageCode,
+    params: { ...violation.params },
     ...(violation.taskId === undefined ? {} : { taskId: violation.taskId }),
   };
 }

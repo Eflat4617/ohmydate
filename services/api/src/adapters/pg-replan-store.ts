@@ -34,6 +34,7 @@ import {
 } from '../application/planning-errors.js';
 import type { ApprovedBlock, EstimateRecord } from '../application/planning-ports.js';
 import { proposalStateConflict } from '../application/replan-errors.js';
+import { explanationItemsJson, parseExplanationItems } from './explanation-json.js';
 import {
   EARLY_COMPLETION_DAILY_CAP,
   REPLAN_DAILY_CAP,
@@ -148,6 +149,7 @@ function parsePayload(
   const record = isRecord(parsed) ? parsed : {};
   const trigger = isRecord(record['trigger']) ? record['trigger'] : {};
   const candidate = isRecord(record['candidate']) ? record['candidate'] : {};
+  const explanation = parseStrings(candidate['explanation']);
   return {
     trigger: {
       kind: row.trigger_kind as ReplanTriggerKind,
@@ -161,7 +163,8 @@ function parsePayload(
       changedBlocks: numberOr(candidate['changedBlocks'], 0),
       bound: numberOr(candidate['bound'], 0),
       flags: parseStrings(candidate['flags']) as ReplanCandidateFlag[],
-      explanation: parseStrings(candidate['explanation']),
+      explanation,
+      explanationItems: parseExplanationItems(candidate['explanationItems'], explanation.length),
     },
     basePlanRevision: numberOr(record['basePlanRevision'], 1),
     policy: typeof record['policy'] === 'string' ? record['policy'] : 'balanced',
@@ -223,6 +226,7 @@ function payloadJson(input: NewReplanProposal): JsonValue {
       bound: input.candidate.bound,
       flags: [...input.candidate.flags],
       explanation: [...input.candidate.explanation],
+      explanationItems: explanationItemsJson(input.candidate.explanationItems ?? []),
     },
     basePlanRevision: input.basePlanRevision,
     policy: input.policy,
@@ -735,7 +739,12 @@ export class PgReplanStore implements ReplanStore {
     } catch (error) {
       if (isPgError(error, '23P01')) {
         throw new ConstraintViolationError([
-          { code: 'H1', message: 'an approved block overlaps an active schedule block' },
+          {
+            code: 'H1',
+            message: 'an approved block overlaps an active schedule block',
+            messageCode: 'h1_active_block_overlap',
+            params: {},
+          },
         ]);
       }
       if (isPgError(error, '23503')) {

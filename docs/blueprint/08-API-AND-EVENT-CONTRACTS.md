@@ -5,6 +5,7 @@
 - 단일 소스: TypeBox 스키마(`packages/contracts/src/**`) → Fastify 검증 + `@fastify/swagger`로 **OpenAPI 3.1 산출** → `apps/web`은 `openapi-typescript`(또는 hey-api) 생성 클라이언트. CI에서 생성물 diff 0 검사(ADR-005).
 - 인증: 세션 쿠키(`HttpOnly; Secure; SameSite=Lax`) + 변경 메서드에 `X-CSRF-Token`. 장래 API 토큰(Bearer, scope).
 - 오류: RFC 9457 `application/problem+json` `{type, title, status, detail, code, errors?[{path,message}], traceId}`. `code`는 안정 enum(`validation_failed`, `version_conflict`, `availability_changed`, `idempotency_mismatch`, `provider_unavailable`, `llm_unavailable`, `budget_exceeded`, `dependency_cycle`, `not_found`, `forbidden`, `rate_limited`).
+- **제약 위반 코드(2026-11-11 확정, FU-62):** `constraint_violation`의 `violations[]`(및 preview-edit 응답의 `violations[]`)는 `{code(H1–H8), taskId?, message}`에 선택 필드 `messageCode` + `params`를 더한다. `message`는 영문 로그용이고, 클라이언트는 닫힌 enum `messageCode`(06 §6.1)와 `params`(숫자·ID·UTC instant·날짜만, 제목·노트 금지)로 현지어 문장을 만든다. 후보·재계획 후보의 `explanationItems[]`도 같은 `{code, params}` 형식이다.
 - 상태 코드: 200/201/202/204, 304(If-None-Match), 400(형식), 401, 403, 404, 409(상태 전이 불가), 412(If-Match 불일치), 422(도메인 검증), 428(If-Match 필수 누락), 429, 503(provider/LLM).
 - 낙관적 잠금: 모든 PATCH/PUT/DELETE와 상태 변경 POST는 `If-Match: W/"<version>"` 필수(누락 428).
 - 멱등: 모든 생성 POST·승인 POST·세션 이벤트는 `Idempotency-Key` 필수. 같은 키+같은 본문 해시 → 저장된 응답 재생, 다른 본문 → 422 `idempotency_mismatch`. 보존 24h.
