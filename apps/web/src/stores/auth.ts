@@ -49,6 +49,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function loadCurrent(): Promise<User | null> {
     const binding = captureOwnerBinding();
+    const wasConfirmed = confirmed.value;
     bootstrapState.value = 'pending';
     try {
       const current = await plannerClient.getMe(binding.signal);
@@ -64,11 +65,14 @@ export const useAuthStore = defineStore('auth', () => {
       return current;
     } catch (cause) {
       if (!isOwnerBindingCurrent(binding)) return null;
+      const unauthenticated =
+        cause instanceof ApiError && (cause.status === 401 || cause.status === 403);
+      if (wasConfirmed && !unauthenticated) {
+        bootstrapState.value = 'ready';
+        return user.value;
+      }
       confirmed.value = false;
-      bootstrapState.value =
-        cause instanceof ApiError && (cause.status === 401 || cause.status === 403)
-          ? 'anonymous'
-          : 'error';
+      bootstrapState.value = unauthenticated ? 'anonymous' : 'error';
       return null;
     }
   }

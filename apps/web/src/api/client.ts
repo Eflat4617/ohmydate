@@ -173,6 +173,7 @@ export class PlannerClient {
 
   async getMe(signal?: AbortSignal): Promise<User> {
     const { data, error, response } = await this.client.GET('/me', {
+      cache: 'no-store',
       ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);

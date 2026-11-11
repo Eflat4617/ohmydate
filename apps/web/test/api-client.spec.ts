@@ -11,6 +11,40 @@ import { USER_ID } from '../src/mocks/db';
 const API = 'http://localhost:3000/api/v1';
 
 describe('planner API client', () => {
+  it('reads the current identity with cache no-store', async () => {
+    let seenCache: RequestCache | undefined;
+    const client = createPlannerClient({
+      baseUrl: API,
+      fetch: async (input, init) => {
+        const request = input instanceof Request ? input : new Request(input, init);
+        seenCache = request.cache;
+        return new Response(
+          JSON.stringify({
+            id: USER_ID,
+            email: 'cache-test@example.test',
+            locale: 'en',
+            timeZone: 'UTC',
+            version: 1,
+            createdAt: '2026-11-01T00:00:00.000Z',
+            updatedAt: '2026-11-01T00:00:00.000Z',
+          }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              ETag: `W/"${USER_ID}:1"`,
+            },
+          },
+        );
+      },
+    });
+
+    const user = await client.getMe();
+
+    expect(user.id).toBe(USER_ID);
+    expect(seenCache).toBe('no-store');
+  });
+
   it('sends If-Match from the cached version and reports 412 version_conflict', async () => {
     const staleClient = createPlannerClient();
     const otherClient = createPlannerClient();

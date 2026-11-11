@@ -29,6 +29,25 @@ const consentOpen = computed(
 );
 
 let teardownOffline: (() => void) | null = null;
+let revalidating = false;
+
+async function revalidateIdentity(): Promise<void> {
+  if (!auth.confirmed || revalidating) return;
+  revalidating = true;
+  try {
+    await auth.loadCurrent();
+  } finally {
+    revalidating = false;
+  }
+}
+
+function onVisibilityChange(): void {
+  if (document.visibilityState === 'visible') void revalidateIdentity();
+}
+
+function onWindowFocus(): void {
+  void revalidateIdentity();
+}
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -100,6 +119,8 @@ function onKeydown(event: KeyboardEvent): void {
 onMounted(() => {
   teardownOffline = offline.initialize();
   window.addEventListener('keydown', onKeydown);
+  window.addEventListener('focus', onWindowFocus);
+  document.addEventListener('visibilitychange', onVisibilityChange);
   void auth.ensureOwnerConfirmed();
 });
 
@@ -114,6 +135,8 @@ watch(
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('focus', onWindowFocus);
+  document.removeEventListener('visibilitychange', onVisibilityChange);
   teardownOffline?.();
 });
 </script>

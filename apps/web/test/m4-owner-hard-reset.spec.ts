@@ -38,6 +38,7 @@ function testRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
+      { path: '/login', name: 'login', component: Stub },
       { path: '/today', name: 'today', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
     ],
@@ -271,6 +272,32 @@ describe('ADR-023 hard reset on owner change', () => {
 
     pending.resolve(ownerA);
     await vi.waitFor(() => expect(wrapper.find('.protected-body').exists()).toBe(true));
+    wrapper.unmount();
+  });
+
+  it('revalidates identity on focus and returns to login after an external logout', async () => {
+    const pinia = createPinia();
+    const auth = useAuthStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    const login = vi.spyOn(plannerClient, 'login');
+    const getMe = vi.spyOn(plannerClient, 'getMe');
+
+    await signIn(pinia, ownerA, login, getMe);
+    expect(auth.confirmed).toBe(true);
+    const router = testRouter();
+    await router.push('/today');
+    const wrapper = mount(AppShell, {
+      global: { plugins: [pinia, router] },
+      slots: { default: '<p class="protected-body">Journal</p>' },
+      attachTo: document.body,
+    });
+    await vi.waitFor(() => expect(wrapper.find('.protected-body').exists()).toBe(true));
+
+    getMe.mockRejectedValue(new ApiError(401, 'unauthenticated', 'no session'));
+    window.dispatchEvent(new Event('focus'));
+
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('login'));
+    expect(auth.confirmed).toBe(false);
     wrapper.unmount();
   });
 
