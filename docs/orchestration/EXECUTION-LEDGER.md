@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | 5ea4a91 (UI-POLISH), aa34394 (FU-41), 68a8531 (FU-57), c9166b2 (FU-55), 2f14c0f (M4-UI), d0e2c79 (FU-52), 9c62fb6 (M4-02), ba2911c (M4-01), ac17b02 (M23-UI), 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | 383b2a3 (M5-01), 5ea4a91 (UI-POLISH), aa34394 (FU-41), 68a8531 (FU-57), c9166b2 (FU-55), 2f14c0f (M4-UI), d0e2c79 (FU-52), 9c62fb6 (M4-02), ba2911c (M4-01), ac17b02 (M23-UI), 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -137,6 +137,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| M5-01 | ctx_7ab873a05dc4 (Sol medium) | 54f6877 | MEDIUM 1(테스트 데이터 시각 의존) → 지시대로 정확히 수정, orchestrator가 diff 확인(테스트 데이터만, 2차 리뷰 생략) | FU-61 | **Accepted, merged 383b2a3**; ci 1535 pass + web 193 |
 | UI-POLISH | ctx_fe6986866a2b (Sol medium; 구현 Opus) | a58d1ab | **APPROVE** — Calm 완료 후 나가기 휴대폰·데스크톱 확인, 중첩 대화상자 테스트 | FU-60 | **Accepted, merged 5ea4a91**; ci 1521 pass + web 193 |
 | FU-41 (+43) | ctx_bf87b331099a (Sol medium) | 1385abc | **APPROVE** — 독립 감사 1,200 재계획·가능 후보 2,359건 위반 0, 기존 속성 테스트 무변경 | FU-59 | **Accepted, merged aa34394**; ci 1521 pass/29 skip + web 168 |
 | FU-57 | ctx_38949deb088a (Sol medium) | 8efa523 | **APPROVE** | FU-58 | **Accepted, merged 68a8531**; ci 1504 pass/29 skip + web 168 |
