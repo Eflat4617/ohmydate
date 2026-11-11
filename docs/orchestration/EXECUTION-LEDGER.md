@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | c9166b2 (FU-55), 2f14c0f (M4-UI), d0e2c79 (FU-52), 9c62fb6 (M4-02), ba2911c (M4-01), ac17b02 (M23-UI), 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | 68a8531 (FU-57), c9166b2 (FU-55), 2f14c0f (M4-UI), d0e2c79 (FU-52), 9c62fb6 (M4-02), ba2911c (M4-01), ac17b02 (M23-UI), 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 20:33 | UI-POLISH worker_done(9c22a02, Opus): 토큰·공통 부품·레이아웃, MSW axe 14→0/130, 신규 실 API axe E2E, E2E 22/22 → Sol 리뷰(ctx_ae4617faec28). 스크린샷 확인 중 영어 문구·분 단위 원값 발견 → **사용자 결정: 한국어로 변경** → UI-I18N(Opus, UI-POLISH 병합 직후) | 스크린샷, AskUserQuestion | orchestrator |
 | 2026-11-11 20:20 | **FU-41R-1 REQUEST_CHANGES (Sol medium)**: 독립 감사 1,200 재계획 보존·상한 위반 0, 가능 후보 2,595건 H1–H8 위반 0. MEDIUM — 의존 관계 추가 시 선행 작업 영구 고정으로 기존 '의존 변경 가능성' 속성 깨짐(CI 실패). **06 §7 영향 범위 계약 확정**(트리거 작업 + 변경된 의존 간선 양 끝 + 후행, 부족 시 선행 단계 확장). 수정 1/2 | reviews/FU-41R-1.md | orchestrator |
 | 2026-11-11 20:17 | dev compose: PG healthcheck에 실제 쿼리(select 1) 추가(복구 중 pg_isready만으론 부족), Vikunja depends_on postgres healthy. 재부팅 시 데몬 재시작은 depends_on 미적용 → Vikunja는 restart 정책으로 재시도(수동 개입 불필요). UI-POLISH 질문 → 옵션 B(실 API axe E2E 신규 파일) 승인 | msg_16721bedc9e7 | orchestrator |
 | 2026-11-11 20:12 | **호스트 정지 후 재부팅**(uptime 1분). Orca ready. PG 비정상 종료 복구 대기 후 Vikunja 재시작(restart 정책으로 자동 기동, 복구 중 연결 실패 반복) → 정상. 중단 Task 3개 같은 worktree로 재개: UI-POLISH(Opus, ctx_6d31959509de, 86ebedb+미커밋 스크린샷 작업), FU-57 수정 1(DeepSeek, ctx_02b0cbb8da0b, 미커밋 작업), FU-41R(Sol, ctx_30d1efe4423f). 후속 지시 재전송 | uptime, docker, worktree status | orchestrator |
@@ -135,6 +136,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-57 | ctx_38949deb088a (Sol medium) | 8efa523 | **APPROVE** | FU-58 | **Accepted, merged 68a8531**; ci 1504 pass/29 skip + web 168 |
 | FU-55 | ctx_d30f0600f6b3 (Sol medium; 구현 Opus) | d8a86ba | **APPROVE** (지적 없음) | — | **Accepted, merged c9166b2**; 충돌(e2e/helpers/planner.ts 양쪽 헬퍼 유지) 해결, ci 1497 pass + web 168, **E2E 21/21** |
 | M4-UI (+M4-03,UIc,UId) | ctx_7555c320974c (Sol medium) | 5384216 | **APPROVE** — 실제 Chromium 자동 리셋·교차 탭 로그아웃 확인 | FU-56 | **Accepted, merged 2f14c0f**; ci 1497 pass/29 skip + web 166; E2E 12/12(병합 후 재실행; E2E-3은 시각 의존이라 FU-55 계속) |
 | FU-52 (+52c) | ctx_e76ac2289629 (opus-fallback) | 6cf7806 | **APPROVE** — 한국어 동시 20건 최악 지출 $0.0304 ≤ $0.035, 키 표식 안전 | FU-54 | **Accepted, merged d0e2c79**; 충돌(마이그레이션 픽스처) 해결, ci 1496 pass/29 skip + web 112 |

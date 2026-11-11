@@ -1041,15 +1041,28 @@ export function validateInput(input: ScheduleInput): InputIssue[] {
     }
   }
 
+  const horizonUsable =
+    horizonStart !== undefined &&
+    horizonEnd !== undefined &&
+    horizonEnd > horizonStart;
   for (const commitment of input.commitments) {
     validateBlockInterval(commitment.start, commitment.end, issues, 'commitment');
     const startMs = tryParseInstant(commitment.start);
     const endMs = tryParseInstant(commitment.end);
-    if (
-      startMs !== undefined &&
-      endMs !== undefined &&
-      endMs - startMs > MAX_HORIZON_MS
-    ) {
+    if (startMs === undefined || endMs === undefined) {
+      continue;
+    }
+    // The occupied-span cap exists to bound transition enumeration after
+    // clipping. Commitments wholly outside the horizon are irrelevant, and
+    // partially overlapping ones only cost their clipped span (FU-43).
+    let effectiveSpanMs = endMs - startMs;
+    if (horizonUsable) {
+      const overlapsHorizon = startMs < horizonEnd && endMs > horizonStart;
+      effectiveSpanMs = overlapsHorizon
+        ? Math.min(endMs, horizonEnd) - Math.max(startMs, horizonStart)
+        : 0;
+    }
+    if (effectiveSpanMs > MAX_HORIZON_MS) {
       issues.push({
         code: 'invalid_input',
         message: `Commitment spans more than ${MAX_HORIZON_DAYS} days, the maximum supported length.`,

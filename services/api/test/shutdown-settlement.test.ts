@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
@@ -15,6 +15,7 @@ import type { FastifyInstance } from 'fastify';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import pino from 'pino';
+import { inject } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { createConfig } from '../src/config.js';
 import { createApplicationClose } from '../src/main.js';
@@ -26,6 +27,13 @@ import {
   databaseUrl,
   hasDatabase,
 } from './vikunja/pg-support.js';
+import {
+  API_DIST_BUILD_ID_KEY,
+  acquireDistLease,
+  apiDistArtifact,
+  assertApiDistArtifact,
+  releaseDistLease,
+} from './support/dist-artifact.js';
 
 const { Pool } = pg;
 
@@ -34,6 +42,23 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 const apiRoot = fileURLToPath(new URL('..', import.meta.url));
 const distMain = join(apiRoot, 'dist', 'main.js');
 const neverFixture = join(apiRoot, 'test', 'support', 'never-settling-app.mjs');
+const distArtifact = apiDistArtifact();
+
+// dist is built once by vitest globalSetup; the lease keeps build-smoke from
+// rebuilding it underneath a spawned app. Acquire outside hooks: while another
+// suite rebuilds dist the wait can exceed hookTimeout, so it must not be
+// charged to a suite hook.
+await acquireDistLease();
+try {
+  assertApiDistArtifact(distArtifact, inject(API_DIST_BUILD_ID_KEY));
+} catch (error) {
+  await releaseDistLease();
+  throw error;
+}
+
+afterAll(async () => {
+  await releaseDistLease();
+});
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -258,20 +283,8 @@ async function startSyntheticProvider(): Promise<SyntheticProvider> {
   };
 }
 
-beforeAll(() => {
-  const execPath = process.env['npm_execpath'];
-  const isJsEntry = execPath !== undefined && /\.(c|m)?js$/.test(execPath);
-  const command = isJsEntry ? process.execPath : (execPath ?? 'pnpm');
-  const prefix = isJsEntry ? [execPath as string] : [];
-  const build = spawnSync(command, [...prefix, 'run', 'build'], {
-    cwd: apiRoot,
-    encoding: 'utf8',
-  });
-  if (build.status !== 0) {
-    throw new Error(`build failed: ${build.stdout}\n${build.stderr}`);
-  }
-}, 120_000);
-
+// dist is built once by vitest globalSetup; the lease keeps build-smoke from
+// rebuilding it underneath a spawned app. See support/dist-artifact.ts.
 describe('boot validation', () => {
   test('rejects SHUTDOWN_CLEANUP_BUDGET_MS that reaches the hard deadline', async () => {
     const port = await freePort();

@@ -206,9 +206,24 @@ export type PolicyName = 'front_loaded' | 'balanced' | 'focus_blocked';
  * requirement (`remainingMin` when supplied, else P90), capped per task.
  * `changedBlocks` is the symmetric difference between the returned (movable)
  * blocks and the non-fixed `ScheduleInput.existingBlocks`; locked and
- * past/in-progress fixed blocks are excluded. `deficitMin` is the candidate's
- * own H7 shortfall, while `capacityDeficitMin` is the pre-generation capacity
- * upper bound from `deficit()`.
+ * past/in-progress fixed blocks are excluded. This is the exact 06 §7 change
+ * metric per block key (`taskId|start|end`), summed across tasks.
+ *
+ * On a replan the affected set is (a) tasks hit by the trigger (a new or
+ * changed commitment/lock conflict, measured delay) plus (b) BOTH endpoints of
+ * every added, removed or changed dependency edge plus (c) all transitive
+ * successors of (a) and (b). Existing future blocks of every other task are
+ * frozen and preserved exactly. If an affected task cannot be fully placed
+ * because frozen blocks are in the way, its direct predecessors join the
+ * affected set one dependency depth at a time and the attempt is retried; only
+ * when that expansion stops changing the set is an explained infeasible
+ * candidate returned. The change bound is `2 * affectedExistingBlocks + 2`,
+ * where `affectedExistingBlocks` counts the frozen-scope split after any
+ * expansion. If a candidate cannot meet that bound its `explanation` starts a
+ * line with "Replan change bound exceeded:" and the result carries the same
+ * note as `diversityNote`; it is never silently exceeded. `deficitMin` is the
+ * candidate's own H7 shortfall, while `capacityDeficitMin` is the
+ * pre-generation capacity upper bound from `deficit()`.
  *
  * When every attempt is infeasible, the generator picks the attempt with the
  * smallest `deficitMin`, then the fewest violations, then the most retained
