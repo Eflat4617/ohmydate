@@ -110,6 +110,70 @@ describe('FU-43 rejection totals are bounded and finite', () => {
   });
 });
 
+describe('FU-43 p90 and remainingMin huge-value rejection matrix', () => {
+  const cases: Array<{ name: string; task: Task }> = [
+    {
+      name: 'p90 Number.MAX_VALUE',
+      task: makeTask({
+        id: 'A',
+        estimate: { p50Min: 60, p90Min: Number.MAX_VALUE },
+      }),
+    },
+    {
+      name: 'p90 1e308',
+      task: makeTask({
+        id: 'A',
+        estimate: { p50Min: 60, p90Min: 1e308 },
+      }),
+    },
+    {
+      name: 'p90 Infinity',
+      task: makeTask({
+        id: 'A',
+        estimate: { p50Min: 60, p90Min: Number.POSITIVE_INFINITY },
+      }),
+    },
+    {
+      name: 'remainingMin Number.MAX_VALUE',
+      task: makeTask({ id: 'A', remainingMin: Number.MAX_VALUE }),
+    },
+    {
+      name: 'remainingMin 1e308',
+      task: makeTask({ id: 'A', remainingMin: 1e308 }),
+    },
+    {
+      name: 'remainingMin Infinity',
+      task: makeTask({
+        id: 'A',
+        remainingMin: Number.POSITIVE_INFINITY,
+      }),
+    },
+  ];
+
+  it('rejects every huge p90/remainingMin value with finite rejection metrics', () => {
+    for (const entry of cases) {
+      const input = makeInput({ tasks: [entry.task] });
+      expect(codes(input), entry.name).toContain('invalid_estimate');
+      const [candidate] = generate(input, {
+        policies: ['balanced'],
+        seed: 43,
+      }).candidates;
+      expect(candidate?.feasible, entry.name).toBe(false);
+      expect(Number.isFinite(candidate?.deficitMin), entry.name).toBe(true);
+      expect(
+        Number.isFinite(candidate?.capacityDeficitMin),
+        entry.name,
+      ).toBe(true);
+      for (const value of Object.values(candidate?.metrics ?? {})) {
+        expect(Number.isFinite(value), entry.name).toBe(true);
+      }
+      expect(JSON.parse(JSON.stringify(candidate)), entry.name).toEqual(
+        candidate,
+      );
+    }
+  });
+});
+
 describe('FU-43 occupied-span cap clips or ignores commitments', () => {
   it('accepts a commitment exactly at the 366-day boundary', () => {
     const horizon = {

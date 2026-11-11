@@ -26,7 +26,7 @@ import { POLICIES, POLICY_NAMES } from './policies.js';
 import { createPrng, type Prng } from './prng.js';
 import { canonicalJson, sha256Hex } from './hash.js';
 
-export const GENERATOR_VERSION = 'm3-02.5';
+export const GENERATOR_VERSION = 'm3-02.6';
 
 /** Explanation prefix used when a replan exceeds its 06 §7 change bound. */
 const REPLAN_BOUND_PREFIX = 'Replan change bound exceeded:';
@@ -66,16 +66,19 @@ interface ReplanBlock {
 interface ReplanPlan {
   movable: ReplanBlock[];
   baseAffectedTasks: Set<string>;
-  /**
-   * Future existing blocks of tasks outside the trigger scope. They are
-   * always re-emitted exactly (06 §7) and never released by later attempts.
-   */
-  frozen: ReplanBlock[];
-  frozenTasks: Set<string>;
-  /** Existing blocks of affected tasks; used for the change bound. */
-  affectedExistingBlocks: number;
   /** Non-fixed existing blocks, used for the changedBlocks metric. */
   movableExisting: Interval[];
+}
+
+/**
+ * Frozen slice of a replan for one affected set (06 §7):
+ * future existing blocks of every task outside the affected set, preserved
+ * exactly, plus the affected existing block count for the change bound.
+ */
+interface ReplanScope {
+  frozen: ReplanBlock[];
+  frozenTasks: Set<string>;
+  affectedExistingBlocks: number;
 }
 
 interface PlanState {
@@ -135,10 +138,12 @@ interface ChunkSpec {
  * reasons, so no hard violation is hidden.
  *
  * Replanning seeds still-valid existing blocks (start >= now) and re-places
- * only conflicting/affected tasks and their successors. Existing blocks whose
- * start is before `now` are history (06 §7.1): they occupy time for H1/H6 but
- * are exempt from H2/H4/H5 and do not reduce `remainingMin`. New placements
- * start at or after max(horizon.start, now).
+ * only the affected tasks (trigger tasks, both endpoints of changed dependency
+ * edges, and all successors) plus any predecessors released by the staged
+ * feasibility expansion (06 §7). Existing blocks whose start is before `now`
+ * are history (06 §7.1): they occupy time for H1/H6 but are exempt from
+ * H2/H4/H5 and do not reduce `remainingMin`. New placements start at or after
+ * max(horizon.start, now).
  */
 export function generate(
   input: ScheduleInput,
@@ -579,19 +584,55 @@ function prepareReplan(context: BuildContext): ReplanPlan {
   // Dry-run seed validation to learn which tasks genuinely have to be
   // released (invalid commitment-overlapping seed, changed dependency,
   // unrepresentable remainder). Everything else is frozen exactly.
-  const dryRun = buildReplanSeeds(context, { movable, frozenTasks: new Set() }, affected);
-  const baseAffectedTasks = propagateAffected(context, dryRun.affected);
-  const frozen = movable.filter(
-    (item) => !baseAffectedTasks.has(item.taskId),
+  const dryRun = buildReplanSeeds(
+    context,
+    { movable, frozenTasks: new Set() },
+    affected,
   );
+  const baseAffectedTasks = propagateAffected(context, dryRun.affected);
   return {
     movable,
     baseAffectedTasks,
-    frozen,
-    frozenTasks: new Set(frozen.map((item) => item.taskId)),
-    affectedExistingBlocks: movable.length - frozen.length,
     movableExisting,
   };
+}
+
+/**
+ * Split a replan into the frozen (unaffected) existing blocks and the affected
+ * block count for the current affected set. Releasing more tasks (the staged
+ * predecessor expansion in 06 §7) only ever unfreezes their own blocks.
+ */
+function scopeForReplan(
+  replan: ReplanPlan,
+  affected: Set<string>,
+): ReplanScope {
+  const frozen = replan.movable.filter(
+    (item) => !affected.has(item.taskId),
+  );
+  return {
+    frozen,
+    frozenTasks: new Set(frozen.map((item) => item.taskId)),
+    affectedExistingBlocks: replan.movable.length - frozen.length,
+  };
+}
+
+/** Direct dependency ids of the affected tasks that are not yet affected. */
+function directPredecessors(
+  context: BuildContext,
+  affected: Set<string>,
+): Set<string> {
+  const predecessors = new Set<string>();
+  for (const task of context.input.tasks) {
+    if (!affected.has(task.id)) {
+      continue;
+    }
+    for (const dependencyId of task.dependsOn) {
+      if (!affected.has(dependencyId)) {
+        predecessors.add(dependencyId);
+      }
+    }
+  }
+  return predecessors;
 }
 
 /**
@@ -602,7 +643,7 @@ function prepareReplan(context: BuildContext): ReplanPlan {
  */
 function buildReplanSeeds(
   context: BuildContext,
-  replan: Pick<ReplanPlan, 'movable' | 'frozenTasks'>,
+  replan: Pick<ReplanPlan, 'movable'> & { frozenTasks: Set<string> },
   initialAffected: Set<string>,
 ): { seeds: Placement[]; affected: Set<string> } {
   const taskById = new Map(
@@ -675,7 +716,13 @@ function buildReplanSeeds(
         task.dependsOn,
       );
       if (seed.startMs < dependencyReady) {
+        // A dependency edge whose existing blocks are out of order has been
+        // added or changed; 06 §7 keeps BOTH endpoints in the affected set so
+        // the predecessor is not permanently frozen.
         next.add(seed.taskId);
+        for (const dependencyId of task.dependsOn) {
+          next.add(dependencyId);
+        }
       }
     }
 
@@ -757,9 +804,9 @@ function buildReplanSeeds(
 /** Frozen, unaffected existing blocks as seeds; never released. */
 function frozenSeeds(
   context: BuildContext,
-  replan: ReplanPlan,
+  scope: ReplanScope,
 ): Placement[] {
-  return replan.frozen.map((item) => ({
+  return scope.frozen.map((item) => ({
     taskId: item.taskId,
     durationMin: (item.endMs - item.startMs) / MINUTE_MS,
     startMs: item.startMs,
@@ -943,6 +990,13 @@ function createState(context: BuildContext): PlanState {
   return state;
 }
 
+interface ReplanLevelAttempt {
+  affected: Set<string>;
+  scope: ReplanScope;
+  result: PlacementAttempt;
+  retainedSeeds: number;
+}
+
 function generateForPolicy(
   context: BuildContext,
   replan: ReplanPlan,
@@ -954,92 +1008,56 @@ function generateForPolicy(
 ): PlanCandidate {
   const profile = POLICIES[policy];
   let affected = new Set(replan.baseAffectedTasks);
-  let attempt = buildReplanSeeds(context, replan, affected);
-  let result = runPlacementAttempt(
-    context,
-    policy,
-    seed,
-    maxImprovement,
-    attempt.seeds,
-  );
-  let retainedSeeds = attempt.seeds.length;
-  let bestResult = result;
-  let bestRetainedSeeds = retainedSeeds;
+  let best: ReplanLevelAttempt | undefined;
+  const maxExpansion = context.input.tasks.length + 2;
 
-  for (
-    let iteration = 0;
-    iteration <= context.input.tasks.length + 2 &&
-    result.violations.length > 0;
-    iteration += 1
-  ) {
-    const violating = new Set<string>();
-    for (const violation of result.violations) {
-      if (
-        violation.taskId !== undefined &&
-        !replan.frozenTasks.has(violation.taskId)
-      ) {
-        violating.add(violation.taskId);
-      }
-    }
-    // A violation without a movable task owner (for example H6) or one that
-    // only touches frozen/unaffected blocks cannot be repaired by releasing
-    // more tasks; keep the best candidate and flag it instead of moving
-    // untouched blocks (06 §7).
-    if (violating.size === 0) {
-      break;
-    }
-    const next = propagateAffected(context, new Set([...affected, ...violating]));
-    for (const taskId of replan.frozenTasks) {
-      next.delete(taskId);
-    }
-    if (setsEqual(next, affected)) {
-      break;
-    }
-    affected = next;
-    attempt = buildReplanSeeds(context, replan, affected);
-    result = runPlacementAttempt(
+  for (let level = 0; level <= maxExpansion; level += 1) {
+    const attempt = runReplanLevel(
       context,
+      replan,
+      affected,
       policy,
       seed,
       maxImprovement,
-      attempt.seeds,
     );
-    retainedSeeds = attempt.seeds.length;
     if (
+      best === undefined ||
       isBetterAttempt(
-        result,
-        retainedSeeds,
-        bestResult,
-        bestRetainedSeeds,
+        attempt.result,
+        attempt.retainedSeeds,
+        best.result,
+        best.retainedSeeds,
       )
     ) {
-      bestResult = result;
-      bestRetainedSeeds = retainedSeeds;
+      best = attempt;
     }
+    if (attempt.result.violations.length === 0) {
+      best = attempt;
+      break;
+    }
+    // 06 §7: an affected task that cannot be fully placed because frozen
+    // blocks are in the way releases its direct predecessors, one dependency
+    // level per retry; successors of the expanded set join the scope. If the
+    // set stops growing, the explained infeasible candidate is final.
+    const predecessors = directPredecessors(context, attempt.affected);
+    const expanded = propagateAffected(
+      context,
+      new Set([...attempt.affected, ...predecessors]),
+    );
+    if (setsEqual(expanded, attempt.affected)) {
+      break;
+    }
+    affected = expanded;
   }
 
-  // Final fallback: release every affected task but keep frozen/unaffected
-  // blocks. If a still-seeded attempt was feasible we never get here, so the
-  // first feasible attempt wins. When every attempt is infeasible, rank by the
-  // smallest H7 deficit, then the fewest violations, and only then by retained
-  // seeds (plan continuity). Partial plans should first place as much required
-  // work as possible. Unaffected blocks are never released (06 §7).
-  if (result.violations.length > 0) {
-    const frozen = frozenSeeds(context, replan);
-    const fresh = runPlacementAttempt(
-      context,
-      policy,
-      seed,
-      maxImprovement,
-      frozen,
-    );
-    if (isBetterAttempt(fresh, frozen.length, bestResult, bestRetainedSeeds)) {
-      bestResult = fresh;
-      bestRetainedSeeds = frozen.length;
-    }
-  }
-  result = bestResult;
-  retainedSeeds = bestRetainedSeeds;
+  const chosen = best ?? {
+    affected,
+    scope: scopeForReplan(replan, affected),
+    result: runPlacementAttempt(context, policy, seed, maxImprovement, []),
+    retainedSeeds: 0,
+  };
+  const result = chosen.result;
+  const retainedSeeds = chosen.retainedSeeds;
 
   const finalState = stateFromPlacements(context, result.placements);
   const blocks = blocksFromPlacements(finalState.placements);
@@ -1080,10 +1098,10 @@ function generateForPolicy(
   explanation.push(`Capacity deficit: ${capacityDeficitMin} min.`);
 
   if (replan.movableExisting.length > 0) {
-    const bound = replan.affectedExistingBlocks * 2 + 2;
+    const bound = chosen.scope.affectedExistingBlocks * 2 + 2;
     if (metrics.changedBlocks > bound) {
       explanation.push(
-        `${REPLAN_BOUND_PREFIX} ${metrics.changedBlocks} changed block(s) > ${bound} (2 × ${replan.affectedExistingBlocks} affected existing block(s) + 2). Unaffected blocks were preserved; this candidate is the best available.`,
+        `${REPLAN_BOUND_PREFIX} ${metrics.changedBlocks} changed block(s) > ${bound} (2 × ${chosen.scope.affectedExistingBlocks} affected existing block(s) + 2). Unaffected blocks were preserved; this candidate is the best available.`,
       );
     }
   }
@@ -1099,6 +1117,192 @@ function generateForPolicy(
     inputHash,
     generatorVersion: GENERATOR_VERSION,
   };
+}
+
+/**
+ * One affected-scope attempt (06 §7): freeze every task outside `affected`,
+ * seed the rest, then release tasks that still raise hard violations. Never
+ * releases a frozen (unaffected) task.
+ */
+function runReplanLevel(
+  context: BuildContext,
+  replan: ReplanPlan,
+  affected: Set<string>,
+  policy: PolicyName,
+  seed: number,
+  maxImprovement: number,
+): ReplanLevelAttempt {
+  const scope = scopeForReplan(replan, affected);
+  let levelAffected = new Set(affected);
+  let attempt = buildReplanSeeds(
+    context,
+    { movable: replan.movable, frozenTasks: scope.frozenTasks },
+    levelAffected,
+  );
+  levelAffected = new Set(attempt.affected);
+  let result = runPlacementAttempt(
+    context,
+    policy,
+    seed,
+    maxImprovement,
+    attempt.seeds,
+  );
+  let retainedSeeds = attempt.seeds.length;
+  let bestResult = result;
+  let bestRetainedSeeds = retainedSeeds;
+  let bestAffected = new Set(levelAffected);
+
+  for (
+    let iteration = 0;
+    iteration <= context.input.tasks.length + 2 &&
+    result.violations.length > 0;
+    iteration += 1
+  ) {
+    const violating = new Set<string>();
+    for (const violation of result.violations) {
+      if (
+        violation.taskId !== undefined &&
+        !scope.frozenTasks.has(violation.taskId)
+      ) {
+        violating.add(violation.taskId);
+      }
+    }
+    // A violation without a movable task owner (for example H6) or one that
+    // only touches frozen/unaffected blocks cannot be repaired by releasing
+    // more tasks; keep the best candidate and flag it instead of moving
+    // untouched blocks (06 §7).
+    if (violating.size === 0) {
+      break;
+    }
+    const next = propagateAffected(
+      context,
+      new Set([...levelAffected, ...violating]),
+    );
+    for (const taskId of scope.frozenTasks) {
+      next.delete(taskId);
+    }
+    if (setsEqual(next, levelAffected)) {
+      break;
+    }
+    levelAffected = next;
+    attempt = buildReplanSeeds(
+      context,
+      { movable: replan.movable, frozenTasks: scope.frozenTasks },
+      levelAffected,
+    );
+    levelAffected = new Set(attempt.affected);
+    result = runPlacementAttempt(
+      context,
+      policy,
+      seed,
+      maxImprovement,
+      attempt.seeds,
+    );
+    retainedSeeds = attempt.seeds.length;
+    if (
+      isBetterAttempt(
+        result,
+        retainedSeeds,
+        bestResult,
+        bestRetainedSeeds,
+      )
+    ) {
+      bestResult = result;
+      bestRetainedSeeds = retainedSeeds;
+      bestAffected = new Set(levelAffected);
+    }
+  }
+
+  // Final fallback: release every affected task but keep frozen/unaffected
+  // blocks. If a still-seeded attempt was feasible we never get here, so the
+  // first feasible attempt wins. When every attempt is infeasible, rank by the
+  // smallest H7 deficit, then the fewest violations, and only then by retained
+  // seeds (plan continuity). Partial plans should first place as much required
+  // work as possible. Unaffected blocks are never released (06 §7).
+  if (result.violations.length > 0) {
+    const frozen = frozenSeeds(context, scope);
+    const fresh = runPlacementAttempt(
+      context,
+      policy,
+      seed,
+      maxImprovement,
+      frozen,
+    );
+    if (isBetterAttempt(fresh, frozen.length, bestResult, bestRetainedSeeds)) {
+      bestResult = fresh;
+      bestRetainedSeeds = frozen.length;
+      bestAffected = new Set(levelAffected);
+    }
+  }
+
+  // Last resort for a frozen-block dead end: regenerate from scratch (no
+  // seeds) and accept it only when every frozen/unaffected block is reproduced
+  // exactly. This keeps 06 §7 preservation while allowing the unconstrained
+  // greedy order that originally produced the frozen plan to find a feasible
+  // placement for the affected tasks.
+  if (bestResult.violations.length > 0) {
+    const fromScratch = runPlacementAttempt(
+      context,
+      policy,
+      seed,
+      maxImprovement,
+      [],
+    );
+    if (
+      preservesFrozen(fromScratch.placements, scope.frozen) &&
+      isBetterAttempt(fromScratch, 0, bestResult, bestRetainedSeeds)
+    ) {
+      bestResult = fromScratch;
+      bestRetainedSeeds = 0;
+      bestAffected = new Set(levelAffected);
+    }
+  }
+
+  return {
+    affected: bestAffected,
+    scope: scopeForReplan(replan, bestAffected),
+    result: bestResult,
+    retainedSeeds: bestRetainedSeeds,
+  };
+}
+
+/**
+ * True when the placements reproduce every frozen (unaffected) existing block
+ * exactly, with no extra block for that task.
+ */
+function preservesFrozen(
+  placements: Placement[],
+  frozen: ReplanBlock[],
+): boolean {
+  const expected = new Map<string, Set<string>>();
+  for (const item of frozen) {
+    const keys = expected.get(item.taskId) ?? new Set<string>();
+    keys.add(blockKey(item.taskId, item.startMs, item.endMs));
+    expected.set(item.taskId, keys);
+  }
+  const actual = new Map<string, Set<string>>();
+  for (const placement of placements) {
+    if (!expected.has(placement.taskId)) {
+      continue;
+    }
+    const keys = actual.get(placement.taskId) ?? new Set<string>();
+    keys.add(
+      blockKey(placement.taskId, placement.startMs, placement.endMs),
+    );
+    actual.set(placement.taskId, keys);
+  }
+  for (const [taskId, keys] of expected) {
+    const produced = actual.get(taskId);
+    if (produced === undefined || produced.size !== keys.size) {
+      return false;
+    }
+    for (const key of keys) {
+      if (!produced.has(key)) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 interface PlacementAttempt {
@@ -2259,7 +2463,7 @@ function countContextSwitches(
 function buildMetrics(
   context: BuildContext,
   state: PlanState,
-  replan: ReplanPlan,
+  replan: Pick<ReplanPlan, 'movableExisting'>,
   capacityDeficitMin: number,
 ): PlanMetrics {
   let totalFocusMin = 0;
