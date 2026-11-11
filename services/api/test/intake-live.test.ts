@@ -1,4 +1,7 @@
 import { hash } from '@node-rs/argon2';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   ProviderUnavailableError,
   type Id,
@@ -203,6 +206,97 @@ async function createLiveHarness(
   };
 }
 
+interface Deferred {
+  readonly promise: Promise<void>;
+  resolve(): void;
+}
+
+function deferred(): Deferred {
+  let resolve!: () => void;
+  const promise = new Promise<void>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+interface ProductionLiveHarness {
+  readonly app: FastifyInstance;
+  readonly db: Kysely<Database>;
+  readonly store: PgTestStore;
+  readonly user: LiveUser;
+  readonly ownerId: Id;
+  readonly session: TestSession;
+  close(): Promise<void>;
+}
+
+/**
+ * Builds the app without injected repositories so the approval path runs on the
+ * production composition: `createVikunjaRepositories` with durable PostgreSQL
+ * stores and a Vikunja client/account resolved by `loadVikunjaClients`.
+ */
+async function createProductionLiveHarness(
+  email: string,
+  password: string,
+): Promise<ProductionLiveHarness> {
+  if (baseUrl === undefined || databaseUrl === undefined) {
+    throw new Error('live harness requires VIKUNJA_URL and DATABASE_URL');
+  }
+  const store = await createPgTestStore();
+  const user = await createSyntheticUser(baseUrl);
+  const clock = new FakeClock();
+  const ids = createSeededIdGenerator(Math.floor(Math.random() * 1_000_000), clock);
+  const ownerId = ids.next();
+  await store.db
+    .insertInto('user')
+    .values({ id: ownerId, email, password_hash: await hash(password) })
+    .execute();
+  const tokenDir = await mkdtemp(join(tmpdir(), 'ohmydate-m203d-'));
+  const tokenPath = join(tokenDir, 'tokens.json');
+  await writeFile(tokenPath, JSON.stringify({ [ownerId]: user.token }), 'utf8');
+  await store.db
+    .insertInto('vikunja_owner_account')
+    .values({
+      owner_id: ownerId,
+      vikunja_user_id: user.userId,
+      token_secret_ref: `file:${tokenPath}`,
+    })
+    .execute();
+
+  const config = createConfig({
+    provider: 'vikunja',
+    vikunjaUrl: baseUrl,
+    vikunjaSecretsDir: tokenDir,
+    reconcileIntervalMs: 0,
+    cookieSecure: false,
+    logLevel: 'silent',
+    loginRateLimit: { limit: 1_000, windowMs: 60_000 },
+  });
+  const app = await buildApp({ config, clock, ids, db: store.db, logger: false });
+  await app.ready();
+  const login = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    payload: { email, password },
+  });
+  if (login.statusCode !== 204) {
+    throw new Error(`login failed: ${login.statusCode} ${login.body}`);
+  }
+  return {
+    app,
+    db: store.db,
+    store,
+    user,
+    ownerId,
+    session: sessionFromResponse(login.headers['set-cookie']),
+    async close() {
+      await app.close();
+      await purgeUserData(user.client, new PgMappingStore(store.db), ownerId);
+      await store.close();
+      await rm(tokenDir, { recursive: true, force: true });
+    },
+  };
+}
+
 const sixSteps = Array.from({ length: 6 }, (_, index) => ({
   key: `s${index + 1}`,
   title: `Live step ${index + 1}`,
@@ -214,7 +308,9 @@ const sixSteps = Array.from({ length: 6 }, (_, index) => ({
   splittable: false,
 }));
 
-async function createSixStepDecomposition(harness: LiveHarness): Promise<IntakeSessionDto> {
+type IntakeAppHarness = Pick<LiveHarness, 'app' | 'session'>;
+
+async function createSixStepDecomposition(harness: IntakeAppHarness): Promise<IntakeSessionDto> {
   const created = await harness.app.inject({
     method: 'POST',
     url: '/api/v1/intake-sessions',
@@ -260,7 +356,7 @@ async function createSixStepDecomposition(harness: LiveHarness): Promise<IntakeS
   return current;
 }
 
-function approve(harness: LiveHarness, id: string, version: number, key = newIdempotencyKey()) {
+function approve(harness: IntakeAppHarness, id: string, version: number, key = newIdempotencyKey()) {
   return harness.app.inject({
     method: 'POST',
     url: `/api/v1/intake-sessions/${id}/draft:approve`,
@@ -271,7 +367,7 @@ function approve(harness: LiveHarness, id: string, version: number, key = newIde
   });
 }
 
-async function remoteTaskCount(harness: LiveHarness): Promise<number> {
+async function remoteTaskCount(harness: Pick<LiveHarness, 'user'>): Promise<number> {
   return (await harness.user.client.listAllTasks()).length;
 }
 
@@ -633,6 +729,230 @@ describe.skipIf(!live)(`intake approval with live Vikunja (${baseUrl ?? 'unset'}
       });
       const afterRestart = await restarted.get(harness.ownerId, s2.planned_task_id as Id);
       expect(afterRestart?.dependsOn).toContain(s1.task_id);
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test('P2: a create POST held past the succession window is fenced before it reaches the provider', async () => {
+    const secondCreate = deferred();
+    const releaseSecond = deferred();
+    let createPosts = 0;
+    let captured = false;
+    const fetch: FetchLike = async (input, init) => {
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const path = new URL(input).pathname;
+      if (!captured && method === 'POST' && /\/api\/v2\/projects\/[^/]+\/tasks$/.test(path)) {
+        createPosts += 1;
+        if (createPosts === 2) {
+          captured = true;
+          secondCreate.resolve();
+          await releaseSecond.promise;
+        }
+      }
+      return globalThis.fetch(input, init);
+    };
+    const harness = await createLiveHarness('live-p2-window@example.com', 'correct-horse', {
+      fetch,
+    });
+    try {
+      const current = await createSixStepDecomposition(harness);
+      const aPromise = approve(harness, current.id, current.version, newIdempotencyKey());
+      await secondCreate.promise;
+      expect(await remoteTaskCount(harness)).toBe(1);
+
+      // Kill A's real advisory-lock backend while its step-2 create POST is
+      // held before reaching Vikunja.
+      expect(await terminateLockBackends(current.id as Id)).toBe(1);
+      await waitForLockRelease(current.id as Id);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const bEarly = await approve(harness, current.id, current.version, newIdempotencyKey());
+      expect(bEarly.statusCode).toBe(409);
+      expect(bEarly.json()).toMatchObject({ code: 'approval_in_progress' });
+      expect(bEarly.headers['retry-after']).toBeDefined();
+
+      harness.clock.advance(40_001);
+      const bRetry = await approve(harness, current.id, current.version, newIdempotencyKey());
+      expect(bRetry.statusCode).toBe(200);
+      expect(await remoteTaskCount(harness)).toBe(6);
+
+      releaseSecond.resolve();
+      const aResult = await aPromise;
+      expect(aResult.statusCode).toBe(503);
+      // A's held POST was aborted before fetch: no duplicate remote task, and
+      // the late completion cannot re-point s2's mapping.
+      expect(await remoteTaskCount(harness)).toBe(6);
+
+      const rows = await harness.db
+        .selectFrom('intake_approval_step')
+        .selectAll()
+        .where('session_id', '=', current.id)
+        .where('state', '=', 'created')
+        .execute();
+      expect(rows).toHaveLength(6);
+      const s2 = rows.find((row) => row.step_key === 's2');
+      const s3 = rows.find((row) => row.step_key === 's3');
+      if (s2?.task_id == null || s3?.task_id == null) throw new Error('missing step rows');
+      const s2Mapping = await harness.mappings.get('task', s2.task_id as Id);
+      const s2PlannedMapping = await harness.mappings.get('task', s2.planned_task_id as Id);
+      const s3Mapping = await harness.mappings.get('task', s3.task_id as Id);
+      if (s2Mapping === null || s3Mapping === null || s2PlannedMapping === null) {
+        throw new Error('missing mappings');
+      }
+      expect(s2PlannedMapping.externalId).toBe(s2Mapping.externalId);
+      const remoteS3 = await harness.client.getTask(s3Mapping.externalId);
+      const blocked = remoteS3.data.related_tasks?.['blocked'] ?? [];
+      expect(blocked.map((task) => String(task.id))).toContain(s2Mapping.externalId);
+      const approval = await harness.db
+        .selectFrom('intake_approval')
+        .selectAll()
+        .where('session_id', '=', current.id)
+        .executeTakeFirstOrThrow();
+      expect(approval.state).toBe('completed');
+    } finally {
+      releaseSecond.resolve();
+      await harness.close();
+    }
+  });
+
+  test('P6: a relation POST held past the window suppresses rollback DELETE after B completes', async () => {
+    const firstRelation = deferred();
+    const releaseRelation = deferred();
+    let captured = false;
+    let deleteCalls = 0;
+    const fetch: FetchLike = async (input, init) => {
+      const method = (init?.method ?? 'GET').toUpperCase();
+      const path = new URL(input).pathname;
+      if (method === 'DELETE') deleteCalls += 1;
+      if (!captured && method === 'POST' && /\/api\/v2\/tasks\/\d+\/relations$/.test(path)) {
+        captured = true;
+        firstRelation.resolve();
+        await releaseRelation.promise;
+      }
+      return globalThis.fetch(input, init);
+    };
+    const harness = await createLiveHarness('live-p6-relation@example.com', 'correct-horse', {
+      fetch,
+    });
+    try {
+      const current = await createSixStepDecomposition(harness);
+      const aPromise = approve(harness, current.id, current.version, newIdempotencyKey());
+      await firstRelation.promise;
+      // s1 and s2 exist remotely; A's s2 mapping is persisted, its relation
+      // write is in flight.
+      expect(await remoteTaskCount(harness)).toBe(2);
+
+      expect(await terminateLockBackends(current.id as Id)).toBe(1);
+      await waitForLockRelease(current.id as Id);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      const bEarly = await approve(harness, current.id, current.version, newIdempotencyKey());
+      expect(bEarly.statusCode).toBe(409);
+      expect(bEarly.json()).toMatchObject({ code: 'approval_in_progress' });
+
+      harness.clock.advance(40_001);
+      const bRetry = await approve(harness, current.id, current.version, newIdempotencyKey());
+      expect(bRetry.statusCode).toBe(200);
+      expect(await remoteTaskCount(harness)).toBe(6);
+
+      releaseRelation.resolve();
+      const aResult = await aPromise;
+      expect(aResult.statusCode).toBe(503);
+      expect(deleteCalls).toBe(0);
+      expect(await remoteTaskCount(harness)).toBe(6);
+
+      const rows = await harness.db
+        .selectFrom('intake_approval_step')
+        .selectAll()
+        .where('session_id', '=', current.id)
+        .where('state', '=', 'created')
+        .execute();
+      expect(rows).toHaveLength(6);
+      const s2 = rows.find((row) => row.step_key === 's2');
+      if (s2?.planned_task_id == null) throw new Error('missing s2 row');
+      expect(await harness.tasks.get(harness.ownerId, s2.planned_task_id as Id)).not.toBeNull();
+    } finally {
+      releaseRelation.resolve();
+      await harness.close();
+    }
+  });
+
+  test('P7: the same key retries a transient succession 409 after the window', async () => {
+    const harness = await createLiveHarness('live-p7-retry@example.com', 'correct-horse');
+    let releaseA: (() => void) | undefined;
+    try {
+      const current = await createSixStepDecomposition(harness);
+      let entered!: () => void;
+      const firstCreated = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const gateA = new Promise<void>((resolve) => {
+        releaseA = resolve;
+      });
+      harness.faults.afterCreate = async (index) => {
+        if (index !== 1) return;
+        entered();
+        await gateA;
+      };
+
+      const key = newIdempotencyKey();
+      const aPromise = approve(harness, current.id, current.version, key);
+      await firstCreated;
+      expect(await terminateLockBackends(current.id as Id)).toBe(1);
+      await waitForLockRelease(current.id as Id);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      releaseA?.();
+      const aResult = await aPromise;
+      expect(aResult.statusCode).toBe(503);
+
+      // The natural client flow: the same key retried immediately after the
+      // 503 waits for the previous holder's window instead of replaying the
+      // 503 or being stuck in idempotency_in_progress.
+      const bEarly = await approve(harness, current.id, current.version, key);
+      expect(bEarly.statusCode).toBe(409);
+      expect(bEarly.json()).toMatchObject({ code: 'approval_in_progress' });
+      expect(bEarly.headers['retry-after']).toBeDefined();
+      // ADR-020 §11: the transient 409 is not stored; its reservation is gone.
+      const recorded = await harness.db
+        .selectFrom('idempotency_record')
+        .selectAll()
+        .where('owner_id', '=', harness.ownerId)
+        .where('key', '=', key)
+        .executeTakeFirst();
+      expect(recorded).toBeUndefined();
+
+      harness.faults.afterCreate = undefined;
+      harness.clock.advance(40_001);
+      const retried = await approve(harness, current.id, current.version, key);
+      expect(retried.statusCode).toBe(200);
+      expect(await remoteTaskCount(harness)).toBe(6);
+    } finally {
+      releaseA?.();
+      harness.faults.afterCreate = undefined;
+      await harness.close();
+    }
+  });
+
+  test('production composition (createVikunjaRepositories + owner-account token) approves six steps', async () => {
+    const harness = await createProductionLiveHarness(
+      'live-production-composition@example.com',
+      'correct-horse',
+    );
+    try {
+      const current = await createSixStepDecomposition(harness);
+      const approved = await approve(harness, current.id, current.version);
+      expect(approved.statusCode).toBe(200);
+      expect(await remoteTaskCount(harness)).toBe(6);
+      const rows = await harness.db
+        .selectFrom('intake_approval_step')
+        .selectAll()
+        .where('session_id', '=', current.id)
+        .where('state', '=', 'created')
+        .execute();
+      expect(rows).toHaveLength(6);
+      for (const row of rows) expect(row.task_id).toBe(row.planned_task_id);
     } finally {
       await harness.close();
     }

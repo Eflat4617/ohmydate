@@ -54,6 +54,11 @@ import {
   type RedactionKind,
 } from '@ohmydate/llm';
 import { NotFoundError, isInstant } from '@ohmydate/domain';
+import {
+  currentAbortSignal,
+  runWithAbortSignal,
+  runWithProviderRequestGuard,
+} from '@ohmydate/provider-vikunja';
 import { Value } from '@sinclair/typebox/value';
 import type { TSchema } from '@sinclair/typebox';
 import { INTAKE_AGENT_CONFIG, type IntakeAgentConfig } from './config.js';
@@ -95,7 +100,7 @@ export interface IntakeServiceOptions {
   readonly approvals: IntakeApprovalStore;
   /** ADR-020 §1: session-level lock held for the whole approval. */
   readonly approvalLock: IntakeApprovalLock;
-  /** ADR-020 §7: succession wait for a lost lock holder. */
+  /** ADR-020 §7/§10: succession wait; must cover one HTTP request budget. */
   readonly providerMaxCallMs: number;
   /** `null` means no provider is configured: LLM-dependent steps notify manual mode. */
   readonly llm: LlmPort | null;
@@ -819,113 +824,192 @@ export class IntakeService {
       if (lock.signal.aborted) throw new IntakeApprovalOwnershipLostError();
     };
 
+    // ADR-020 §9: fence every provider request with the lock-loss signal plus
+    // the ambient request/shutdown signal, and renew the holder CAS (touch)
+    // immediately before each HTTP request (ADR-020 §10).
+    const ambientSignal = currentAbortSignal();
+    const approvalSignal =
+      ambientSignal === undefined
+        ? lock.signal
+        : AbortSignal.any([lock.signal, ambientSignal]);
+    let fenceHolder: string | undefined;
+    const runFenced = <T>(callback: () => Promise<T>): Promise<T> =>
+      runWithAbortSignal(approvalSignal, () =>
+        runWithProviderRequestGuard(
+          {
+            signal: approvalSignal,
+            beforeRequest: async () => {
+              if (fenceHolder !== undefined) {
+                await this.#approvals.touch(ownerId, id, fenceHolder);
+              }
+            },
+          },
+          callback,
+        ),
+      );
+
     try {
-      assertOwned();
-      const session = await this.#requireSession(ownerId, id);
-      this.#assertVersion(session, expectedVersion);
-      if (session.state !== 'decomposition') {
-        throw IntakeError.illegalTransition(session.state, 'draft_approved');
-      }
-      const stored = await this.#agentRuns.loadDraft(ownerId, id);
-      if (stored === null) throw new NotFoundError('decomposition draft', id);
-
-      const validation = validateDecomposition(stored.draft as DecompositionDraft);
-      const blocking = validation.issues.filter((issue) => issue.code !== 'hallucinated_ref');
-      if (blocking.length > 0) {
-        throw new ValidationFailedError(
-          blocking.map((issue) => ({ path: issue.stepKey ?? '/steps', message: issue.message })),
-        );
-      }
-
-      const ordered = topoSortSteps(validation.draft.steps);
-      const proposedSteps = ordered.map((step) => ({
-        stepKey: step.key,
-        plannedTaskId: this.#ids.next(),
-      }));
-      const holderToken = this.#ids.next();
-
-      assertOwned();
-      const begun = await this.#approvals.begin({
-        ownerId,
-        sessionId: id,
-        expectedVersion,
-        idempotencyKey,
-        leaseMs: 60_000,
-        holderToken,
-        providerMaxCallMs: this.#providerMaxCallMs,
-        steps: proposedSteps,
-      });
-      if (begun.kind === 'not_found') throw new NotFoundError('intake session', id);
-      if (begun.kind === 'version_conflict') {
-        throw new VersionConflictError(expectedVersion as Version, begun.actualVersion as Version);
-      }
-      if (begun.kind === 'illegal_state') {
-        throw IntakeError.illegalTransition(begun.state, 'draft_approved');
-      }
-      if (begun.kind === 'in_progress') {
-        // ADR-020 §7: previous holder may still have a provider call in flight.
-        // The lock was just acquired; release it in `finally`.
-        throw new IntakeError(
-          409,
-          'approval_in_progress',
-          'Approval in progress',
-          'the previous approver may still be finishing a provider call',
-          { 'Retry-After': String(begun.retryAfterSeconds) },
-        );
-      }
-      if (begun.kind === 'completed') {
-        const approval = await this.#approvals.load(ownerId, id);
-        const tasks: { id: Id; version: Version }[] = [];
-        for (const approvalStep of approval?.steps ?? []) {
-          if (approvalStep.taskId === undefined) continue;
-          assertOwned();
-          const task = await this.#tasks.get(ownerId, approvalStep.taskId);
-          if (task !== null) tasks.push({ id: task.id, version: task.version });
+      return await runFenced(async () => {
+        assertOwned();
+        const session = await this.#requireSession(ownerId, id);
+        this.#assertVersion(session, expectedVersion);
+        if (session.state !== 'decomposition') {
+          throw IntakeError.illegalTransition(session.state, 'draft_approved');
         }
-        return { session: await this.#toDto(begun.session), tasks };
-      }
+        const stored = await this.#agentRuns.loadDraft(ownerId, id);
+        if (stored === null) throw new NotFoundError('decomposition draft', id);
 
-      const holder = begun.approval.holderToken ?? holderToken;
-      const approvalSteps = new Map(
-        begun.approval.steps.map((step) => [step.stepKey, step] as const),
-      );
-      const taskIds = new Map<string, Id>();
-      const created: { id: Id; version: Version }[] = [];
-      // ADR-020 §3: the ledger's persisted planned_task_id is authoritative on
-      // every retry; never substitute the freshly generated proposal above.
-      const plannedIdByKey = new Map(
-        begun.approval.steps.map((step) => [step.stepKey, step.plannedTaskId] as const),
-      );
-      const priority = (session.input.priority ?? 3) as TaskPriority;
-      const maxFocus = session.input.maxFocusMinutes;
+        const validation = validateDecomposition(stored.draft as DecompositionDraft);
+        const blocking = validation.issues.filter((issue) => issue.code !== 'hallucinated_ref');
+        if (blocking.length > 0) {
+          throw new ValidationFailedError(
+            blocking.map((issue) => ({ path: issue.stepKey ?? '/steps', message: issue.message })),
+          );
+        }
 
-      // ADR-020 §6/§7: timestamp + verify ownership immediately before every
-      // provider call. A lost lock surfaces as IntakeApprovalOwnershipLostError.
-      const beforeProviderCall = async (): Promise<void> => {
+        const ordered = topoSortSteps(validation.draft.steps);
+        const proposedSteps = ordered.map((step) => ({
+          stepKey: step.key,
+          plannedTaskId: this.#ids.next(),
+        }));
+        const holderToken = this.#ids.next();
+
         assertOwned();
-        await this.#approvals.touch(ownerId, id, holder);
-        assertOwned();
-      };
-
-      try {
-        for (const step of ordered) {
-          const plannedTaskId = plannedIdByKey.get(step.key);
-          if (plannedTaskId === undefined) continue;
-          const existingStep = approvalSteps.get(step.key);
-          if (existingStep?.state === 'created' && existingStep.taskId !== undefined) {
-            taskIds.set(step.key, existingStep.taskId);
-            created.push({ id: existingStep.taskId, version: 1 as Version });
-            continue;
+        const begun = await this.#approvals.begin({
+          ownerId,
+          sessionId: id,
+          expectedVersion,
+          idempotencyKey,
+          leaseMs: 60_000,
+          holderToken,
+          providerMaxCallMs: this.#providerMaxCallMs,
+          steps: proposedSteps,
+        });
+        if (begun.kind === 'not_found') throw new NotFoundError('intake session', id);
+        if (begun.kind === 'version_conflict') {
+          throw new VersionConflictError(expectedVersion as Version, begun.actualVersion as Version);
+        }
+        if (begun.kind === 'illegal_state') {
+          throw IntakeError.illegalTransition(begun.state, 'draft_approved');
+        }
+        if (begun.kind === 'in_progress') {
+          // ADR-020 §7: previous holder may still have a provider call in flight.
+          // The lock was just acquired; release it in `finally`.
+          throw new IntakeError(
+            409,
+            'approval_in_progress',
+            'Approval in progress',
+            'the previous approver may still be finishing a provider call',
+            { 'Retry-After': String(begun.retryAfterSeconds) },
+            true,
+          );
+        }
+        if (begun.kind === 'completed') {
+          const approval = await this.#approvals.load(ownerId, id);
+          const tasks: { id: Id; version: Version }[] = [];
+          for (const approvalStep of approval?.steps ?? []) {
+            if (approvalStep.taskId === undefined) continue;
+            assertOwned();
+            const task = await this.#tasks.get(ownerId, approvalStep.taskId);
+            if (task !== null) tasks.push({ id: task.id, version: task.version });
           }
+          return { session: await this.#toDto(begun.session), tasks };
+        }
 
-          const dependsOn = step.dependsOn
-            .map((ref) => taskIds.get(ref))
-            .filter((taskId): taskId is Id => taskId !== undefined);
-          const dependencyState =
-            dependsOn.length === step.dependsOn.length
-              ? 'satisfied'
-              : `missing:${step.dependsOn.filter((ref) => !taskIds.has(ref)).join(',')}`;
-          if (dependsOn.length !== step.dependsOn.length) {
+        const holder = begun.approval.holderToken ?? holderToken;
+        fenceHolder = holder;
+        const approvalSteps = new Map(
+          begun.approval.steps.map((step) => [step.stepKey, step] as const),
+        );
+        const taskIds = new Map<string, Id>();
+        const created: { id: Id; version: Version }[] = [];
+        // ADR-020 §3: the ledger's persisted planned_task_id is authoritative on
+        // every retry; never substitute the freshly generated proposal above.
+        const plannedIdByKey = new Map(
+          begun.approval.steps.map((step) => [step.stepKey, step.plannedTaskId] as const),
+        );
+        const priority = (session.input.priority ?? 3) as TaskPriority;
+        const maxFocus = session.input.maxFocusMinutes;
+
+        // ADR-020 §6/§7: timestamp + verify ownership immediately before every
+        // provider call. A lost lock surfaces as IntakeApprovalOwnershipLostError.
+        const beforeProviderCall = async (): Promise<void> => {
+          assertOwned();
+          await this.#approvals.touch(ownerId, id, holder);
+          assertOwned();
+        };
+
+        try {
+          for (const step of ordered) {
+            const plannedTaskId = plannedIdByKey.get(step.key);
+            if (plannedTaskId === undefined) continue;
+            const existingStep = approvalSteps.get(step.key);
+            if (existingStep?.state === 'created' && existingStep.taskId !== undefined) {
+              taskIds.set(step.key, existingStep.taskId);
+              created.push({ id: existingStep.taskId, version: 1 as Version });
+              continue;
+            }
+
+            const dependsOn = step.dependsOn
+              .map((ref) => taskIds.get(ref))
+              .filter((taskId): taskId is Id => taskId !== undefined);
+            const dependencyState =
+              dependsOn.length === step.dependsOn.length
+                ? 'satisfied'
+                : `missing:${step.dependsOn.filter((ref) => !taskIds.has(ref)).join(',')}`;
+            if (dependsOn.length !== step.dependsOn.length) {
+              assertOwned();
+              await this.#approvals.markStep(
+                ownerId,
+                id,
+                step.key,
+                { state: 'unknown', dependencyState },
+                holder,
+              );
+              throw new ValidationFailedError(
+                step.dependsOn
+                  .filter((ref) => !taskIds.has(ref))
+                  .map((ref) => ({ path: step.key, message: `missing dependency ${ref}` })),
+              );
+            }
+
+            await beforeProviderCall();
+            const existing = await this.#tasks.get(ownerId, plannedTaskId);
+            assertOwned();
+            if (existing !== null) {
+              // ADR-020 §8: a mapping can exist even when its relation writes
+              // failed. Repair the intended dependencies before marking created.
+              const missingRelations = dependsOn.filter(
+                (dependencyId) => !existing.dependsOn.includes(dependencyId),
+              );
+              let repaired = existing;
+              if (missingRelations.length > 0) {
+                await beforeProviderCall();
+                repaired = await this.#tasks.update(
+                  ownerId,
+                  plannedTaskId,
+                  { dependsOn },
+                  existing.version,
+                );
+                assertOwned();
+              }
+              assertOwned();
+              await this.#approvals.markStep(
+                ownerId,
+                id,
+                step.key,
+                { state: 'created', taskId: repaired.id },
+                holder,
+              );
+              taskIds.set(step.key, repaired.id);
+              // Publish the post-update version so the outbox event does not
+              // carry the pre-repair version (M2-03cR2 LOW).
+              created.push({ id: repaired.id, version: repaired.version });
+              continue;
+            }
+
+            // Mark unknown before the provider call: if ownership is lost while
+            // the create is in flight, the row stays resolvable on retry.
             assertOwned();
             await this.#approvals.markStep(
               ownerId,
@@ -934,129 +1018,81 @@ export class IntakeService {
               { state: 'unknown', dependencyState },
               holder,
             );
-            throw new ValidationFailedError(
-              step.dependsOn
-                .filter((ref) => !taskIds.has(ref))
-                .map((ref) => ({ path: step.key, message: `missing dependency ${ref}` })),
-            );
-          }
 
-          await beforeProviderCall();
-          const existing = await this.#tasks.get(ownerId, plannedTaskId);
-          assertOwned();
-          if (existing !== null) {
-            // ADR-020 §8: a mapping can exist even when its relation writes
-            // failed. Repair the intended dependencies before marking created.
-            const missingRelations = dependsOn.filter(
-              (dependencyId) => !existing.dependsOn.includes(dependencyId),
+            const input: TaskCreate = {
+              title: step.title,
+              description: truncate(
+                `Goal: ${session.input.title}\n\n${step.deliverable}\n\nDone when: ${step.doneCriteria}`,
+                2_000,
+              ),
+              priority,
+              splittable: step.splittable,
+              dependsOn,
+              ...(session.input.dueAt === undefined
+                ? {}
+                : { dueAt: session.input.dueAt as Instant }),
+              ...(maxFocus === undefined
+                ? {}
+                : { session: { minMinutes: Math.min(15, maxFocus), maxMinutes: maxFocus } }),
+            };
+            await beforeProviderCall();
+            const task = await this.#tasks.create(
+              ownerId,
+              input,
+              `intake-approval:${id}:${step.key}`,
+              { plannedId: plannedTaskId },
             );
-            if (missingRelations.length > 0) {
-              await beforeProviderCall();
-              await this.#tasks.update(
-                ownerId,
-                plannedTaskId,
-                { dependsOn },
-                existing.version,
-              );
-              assertOwned();
-            }
             assertOwned();
             await this.#approvals.markStep(
               ownerId,
               id,
               step.key,
-              { state: 'created', taskId: existing.id },
+              { state: 'created', taskId: task.id, dependencyState },
               holder,
             );
-            taskIds.set(step.key, existing.id);
-            created.push({ id: existing.id, version: existing.version });
-            continue;
+            taskIds.set(step.key, task.id);
+            created.push({ id: task.id, version: task.version });
           }
-
-          // Mark unknown before the provider call: if ownership is lost while
-          // the create is in flight, the row stays resolvable on retry.
+        } catch (error) {
+          // Ownership loss is not recoverable by this request: leave the
+          // in-flight step unknown and perform no further ledger writes.
+          if (error instanceof IntakeApprovalOwnershipLostError) throw error;
           assertOwned();
-          await this.#approvals.markStep(
-            ownerId,
-            id,
-            step.key,
-            { state: 'unknown', dependencyState },
-            holder,
-          );
-
-          const input: TaskCreate = {
-            title: step.title,
-            description: truncate(
-              `Goal: ${session.input.title}\n\n${step.deliverable}\n\nDone when: ${step.doneCriteria}`,
-              2_000,
-            ),
-            priority,
-            splittable: step.splittable,
-            dependsOn,
-            ...(session.input.dueAt === undefined
-              ? {}
-              : { dueAt: session.input.dueAt as Instant }),
-            ...(maxFocus === undefined
-              ? {}
-              : { session: { minMinutes: Math.min(15, maxFocus), maxMinutes: maxFocus } }),
-          };
-          await beforeProviderCall();
-          const task = await this.#tasks.create(
-            ownerId,
-            input,
-            `intake-approval:${id}:${step.key}`,
-            { plannedId: plannedTaskId },
-          );
-          assertOwned();
-          await this.#approvals.markStep(
-            ownerId,
-            id,
-            step.key,
-            { state: 'created', taskId: task.id, dependencyState },
-            holder,
-          );
-          taskIds.set(step.key, task.id);
-          created.push({ id: task.id, version: task.version });
-        }
-      } catch (error) {
-        // Ownership loss is not recoverable by this request: leave the
-        // in-flight step unknown and perform no further ledger writes.
-        if (error instanceof IntakeApprovalOwnershipLostError) throw error;
-        assertOwned();
-        if (error instanceof ValidationFailedError) {
-          await this.#approvals.fail(ownerId, id, holder);
-          throw error;
-        }
-        const stepKey = ordered.find((step) => !taskIds.has(step.key))?.key;
-        if (stepKey !== undefined) {
-          await this.#approvals.markStep(
-            ownerId,
-            id,
-            stepKey,
-            { state: 'unknown' },
-            holder,
-          );
-        }
-        await this.#approvals.fail(ownerId, id, holder);
-        throw error instanceof IntakeError
-          ? error
-          : new IntakeError(
-              503,
-              'provider_unavailable',
-              'Provider unavailable',
-              'task creation failed; approval can be retried',
+          if (error instanceof ValidationFailedError) {
+            await this.#approvals.fail(ownerId, id, holder);
+            throw error;
+          }
+          const stepKey = ordered.find((step) => !taskIds.has(step.key))?.key;
+          if (stepKey !== undefined) {
+            await this.#approvals.markStep(
+              ownerId,
+              id,
+              stepKey,
+              { state: 'unknown' },
+              holder,
             );
-      }
+          }
+          await this.#approvals.fail(ownerId, id, holder);
+          throw error instanceof IntakeError
+            ? error
+            : new IntakeError(
+                503,
+                'provider_unavailable',
+                'Provider unavailable',
+                'task creation failed; approval can be retried',
+              );
+        }
 
-      assertOwned();
-      const updated = await this.#approvals.complete({
-        ownerId,
-        sessionId: id,
-        expectedSessionVersion: session.version,
-        outboxId: this.#ids.next(),
-        holderToken: holder,
+        assertOwned();
+        const updated = await this.#approvals.complete({
+          ownerId,
+          sessionId: id,
+          expectedSessionVersion: session.version,
+          outboxId: this.#ids.next(),
+          holderToken: holder,
+        });
+        return { session: await this.#toDto(updated), tasks: created };
       });
-      return { session: await this.#toDto(updated), tasks: created };
     } finally {
       await lock.release().catch(() => undefined);
     }

@@ -372,7 +372,15 @@ async function runIdempotent(
             }
           : undefined;
 
-    if (problem !== undefined && (problem.status === 409 || problem.status === 422)) {
+    // ADR-020 §11: a succession-wait 409 `approval_in_progress` is transient
+    // contention, not a stored domain result. Release its reservation so the
+    // same Idempotency-Key can retry once the previous holder's window ends.
+    const transientConflict = error instanceof IntakeError && error.transient;
+    if (
+      problem !== undefined &&
+      (problem.status === 409 || problem.status === 422) &&
+      !transientConflict
+    ) {
       try {
         await runtime.idempotency.complete({
           ownerId: auth.userId,

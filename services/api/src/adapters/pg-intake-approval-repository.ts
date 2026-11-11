@@ -217,16 +217,10 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
     },
     holderToken: string,
   ): Promise<void> {
-    const approval = await this.#db
-      .selectFrom('intake_approval')
-      .select('session_id')
-      .where('session_id', '=', sessionId)
-      .where('owner_id', '=', ownerId)
-      .where('state', '=', 'in_progress')
-      .where('holder_token', '=', holderToken)
-      .executeTakeFirst();
-    if (approval === undefined) throw new IntakeApprovalOwnershipLostError();
-    await this.#db
+    // The holder predicate is part of the same UPDATE as the write, so a
+    // successor's begin() cannot commit between an ownership check and the
+    // step mutation (M2-03cR2 LOW).
+    const result = await this.#db
       .updateTable('intake_approval_step')
       .set({
         state: patch.state,
@@ -237,7 +231,25 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
       })
       .where('session_id', '=', sessionId)
       .where('step_key', '=', stepKey)
-      .execute();
+      .where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom('intake_approval')
+            .select('intake_approval.session_id')
+            .whereRef(
+              'intake_approval.session_id',
+              '=',
+              'intake_approval_step.session_id',
+            )
+            .where('intake_approval.owner_id', '=', ownerId)
+            .where('intake_approval.state', '=', 'in_progress')
+            .where('intake_approval.holder_token', '=', holderToken),
+        ),
+      )
+      .executeTakeFirst();
+    if (Number(result.numUpdatedRows) === 0) {
+      throw new IntakeApprovalOwnershipLostError();
+    }
   }
 
   /**

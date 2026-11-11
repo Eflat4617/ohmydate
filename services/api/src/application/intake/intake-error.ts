@@ -12,6 +12,11 @@ export class IntakeError extends Error {
     readonly title: string,
     readonly detail: string,
     readonly headers?: Readonly<Record<string, string>>,
+    /**
+     * ADR-020 §11: transient contention (succession wait). The HTTP layer
+     * releases the idempotency reservation instead of storing the 409.
+     */
+    readonly transient = false,
   ) {
     super(detail);
     this.name = 'IntakeError';

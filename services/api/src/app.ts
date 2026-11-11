@@ -247,8 +247,9 @@ function registerHealthRoutes(
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const { config, clock, ids, db } = options;
-  // ADR-020 §7: the succession wait must cover the slowest provider call so a
-  // replaced approver's in-flight request cannot still be running.
+  // ADR-020 §10: the succession wait must cover the slowest single HTTP
+  // request so a replaced approver's already-started request cannot still be
+  // running; requests it would start later are fenced before fetch.
   const minimumCallBudget = vikunjaCallBudgetMs();
   if (
     !Number.isInteger(config.providerMaxCallMs) ||
@@ -256,7 +257,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   ) {
     throw new Error(
       `PROVIDER_MAX_CALL_MS must be an integer >= ${minimumCallBudget} ` +
-        '(the Vikunja client attempts*timeout+backoff budget)',
+        '(the Vikunja client one-request attempts*timeout+backoff budget)',
     );
   }
   const logging =
