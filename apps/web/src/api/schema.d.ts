@@ -89,6 +89,115 @@ export interface paths {
         patch: operations["updateCommitment"];
         trace?: never;
     };
+    "/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List or search notes
+         * @description Newest first. q searches title and body with the PostgreSQL simple text-search configuration (prefix match per token, ranked by ts_rank; Korean has no stemmer). targetKind + targetId must be given together and list notes linked to that goal/project/task.
+         */
+        get: operations["listDocuments"];
+        put?: never;
+        /**
+         * Create a note
+         * @description bodyMd is raw Markdown (at most 65 536 characters) and is stored and returned as-is; the API never renders HTML. llmAllowed defaults to false. Optional links must target the caller's own goals, projects or tasks (404 otherwise).
+         */
+        post: operations["createDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a note */
+        get: operations["getDocument"];
+        put?: never;
+        post?: never;
+        /**
+         * Soft-delete a note
+         * @description A deleted note is no longer listed, readable or sent to the AI.
+         */
+        delete: operations["deleteDocument"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a note
+         * @description Editing title or body changes the stored body hash, so earlier AI usage entries become stale and later calls send the new sections.
+         */
+        patch: operations["updateDocument"];
+        trace?: never;
+    };
+    "/documents/{id}/ai-usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List AI calls that received sections of this note
+         * @description Newest first. Ids, section hashes and byte counts only; the sent text is never stored (05 §12).
+         */
+        get: operations["listDocumentAiUsage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Link a note to a goal, project or task
+         * @description If-Match is the note version. The target must belong to the caller (404 otherwise); a duplicate link or more than 50 links is 422.
+         */
+        post: operations["addDocumentLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/documents/{id}/links/{linkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a note link
+         * @description If-Match is the note version. Returns the note without the link.
+         */
+        delete: operations["removeDocumentLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/estimation/feedback/{id}": {
         parameters: {
             query?: never;
@@ -868,6 +977,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tasks/{id}:promote-description": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy the task description into a new linked note once
+         * @description If-Match is the task version. Reads the current provider description once, converts editor HTML to plain Markdown (the result never contains a tag), creates a note linked to the task and never syncs afterwards (07 §7). An empty description is 422; a task that already has a live promoted note is 409 illegal_transition.
+         */
+        post: operations["promoteTaskDescription"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/templates": {
         parameters: {
             query?: never;
@@ -1176,8 +1305,112 @@ export interface components {
             timeZone?: string;
             title?: string;
         };
+        ContextDocument: {
+            bodyMd: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            links: {
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: uuid */
+                documentId: string;
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                targetId: string;
+                targetKind: "goal" | "project" | "task";
+            }[];
+            llmAllowed: boolean;
+            /** Format: uuid */
+            ownerId: string;
+            sensitivity: "P1" | "P2";
+            source: "manual" | "task_description";
+            /** Format: uuid */
+            sourceTaskId?: string;
+            title: string;
+            /** Format: date-time */
+            updatedAt: string;
+            version: number;
+        };
+        ContextDocumentCreate: {
+            bodyMd?: string;
+            links?: {
+                /** Format: uuid */
+                targetId: string;
+                targetKind: "goal" | "project" | "task";
+            }[];
+            llmAllowed?: boolean;
+            sensitivity?: "P1" | "P2";
+            title: string;
+        };
+        ContextDocumentIdParams: {
+            /** Format: uuid */
+            id: string;
+        };
+        ContextDocumentListQuery: {
+            cursor?: string;
+            limit?: number;
+            q?: string;
+            /** Format: uuid */
+            targetId?: string;
+            targetKind?: "goal" | "project" | "task";
+        };
+        ContextDocumentPage: {
+            items: {
+                bodyMd: string;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: uuid */
+                id: string;
+                links: {
+                    /** Format: date-time */
+                    createdAt: string;
+                    /** Format: uuid */
+                    documentId: string;
+                    /** Format: uuid */
+                    id: string;
+                    /** Format: uuid */
+                    targetId: string;
+                    targetKind: "goal" | "project" | "task";
+                }[];
+                llmAllowed: boolean;
+                /** Format: uuid */
+                ownerId: string;
+                sensitivity: "P1" | "P2";
+                source: "manual" | "task_description";
+                /** Format: uuid */
+                sourceTaskId?: string;
+                title: string;
+                /** Format: date-time */
+                updatedAt: string;
+                version: number;
+            }[];
+            nextCursor: string | null;
+        };
+        ContextDocumentPatch: {
+            bodyMd?: string;
+            llmAllowed?: boolean;
+            sensitivity?: "P1" | "P2";
+            title?: string;
+        };
         DecompositionDraft: {
             assumptions: string[];
+            evidence?: {
+                kind: "fact" | "inference";
+                source: {
+                    /** Format: uuid */
+                    docId: string;
+                    /** @constant */
+                    kind: "note";
+                    sectionHash: string;
+                };
+                statement: string;
+                stepKeys: string[];
+                /** Format: date-time */
+                updatedAt: string;
+            }[];
             questionsRemaining: string[];
             steps: {
                 deliverable: string;
@@ -1214,6 +1447,20 @@ export interface components {
             p50Minutes: number;
             p90Minutes: number;
         };
+        DecompositionEvidence: {
+            kind: "fact" | "inference";
+            source: {
+                /** Format: uuid */
+                docId: string;
+                /** @constant */
+                kind: "note";
+                sectionHash: string;
+            };
+            statement: string;
+            stepKeys: string[];
+            /** Format: date-time */
+            updatedAt: string;
+        };
         DecompositionStep: {
             deliverable: string;
             dependsOn: string[];
@@ -1226,6 +1473,28 @@ export interface components {
             kind: "prep" | "work" | "review" | "buffer";
             splittable: boolean;
             title: string;
+        };
+        DocumentLink: {
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            documentId: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            targetId: string;
+            targetKind: "goal" | "project" | "task";
+        };
+        DocumentLinkCreate: {
+            /** Format: uuid */
+            targetId: string;
+            targetKind: "goal" | "project" | "task";
+        };
+        DocumentLinkParams: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            linkId: string;
         };
         EstimationFeedback: {
             actualFocusMin: number;
@@ -1439,6 +1708,20 @@ export interface components {
             };
             draft?: {
                 assumptions: string[];
+                evidence?: {
+                    kind: "fact" | "inference";
+                    source: {
+                        /** Format: uuid */
+                        docId: string;
+                        /** @constant */
+                        kind: "note";
+                        sectionHash: string;
+                    };
+                    statement: string;
+                    stepKeys: string[];
+                    /** Format: date-time */
+                    updatedAt: string;
+                }[];
                 questionsRemaining: string[];
                 steps: {
                     deliverable: string;
@@ -1554,6 +1837,53 @@ export interface components {
             /** Format: email */
             email: string;
             password: string;
+        };
+        NoteAiUsage: {
+            /** Format: uuid */
+            agentRunId: string;
+            bodyHash: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            documentId: string;
+            documentVersion: number;
+            /** Format: uuid */
+            id: string;
+            model: string;
+            promptIdVersion: string;
+            provider: string;
+            purpose: string;
+            sectionHashes: string[];
+            sentBytes: number;
+            stale: boolean;
+            status: "pending" | "succeeded" | "failed" | "budget_exceeded";
+        };
+        NoteAiUsageListQuery: {
+            cursor?: string;
+            limit?: number;
+        };
+        NoteAiUsagePage: {
+            items: {
+                /** Format: uuid */
+                agentRunId: string;
+                bodyHash: string;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: uuid */
+                documentId: string;
+                documentVersion: number;
+                /** Format: uuid */
+                id: string;
+                model: string;
+                promptIdVersion: string;
+                provider: string;
+                purpose: string;
+                sectionHashes: string[];
+                sentBytes: number;
+                stale: boolean;
+                status: "pending" | "succeeded" | "failed" | "budget_exceeded";
+            }[];
+            nextCursor: string | null;
         };
         Notification: {
             channel: "in_app" | "push";
@@ -3129,6 +3459,689 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Commitment"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Version precondition failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match header required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listDocuments: {
+        parameters: {
+            query?: {
+                q?: string;
+                targetKind?: "goal" | "project" | "task";
+                targetId?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Note page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextDocumentPage"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createDocument: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContextDocumentCreate"];
+            };
+        };
+        responses: {
+            /** @description Created note */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextDocument"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Provider unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getDocument: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Note */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextDocument"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    deleteDocument: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Note deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Version precondition failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match header required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateDocument: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ContextDocumentPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated note */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextDocument"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Version precondition failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match header required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listDocumentAiUsage: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description AI usage page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteAiUsagePage"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    addDocumentLink: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DocumentLinkCreate"];
+            };
+        };
+        responses: {
+            /** @description Note with the new link */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextDocument"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Version precondition failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match header required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Provider unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    removeDocumentLink: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+                linkId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Note without the link */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextDocument"];
                 };
             };
             /** @description Malformed request */
@@ -7196,6 +8209,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Task"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Version precondition failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match header required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Provider unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    promoteTaskDescription: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Created note */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContextDocument"];
                 };
             };
             /** @description Malformed request */
