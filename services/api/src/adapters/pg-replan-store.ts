@@ -230,6 +230,18 @@ function payloadJson(input: NewReplanProposal): JsonValue {
 }
 
 /**
+ * Owner policy lock (M5-02R-1 H2). Every write that reads or changes the
+ * 05 §11 policy state (proposal insert/supersede, rejection + suppression)
+ * takes it FIRST, before any proposal row lock, so a request can never commit
+ * from a policy read made before a concurrent rejection committed.
+ */
+async function lockOwnerPolicy(trx: Trx, ownerId: Id): Promise<void> {
+  await sql`select pg_advisory_xact_lock(hashtextextended(${`ohmydate.replan:${ownerId}`}, 0))`.execute(
+    trx,
+  );
+}
+
+/**
  * PostgreSQL replan proposals (0012). Policy writes run under a per-owner
  * transaction advisory lock so two detection leaders (or a leader and a user
  * request) serialize; the partial unique index on pending (owner, reason) is
@@ -302,9 +314,7 @@ export class PgReplanStore implements ReplanStore {
   ): Promise<ReplanInsertResult> {
     try {
       return await this.#db.transaction().execute(async (trx) => {
-        await sql`select pg_advisory_xact_lock(hashtextextended(${`ohmydate.replan:${input.ownerId}`}, 0))`.execute(
-          trx,
-        );
+        await lockOwnerPolicy(trx, input.ownerId);
         const blocked = await this.#policy(trx, input.ownerId, input.trigger, window, mode);
         if (blocked !== null) return { kind: 'blocked', block: blocked } as const;
         const now = toDate(input.now);
@@ -414,6 +424,8 @@ export class PgReplanStore implements ReplanStore {
   ): Promise<ReplanProposalRecord> {
     return this.#db.transaction().execute(async (trx) => {
       const now = toDate(input.now);
+      // Lock order: owner policy lock, then the proposal row (same as insert).
+      await lockOwnerPolicy(trx, ownerId);
       const current = await trx
         .selectFrom('replan_proposal')
         .selectAll()
@@ -587,6 +599,13 @@ export class PgReplanStore implements ReplanStore {
             )
             .where('status', '<>', 'superseded')
             .where('start_at', '>=', now)
+            // M5-02R-1 H1: live tasks' locked blocks are immutable and stay
+            // (same row, locked=true); the candidate never contains them.
+            .where((eb) =>
+              request.taskIds.length === 0
+                ? eb.val(true)
+                : eb.or([eb('locked', '=', false), eb('task_id', 'not in', request.taskIds)]),
+            )
             .execute();
         }
         if (request.releaseVanishedTaskIds.length > 0) {

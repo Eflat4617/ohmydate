@@ -719,6 +719,14 @@ export class PgPlanningStore implements PlanningStore {
             )
             .where('status', '<>', 'superseded')
             .where('start_at', '>=', now)
+            // M5-02R-1 H1: a locked block of a live task is immutable and is
+            // carried over as-is (same row, locked=true); only locked blocks
+            // of tasks that left the schedulable set (done/vanished) go.
+            .where((eb) =>
+              request.taskIds.length === 0
+                ? eb.val(true)
+                : eb.or([eb('locked', '=', false), eb('task_id', 'not in', request.taskIds)]),
+            )
             .execute();
         }
 

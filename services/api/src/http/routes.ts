@@ -91,6 +91,7 @@ import { PlanService } from '../application/plan-service.js';
 import type { PlanningStore } from '../application/planning-ports.js';
 import { IntakeError } from '../application/intake/intake-error.js';
 import { DailyProblemError } from '../application/daily-errors.js';
+import { ReplanSuppressedError } from '../application/replan-errors.js';
 import { IntakeService } from '../application/intake/intake-service.js';
 import { InProcessIntakeApprovalLock } from '../application/intake/in-process-approval-lock.js';
 import { PgAgentRunRepository } from '../adapters/pg-agent-run-repository.js';
@@ -443,7 +444,14 @@ async function runIdempotent(
                 title: error.title,
                 ...(error.detail === undefined ? {} : { detail: error.detail }),
               }
-            : error instanceof IntakeError
+            : error instanceof ReplanSuppressedError
+              ? {
+                  status: 409,
+                  code: 'replan_suppressed' as const,
+                  title: 'Replan suppressed',
+                  detail: error.message,
+                }
+              : error instanceof IntakeError
               ? {
                   status: error.status,
                   code: error.code,
@@ -471,6 +479,11 @@ async function runIdempotent(
             headers: {
               'Content-Type': 'application/problem+json',
               ...(error instanceof IntakeError ? (error.headers ?? {}) : {}),
+              // 08 §1: replan_suppressed is a stored domain 409; the replay
+              // carries the original Retry-After (M5-02R-1 M1).
+              ...(error instanceof ReplanSuppressedError
+                ? { 'Retry-After': String(error.retryAfterSec) }
+                : {}),
             },
           },
           outbox: [],

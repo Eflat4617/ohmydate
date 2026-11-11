@@ -49,6 +49,7 @@ import {
   resolveExtraTasks,
   toContractViolations,
   toPlanBlock,
+  withoutLockedEchoes,
   type Assembled,
   type ResolvedExtras,
 } from './plan-service.js';
@@ -664,10 +665,14 @@ export class ReplanService {
     }
     const nowMs = instantToEpochMs(context.now);
     const blocks = chosen.blocks.map(toPlanBlock);
-    // Current future work of the plan (including blocks of tasks that are done
-    // now): the candidate replaces exactly this set on approval.
+    // Current unlocked future work of the plan (including blocks of tasks that
+    // are done now): the candidate replaces exactly this set on approval.
+    // Locked blocks are immutable and carried over untouched (M5-02R-1 H1).
     const currentFuture = context.planBlocks
-      .filter((block) => block.status !== 'done' && Date.parse(block.startAt) >= nowMs)
+      .filter(
+        (block) =>
+          block.status !== 'done' && !block.locked && Date.parse(block.startAt) >= nowMs,
+      )
       .map((block) => ({ taskId: block.taskId, startAt: block.startAt, endAt: block.endAt }));
     const existingFuture = (input.existingBlocks ?? [])
       .filter((block) => Date.parse(block.start) >= nowMs)
@@ -723,7 +728,11 @@ export class ReplanService {
     },
   ): Promise<{ blocks: readonly PlanBlock[] }> {
     const nowMs = instantToEpochMs(context.now);
-    if (!context.edited && context.chosen.some((block) => Date.parse(block.startAt) < nowMs)) {
+    // A locked block is never part of a candidate: an exact echo of one (an
+    // edited set listing it unchanged, or a proposal computed before the lock)
+    // is dropped; moving its minutes elsewhere fails H7 below (422).
+    const chosen = withoutLockedEchoes(context.chosen, snapshot.blocks, context.now);
+    if (!context.edited && chosen.some((block) => Date.parse(block.startAt) < nowMs)) {
       // The proposal was computed earlier; a block that has already started
       // cannot be inserted without rewriting history (06 §7.1).
       throw proposalStateConflict('the proposal is stale: a proposed block has already started');
@@ -741,7 +750,7 @@ export class ReplanService {
       currentPlanId: snapshot.plan.id as Id,
       seed: 0,
     });
-    const findings = validate(assembled.input, context.chosen.map(fromPlanBlock), {
+    const findings = validate(assembled.input, chosen.map(fromPlanBlock), {
       riskLevel: snapshot.availability.prefs.riskLevel,
       historyBlocks: assembled.historyBlocks,
     });
@@ -757,7 +766,7 @@ export class ReplanService {
     if (findings.length > 0) {
       throw new ConstraintViolationError(toContractViolations(findings));
     }
-    return { blocks: context.chosen };
+    return { blocks: chosen };
   }
 }
 

@@ -287,11 +287,15 @@ export function assembleScheduleInput(source: AssemblyInput): Assembled {
     } else if (
       inPlanningSet &&
       source.currentPlanId !== undefined &&
-      block.planId === source.currentPlanId
+      block.planId === source.currentPlanId &&
+      !block.locked
     ) {
       existingBlocks.push(schedulerBlock);
     } else {
-      // Blocks of other live (non-planning-set) tasks are fixed commitments.
+      // Blocks of other live (non-planning-set) tasks, and every future
+      // locked block (06 §7 "locked 고정", M5-02R-1 H1), are immutable
+      // lockedBlocks: audited and credited, never moved or re-emitted. A
+      // locked block that already started is history above (06 §7.1).
       lockedBlocks.push(schedulerBlock);
     }
   }
@@ -591,7 +595,7 @@ export class PlanService {
       currentPlanId: planId,
       seed,
     });
-    const schedulerBlocks = blocks.map(fromPlanBlock);
+    const schedulerBlocks = withoutLockedEchoes(blocks, extras.blocks, now).map(fromPlanBlock);
     const findings = validate(assembled.input, schedulerBlocks, {
       riskLevel: riskLevelOf(availability),
       historyBlocks: assembled.historyBlocks,
@@ -760,7 +764,8 @@ export class PlanService {
       currentPlanId: snapshot.plan.id as Id,
       seed,
     });
-    const schedulerBlocks = context.chosenBlocks.map(fromPlanBlock);
+    const chosen = withoutLockedEchoes(context.chosenBlocks, snapshot.blocks, context.now);
+    const schedulerBlocks = chosen.map(fromPlanBlock);
     const findings = validate(assembled.input, schedulerBlocks, {
       riskLevel: riskLevelOf(snapshot.availability),
       historyBlocks: assembled.historyBlocks,
@@ -780,7 +785,7 @@ export class PlanService {
       );
     }
     return {
-      blocks: context.chosenBlocks,
+      blocks: chosen,
       violations: toContractViolations(findings),
     };
   }
@@ -894,6 +899,30 @@ export class PlanService {
     }
     if (issues.length > 0) throw new ValidationFailedError(issues);
   }
+}
+
+/**
+ * M5-02R-1 H1: locked future blocks are immutable and never part of a
+ * candidate. An edited block that echoes one exactly (same task and instants)
+ * is the unchanged locked block, not a new block, so it is dropped before
+ * validation; any other edit of that task is validated normally (moving the
+ * locked minutes elsewhere overallocates the task -> H7 constraint_violation).
+ */
+export function withoutLockedEchoes(
+  blocks: readonly PlanBlock[],
+  activeBlocks: readonly ApprovedBlock[],
+  now: string,
+): PlanBlock[] {
+  const nowMs = Date.parse(now);
+  const locked = new Set(
+    activeBlocks
+      .filter((block) => block.locked && Date.parse(block.startAt) >= nowMs)
+      .map((block) => `${block.taskId}|${Date.parse(block.startAt)}|${Date.parse(block.endAt)}`),
+  );
+  if (locked.size === 0) return [...blocks];
+  return blocks.filter(
+    (block) => !locked.has(`${block.taskId}|${Date.parse(block.startAt)}|${Date.parse(block.endAt)}`),
+  );
 }
 
 export interface ResolvedExtras {

@@ -17,9 +17,10 @@ export function proposalStateConflict(detail: string): DailyProblemError {
  * 409 `replan_suppressed` with `Retry-After` (05 §11): the reason is inside its
  * 24 h post-rejection window, or the owner already reached the daily cap.
  *
- * Deliberately not a stored idempotent result: the condition is time-bounded,
- * so the same Idempotency-Key may retry after `Retry-After` (like the transient
- * `approval_in_progress` rule in 08 §1).
+ * A domain 409 under 08 §1: the idempotency layer stores and replays it
+ * (with the original Retry-After) for the key's lifetime; only
+ * `idempotency_in_progress` and transient `approval_in_progress` are exempt.
+ * A client retries after Retry-After with a NEW Idempotency-Key.
  */
 export class ReplanSuppressedError extends Error {
   readonly retryAfterSec: number;
