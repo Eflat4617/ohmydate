@@ -25,7 +25,7 @@ import {
 import { t } from '../i18n';
 import { browserTimeZone, formatDateTime } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
-import { captureOwnerBinding, isOwnerBindingCurrent } from '../session/ownerEpoch';
+import { ownerKeyOf, runOwnerBound } from '../session/ownerBound';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
 import { useToastStore } from '../stores/toast';
@@ -91,48 +91,51 @@ const promoteError = ref<string | null>(null);
 async function promote(): Promise<void> {
   const current = task.value;
   if (current === null || promoting.value || !offline.mutationsEnabled) return;
-  const binding = captureOwnerBinding();
   const scope = `task:${current.id}:promote`;
   const action = actions.begin(scope, { taskId: current.id }, (left, right) => left.taskId === right.taskId, current.version);
   promoting.value = true;
   promoteError.value = null;
-  try {
-    const note = await plannerClient.promoteTaskDescription(current.id, action.key, current.version, binding.signal);
-    actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    await publishNote(queryClient, owner.value, note);
-    if (!isOwnerBindingCurrent(binding)) return;
-    toast.show(t('notes.promote.done'));
-    await router.push(`/notes/${note.id}`);
-  } catch (cause) {
-    if (isStoredFinalResult(cause)) actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    if (isApiStatus(cause, 409)) {
+  // Owner isolation (ADR-023): cache, toast and navigation only for the owner who promoted.
+  await runOwnerBound(
+    async (bound) => {
       try {
-        const existing = await findPromotedNote(current.id, binding);
-        if (!isOwnerBindingCurrent(binding)) return;
-        if (existing === null) {
-          promoteError.value = t('notes.promote.existsMissing');
-          return;
+        const note = await bound.wait(plannerClient.promoteTaskDescription(current.id, action.key, current.version, bound.signal));
+        actions.settle(scope, action);
+        await bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), note));
+        toast.show(t('notes.promote.done'));
+        await bound.wait(router.push(`/notes/${note.id}`));
+      } catch (cause) {
+        bound.rethrowIfStale(cause);
+        if (isStoredFinalResult(cause)) actions.settle(scope, action);
+        if (isApiStatus(cause, 409)) {
+          try {
+            const existing = await bound.wait(findPromotedNote(current.id, bound.binding));
+            if (existing === null) {
+              promoteError.value = t('notes.promote.existsMissing');
+              return;
+            }
+            toast.show(t('notes.promote.exists'));
+            await bound.wait(router.push(`/notes/${existing.id}`));
+          } catch (lookup) {
+            bound.rethrowIfStale(lookup);
+            promoteError.value = errorMessage(lookup, t('notes.promote.existsMissing'));
+          }
+        } else if (isApiStatus(cause, 412)) {
+          await bound.wait(taskQuery.refetch());
+          promoteError.value = t('notes.promote.conflict');
+        } else if (isApiStatus(cause, 422)) {
+          promoteError.value = t('notes.promote.empty');
+        } else {
+          promoteError.value = errorMessage(cause, t('notes.promote.error'));
         }
-        toast.show(t('notes.promote.exists'));
-        await router.push(`/notes/${existing.id}`);
-      } catch (lookup) {
-        if (!isOwnerBindingCurrent(binding)) return;
-        promoteError.value = errorMessage(lookup, t('notes.promote.existsMissing'));
       }
-    } else if (isApiStatus(cause, 412)) {
-      await taskQuery.refetch();
-      if (!isOwnerBindingCurrent(binding)) return;
-      promoteError.value = t('notes.promote.conflict');
-    } else if (isApiStatus(cause, 422)) {
-      promoteError.value = t('notes.promote.empty');
-    } else {
-      promoteError.value = errorMessage(cause, t('notes.promote.error'));
-    }
-  } finally {
-    promoting.value = false;
-  }
+    },
+    {
+      onSettled: () => {
+        promoting.value = false;
+      },
+    },
+  );
 }
 </script>
 

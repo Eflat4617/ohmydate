@@ -31,7 +31,8 @@ import { useMediaQuery } from '../../composables/useMediaQuery';
 import { t } from '../../i18n';
 import { browserTimeZone, formatDateTime, formatNumber } from '../../i18n/format';
 import { errorMessage } from '../../i18n/problem';
-import { captureOwnerBinding, isOwnerBindingCurrent, ownerState, type OwnerBinding } from '../../session/ownerEpoch';
+import { runOwnerBound, type OwnerScope } from '../../session/ownerBound';
+import { captureOwnerBinding, isOwnerBindingCurrent, ownerState } from '../../session/ownerEpoch';
 import { useAuthStore } from '../../stores/auth';
 import { useOfflineStore } from '../../stores/offline';
 import UiBadge from '../ui/UiBadge.vue';
@@ -426,13 +427,13 @@ function onLinksUpdated(note: ContextDocument): void {
 async function reloadFromConflict(): Promise<void> {
   const current = conflict.value;
   if (current === null) return;
-  const binding = captureOwnerBinding();
-  load(current.server);
-  conflict.value = null;
-  attempted.value = false;
-  await publishNote(queryClient, owner.value, current.server);
-  if (!isOwnerBindingCurrent(binding)) return;
-  await announce(t('notes.conflict.reloaded'));
+  await runOwnerBound(async (bound) => {
+    load(current.server);
+    conflict.value = null;
+    attempted.value = false;
+    await bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), current.server));
+    await bound.wait(announce(t('notes.conflict.reloaded')));
+  });
 }
 
 function copyTitle(title: string): string {
@@ -443,7 +444,6 @@ function copyTitle(title: string): string {
 
 async function copyFromConflict(): Promise<void> {
   if (conflict.value === null || conflictBusy.value || readOnly.value) return;
-  const binding = captureOwnerBinding();
   const payload: ContextDocumentCreate = {
     title: copyTitle(fields.title),
     bodyMd: fields.bodyMd,
@@ -454,25 +454,30 @@ async function copyFromConflict(): Promise<void> {
   const action = actions.begin(scope, payload, samePayload);
   conflictBusy.value = true;
   conflictError.value = null;
-  try {
-    const created = await plannerClient.createDocument(action.payload, action.key, binding.signal);
-    actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    const server = conflict.value?.server;
-    conflict.value = null;
-    // The original note now shows the server version; my text lives in the copy.
-    if (server !== undefined) load(server);
-    await publishNote(queryClient, owner.value, created);
-    if (!isOwnerBindingCurrent(binding)) return;
-    await announce(t('notes.conflict.copied'));
-    emit('copied', created);
-  } catch (cause) {
-    if (isStoredFinalResult(cause)) actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    conflictError.value = errorMessage(cause, t('notes.editor.saveError'));
-  } finally {
-    conflictBusy.value = false;
-  }
+  await runOwnerBound(
+    async (bound) => {
+      try {
+        const created = await bound.wait(plannerClient.createDocument(action.payload, action.key, bound.signal));
+        actions.settle(scope, action);
+        const server = conflict.value?.server;
+        conflict.value = null;
+        // The original note now shows the server version; my text lives in the copy.
+        if (server !== undefined) load(server);
+        await bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), created));
+        await bound.wait(announce(t('notes.conflict.copied')));
+        emit('copied', created);
+      } catch (cause) {
+        bound.rethrowIfStale(cause);
+        if (isStoredFinalResult(cause)) actions.settle(scope, action);
+        conflictError.value = errorMessage(cause, t('notes.editor.saveError'));
+      }
+    },
+    {
+      onSettled: () => {
+        conflictBusy.value = false;
+      },
+    },
+  );
 }
 
 function keepEditing(): void {
@@ -489,49 +494,53 @@ function openDelete(): void {
 async function confirmDelete(): Promise<void> {
   const current = base.value;
   if (current === null || deleting.value || readOnly.value) return;
-  const binding = captureOwnerBinding();
   const scope = `note:${current.id}:delete`;
   const action = actions.begin(scope, { id: current.id }, samePayload, current.version);
   deleting.value = true;
   deleteError.value = null;
-  try {
-    await plannerClient.deleteDocument(current.id, action.key, current.version, binding.signal);
-    actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    await finishDelete(current, binding);
-  } catch (cause) {
-    if (isStoredFinalResult(cause)) actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    if (isApiStatus(cause, 404)) {
-      await finishDelete(current, binding);
-    } else if (isApiStatus(cause, 412)) {
-      deleteError.value = t('notes.editor.deleteConflict');
+  await runOwnerBound(
+    async (bound) => {
       try {
-        const latest = await plannerClient.getDocument(current.id, binding.signal);
-        if (isOwnerBindingCurrent(binding) && !dirty.value) load(latest);
-      } catch {
-        // The message above already asks the user to check and retry.
+        await bound.wait(plannerClient.deleteDocument(current.id, action.key, current.version, bound.signal));
+        actions.settle(scope, action);
+        await bound.wait(finishDelete(bound, current));
+      } catch (cause) {
+        bound.rethrowIfStale(cause);
+        if (isStoredFinalResult(cause)) actions.settle(scope, action);
+        if (isApiStatus(cause, 404)) {
+          await bound.wait(finishDelete(bound, current));
+        } else if (isApiStatus(cause, 412)) {
+          deleteError.value = t('notes.editor.deleteConflict');
+          try {
+            const latest = await bound.wait(plannerClient.getDocument(current.id, bound.signal));
+            if (!dirty.value) load(latest);
+          } catch (lookup) {
+            bound.rethrowIfStale(lookup);
+            // The message above already asks the user to check and retry.
+          }
+        } else {
+          deleteError.value = errorMessage(cause, t('notes.editor.deleteError'));
+        }
       }
-    } else {
-      deleteError.value = errorMessage(cause, t('notes.editor.deleteError'));
-    }
-  } finally {
-    deleting.value = false;
-  }
+    },
+    {
+      onSettled: () => {
+        deleting.value = false;
+      },
+    },
+  );
 }
 
 /**
  * Clears the deleted note for the owner that deleted it. The cache
- * invalidation can outlive that owner (M6-03R2): the binding is checked again
- * after it, so a stale owner gets no `deleted` toast or navigation.
+ * invalidation can outlive that owner (M6-03R2): it is awaited through the
+ * owner scope, so a stale owner gets no `deleted` toast or navigation.
  */
-async function finishDelete(current: ContextDocument, binding: OwnerBinding): Promise<void> {
-  if (!isOwnerBindingCurrent(binding)) return;
+async function finishDelete(bound: OwnerScope, current: ContextDocument): Promise<void> {
   deleteOpen.value = false;
   base.value = null;
   Object.assign(fields, DEFAULTS);
-  await forgetNote(queryClient, ownerKeyOf(binding.ownerId), current.id);
-  if (!isOwnerBindingCurrent(binding)) return;
+  await bound.wait(forgetNote(queryClient, ownerKeyOf(bound.ownerId), current.id));
   emit('deleted', current.title);
 }
 
