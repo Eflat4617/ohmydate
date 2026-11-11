@@ -20,7 +20,9 @@ export class InProcessIntakeApprovalLock implements IntakeApprovalLock {
     if (held.has(key)) return null;
     held.add(key);
     let released = false;
+    const controller = new AbortController();
     return {
+      signal: controller.signal,
       release: async () => {
         if (released) return;
         released = true;

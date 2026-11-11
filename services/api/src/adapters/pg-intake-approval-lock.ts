@@ -61,16 +61,30 @@ export class PgIntakeApprovalLock implements IntakeApprovalLock {
         `-c tcp_keepalives_count=${LOCK_SERVER_KEEPALIVES.count}`,
     });
     let closing = false;
-    const onError = (error: Error): void => {
+    const controller = new AbortController();
+    const recordLoss = (reason: unknown): void => {
       // A checked-out pg client without an 'error' listener crashes the
-      // process. The approval keeps running; the connection is dead and the
-      // session lock is released by the server.
-      if (closing) return;
+      // process. ADR-020 §6: propagate the loss so the approver stops before
+      // its next provider call or ledger write instead of continuing unlocked.
+      if (closing || controller.signal.aborted) return;
       this.#logger?.warn('intake approval lock connection lost', {
-        error: error.message,
+        error: reason instanceof Error ? reason.message : String(reason),
       });
+      if (!controller.signal.aborted) {
+        controller.abort(reason instanceof Error ? reason : new Error(String(reason)));
+      }
     };
+    const onError = (error: Error): void => recordLoss(error);
+    const onEnd = (): void =>
+      recordLoss(new Error('intake approval lock connection ended'));
     client.on('error', onError);
+    client.on('end', onEnd);
+    const close = async (): Promise<void> => {
+      closing = true;
+      await client.end().catch(() => undefined);
+      client.removeListener('error', onError);
+      client.removeListener('end', onEnd);
+    };
     try {
       await client.connect();
       const acquired = await client.query<{ locked: boolean }>(
@@ -78,22 +92,15 @@ export class PgIntakeApprovalLock implements IntakeApprovalLock {
         [intakeSessionLockKey(sessionId)],
       );
       if (acquired.rows[0]?.locked !== true) {
-        closing = true;
-        await client.end().catch(() => undefined);
-        client.removeListener('error', onError);
+        await close();
         return null;
       }
       return {
-        release: async () => {
-          closing = true;
-          await client.end().catch(() => undefined);
-          client.removeListener('error', onError);
-        },
+        signal: controller.signal,
+        release: close,
       };
     } catch (error) {
-      closing = true;
-      await client.end().catch(() => undefined);
-      client.removeListener('error', onError);
+      await close();
       throw error;
     }
   }

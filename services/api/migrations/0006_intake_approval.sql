@@ -11,6 +11,11 @@ CREATE TABLE intake_approval (
   state text NOT NULL DEFAULT 'in_progress',
   lease_expires_at timestamptz NOT NULL,
   idempotency_key text NOT NULL,
+  -- ADR-020 §7: fencing token for the current approver and the start time of
+  -- the most recent provider call (null until a call starts). A successor waits
+  -- one provider budget after this timestamp before resolving unknown steps.
+  holder_token text,
+  last_call_started_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT intake_approval_state_valid CHECK (state IN ('in_progress', 'completed', 'failed')),

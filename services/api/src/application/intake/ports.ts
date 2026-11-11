@@ -184,6 +184,10 @@ export interface IntakeApprovalRecord {
   readonly state: 'in_progress' | 'completed' | 'failed';
   readonly leaseExpiresAt: Instant;
   readonly idempotencyKey: string;
+  /** ADR-020 §7: fencing token for successive approvers. */
+  readonly holderToken?: string;
+  /** Start of the previous provider call; null until one starts. */
+  readonly lastCallStartedAt?: Instant;
   readonly steps: readonly ApprovalStepRecord[];
 }
 
@@ -193,7 +197,7 @@ export type BeginApprovalResult =
   | { readonly kind: 'not_found' }
   | { readonly kind: 'illegal_state'; readonly state: IntakeState }
   | { readonly kind: 'version_conflict'; readonly actualVersion: number }
-  | { readonly kind: 'in_progress' };
+  | { readonly kind: 'in_progress'; readonly retryAfterSeconds: number };
 
 export interface IntakeApprovalStore {
   begin(input: {
@@ -202,6 +206,10 @@ export interface IntakeApprovalStore {
     readonly expectedVersion: number;
     readonly idempotencyKey: string;
     readonly leaseMs: number;
+    /** ADR-020 §7: this attempt's fencing token. */
+    readonly holderToken: string;
+    /** ADR-020 §7: succession wait; must be >= the provider call budget. */
+    readonly providerMaxCallMs: number;
     readonly steps: readonly { readonly stepKey: string; readonly plannedTaskId: Id }[];
   }): Promise<BeginApprovalResult>;
   load(ownerId: Id, sessionId: Id): Promise<IntakeApprovalRecord | null>;
@@ -214,13 +222,17 @@ export interface IntakeApprovalStore {
       readonly taskId?: Id;
       readonly dependencyState?: string;
     },
+    holderToken: string,
   ): Promise<void>;
-  fail(ownerId: Id, sessionId: Id): Promise<void>;
+  /** ADR-020 §7: record the start of a provider call for succession timing. */
+  touch(ownerId: Id, sessionId: Id, holderToken: string): Promise<void>;
+  fail(ownerId: Id, sessionId: Id, holderToken: string): Promise<void>;
   complete(input: {
     readonly ownerId: Id;
     readonly sessionId: Id;
     readonly expectedSessionVersion: number;
     readonly outboxId: Id;
+    readonly holderToken: string;
   }): Promise<IntakeSessionRecord>;
 }
 
@@ -230,6 +242,8 @@ export interface IntakeApprovalStore {
  * releases the lock, so there is no time-based takeover.
  */
 export interface IntakeApprovalLockHandle {
+  /** ADR-020 §6: fired when the lock connection errors or ends unexpectedly. */
+  readonly signal: AbortSignal;
   release(): Promise<void>;
 }
 

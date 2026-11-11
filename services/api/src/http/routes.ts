@@ -380,7 +380,10 @@ async function runIdempotent(
           response: {
             status: problem.status,
             body: problemBodyFor(request, problem),
-            headers: { 'Content-Type': 'application/problem+json' },
+            headers: {
+              'Content-Type': 'application/problem+json',
+              ...(error instanceof IntakeError ? (error.headers ?? {}) : {}),
+            },
           },
           outbox: [],
         });
@@ -910,6 +913,7 @@ export function createRuntime(options: {
     agentRuns: new PgAgentRunRepository(options.db),
     approvals: new PgIntakeApprovalRepository(options.db, options.clock),
     approvalLock,
+    providerMaxCallMs: options.config.providerMaxCallMs,
     tasks: options.repos.tasks,
     llm: options.llm,
     budgetGuard: options.budgetGuard,

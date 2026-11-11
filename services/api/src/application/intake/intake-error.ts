@@ -11,6 +11,7 @@ export class IntakeError extends Error {
     readonly code: ProblemCode,
     readonly title: string,
     readonly detail: string,
+    readonly headers?: Readonly<Record<string, string>>,
   ) {
     super(detail);
     this.name = 'IntakeError';
@@ -31,5 +32,23 @@ export class IntakeError extends Error {
 
   static budgetExceeded(detail: string): IntakeError {
     return new IntakeError(503, 'budget_exceeded', 'LLM budget exceeded', detail);
+  }
+}
+
+/**
+ * ADR-020 §6: the dedicated approval lock connection died while this request
+ * was still running. The approver must not call the provider, write the
+ * approval ledger, or complete the session after this point. Surfaced as 503 so
+ * the idempotency reservation is released and a retry can resume.
+ */
+export class IntakeApprovalOwnershipLostError extends IntakeError {
+  constructor() {
+    super(
+      503,
+      'provider_unavailable',
+      'Approval ownership lost',
+      'the approval lock connection was lost; approval can be retried',
+    );
+    this.name = 'IntakeApprovalOwnershipLostError';
   }
 }

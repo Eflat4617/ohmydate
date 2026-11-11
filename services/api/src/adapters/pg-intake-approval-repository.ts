@@ -17,6 +17,7 @@ import type {
   IntakeSessionRecord,
 } from '../application/intake/ports.js';
 import { mapSession } from './pg-intake-session-repository.js';
+import { IntakeApprovalOwnershipLostError } from '../application/intake/intake-error.js';
 
 type ApprovalRow = Selectable<IntakeApprovalTable>;
 type StepRow = Selectable<IntakeApprovalStepTable>;
@@ -39,6 +40,10 @@ function mapApproval(row: ApprovalRow, steps: readonly StepRow[]): IntakeApprova
     state: row.state as IntakeApprovalRecord['state'],
     leaseExpiresAt: row.lease_expires_at.toISOString() as never,
     idempotencyKey: row.idempotency_key,
+    ...(row.holder_token === null ? {} : { holderToken: row.holder_token }),
+    ...(row.last_call_started_at === null
+      ? {}
+      : { lastCallStartedAt: row.last_call_started_at.toISOString() as never }),
     steps: steps.map(mapStep),
   };
 }
@@ -58,6 +63,8 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
     readonly expectedVersion: number;
     readonly idempotencyKey: string;
     readonly leaseMs: number;
+    readonly holderToken: string;
+    readonly providerMaxCallMs: number;
     readonly steps: readonly { readonly stepKey: string; readonly plannedTaskId: Id }[];
   }): Promise<BeginApprovalResult> {
     return this.#db.transaction().execute(async (trx) => {
@@ -81,9 +88,28 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
         return { kind: 'completed', session: mapSession(session) };
       }
 
-      // ADR-020: the caller holds the session-level advisory lock, so any
-      // in-progress row here is a crashed/previous attempt for this same
-      // session and may be resumed. Never take over based on a lease clock.
+      // ADR-020 §7: if an unreleased previous holder may still have a provider
+      // call in flight, the successor must wait one full call budget before
+      // resolving unknown steps. The lock itself is already held here.
+      if (
+        existing !== undefined &&
+        existing.state === 'in_progress' &&
+        existing.holder_token !== null &&
+        existing.holder_token !== input.holderToken &&
+        existing.last_call_started_at !== null
+      ) {
+        const elapsedMs = now.getTime() - existing.last_call_started_at.getTime();
+        if (elapsedMs < input.providerMaxCallMs) {
+          return {
+            kind: 'in_progress',
+            retryAfterSeconds: Math.max(
+              1,
+              Math.ceil((input.providerMaxCallMs - elapsedMs) / 1000),
+            ),
+          };
+        }
+      }
+
       if (session.version !== input.expectedVersion) {
         return { kind: 'version_conflict', actualVersion: session.version };
       }
@@ -102,6 +128,8 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
             state: 'in_progress',
             lease_expires_at: lease,
             idempotency_key: input.idempotencyKey,
+            holder_token: input.holderToken,
+            last_call_started_at: null,
           })
           .execute();
       } else {
@@ -112,6 +140,8 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
             state: 'in_progress',
             lease_expires_at: lease,
             idempotency_key: input.idempotencyKey,
+            holder_token: input.holderToken,
+            last_call_started_at: null,
             updated_at: now,
           })
           .where('session_id', '=', input.sessionId)
@@ -185,14 +215,17 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
       readonly taskId?: Id;
       readonly dependencyState?: string;
     },
+    holderToken: string,
   ): Promise<void> {
     const approval = await this.#db
       .selectFrom('intake_approval')
       .select('session_id')
       .where('session_id', '=', sessionId)
       .where('owner_id', '=', ownerId)
+      .where('state', '=', 'in_progress')
+      .where('holder_token', '=', holderToken)
       .executeTakeFirst();
-    if (approval === undefined) return;
+    if (approval === undefined) throw new IntakeApprovalOwnershipLostError();
     await this.#db
       .updateTable('intake_approval_step')
       .set({
@@ -207,13 +240,38 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
       .execute();
   }
 
-  async fail(ownerId: Id, sessionId: Id): Promise<void> {
-    await this.#db
+  /**
+   * ADR-020 §7: called before every provider call. The timestamp bounds how
+   * long a successor must wait before treating this holder as gone.
+   */
+  async touch(ownerId: Id, sessionId: Id, holderToken: string): Promise<void> {
+    const now = new Date(this.#clock.now());
+    const result = await this.#db
       .updateTable('intake_approval')
-      .set({ state: 'failed', updated_at: new Date(this.#clock.now()) })
+      .set({ last_call_started_at: now, updated_at: now })
       .where('session_id', '=', sessionId)
       .where('owner_id', '=', ownerId)
-      .execute();
+      .where('state', '=', 'in_progress')
+      .where('holder_token', '=', holderToken)
+      .executeTakeFirst();
+    if (Number(result.numUpdatedRows) === 0) {
+      throw new IntakeApprovalOwnershipLostError();
+    }
+  }
+
+  async fail(ownerId: Id, sessionId: Id, holderToken: string): Promise<void> {
+    const now = new Date(this.#clock.now());
+    const result = await this.#db
+      .updateTable('intake_approval')
+      .set({ state: 'failed', holder_token: null, updated_at: now })
+      .where('session_id', '=', sessionId)
+      .where('owner_id', '=', ownerId)
+      .where('state', '=', 'in_progress')
+      .where('holder_token', '=', holderToken)
+      .executeTakeFirst();
+    if (Number(result.numUpdatedRows) === 0) {
+      throw new IntakeApprovalOwnershipLostError();
+    }
   }
 
   async complete(input: {
@@ -221,8 +279,23 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
     readonly sessionId: Id;
     readonly expectedSessionVersion: number;
     readonly outboxId: Id;
+    readonly holderToken: string;
   }): Promise<IntakeSessionRecord> {
     return this.#db.transaction().execute(async (trx) => {
+      const approval = await trx
+        .selectFrom('intake_approval')
+        .select(['state', 'holder_token'])
+        .where('session_id', '=', input.sessionId)
+        .where('owner_id', '=', input.ownerId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        approval === undefined ||
+        approval.state !== 'in_progress' ||
+        approval.holder_token !== input.holderToken
+      ) {
+        throw new IntakeApprovalOwnershipLostError();
+      }
       const updated = await trx
         .updateTable('intake_session')
         .set({
@@ -243,7 +316,7 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
       }
       await trx
         .updateTable('intake_approval')
-        .set({ state: 'completed', updated_at: new Date(this.#clock.now()) })
+        .set({ state: 'completed', holder_token: null, updated_at: new Date(this.#clock.now()) })
         .where('session_id', '=', input.sessionId)
         .where('owner_id', '=', input.ownerId)
         .execute();
@@ -283,4 +356,5 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
       return mapSession(updated);
     });
   }
+
 }

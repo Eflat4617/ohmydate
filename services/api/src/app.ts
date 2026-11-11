@@ -3,6 +3,7 @@ import { createServer as createHttpServer } from 'node:http';
 import { registerIanaTimeZoneFormat } from '@ohmydate/contracts';
 import { DomainError, type Clock, type IdGenerator } from '@ohmydate/domain';
 import { BudgetGuard, FakeLlm, type LlmPort } from '@ohmydate/llm';
+import { vikunjaCallBudgetMs } from '@ohmydate/provider-vikunja';
 import Fastify, {
   type FastifyInstance,
   type FastifyServerOptions,
@@ -245,6 +246,18 @@ function registerHealthRoutes(
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const { config, clock, ids, db } = options;
+  // ADR-020 §7: the succession wait must cover the slowest provider call so a
+  // replaced approver's in-flight request cannot still be running.
+  const minimumCallBudget = vikunjaCallBudgetMs();
+  if (
+    !Number.isInteger(config.providerMaxCallMs) ||
+    config.providerMaxCallMs < minimumCallBudget
+  ) {
+    throw new Error(
+      `PROVIDER_MAX_CALL_MS must be an integer >= ${minimumCallBudget} ` +
+        '(the Vikunja client attempts*timeout+backoff budget)',
+    );
+  }
   const logging =
     options.loggerInstance === undefined
       ? { logger: options.logger ?? defaultLoggerOptions(config) }
@@ -321,6 +334,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       );
     }
     if (error instanceof IntakeError) {
+      if (error.headers !== undefined) {
+        for (const [name, value] of Object.entries(error.headers)) reply.header(name, value);
+      }
       return sendProblem(request, reply, error.status, error.code, error.title, error.detail);
     }
     if (error instanceof DomainError) {

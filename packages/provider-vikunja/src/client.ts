@@ -118,6 +118,21 @@ export interface RequestOptions {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRIES = 2;
+const RETRY_BACKOFF_BASE_MS = 100;
+
+/**
+ * ADR-020 §7: upper bound for one repository call using the default client
+ * (GET retries + per-attempt timeout + exponential backoff). The intake
+ * succession window (`PROVIDER_MAX_CALL_MS`) must be at least this long so a
+ * replaced approver's in-flight call is guaranteed to have finished.
+ */
+export function vikunjaCallBudgetMs(): number {
+  let backoff = 0;
+  for (let attempt = 0; attempt < DEFAULT_RETRIES; attempt += 1) {
+    backoff += RETRY_BACKOFF_BASE_MS * 2 ** attempt;
+  }
+  return (DEFAULT_RETRIES + 1) * DEFAULT_TIMEOUT_MS + backoff;
+}
 const JSON_CONTENT_TYPE = 'application/json';
 const MERGE_PATCH_CONTENT_TYPE = 'application/merge-patch+json';
 
@@ -474,7 +489,7 @@ export class VikunjaClient {
           const retryable = idempotent && isNetworkError(error);
           if (!retryable || attempt + 1 >= maxAttempts) break;
         }
-        await this.#sleep(100 * 2 ** attempt);
+        await this.#sleep(RETRY_BACKOFF_BASE_MS * 2 ** attempt);
       }
     }
 

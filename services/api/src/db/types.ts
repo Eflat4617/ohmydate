@@ -326,6 +326,8 @@ export interface IntakeApprovalTable {
   state: Col<'text', false, true>;
   lease_expires_at: Col<'timestamptz', false, false>;
   idempotency_key: Col<'text', false, false>;
+  holder_token: Col<'text', true, false>;
+  last_call_started_at: Col<'timestamptz', true, false>;
   created_at: Col<'timestamptz', false, true>;
   updated_at: Col<'timestamptz', false, true>;
 }
@@ -683,6 +685,8 @@ export const databaseTables = {
     state: col('text', false, true),
     lease_expires_at: col('timestamptz', false, false),
     idempotency_key: col('text', false, false),
+    holder_token: col('text', true, false),
+    last_call_started_at: col('timestamptz', true, false),
     created_at: col('timestamptz', false, true),
     updated_at: col('timestamptz', false, true),
   },
