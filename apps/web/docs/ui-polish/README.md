@@ -113,7 +113,7 @@ Shrink, the Availability conflict and the bottom-nav More sheet all use it.
 | < 640px | 5-slot bottom nav (Today, Inbox, ＋ New task, Plan, More). The More sheet holds the rest | one column; plan candidates swipe horizontally inside their own scroller |
 | 640–1023px | bottom nav | wider single column, two-column forms where they fit |
 | ≥ 1024px | grouped nav rail (Daily / Planning / Settings) with shortcut hints | multi-column forms |
-| ≥ 1280px | rail | multi-panel: Today adds a *Day at a glance* aside; plan comparison shows its candidates side by side with the calendar |
+| ≥ 1280px | rail | multi-panel: Today and Focus use the adaptive layout's three columns (primary · secondary · tertiary, M6-02; Today's *Day at a glance* card stacks above its list); plan comparison shows its candidates side by side with the calendar, with the context panels below |
 
 Focus has a **calm mode**: the shell steps back (no rail, no bottom nav), the
 timer is set in display type, and planned progress shows under it. Calm mode
@@ -237,6 +237,58 @@ The UI is Korean (`<html lang="ko">`). All copy lives in one bundled catalog,
   template) use an `alertdialog` that states how many records go and that it
   cannot be undone. Only minutes and ratios are shown — never review notes.
 
+## Adaptive layout (M6-02)
+
+The layout of Today, Focus, the planning pages and Notes follows the user's
+context (07 §2). The pipeline is `Context Observer → ui-policy → LayoutSpec →
+registry → renderer`:
+
+- **Policy (`packages/ui-policy`).** Pure TypeScript, no clock or DOM: the
+  caller passes the instant in. `ui.layout.v1` is a TypeBox schema with a
+  closed component registry and closed props (ids and small integers only —
+  no HTML, script, URL or style strings). The validator also requires one page
+  component in `primary`, unique components and both `NavRail` and `BottomNav`
+  pinned. `decideMode` follows 07 §2.2 in order: lock → active session →
+  planning route → deadline risk not acknowledged today → review window
+  (20:00–24:00 local [가정]) with an unreviewed session → notes route →
+  overview. `policyVersion` is `ui-policy@0.1.0`.
+- **Stability (07 §2.3).** After an automatic switch the layout holds for
+  10 minutes. Switches wait while a field has focus, during a drag, or while
+  a panel is pressed or has a dialog open. The user's own navigation (and
+  answers such as *확인했어요*) apply at once. An automatic step never moves
+  the user off a Focus screen they are on (the review sheet stays). One undo
+  step restores the previous layout and turns that context down (the same
+  session does not switch back). Lock and *자동 전환 끄기* stop automatic
+  switches. An invalid spec is never applied or rendered: the previous one
+  stays.
+- **Pages are never replaced.** On planning and notes pages the routed page
+  stays the primary component and only the panels around it change. On the
+  daily workspace the URL follows the page: the focus layout lives at
+  `/focus/:id`, every other mode at `/today`.
+- **Registry (`src/layout/registry.ts`).** Page components are the routed
+  view (`TodayPlan`, `FocusTimer`, `PlanningWorkspace`, `NotesWorkspace`).
+  Panels: `NextUp`, `RelatedNotes` (empty state until M6-03 fills it),
+  `CurrentTaskCard`, `DeadlineRiskPanel`, `ReviewPrompt`, `ActiveSessionCard`.
+- **Renderer (`AdaptiveFrame`).** One CSS grid with stable keys; the page
+  keeps one key, so a switch never remounts it. Below 1280px the regions
+  stack (primary first, then the two context regions side by side from
+  640px). From 1280px the workspace shows primary · secondary · tertiary next
+  to the rail. Plan pages keep their own wide grids, with the context row
+  below. Only opacity animates; `prefers-reduced-motion` turns it off. Calm
+  mode keeps only the timer. NavRail and BottomNav stay in AppShell in every
+  mode.
+- **Change feedback.** An automatic switch shows the toast *레이아웃이
+  바뀌었어요* with *되돌리기* and a link-style *자동 전환 끄기*. A polite live
+  region says which layout is now shown. Focus stays where it was, or moves
+  to the same place in the same panel, or to the primary region — never to
+  `<body>`.
+- **Settings (`/settings/layout`).** Auto switching on/off and locking the
+  last layout shown, saved per owner on this device. The page also lists the
+  rule order. Opening a page the lock cannot show moves the lock to that page.
+- **AI suggestions** (`llm.layout_suggestion.v1`) are accepted by the policy
+  only at the lowest priority (fixture-tested). The web does not request any
+  yet.
+
 ## Evidence
 
 `before/` was captured at the base commit and `after/` on the UI-POLISH
@@ -251,7 +303,15 @@ node scripts/ui-screenshots.mjs --label after-ko
 node scripts/ui-screenshots.mjs --label after-ko --only 14-today
 # M5-03 screens (22–33) into m5-03/
 node scripts/ui-screenshots.mjs --label m5-03 --flows replan,patterns
+# M6-02 layout modes (34–41) into m6-02/
+node scripts/ui-screenshots.mjs --label m6-02 --flows adaptive
 ```
+
+`m6-02/` holds one capture per layout mode: overview (34, light/dark, full),
+focus right after *집중 시작* with the undo toast (35, light/dark), the undone
+layout (36), planning (37), deadline risk (38, mock seed
+`window.__OHMYDATE_MOCK__ = { today: 'risk' }`, full), review at 20:30 with an
+unreviewed session (39, full), notes (40) and the layout settings (41).
 
 `m5-03/` holds the M5-03 screens: Today with a pending proposal (22), the
 notifications link (32), the proposal detail (23, light/dark, full page), the
@@ -275,6 +335,7 @@ on any overflow. Results are in `<label>/sweep-report.json`:
 | after | 130 | 0 | none. The 10 extra visits are the Focus calm-mode screen |
 | after-ko | 130 | 0 | none (Korean copy, same screens; the 360px checks pass with the longer Korean labels) |
 | m5-03 | 72 | 0 | none (M5-03 screens only: `--flows replan,patterns`) |
+| m6-02 | 48 | 0 | none (M6-02 layout modes only: `--flows adaptive`) |
 
 The real API is covered too. `e2e/tests/e2e-a11y-screens.spec.ts` runs the
 same axe tags against PostgreSQL + Vikunja on the screens E2E-1..4 do not

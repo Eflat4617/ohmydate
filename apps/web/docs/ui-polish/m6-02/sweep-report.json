@@ -1,0 +1,399 @@
+{
+  "label": "m6-02",
+  "generatedFrom": "VITE_MOCK=1 synthetic data (src/mocks)",
+  "axeTags": [
+    "wcag2a",
+    "wcag2aa",
+    "wcag21a",
+    "wcag21aa",
+    "wcag22aa"
+  ],
+  "visits": 48,
+  "failing": 0,
+  "findings": [
+    {
+      "screen": "34-layout-overview",
+      "viewport": "390x844",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "35-layout-focus",
+      "viewport": "390x844",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "36-layout-undone",
+      "viewport": "390x844",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "39-layout-review",
+      "viewport": "390x844",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "38-layout-deadline-risk",
+      "viewport": "390x844",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "37-layout-planning",
+      "viewport": "390x844",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "40-layout-notes",
+      "viewport": "390x844",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "41-layout-settings",
+      "viewport": "390x844",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "34-layout-overview",
+      "viewport": "390x844",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "35-layout-focus",
+      "viewport": "390x844",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "36-layout-undone",
+      "viewport": "390x844",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "39-layout-review",
+      "viewport": "390x844",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "38-layout-deadline-risk",
+      "viewport": "390x844",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "37-layout-planning",
+      "viewport": "390x844",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "40-layout-notes",
+      "viewport": "390x844",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "41-layout-settings",
+      "viewport": "390x844",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 390,
+      "violations": []
+    },
+    {
+      "screen": "34-layout-overview",
+      "viewport": "1440x900",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "35-layout-focus",
+      "viewport": "1440x900",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "36-layout-undone",
+      "viewport": "1440x900",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "39-layout-review",
+      "viewport": "1440x900",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "38-layout-deadline-risk",
+      "viewport": "1440x900",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "37-layout-planning",
+      "viewport": "1440x900",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "40-layout-notes",
+      "viewport": "1440x900",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "41-layout-settings",
+      "viewport": "1440x900",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "34-layout-overview",
+      "viewport": "1440x900",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "35-layout-focus",
+      "viewport": "1440x900",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "36-layout-undone",
+      "viewport": "1440x900",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "39-layout-review",
+      "viewport": "1440x900",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "38-layout-deadline-risk",
+      "viewport": "1440x900",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "37-layout-planning",
+      "viewport": "1440x900",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "40-layout-notes",
+      "viewport": "1440x900",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "41-layout-settings",
+      "viewport": "1440x900",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 1440,
+      "violations": []
+    },
+    {
+      "screen": "34-layout-overview",
+      "viewport": "360x780",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "35-layout-focus",
+      "viewport": "360x780",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "36-layout-undone",
+      "viewport": "360x780",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "39-layout-review",
+      "viewport": "360x780",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "38-layout-deadline-risk",
+      "viewport": "360x780",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "37-layout-planning",
+      "viewport": "360x780",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "40-layout-notes",
+      "viewport": "360x780",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "41-layout-settings",
+      "viewport": "360x780",
+      "scheme": "light",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "34-layout-overview",
+      "viewport": "360x780",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "35-layout-focus",
+      "viewport": "360x780",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "36-layout-undone",
+      "viewport": "360x780",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "39-layout-review",
+      "viewport": "360x780",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "38-layout-deadline-risk",
+      "viewport": "360x780",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "37-layout-planning",
+      "viewport": "360x780",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "40-layout-notes",
+      "viewport": "360x780",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    },
+    {
+      "screen": "41-layout-settings",
+      "viewport": "360x780",
+      "scheme": "dark",
+      "overflowX": false,
+      "scrollWidth": 360,
+      "violations": []
+    }
+  ]
+}

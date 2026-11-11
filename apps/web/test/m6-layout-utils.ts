@@ -1,5 +1,5 @@
 import { flushPromises, mount, type DOMWrapper, type VueWrapper } from '@vue/test-utils';
-import { VueQueryPlugin } from '@tanstack/vue-query';
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query';
 import { createPinia, type Pinia } from 'pinia';
 import { nextTick } from 'vue';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
@@ -41,6 +41,7 @@ export interface MountedApp {
   readonly wrapper: VueWrapper;
   readonly router: Router;
   readonly pinia: Pinia;
+  readonly queryClient: QueryClient;
 }
 
 export async function settle(): Promise<void> {
@@ -57,14 +58,15 @@ export async function mountApp(path: string, prepare?: (pinia: Pinia) => void | 
   await prepare?.(pinia);
   const router = createRouter({ history: createMemoryHistory(), routes });
   await router.push(path);
+  const queryClient = new QueryClient();
   const wrapper = mount(App, {
-    global: { plugins: [pinia, router, VueQueryPlugin] },
+    global: { plugins: [pinia, router, [VueQueryPlugin, { queryClient }]] },
     attachTo: document.body,
   });
   await router.isReady();
   await vi.waitFor(() => expect(wrapper.find('.adaptive-frame, .page').exists()).toBe(true));
   await settle();
-  return { wrapper, router, pinia };
+  return { wrapper, router, pinia, queryClient };
 }
 
 export function modeOf(wrapper: VueWrapper): string | undefined {

@@ -197,28 +197,72 @@ describe('adaptive layout — undo, hold and auto switch', () => {
   it('holds an automatic switch for 10 minutes: 9:59 waits, 10:00 switches', async () => {
     const clock = useTestClock();
     const app = await openToday();
-    const sessionId = await startFromToday(app);
     const layout = useLayoutStore(app.pinia);
-    const sessions = useSessionStore(app.pinia);
+    const original = mockDb.today;
 
-    // The session ends one minute later; overview would follow, but the hold keeps focus.
+    // A deadline risk appears: automatic switch (with the undo toast).
+    seedTodayRisk(mockDb);
+    await app.queryClient.invalidateQueries({ queryKey: ['today'] });
+    await vi.waitFor(() => expect(modeOf(app.wrapper)).toBe('deadline_risk'));
+    expect(useToastStore(app.pinia).toasts.some((item) => item.message === '레이아웃이 바뀌었어요')).toBe(true);
+
+    // One minute later the risk is gone; the risk layout is held.
     clock.advance(60_000);
-    const active = sessions.get(sessionId);
-    if (active === null) throw new Error('session missing');
-    sessions.update({ ...active, state: 'completed', endedAt: new Date(clock.now()).toISOString(), version: active.version + 1 });
-    await settle();
-    expect(layout.lastOutcome).toMatchObject({ kind: 'deferred', because: 'hold' });
-    expect(modeOf(app.wrapper)).toBe('focus');
+    mockDb.today = original;
+    await app.queryClient.invalidateQueries({ queryKey: ['today'] });
+    await vi.waitFor(() => expect(layout.lastOutcome).toMatchObject({ kind: 'deferred', because: 'hold' }));
+    expect(modeOf(app.wrapper)).toBe('deadline_risk');
 
     clock.advance(HOLD_MS - 60_000 - 1000); // 9:59 after the switch
     layout.step();
     await settle();
-    expect(modeOf(app.wrapper)).toBe('focus');
+    expect(modeOf(app.wrapper)).toBe('deadline_risk');
 
     clock.advance(1000); // 10:00
     layout.step();
-    await vi.waitFor(() => expect(app.router.currentRoute.value.path).toBe('/today'));
     await settle();
+    expect(modeOf(app.wrapper)).toBe('overview');
+    expect(app.router.currentRoute.value.path).toBe('/today');
+  });
+
+  it('keeps the Focus screen (and its review sheet) after the session ends, even past the hold', async () => {
+    const clock = useTestClock();
+    const app = await openToday();
+    const sessionId = await startFromToday(app);
+    const layout = useLayoutStore(app.pinia);
+
+    await button(app.wrapper, '완료').trigger('click');
+    await vi.waitFor(() => expect(app.wrapper.text()).toContain('이번 세션은 어땠나요?'));
+    clock.advance(HOLD_MS + 60_000);
+    layout.step();
+    await settle();
+    expect(layout.lastOutcome).toMatchObject({ kind: 'deferred', because: 'page' });
+    expect(app.router.currentRoute.value.path).toBe(`/focus/${sessionId}`);
+    expect(modeOf(app.wrapper)).toBe('focus');
+    expect(app.wrapper.text()).toContain('이번 세션은 어땠나요?');
+  });
+
+  it('returning to Today after completing a session stays on Today (no stale session revived)', async () => {
+    useTestClock();
+    const app = await openToday();
+    const sessionId = await startFromToday(app);
+    // Undo while the session runs: Today caches the running session…
+    bodyButton('되돌리기').click();
+    await vi.waitFor(() => expect(app.router.currentRoute.value.path).toBe('/today'));
+    await vi.waitFor(() => expect(app.wrapper.text()).toContain('세션 이어가기'));
+    await button(app.wrapper, '세션 이어가기').trigger('click');
+    await vi.waitFor(() => expect(app.wrapper.find('.focus-timer').exists()).toBe(true));
+    await vi.waitFor(() => expect(button(app.wrapper, '완료').attributes('disabled')).toBeUndefined());
+    await button(app.wrapper, '완료').trigger('click');
+    await vi.waitFor(() => expect(useSessionStore(app.pinia).get(sessionId)?.state).toBe('completed'));
+
+    // …and coming back must not resurrect it as active (which would switch to Focus).
+    await app.router.push('/today');
+    await settle();
+    await vi.waitFor(() => expect(app.wrapper.findAll('.today-card').length).toBeGreaterThan(0));
+    await settle();
+    expect(useSessionStore(app.pinia).get(sessionId)?.state).toBe('completed');
+    expect(app.router.currentRoute.value.path).toBe('/today');
     expect(modeOf(app.wrapper)).toBe('overview');
   });
 

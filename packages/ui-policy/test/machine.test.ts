@@ -19,6 +19,14 @@ function overviewState(): LayoutState {
   return initialLayoutState(input(T0, ON_TODAY));
 }
 
+/** Overview, then an automatic switch to the deadline-risk layout at `T0`. */
+function switchedToRisk(): LayoutState {
+  const result = stepLayout(overviewState(), input(T0, { ...ON_TODAY, riskTaskCount: 1 }));
+  expect(result.outcome.kind).toBe('switched');
+  expect(result.state.current.mode).toBe('deadline_risk');
+  return result.state;
+}
+
 /** Overview, then an automatic switch to focus at `T0`. */
 function switchedToFocus(): LayoutState {
   const result = stepLayout(overviewState(), input(T0, { ...ON_TODAY, ...SESSION }));
@@ -51,16 +59,18 @@ describe('automatic switch', () => {
     expect(result.state.holdUntil).toBe(T0 + HOLD_MS);
   });
 
+  // Hold boundaries on Today: a deadline risk appears at T0 (automatic switch),
+  // then clears again; the risk layout must stay for 10 minutes.
   it('holds the layout for 10 minutes: 9:59 still waits', () => {
-    const state = switchedToFocus();
+    const state = switchedToRisk();
     const result = stepLayout(state, input(T0 + 9 * MINUTE + 59 * SECOND, ON_TODAY));
     expect(result.outcome).toMatchObject({ kind: 'deferred', because: 'hold', retryAt: T0 + HOLD_MS });
-    expect(result.state.current.mode).toBe('focus');
+    expect(result.state.current.mode).toBe('deadline_risk');
     expect(result.state.pending?.mode).toBe('overview');
   });
 
   it('holds the layout for 10 minutes: 10:00 switches', () => {
-    const state = switchedToFocus();
+    const state = switchedToRisk();
     const result = stepLayout(state, input(T0 + 10 * MINUTE, ON_TODAY));
     expect(result.outcome.kind).toBe('switched');
     expect(result.state.current.mode).toBe('overview');
@@ -69,26 +79,63 @@ describe('automatic switch', () => {
 
   it('holds exactly HOLD_MS: one millisecond before still waits', () => {
     expect(HOLD_MS).toBe(600_000);
-    const state = switchedToFocus();
+    const state = switchedToRisk();
     expect(stepLayout(state, input(T0 + HOLD_MS - 1, ON_TODAY)).outcome.kind).toBe('deferred');
     expect(stepLayout(state, input(T0 + HOLD_MS, ON_TODAY)).outcome.kind).toBe('switched');
   });
 
   it('a switch restarts the hold', () => {
-    const state = switchedToFocus();
+    const state = switchedToRisk();
     const back = stepLayout(state, input(T0 + 10 * MINUTE, ON_TODAY)).state;
     expect(back.holdUntil).toBe(T0 + 10 * MINUTE + HOLD_MS);
-    const again = stepLayout(back, input(T0 + 11 * MINUTE, { ...ON_TODAY, activeSessionId: SESSION_B }));
+    const again = stepLayout(back, input(T0 + 11 * MINUTE, { ...ON_TODAY, riskTaskCount: 1 }));
     expect(again.outcome).toMatchObject({ kind: 'deferred', because: 'hold' });
   });
 
   it('a deferred switch happens on the first step after the hold', () => {
-    const state = switchedToFocus();
-    const held = stepLayout(state, input(T0 + 3 * MINUTE, { ...ON_TODAY, riskTaskCount: 1 }));
-    expect(held.outcome.kind).toBe('deferred');
-    const later = stepLayout(held.state, input(T0 + HOLD_MS, { ...ON_TODAY, riskTaskCount: 1 }));
+    const state = switchedToRisk();
+    const held = stepLayout(state, input(T0 + 3 * MINUTE, { ...ON_TODAY, riskTaskCount: 1, ...SESSION }));
+    expect(held.outcome).toMatchObject({ kind: 'deferred', because: 'hold' });
+    const later = stepLayout(held.state, input(T0 + HOLD_MS, { ...ON_TODAY, riskTaskCount: 1, ...SESSION }));
     expect(later.outcome.kind).toBe('switched');
-    expect(later.state.current.mode).toBe('deadline_risk');
+    expect(later.state.current.mode).toBe('focus');
+  });
+});
+
+describe('the Focus screen the user is on', () => {
+  const ON_FOCUS = { route: 'focus' as const, routeSessionId: SESSION_A };
+
+  it('stays after its session ends, even once the hold is over (review sheet)', () => {
+    const onFocus = stepLayout(switchedToFocus(), input(T0 + SECOND, { ...ON_FOCUS, ...SESSION })).state;
+    const ended = stepLayout(onFocus, input(T0 + HOLD_MS + MINUTE, ON_FOCUS));
+    expect(ended.outcome).toMatchObject({ kind: 'deferred', because: 'page' });
+    expect(pageItemOf(ended.state.current)).toEqual({ component: 'FocusTimer', props: { sessionId: SESSION_A } });
+  });
+
+  it('stays when the user opened it themselves and the session ends', () => {
+    const opened = applyUserIntent(null, input(T0, { ...ON_FOCUS, ...SESSION })).state;
+    expect(opened.holdUntil).toBeNull();
+    const ended = stepLayout(opened, input(T0 + MINUTE, { ...ON_FOCUS, riskTaskCount: 1 }));
+    expect(ended.outcome).toMatchObject({ kind: 'deferred', because: 'page' });
+    expect(ended.state.current.mode).toBe('focus');
+  });
+
+  it('is not moved to another session started elsewhere', () => {
+    const opened = applyUserIntent(null, input(T0, { ...ON_FOCUS, ...SESSION })).state;
+    const other = stepLayout(opened, input(T0 + MINUTE, { route: 'today', activeSessionId: SESSION_B }));
+    // On Today the page may change (Today → Focus is the adaptive switch)…
+    expect(other.outcome.kind).not.toBe('deferred');
+    // …but on the Focus route the session in the URL stays on screen.
+    const onRoute = stepLayout(opened, input(T0 + MINUTE, { ...ON_FOCUS, activeSessionId: SESSION_B }));
+    expect(onRoute.outcome).toEqual({ kind: 'unchanged' });
+    expect(pageItemOf(onRoute.state.current)).toEqual({ component: 'FocusTimer', props: { sessionId: SESSION_A } });
+  });
+
+  it('still lets the user leave by undo (negative for the guard)', () => {
+    const onFocus = stepLayout(switchedToFocus(), input(T0 + SECOND, { ...ON_FOCUS, ...SESSION })).state;
+    const undone = undoLayout(onFocus, T0 + 2 * SECOND);
+    expect(undone.undone).toBe(true);
+    expect(pageItemOf(undone.state.current)?.component).toBe('TodayPlan');
   });
 });
 

@@ -8,7 +8,14 @@ import {
 } from './decide.js';
 import type { LayoutComponentId, LayoutMode } from './registry.js';
 import type { InstantMs, InteractionSignals, LayoutPreferences, LayoutSignals } from './signals.js';
-import { componentsOf, sameLayout, sameStructure, validateLayoutSpec, type LayoutSpec } from './spec.js';
+import {
+  componentsOf,
+  pageItemOf,
+  sameLayout,
+  sameStructure,
+  validateLayoutSpec,
+  type LayoutSpec,
+} from './spec.js';
 import { evaluateSuggestion, type SuggestionVerdict } from './suggestion.js';
 
 /**
@@ -21,6 +28,8 @@ import { evaluateSuggestion, type SuggestionVerdict } from './suggestion.js';
  * - The lock and "auto switch off" stop automatic switches entirely.
  * - One undo step restores the layout before the last automatic switch and
  *   turns that context down, so it does not switch straight back.
+ * - An automatic step never changes the page of a Focus screen the user is
+ *   on (e.g. the review sheet after a session ends); they leave it themselves.
  * - The user's own navigation always applies at once (no hold, no toast).
  * - A spec that fails validation is never applied: the previous one stays.
  */
@@ -52,7 +61,7 @@ export interface LayoutInput {
   readonly suggestion?: unknown;
 }
 
-export type DeferReason = 'hold' | 'typing' | 'dragging' | 'interacting';
+export type DeferReason = 'hold' | 'typing' | 'dragging' | 'interacting' | 'page';
 
 export type StepOutcome =
   | { readonly kind: 'unchanged' }
@@ -89,6 +98,16 @@ function holdActive(state: LayoutState, now: InstantMs): boolean {
 function removedComponents(from: LayoutSpec, to: LayoutSpec): LayoutComponentId[] {
   const next = new Set(componentsOf(to));
   return componentsOf(from).filter((component) => !next.has(component));
+}
+
+/**
+ * Only the user moves off a Focus screen they are on. Today may change into
+ * Focus automatically (that is the point); planning and notes pages never
+ * change by construction (see buildLayoutSpec).
+ */
+function pageChangeAllowed(from: LayoutSpec, to: LayoutSpec, signals: LayoutSignals): boolean {
+  if (signals.route !== 'focus') return true;
+  return JSON.stringify(pageItemOf(from)) === JSON.stringify(pageItemOf(to));
 }
 
 function withPending(state: LayoutState, pending: LayoutSpec | null): LayoutState {
@@ -138,6 +157,10 @@ export function stepLayout(state: LayoutState, input: LayoutInput): StepResult {
   const from = base.current;
 
   if (sameLayout(from, to)) return done(withPending(base, null), { kind: 'unchanged' });
+
+  if (!pageChangeAllowed(from, to, input.signals)) {
+    return done(withPending(base, to), { kind: 'deferred', because: 'page', target: to, retryAt: null });
+  }
 
   // Same components in the same places: a silent props/reason update.
   if (sameStructure(from, to)) {

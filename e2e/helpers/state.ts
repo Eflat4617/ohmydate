@@ -24,6 +24,9 @@ export interface E2EState {
   /** M5-03 E2E-5R: own owner so the replan daily cap (≤ 2/day) is not shared. */
   readonly replanEmail: string;
   readonly replanPassword: string;
+  /** M6-02 E2E-6 (layout): own owner so its focus sessions and layout prefs are isolated. */
+  readonly layoutEmail: string;
+  readonly layoutPassword: string;
   /** Base (unscoped) database URL; tests add `search_path` for `databaseSchema`. */
   readonly baseDatabaseUrl: string;
   readonly apiPid: number;

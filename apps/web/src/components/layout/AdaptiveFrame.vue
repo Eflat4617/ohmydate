@@ -131,7 +131,8 @@ watch(
   (outcome) => {
     holdTimer = clearTimer(holdTimer);
     idleTimer = clearTimer(idleTimer);
-    if (outcome?.kind !== 'deferred') return;
+    // `page`: only the user's own navigation ends it, and that is an intent.
+    if (outcome?.kind !== 'deferred' || outcome.because === 'page') return;
     if (outcome.because === 'hold' && outcome.retryAt !== null) {
       const wait = Math.max(0, outcome.retryAt - layoutClock().now());
       holdTimer = setTimeout(() => layout.step(), wait + 50);

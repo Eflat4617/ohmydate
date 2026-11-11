@@ -119,6 +119,11 @@ watch(
   (result) => {
     if (result === undefined || result.session === null) return;
     if (result.ownerId !== sessionStore.ownerId) return;
+    // A cached answer from before a pause/complete must not overwrite the
+    // newer copy this device already has (it would resurrect a finished
+    // session as active, M6-02).
+    const known = sessionStore.get(result.session.id);
+    if (known !== null && known.version > result.session.version) return;
     sessionStore.remember(result.session);
   },
   { immediate: true },

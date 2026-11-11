@@ -472,6 +472,12 @@
   display: none;
 }
 
+/* Planning pages centre themselves; keep their context row to the same measure. */
+.adaptive-frame--stacked {
+  max-width: var(--content-wide);
+  margin-inline: auto;
+}
+
 @media (min-width: 640px) {
   .adaptive-frame--columns,
   .adaptive-frame--stacked {
