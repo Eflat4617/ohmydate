@@ -143,6 +143,21 @@ export const ICONS = {
   leaf: { paths: ['M5 19c0-8 5-13 14-14-1 9-6 14-14 14z', 'M5 19l7-7'] },
   layout: { paths: ['M5.5 4.5h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1z', 'M11 4.5v15', 'M11 12h8.5'] },
   shield: { paths: ['M12 3.75l7 2.75v5.25c0 4.3-3 7.6-7 8.5-4-.9-7-4.2-7-8.5V6.5z', 'M9 12l2.25 2.25L15.5 10'] },
+  note: {
+    paths: [
+      'M7 3.5h7l4.5 4.5v10.5a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2z',
+      'M14 3.5V8h4.5',
+      'M8.5 12.5h7',
+      'M8.5 16h5',
+    ],
+  },
+  external: { paths: ['M13.5 4.5h6v6', 'M19.5 4.5l-8 8', 'M17.5 13.5v4a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2h4'] },
+  link: {
+    paths: [
+      'M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1.1 1.1',
+      'M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.1-1.1',
+    ],
+  },
 } as const satisfies Record<string, IconShape>;
 
 export type IconName = keyof typeof ICONS;

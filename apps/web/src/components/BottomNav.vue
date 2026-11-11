@@ -22,6 +22,7 @@ interface MoreLink {
 
 const moreLinks: readonly MoreLink[] = [
   { to: '/projects', label: 'nav.projects', icon: 'projects' },
+  { to: '/notes', label: 'nav.notes', icon: 'note' },
   { to: '/plans/new', label: 'nav.newPlan', icon: 'compare' },
   { to: '/replan', label: 'nav.replan', icon: 'reschedule' },
   { to: '/patterns', label: 'nav.patterns', icon: 'pattern' },
@@ -44,6 +45,9 @@ const MORE_ROUTES = new Set([
   'ai-settings',
   'layout-settings',
   'notes',
+  'notes-new',
+  'notes-detail',
+  'task',
 ]);
 const moreActive = computed(() => typeof route.name === 'string' && MORE_ROUTES.has(route.name));
 

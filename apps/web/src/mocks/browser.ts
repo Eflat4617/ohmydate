@@ -2,6 +2,7 @@ import { setupWorker } from 'msw/browser';
 import type { User } from '../api';
 import { createHandlers } from './handlers';
 import { createIntakeHandlers } from './intake-handlers';
+import { createNotesHandlers, seedFocusNote } from './notes';
 import { createPlanningHandlers } from './planning-handlers';
 import { createReplanHandlers, seedColdEstimation, seedReplanScenario } from './replan';
 import { mockDb, seedTodayRisk, type MockDb } from './db';
@@ -17,6 +18,8 @@ declare global {
       estimation?: 'cold';
       /** M6-02: give Today a deadline risk (negative slack + an overdue task). */
       today?: 'risk';
+      /** M6-03: link a seeded note to the first Today task (Focus → RelatedNotes). */
+      notes?: 'focus';
     };
     /** Mock-mode only: the in-page synthetic database, for screenshot/state scripts. */
     __OHMYDATE_MOCK_DB__?: MockDb;
@@ -32,6 +35,7 @@ if (overrides?.replan !== undefined) {
 }
 if (overrides?.estimation === 'cold') seedColdEstimation(mockDb);
 if (overrides?.today === 'risk') seedTodayRisk(mockDb);
+if (overrides?.notes === 'focus') seedFocusNote(mockDb);
 if (typeof window !== 'undefined') window.__OHMYDATE_MOCK_DB__ = mockDb;
 
 export const worker = setupWorker(
@@ -39,4 +43,5 @@ export const worker = setupWorker(
   ...createIntakeHandlers(mockDb),
   ...createPlanningHandlers(mockDb),
   ...createReplanHandlers(mockDb),
+  ...createNotesHandlers(mockDb),
 );

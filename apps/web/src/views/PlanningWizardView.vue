@@ -28,6 +28,8 @@ import UiCard from '../components/ui/UiCard.vue';
 import UiField from '../components/ui/UiField.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 import UiSpinner from '../components/ui/UiSpinner.vue';
+import EvidenceList from '../components/notes/EvidenceList.vue';
+import WizardNotesPanel from '../components/notes/WizardNotesPanel.vue';
 import { t } from '../i18n';
 import I18nT from '../i18n/I18nT';
 import { formatPercent } from '../i18n/format';
@@ -141,6 +143,16 @@ const draftValidation = computed(() =>
 );
 const draftIssues = computed<readonly DraftIssue[]>(() => draftValidation.value.issues);
 const generalDraftIssues = computed(() => generalIssues(draftValidation.value));
+
+/** Only what the user edits; `evidence` is server-produced and never sent back. */
+function editableDraft(value: DecompositionDraft | undefined): string {
+  if (value === undefined) return '';
+  return JSON.stringify({
+    steps: value.steps,
+    assumptions: value.assumptions,
+    questionsRemaining: value.questionsRemaining,
+  });
+}
 
 function cloneDraft(value: DecompositionDraft): DecompositionDraft {
   return {
@@ -455,7 +467,7 @@ async function persistDraft(): Promise<boolean> {
     mutationError.value = t('wizard.draftInvalid');
     return false;
   }
-  if (JSON.stringify(draft.value) === JSON.stringify(current.draft)) return true;
+  if (editableDraft(draft.value) === editableDraft(current.draft)) return true;
   const patch = {
     steps: draft.value.steps,
     assumptions: draft.value.assumptions,
@@ -568,6 +580,13 @@ const detectedReasons = computed(() =>
   }),
 );
 const confidenceLabel = computed(() => formatPercent(confidencePercent.value / 100, 0));
+
+/** M6-03: the plan's goal, which reference notes are linked to (grounding, 08 §2.7). */
+const goalId = computed(() => session.value?.goalId ?? null);
+const showNotesPanel = computed(
+  () => goalId.value !== null && !terminal.value && currentStep.value >= 2 && currentStep.value <= 4,
+);
+const evidence = computed(() => session.value?.draft?.evidence);
 </script>
 
 <template>
@@ -998,6 +1017,8 @@ const confidenceLabel = computed(() => formatPercent(confidencePercent.value / 1
           <UiIcon name="error" :size="16" /><span>{{ issue.message }}</span>
         </p>
 
+        <EvidenceList v-if="evidence !== undefined" :evidence="evidence" :steps="draft.steps" />
+
         <div class="wizard-card-footer wizard-card-footer--split">
           <UiButton
             icon="plus"
@@ -1048,6 +1069,13 @@ const confidenceLabel = computed(() => formatPercent(confidencePercent.value / 1
         <RouterLink class="btn btn--secondary" to="/projects">{{ t('wizard.viewProjects') }}</RouterLink>
       </div>
     </UiCard>
+
+    <WizardNotesPanel
+      v-if="showNotesPanel && goalId"
+      :goal-id="goalId"
+      :after-draft="currentStep === 4"
+      :disabled="!canMutate || paused"
+    />
 
     <footer
       v-if="session !== null && !terminal && currentStep >= 2 && currentStep <= 4"
