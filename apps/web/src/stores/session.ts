@@ -35,10 +35,11 @@ export const useSessionStore = defineStore('session', () => {
   const syncMessage = ref<string | null>(null);
 
   const active = computed<WorkSession | null>(() => {
+    const all = Object.values(sessions.value);
     return (
-      Object.values(sessions.value).find(
-        (session) => session.state === 'active' || session.state === 'paused',
-      ) ?? null
+      all.find((session) => session.state === 'active') ??
+      all.find((session) => session.state === 'paused') ??
+      null
     );
   });
 

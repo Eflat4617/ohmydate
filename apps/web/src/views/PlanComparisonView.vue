@@ -93,6 +93,21 @@ const commitmentsQuery = useQuery({
   enabled: computed(() => weekRange.value !== null),
 });
 
+const approvedBlocksQuery = useQuery({
+  queryKey: computed(() => ['schedule-blocks', 'plan', weekRange.value?.from ?? 'none']),
+  queryFn: () => {
+    if (weekRange.value === null) throw new Error('Week range is unavailable');
+    return plannerClient.listScheduleBlocks({ ...weekRange.value, limit: 100 });
+  },
+  enabled: computed(() => weekRange.value !== null),
+});
+
+const approvedBlocks = computed(() => {
+  return [...(approvedBlocksQuery.data.value?.items ?? [])].sort(
+    (left, right) => Date.parse(left.startAt) - Date.parse(right.startAt),
+  );
+});
+
 const taskNames = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
   for (const task of tasksQuery.data.value?.items ?? []) map[task.id] = task.title;
@@ -320,7 +335,7 @@ async function approve(): Promise<void> {
     dirty.value = false;
     stale.value = false;
     message.value = `Approved plan version ${version.seq}.`;
-    await planQuery.refetch();
+    await Promise.all([planQuery.refetch(), approvedBlocksQuery.refetch()]);
   } catch (cause) {
     if (cause instanceof ApiError) {
       if (cause.status === 412 && cause.code === 'availability_changed') {
@@ -501,6 +516,32 @@ onUnmounted(() => {
           :error-indexes="errorIndexes"
           @update:blocks="onBlocksUpdated"
         />
+
+        <section
+          v-if="approvedBlocks.length > 0"
+          class="approved-schedule"
+          aria-labelledby="approved-schedule-title"
+        >
+          <h3 id="approved-schedule-title" class="h3">Approved schedule</h3>
+          <ul class="approved-schedule-list">
+            <li
+              v-for="block in approvedBlocks"
+              :key="block.id"
+              :data-approved-block-id="block.id"
+            >
+              <span class="approved-schedule-time">
+                {{ localParts(block.startAt, timeZone).date }}
+                {{ String(localParts(block.startAt, timeZone).hour).padStart(2, '0') }}:{{
+                  String(localParts(block.startAt, timeZone).minute).padStart(2, '0')
+                }}–{{ String(localParts(block.endAt, timeZone).hour).padStart(2, '0') }}:{{
+                  String(localParts(block.endAt, timeZone).minute).padStart(2, '0')
+                }}
+              </span>
+              <span>{{ taskNames[block.taskId] ?? block.taskId }}</span>
+              <span class="chip">{{ block.status }}</span>
+            </li>
+          </ul>
+        </section>
 
         <p class="muted">
           Edit with drag/resize or with the keyboard: ArrowUp/ArrowDown moves a block by 5 minutes,

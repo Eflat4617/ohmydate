@@ -183,6 +183,47 @@ describe('Today view', () => {
     wrapper.unmount();
   });
 
+  it('resumes an active session discovered through the sessions API', async () => {
+    const pinia = createPinia();
+    useSessionStore(pinia).reset();
+    const session = await plannerClient.createSession(
+      {
+        taskId: TODAY_TASK_ONE_ID,
+        blockId: TODAY_BLOCK_ONE_ID,
+        clientStartedAt: new Date().toISOString(),
+        clientId: 'server-resume-test',
+      },
+      newActionId('session'),
+    );
+
+    expect(useSessionStore(pinia).get(session.id)).toBeNull();
+    const router = testRouter();
+    const wrapper = await mountToday(pinia, router);
+    await waitForText(wrapper, 'Resume session');
+    await button(wrapper, 'Resume session').trigger('click');
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.path).toBe(`/focus/${session.id}`);
+    });
+    expect(useSessionStore(pinia).get(session.id)?.state).toBe('active');
+    wrapper.unmount();
+  });
+
+  it('loads Today blocks from the approved schedule-blocks endpoint', async () => {
+    const pinia = createPinia();
+    useSessionStore(pinia).reset();
+    const schedule = vi.spyOn(plannerClient, 'listScheduleBlocks');
+    const wrapper = await mountToday(pinia, testRouter());
+
+    expect(schedule).toHaveBeenCalled();
+    expect(schedule.mock.calls[0]?.[0]).toMatchObject({
+      limit: 100,
+      from: expect.any(String),
+      to: expect.any(String),
+    });
+    expect(wrapper.findAll('.today-card')).toHaveLength(2);
+    wrapper.unmount();
+  });
+
   it('exposes accessible names for interactive controls (axe-lite)', async () => {
     const pinia = createPinia();
     useSessionStore(pinia).reset();

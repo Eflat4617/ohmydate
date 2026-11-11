@@ -178,6 +178,26 @@ describe('Focus mode', () => {
     wrapper.unmount();
   });
 
+  it('loads a deep-linked session from the server when it is not in device storage', async () => {
+    const pinia = createPinia();
+    const store = useSessionStore(pinia);
+    store.reset();
+    const session = await createSession();
+    store.forget(session.id);
+    expect(store.get(session.id)).toBeNull();
+
+    const router = testRouter();
+    await router.push(`/focus/${session.id}`);
+    const wrapper = mount(FocusView, {
+      global: { plugins: [pinia, router] },
+      attachTo: document.body,
+    });
+    await vi.waitFor(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
+    expect(wrapper.text()).toContain('Focusing');
+    expect(store.get(session.id)?.id).toBe(session.id);
+    wrapper.unmount();
+  });
+
   it('supports a keyboard-only pause, resume, focus and complete flow', async () => {
     const pinia = createPinia();
     const store = useSessionStore(pinia);

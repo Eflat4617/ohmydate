@@ -844,6 +844,60 @@ export class PlannerClient {
     return data;
   }
 
+  async getSession(
+    sessionId: string,
+    options: { fresh?: boolean } = {},
+  ): Promise<WorkSession> {
+    const { data, error, response } = await this.client.GET('/sessions/{id}', {
+      params: { path: { id: sessionId } },
+      ...(options.fresh === true ? { cache: 'no-store' as RequestCache } : {}),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session response');
+    this.remember(`session:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async listSessions(
+    options: { state?: WorkSession['state']; cursor?: string; limit?: number } = {},
+  ): Promise<Page<WorkSession>> {
+    const query: { state?: WorkSession['state']; cursor?: string; limit?: number } = {};
+    if (options.state !== undefined) query.state = options.state;
+    if (options.cursor !== undefined) query.cursor = options.cursor;
+    if (options.limit !== undefined) query.limit = options.limit;
+    const { data, error, response } = await this.client.GET('/sessions', {
+      params: { query },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session page');
+    for (const session of data.items) {
+      this.remember(`session:${session.id}`, session.version);
+    }
+    return data;
+  }
+
+  async listScheduleBlocks(options: {
+    from: string;
+    to: string;
+    cursor?: string;
+    limit?: number;
+  }): Promise<Page<ScheduleBlock>> {
+    const query: { from: string; to: string; cursor?: string; limit?: number } = {
+      from: options.from,
+      to: options.to,
+    };
+    if (options.cursor !== undefined) query.cursor = options.cursor;
+    if (options.limit !== undefined) query.limit = options.limit;
+    const { data, error, response } = await this.client.GET('/schedule-blocks', {
+      params: { query },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty schedule block page');
+    }
+    return data;
+  }
+
   async createSession(input: SessionCreate, idempotencyKey: string): Promise<WorkSession> {
     const { data, error, response } = await this.client.POST('/sessions', {
       params: { header: { 'Idempotency-Key': idempotencyKey } },

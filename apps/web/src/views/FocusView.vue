@@ -30,8 +30,12 @@ const sessions = useSessionStore();
 const toast = useToastStore();
 
 const sessionId = computed(() => String(route.params.sessionId ?? ''));
-const session = computed<WorkSession | null>(() => sessions.get(sessionId.value));
 const isNew = computed(() => sessionId.value === 'new');
+const remoteSession = ref<WorkSession | null>(null);
+const loadState = ref<'idle' | 'loading' | 'missing'>('idle');
+const session = computed<WorkSession | null>(
+  () => sessions.get(sessionId.value) ?? remoteSession.value,
+);
 
 const elapsedBase = ref(0);
 const anchor = ref<number | null>(null);
@@ -168,6 +172,44 @@ async function startFromQuery(): Promise<void> {
   }
 }
 
+async function restoreSession(): Promise<void> {
+  if (isNew.value) return;
+  loadState.value = 'idle';
+  const local = sessions.get(sessionId.value);
+  if (local !== null) {
+    if (!offline.online || sessions.pendingCount > 0) return;
+    try {
+      const fresh = await plannerClient.getSession(local.id, { fresh: true });
+      if (fresh.version >= local.version) {
+        sessions.update(fresh);
+        remoteSession.value = fresh;
+      }
+    } catch (cause) {
+      if (!(cause instanceof ApiError) || cause.status !== 404) {
+        error.value = cause instanceof ApiError ? cause.detail : 'Could not refresh the focus session.';
+      }
+    }
+    return;
+  }
+  if (!offline.online) {
+    loadState.value = 'missing';
+    return;
+  }
+  loadState.value = 'loading';
+  try {
+    const fresh = await plannerClient.getSession(sessionId.value, { fresh: true });
+    remoteSession.value = fresh;
+    sessions.remember(fresh);
+    loadState.value = 'idle';
+  } catch (cause) {
+    loadState.value = 'missing';
+    error.value =
+      cause instanceof ApiError
+        ? cause.detail
+        : 'Could not load this focus session. Check the link and try again.';
+  }
+}
+
 async function perform(kind: FocusEventKind): Promise<void> {
   const current = session.value;
   if (current === null) return;
@@ -275,7 +317,9 @@ onMounted(() => {
     now.value = Date.now();
   }, 1000);
   window.addEventListener('keydown', onKeydown);
-  void startFromQuery().then(() => syncPending());
+  void restoreSession()
+    .then(() => startFromQuery())
+    .then(() => syncPending());
 });
 
 onUnmounted(() => {
@@ -321,8 +365,9 @@ watch(
       <button type="button" class="primary-action" @click="resumeActive">Resume the active session</button>
     </div>
 
-    <div v-if="session === null && !isNew" class="error-panel">
-      <p class="error-text" role="alert">This focus session is not saved on this device.</p>
+    <p v-if="loadState === 'loading'" class="muted">Loading focus session…</p>
+    <div v-else-if="session === null && !isNew && loadState === 'missing'" class="error-panel">
+      <p class="error-text" role="alert">This focus session could not be loaded.</p>
       <button type="button" @click="goToday">Back to Today</button>
     </div>
 

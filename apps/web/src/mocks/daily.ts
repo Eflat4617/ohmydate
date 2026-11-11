@@ -4,6 +4,7 @@ import type {
   PlanVersion,
   PushSubscription,
   SessionCreate,
+  ScheduleBlock,
   SessionReviewRequest,
   TodayProposal,
   WorkSession,
@@ -289,6 +290,66 @@ export function createDailyHandlers(db: MockDb) {
       const current = etag(stored.planVersion.version);
       remember(db, token, 201, stored.planVersion, { ETag: current });
       return json(stored.planVersion, 201, { ETag: current });
+    }),
+
+    http.get(/\/api\/v1\/sessions(\?.*)?$/, ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
+      const url = new URL(request.url);
+      const state = url.searchParams.get('state');
+      const limit = Number(url.searchParams.get('limit') ?? '20');
+      let items = [...db.sessions.values()];
+      if (state !== null) items = items.filter((item) => item.state === state);
+      items.sort((left, right) => right.id.localeCompare(left.id));
+      const page = items.slice(0, Number.isFinite(limit) ? limit : 20);
+      const current = `W/"sessions-${db.sessions.size}-${state ?? 'all'}"`;
+      if (request.headers.get('If-None-Match') === current) {
+        return new HttpResponse(null, { status: 304, headers: { ETag: current } });
+      }
+      return json({ items: page, nextCursor: null }, 200, { ETag: current });
+    }),
+
+    http.get(/\/api\/v1\/sessions\/([^/:]+)$/, ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
+      const match = /\/api\/v1\/sessions\/([^/:]+)$/.exec(new URL(request.url).pathname);
+      const sessionId = match?.[1] === undefined ? '' : decodeURIComponent(match[1]);
+      const session = db.sessions.get(sessionId);
+      if (session === undefined) return problem(404, 'not_found', 'Session not found');
+      const current = etag(session.version);
+      if (request.headers.get('If-None-Match') === current) {
+        return new HttpResponse(null, { status: 304, headers: { ETag: current } });
+      }
+      return json(session, 200, { ETag: current });
+    }),
+
+    http.get(/\/api\/v1\/schedule-blocks(\?.*)?$/, ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
+      const url = new URL(request.url);
+      const fromMs = Date.parse(url.searchParams.get('from') ?? '');
+      const toMs = Date.parse(url.searchParams.get('to') ?? '');
+      const limit = Number(url.searchParams.get('limit') ?? '50');
+      if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) {
+        return problem(422, 'validation_failed', 'from and to must define a positive range');
+      }
+      const planVersionId = '01900000-0000-7000-8000-0000000000d1';
+      const items: ScheduleBlock[] = db.today.blocks
+        .filter((block) => Date.parse(block.startAt) < toMs && Date.parse(block.endAt) > fromMs)
+        .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))
+        .map((block) => ({
+          id: block.id,
+          planVersionId,
+          taskId: block.taskId,
+          startAt: block.startAt,
+          endAt: block.endAt,
+          locked: false,
+          status: block.status,
+          version: 1,
+        }))
+        .slice(0, Number.isFinite(limit) ? limit : 50);
+      const current = `W/"schedule-blocks-${db.todayRevision}-${items.length}"`;
+      if (request.headers.get('If-None-Match') === current) {
+        return new HttpResponse(null, { status: 304, headers: { ETag: current } });
+      }
+      return json({ items, nextCursor: null }, 200, { ETag: current });
     }),
 
     http.post(/\/api\/v1\/sessions$/, async ({ request }) => {

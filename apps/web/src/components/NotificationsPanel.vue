@@ -108,7 +108,12 @@ async function enablePush(): Promise<void> {
       <p v-if="loading && items.length === 0" class="muted">Loading notifications…</p>
 
       <ul v-if="items.filter((item) => item.state !== 'dismissed').length > 0" class="notification-list">
-        <li v-for="item in items.filter((entry) => entry.state !== 'dismissed')" :key="item.id" class="notification-item">
+        <li
+          v-for="item in items.filter((entry) => entry.state !== 'dismissed')"
+          :key="item.id"
+          class="notification-item"
+          :data-notification-id="item.id"
+        >
           <div>
             <p class="notification-kind">{{ notificationLabel(item) }}</p>
             <p class="muted">

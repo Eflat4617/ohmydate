@@ -337,3 +337,152 @@ export async function createOverlappingCommitment(
   });
   await expectOk(response, 'POST /commitments');
 }
+
+export interface ApprovedBlockDto {
+  readonly id: string;
+  readonly planVersionId: string;
+  readonly taskId: string;
+  readonly startAt: string;
+  readonly endAt: string;
+  readonly status: string;
+  readonly locked: boolean;
+  readonly version: number;
+}
+
+export interface PlanVersionDto {
+  readonly id: string;
+  readonly planId: string;
+  readonly seq: number;
+  readonly availabilityVersion: number;
+  readonly version: number;
+  readonly blocks: readonly ApprovedBlockDto[];
+}
+
+export interface WorkSessionDto {
+  readonly id: string;
+  readonly taskId: string;
+  readonly blockId?: string;
+  readonly state: 'active' | 'paused' | 'completed' | 'abandoned';
+  readonly startedAt: string;
+  readonly endedAt?: string;
+  readonly focusedSec: number;
+  readonly pausedSec: number;
+  readonly clientId: string;
+  readonly version: number;
+}
+
+export interface NotificationDto {
+  readonly id: string;
+  readonly kind: string;
+  readonly dedupeKey: string;
+  readonly scheduledAt: string;
+  readonly sentAt?: string;
+  readonly channel: string;
+  readonly state: string;
+  readonly version: number;
+}
+
+export async function setContinuousWeeklyAvailability(
+  page: Page,
+  state: E2EState,
+  maxDailyFocusMin = 600,
+): Promise<AvailabilityDto> {
+  const current = await getAvailability(page, state);
+  const rules = Array.from({ length: 7 }, (_, index) => index + 1).map((weekday) => ({
+    weekday,
+    startLocal: '00:00',
+    endLocal: '24:00',
+    kind: 'work' as const,
+  }));
+  const response = await apiFetch(page, state, '/availability', {
+    method: 'PUT',
+    headers: {
+      'If-Match': `W/"availability:${current.version}"`,
+      'Idempotency-Key': idempotencyKey(),
+    },
+    body: {
+      timeZone: 'UTC',
+      rules,
+      exceptions: [],
+      prefs: {
+        maxDailyFocusMin,
+        breakAfterMin: 600,
+        breakMin: 15,
+        dayStartLocal: '00:00',
+        dayEndLocal: '24:00',
+        riskLevel: 'p50',
+      },
+    },
+  });
+  return (await expectOk(response, 'PUT /availability')) as AvailabilityDto;
+}
+
+export function editableBlocksForToday(
+  plan: PlanDto,
+  now: number = Date.now(),
+): readonly { taskId: string; startAt: string; endAt: string }[] {
+  const candidate = plan.candidates.find((entry) => entry.feasible) ?? plan.candidates[0];
+  if (candidate === undefined) throw new Error('plan has no candidate to approve');
+  const sorted = [...candidate.blocks].sort(
+    (left, right) => Date.parse(left.startAt) - Date.parse(right.startAt),
+  );
+  const grid = 5 * 60_000;
+  let cursor = Math.ceil((now + 5 * 60_000) / grid) * grid;
+  return sorted.map((block) => {
+    const duration = Date.parse(block.endAt) - Date.parse(block.startAt);
+    const startAt = cursor;
+    cursor += duration + grid;
+    return {
+      taskId: block.taskId,
+      startAt: new Date(startAt).toISOString(),
+      endAt: new Date(startAt + duration).toISOString(),
+    };
+  });
+}
+
+export async function approveCandidateWithBlocks(
+  page: Page,
+  state: E2EState,
+  plan: PlanDto,
+  editedBlocks: readonly { taskId: string; startAt: string; endAt: string }[],
+): Promise<PlanVersionDto> {
+  const candidate = plan.candidates.find((entry) => entry.feasible) ?? plan.candidates[0];
+  if (candidate === undefined) throw new Error('plan has no candidate to approve');
+  const response = await apiFetch(
+    page,
+    state,
+    `/plans/${plan.id}/candidates/${candidate.id}:approve`,
+    {
+      method: 'POST',
+      headers: {
+        'If-Match': `W/"availability:${plan.availabilityVersion}"`,
+        'Idempotency-Key': idempotencyKey(),
+      },
+      body: { editedBlocks },
+    },
+  );
+  return (await expectOk(
+    response,
+    'POST /plans/{id}/candidates/{cid}:approve',
+  )) as PlanVersionDto;
+}
+
+export async function getWorkSession(
+  page: Page,
+  state: E2EState,
+  sessionId: string,
+): Promise<WorkSessionDto> {
+  const response = await apiFetch(page, state, `/sessions/${sessionId}`);
+  return (await expectOk(response, 'GET /sessions/{id}')) as WorkSessionDto;
+}
+
+export async function listNotifications(
+  page: Page,
+  state: E2EState,
+): Promise<readonly NotificationDto[]> {
+  const response = await apiFetch(page, state, '/notifications?limit=100');
+  const body = (await expectOk(response, 'GET /notifications')) as {
+    items: NotificationDto[];
+  };
+  return body.items;
+}

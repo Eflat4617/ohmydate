@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useQuery } from '@tanstack/vue-query';
 import {
   ActionStore,
   ApiError,
+  availabilityEtagForVersion,
   plannerClient,
   type TodayBlock,
   type TodayProposal,
 } from '../api';
 import ProposalPreview from '../components/ProposalPreview.vue';
+import { addDaysToDate, zonedWallClockToInstant } from '../domain/time';
 import { durationMinutes, formatClock, formatDay, formatSlack, localDateIso } from '../format';
 import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
@@ -29,8 +31,71 @@ const todayQuery = useQuery({
 });
 
 const today = computed(() => todayQuery.data.value ?? null);
-const blocks = computed(() => today.value?.blocks ?? []);
-const isLoading = computed(() => todayQuery.isLoading.value);
+
+const scheduleQuery = useQuery({
+  queryKey: computed(() => [
+    'today-schedule-blocks',
+    today.value?.date ?? date,
+    today.value?.timeZone ?? 'UTC',
+  ]),
+  queryFn: async () => {
+    const current = today.value;
+    if (current === null) throw new Error('Today is not loaded');
+    return plannerClient.listScheduleBlocks({
+      from: zonedWallClockToInstant(current.date, 0, current.timeZone),
+      to: zonedWallClockToInstant(addDaysToDate(current.date, 1), 0, current.timeZone),
+      limit: 100,
+    });
+  },
+  enabled: computed(() => today.value !== null),
+});
+
+const resumableQuery = useQuery({
+  queryKey: ['sessions', 'resumable'],
+  queryFn: async () => {
+    const active = await plannerClient.listSessions({ state: 'active', limit: 1 });
+    if (active.items[0] !== undefined) return active.items[0];
+    const paused = await plannerClient.listSessions({ state: 'paused', limit: 1 });
+    return paused.items[0] ?? null;
+  },
+  enabled: computed(() => offline.online),
+});
+
+watch(
+  resumableQuery.data,
+  (session) => {
+    if (session !== null && session !== undefined) sessionStore.remember(session);
+  },
+  { immediate: true },
+);
+
+const blocks = computed<TodayBlock[]>(() => {
+  const current = today.value;
+  if (current === null) return [];
+  const schedule = scheduleQuery.data.value;
+  if (schedule === undefined || scheduleQuery.isError.value) return current.blocks;
+  const byId = new Map(current.blocks.map((block) => [block.id, block]));
+  const byTask = new Map(current.blocks.map((block) => [block.taskId, block]));
+  return schedule.items
+    .filter((block) => block.status !== 'superseded')
+    .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))
+    .slice(0, 3)
+    .map((block) => {
+      const source = byId.get(block.id) ?? byTask.get(block.taskId);
+      return {
+        id: block.id,
+        taskId: block.taskId,
+        title: source?.title ?? 'Scheduled block',
+        startAt: block.startAt,
+        endAt: block.endAt,
+        status: block.status,
+      };
+    });
+});
+
+const isLoading = computed(
+  () => todayQuery.isLoading.value || (today.value !== null && scheduleQuery.isLoading.value),
+);
 const isError = computed(() => todayQuery.isError.value);
 const readOnly = computed(() => !offline.mutationsEnabled);
 
@@ -43,7 +108,9 @@ const busy = ref(false);
 const proposal = ref<TodayProposal | null>(null);
 const proposalError = ref<string | null>(null);
 
-const activeSession = computed(() => sessionStore.active);
+const activeSession = computed(
+  () => sessionStore.active ?? resumableQuery.data.value ?? null,
+);
 
 function samePayload<T>(left: T, right: T): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
@@ -57,6 +124,7 @@ function messageFor(cause: unknown): string {
 
 async function refresh(): Promise<void> {
   await todayQuery.refetch();
+  if (today.value !== null) await scheduleQuery.refetch();
 }
 
 async function acceptToday(blockIds?: string[]): Promise<void> {
@@ -124,9 +192,7 @@ async function reschedule(block: TodayBlock): Promise<void> {
 }
 
 function proposalIfMatch(value: TodayProposal): string {
-  const availability = (value as { availabilityVersion?: unknown }).availabilityVersion;
-  if (typeof availability === 'number') return `W/"availability:${availability}"`;
-  return `W/"${value.version}"`;
+  return availabilityEtagForVersion(value.availabilityVersion);
 }
 
 async function approveProposal(): Promise<void> {
@@ -179,6 +245,7 @@ async function startFocus(block: TodayBlock): Promise<void> {
   } catch (cause) {
     if (cause instanceof ApiError && cause.status === 409 && cause.code === 'active_session_exists') {
       resumeOffer.value = true;
+      await resumableQuery.refetch();
       if (activeSession.value === null) {
         error.value = 'An active focus session already exists. Finish or resume it before starting another.';
       }
@@ -210,7 +277,7 @@ function resumeActive(): void {
     </header>
 
     <div v-if="activeSession" class="resume-banner" role="status">
-      <span>You have an active focus session saved on this device.</span>
+      <span>You have a focus session waiting to resume.</span>
       <button type="button" class="primary-action" @click="resumeActive">Resume session</button>
     </div>
 

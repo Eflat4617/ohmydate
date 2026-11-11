@@ -141,6 +141,12 @@ kbd {
   font-weight: 600;
 }
 
+.primary-action kbd {
+  border-color: currentColor;
+  background: transparent;
+  color: inherit;
+}
+
 .primary-action:hover:not(:disabled) {
   background: var(--accent);
   filter: brightness(1.08);
