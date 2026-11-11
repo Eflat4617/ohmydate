@@ -8,7 +8,7 @@ import { flushFocusJournal } from '../src/session/focusQueue';
 import { sessionJournal, type SessionEventRecord } from '../src/session/journal';
 import { useOfflineStore } from '../src/stores/offline';
 import { useSessionStore } from '../src/stores/session';
-import { TODAY_BLOCK_ONE_ID, TODAY_TASK_ONE_ID, mockDb } from '../src/mocks/db';
+import { TODAY_BLOCK_ONE_ID, TODAY_TASK_ONE_ID, createUuidV7, mockDb } from '../src/mocks/db';
 
 const Stub = defineComponent({ template: '<div />' });
 
@@ -48,6 +48,10 @@ async function mountFocus(pinia: Pinia, router: Router, session: WorkSession): P
     attachTo: document.body,
   });
   await vi.waitFor(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
+  if (session.state === 'active' || session.state === 'paused') {
+    const label = session.state === 'active' ? 'Pause' : 'Resume';
+    await vi.waitFor(() => expect(button(wrapper, label).attributes('disabled')).toBeUndefined());
+  }
   return wrapper;
 }
 
@@ -144,6 +148,7 @@ describe('Focus mode', () => {
     expect(mockDb.sessions.get(session.id)?.version).toBe(1);
     expect(wrapper.text()).toContain('saved on this device');
 
+    await vi.waitFor(() => expect(button(wrapper, 'Complete').attributes('disabled')).toBeUndefined());
     await button(wrapper, 'Complete').trigger('click');
     await vi.waitFor(() => expect(store.pendingCount).toBe(2));
     expect(store.get(session.id)?.state).toBe('completed');
@@ -163,7 +168,7 @@ describe('Focus mode', () => {
     });
     expect(await sessionJournal.list()).toHaveLength(0);
 
-    const duplicate: Omit<SessionEventRecord, 'seq'> = {
+    const duplicate: Omit<SessionEventRecord, 'seq' | 'ownerId'> = {
       id: completeRecord.id,
       sessionId: completeRecord.sessionId,
       kind: completeRecord.kind,
@@ -175,6 +180,70 @@ describe('Focus mode', () => {
     await flushFocusJournal({ store, online: true });
     expect(mockDb.sessions.get(session.id)?.version).toBe(3);
     expect(await sessionJournal.list()).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it('serializes transient offline actions while the journal write is pending', async () => {
+    const pinia = createPinia();
+    const store = useSessionStore(pinia);
+    store.reset();
+    const offline = useOfflineStore(pinia);
+    const session = await createSession();
+    const router = testRouter();
+    const wrapper = await mountFocus(pinia, router, session);
+    offline.setOnline(false);
+
+    const originalAppend = sessionJournal.append.bind(sessionJournal);
+    vi.spyOn(sessionJournal, 'append').mockImplementation(async (event) => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      return originalAppend(event);
+    });
+
+    const pause = button(wrapper, 'Pause');
+    await Promise.all([pause.trigger('click'), pause.trigger('click')]);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space' }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space' }));
+
+    await vi.waitFor(() => expect(store.pendingCount).toBe(1));
+    const pausedEvents = await sessionJournal.list(session.id);
+    expect(pausedEvents.map((event) => event.kind)).toEqual(['pause']);
+    expect(pausedEvents[0]?.expectedVersion).toBe(1);
+    expect(store.get(session.id)?.version).toBe(2);
+
+    await vi.waitFor(() => expect(button(wrapper, 'Complete').attributes('disabled')).toBeUndefined());
+    await button(wrapper, 'Complete').trigger('click');
+    await vi.waitFor(() => expect(store.pendingCount).toBe(2));
+    const queued = await sessionJournal.list(session.id);
+    expect(queued.map((event) => event.kind)).toEqual(['pause', 'complete']);
+    expect(queued[1]?.expectedVersion).toBe(2);
+
+    offline.setOnline(true);
+    await vi.waitFor(() => {
+      expect(mockDb.sessions.get(session.id)?.state).toBe('completed');
+      expect(mockDb.sessions.get(session.id)?.version).toBe(3);
+      expect(store.pendingCount).toBe(0);
+    });
+    expect(await sessionJournal.list()).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it('treats an authoritative 404 as unavailable instead of showing cached data', async () => {
+    const pinia = createPinia();
+    const store = useSessionStore(pinia);
+    store.reset();
+    const session = await createSession();
+    store.remember(session);
+    mockDb.sessions.delete(session.id);
+
+    const router = testRouter();
+    await router.push(`/focus/${session.id}`);
+    const wrapper = mount(FocusView, {
+      global: { plugins: [pinia, router] },
+      attachTo: document.body,
+    });
+    await vi.waitFor(() => expect(wrapper.text()).toContain('not available'));
+    expect(wrapper.find('.focus-timer').exists()).toBe(false);
+    expect(store.get(session.id)).toBeNull();
     wrapper.unmount();
   });
 
@@ -196,6 +265,75 @@ describe('Focus mode', () => {
     expect(wrapper.text()).toContain('Focusing');
     expect(store.get(session.id)?.id).toBe(session.id);
     wrapper.unmount();
+  });
+
+  it('derives elapsed time from the server clock when restoring reloads, paused and resumed sessions', async () => {
+    const pinia = createPinia();
+    const store = useSessionStore(pinia);
+    const now = Date.now();
+    const cases = [
+      {
+        label: 'active',
+        session: {
+          id: createUuidV7(),
+          taskId: TODAY_TASK_ONE_ID,
+          state: 'active' as const,
+          startedAt: new Date(now - 600_000).toISOString(),
+          focusedSec: 0,
+          pausedSec: 0,
+          clientId: 'timer-test',
+          version: 1,
+        },
+        expected: 600,
+      },
+      {
+        label: 'paused',
+        session: {
+          id: createUuidV7(),
+          taskId: TODAY_TASK_ONE_ID,
+          state: 'paused' as const,
+          startedAt: new Date(now - 700_000).toISOString(),
+          focusedSec: 600,
+          pausedSec: 100,
+          clientId: 'timer-test',
+          version: 2,
+        },
+        expected: 600,
+      },
+      {
+        label: 'resumed',
+        session: {
+          id: createUuidV7(),
+          taskId: TODAY_TASK_ONE_ID,
+          state: 'active' as const,
+          startedAt: new Date(now - 720_000).toISOString(),
+          focusedSec: 600,
+          pausedSec: 60,
+          clientId: 'timer-test',
+          version: 3,
+        },
+        expected: 660,
+      },
+    ];
+
+    for (const entry of cases) {
+      store.reset();
+      mockDb.sessions.set(entry.session.id, entry.session);
+      const router = testRouter();
+      await router.push(`/focus/${entry.session.id}`);
+      const wrapper = mount(FocusView, {
+        global: { plugins: [pinia, router] },
+        attachTo: document.body,
+      });
+      await vi.waitFor(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
+      const text = wrapper.get('.focus-timer').text();
+      const match = /^(?:(\d+):)?(\d{2}):(\d{2})$/.exec(text);
+      if (match === null) throw new Error(`unexpected timer ${text}`);
+      const seconds = Number(match[1] ?? '0') * 3600 + Number(match[2]) * 60 + Number(match[3]);
+      expect(seconds, entry.label).toBeGreaterThanOrEqual(entry.expected);
+      expect(seconds, entry.label).toBeLessThan(entry.expected + 5);
+      wrapper.unmount();
+    }
   });
 
   it('supports a keyboard-only pause, resume, focus and complete flow', async () => {

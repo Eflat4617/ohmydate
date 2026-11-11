@@ -36,13 +36,36 @@ const flushes = new WeakMap<SessionJournal, Promise<FlushResult>>();
 
 export function applyOptimistic(session: WorkSession, kind: FocusEventKind, clientAt: string): WorkSession {
   const version = session.version + 1;
+  const cursorMs = Date.parse(session.startedAt) + (session.focusedSec + session.pausedSec) * 1000;
+  const deltaSec = Math.max(0, Math.floor((Date.parse(clientAt) - cursorMs) / 1000));
   if (kind === 'pause') {
-    return { ...session, state: 'paused', version };
+    return {
+      ...session,
+      state: 'paused',
+      focusedSec:
+        session.state === 'active' ? session.focusedSec + deltaSec : session.focusedSec,
+      version,
+    };
   }
   if (kind === 'resume') {
-    return { ...session, state: 'active', version };
+    return {
+      ...session,
+      state: 'active',
+      pausedSec:
+        session.state === 'paused' ? session.pausedSec + deltaSec : session.pausedSec,
+      version,
+    };
   }
-  return { ...session, state: 'completed', endedAt: clientAt, version };
+  return {
+    ...session,
+    state: 'completed',
+    endedAt: clientAt,
+    focusedSec:
+      session.state === 'active' ? session.focusedSec + deltaSec : session.focusedSec,
+    pausedSec:
+      session.state === 'paused' ? session.pausedSec + deltaSec : session.pausedSec,
+    version,
+  };
 }
 
 export async function enqueueFocusEvent(

@@ -344,9 +344,11 @@ export default async function globalSetup(): Promise<void> {
 
     const fixture = await createVikunjaFixture(vikunjaUrl, 'main');
     const todayFixture = await createVikunjaFixture(vikunjaUrl, 'today');
+    const plansFixture = await createVikunjaFixture(vikunjaUrl, 'plans');
 
     await createPlannerOwner(databaseUrl, fixture, 'VIKUNJA_TOKEN_OWNER_E2E');
     await createPlannerOwner(databaseUrl, todayFixture, 'VIKUNJA_TOKEN_OWNER_E2E_TODAY');
+    await createPlannerOwner(databaseUrl, plansFixture, 'VIKUNJA_TOKEN_OWNER_E2E_PLANS');
 
     const apiPort = await freePort();
     const apiUrl = `http://127.0.0.1:${apiPort}`;
@@ -360,6 +362,7 @@ export default async function globalSetup(): Promise<void> {
         VIKUNJA_URL: vikunjaUrl,
         VIKUNJA_TOKEN_OWNER_E2E: fixture.token,
         VIKUNJA_TOKEN_OWNER_E2E_TODAY: todayFixture.token,
+        VIKUNJA_TOKEN_OWNER_E2E_PLANS: plansFixture.token,
         PORT: String(apiPort),
         HOST: '127.0.0.1',
         LOG_LEVEL: 'warn',
@@ -410,6 +413,11 @@ export default async function globalSetup(): Promise<void> {
       todayVikunjaToken: todayFixture.token,
       todayVikunjaUserId: todayFixture.vikunjaUserId,
       todayInboxExternalId: todayFixture.inboxExternalId,
+      plansEmail: plansFixture.email,
+      plansPassword: plansFixture.password,
+      plansVikunjaToken: plansFixture.token,
+      plansVikunjaUserId: plansFixture.vikunjaUserId,
+      plansInboxExternalId: plansFixture.inboxExternalId,
       apiPid,
       webPid,
     };

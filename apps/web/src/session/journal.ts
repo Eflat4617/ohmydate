@@ -1,7 +1,10 @@
+import { ANONYMOUS_OWNER, readActiveOwnerId } from './owner';
+
 export type FocusEventKind = 'pause' | 'resume' | 'complete';
 
 export interface SessionEventRecord {
   readonly seq: number;
+  readonly ownerId: string;
   readonly id: string;
   readonly sessionId: string;
   readonly kind: FocusEventKind;
@@ -10,9 +13,12 @@ export interface SessionEventRecord {
   readonly expectedVersion: number;
 }
 
-export type QueuedSessionEvent = Omit<SessionEventRecord, 'seq'>;
+export type QueuedSessionEvent = Omit<SessionEventRecord, 'seq' | 'ownerId'> & {
+  readonly ownerId?: string;
+};
 
 export interface SessionJournal {
+  setOwner(ownerId: string | null): void;
   append(event: QueuedSessionEvent): Promise<SessionEventRecord>;
   list(sessionId?: string): Promise<SessionEventRecord[]>;
   remove(seq: number): Promise<void>;
@@ -20,7 +26,7 @@ export interface SessionJournal {
 }
 
 const DB_NAME = 'ohmydate-focus';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'events';
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
@@ -38,6 +44,12 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(STORE)) {
         const store = database.createObjectStore(STORE, { keyPath: 'seq', autoIncrement: true });
         store.createIndex('sessionId', 'sessionId', { unique: false });
+        store.createIndex('ownerId', 'ownerId', { unique: false });
+      } else {
+        const store = request.transaction?.objectStore(STORE);
+        if (store !== undefined && !store.indexNames.contains('ownerId')) {
+          store.createIndex('ownerId', 'ownerId', { unique: false });
+        }
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -47,6 +59,11 @@ function openDatabase(): Promise<IDBDatabase> {
 
 export class IndexedDbSessionJournal implements SessionJournal {
   private database: Promise<IDBDatabase> | null = null;
+  private ownerId = ANONYMOUS_OWNER;
+
+  setOwner(ownerId: string | null): void {
+    this.ownerId = ownerId ?? ANONYMOUS_OWNER;
+  }
 
   private db(): Promise<IDBDatabase> {
     this.database ??= openDatabase();
@@ -57,13 +74,17 @@ export class IndexedDbSessionJournal implements SessionJournal {
     const database = await this.db();
     const transaction = database.transaction(STORE, 'readwrite');
     const store = transaction.objectStore(STORE);
-    const key = await requestResult(store.add(event));
+    const record: Omit<SessionEventRecord, 'seq'> = {
+      ...event,
+      ownerId: event.ownerId ?? this.ownerId,
+    };
+    const key = await requestResult(store.add(record));
     await new Promise<void>((resolve, reject) => {
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error ?? new Error('Journal write failed'));
       transaction.onabort = () => reject(transaction.error ?? new Error('Journal write aborted'));
     });
-    return { ...event, seq: Number(key) };
+    return { ...record, seq: Number(key) };
   }
 
   async list(sessionId?: string): Promise<SessionEventRecord[]> {
@@ -71,7 +92,8 @@ export class IndexedDbSessionJournal implements SessionJournal {
     const transaction = database.transaction(STORE, 'readonly');
     const store = transaction.objectStore(STORE);
     const records = await requestResult<SessionEventRecord[]>(store.getAll());
-    const filtered = sessionId === undefined ? records : records.filter((item) => item.sessionId === sessionId);
+    const owned = records.filter((item) => (item.ownerId ?? ANONYMOUS_OWNER) === this.ownerId);
+    const filtered = sessionId === undefined ? owned : owned.filter((item) => item.sessionId === sessionId);
     return filtered.sort((left, right) => left.seq - right.seq);
   }
 
@@ -89,7 +111,11 @@ export class IndexedDbSessionJournal implements SessionJournal {
   async clear(): Promise<void> {
     const database = await this.db();
     const transaction = database.transaction(STORE, 'readwrite');
-    await requestResult(transaction.objectStore(STORE).clear());
+    const store = transaction.objectStore(STORE);
+    const records = await requestResult<SessionEventRecord[]>(store.getAll());
+    for (const record of records) {
+      if ((record.ownerId ?? ANONYMOUS_OWNER) === this.ownerId) store.delete(record.seq);
+    }
     await new Promise<void>((resolve, reject) => {
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error ?? new Error('Journal clear failed'));
@@ -101,16 +127,26 @@ export class IndexedDbSessionJournal implements SessionJournal {
 export class MemorySessionJournal implements SessionJournal {
   private records: SessionEventRecord[] = [];
   private sequence = 0;
+  private ownerId = ANONYMOUS_OWNER;
+
+  setOwner(ownerId: string | null): void {
+    this.ownerId = ownerId ?? ANONYMOUS_OWNER;
+  }
 
   async append(event: QueuedSessionEvent): Promise<SessionEventRecord> {
     this.sequence += 1;
-    const record = { ...event, seq: this.sequence };
+    const record = {
+      ...event,
+      ownerId: event.ownerId ?? this.ownerId,
+      seq: this.sequence,
+    };
     this.records.push(record);
     return record;
   }
 
   async list(sessionId?: string): Promise<SessionEventRecord[]> {
-    const records = sessionId === undefined ? this.records : this.records.filter((item) => item.sessionId === sessionId);
+    const owned = this.records.filter((item) => (item.ownerId ?? ANONYMOUS_OWNER) === this.ownerId);
+    const records = sessionId === undefined ? owned : owned.filter((item) => item.sessionId === sessionId);
     return [...records].sort((left, right) => left.seq - right.seq);
   }
 
@@ -119,7 +155,7 @@ export class MemorySessionJournal implements SessionJournal {
   }
 
   async clear(): Promise<void> {
-    this.records = [];
+    this.records = this.records.filter((item) => (item.ownerId ?? ANONYMOUS_OWNER) !== this.ownerId);
   }
 }
 
@@ -129,3 +165,4 @@ export function createSessionJournal(): SessionJournal {
 }
 
 export const sessionJournal: SessionJournal = createSessionJournal();
+sessionJournal.setOwner(readActiveOwnerId());

@@ -47,7 +47,7 @@ function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
 }
 
 async function enablePush(): Promise<void> {
-  if (!pushSupported.value || pushBusy.value) return;
+  if (!pushSupported.value || pushBusy.value || !offline.online) return;
   pushBusy.value = true;
   pushStatus.value = 'idle';
   try {
@@ -137,10 +137,11 @@ async function enablePush(): Promise<void> {
         <p class="muted">
           In-app toasts work today. Browser push is opt-in and only registered when the browser grants permission.
         </p>
-        <button type="button" :disabled="!pushSupported || pushBusy" @click="enablePush">
+        <button type="button" :disabled="!pushSupported || pushBusy || !offline.online" @click="enablePush">
           {{ pushBusy ? 'Enabling…' : 'Enable push notifications' }}
         </button>
-        <p v-if="!pushSupported" class="muted">Push is not supported in this browser.</p>
+        <p v-if="!offline.online" class="muted" role="status">Connect to enable push notifications.</p>
+        <p v-else-if="!pushSupported" class="muted">Push is not supported in this browser.</p>
         <p v-else-if="pushStatus === 'denied'" class="error-text" role="alert">
           Permission was not granted, so no push subscription was sent.
         </p>

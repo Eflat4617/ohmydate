@@ -161,6 +161,7 @@ export async function createIntakeGoal(
     readonly description?: string;
     readonly dueAt?: string;
     readonly estimatedScope?: 'small' | 'medium' | 'large';
+    readonly maxFocusMinutes?: number;
   },
 ): Promise<IntakeSessionDto> {
   const response = await apiFetch(page, state, '/intake-sessions', {
@@ -196,6 +197,27 @@ export async function answerIntakeWithSkip(
     session = (await expectOk(response, 'POST /intake-sessions/{id}/answers')) as IntakeSessionDto;
   }
   throw new Error('intake interview did not finish within six rounds');
+}
+
+export async function replaceIntakeDraftWithSteps(
+  page: Page,
+  state: E2EState,
+  session: IntakeSessionDto,
+  steps: readonly Record<string, unknown>[],
+): Promise<IntakeSessionDto> {
+  const response = await apiFetch(page, state, `/intake-sessions/${session.id}/draft`, {
+    method: 'PATCH',
+    headers: {
+      'If-Match': `W/"${session.version}"`,
+      'Idempotency-Key': idempotencyKey(),
+    },
+    body: { steps },
+  });
+  await expectOk(response, 'PATCH /intake-sessions/{id}/draft');
+  const etag = response.headers()['etag'] ?? '';
+  const match = /W\/"(\d+)"/.exec(etag);
+  if (match?.[1] === undefined) throw new Error(`draft PATCH returned no version ETag: ${etag}`);
+  return { ...session, version: Number(match[1]) };
 }
 
 export async function replaceIntakeDraftWithIndependentSteps(
@@ -245,19 +267,7 @@ export async function replaceIntakeDraftWithIndependentSteps(
       splittable: false,
     },
   ];
-  const response = await apiFetch(page, state, `/intake-sessions/${session.id}/draft`, {
-    method: 'PATCH',
-    headers: {
-      'If-Match': `W/"${session.version}"`,
-      'Idempotency-Key': idempotencyKey(),
-    },
-    body: { steps },
-  });
-  await expectOk(response, 'PATCH /intake-sessions/{id}/draft');
-  const etag = response.headers()['etag'] ?? '';
-  const match = /W\/"(\d+)"/.exec(etag);
-  if (match?.[1] === undefined) throw new Error(`draft PATCH returned no version ETag: ${etag}`);
-  return { ...session, version: Number(match[1]) };
+  return replaceIntakeDraftWithSteps(page, state, session, steps);
 }
 
 export async function approveIntakeDraft(
@@ -298,6 +308,57 @@ export async function createApprovedGoal(
     options.independentDraft === true
       ? await replaceIntakeDraftWithIndependentSteps(page, state, answered)
       : answered;
+  const approved = await approveIntakeDraft(page, state, prepared);
+  expect(approved.goalId, 'approved intake session should expose its goal id').toBeTruthy();
+  return approved;
+}
+
+export async function createApprovedGoalWithSingleStep(
+  page: Page,
+  state: E2EState,
+  title: string,
+): Promise<IntakeSessionDto> {
+  const dueAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const created = await createIntakeGoal(page, state, {
+    title,
+    description: 'E2E single-block goal for the two-plan regression.',
+    dueAt,
+    estimatedScope: 'small',
+    maxFocusMinutes: 30,
+  });
+  const answered = await answerIntakeWithSkip(page, state, created);
+  const prepared = await replaceIntakeDraftWithSteps(page, state, answered, [
+    {
+      key: 's1',
+      title: `${title} prep`,
+      deliverable: 'Inputs',
+      doneCriteria: 'Inputs collected',
+      kind: 'prep',
+      estimate: { p50Minutes: 15, p90Minutes: 25 },
+      dependsOn: [],
+      splittable: true,
+    },
+    {
+      key: 's2',
+      title: `${title} work`,
+      deliverable: 'Deliverable',
+      doneCriteria: 'Deliverable exists',
+      kind: 'work',
+      estimate: { p50Minutes: 15, p90Minutes: 25 },
+      dependsOn: [],
+      splittable: true,
+    },
+    {
+      key: 's3',
+      title: `${title} review`,
+      deliverable: 'Review',
+      doneCriteria: 'Review complete',
+      kind: 'review',
+      estimate: { p50Minutes: 15, p90Minutes: 25 },
+      dependsOn: [],
+      splittable: false,
+    },
+  ]);
   const approved = await approveIntakeDraft(page, state, prepared);
   expect(approved.goalId, 'approved intake session should expose its goal id').toBeTruthy();
   return approved;

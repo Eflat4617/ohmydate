@@ -331,10 +331,8 @@ export function createDailyHandlers(db: MockDb) {
         return problem(422, 'validation_failed', 'from and to must define a positive range');
       }
       const planVersionId = '01900000-0000-7000-8000-0000000000d1';
-      const items: ScheduleBlock[] = db.today.blocks
-        .filter((block) => Date.parse(block.startAt) < toMs && Date.parse(block.endAt) > fromMs)
-        .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))
-        .map((block) => ({
+      const items: ScheduleBlock[] = [
+        ...db.today.blocks.map((block) => ({
           id: block.id,
           planVersionId,
           taskId: block.taskId,
@@ -343,7 +341,11 @@ export function createDailyHandlers(db: MockDb) {
           locked: false,
           status: block.status,
           version: 1,
-        }))
+        })),
+        ...db.extraScheduleBlocks,
+      ]
+        .filter((block) => Date.parse(block.startAt) < toMs && Date.parse(block.endAt) > fromMs)
+        .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))
         .slice(0, Number.isFinite(limit) ? limit : 50);
       const current = `W/"schedule-blocks-${db.todayRevision}-${items.length}"`;
       if (request.headers.get('If-None-Match') === current) {

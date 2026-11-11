@@ -4,6 +4,7 @@ import { login } from '../helpers/app';
 import {
   approveCandidateWithBlocks,
   createApprovedGoal,
+  createApprovedGoalWithSingleStep,
   createPlanFromGoal,
   editableBlocksForToday,
   getWorkSession,
@@ -169,6 +170,77 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     const completed = await getWorkSession(page, state, sessionId);
     expect(completed.state).toBe('completed');
     expect(completed.version).toBe(4);
+    await context.close();
+  });
+
+  test('shows only the current plan cards when two approved plans have blocks today', async ({
+    browser,
+  }) => {
+    const suffix = Date.now().toString(36);
+    const context = await browser.newContext({ timezoneId: 'UTC' });
+    const page = await context.newPage();
+    await login(page, state, { email: state.plansEmail, password: state.plansPassword });
+    await setContinuousWeeklyAvailability(page, state);
+
+    const firstTitle = `E2E older plan ${suffix}`;
+    const secondTitle = `E2E current plan ${suffix}`;
+    const firstGoal = await createApprovedGoalWithSingleStep(page, state, firstTitle);
+    if (firstGoal.goalId === undefined) throw new Error('first goal id is missing');
+    const firstPlan = await createPlanFromGoal(page, state, firstGoal.goalId);
+    const firstEdited = editableBlocksForToday(firstPlan);
+    const firstApproved = await approveCandidateWithBlocks(page, state, firstPlan, firstEdited);
+    const olderBlock = firstApproved.blocks[0];
+    if (olderBlock === undefined) throw new Error('older plan has no block');
+
+    const secondGoal = await createApprovedGoalWithSingleStep(page, state, secondTitle);
+    if (secondGoal.goalId === undefined) throw new Error('second goal id is missing');
+    const secondPlan = await createPlanFromGoal(page, state, secondGoal.goalId);
+    const olderEnd = Math.max(...firstApproved.blocks.map((block) => Date.parse(block.endAt)));
+    const secondEdited = editableBlocksForToday(secondPlan, olderEnd);
+    const currentApproved = await approveCandidateWithBlocks(page, state, secondPlan, secondEdited);
+    if (currentApproved.blocks[0] === undefined) throw new Error('current plan has no block');
+
+    await page.goto(`${state.webUrl}/today`);
+    const cards = page.locator('.today-card');
+    await expect(cards).toHaveCount(Math.min(currentApproved.blocks.length, 3), {
+      timeout: 20_000,
+    });
+    await expect(page.locator('.today-card', { hasText: firstTitle })).toHaveCount(0);
+
+    for (const label of [`${secondTitle} prep`, `${secondTitle} work`, `${secondTitle} review`]) {
+      const card = page.locator('.today-card', { hasText: label });
+      await expect(card).toBeVisible();
+      await expect(card.getByRole('button', { name: 'Shrink' })).toBeEnabled();
+
+      await card.getByRole('button', { name: 'Shrink' }).click();
+      await page.locator('#shrink-minutes').fill('15');
+      await page.getByRole('button', { name: 'Preview shrink' }).click();
+      await expect(page.getByRole('heading', { name: 'Proposal preview' })).toBeVisible();
+      let approveResponse = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname.includes('/today/proposals/'),
+      );
+      await page.getByRole('button', { name: 'Approve proposal' }).click();
+      expect((await approveResponse).status()).toBe(201);
+      await expect(page.getByRole('heading', { name: 'Proposal preview' })).toBeHidden();
+
+      const refreshed = page.locator('.today-card', { hasText: label });
+      await expect(refreshed.getByRole('button', { name: 'Reschedule' })).toBeEnabled({
+        timeout: 20_000,
+      });
+      await refreshed.getByRole('button', { name: 'Reschedule' }).click();
+      await expect(page.getByRole('heading', { name: 'Proposal preview' })).toBeVisible();
+      approveResponse = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname.includes('/today/proposals/'),
+      );
+      await page.getByRole('button', { name: 'Approve proposal' }).click();
+      expect((await approveResponse).status()).toBe(201);
+      await expect(page.getByRole('heading', { name: 'Proposal preview' })).toBeHidden();
+    }
+    await expect(page.getByRole('alert')).toHaveCount(0);
     await context.close();
   });
 });

@@ -7,6 +7,7 @@ import {
   ApiError,
   availabilityEtagForVersion,
   plannerClient,
+  type SessionCreate,
   type TodayBlock,
   type TodayProposal,
 } from '../api';
@@ -25,8 +26,9 @@ const toast = useToastStore();
 const actions = new ActionStore();
 
 const date = localDateIso();
+const ownerId = computed(() => sessionStore.ownerId);
 const todayQuery = useQuery({
-  queryKey: ['today', date],
+  queryKey: computed(() => ['today', date, ownerId.value ?? 'anonymous']),
   queryFn: () => plannerClient.getToday(date),
 });
 
@@ -37,6 +39,7 @@ const scheduleQuery = useQuery({
     'today-schedule-blocks',
     today.value?.date ?? date,
     today.value?.timeZone ?? 'UTC',
+    ownerId.value ?? 'anonymous',
   ]),
   queryFn: async () => {
     const current = today.value;
@@ -51,7 +54,7 @@ const scheduleQuery = useQuery({
 });
 
 const resumableQuery = useQuery({
-  queryKey: ['sessions', 'resumable'],
+  queryKey: computed(() => ['sessions', 'resumable', ownerId.value ?? 'anonymous']),
   queryFn: async () => {
     const active = await plannerClient.listSessions({ state: 'active', limit: 1 });
     if (active.items[0] !== undefined) return active.items[0];
@@ -74,23 +77,22 @@ const blocks = computed<TodayBlock[]>(() => {
   if (current === null) return [];
   const schedule = scheduleQuery.data.value;
   if (schedule === undefined || scheduleQuery.isError.value) return current.blocks;
-  const byId = new Map(current.blocks.map((block) => [block.id, block]));
-  const byTask = new Map(current.blocks.map((block) => [block.taskId, block]));
-  return schedule.items
-    .filter((block) => block.status !== 'superseded')
-    .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt))
-    .slice(0, 3)
-    .map((block) => {
-      const source = byId.get(block.id) ?? byTask.get(block.taskId);
-      return {
-        id: block.id,
-        taskId: block.taskId,
-        title: source?.title ?? 'Scheduled block',
-        startAt: block.startAt,
-        endAt: block.endAt,
-        status: block.status,
-      };
-    });
+  const enrichment = new Map(
+    schedule.items
+      .filter((block) => block.status !== 'superseded')
+      .map((block) => [block.id, block]),
+  );
+  return current.blocks.map((block) => {
+    const approved = enrichment.get(block.id);
+    return approved === undefined
+      ? block
+      : {
+          ...block,
+          startAt: approved.startAt,
+          endAt: approved.endAt,
+          status: approved.status,
+        };
+  });
 });
 
 const isLoading = computed(
@@ -226,23 +228,23 @@ async function startFocus(block: TodayBlock): Promise<void> {
   startingBlockId.value = block.id;
   error.value = null;
   resumeOffer.value = false;
+  const scope = `focus:start:${block.taskId}`;
+  let action = actions.peek<SessionCreate>(scope);
   try {
-    const payload = { taskId: block.taskId, blockId: block.id };
-    const scope = `focus:start:${block.taskId}`;
-    const action = actions.begin(scope, payload, samePayload);
-    const session = await plannerClient.createSession(
-      {
+    const input: SessionCreate =
+      action?.payload ?? {
         taskId: block.taskId,
         blockId: block.id,
         clientStartedAt: new Date().toISOString(),
         clientId: focusClientId(),
-      },
-      action.key,
-    );
+      };
+    action = actions.begin(scope, input, samePayload);
+    const session = await plannerClient.createSession(action.payload, action.key);
     actions.settle(scope, action);
     sessionStore.remember(session);
     await router.push(`/focus/${session.id}`);
   } catch (cause) {
+    if (action !== undefined && cause instanceof ApiError) actions.settle(scope, action);
     if (cause instanceof ApiError && cause.status === 409 && cause.code === 'active_session_exists') {
       resumeOffer.value = true;
       await resumableQuery.refetch();
@@ -310,7 +312,12 @@ function resumeActive(): void {
       </div>
 
       <ul v-if="blocks.length > 0" class="today-blocks" aria-label="Today’s blocks">
-        <li v-for="(block, index) in blocks" :key="block.id" class="today-card">
+        <li
+          v-for="(block, index) in blocks"
+          :key="block.id"
+          class="today-card"
+          :data-block-id="block.id"
+        >
           <div class="today-card-main">
             <span class="today-index" aria-hidden="true">{{ index + 1 }}</span>
             <div>

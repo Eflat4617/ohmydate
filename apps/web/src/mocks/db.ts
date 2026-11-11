@@ -12,6 +12,7 @@ import type {
   Project,
   PushSubscription,
   Task,
+  ScheduleBlock,
   TaskTemplate,
   Today,
   TodayProposal,
@@ -58,6 +59,7 @@ export interface MockDb {
   planVersions: Map<string, PlanVersion>;
   today: Today;
   todayRevision: number;
+  extraScheduleBlocks: ScheduleBlock[];
   proposals: Map<string, StoredProposal>;
   sessions: Map<string, WorkSession>;
   sessionClocks: Map<string, SessionClock>;
@@ -341,6 +343,7 @@ export function createMockDb(): MockDb {
     planVersions: new Map(),
     today: createToday(),
     todayRevision: 1,
+    extraScheduleBlocks: [],
     proposals: new Map(),
     sessions: new Map(),
     sessionClocks: new Map(),
@@ -376,6 +379,7 @@ export function resetMockDb(): void {
   mockDb.planVersions = fresh.planVersions;
   mockDb.today = fresh.today;
   mockDb.todayRevision = fresh.todayRevision;
+  mockDb.extraScheduleBlocks = fresh.extraScheduleBlocks;
   mockDb.proposals = fresh.proposals;
   mockDb.sessions = fresh.sessions;
   mockDb.sessionClocks = fresh.sessionClocks;

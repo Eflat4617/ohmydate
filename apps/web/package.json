@@ -30,6 +30,7 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "6.0.10",
     "@vue/test-utils": "2.5.1",
+    "fake-indexeddb": "6.2.8",
     "jsdom": "27.4.0",
     "msw": "3.0.4",
     "openapi-typescript": "7.13.0",

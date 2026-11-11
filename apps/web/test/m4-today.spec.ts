@@ -3,7 +3,7 @@ import { createPinia, type Pinia } from 'pinia';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import { defineComponent, nextTick } from 'vue';
 import { VueQueryPlugin } from '@tanstack/vue-query';
-import { newActionId, plannerClient } from '../src/api';
+import { newActionId, plannerClient, type ScheduleBlock } from '../src/api';
 import TodayView from '../src/views/TodayView.vue';
 import { sessionJournal } from '../src/session/journal';
 import { resetFocusClientIdForTests } from '../src/session/clientId';
@@ -12,6 +12,7 @@ import {
   TODAY_BLOCK_ONE_ID,
   TODAY_TASK_ONE_ID,
   TODAY_TASK_ONE_TITLE,
+  TODAY_TASK_TWO_ID,
   TODAY_TASK_TWO_TITLE,
   mockDb,
 } from '../src/mocks/db';
@@ -179,6 +180,75 @@ describe('Today view', () => {
     await vi.waitFor(() => {
       expect(router.currentRoute.value.path).toBe(`/focus/${session.id}`);
     });
+    expect(mockDb.sessions.size).toBe(1);
+    wrapper.unmount();
+  });
+
+  it('keeps Today cards scoped to the current plan when older approved plans also have blocks', async () => {
+    const pinia = createPinia();
+    useSessionStore(pinia).reset();
+    const oldBlock: ScheduleBlock = {
+      id: '01900000-0000-7000-8000-0000000000e1',
+      planVersionId: '01900000-0000-7000-8000-0000000000e0',
+      taskId: TODAY_TASK_TWO_ID,
+      startAt: '2026-11-14T08:00:00.000Z',
+      endAt: '2026-11-14T09:00:00.000Z',
+      locked: false,
+      status: 'planned',
+      version: 1,
+    };
+    mockDb.extraScheduleBlocks.push(oldBlock);
+
+    const wrapper = await mountToday(pinia, testRouter());
+    const cards = wrapper.findAll('.today-card');
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.text()).toContain(TODAY_TASK_ONE_TITLE);
+    expect(cards[1]?.text()).toContain(TODAY_TASK_TWO_TITLE);
+    expect(wrapper.text()).not.toContain('08:00–09:00');
+
+    const first = cards[0];
+    if (first === undefined) throw new Error('missing first card');
+    await button(first, 'Shrink').trigger('click');
+    await nextTick();
+    await wrapper.get('#shrink-minutes').setValue('20');
+    await button(wrapper, 'Preview shrink').trigger('click');
+    await waitForText(wrapper, 'Proposal preview');
+    await button(wrapper, 'Approve proposal').trigger('click');
+    await vi.waitFor(() => expect(mockDb.today.blocks[0]?.endAt).not.toBe('2026-11-14T11:30:00.000Z'));
+
+    const second = wrapper.findAll('.today-card')[1];
+    if (second === undefined) throw new Error('missing second card');
+    await button(second, 'Reschedule').trigger('click');
+    await waitForText(wrapper, 'Proposal preview');
+    await button(wrapper, 'Approve proposal').trigger('click');
+    await vi.waitFor(() => expect(mockDb.today.blocks[1]?.startAt).not.toBe('2026-11-14T12:00:00.000Z'));
+    wrapper.unmount();
+  });
+
+  it('retries a lost session-start response with the identical key and body', async () => {
+    const pinia = createPinia();
+    useSessionStore(pinia).reset();
+    const router = testRouter();
+    const wrapper = await mountToday(pinia, router);
+    const original = plannerClient.createSession.bind(plannerClient);
+    const calls: { input: unknown; key: string }[] = [];
+    vi.spyOn(plannerClient, 'createSession').mockImplementation(async (input, key) => {
+      calls.push({ input, key });
+      const result = await original(input, key);
+      if (calls.length === 1) throw new TypeError('response lost after commit');
+      return result;
+    });
+
+    const card = wrapper.findAll('.today-card')[0];
+    if (card === undefined) throw new Error('missing today card');
+    await button(card, 'Start focus').trigger('click');
+    await waitForText(wrapper, 'response lost after commit');
+    await button(wrapper, 'Start focus').trigger('click');
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('focus'));
+
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.key).toBe(calls[0]?.key);
+    expect(calls[1]?.input).toEqual(calls[0]?.input);
     expect(mockDb.sessions.size).toBe(1);
     wrapper.unmount();
   });

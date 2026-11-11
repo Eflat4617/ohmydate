@@ -7,6 +7,7 @@ import {
   plannerClient,
   uuidV7Key,
   type EstimationFeedback,
+  type SessionCreate,
   type SessionReviewRequest,
   type WorkSession,
 } from '../api';
@@ -37,9 +38,9 @@ const session = computed<WorkSession | null>(
   () => sessions.get(sessionId.value) ?? remoteSession.value,
 );
 
-const elapsedBase = ref(0);
-const anchor = ref<number | null>(null);
 const now = ref(Date.now());
+const operationsPending = ref(0);
+let operationChain: Promise<void> = Promise.resolve();
 const timerEl = ref<HTMLElement | null>(null);
 const announcement = ref('');
 const error = ref<string | null>(null);
@@ -51,9 +52,14 @@ const reviewError = ref<string | null>(null);
 const actions = new ActionStore();
 let timer: ReturnType<typeof setInterval> | null = null;
 
-const displaySeconds = computed(
-  () => elapsedBase.value + (anchor.value === null ? 0 : Math.max(0, Math.floor((now.value - anchor.value) / 1000))),
-);
+const displaySeconds = computed(() => {
+  const current = session.value;
+  if (current === null) return 0;
+  if (current.state !== 'active') return current.focusedSec;
+  const cursorMs =
+    Date.parse(current.startedAt) + (current.focusedSec + current.pausedSec) * 1000;
+  return current.focusedSec + Math.max(0, Math.floor((now.value - cursorMs) / 1000));
+});
 const displayTime = computed(() => formatDuration(displaySeconds.value));
 const stateLabel = computed(() => {
   if (session.value === null) return 'Loading session';
@@ -75,6 +81,10 @@ const showReview = computed(() => session.value?.state === 'completed');
 const syncMessage = computed(() => sessions.syncMessage);
 const syncTone = computed(() => sessions.syncState);
 
+function samePayload<T>(left: T, right: T): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
@@ -88,33 +98,17 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-function secondsSinceAnchor(): number {
-  if (anchor.value === null) return 0;
-  return Math.max(0, Math.floor((Date.now() - anchor.value) / 1000));
+function scheduleOperation<T>(task: () => Promise<T>): Promise<T> {
+  operationsPending.value += 1;
+  const run = operationChain.then(task, task);
+  operationChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run.finally(() => {
+    operationsPending.value = Math.max(0, operationsPending.value - 1);
+  });
 }
-
-function recomputeFromSession(): void {
-  elapsedBase.value = session.value?.focusedSec ?? 0;
-  anchor.value = session.value?.state === 'active' ? Date.now() : null;
-  now.value = Date.now();
-}
-
-watch(
-  () => session.value?.id,
-  (id) => {
-    if (id === undefined) return;
-    recomputeFromSession();
-  },
-  { immediate: true },
-);
-
-watch(
-  () => session.value?.state,
-  (state) => {
-    if (state === 'paused' || state === 'completed') anchor.value = null;
-    if (state === 'active' && anchor.value === null) anchor.value = Date.now();
-  },
-);
 
 watch(
   () => Math.floor(displaySeconds.value / 60),
@@ -126,8 +120,10 @@ watch(
   },
 );
 
-async function syncPending(): Promise<void> {
-  await flushFocusJournal({ store: sessions, online: offline.online });
+function syncPending(): Promise<void> {
+  return scheduleOperation(async () => {
+    await flushFocusJournal({ store: sessions, online: offline.online });
+  });
 }
 
 async function startFromQuery(): Promise<void> {
@@ -143,24 +139,24 @@ async function startFromQuery(): Promise<void> {
   }
   startBusy.value = true;
   error.value = null;
+  const scope = `focus:start:${taskId}`;
+  let action = actions.peek<SessionCreate>(scope);
   try {
     const blockId = typeof route.query.blockId === 'string' ? route.query.blockId : undefined;
-    const payload = { taskId, ...(blockId === undefined ? {} : { blockId }) };
-    const scope = `focus:start:${taskId}`;
-    const action = actions.begin(scope, payload, (left, right) => JSON.stringify(left) === JSON.stringify(right));
-    const started = await plannerClient.createSession(
-      {
+    const input: SessionCreate =
+      action?.payload ?? {
         taskId,
         ...(blockId === undefined ? {} : { blockId }),
         clientStartedAt: new Date().toISOString(),
         clientId: focusClientId(),
-      },
-      action.key,
-    );
+      };
+    action = actions.begin(scope, input, samePayload);
+    const started = await plannerClient.createSession(action.payload, action.key);
     actions.settle(scope, action);
     sessions.remember(started);
     await router.replace(`/focus/${started.id}`);
   } catch (cause) {
+    if (action !== undefined && cause instanceof ApiError) actions.settle(scope, action);
     if (cause instanceof ApiError && cause.status === 409 && cause.code === 'active_session_exists') {
       resumeOffer.value = true;
       error.value = 'An active focus session already exists.';
@@ -185,9 +181,14 @@ async function restoreSession(): Promise<void> {
         remoteSession.value = fresh;
       }
     } catch (cause) {
-      if (!(cause instanceof ApiError) || cause.status !== 404) {
-        error.value = cause instanceof ApiError ? cause.detail : 'Could not refresh the focus session.';
+      if (cause instanceof ApiError && (cause.status === 404 || cause.status === 403)) {
+        sessions.forget(local.id);
+        remoteSession.value = null;
+        loadState.value = 'missing';
+        error.value = 'This focus session is not available.';
+        return;
       }
+      error.value = cause instanceof ApiError ? cause.detail : 'Could not refresh the focus session.';
     }
     return;
   }
@@ -204,58 +205,57 @@ async function restoreSession(): Promise<void> {
   } catch (cause) {
     loadState.value = 'missing';
     error.value =
-      cause instanceof ApiError
-        ? cause.detail
-        : 'Could not load this focus session. Check the link and try again.';
+      cause instanceof ApiError && (cause.status === 404 || cause.status === 403)
+        ? 'This focus session is not available.'
+        : cause instanceof ApiError
+          ? cause.detail
+          : 'Could not load this focus session. Check the link and try again.';
   }
 }
 
 async function perform(kind: FocusEventKind): Promise<void> {
-  const current = session.value;
-  if (current === null) return;
-  if (kind === 'pause' && !canPause.value) return;
-  if (kind === 'resume' && !canResume.value) return;
-  if (kind === 'complete' && !canComplete.value) return;
+  if (operationsPending.value > 0) return;
+  const initial = session.value;
+  if (initial === null) return;
+  if (kind === 'pause' && initial.state !== 'active') return;
+  if (kind === 'resume' && initial.state !== 'paused') return;
+  if (kind === 'complete' && initial.state !== 'active' && initial.state !== 'paused') return;
 
-  if (kind === 'pause' || kind === 'complete') {
-    elapsedBase.value += secondsSinceAnchor();
-    anchor.value = null;
-  }
-  if (kind === 'resume') anchor.value = Date.now();
+  await scheduleOperation(async () => {
+    const current = session.value;
+    if (current === null) return;
+    if (kind === 'pause' && current.state !== 'active') return;
+    if (kind === 'resume' && current.state !== 'paused') return;
+    if (kind === 'complete' && current.state !== 'active' && current.state !== 'paused') return;
 
-  error.value = null;
-  const mustQueue = !offline.online || sessions.pendingCount > 0;
-  if (mustQueue) {
-    await enqueueFocusEvent({ store: sessions, online: offline.online }, current, kind);
-    if (offline.online) await syncPending();
-    return;
-  }
-
-  const key = uuidV7Key();
-  const clientAt = new Date().toISOString();
-  try {
-    const updated = await sendFocusEvent(plannerClient, {
-      sessionId: current.id,
-      kind,
-      clientAt,
-      idempotencyKey: key,
-      expectedVersion: current.version,
-    });
-    sessions.update(updated);
-    if (kind === 'pause') elapsedBase.value = updated.focusedSec;
-    if (kind === 'resume') anchor.value = Date.now();
-    if (kind === 'complete') {
-      elapsedBase.value = updated.focusedSec;
-      anchor.value = null;
-    }
-  } catch (cause) {
-    if (cause instanceof ApiError) {
-      error.value = cause.detail;
-      recomputeFromSession();
+    error.value = null;
+    const mustQueue = !offline.online || sessions.pendingCount > 0;
+    if (mustQueue) {
+      await enqueueFocusEvent({ store: sessions, online: offline.online }, current, kind);
+      if (offline.online) await flushFocusJournal({ store: sessions, online: true });
       return;
     }
-    await enqueueFocusEvent({ store: sessions, online: false, key, clientAt }, current, kind);
-  }
+
+    const key = uuidV7Key();
+    const clientAt = new Date().toISOString();
+    try {
+      const updated = await sendFocusEvent(plannerClient, {
+        sessionId: current.id,
+        kind,
+        clientAt,
+        idempotencyKey: key,
+        expectedVersion: current.version,
+      });
+      sessions.update(updated);
+    } catch (cause) {
+      if (cause instanceof ApiError) {
+        error.value = cause.detail;
+        now.value = Date.now();
+        return;
+      }
+      await enqueueFocusEvent({ store: sessions, online: false, key, clientAt }, current, kind);
+    }
+  });
 }
 
 async function submitReview(review: SessionReviewRequest): Promise<void> {
@@ -289,6 +289,7 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (isTypingTarget(event.target)) return;
   if (session.value === null) return;
+  if (operationsPending.value > 0 && (event.code === 'Space' || event.key === 'Enter')) return;
   if (event.code === 'Space' || event.key === ' ') {
     if (!canPause.value && !canResume.value) return;
     event.preventDefault();
@@ -317,9 +318,11 @@ onMounted(() => {
     now.value = Date.now();
   }, 1000);
   window.addEventListener('keydown', onKeydown);
-  void restoreSession()
-    .then(() => startFromQuery())
-    .then(() => syncPending());
+  void scheduleOperation(async () => {
+    await restoreSession();
+    await startFromQuery();
+    await flushFocusJournal({ store: sessions, online: offline.online });
+  });
 });
 
 onUnmounted(() => {
@@ -333,6 +336,21 @@ watch(
     if (online) void syncPending();
   },
 );
+watch(
+  () => sessions.ownerId,
+  (owner, previous) => {
+    if (owner === previous) return;
+    remoteSession.value = null;
+    feedback.value = null;
+    error.value = null;
+    loadState.value = 'idle';
+    void scheduleOperation(async () => {
+      await restoreSession();
+      await flushFocusJournal({ store: sessions, online: offline.online });
+    });
+  },
+);
+
 
 watch(
   () => sessions.pendingCount,
@@ -367,7 +385,7 @@ watch(
 
     <p v-if="loadState === 'loading'" class="muted">Loading focus session…</p>
     <div v-else-if="session === null && !isNew && loadState === 'missing'" class="error-panel">
-      <p class="error-text" role="alert">This focus session could not be loaded.</p>
+      <p class="error-text" role="alert">{{ error ?? 'This focus session is not available.' }}</p>
       <button type="button" @click="goToday">Back to Today</button>
     </div>
 
@@ -393,15 +411,15 @@ watch(
         <button
           type="button"
           class="primary-action"
-          :disabled="!canPause"
+          :disabled="!canPause || operationsPending > 0"
           @click="perform('pause')"
         >
           Pause <kbd>space</kbd>
         </button>
-        <button type="button" :disabled="!canResume" @click="perform('resume')">
+        <button type="button" :disabled="!canResume || operationsPending > 0" @click="perform('resume')">
           Resume <kbd>space</kbd>
         </button>
-        <button type="button" :disabled="!canComplete" @click="perform('complete')">
+        <button type="button" :disabled="!canComplete || operationsPending > 0" @click="perform('complete')">
           Complete <kbd>enter</kbd>
         </button>
         <button type="button" class="link-button" @click="timerEl?.focus()">Focus timer <kbd>f</kbd></button>

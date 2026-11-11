@@ -1,13 +1,22 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { WorkSession } from '../api';
+import {
+  ownerStorageSuffix,
+  readActiveOwnerId,
+  writeActiveOwnerId,
+} from '../session/owner';
 
-const STORAGE_KEY = 'ohmydate.focus.sessions';
+const STORAGE_KEY_PREFIX = 'ohmydate.focus.sessions';
 
-function readStorage(): Record<string, WorkSession> {
+function storageKey(ownerId: string | null): string {
+  return `${STORAGE_KEY_PREFIX}:${ownerStorageSuffix(ownerId)}`;
+}
+
+function readStorage(ownerId: string | null): Record<string, WorkSession> {
   if (typeof localStorage === 'undefined') return {};
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey(ownerId));
     if (raw === null) return {};
     const parsed: unknown = JSON.parse(raw);
     if (parsed === null || typeof parsed !== 'object') return {};
@@ -17,10 +26,10 @@ function readStorage(): Record<string, WorkSession> {
   }
 }
 
-function writeStorage(sessions: Record<string, WorkSession>): void {
+function writeStorage(ownerId: string | null, sessions: Record<string, WorkSession>): void {
   if (typeof localStorage === 'undefined') return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    localStorage.setItem(storageKey(ownerId), JSON.stringify(sessions));
   } catch {
     // Storage can be unavailable in private modes; the in-memory store still works.
   }
@@ -29,7 +38,8 @@ function writeStorage(sessions: Record<string, WorkSession>): void {
 export type SyncState = 'idle' | 'offline' | 'syncing' | 'synced' | 'conflict';
 
 export const useSessionStore = defineStore('session', () => {
-  const sessions = ref<Record<string, WorkSession>>(readStorage());
+  const ownerId = ref<string | null>(readActiveOwnerId());
+  const sessions = ref<Record<string, WorkSession>>(readStorage(ownerId.value));
   const pendingCount = ref(0);
   const syncState = ref<SyncState>('idle');
   const syncMessage = ref<string | null>(null);
@@ -49,7 +59,7 @@ export const useSessionStore = defineStore('session', () => {
 
   function remember(session: WorkSession): void {
     sessions.value = { ...sessions.value, [session.id]: session };
-    writeStorage(sessions.value);
+    writeStorage(ownerId.value, sessions.value);
   }
 
   function update(session: WorkSession): void {
@@ -60,7 +70,7 @@ export const useSessionStore = defineStore('session', () => {
     const next = { ...sessions.value };
     delete next[sessionId];
     sessions.value = next;
-    writeStorage(next);
+    writeStorage(ownerId.value, next);
   }
 
   function setPendingCount(count: number): void {
@@ -72,6 +82,15 @@ export const useSessionStore = defineStore('session', () => {
     syncMessage.value = message;
   }
 
+  function setOwner(nextOwnerId: string | null): void {
+    ownerId.value = nextOwnerId;
+    writeActiveOwnerId(nextOwnerId);
+    sessions.value = readStorage(nextOwnerId);
+    pendingCount.value = 0;
+    syncState.value = 'idle';
+    syncMessage.value = null;
+  }
+
   function reset(): void {
     sessions.value = {};
     pendingCount.value = 0;
@@ -79,7 +98,7 @@ export const useSessionStore = defineStore('session', () => {
     syncMessage.value = null;
     if (typeof localStorage !== 'undefined') {
       try {
-        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(storageKey(ownerId.value));
       } catch {
         // ignore
       }
@@ -87,6 +106,7 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   return {
+    ownerId,
     sessions,
     active,
     pendingCount,
@@ -96,6 +116,7 @@ export const useSessionStore = defineStore('session', () => {
     remember,
     update,
     forget,
+    setOwner,
     setPendingCount,
     setSyncState,
     reset,
