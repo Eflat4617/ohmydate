@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inject } from 'vitest';
 import { migrate } from '../src/db/migrate.js';
 import {
   createSchema,
@@ -13,10 +14,13 @@ import {
   requireDatabaseUrl,
 } from './db/helpers.js';
 import {
+  API_DIST_BUILD_ID_KEY,
   acquireDistLease,
-  ensureApiDist,
-  markApiDistBuilt,
+  apiDistArtifact,
+  assertApiDistArtifact,
+  hasApiDistArtifact,
   releaseDistLease,
+  writeApiDistBuildId,
 } from './support/dist-artifact.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
@@ -24,14 +28,21 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 const apiRoot = fileURLToPath(new URL('..', import.meta.url));
 const distMain = join(apiRoot, 'dist', 'main.js');
 const slowFixture = join(apiRoot, 'test', 'support', 'slow-app.mjs');
+const distArtifact = apiDistArtifact();
+const expectedBuildId = inject(API_DIST_BUILD_ID_KEY);
 
 // dist is built once by vitest globalSetup. The lease is held for the whole
 // file so the build-smoke test below can rebuild dist without racing other
-// test files that spawn apps from it. See support/dist-artifact.ts.
-beforeAll(async () => {
-  await acquireDistLease();
-  await ensureApiDist();
-}, 120_000);
+// test files that spawn apps from it. Acquire outside hooks: while another
+// suite rebuilds dist the wait can exceed hookTimeout, so it must not be
+// charged to a suite hook. See support/dist-artifact.ts.
+await acquireDistLease();
+try {
+  assertApiDistArtifact(distArtifact, expectedBuildId);
+} catch (error) {
+  await releaseDistLease();
+  throw error;
+}
 
 afterAll(async () => {
   await releaseDistLease();
@@ -148,10 +159,6 @@ function stop(child: ChildProcess | undefined): void {
 
 describe.skipIf(!hasDatabase)('production HTTP timeout regressions', () => {
   let schema: string;
-
-  beforeAll(async () => {
-    await ensureApiDist();
-  }, 120_000);
 
   beforeEach(async () => {
     schema = makeSchemaName();
@@ -370,10 +377,12 @@ describe('build smoke without DATABASE_URL', () => {
     });
   }
 
-  // build-smoke rebuilds dist in place; refresh the stamp so later files do
-  // not rebuild it a second time.
+  // build-smoke rebuilds dist in place; restore this invocation's build id
+  // so later test files can still assert the shared artifact.
   afterAll(() => {
-    markApiDistBuilt();
+    if (hasApiDistArtifact(distArtifact)) {
+      writeApiDistBuildId(distArtifact, expectedBuildId);
+    }
   });
 
   test(

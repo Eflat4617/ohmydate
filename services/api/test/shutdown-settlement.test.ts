@@ -15,6 +15,7 @@ import type { FastifyInstance } from 'fastify';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import pino from 'pino';
+import { inject } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { createConfig } from '../src/config.js';
 import { createApplicationClose } from '../src/main.js';
@@ -27,8 +28,10 @@ import {
   hasDatabase,
 } from './vikunja/pg-support.js';
 import {
+  API_DIST_BUILD_ID_KEY,
   acquireDistLease,
-  ensureApiDist,
+  apiDistArtifact,
+  assertApiDistArtifact,
   releaseDistLease,
 } from './support/dist-artifact.js';
 
@@ -39,6 +42,23 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 const apiRoot = fileURLToPath(new URL('..', import.meta.url));
 const distMain = join(apiRoot, 'dist', 'main.js');
 const neverFixture = join(apiRoot, 'test', 'support', 'never-settling-app.mjs');
+const distArtifact = apiDistArtifact();
+
+// dist is built once by vitest globalSetup; the lease keeps build-smoke from
+// rebuilding it underneath a spawned app. Acquire outside hooks: while another
+// suite rebuilds dist the wait can exceed hookTimeout, so it must not be
+// charged to a suite hook.
+await acquireDistLease();
+try {
+  assertApiDistArtifact(distArtifact, inject(API_DIST_BUILD_ID_KEY));
+} catch (error) {
+  await releaseDistLease();
+  throw error;
+}
+
+afterAll(async () => {
+  await releaseDistLease();
+});
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -265,15 +285,6 @@ async function startSyntheticProvider(): Promise<SyntheticProvider> {
 
 // dist is built once by vitest globalSetup; the lease keeps build-smoke from
 // rebuilding it underneath a spawned app. See support/dist-artifact.ts.
-beforeAll(async () => {
-  await acquireDistLease();
-  await ensureApiDist();
-}, 120_000);
-
-afterAll(async () => {
-  await releaseDistLease();
-});
-
 describe('boot validation', () => {
   test('rejects SHUTDOWN_CLEANUP_BUDGET_MS that reaches the hard deadline', async () => {
     const port = await freePort();
