@@ -23,12 +23,25 @@ interface MoreLink {
 const moreLinks: readonly MoreLink[] = [
   { to: '/projects', label: 'nav.projects', icon: 'projects' },
   { to: '/plans/new', label: 'nav.newPlan', icon: 'compare' },
+  { to: '/replan', label: 'nav.replan', icon: 'reschedule' },
+  { to: '/patterns', label: 'nav.patterns', icon: 'pattern' },
   { to: '/commitments', label: 'nav.commitments', icon: 'commitment' },
   { to: '/settings/availability', label: 'nav.availability', icon: 'availability' },
   { to: '/settings/ai', label: 'nav.aiSettings', icon: 'ai' },
 ];
 
-const MORE_ROUTES = new Set(['projects', 'project', 'plans-new', 'plan', 'commitments', 'availability', 'ai-settings']);
+const MORE_ROUTES = new Set([
+  'projects',
+  'project',
+  'plans-new',
+  'plan',
+  'replan',
+  'replan-proposal',
+  'patterns',
+  'commitments',
+  'availability',
+  'ai-settings',
+]);
 const moreActive = computed(() => typeof route.name === 'string' && MORE_ROUTES.has(route.name));
 
 function newTask(): void {

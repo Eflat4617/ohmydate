@@ -88,6 +88,18 @@ function newTask(): void {
             </RouterLink>
           </li>
           <li>
+            <RouterLink to="/replan" class="nav-link">
+              <UiIcon name="reschedule" class="nav-link-icon" />
+              <span class="nav-link-label">{{ t('nav.replan') }}</span>
+            </RouterLink>
+          </li>
+          <li>
+            <RouterLink to="/patterns" class="nav-link">
+              <UiIcon name="pattern" class="nav-link-icon" />
+              <span class="nav-link-label">{{ t('nav.patterns') }}</span>
+            </RouterLink>
+          </li>
+          <li>
             <RouterLink to="/commitments" class="nav-link">
               <UiIcon name="commitment" class="nav-link-icon" />
               <span class="nav-link-label">{{ t('nav.commitments') }}</span>

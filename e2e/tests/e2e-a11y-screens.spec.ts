@@ -21,6 +21,8 @@ import { readState } from '../helpers/state';
 // AI settings, at desktop width (nav rail) and phone width (bottom nav). It
 // also completes and reviews a session with Calm mode on at both widths and
 // checks that "Back to Today" and the navigation come back (UI-POLISHR-1).
+// M5-03 adds the replan list and "내 패턴" at both widths (the proposal
+// detail, reject dialog and suppressed state are scanned by E2E-5R).
 
 const state = readState();
 const account = { email: state.plansEmail, password: state.plansPassword };
@@ -263,6 +265,23 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await back.click();
         await expect(page.getByRole('heading', { name: '오늘', level: 1 })).toBeVisible();
         await expect(nav).toBeVisible();
+      });
+    }
+
+    // M5-03: the replan list and "내 패턴" (now learned from the two reviews above).
+    for (const viewport of [DESKTOP, PHONE]) {
+      const size = `${viewport.width}x${viewport.height}`;
+      await test.step(`replan proposals + 내 패턴 (${size})`, async () => {
+        await page.setViewportSize(viewport);
+        await page.goto(`${state.webUrl}/replan`);
+        await expect(page.getByRole('heading', { name: '재계획 제안', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '기다리는 제안', level: 2 })).toBeVisible();
+        await expectAccessible(page, `replan list ${size}`);
+
+        await page.goto(`${state.webUrl}/patterns`);
+        await expect(page.getByRole('heading', { name: '내 패턴', level: 1 })).toBeVisible();
+        await expect(page.locator('.patterns-item').first()).toBeVisible();
+        await expectAccessible(page, `patterns ${size}`);
       });
     }
 

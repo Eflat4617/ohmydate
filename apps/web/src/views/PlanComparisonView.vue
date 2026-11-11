@@ -38,6 +38,7 @@ import {
   zonedWallClockToInstant,
 } from '../domain/time';
 import { useOfflineStore } from '../stores/offline';
+import ReplanRequestButton from '../components/ReplanRequestButton.vue';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -72,6 +73,9 @@ const tasksQuery = useQuery({
 });
 
 const plan = computed<Plan | null>(() => planQuery.data.value ?? null);
+
+// M5-03: an approved (active) plan can be replanned from its own page.
+const planActive = computed(() => plan.value?.status === 'active' && plan.value.currentVersionId !== undefined);
 const timeZone = computed(() => plan.value?.timeZone ?? availabilityQuery.data.value?.timeZone ?? 'UTC');
 
 const weekStart = ref('');
@@ -449,6 +453,7 @@ onUnmounted(() => {
         </p>
       </div>
       <div class="page-actions">
+        <ReplanRequestButton v-if="plan && planActive" :plan-id="plan.id" variant="ghost" />
         <UiButton variant="ghost" icon="today" @click="goToToday">{{ t('plan.goToday') }}</UiButton>
       </div>
     </header>

@@ -5,6 +5,7 @@
 //   node scripts/ui-screenshots.mjs --label after-ko         # spawns vite on :5199 (Korean UI, UI-I18N)
 //   node scripts/ui-screenshots.mjs --label before --url http://127.0.0.1:5199
 //   node scripts/ui-screenshots.mjs --label after --only 14-today
+//   node scripts/ui-screenshots.mjs --label m5-03 --flows replan,patterns   # M5-03 screens only
 //
 // Output: docs/ui-polish/<label>/<screen>-<viewport>[-dark][-full].png and
 //         docs/ui-polish/<label>/sweep-report.json
@@ -32,6 +33,11 @@ function arg(name, fallback) {
 
 const label = arg('label', 'after');
 const only = arg('only', '');
+// Comma-separated subset of flows (main, daily, ai, replan, patterns); default: all.
+const flowFilter = arg('flows', '')
+  .split(',')
+  .map((name) => name.trim())
+  .filter((name) => name.length > 0);
 const port = Number(arg('port', '5199'));
 const reportOnly = process.argv.includes('--report-only');
 let baseUrl = arg('url', '');
@@ -43,8 +49,11 @@ const VIEWPORTS = [
   { name: 'narrow', width: 360, height: 780, capture: false },
 ];
 const SCHEMES = ['light', 'dark'];
-const DARK_CAPTURES = /^(14-today|16-focus)/;
-const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|17-review)/;
+const DARK_CAPTURES = /^(14-today|16-focus|22-today-replan|23-replan-detail|29-patterns)/;
+const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns)/;
+// Synthetic ids from src/mocks/replan.ts (M5-03 scenario).
+const REPLAN_PENDING_ID = '01900000-0000-7000-8000-0000000002a1';
+const REPLAN_EXPIRED_ID = '01900000-0000-7000-8000-0000000002a4';
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 // Mock "today" is 2026-11-14 (Asia/Seoul); pin the clock so captures are stable.
 const FIXED_NOW = new Date('2026-11-14T09:40:00.000Z');
@@ -308,6 +317,113 @@ async function flowAi(browser, run) {
   await context.close();
 }
 
+// Toasts stay up while the clock is pinned; close them so captures show the screen.
+async function dismissToasts(page) {
+  for (let round = 0; round < 6; round += 1) {
+    const close = page.locator('.toast button[aria-label^="메시지 닫기"]').first();
+    if ((await close.count()) === 0) return;
+    await close.click();
+  }
+}
+
+async function openNotificationsPanel(page, run) {
+  if (isMobile(run)) {
+    await page.getByRole('button', { name: '더 보기', exact: true }).filter({ visible: true }).first().click();
+    await page.getByRole('dialog', { name: '더 보기' }).waitFor();
+    await page.getByRole('dialog', { name: '더 보기' }).getByRole('button', { name: '알림' }).click();
+  } else {
+    await page.locator('.nav-rail').getByRole('button', { name: '알림' }).click();
+  }
+  await page.getByRole('dialog', { name: '알림' }).waitFor();
+}
+
+// M5-03: Today entry point, proposal detail/reject/list/read-only, approve,
+// user request → reject → suppressed request. In-app navigation only after
+// the first load, because a full reload re-seeds the in-page mock database.
+async function flowReplan(browser, run) {
+  const { context, page } = await newPage(browser, run, { replan: 'history' });
+  await go(page, '/today');
+  await page.locator('.today-card').first().waitFor();
+  await page.locator('[data-replan-banner]').waitFor();
+  await page.locator('.toast').first().waitFor({ timeout: 4000 }).catch(() => undefined);
+  await dismissToasts(page);
+  await checkpoint(page, '22-today-replan', run);
+
+  await openNotificationsPanel(page, run);
+  await page.locator('[data-open-proposal]').first().waitFor();
+  await checkpoint(page, '32-notifications-replan', run);
+  await page.locator('[data-open-proposal]').first().click();
+  await page.locator('.replan-change').first().waitFor();
+  await dismissToasts(page);
+  await checkpoint(page, '23-replan-detail', run);
+
+  await page.locator('[data-replan-reject]').click();
+  await page.getByRole('dialog', { name: '이 제안을 거절할까요?' }).waitFor();
+  await checkpoint(page, '24-replan-reject-confirm', run);
+  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click();
+  await page.getByRole('dialog').waitFor({ state: 'detached' });
+
+  await page.locator('.breadcrumb a').click();
+  await page.locator('.replan-item').first().waitFor();
+  await checkpoint(page, '25-replan-list', run);
+
+  await page.locator(`[data-proposal-id="${REPLAN_EXPIRED_ID}"] a`).click();
+  await page.locator('[data-readonly]').waitFor();
+  await checkpoint(page, '26-replan-expired', run);
+
+  await page.locator('.breadcrumb a').click();
+  await page.locator(`[data-proposal-id="${REPLAN_PENDING_ID}"] a`).click();
+  // 412: availability changed after the proposal was computed.
+  await page.locator('[data-replan-approve]').waitFor();
+  await page.evaluate(() => {
+    window.__OHMYDATE_MOCK_DB__.availabilityVersion += 1;
+  });
+  await page.locator('[data-replan-approve]').click();
+  await page.getByRole('alertdialog').waitFor();
+  await checkpoint(page, '33-replan-conflict', run);
+  await page.getByRole('alertdialog').getByRole('button', { name: '새로 고침' }).click();
+  await page.getByRole('alertdialog').waitFor({ state: 'detached' });
+  await page.evaluate(() => {
+    window.__OHMYDATE_MOCK_DB__.availabilityVersion -= 1;
+  });
+  await page.locator('[data-replan-approve]').click();
+  await page.locator('[data-readonly]').waitFor();
+  await dismissToasts(page);
+  await checkpoint(page, '27-replan-approved', run);
+
+  await page.locator('[data-replan-request]').click();
+  await page.locator('[data-replan-approve]').waitFor();
+  await page.locator('[data-replan-reject]').click();
+  await page.getByRole('dialog').getByRole('button', { name: '거절하기' }).click();
+  await page.locator('[data-readonly]').waitFor();
+  await page.locator('[data-replan-request]').click();
+  await page.locator('.replan-suppressed').waitFor();
+  await dismissToasts(page);
+  await checkpoint(page, '28-replan-suppressed', run);
+  await context.close();
+}
+
+async function flowPatterns(browser, run) {
+  const learned = await newPage(browser, run);
+  await go(learned.page, '/patterns');
+  await learned.page.locator('.patterns-group').first().waitFor();
+  await learned.page.locator('.toast').first().waitFor({ timeout: 4000 }).catch(() => undefined);
+  await dismissToasts(learned.page);
+  await checkpoint(learned.page, '29-patterns', run);
+  await learned.page.locator('[data-reset-all]').click();
+  await learned.page.getByRole('alertdialog').waitFor();
+  await checkpoint(learned.page, '30-patterns-reset-confirm', run);
+  await learned.context.close();
+
+  const cold = await newPage(browser, run, { estimation: 'cold' });
+  await go(cold.page, '/patterns');
+  await cold.page.locator('[data-cold-start]').waitFor();
+  await cold.page.locator('.toast').first().waitFor({ timeout: 4000 }).catch(() => undefined);
+  await dismissToasts(cold.page);
+  await checkpoint(cold.page, '31-patterns-cold', run);
+  await cold.context.close();
+}
+
 // The dev server can reload a page while it optimises deps; retry a flow once
 // (findings from the failed attempt are discarded).
 async function withRetry(flow, browser, run) {
@@ -339,7 +455,11 @@ async function main() {
       for (const scheme of SCHEMES) {
         const run = { viewport, scheme };
         console.log(`${label} · ${viewport.name} ${viewport.width}x${viewport.height} · ${scheme}`);
-        for (const flow of [flowMain, flowDaily, flowAi]) await withRetry(flow, browser, run);
+        const flows = { main: flowMain, daily: flowDaily, ai: flowAi, replan: flowReplan, patterns: flowPatterns };
+        for (const [name, flow] of Object.entries(flows)) {
+          if (flowFilter.length > 0 && !flowFilter.includes(name)) continue;
+          await withRetry(flow, browser, run);
+        }
       }
     }
   } finally {

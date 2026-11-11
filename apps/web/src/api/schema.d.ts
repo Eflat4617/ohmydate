@@ -1986,6 +1986,47 @@ export interface components {
                 taskId: string;
             }[];
         };
+        ReplanBefore: {
+            blocks: {
+                /** Format: date-time */
+                endAt: string;
+                /** Format: uuid */
+                id: string;
+                locked: boolean;
+                /** Format: uuid */
+                planVersionId: string;
+                /** Format: date-time */
+                startAt: string;
+                status: "planned" | "done" | "skipped" | "moved" | "superseded";
+                /** Format: uuid */
+                taskId: string;
+                version: number;
+            }[];
+            /** Format: date-time */
+            capturedAt: string;
+            metrics: {
+                minSlackMin: number;
+                taskSlack: {
+                    /** Format: date-time */
+                    dueAt: string;
+                    slackMin: number;
+                    /** Format: uuid */
+                    taskId: string;
+                }[];
+                totalFocusMin: number;
+            };
+        };
+        ReplanBeforeMetrics: {
+            minSlackMin: number;
+            taskSlack: {
+                /** Format: date-time */
+                dueAt: string;
+                slackMin: number;
+                /** Format: uuid */
+                taskId: string;
+            }[];
+            totalFocusMin: number;
+        };
         ReplanCandidate: {
             blocks: {
                 /** Format: date-time */
@@ -2019,8 +2060,39 @@ export interface components {
         };
         ReplanProposal: {
             availabilityVersion: number;
+            basePlanVersion: number;
             /** Format: uuid */
             basePlanVersionId: string;
+            before?: {
+                blocks: {
+                    /** Format: date-time */
+                    endAt: string;
+                    /** Format: uuid */
+                    id: string;
+                    locked: boolean;
+                    /** Format: uuid */
+                    planVersionId: string;
+                    /** Format: date-time */
+                    startAt: string;
+                    status: "planned" | "done" | "skipped" | "moved" | "superseded";
+                    /** Format: uuid */
+                    taskId: string;
+                    version: number;
+                }[];
+                /** Format: date-time */
+                capturedAt: string;
+                metrics: {
+                    minSlackMin: number;
+                    taskSlack: {
+                        /** Format: date-time */
+                        dueAt: string;
+                        slackMin: number;
+                        /** Format: uuid */
+                        taskId: string;
+                    }[];
+                    totalFocusMin: number;
+                };
+            };
             candidate: {
                 blocks: {
                     /** Format: date-time */
@@ -2058,6 +2130,8 @@ export interface components {
             expiresAt: string;
             /** Format: uuid */
             id: string;
+            /** Format: uuid */
+            planId: string;
             state: "pending" | "approved" | "rejected" | "expired" | "superseded";
             /** @description Replan trigger plus the caller-supplied affected task scope (06 §7.1). Non-affected future blocks stay fixed. */
             trigger: {
@@ -2081,8 +2155,39 @@ export interface components {
         ReplanProposalPage: {
             items: {
                 availabilityVersion: number;
+                basePlanVersion: number;
                 /** Format: uuid */
                 basePlanVersionId: string;
+                before?: {
+                    blocks: {
+                        /** Format: date-time */
+                        endAt: string;
+                        /** Format: uuid */
+                        id: string;
+                        locked: boolean;
+                        /** Format: uuid */
+                        planVersionId: string;
+                        /** Format: date-time */
+                        startAt: string;
+                        status: "planned" | "done" | "skipped" | "moved" | "superseded";
+                        /** Format: uuid */
+                        taskId: string;
+                        version: number;
+                    }[];
+                    /** Format: date-time */
+                    capturedAt: string;
+                    metrics: {
+                        minSlackMin: number;
+                        taskSlack: {
+                            /** Format: date-time */
+                            dueAt: string;
+                            slackMin: number;
+                            /** Format: uuid */
+                            taskId: string;
+                        }[];
+                        totalFocusMin: number;
+                    };
+                };
                 candidate: {
                     blocks: {
                         /** Format: date-time */
@@ -2120,6 +2225,8 @@ export interface components {
                 expiresAt: string;
                 /** Format: uuid */
                 id: string;
+                /** Format: uuid */
+                planId: string;
                 state: "pending" | "approved" | "rejected" | "expired" | "superseded";
                 /** @description Replan trigger plus the caller-supplied affected task scope (06 §7.1). Non-affected future blocks stay fixed. */
                 trigger: {
@@ -2141,6 +2248,13 @@ export interface components {
             /** Format: uuid */
             planId: string;
             reason?: "deadline_slack_negative" | "commitment_overlap" | "early_completion_capacity" | "dependency_change" | "user_request";
+        };
+        ReplanTaskSlack: {
+            /** Format: date-time */
+            dueAt: string;
+            slackMin: number;
+            /** Format: uuid */
+            taskId: string;
         };
         /** @description Replan trigger plus the caller-supplied affected task scope (06 §7.1). Non-affected future blocks stay fixed. */
         ReplanTrigger: {

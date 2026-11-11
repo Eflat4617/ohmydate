@@ -84,9 +84,14 @@
 - 첫 적용: M5-02(진행 중이던 DeepSeek 워커 중지, 같은 worktree에서 Opus로 재개; 미커밋 FU-59 부분 작업은 Opus가 검토 후 유지/폐기).
 - 리뷰는 Sol 6.1 medium(구현자와 모델 계열 분리) 유지.
 
-## 10. 돌파구 워커 = Fable 5.2 medium (2026-11-11 21:40, 사용자 허가)
+## 10. 돌파구 워커 = Fable 5.2 **xhigh** (2026-11-11 21:40 허가 medium → 2026-11-12 00:45 사용자 지시로 xhigh)
 - 사용자: "진행하다 막히거나, 돌파구가 필요한 작업이 존재한다면, 워커로 fable 5.2 midium 을 호출해도 좋아."
 - 확인: `claude -p --model claude-fable-5-2 --effort medium` → 응답 FABLE_OK, modelUsage = claude-fable-5-2.
 - 적용 조건(하나라도): ① 같은 Task가 BLOCKED(수정 2회 후 HIGH 잔존)되어 재설계가 필요할 때 ② 같은 계열 결함이 리뷰에서 2회 이상 반복될 때(예: 사용자 전환 경합, 마스킹 회귀) ③ 설계 선택지가 불분명해 원인 분석·대안 설계가 먼저 필요할 때.
 - 실행: `worker-start --agent claude --model claude-fable-5-2 --effort medium`(기존 worktree) 또는 `start-claude-worker.sh`에 MODEL/EFFORT 지정. 역할은 재설계/돌파 구현(또는 원인 분석 문서) — 리뷰는 계속 Sol 6.1 medium(구현자와 계열 분리; Sol 한도 시 Opus).
 - 원장에 "돌파구 워커 사용 사유"를 기록.
+- 2026-11-12 00:45 사용자: "페이블 사용할 경우가 생기면, midium 말고 xhigh로 쓰도록해." → 이후 모든 Fable 워커는 `--effort xhigh`. 확인: `claude -p --model claude-fable-5-2 --effort xhigh` → FABLE_OK. 진행 중이던 FU-69(medium, 초기 단계)는 xhigh로 재시작(ctx_8945147a5825).
+
+## 11. 오케스트레이터 effort = xhigh (2026-11-12 02:20, 사용자 변경)
+- 사용자가 `/effort xhigh` 실행 → 세션 env `CLAUDE_EFFORT=xhigh`, Orca 프로필 settings.json `modelSettings.claude-opus-5-5.effortLevel = "xhigh"`(새 세션 기본값). 이전 값 medium.
+- 재시작 시 Orca가 `CLAUDE_EFFORT`를 다른 값으로 넘기면 우선할 수 있음 → 재시작 직후 env 확인, 다르면 사용자에게 보고.

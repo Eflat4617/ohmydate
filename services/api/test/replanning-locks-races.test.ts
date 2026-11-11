@@ -374,6 +374,7 @@ describe.skipIf(!hasDatabase)('M5-02R-1 locked blocks, suppression race, idempot
         availabilityVersion: proposal.availabilityVersion,
         trigger: { ...proposal.trigger, detectedAt: now },
         candidate: proposal.candidate,
+        before: proposal.before ?? { capturedAt: now, blocks: [], metrics: { totalFocusMin: 0, minSlackMin: 0, taskSlack: [] } },
         policy: 'front_loaded',
         now,
         expiresAt: epochMsToInstant(Date.parse(now) + 24 * 60 * 60 * 1000),
