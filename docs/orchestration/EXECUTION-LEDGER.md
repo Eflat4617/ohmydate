@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 10:35 | **FU-38cR2 REQUEST_CHANGES (Opus 대체) → FU-38c BLOCKED**: 1차 지적(키 상한·공백·인접 과잉·성능 게이트) 해결 확인. 새 HIGH — CC_PHONE 재작성으로 일반 국제 형식(+82 1012345678, +1 4155552671 등) 통째 노출, 216k A/B 1,506 토큰 회귀. 리뷰어가 사본에서 해법 검증(FU-32 패턴 유지 + 1자리 지역 별도 패턴 → 0 회귀). → **ADR-019 보강 2(9–11)** + 좁은 Task **FU-38d** | reviews/FU-38cR2.md | orchestrator |
 | 2026-11-11 10:13 | M3-05 worker_done(c16e883, web 85 tests, DeepSeek-high 101). 리뷰는 M3-04 병합 후 실제 API 연결과 함께(토큰 절약). 계약 확정: preview-edit If-Match = 일정안 버전, 오류 경로 /blocks/<i> → 08 갱신·M3-04에 전달. FU-38cR2 Opus 대체 시작(ctx_b83948b99f6d) | worker report | orchestrator |
 | 2026-11-11 10:07 | **사용자 로그아웃/재로그인 점검**: 재부팅 아님(uptime 3:30). Orca runtime ready, PG/Vikunja healthy(3h). 진행 Dispatch 4개 프로세스 생존·작업 중(M2-03d 병합 542c2d7 후 진행). 해제된 이전 Dispatch의 유휴 OpenCode TUI 8개 정리(m2-03 ×2, fu-42 ×2, fu-39, fu-37, fu-38, m3-03); M2-04 TUI는 후속용으로 유지. load 36→21 | uptime, worker-list, ps | orchestrator |
 | 2026-11-11 09:52 | **M2-03cR2 REQUEST_CHANGES (Opus 대체) → M2-03c BLOCKED**: 1차 HIGH/MEDIUM 해결 확인(P1/P5). 새 HIGH — 승계 창이 저장소 호출 1회(다수 HTTP 요청)를 덮지 못해 늦은 쓰기로 7개 작업·완료 승인 작업 삭제(P2/P6). MEDIUM — 승계 409가 멱등 저장돼 같은 키 재시도 영구 409. → **ADR-020 보강 2(§9–11: 요청 단위 펜싱(FU-42 AbortSignal), 롤백 억제, 승계 409 미저장)** + 08 §1 저장 규칙 예외, 좁은 Task **M2-03d** | reviews/M2-03cR2.md | orchestrator |
