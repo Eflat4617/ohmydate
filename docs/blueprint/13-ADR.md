@@ -164,3 +164,11 @@
   - 키: 사용자가 둔 `<repo root>/deepseek_api_key.txt`(git 무시, 권한 600). 제품은 `LLM_API_KEY_FILE=<절대 경로>`로만 읽음. **워커·리뷰어는 이 파일을 읽거나 출력하거나 다른 위치로 복사하지 않는다**(AGENTS.md 규칙). 실제 호출 스모크는 orchestrator가 합성 입력으로만 수동 실행.
   - 주의: 개발 워커(OpenCode, opencode-go)와 같은 OpenCode Go 계정 사용량을 공유할 수 있음.
 - **ADR-022 보강 2(2026-11-11 15:15, 사용자 결정):** 실호출 스모크에서 OpenCode Go가 `x-opencode-session` 헤더를 요구(400 MissingSessionID)했고, 문서는 "designed for OpenCode and other coding agents… Traffic is monitored for abuse"라고 명시. 사용자에게 선택지(Go 유지 / DeepSeek 공식 API / OpenCode 종량제)를 제시 → **사용자 선택: OpenCode Go 그대로**. 감수 위험: 설계 용도 밖 사용으로 남용 감시 대상이 될 수 있음, 개발 워커와 같은 월·5시간·주간 한도 공유. 조치: 대화(Intake 세션)별 HMAC 파생 세션 ID를 `x-opencode-session`으로 전송(원 ID·키 미포함), 개인·로컬 사용 한정, 호출량 상한 유지. 문제가 생기면 base URL·키 교체만으로 DeepSeek 공식 API로 전환 가능하도록 어댑터 유지.
+
+## ADR-023 웹 클라이언트 사용자 전환 = 하드 리셋 (M4-UIc BLOCKED 후 재설계, 2026-11-11)
+- **맥락:** M4-UI 리뷰 4회 연속으로 사용자 전환 경합 HIGH(진행 중 요청의 늦은 응답이 이전 사용자 상태를 현재 화면·저장소에 씀; 인증 저장소·동의/예산·탭 간 전환·격리 재시도). 상태 조각마다 epoch 가드를 붙이는 방식은 누락이 반복됨.
+- **결정:**
+  1. **어떤 경로든 사용자가 바뀌면**(로그인으로 다른 사용자, 로그아웃, 다른 탭의 storage 이벤트, `/me`가 저장된 사용자와 다름) → 현재 epoch의 모든 작업 AbortController 중단 → 이전 사용자 영구 저장소(namespace)는 그대로 보존 → **`window.location.reload()`로 하드 리셋**(로그인 직후에는 새 사용자 홈으로 이동). 메모리 상태(Pinia 스토어·컴포넌트 캐시·작업 체인)는 새로 시작하므로 이전 사용자 값이 남을 수 없음.
+  2. 새로 로드된 페이지는 `/me`로 사용자를 확인한 뒤에만 그 사용자의 namespace를 연다. 확인 전에는 세션·저널·설정 UI를 렌더링하지 않음(로딩 상태).
+  3. Focus 저널 재전송과 격리 재시도는 **하나의 소유자별 직렬 잠금**(Web Locks API `navigator.locks`, 미지원 시 탭 내 mutex + 탭 간 BroadcastChannel)으로만 실행. 격리 재시도는 스냅샷 전체를 지우지 않고 **재대기열에 성공한 항목만** 원자적으로 제거.
+- **결과:** epoch 바인딩은 하드 리셋 직전까지의 늦은 쓰기를 막는 방어선으로 유지하되, 사용자 간 상태 정합성의 근거는 하드 리셋이다.
