@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 13:35 | **M4-01R-1 REQUEST_CHANGES (Sol medium)**: HIGH — sent 알림을 dismissed로 바꾸면 CHECK 위반(sent_at 삭제 강요). MEDIUM — Today 제안 승인의 가용성 변경 감지 미정의 → **결정: 일정안 승인과 같은 If-Match availability + 기준 스냅샷**. LOW — 오프라인 시각 규칙 문서화. 수정 1/2 → ctx_74866a5678b7, M4-02/M4-03에 예고 | reviews/M4-01R-1.md | orchestrator |
 | 2026-11-11 13:25 | M4-01 질문: 0009로 기존 마이그레이션 테스트 2개 갱신 필요 → 추가만 승인(migrate.test.ts, planning-schema.test.ts). 이후 새 마이그레이션의 기존 픽스처 테스트 추가 갱신은 사전 승인 | msg_eb1847b58fe0 | orchestrator |
 | 2026-11-11 13:21 | **M23-UIR-1 REQUEST_CHANGES (Sol medium)**: E2E-3 실흐름 확인(DB 직접 쓰기 없음). HIGH — 마법사 세션 전환 시 이전 세션 초안이 새 세션에 PATCH됨. MEDIUM — constraint_violation 문제 코드 미인식, DST 공백 시각 뒤로 이동, 반복 시간 블록 5분으로 붕괴, 지연 재시도/미리보기가 오프라인에서도 전송. 수정 1/2 → ctx_239111fefbee (+E2E 키보드 완주·편집 블록 승인 영속 확인) | reviews/M23-UIR-1.md | orchestrator |
 | 2026-11-11 13:18 | M4-01 질문: bytea 컬럼 종류 → 범위 확장 승인(types.ts ColumnKind + 기존 types.test.ts 매핑 1줄 추가, 추가만) | msg_65b223a59c83 | orchestrator |
