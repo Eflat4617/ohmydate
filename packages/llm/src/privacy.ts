@@ -444,15 +444,18 @@ function nextStart(map: IndexMap, index: number): number {
   return index + 1;
 }
 
+/**
+ * Convert a *char index* (the value `sourceAt` returns) to an original code-unit offset.
+ * Compact maps are pure ASCII, so an original char index already equals its code-unit
+ * offset: never index `compactSource` again with it.
+ */
 function charStart(map: IndexMap, index: number): number {
-  if (map.ascii) return index;
-  if (map.compact === true) return compactSource(map)[index] ?? index;
+  if (map.ascii || map.compact === true) return index;
   return map.chars[index]?.start ?? index;
 }
 
 function charEnd(map: IndexMap, index: number): number {
-  if (map.ascii) return index + 1;
-  if (map.compact === true) return (compactSource(map)[index] ?? index) + 1;
+  if (map.ascii || map.compact === true) return index + 1;
   return map.chars[index]?.end ?? index + 1;
 }
 

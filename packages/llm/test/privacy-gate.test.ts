@@ -213,11 +213,11 @@ const JOIN_SEPARATORS = ['', ' ', '\u200B', '\u200C', '\u00AD'] as const;
 
 /**
  * ADR-019 (10): same-kind glued numeric windows and 3+ glued chains are out of scope
- * (FU-32 leaks them too). The corpus still generates them; only these named cases are
- * excluded from the "must mask" and "no regression" assertions, and each is pinned with
- * its exact current output in privacy.test.ts.
+ * (FU-32 leaks them too). The corpus still generates them; these named cases are the only
+ * no-regression exemptions, and each is pinned with its exact current output in
+ * privacy.test.ts.
  */
-const KNOWN_OUT_OF_SCOPE: ReadonlySet<string> = new Set([
+const ADR_OUT_OF_SCOPE_CASES: ReadonlySet<string> = new Set([
   'pair rrn ascii join=""',
   'pair rrn super join=""',
   'pair rrn sub join=""',
@@ -228,11 +228,24 @@ const KNOWN_OUT_OF_SCOPE: ReadonlySet<string> = new Set([
   'pair phone mixed join=""',
   'triple rrn/phone/rrn join=""',
   'triple phone join=""',
+]);
+
+/**
+ * Oracle must-mask exceptions are kept separate from the no-regression exemptions. The
+ * glued `ghp_` pair is a pre-existing FU-32 limitation (both implementations leave it
+ * unmasked), so it is not ADR-authorized and is *not* exempted from the A/B comparison.
+ */
+const ORACLE_MUST_MASK_EXCEPTIONS: ReadonlySet<string> = new Set([
+  ...ADR_OUT_OF_SCOPE_CASES,
   'key pair ghp_aaaaaaaa join=""',
 ]);
 
 function isOutOfScopeCase(name: string): boolean {
-  return KNOWN_OUT_OF_SCOPE.has(name);
+  return ADR_OUT_OF_SCOPE_CASES.has(name);
+}
+
+function isOracleMustMaskException(name: string): boolean {
+  return ORACLE_MUST_MASK_EXCEPTIONS.has(name);
 }
 
 const RRN_SPEC = NUMERIC_TOKENS[0] as TokenSpec;
@@ -355,7 +368,7 @@ test('gate corpus is non-trivial and deterministic', () => {
 test('scanner masks every core glyph the independent oracle finds', () => {
   const failures: string[] = [];
   for (const entry of CASES) {
-    if (isOutOfScopeCase(entry.name)) continue;
+    if (isOracleMustMaskException(entry.name)) continue;
     const result = redactWithSpans(entry.text);
     const coverage = coverageFromSpans(entry.text.length, result.spans);
     const oracle = oracleCoverage(entry.text);
@@ -466,11 +479,10 @@ function generatedAbCorpus(): readonly Case[] {
   return cases;
 }
 
+/** Only ADR-019 (10) same-kind glued numeric windows are exempt; permutations stay in. */
 function isOutOfScopeGenerated(name: string): boolean {
   return (
-    (name.startsWith('216k same2 ') ||
-      name.startsWith('216k same3 ') ||
-      name.startsWith('216k perms ')) &&
+    (name.startsWith('216k same2 ') || name.startsWith('216k same3 ')) &&
     name.endsWith('join=""')
   );
 }
@@ -768,6 +780,203 @@ const SHORT_PLUS_NUMERICS = [
 
 test.each(SHORT_PLUS_NUMERICS)('short + numeric stays unmasked: %s', (input) => {
   expect(redact(input)).toEqual({ text: input, report: [] });
+});
+
+/**
+ * FU-38dR-1 HIGH: the compact ASCII whitespace-fold map must convert a span from
+ * normalised to original coordinates exactly once. These assertions pin the exact
+ * original span (not just "something masked") for every token kind after folded
+ * whitespace, with trailing prose to expose any displacement.
+ */
+const WHITESPACE_TOKEN_CASES: readonly { readonly kind: RedactionKind; readonly token: string }[] =
+  [
+    { kind: 'phone', token: '010-1234-5678' },
+    { kind: 'phone', token: '+82 10-1234-5678' },
+    { kind: 'rrn', token: '900101-1234567' },
+    { kind: 'email', token: 'jane.doe+plan@example.co.kr' },
+    { kind: 'api_key', token: 'sk-proj-abcdefgh12345678' },
+    { kind: 'api_key', token: 'tk_live_abcdefgh12345678' },
+    { kind: 'api_key', token: 'pk_live_abcdefgh12345678' },
+    { kind: 'api_key', token: 'ghp_abcdefghijklmnopqrstuvwx' },
+    { kind: 'api_key', token: 'github_pat_abcdefghijklmnopqrstuvwx' },
+    { kind: 'api_key', token: 'glpat-abcdefghij1234567890' },
+    { kind: 'api_key', token: 'AKIAIOSFODNN7EXAMPLE' },
+    { kind: 'api_key', token: 'xoxb-1234567890-abcdefghij' },
+    { kind: 'api_key', token: 'AIzaSyA1234567890abcdefghijklmnopqrstuvw' },
+    {
+      kind: 'api_key',
+      token: 'Bearer eyJhbGciOi.eyJzdWIiOi.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
+    },
+  ];
+
+const WHITESPACE_CONTEXTS = [
+  { name: 'LF paragraph', prefix: 'x\n\n', suffix: ' trailing prose' },
+  { name: 'CRLF paragraph', prefix: 'x\r\n\r\n', suffix: ' trailing prose' },
+  { name: 'spaces and tabs', prefix: 'x \t \t ', suffix: '\t trailing prose' },
+  {
+    name: 'long spaces',
+    prefix: `x${' '.repeat(40)}`,
+    suffix: ` following prose ${' following prose '.repeat(4)}`,
+  },
+  {
+    name: 'long mixed whitespace',
+    prefix: `x${' \t\n'.repeat(15)}`,
+    suffix: ` following prose ${' following prose '.repeat(4)}`,
+  },
+] as const;
+
+test.each(WHITESPACE_CONTEXTS)(
+  'folded whitespace keeps exact original spans and full coverage ($name)',
+  ({ prefix, suffix }) => {
+    const failures: string[] = [];
+    for (const { kind, token } of WHITESPACE_TOKEN_CASES) {
+      const text = `${prefix}${token}${suffix}`;
+      const expectedStart = prefix.length;
+      const expectedEnd = expectedStart + token.length;
+      const result = redactWithSpans(text);
+      const exact =
+        result.spans.length === 1 &&
+        result.spans[0]?.start === expectedStart &&
+        result.spans[0]?.end === expectedEnd &&
+        result.spans[0]?.kind === kind;
+      if (!exact) {
+        failures.push(
+          `${kind} ${JSON.stringify(token)} spans=${JSON.stringify(result.spans)} expected=[${expectedStart},${expectedEnd}) out=${JSON.stringify(result.text)}`,
+        );
+        continue;
+      }
+      const coverage = coverageFromSpans(text.length, result.spans);
+      for (let index = expectedStart; index < expectedEnd; index += 1) {
+        if (/\s/.test(text[index] as string)) continue;
+        if (coverage[index] !== 1) {
+          failures.push(
+            `${kind} ${JSON.stringify(token)} missed glyph ${index}:${JSON.stringify(text[index])}`,
+          );
+          break;
+        }
+      }
+    }
+    expect(failures).toEqual([]);
+  },
+);
+
+/** Folding inside a token and between multiple tokens keeps each original span exact. */
+const MULTI_FOLDED_CASES = [
+  {
+    name: 'folded phone groups',
+    text: 'intro\n\n010 \t 1234   5678 trailing prose',
+    tokens: [{ kind: 'phone', value: '010 \t 1234   5678' }],
+  },
+  {
+    name: 'folded RRN groups after CRLF',
+    text: 'x\r\n\r\n900101 \t 1234567 trailing prose',
+    tokens: [{ kind: 'rrn', value: '900101 \t 1234567' }],
+  },
+  {
+    name: 'two numeric tokens with folded whitespace between',
+    text: 'x\n\n010-1234-5678 \t\n  900101-1234567 trailing prose',
+    tokens: [
+      { kind: 'phone', value: '010-1234-5678' },
+      { kind: 'rrn', value: '900101-1234567' },
+    ],
+  },
+  {
+    name: 'email and phone after separate paragraphs',
+    text: 'x\n\na\n\njane.doe@example.com\n\n010-1234-5678 trailing prose',
+    tokens: [
+      { kind: 'email', value: 'jane.doe@example.com' },
+      { kind: 'phone', value: '010-1234-5678' },
+    ],
+  },
+  {
+    name: 'key and phone with long folded whitespace before both',
+    text: `x${' '.repeat(30)}sk-proj-abcdefgh12345678 \t\t 010-1234-5678 trailing prose`,
+    tokens: [
+      { kind: 'api_key', value: 'sk-proj-abcdefgh12345678' },
+      { kind: 'phone', value: '010-1234-5678' },
+    ],
+  },
+] as const;
+
+test.each(MULTI_FOLDED_CASES)(
+  'folded whitespace inside/between tokens maps spans exactly ($name)',
+  ({ text, tokens }) => {
+    const expected: { start: number; end: number; kind: string }[] = [];
+    let cursor = 0;
+    for (const token of tokens) {
+      const start = text.indexOf(token.value, cursor);
+      expect(start).toBeGreaterThanOrEqual(0);
+      expected.push({ start, end: start + token.value.length, kind: token.kind });
+      cursor = start + token.value.length;
+    }
+    const result = redactWithSpans(text);
+    expect(result.spans.map(({ start, end, kind }) => ({ start, end, kind }))).toEqual(expected);
+  },
+);
+
+/**
+ * Seeded whitespace-context A/B: folded whitespace before, inside and after tokens,
+ * including ASCII paragraph breaks (compact path) and U+3000/NBSP/EM-space (generic map).
+ */
+function seededWhitespaceCorpus(): readonly { readonly name: string; readonly text: string }[] {
+  const random = mulberry32(0x128acf21);
+  const pick = <T>(values: readonly T[]): T =>
+    values[Math.floor(random() * values.length)] as T;
+  const int = (min: number, max: number): number =>
+    min + Math.floor(random() * (max - min + 1));
+  const whitespace = [' ', '  ', '   ', '\t', '\t ', '\n', '\r\n', '\n\n', ' \t ', '\u3000', '\u00A0', '\u2003'] as const;
+  const numeric = [
+    ['010', '1234', '5678'],
+    ['02', '123', '4567'],
+    ['+82', '10', '1234', '5678'],
+    ['900101', '1234567'],
+    ['870304', '2345678'],
+  ] as const;
+  const literals = WHITESPACE_TOKEN_CASES.map((entry) => entry.token);
+  const cases: { name: string; text: string }[] = [];
+  for (let index = 0; index < 2_400; index += 1) {
+    const lead = random() < 0.5 ? 'x' : '';
+    const before = Array.from({ length: int(0, 4) }, () => pick(whitespace)).join('');
+    const after = `${Array.from({ length: int(1, 3) }, () => pick(whitespace)).join('')} trailing prose `;
+    let body: string;
+    if (random() < 0.5) {
+      const groups = pick(numeric);
+      const separator = pick(['-', ' ', '\t', '  ', '\n', '\r\n']);
+      body = groups.join(separator);
+    } else {
+      body = pick(literals);
+    }
+    if (random() < 0.25) {
+      const groups = pick(numeric);
+      const separator = pick(['-', ' ', '\t']);
+      body = `${body}${pick(whitespace)}${pick(whitespace)}${groups.join(separator)}`;
+    }
+    cases.push({ name: `ws ${index}`, text: `${lead}${before}${body}${after}` });
+  }
+  return cases;
+}
+
+test('seeded whitespace-context A/B has zero per-glyph regressions vs FU-32', () => {
+  const corpus = seededWhitespaceCorpus();
+  expect(corpus).toHaveLength(2_400);
+  const failures: string[] = [];
+  for (const entry of corpus) {
+    const current = coverageFromSpans(entry.text.length, redactWithSpans(entry.text).spans);
+    const snapshot = coverageFromSpans(
+      entry.text.length,
+      snapshotRedactWithSpans(entry.text).spans,
+    );
+    for (let index = 0; index < entry.text.length; index += 1) {
+      if (snapshot[index] === 1 && current[index] === 0) {
+        failures.push(
+          `${entry.name} regressed glyph ${index}:${JSON.stringify(entry.text[index])} text=${JSON.stringify(entry.text)}`,
+        );
+        break;
+      }
+    }
+    if (failures.length > 10) break;
+  }
+  expect(failures).toEqual([]);
 });
 
 test('MAX_REDACT_INPUT guard documents and enforces the input cap', () => {
