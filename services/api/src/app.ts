@@ -385,6 +385,27 @@ function createPgSpendLedger(db: Kysely<Database>): LlmSpendLedger {
         await sql`select pg_advisory_xact_lock(hashtextextended(${input.ownerId}, 0))`.execute(
           trx,
         );
+        // On-demand stale recovery: settle abandoned reservations at their
+        // reserved amount inside the same lock. Never release them, because the
+        // provider may already have billed the attempt.
+        const staleCutoff = new Date(
+          Date.parse(input.createdAt) - input.staleAfterMs,
+        );
+        await trx
+          .updateTable('llm_spend')
+          .set({
+            state: 'settled',
+            actual_usd: sql`reserved_usd`,
+            input_tokens: 0,
+            output_tokens: 0,
+            cached_tokens: 0,
+            settled_at: new Date(input.createdAt),
+            settle_reason: 'recovered',
+          })
+          .where('owner_id', '=', input.ownerId as Id)
+          .where('state', '=', 'reserved')
+          .where('created_at', '<', staleCutoff)
+          .execute();
         const spent = await totalsQuery(trx, input.ownerId, input.dayStart, input.monthStart);
         if (spent.dayUsd + input.estimateUsd > input.dailyLimitUsd) {
           throw new BudgetExceeded(
@@ -413,6 +434,7 @@ function createPgSpendLedger(db: Kysely<Database>): LlmSpendLedger {
             input_tokens: 0,
             output_tokens: 0,
             cached_tokens: 0,
+            created_at: new Date(input.createdAt),
           })
           .execute();
       });
@@ -439,6 +461,7 @@ function createPgSpendLedger(db: Kysely<Database>): LlmSpendLedger {
             output_tokens: input.outputTokens,
             cached_tokens: input.cachedTokens,
             settled_at: input.settledAt,
+            settle_reason: input.reason ?? 'actual',
           })
           .where('id', '=', input.id as Id)
           .where('state', '=', 'reserved')

@@ -18,7 +18,12 @@ CREATE TABLE llm_spend (
   cached_tokens integer NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now(),
   settled_at timestamptz,
+  settle_reason text,
   CONSTRAINT llm_spend_state_valid CHECK (state IN ('reserved', 'settled', 'released')),
+  CONSTRAINT llm_spend_settle_reason_valid CHECK (
+    settle_reason IS NULL
+    OR settle_reason IN ('actual', 'reserved_fallback', 'recovered')
+  ),
   CONSTRAINT llm_spend_purpose_present CHECK (char_length(purpose) BETWEEN 1 AND 200),
   CONSTRAINT llm_spend_reserved_non_negative CHECK (reserved_usd >= 0),
   CONSTRAINT llm_spend_actual_non_negative CHECK (actual_usd IS NULL OR actual_usd >= 0),
@@ -28,6 +33,9 @@ CREATE TABLE llm_spend (
   CONSTRAINT llm_spend_cached_le_input CHECK (cached_tokens <= input_tokens),
   CONSTRAINT llm_spend_settled_consistent CHECK (
     (state = 'settled') = (settled_at IS NOT NULL)
+  ),
+  CONSTRAINT llm_spend_settled_reason_consistent CHECK (
+    (state = 'settled') = (settle_reason IS NOT NULL)
   )
 );
 

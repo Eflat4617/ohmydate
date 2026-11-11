@@ -48,13 +48,20 @@ export {
 } from './policy-llm.js';
 
 export {
+  DEFAULT_LLM_MAX_RETRIES,
+  DEFAULT_LLM_REQUEST_TIMEOUT_MS,
+  DEFAULT_STALE_RESERVATION_MARGIN_MS,
   InMemorySpendLedger,
   estimateInputTokensFromChars,
+  estimateInputTokensUpperBound,
   estimateReservationUsd,
+  roundUpToMicroUsd,
+  staleReservationThresholdMs,
   type LlmSpendLedger,
   type LlmSpendReserveInput,
   type LlmSpendRow,
   type LlmSpendSettleInput,
+  type LlmSpendSettleReason,
   type LlmSpendTotals,
 } from './spend-ledger.js';
 

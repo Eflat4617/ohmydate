@@ -401,6 +401,7 @@ export interface LlmSpendTable {
   cached_tokens: Col<'integer', false, true>;
   created_at: Col<'timestamptz', false, true>;
   settled_at: Col<'timestamptz', true, false>;
+  settle_reason: Col<'text', true, false>;
 }
 
 export interface AgentProposalTable {
@@ -1003,6 +1004,7 @@ export const databaseTables = {
     cached_tokens: col('integer', false, true),
     created_at: col('timestamptz', false, true),
     settled_at: col('timestamptz', true, false),
+    settle_reason: col('text', true, false),
   },
   agent_proposal: {
     id: col('uuid', false, false),

@@ -89,7 +89,7 @@ const defaultSleep = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
-const STRICT_JSON_INSTRUCTION =
+export const STRICT_JSON_INSTRUCTION =
   '\n\nReturn only a single valid JSON object that matches the requested schema. ' +
   'Do not wrap it in Markdown fences and do not add prose outside the JSON.';
 

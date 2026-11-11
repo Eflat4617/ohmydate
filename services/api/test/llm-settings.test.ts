@@ -662,4 +662,108 @@ describe.skipIf(!hasDatabaseEnv)('LLM settings and consent wiring', () => {
       });
     }
   });
+
+  test('S2 stale reservations are recovered at the reserved amount before the next dispatch', async () => {
+    let calls = 0;
+    const server = createServer((_request, response) => {
+      calls += 1;
+      response.writeHead(200, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          model: 'deepseek-v4.1-flash',
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  classification: 'new',
+                  confidence: 0.9,
+                  reasons: ['stale recovery'],
+                }),
+              },
+            },
+          ],
+          usage: { prompt_tokens: 10, completion_tokens: 5 },
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const ctx = await createTestContext({
+      config: {
+        llmProvider: 'deepseek',
+        llmBaseUrl: `http://127.0.0.1:${String(port)}`,
+      },
+      llmApiKey: 'sk-synthetic-stale-recovery',
+    });
+    const ownerId = await ctx.seedUser({
+      email: 'llm-stale-recovery@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'llm-stale-recovery@example.com', 'correct-horse');
+    try {
+      const me = await ctx.app.inject({
+        method: 'GET',
+        url: '/api/v1/me',
+        headers: authHeaders(session),
+      });
+      const user = me.json() as User;
+      const saved = await ctx.app.inject({
+        method: 'PATCH',
+        url: '/api/v1/me/settings',
+        headers: authHeaders(session, {
+          'if-match': `W/"${user.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: {
+          llm: {
+            consent: { granted: true },
+            budget: { dailyUsd: 1, monthlyUsd: 5 },
+          },
+        },
+      });
+      expect(saved.statusCode).toBe(200);
+
+      // Simulate a process that reserved before dispatch and crashed.
+      const staleId = ctx.ids.next();
+      await ctx.db
+        .insertInto('llm_spend')
+        .values({
+          id: staleId,
+          owner_id: ownerId,
+          purpose: 'type_detection@v1',
+          state: 'reserved',
+          reserved_usd: '0.05',
+          input_tokens: 0,
+          output_tokens: 0,
+          cached_tokens: 0,
+          created_at: new Date(Date.parse(ctx.clock.now()) - 60 * 60 * 1000),
+        })
+        .execute();
+
+      const created = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/intake-sessions',
+        headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+        payload: { input },
+      });
+      expect(created.statusCode).toBe(201);
+      expect(calls).toBe(1);
+
+      const stale = await ctx.db
+        .selectFrom('llm_spend')
+        .selectAll()
+        .where('id', '=', staleId)
+        .executeTakeFirstOrThrow();
+      expect(stale.state).toBe('settled');
+      expect(stale.settle_reason).toBe('recovered');
+      expect(stale.actual_usd).toBe(stale.reserved_usd);
+      expect(stale.settled_at).not.toBeNull();
+      expect(stale.input_tokens).toBe(0);
+      expect(stale.output_tokens).toBe(0);
+    } finally {
+      await ctx.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error === undefined ? resolve() : reject(error)));
+      });
+    }
+  });
 });
