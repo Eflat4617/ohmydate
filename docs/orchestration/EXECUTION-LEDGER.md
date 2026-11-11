@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 14:08 | M4-03 worker_done(ee58086, web 128 tests). 리뷰는 M4-02 병합 후 실제 API 연결 + E2E-4와 함께(M23 방식). M4-02 범위 확장: GET /sessions/{id}, GET /sessions?state=active, FU-51 GET /schedule-blocks | worker report | orchestrator |
 | 2026-11-11 13:50 | **M2·M3 기능 완료**: M23-UI 병합으로 E2E-2·E2E-3 통과(8/8). M4-01 병합. FU-50(성능 테스트 부하 흔들림) 작업 시작 | e2e, ci | orchestrator |
 | 2026-11-11 13:35 | **M4-01R-1 REQUEST_CHANGES (Sol medium)**: HIGH — sent 알림을 dismissed로 바꾸면 CHECK 위반(sent_at 삭제 강요). MEDIUM — Today 제안 승인의 가용성 변경 감지 미정의 → **결정: 일정안 승인과 같은 If-Match availability + 기준 스냅샷**. LOW — 오프라인 시각 규칙 문서화. 수정 1/2 → ctx_74866a5678b7, M4-02/M4-03에 예고 | reviews/M4-01R-1.md | orchestrator |
 | 2026-11-11 13:25 | M4-01 질문: 0009로 기존 마이그레이션 테스트 2개 갱신 필요 → 추가만 승인(migrate.test.ts, planning-schema.test.ts). 이후 새 마이그레이션의 기존 픽스처 테스트 추가 갱신은 사전 승인 | msg_eb1847b58fe0 | orchestrator |
