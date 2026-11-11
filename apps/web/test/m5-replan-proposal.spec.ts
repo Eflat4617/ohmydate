@@ -1,13 +1,16 @@
 import { flushPromises } from '@vue/test-utils';
+import { HttpResponse, http } from 'msw';
 import { isUuidV7Key, plannerClient } from '../src/api';
 import ReplanRequestButton from '../src/components/ReplanRequestButton.vue';
-import { TODAY_TASK_ONE_TITLE, TODAY_TASK_TWO_TITLE, mockDb } from '../src/mocks/db';
+import { TODAY_TASK_ONE_TITLE, TODAY_TASK_TWO_ID, TODAY_TASK_TWO_TITLE, mockDb } from '../src/mocks/db';
 import {
   LOCKED_BLOCK_ID,
   MOCK_PLAN_ID,
   REPLAN_PENDING_ID,
+  REPLAN_REJECTED_ID,
   seedReplanScenario,
 } from '../src/mocks/replan';
+import { server } from '../src/mocks/server';
 import { rememberActivePlan, rememberedActivePlan } from '../src/session/activePlan';
 import { useOfflineStore } from '../src/stores/offline';
 import ReplanProposalView from '../src/views/ReplanProposalView.vue';
@@ -84,14 +87,66 @@ describe('Replan proposal detail (M5-03)', () => {
     wrapper.unmount();
   });
 
-  it('keeps server free text under “계산 근거 (원문)” marked lang="en"', async () => {
+  it('renders coded explanation items in Korean (FU-62) and keeps the original lines only as fallback', async () => {
     const { wrapper } = await mountPending();
-    const details = wrapper.get('.replan-explanation');
+    const details = wrapper.get('.replan-explanation details');
+    expect(details.attributes('data-explanation')).toBe('coded');
+    expect(details.get('summary').text()).toBe('계산 근거');
+    expect(details.get('ul').attributes('lang')).toBeUndefined();
+    expect(details.text()).toContain('하드 제약(H1~H8)을 모두 지켰어요.');
+    expect(details.text()).toContain('기존 블록 2개는 그대로 뒀어요.');
+    expect(details.text()).not.toContain('Placed 175');
+    expect(wrapper.get('.replan-why').text()).not.toMatch(/[A-Za-z]{4,}/);
+    wrapper.unmount();
+  });
+
+  it('keeps a pre-FU-62 proposal’s lines under “계산 근거 (원문)” marked lang="en" (negative)', async () => {
+    seedReplanScenario(mockDb, { history: true });
+    const { wrapper } = await mountView(ReplanProposalView, {
+      path: `/replan/${REPLAN_REJECTED_ID}`,
+      props: { id: REPLAN_REJECTED_ID },
+    });
+    await waitForText(wrapper, '거절됨');
+    const details = wrapper.get('.replan-explanation details');
+    expect(details.attributes('data-explanation')).toBe('original');
     expect(details.get('summary').text()).toBe('계산 근거 (원문)');
     expect(details.get('ul').attributes('lang')).toBe('en');
-    expect(details.text()).toContain('Replan scope');
-    // Outside the details element no English explanation leaks onto the screen.
-    expect(wrapper.get('.replan-why').text()).not.toMatch(/[A-Za-z]{4,}/);
+    wrapper.unmount();
+  });
+
+  it('shows a 422 constraint_violation with coded Korean findings', async () => {
+    const { wrapper } = await mountPending();
+    server.use(
+      http.post(/\/api\/v1\/replan-proposals\/([^/]+):approve$/, () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Constraint violation',
+            status: 422,
+            code: 'constraint_violation',
+            detail: 'scheduler findings',
+            violations: [
+              {
+                code: 'H1',
+                message: 'Block overlaps a commitment',
+                messageCode: 'h1_commitment_overlap',
+                params: { taskId: TODAY_TASK_TWO_ID, startAt: '2026-11-16T02:00:00Z', endAt: '2026-11-16T02:40:00Z' },
+              },
+            ],
+          },
+          { status: 422, headers: { 'Content-Type': 'application/problem+json' } },
+        ),
+      ),
+    );
+    await buttonWith(wrapper, '승인').trigger('click');
+    await waitForText(wrapper, '일정 규칙에 맞지 않아요.');
+    const findings = wrapper.get('.replan-violations');
+    expect(findings.text()).toContain('H1');
+    expect(findings.get('[data-coded]').attributes('data-coded')).toBe('true');
+    expect(findings.text()).toContain(TODAY_TASK_TWO_TITLE);
+    expect(findings.text()).toContain('오전 11:00~11:40');
+    expect(findings.text()).not.toContain('Block overlaps a commitment');
+    expect(mockDb.replanProposals.get(REPLAN_PENDING_ID)?.state).toBe('pending');
     wrapper.unmount();
   });
 

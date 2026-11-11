@@ -2259,7 +2259,14 @@
 
 .replan-explanation {
   margin-top: var(--space-4);
+}
+
+.replan-explanation .candidate-explanation {
   padding: 0;
+}
+
+.replan-violations .violation-list {
+  margin-top: var(--space-2);
 }
 
 .replan-action-buttons {

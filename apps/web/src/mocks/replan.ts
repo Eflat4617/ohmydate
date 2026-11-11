@@ -228,7 +228,17 @@ function requestedCandidate(db: MockDb, since: number): ReplanCandidate {
     changedBlocks: last === undefined ? 0 : 2,
     bound: 2 * blocks.length + 2,
     flags: [],
-    explanation: ['User-requested replan over every open task of the plan.', 'Kept every other block in place.'],
+    explanation: [
+      `Placed ${total} of ${total} required minutes in ${blocks.length} block(s); retained ${Math.max(0, blocks.length - 1)} seed block(s).`,
+      'All hard constraints H1-H8 satisfied.',
+    ],
+    explanationItems: [
+      {
+        code: 'placement_summary',
+        params: { requiredMin: total, placedMin: total, blockCount: blocks.length, retainedCount: Math.max(0, blocks.length - 1) },
+      },
+      { code: 'constraints_satisfied', params: {} },
+    ],
   };
 }
 
@@ -343,8 +353,12 @@ export function seedReplanScenario(db: MockDb, options: ReplanScenarioOptions = 
       bound: 4,
       flags: [],
       explanation: [
-        'Replan scope: 1 affected task(s) after a commitment overlap.',
-        'Changed 2 block(s) within the bound of 4; 2 existing block(s) kept in place.',
+        'Placed 175 of 175 required minutes in 3 block(s); retained 2 seed block(s).',
+        'All hard constraints H1-H8 satisfied.',
+      ],
+      explanationItems: [
+        { code: 'placement_summary', params: { requiredMin: 175, placedMin: 175, blockCount: 3, retainedCount: 2 } },
+        { code: 'constraints_satisfied', params: {} },
       ],
     },
     db.availabilityVersion,
@@ -389,7 +403,8 @@ export function seedReplanScenario(db: MockDb, options: ReplanScenarioOptions = 
           detectedAt: '2026-11-12T07:00:00.000Z',
           affectedTaskIds: [TODAY_TASK_TWO_ID],
         },
-        { ...quiet, flags: ['capacity_deficit'] },
+        // Persisted before FU-62: no coded items, so the original lines show.
+        { ...quiet, flags: ['capacity_deficit'], explanationItems: [] },
         1,
         '2026-11-12T07:00:00.000Z',
         2,

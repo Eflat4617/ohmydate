@@ -239,7 +239,10 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       await expect(locked).toContainText('고정됨');
       await expect(page.getByText('그 밖의 블록 2개는 그대로예요.')).toBeVisible();
       await expect(page.locator('[data-metric="slack"] td')).toHaveCount(2);
-      await expect(page.getByText('계산 근거 (원문)')).toBeVisible();
+      // FU-62: the API sends coded explanation items, rendered in Korean.
+      const explanation = page.locator('.replan-explanation details');
+      await expect(explanation).toHaveAttribute('data-explanation', 'coded');
+      await expect(explanation.locator('summary')).toHaveText('계산 근거');
       expect(await blockingAxeViolations(page)).toEqual([]);
     });
 

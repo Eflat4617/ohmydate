@@ -12,6 +12,7 @@ import {
   type Task,
   type Violation,
 } from '../api';
+import ExplanationList from '../components/ExplanationList.vue';
 import ReplanRequestButton from '../components/ReplanRequestButton.vue';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
@@ -130,6 +131,11 @@ const tasksById = computed(() => new Map((tasksQuery.data.value ?? []).map((task
 function titleOf(taskId: string): string {
   return tasksById.value.get(taskId)?.title ?? t('replan.taskFallback');
 }
+
+/** Task titles for FU-62 coded explanation/violation parameters. */
+const taskNames = computed<Record<string, string>>(() =>
+  Object.fromEntries((tasksQuery.data.value ?? []).map((task) => [task.id, task.title])),
+);
 
 const diff = computed(() => {
   const value = proposal.value;
@@ -615,12 +621,16 @@ function closeConflict(): void {
             <p v-else class="muted">{{ t('replan.diffEmpty') }}</p>
           </template>
 
-          <details v-if="proposal.candidate.explanation.length > 0" class="candidate-explanation replan-explanation">
-            <summary>{{ t('plan.explanation') }}</summary>
-            <ul class="explanation-list" lang="en">
-              <li v-for="(line, index) in proposal.candidate.explanation" :key="index">{{ line }}</li>
-            </ul>
-          </details>
+          <!-- FU-62: coded items render in Korean; rows without items keep
+               the original lines under "계산 근거 (원문)". -->
+          <div v-if="proposal.candidate.explanation.length > 0" class="replan-explanation">
+            <ExplanationList
+              :lines="proposal.candidate.explanation"
+              :items="proposal.candidate.explanationItems"
+              :time-zone="timeZone"
+              :task-names="taskNames"
+            />
+          </div>
         </section>
 
         <UiCard v-if="pending" class="replan-actions" aria-labelledby="replan-actions-title">
@@ -628,9 +638,9 @@ function closeConflict(): void {
           <p class="muted">{{ t('replan.requestHelp') }}</p>
           <UiBanner v-if="actionError" tone="error" role="alert">
             <p>{{ actionError }}</p>
-            <ul v-if="violations.length > 0" class="violation-list" :aria-label="t('replan.violations')">
-              <li v-for="(violation, index) in violations" :key="index">{{ t(`violation.${violation.code}`) }}</li>
-            </ul>
+            <div v-if="violations.length > 0" class="replan-violations" :aria-label="t('replan.violations')" role="group">
+              <ExplanationList :violations="violations" :time-zone="timeZone" :task-names="taskNames" />
+            </div>
           </UiBanner>
           <div class="replan-action-buttons">
             <UiButton

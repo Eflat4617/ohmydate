@@ -201,7 +201,10 @@ The UI is Korean (`<html lang="ko">`). All copy lives in one bundled catalog,
   changed blocks* (옮김 / 줄어듦 / 늘어남 / 추가 / 빠짐 with `<del>` before and
   `<ins>` after times). Locked blocks are listed separately as unchanged with a
   lock icon and *고정됨* text; untouched blocks are a count. The scheduler's
-  free text stays in *계산 근거 (원문)* (`lang="en"`, FU-62). The diff is
+  reasons and 422 findings render through `ExplanationList` (FU-62 coded
+  `explanationItems` / violation `messageCode` in Korean); rows persisted
+  before FU-62 keep the original lines under *계산 근거 (원문)* (`lang="en"`).
+  The diff is
   computed client-side (`src/domain/replan.ts`) from `candidate.blocks` against
   the approved blocks from `trigger.detectedAt`.
 - **Actions.** *승인* sends `If-Match: W/"availability:<n>"` (the proposal's
