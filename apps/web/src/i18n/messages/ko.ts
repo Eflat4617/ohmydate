@@ -853,6 +853,8 @@ export const ko = {
     approval_in_progress: '승인을 처리하고 있어요. 잠시 뒤에 다시 시도해 주세요.',
     active_session_exists: '이미 진행 중인 집중 세션이 있어요.',
     session_state_conflict: '세션 상태가 바뀌어서 이 작업을 할 수 없어요.',
+    replan_suppressed: '지금은 재계획 제안을 더 만들 수 없어요. 잠시 뒤에 다시 시도해 주세요.',
+    proposal_state_conflict: '이 재계획 제안은 이미 처리됐거나 만료됐어요. 새로고침해 주세요.',
     not_found: '찾을 수 없어요. 이미 삭제됐을 수 있어요.',
     forbidden: '이 작업을 할 권한이 없어요.',
     rate_limited: '요청이 너무 많아요. 잠시 뒤에 다시 시도해 주세요.',

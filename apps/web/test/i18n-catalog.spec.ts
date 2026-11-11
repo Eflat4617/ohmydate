@@ -144,7 +144,7 @@ describe('catalog coverage of contract enums', () => {
 
   it('has a Korean message for every problem code in the exhaustive map, plus unknown', () => {
     const codes: ApiErrorCode[] = [...PROBLEM_CODE_LIST, 'unknown'];
-    expect(PROBLEM_CODE_LIST.length).toBe(19);
+    expect(PROBLEM_CODE_LIST.length).toBe(21);
     for (const code of codes) {
       expect(HANGUL.test(problemMessage(code)), code).toBe(true);
       expectKorean(`problem.${code}`);
