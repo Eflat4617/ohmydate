@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
+import { createRouter, createWebHistory, type RouteRecordRaw, type Router } from 'vue-router';
 import AvailabilityView from './views/AvailabilityView.vue';
 import CommitmentsView from './views/CommitmentsView.vue';
 import FocusView from './views/FocusView.vue';
@@ -54,7 +54,13 @@ export const router = createRouter({
   routes,
 });
 
-// ADR-023 guardrail: a page that is being hard-reset for another user does
-// not navigate any more. The reload itself picks the next location
-// (session/ownerEpoch.ts), so a late continuation cannot move the new user.
-router.beforeEach(() => !isPageSealed());
+/**
+ * ADR-023 guardrail: a page that is being hard-reset for another user does
+ * not navigate any more. The reload itself picks the next location
+ * (session/ownerEpoch.ts), so a late continuation cannot move the new user.
+ */
+export function refuseNavigationWhenSealed(target: Router): void {
+  target.beforeEach(() => !isPageSealed());
+}
+
+refuseNavigationWhenSealed(router);

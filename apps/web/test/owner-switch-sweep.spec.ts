@@ -10,6 +10,7 @@ import {
   type WorkSession,
 } from '../src/api';
 import NotificationsPanel from '../src/components/NotificationsPanel.vue';
+import WizardNotesPanel from '../src/components/notes/WizardNotesPanel.vue';
 import { setLayoutClock } from '../src/layout/clock';
 import {
   SEED_COMMITMENT_ID,
@@ -573,6 +574,34 @@ const CASES: OwnerSwitchCase[] = [
       await buttonByText(wrapper, '직접 작성으로 전환').trigger('click');
     },
   },
+  {
+    name: 'wizard notes: link a note to the plan goal',
+    covers: ['src/components/notes/WizardNotesPanel.vue', 'src/composables/notes.ts'],
+    seed: useTodayClock,
+    mount: (stage) => stage.mount(WizardNotesPanel, { props: { goalId: '01900000-0000-7000-8000-0000000000d1' } }),
+    ready: async (wrapper) => {
+      await wrapper.get('[data-wizard-notes-add]').trigger('click');
+      await vi.waitFor(() => expect(() => dialogByTitle('참고할 노트 고르기')).not.toThrow());
+      const picker = dialogByTitle('참고할 노트 고르기');
+      await vi.waitFor(() => expect(picker.querySelector(`[data-wizard-candidate="${NOTE_MEETING_ID}"]`)).not.toBeNull());
+    },
+    hold: { method: 'POST', path: '/links' },
+    act: async () => {
+      buttonInElement(dialogByTitle('참고할 노트 고르기'), '“발표 준비 회의” 이 계획에 연결').click();
+    },
+  },
+  {
+    name: 'layout settings: turn automatic switching off (clicked after the switch)',
+    covers: ['src/views/LayoutSettingsView.vue', 'src/stores/layout.ts', 'src/layout/prefs.ts'],
+    path: '/settings/layout',
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await vi.waitFor(() => expect(wrapper.find('[data-layout-auto]').exists()).toBe(true));
+    },
+    act: async (wrapper) => {
+      await wrapper.get('[data-layout-auto]').setValue(false);
+    },
+  },
 ];
 
 /** A planning session that already has a step draft (every question answered "모름"). */
@@ -673,6 +702,60 @@ afterEach(() => {
 });
 
 for (const testCase of CASES) sweepOwnerSwitch(testCase);
+
+// ── Manifest: no screen is left out ─────────────────────────────────────────
+
+/**
+ * Files that talk to the API or persist on the device but need no case of
+ * their own, each with the reason. Everything else that does must be listed
+ * in a case's `covers`.
+ */
+const EXEMPT: Record<string, string> = {
+  'src/components/notes/EvidenceList.vue': 'Reads only, through ownerFenced lookups; writes nothing.',
+  'src/components/notes/NoteAiUsage.vue': 'Reads only, through ownerFenced lookups; writes nothing.',
+  'src/components/ReplanBanner.vue': 'Reads only (owner-keyed query); writes nothing.',
+  'src/composables/relatedNotes.ts': 'Reads only, through ownerFenced lookups; writes nothing.',
+  'src/composables/useLatestReplanPlan.ts': 'Reads only (owner-keyed query); writes nothing.',
+  'src/layout/useTodaySnapshot.ts': 'Reads only (owner-keyed query); writes nothing.',
+  'src/views/ProjectDetailView.vue': 'Reads only; its task edits are TaskList / useTaskActions (inbox cases).',
+  'src/views/ProjectListView.vue': 'Reads only; writes nothing.',
+  'src/session/owner.ts': 'The device-level active-owner pointer; changed only by the owner change itself.',
+  'src/session/quarantine.ts': 'Durable focus quarantine, written under the journal lock; m4-owner-bound.spec.ts and owner-guardrail.spec.ts.',
+  'src/session/journal.ts': 'The focus journal; exercised through focusQueue (focus cases) and owner-guardrail.spec.ts.',
+};
+
+const SOURCES = import.meta.glob<string>('../src/**/*.{ts,vue}', { query: '?raw', import: 'default', eager: true });
+
+/** Talks to the API, or declares something it persists on the device. */
+const NEEDS_A_CASE = /\b[pP]lannerClient\b|\b(ownerSlot|deviceSlot|openDeviceDatabase)\(/;
+const NOT_APP_CODE = /^src\/(api|mocks)\/|^src\/session\/ownerStorage\.ts$/;
+
+describe('sweep manifest', () => {
+  const files = Object.entries(SOURCES)
+    .map(([path, source]) => ({ path: path.replace(/^\.\.\//, ''), source }))
+    .filter((file) => !NOT_APP_CODE.test(file.path));
+  const covered = new Set([
+    ...CASES.flatMap((testCase) => testCase.covers),
+    // The undo-delete describe block below.
+    'src/components/TaskList.vue',
+  ]);
+
+  it('every source file that talks to the API or persists on the device has a case or an exemption with a reason', () => {
+    const needing = files.filter((file) => NEEDS_A_CASE.test(file.source)).map((file) => file.path);
+    expect(needing.length).toBeGreaterThan(20);
+    expect(needing.filter((path) => !covered.has(path) && EXEMPT[path] === undefined)).toEqual([]);
+  });
+
+  it('names only files that exist, and exempts nothing a case already covers (negative)', () => {
+    const known = new Set(files.map((file) => file.path));
+    expect([...covered, ...Object.keys(EXEMPT)].filter((path) => !known.has(path))).toEqual([]);
+    expect(Object.keys(EXEMPT).filter((path) => covered.has(path))).toEqual([]);
+    // An exemption for a file that no longer needs one is stale.
+    const needing = new Set(files.filter((file) => NEEDS_A_CASE.test(file.source)).map((file) => file.path));
+    expect(Object.keys(EXEMPT).filter((path) => !needing.has(path))).toEqual([]);
+    expect(Object.values(EXEMPT).every((reason) => reason.length > 20)).toBe(true);
+  });
+});
 
 describe('inbox: delete with undo — the timer belongs to whoever clicked', () => {
   let stage: OwnerSwitchStage | null = null;

@@ -39,6 +39,9 @@ export default tseslint.config(
   },
   {
     files: ['src/**/*.ts', `src/${VUE_SCRIPT}`, 'test/**/*.ts'],
+    // Deliberately wrong code: test/owner-guardrail.spec.ts lints these
+    // fixtures as if they lived in src/ and expects them to fail.
+    ignores: ['test/fixtures/owner-isolation/**'],
     plugins: { 'owner-isolation': ownerIsolationPlugin },
     rules: { 'owner-isolation/bound-await': 'error' },
   },
