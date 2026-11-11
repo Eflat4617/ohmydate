@@ -844,11 +844,20 @@ export class PlanService {
   }
 }
 
+const MAX_WRITE_RRULE_COUNT = 1_000;
+
 export function validateRRule(rrule: string): void {
   try {
     // Parsing without expansion rejects unsupported FREQ/INTERVAL/UNTIL forms
-    // before they are persisted.
-    parseRRule(rrule);
+    // before they are persisted. The adapter still accepts up to 2,000 COUNT
+    // for legacy stored rows, but new writes are capped so COUNT expansion
+    // stays cheap (M3-04cR-1).
+    const rule = parseRRule(rrule);
+    if (rule.count !== undefined && rule.count > MAX_WRITE_RRULE_COUNT) {
+      throw new InvalidRRuleError(
+        `RRULE COUNT must be at most ${MAX_WRITE_RRULE_COUNT}`,
+      );
+    }
   } catch (error) {
     if (error instanceof InvalidRRuleError) {
       throw new ValidationFailedError([{ path: '/rrule', message: error.message }]);

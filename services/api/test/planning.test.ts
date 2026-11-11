@@ -1404,6 +1404,21 @@ describe.skipIf(!hasDatabase)('planning API (M3-04)', () => {
     expect(rejected.statusCode).toBe(422);
     expect(JSON.stringify(rejected.json())).toContain('/startAt');
 
+    const tooMany = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/commitments',
+      headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+      payload: {
+        title: 'Too many occurrences',
+        startAt: '2026-11-11T09:00:00Z',
+        endAt: '2026-11-11T10:00:00Z',
+        timeZone: 'UTC',
+        rrule: 'FREQ=DAILY;COUNT=1001',
+      },
+    });
+    expect(tooMany.statusCode).toBe(422);
+    expect(JSON.stringify(tooMany.json())).toContain('/rrule');
+
     const legacyId = ctx.ids.next();
     await ctx.db
       .insertInto('commitment_event')
@@ -1488,6 +1503,69 @@ describe.skipIf(!hasDatabase)('planning API (M3-04)', () => {
     });
     expect(patched.statusCode).toBe(422);
     expect(JSON.stringify(patched.json())).toContain('/startAt');
+  });
+
+  test('a legacy leap-day recurrence blocks its real 2028 occurrence in generation and approval', async () => {
+    const ownerId = await ctx.seedUser({
+      email: 'probe-r2@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'probe-r2@example.com', 'correct-horse');
+    const availabilityVersion = await putAvailability(ctx, session);
+    await ctx.db
+      .insertInto('commitment_event')
+      .values({
+        id: ctx.ids.next(),
+        owner_id: ownerId,
+        title: 'Legacy leap day',
+        start_at: new Date('2000-02-29T09:00:00Z'),
+        end_at: new Date('2000-02-29T10:00:00Z'),
+        rrule: 'FREQ=YEARLY;COUNT=10',
+        time_zone: 'UTC',
+        source: 'manual',
+      })
+      .execute();
+    const task = await seedTask(ctx, ownerId, {
+      title: 'Leap day task',
+      estimate: { p50Min: 60, p90Min: 60 },
+      splittable: false,
+    });
+    const horizon = {
+      start: '2028-02-29T09:00:00Z',
+      end: '2028-02-29T11:00:00Z',
+    };
+    const created = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/plans',
+      headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+      payload: { scope: { taskIds: [task.task.id] }, policies: ['balanced'], horizon },
+    });
+    expect(created.statusCode).toBe(201);
+    const plan = created.json() as Plan;
+    const candidate = plan.candidates[0];
+    expect(candidate).toBeDefined();
+    const occurrenceStart = Date.parse('2028-02-29T09:00:00Z');
+    const occurrenceEnd = Date.parse('2028-02-29T10:00:00Z');
+    const overlaps = (blocks: readonly { startAt: string; endAt: string }[]): boolean =>
+      blocks.some(
+        (block) =>
+          Date.parse(block.startAt) < occurrenceEnd && Date.parse(block.endAt) > occurrenceStart,
+      );
+    expect(overlaps(candidate?.blocks ?? [])).toBe(false);
+    expect(candidate?.feasible).toBe(true);
+
+    const approve = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/plans/${plan.id}/candidates/${candidate?.id}:approve`,
+      headers: authHeaders(session, {
+        'if-match': `W/"availability:${availabilityVersion}"`,
+        'idempotency-key': newIdempotencyKey(),
+      }),
+      payload: {},
+    });
+    expect(approve.statusCode).toBe(201);
+    const approved = approve.json() as { blocks: { startAt: string; endAt: string }[] };
+    expect(overlaps(approved.blocks)).toBe(false);
   });
 
   test('planner cache project rows use a neutral title unless a provider title is known (LOW)', async () => {

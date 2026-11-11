@@ -226,74 +226,86 @@ function localDateAt(ms: number, timeZone: string): Temporal.PlainDate {
 }
 
 /**
- * Count occurrences in `[startDate, endDateExclusive)` without materialising
- * them. Used to fast-forward COUNT rules past a far-away DTSTART.
+ * Yield the same valid dates as `matches()` in chronological order, walking
+ * whole periods instead of every calendar day. Invalid dates (Feb 29 outside
+ * a leap year, BYMONTHDAY=31 in a short month) are skipped, never constrained
+ * to a nearby day. COUNT rules use this path so their bounded match count is
+ * exact even when DTSTART is far from the query range; non-COUNT rules keep
+ * the day loop and fast-forward by whole periods (see expandOccurrences).
  */
-function countMatchesBefore(
+const MAX_PERIOD_ITERATIONS = 200_000;
+
+function* matchDates(
   rule: ParsedRule,
   startDate: Temporal.PlainDate,
-  endDate: Temporal.PlainDate,
-): number {
-  const startDay = dayNumber(startDate);
-  const endDay = dayNumber(endDate);
-  if (endDay <= startDay) return 0;
+  stopDate: Temporal.PlainDate,
+): Generator<Temporal.PlainDate> {
+  const after = (date: Temporal.PlainDate): boolean =>
+    Temporal.PlainDate.compare(date, stopDate) > 0;
+  let steps = 0;
+  const tick = (): void => {
+    steps += 1;
+    if (steps > MAX_PERIOD_ITERATIONS) {
+      throw new InvalidRRuleError('commitment recurrence expansion exceeded its safety bound');
+    }
+  };
   switch (rule.freq) {
     case 'DAILY': {
-      const span = endDay - startDay;
-      return Math.floor((span - 1) / rule.interval) + 1;
+      for (let date = startDate; ; date = date.add({ days: rule.interval })) {
+        tick();
+        if (after(date)) return;
+        yield date;
+      }
     }
     case 'WEEKLY': {
-      const allowed = rule.byDay.length === 0 ? [startDate.dayOfWeek] : rule.byDay;
-      const lastDay = endDay - startDay - 1;
-      const lastWeek = Math.floor((lastDay + startDate.dayOfWeek - 1) / 7);
-      let count = 0;
-      for (let week = 0; week <= lastWeek; week += rule.interval) {
+      const allowed = [
+        ...new Set(rule.byDay.length === 0 ? [startDate.dayOfWeek] : rule.byDay),
+      ].sort((left, right) => left - right);
+      for (let week = 0; ; week += rule.interval) {
+        tick();
         for (const weekday of allowed) {
           const offset = week * 7 - (startDate.dayOfWeek - 1) + (weekday - 1);
-          if (offset >= 0 && offset <= lastDay) count += 1;
+          if (offset < 0) continue;
+          const date = startDate.add({ days: offset });
+          if (after(date)) return;
+          yield date;
         }
       }
-      return count;
     }
     case 'MONTHLY': {
-      const allowed = rule.byMonthDay.length === 0 ? [startDate.day] : rule.byMonthDay;
-      let count = 0;
-      let cursor = Temporal.PlainYearMonth.from({ year: startDate.year, month: startDate.month });
-      while (true) {
-        const monthStart = cursor.toPlainDate({ day: 1 });
-        if (Temporal.PlainDate.compare(monthStart, endDate) >= 0) break;
-        const months = monthsBetween(startDate, monthStart);
-        if (months % rule.interval === 0) {
-          for (const day of allowed) {
-            if (day > cursor.daysInMonth) continue;
-            const date = cursor.toPlainDate({ day });
-            if (Temporal.PlainDate.compare(date, startDate) < 0) continue;
-            if (Temporal.PlainDate.compare(date, endDate) >= 0) continue;
-            count += 1;
-          }
+      const allowed = [
+        ...new Set(rule.byMonthDay.length === 0 ? [startDate.day] : rule.byMonthDay),
+      ].sort((left, right) => left - right);
+      let month = Temporal.PlainYearMonth.from({
+        year: startDate.year,
+        month: startDate.month,
+      });
+      for (;;) {
+        tick();
+        if (after(month.toPlainDate({ day: 1 }))) return;
+        for (const day of allowed) {
+          if (day > month.daysInMonth) continue;
+          const date = month.toPlainDate({ day });
+          if (Temporal.PlainDate.compare(date, startDate) < 0) continue;
+          if (after(date)) return;
+          yield date;
         }
-        cursor = cursor.add({ months: 1 });
+        month = month.add({ months: rule.interval });
       }
-      return count;
     }
     case 'YEARLY': {
-      let count = 0;
-      for (let year = startDate.year; year < endDate.year; year += rule.interval) {
-        let date: Temporal.PlainDate;
-        try {
-          date = Temporal.PlainDate.from({
-            year,
-            month: startDate.month,
-            day: startDate.day,
-          });
-        } catch {
-          continue;
-        }
-        if (Temporal.PlainDate.compare(date, startDate) < 0) continue;
-        if (Temporal.PlainDate.compare(date, endDate) >= 0) continue;
-        count += 1;
+      for (let year = startDate.year; ; year += rule.interval) {
+        tick();
+        const month = Temporal.PlainYearMonth.from({
+          year,
+          month: startDate.month,
+        });
+        if (after(month.toPlainDate({ day: 1 }))) return;
+        if (startDate.day > month.daysInMonth) continue;
+        const date = month.toPlainDate({ day: startDate.day });
+        if (after(date)) return;
+        yield date;
       }
-      return count;
     }
   }
 }
@@ -307,10 +319,12 @@ function countMatchesBefore(
  * instant and overlap wall times resolve to the first occurrence (Temporal's
  * "compatible" disambiguation, matching 08 §3). The query window must be at
  * most 366 days and expansion is capped at 2,000 occurrences. Unsupported
- * rules throw InvalidRRuleError, which callers map to 422. A DTSTART more
- * than ten years before the range is fast-forwarded by whole periods (so old
- * stored rows cannot poison every query); new writes are rejected by the
- * application layer instead.
+ * rules throw InvalidRRuleError, which callers map to 422. Non-COUNT rules
+ * whose DTSTART is more than ten years before the range are fast-forwarded by
+ * whole periods (so old stored rows cannot poison every query); new writes
+ * are rejected by the application layer instead. COUNT rules never
+ * fast-forward: they walk whole periods from DTSTART so the bounded match
+ * count stays exact, and create/patch cap COUNT at 1000.
  */
 export function expandOccurrences(
   commitment: RecurringCommitment,
@@ -350,19 +364,46 @@ export function expandOccurrences(
   );
   const localTime = start.toPlainTime();
   const startDate = start.toPlainDate();
+  const occurrences: Occurrence[] = [];
+
+  if (rule.count !== undefined) {
+    // COUNT is bounded by its own value: walk periods and count every valid
+    // date from DTSTART, independent of the query range (review finding R2).
+    let matched = 0;
+    const stopDate = localDateAt(toMs, commitment.timeZone);
+    for (const cursor of matchDates(rule, startDate, stopDate)) {
+      const occurrence = cursor.toPlainDateTime(localTime).toZonedDateTime(commitment.timeZone);
+      const occurrenceStartMs = occurrence.epochMilliseconds;
+      if (occurrenceStartMs >= toMs) break;
+      if (untilMs !== undefined && occurrenceStartMs > untilMs) break;
+      matched += 1;
+      const occurrenceEndMs = occurrenceStartMs + durationMs;
+      if (occurrenceEndMs > fromMs && occurrenceStartMs < toMs) {
+        occurrences.push({
+          startAt: occurrence.toInstant().toString(),
+          endAt: Temporal.Instant.fromEpochMilliseconds(occurrenceEndMs).toString(),
+        });
+        if (occurrences.length > MAX_OCCURRENCES) {
+          throw new InvalidRRuleError(
+            `commitment expands to more than ${MAX_OCCURRENCES} occurrences`,
+          );
+        }
+      }
+      if (matched >= rule.count) break;
+    }
+    return occurrences;
+  }
+
   let cursor = startDate;
-  let matched = 0;
   if (fromMs - startMs > MAX_LOOKBACK_MS) {
-    // Jump whole periods instead of rejecting: keep a one-day margin so an
-    // occurrence that starts before `from` but overlaps the range is still
-    // visited by the main loop.
+    // No COUNT: jump whole periods instead of rejecting. Keep a one-day
+    // margin so an occurrence that starts before `from` but overlaps the
+    // range is still visited by the day loop below.
     const target = localDateAt(Math.max(startMs, fromMs - durationMs - DAY_MS), commitment.timeZone);
     if (Temporal.PlainDate.compare(target, startDate) > 0) {
-      matched = countMatchesBefore(rule, startDate, target);
       cursor = target;
     }
   }
-  const occurrences: Occurrence[] = [];
   let guard = 0;
 
   while (guard < 40_000) {
@@ -374,8 +415,6 @@ export function expandOccurrences(
     if (untilMs !== undefined && occurrenceStartMs > untilMs) break;
 
     if (matches(rule, startDate, cursor)) {
-      matched += 1;
-      if (rule.count !== undefined && matched > rule.count) break;
       if (occurrenceEndMs > fromMs && occurrenceStartMs < toMs) {
         occurrences.push({
           startAt: occurrence.toInstant().toString(),

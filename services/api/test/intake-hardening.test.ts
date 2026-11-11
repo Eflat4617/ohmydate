@@ -1052,9 +1052,13 @@ describe.skipIf(!hasDatabase)('M2-03 hardening', () => {
     const session = await login(ctx, 'probe-j@example.com', 'correct-horse');
     try {
       const current = await createManualDecomposing(ctx, session, true);
-      const response = await approve(ctx, session, current.id, current.version);
+      const key = newIdempotencyKey();
+      const response = await approve(ctx, session, current.id, current.version, key);
       expect(response.statusCode).toBe(409);
       expect(response.json()).toMatchObject({ code: 'illegal_transition' });
+      const replay = await approve(ctx, session, current.id, current.version, key);
+      expect(replay.statusCode).toBe(409);
+      expect(replay.json()).toMatchObject({ code: 'illegal_transition' });
       const approval = await ctx.db
         .selectFrom('intake_approval')
         .select(['state'])

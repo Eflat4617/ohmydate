@@ -170,4 +170,51 @@ describe('bounded RRULE adapter', () => {
       '2026-01-01T09:00:00Z',
     ]);
   });
+
+  test('an exhausted YEARLY COUNT does not emit the first year of the range', () => {
+    const occurrences = expandOccurrences(
+      commitment(
+        '2000-01-01T09:00:00Z',
+        '2000-01-01T10:00:00Z',
+        'FREQ=YEARLY;COUNT=26',
+      ),
+      '2026-01-01T00:00:00Z',
+      '2026-12-01T00:00:00Z',
+    );
+    expect(occurrences).toEqual([]);
+  });
+
+  test('YEARLY COUNT on a leap-day DTSTART skips non-leap years without constraining', () => {
+    const occurrences = expandOccurrences(
+      commitment(
+        '2000-02-29T09:00:00Z',
+        '2000-02-29T10:00:00Z',
+        'FREQ=YEARLY;COUNT=10',
+      ),
+      '2028-02-28T00:00:00Z',
+      '2028-03-01T00:00:00Z',
+    );
+    expect(occurrences.map((entry) => entry.startAt)).toEqual([
+      '2028-02-29T09:00:00Z',
+    ]);
+  });
+
+  test('MONTHLY BYMONTHDAY=31 COUNT skips short months without consuming the count', () => {
+    const occurrences = expandOccurrences(
+      commitment(
+        '2026-01-31T09:00:00Z',
+        '2026-01-31T10:00:00Z',
+        'FREQ=MONTHLY;BYMONTHDAY=31;COUNT=5',
+      ),
+      '2026-01-01T00:00:00Z',
+      '2026-09-01T00:00:00Z',
+    );
+    expect(occurrences.map((entry) => entry.startAt)).toEqual([
+      '2026-01-31T09:00:00Z',
+      '2026-03-31T09:00:00Z',
+      '2026-05-31T09:00:00Z',
+      '2026-07-31T09:00:00Z',
+      '2026-08-31T09:00:00Z',
+    ]);
+  });
 });
