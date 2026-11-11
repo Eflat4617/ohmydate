@@ -7,11 +7,13 @@ import {
 } from '@ohmydate/domain';
 import type { Kysely } from 'kysely';
 import type { Database } from '../db/types.js';
-import type {
-  ExportArtifact,
-  ExportPayloadBuilder,
-  ExportRecord,
-  ExportStore,
+import {
+  EXPORT_TOO_LARGE_MESSAGE,
+  MAX_EXPORT_BYTES,
+  type ExportArtifact,
+  type ExportPayloadBuilder,
+  type ExportRecord,
+  type ExportStore,
 } from '../application/export-service.js';
 
 type Db = Kysely<Database>;
@@ -23,8 +25,6 @@ function toInstant(value: Date | string): Instant {
 function toDate(value: string): Date {
   return new Date(instantToEpochMs(value as Instant));
 }
-
-const MAX_EXPORT_BYTES = 52_428_800;
 
 export class PgExportStore implements ExportStore {
   readonly #db: Db;
@@ -81,7 +81,7 @@ export class PgExportStore implements ExportStore {
     expiresAt: Instant,
   ): Promise<ExportRecord> {
     if (content.byteLength > MAX_EXPORT_BYTES) {
-      throw new Error('export artifact exceeds the 50 MB limit');
+      throw new Error(EXPORT_TOO_LARGE_MESSAGE);
     }
     // One UPDATE writes artifact bytes, content type, size and state=ready, so
     // a failure leaves the job running/failed without a partial artifact.
@@ -171,12 +171,22 @@ export class PgExportStore implements ExportStore {
 /** Builds the JSON export artifact from owner-scoped tables only. */
 export class PgExportPayloadBuilder implements ExportPayloadBuilder {
   readonly #db: Db;
+  readonly #maxBytes: number;
 
-  constructor(options: { db: Db }) {
+  constructor(options: { db: Db; maxBytes?: number }) {
     this.#db = options.db;
+    this.#maxBytes = options.maxBytes ?? MAX_EXPORT_BYTES;
   }
 
   async build(ownerId: Id, now: Instant): Promise<Buffer> {
+    // FU-53: measure each section as it is read. Oversize exports abort before
+    // the remaining tables are fetched (and long before the whole artifact is
+    // materialized), reusing the established failure reason.
+    let approximateBytes = 0;
+    const consume = (value: unknown): void => {
+      approximateBytes += Buffer.byteLength(JSON.stringify(value), 'utf8');
+      if (approximateBytes > this.#maxBytes) throw new Error(EXPORT_TOO_LARGE_MESSAGE);
+    };
     const tasks = await this.#db
       .selectFrom('task')
       .select([
@@ -197,12 +207,14 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
       .where('owner_id', '=', ownerId)
       .orderBy('created_at', 'asc')
       .execute();
+    consume(tasks);
     const projects = await this.#db
       .selectFrom('project')
       .select(['id', 'title', 'kind', 'archived', 'version', 'created_at', 'updated_at'])
       .where('owner_id', '=', ownerId)
       .orderBy('created_at', 'asc')
       .execute();
+    consume(projects);
     const plans = await this.#db
       .selectFrom('plan')
       .select([
@@ -222,6 +234,7 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
       .where('deleted_at', 'is', null)
       .orderBy('created_at', 'asc')
       .execute();
+    consume(plans);
     const planIds = plans.map((plan) => plan.id);
     const versions = planIds.length === 0
       ? []
@@ -233,6 +246,7 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
           .orderBy('plan_id', 'asc')
           .orderBy('seq', 'asc')
           .execute();
+    consume(versions);
     const versionIds = versions.map((version) => version.id);
     const blocks = versionIds.length === 0
       ? []
@@ -243,24 +257,28 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
           .where('plan_version_id', 'in', versionIds)
           .orderBy('start_at', 'asc')
           .execute();
+    consume(blocks);
     const sessions = await this.#db
       .selectFrom('work_session')
       .selectAll()
       .where('owner_id', '=', ownerId)
       .orderBy('started_at', 'asc')
       .execute();
+    consume(sessions);
     const reviews = await this.#db
       .selectFrom('task_completion_review')
       .selectAll()
       .where('owner_id', '=', ownerId)
       .orderBy('created_at', 'asc')
       .execute();
+    consume(reviews);
     const feedback = await this.#db
       .selectFrom('estimation_feedback')
       .selectAll()
       .where('owner_id', '=', ownerId)
       .orderBy('created_at', 'asc')
       .execute();
+    consume(feedback);
 
     const payload = {
       format: 'ohmydate-export',

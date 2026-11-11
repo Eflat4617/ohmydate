@@ -45,6 +45,7 @@ import type {
   NewCandidate,
   NewPlan,
   PlanningStore,
+  ScheduleBlockWindowQuery,
 } from '../application/planning-ports.js';
 import { expandOccurrences, InvalidRRuleError, MAX_OCCURRENCES } from '../application/rrule.js';
 import { ensurePlannerTaskIdentity } from './planner-task-identity.js';
@@ -573,6 +574,62 @@ export class PgPlanningStore implements PlanningStore {
 
   async listActiveBlocks(ownerId: Id): Promise<readonly ApprovedBlock[]> {
     return this.#listActiveBlocks(this.#db, ownerId);
+  }
+
+  async listScheduleBlocks(
+    ownerId: Id,
+    query: ScheduleBlockWindowQuery,
+  ): Promise<readonly ApprovedBlock[]> {
+    const from = new Date(instantToEpochMs(query.from));
+    const to = new Date(instantToEpochMs(query.to));
+    let builder = this.#db
+      .selectFrom('schedule_block')
+      .innerJoin('plan_version', 'plan_version.id', 'schedule_block.plan_version_id')
+      .innerJoin('plan', 'plan.id', 'plan_version.plan_id')
+      .select([
+        'schedule_block.id',
+        'schedule_block.plan_version_id',
+        'schedule_block.task_id',
+        'schedule_block.start_at',
+        'schedule_block.end_at',
+        'schedule_block.status',
+        'schedule_block.locked',
+        'schedule_block.version',
+        'plan.id as plan_id',
+      ])
+      .where('schedule_block.owner_id', '=', ownerId)
+      .where('schedule_block.status', '<>', 'superseded')
+      .where('plan.deleted_at', 'is', null)
+      .where('schedule_block.start_at', '<', to)
+      .where('schedule_block.end_at', '>', from);
+    if (query.cursorStartAt !== undefined && query.cursorId !== undefined) {
+      const cursorStart = new Date(instantToEpochMs(query.cursorStartAt));
+      builder = builder.where((eb) =>
+        eb.or([
+          eb('schedule_block.start_at', '>', cursorStart),
+          eb.and([
+            eb('schedule_block.start_at', '=', cursorStart),
+            eb('schedule_block.id', '>', query.cursorId as string),
+          ]),
+        ]),
+      );
+    }
+    const rows = await builder
+      .orderBy('schedule_block.start_at', 'asc')
+      .orderBy('schedule_block.id', 'asc')
+      .limit(query.limit)
+      .execute();
+    return rows.map((row) => ({
+      id: row.id as Id,
+      planId: row.plan_id as Id,
+      planVersionId: row.plan_version_id as Id,
+      taskId: row.task_id as Id,
+      startAt: toInstant(row.start_at),
+      endAt: toInstant(row.end_at),
+      status: row.status,
+      locked: row.locked,
+      version: row.version,
+    }));
   }
 
   async getActivePlan(ownerId: Id): Promise<ActivePlanRevision | null> {

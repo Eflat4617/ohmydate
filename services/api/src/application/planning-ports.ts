@@ -39,6 +39,20 @@ export interface ApprovedBlock {
   readonly version: number;
 }
 
+/**
+ * FU-53: one page of active blocks overlapping `[from, to)`, ordered by
+ * `(startAt, id)` ascending. Cursor and range are pushed into SQL so the
+ * database never returns the owner's whole block history.
+ */
+export interface ScheduleBlockWindowQuery {
+  readonly from: Instant;
+  readonly to: Instant;
+  readonly cursorStartAt?: Instant;
+  readonly cursorId?: Id;
+  /** Maximum rows to return; callers ask for `pageSize + 1` to detect more. */
+  readonly limit: number;
+}
+
 export interface ActivePlanRevision {
   readonly planId: Id;
   readonly planVersionId: Id;
@@ -147,6 +161,11 @@ export interface PlanningStore extends EstimateRepository {
   ): Promise<Plan>;
   resolveGoalTasks(ownerId: Id, goalId: Id): Promise<GoalTasks | null>;
   listActiveBlocks(ownerId: Id): Promise<readonly ApprovedBlock[]>;
+  /** FU-53: SQL-side range + cursor page of active blocks. */
+  listScheduleBlocks(
+    ownerId: Id,
+    query: ScheduleBlockWindowQuery,
+  ): Promise<readonly ApprovedBlock[]>;
   /** The owner's active approved plan (most recently updated), if any. */
   getActivePlan(ownerId: Id): Promise<ActivePlanRevision | null>;
   approve(

@@ -22,7 +22,9 @@ import {
   ValidationFailedError,
   VersionConflictError,
   type Clock,
+  epochMsToInstant,
   type Id,
+  type Instant,
   type Task,
   type TaskRepository,
 } from '@ohmydate/domain';
@@ -523,21 +525,19 @@ export class PlanService {
       }
       cursor = { startMs, id };
     }
-    const blocks = (await this.#store.listActiveBlocks(ownerId))
-      .filter((block) => {
-        const start = Date.parse(block.startAt);
-        const end = Date.parse(block.endAt);
-        return start < toMs && end > fromMs;
-      })
-      .sort((a, b) => {
-        const byStart = Date.parse(a.startAt) - Date.parse(b.startAt);
-        return byStart !== 0 ? byStart : a.id.localeCompare(b.id);
-      })
-      .filter((block) => {
-        if (cursor === undefined) return true;
-        const start = Date.parse(block.startAt);
-        return start > cursor.startMs || (start === cursor.startMs && block.id > cursor.id);
-      });
+    // FU-53: the range and cursor are pushed into SQL; only one page (plus
+    // one lookahead row) is ever read from the database.
+    const blocks = await this.#store.listScheduleBlocks(ownerId, {
+      from: query.from as Instant,
+      to: query.to as Instant,
+      ...(cursor === undefined
+        ? {}
+        : {
+            cursorStartAt: epochMsToInstant(cursor.startMs),
+            cursorId: cursor.id as Id,
+          }),
+      limit: limit + 1,
+    });
     const page = blocks.slice(0, limit);
     return {
       items: page.map((block) => ({

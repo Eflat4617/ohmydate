@@ -15,6 +15,9 @@ import type {
   ReplanTriggerKind,
   ScheduleBlockDto,
 } from '@ohmydate/contracts';
+import { ReplanBeforeSchema, UUID_V7_PATTERN } from '@ohmydate/contracts';
+import { TypeSystem } from '@sinclair/typebox/system';
+import { Value } from '@sinclair/typebox/value';
 import {
   IdempotencyMismatchError,
   NotFoundError,
@@ -116,64 +119,38 @@ function parseBlocks(value: unknown): PlanBlock[] {
   return blocks;
 }
 
-const BLOCK_STATUSES = new Set(['planned', 'done', 'skipped', 'moved', 'superseded']);
+const INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const UUID_V7_REGEX = new RegExp(UUID_V7_PATTERN);
 
 /**
- * FU-70 before snapshot. Strict: a snapshot with any malformed entry is
- * dropped (returned undefined) rather than repaired, so clients show "no
- * comparison" instead of a partial — and therefore misleading — diff.
+ * TypeBox `Value.Check` enforces `format`, so the contract's `date-time` and
+ * `uuid` formats must be registered before validating a persisted snapshot.
+ * Registering user formats is idempotent for this module because a duplicate
+ * registration throws; another module registering the same name is fine.
+ */
+function registerContractFormats(): void {
+  try {
+    TypeSystem.Format('date-time', (value) => INSTANT_PATTERN.test(value) && !Number.isNaN(Date.parse(value)));
+  } catch {
+    // Already registered in this process.
+  }
+  try {
+    TypeSystem.Format('uuid', (value) => UUID_V7_REGEX.test(value));
+  } catch {
+    // Already registered in this process.
+  }
+}
+
+/**
+ * FU-72: a persisted before snapshot is validated against the public contract
+ * before it is returned. Any malformed entry (bad instant, negative focus,
+ * non-v7 ids, version bounds, unknown status) makes the whole snapshot absent,
+ * so clients show "comparison unavailable" instead of a partial, misleading
+ * diff. A missing/malformed snapshot is never repaired.
  */
 function parseBefore(value: unknown): ReplanBefore | undefined {
-  if (!isRecord(value) || typeof value['capturedAt'] !== 'string') return undefined;
-  const rawBlocks = value['blocks'];
-  const rawMetrics = value['metrics'];
-  if (!Array.isArray(rawBlocks) || !isRecord(rawMetrics)) return undefined;
-  const blocks: ReplanBefore['blocks'] = [];
-  for (const entry of rawBlocks) {
-    if (
-      !isRecord(entry) ||
-      typeof entry['id'] !== 'string' ||
-      typeof entry['planVersionId'] !== 'string' ||
-      typeof entry['taskId'] !== 'string' ||
-      typeof entry['startAt'] !== 'string' ||
-      typeof entry['endAt'] !== 'string' ||
-      typeof entry['locked'] !== 'boolean' ||
-      typeof entry['status'] !== 'string' ||
-      !BLOCK_STATUSES.has(entry['status']) ||
-      typeof entry['version'] !== 'number'
-    ) {
-      return undefined;
-    }
-    blocks.push({
-      id: entry['id'],
-      planVersionId: entry['planVersionId'],
-      taskId: entry['taskId'],
-      startAt: entry['startAt'],
-      endAt: entry['endAt'],
-      locked: entry['locked'],
-      status: entry['status'] as ReplanBefore['blocks'][number]['status'],
-      version: entry['version'],
-    });
-  }
-  const totalFocusMin = rawMetrics['totalFocusMin'];
-  const minSlackMin = rawMetrics['minSlackMin'];
-  const rawSlack = rawMetrics['taskSlack'];
-  if (typeof totalFocusMin !== 'number' || typeof minSlackMin !== 'number' || !Array.isArray(rawSlack)) {
-    return undefined;
-  }
-  const taskSlack: ReplanBefore['metrics']['taskSlack'] = [];
-  for (const entry of rawSlack) {
-    if (
-      !isRecord(entry) ||
-      typeof entry['taskId'] !== 'string' ||
-      typeof entry['dueAt'] !== 'string' ||
-      typeof entry['slackMin'] !== 'number'
-    ) {
-      return undefined;
-    }
-    taskSlack.push({ taskId: entry['taskId'], dueAt: entry['dueAt'], slackMin: entry['slackMin'] });
-  }
-  return { capturedAt: value['capturedAt'], blocks, metrics: { totalFocusMin, minSlackMin, taskSlack } };
+  registerContractFormats();
+  return Value.Check(ReplanBeforeSchema, value) ? value : undefined;
 }
 
 function parseMetrics(value: unknown): PlanMetricsDto {
