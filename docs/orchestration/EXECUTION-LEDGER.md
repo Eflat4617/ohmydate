@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 12:13 | **Sol 복귀(medium)**: codex exec 헤더 model gpt-6.1-sol / reasoning effort medium, SOL_OK. M3-04c worker_done(7a0920e, api 317 pass, ci 1241). Sol medium 리뷰 시작: M3-04cR ctx_e693d5cf187e, FU-38dR ctx_265a8ecf4129(GB-1 관문, 첫 Sol 확인) — worker-start 영수증 effort=medium, Codex 롤아웃 turn_context로 재확인 | codex probe, worker-start, rollout | orchestrator |
 | 2026-11-11 11:52 | **M3-04R2 REQUEST_CHANGES (Opus 대체) → M3-04 BLOCKED**: 1차 프로브 A·B·B2·C·D·F·G·Vikunja 구성 전부 통과 확인. 남은 HIGH — 재생성 경로에서 완료 작업 재배치(H/H2). MEDIUM — da3337c 회귀(삭제된 단계 재시도 500), 오래된 반복 약속이 목록·계획 전체를 422로 막음, 삭제된 작업의 미래 블록이 계획을 잠금. → 좁은 Task **M3-04c**(같은 브랜치) | reviews/M3-04R2.md | orchestrator |
 | 2026-11-11 11:02 | FU-38d worker_done(e7feb7e): FU-32 CC_PHONE 원문 복원 + 1자리 지역 별도 패턴, 범위 밖 형태 명시 목록 고정, llm 425 pass·heavy 317s·ci 1160 pass. GB-1 관문은 Sol 확인 필수이므로 Opus 중복 리뷰 생략, **12:03 이후 Sol medium 리뷰(FU-38dR) 예정** — 토큰 절약 | worker report | orchestrator |
 | 2026-11-11 10:46 | **M3-04R-1 REQUEST_CHANGES (Opus 대체)**: HIGH 4 — Vikunja 모드에서 planner task/project 행이 없어 추정·승인 불가(재현), 약속 100개만 조회, 의존 폐포/잠금 작업 블록이 사전 검증에서 거부, 이력 블록이 생성기에 안 보임. MEDIUM 3 — 재승인이 이력 블록 superseded, RRULE 오전개, 계획 도메인 오류 멱등 미저장. 결정: (a) ensurePlannerTaskIdentity(마이그레이션 없음) + FU-45 이번 라운드 포함, 목표 범위는 intake_approval_step 기준. 수정 1/2 → ctx_8a9bcb068a5c | reviews/M3-04R-1-full.md | orchestrator |
