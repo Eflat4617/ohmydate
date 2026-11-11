@@ -190,7 +190,7 @@ export class OpenAICompatibleLlm implements LlmPort {
 
     let responseBody: ChatResponseBody;
     try {
-      responseBody = await this.#send(body, request.signal, sessionId);
+      responseBody = await this.#send(body, request.signal, sessionId, request.onDispatch);
     } catch (error) {
       if (!(error instanceof ResponseFormatUnsupportedError)) throw error;
       // Exactly one fallback, never part of the outage retry loop.
@@ -203,6 +203,7 @@ export class OpenAICompatibleLlm implements LlmPort {
         this.#body(fallbackMessages, false),
         request.signal,
         sessionId,
+        request.onDispatch,
       );
     }
 
@@ -263,9 +264,12 @@ export class OpenAICompatibleLlm implements LlmPort {
     body: ChatRequestBody,
     outerSignal: AbortSignal | undefined,
     sessionId: string | undefined,
+    onDispatch: (() => void) | undefined,
   ): Promise<ChatResponseBody> {
     let attempt = 0;
     for (;;) {
+      // M6-01: every network attempt carries the prompt off the machine.
+      onDispatch?.();
       const result = await this.#once(body, outerSignal, sessionId);
       if (result.ok) return result.body;
       if (result.retryable && attempt < this.#options.maxRetries) {

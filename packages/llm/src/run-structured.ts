@@ -19,6 +19,8 @@ export interface StructuredLlmRequest {
   /** Intake session id; adapters may derive a non-identifying session header. */
   readonly sessionKey?: string;
   readonly budget?: import('./port.js').LlmBudget;
+  /** Forwarded to the port on every attempt (see `LlmCompleteRequest.onDispatch`). */
+  readonly onDispatch?: () => void;
 }
 
 export interface RunStructuredOptions {
@@ -166,6 +168,7 @@ export async function runStructured(
             ...(request.ownerId === undefined ? {} : { ownerId: request.ownerId }),
             ...(request.sessionKey === undefined ? {} : { sessionKey: request.sessionKey }),
             ...(request.budget === undefined ? {} : { budget: request.budget }),
+            ...(request.onDispatch === undefined ? {} : { onDispatch: request.onDispatch }),
           },
           timeoutMs,
           options.signal,
