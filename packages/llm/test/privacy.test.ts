@@ -601,16 +601,138 @@ test.each(ccOriginalEndBoundaries)(
   },
 );
 
-/** Best of N keeps the same threshold while removing host-load noise from a single run. */
-function bestOfFive(run: () => void): number {
+/** Best of N removes host-load noise from a single wall-clock sample. */
+function bestOfN(run: () => void, attempts = 5): number {
   let best = Number.POSITIVE_INFINITY;
-  for (let attempt = 0; attempt < 5; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const start = performance.now();
     run();
     const elapsed = performance.now() - start;
     if (elapsed < best) best = elapsed;
   }
   return best;
+}
+
+/**
+ * FU-50: the three legacy perf gates used to assert an absolute wall-clock bound
+ * (`bestOfFive(redact(...)) < 50 ms`) at a single ~100KB input. On a normally loaded host
+ * (load average 6-12 while several workers run) that bound failed intermittently at
+ * 53-56 ms even though the scan is linear, because absolute time tracks scheduler
+ * pressure, not algorithmic growth.
+ *
+ * Each gate now measures the *same* operation at size S and 4S and asserts
+ * `time(4S) / time(S) <= 5`. A linear scan grows ~4x (plus a noise margin), while a
+ * quadratic one grows ~16x, so super-linear behaviour still fails. The ratio is
+ * invariant under uniform host load, which is exactly what made the old bound flaky.
+ *
+ * The timed scale is the original adversarial one: S = 25KB and 4S = 100KB. Measuring at
+ * the original scale keeps super-linear behaviour that only appears once the input is
+ * large. Timing uses per-thread CPU time, not wall clock: when the whole monorepo suite
+ * runs concurrently a wall-clock sample of the 4S call can absorb a scheduler timeslice
+ * that the shorter S call escapes, which inflates the ratio even for linear code. Each
+ * sample is batched to at least LINEARITY_SAMPLE_MS so the CPU clock and GC noise are
+ * amortised, and the assertion uses the least-noisy S/4S pair out of several interleaved
+ * measurements. A super-linear implementation cannot produce a quiet pair that hides it:
+ * the mutant below still lands near 16x. An opt-in (PRIVACY_PERF_ASSERT=1) absolute
+ * ceiling also runs the original >=100KB sizes to catch catastrophic regressions; default
+ * CI runs the ratio.
+ */
+const LINEARITY_RATIO_LIMIT = 5;
+const LINEARITY_SMALL_SIZE = 25_000;
+const LINEARITY_ATTEMPTS = 10;
+const LINEARITY_WARMUP = 50;
+const LINEARITY_CALIBRATION_CALLS = 20;
+const LINEARITY_SAMPLE_MS = 10;
+const LINEARITY_MAX_BATCH = 5_000;
+const PERF_ABSOLUTE_ASSERT = process.env.PRIVACY_PERF_ASSERT === '1';
+const ABSOLUTE_CEILING_SIZE = 100_000;
+const ABSOLUTE_CEILING_MS = 1_000;
+
+function repeatToSize(unit: string, size: number): string {
+  return unit.repeat(Math.ceil(size / unit.length));
+}
+
+/** CPU time consumed by the current thread, in milliseconds. */
+function threadCpuMs(): number {
+  const usage = process.threadCpuUsage();
+  return (usage.user + usage.system) / 1_000;
+}
+
+function measureCpuMs(run: () => void, calls: number): number {
+  const started = threadCpuMs();
+  for (let call = 0; call < calls; call += 1) run();
+  return threadCpuMs() - started;
+}
+
+/** Warm the JIT, then choose a call count that makes one sample ~LINEARITY_SAMPLE_MS. */
+function calibrateBatch(run: () => void): number {
+  for (let warm = 0; warm < LINEARITY_WARMUP; warm += 1) run();
+  const perCall =
+    measureCpuMs(run, LINEARITY_CALIBRATION_CALLS) / LINEARITY_CALIBRATION_CALLS;
+  return Math.min(
+    LINEARITY_MAX_BATCH,
+    Math.max(1, Math.ceil(LINEARITY_SAMPLE_MS / Math.max(perCall, 0.001))),
+  );
+}
+
+interface LinearScalingOptions {
+  readonly smallSize?: number;
+  readonly attempts?: number;
+}
+
+function assertLinearScaling(
+  label: string,
+  run: (text: string) => void,
+  build: (size: number) => string,
+  options: LinearScalingOptions = {},
+): void {
+  const { smallSize = LINEARITY_SMALL_SIZE, attempts = LINEARITY_ATTEMPTS } = options;
+  const small = build(smallSize);
+  const large = build(smallSize * 4);
+  const smallBatch = calibrateBatch(() => run(small));
+  const largeBatch = calibrateBatch(() => run(large));
+  let bestRatio = Number.POSITIVE_INFINITY;
+  let bestSmallMs = 0;
+  let bestLargeMs = 0;
+  // Interleave and alternate the order so a transient load spike on either size cannot
+  // masquerade as algorithmic growth; keep the least-noisy pair.
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    let smallMs: number;
+    let largeMs: number;
+    if (attempt % 2 === 0) {
+      smallMs = measureCpuMs(() => run(small), smallBatch) / smallBatch;
+      largeMs = measureCpuMs(() => run(large), largeBatch) / largeBatch;
+    } else {
+      largeMs = measureCpuMs(() => run(large), largeBatch) / largeBatch;
+      smallMs = measureCpuMs(() => run(small), smallBatch) / smallBatch;
+    }
+    // Clamp the denominator below the timer resolution so an implausibly fast S sample
+    // cannot manufacture a huge ratio, but not so high that it hides real growth.
+    const ratio = largeMs / Math.max(smallMs, 0.001);
+    if (ratio < bestRatio) {
+      bestRatio = ratio;
+      bestSmallMs = smallMs;
+      bestLargeMs = largeMs;
+    }
+  }
+  if (bestRatio > LINEARITY_RATIO_LIMIT) {
+    throw new Error(
+      `${label} is super-linear: time(4S)/time(S) = ${bestLargeMs.toFixed(3)}ms/${bestSmallMs.toFixed(3)}ms = ${bestRatio.toFixed(2)} > ${LINEARITY_RATIO_LIMIT} (linear ~4x, quadratic ~16x)`,
+    );
+  }
+}
+
+function expectCatastrophicCeiling(
+  label: string,
+  run: (text: string) => void,
+  build: (size: number) => string,
+): void {
+  if (!PERF_ABSOLUTE_ASSERT) return;
+  const text = build(ABSOLUTE_CEILING_SIZE);
+  const elapsed = bestOfN(() => run(text));
+  expect(elapsed, `${label}: catastrophic absolute ceiling at >=100KB`).toBeLessThan(
+    ABSOLUTE_CEILING_MS,
+  );
 }
 
 const separatorlessRrnRegressions = [
@@ -664,7 +786,7 @@ test.each(pathologicalEmailInputs)(
   ({ text }) => {
     expect(text.length).toBeGreaterThanOrEqual(100_000);
     const result = redact(text);
-    const elapsed = bestOfFive(() => redact(text));
+    const elapsed = bestOfN(() => redact(text));
     expect(result.text).not.toContain('@example.com');
     expect(elapsed).toBeLessThan(200);
   },
@@ -704,34 +826,38 @@ test('known limitation: a partial mask remains after nine domain labels', () => 
 const perfInputs = [
   {
     label: '15K emails in 105KB',
+    unit: 'a@b.cd ',
     text: 'a@b.cd '.repeat(15_000),
     expect: { kind: 'email', count: 15_000 },
   },
   {
     label: '10K phones in 110KB',
+    unit: '0101234567 ',
     text: '0101234567 '.repeat(10_000),
     expect: { kind: 'phone', count: 10_000 },
   },
   {
     label: '100KB astral emoji',
+    unit: '😀',
     text: '😀'.repeat(50_000),
     expect: undefined,
   },
   {
     label: '200KB contact CSV',
+    unit: 'Kim,010-1234-5678,kim@example.com\n',
     text: 'Kim,010-1234-5678,kim@example.com\n'.repeat(6_000),
     expect: { kind: 'phone', count: 6_000 },
   },
 ] as const;
 
-test.each(perfInputs)('redaction of many matches stays under 50ms on $label', ({ text, expect: expected }) => {
-  redact(text.slice(0, 1_000));
+test.each(perfInputs)('redaction of many matches scales linearly on $label', ({ label, unit, text, expect: expected }) => {
   const result = redact(text);
-  const elapsed = bestOfFive(() => redact(text));
   if (expected !== undefined) {
     expect(result.report).toContainEqual(expected);
   }
-  expect(elapsed).toBeLessThan(50);
+  const build = (size: number): string => repeatToSize(unit, size);
+  assertLinearScaling(label, redact, build);
+  expectCatastrophicCeiling(label, redact, build);
 });
 
 const adversarialPerfInputs = [
@@ -744,45 +870,86 @@ const adversarialPerfInputs = [
 ] as const;
 
 test.each(adversarialPerfInputs)(
-  'redaction stays linear on adversarial >=100KB $label input',
-  ({ unit }) => {
-    const text = unit.repeat(Math.ceil(100_000 / unit.length));
-    expect(text.length).toBeGreaterThanOrEqual(100_000);
-    redact(text.slice(0, 1_000));
-    expect(bestOfFive(() => redact(text))).toBeLessThan(50);
+  'redaction stays linear on adversarial $label input',
+  ({ label, unit }) => {
+    const build = (size: number): string => repeatToSize(unit, size);
+    assertLinearScaling(label, redact, build);
+    expectCatastrophicCeiling(label, redact, build);
   },
 );
 
 const separatorRun = (run: string): string => `+1 12 34${run}567899999`;
 
 const separatorRunPerfInputs = [
-  { label: 'space + rejected final group', text: separatorRun(' '.repeat(100_000)) },
+  {
+    label: 'space + rejected final group',
+    build: (size: number): string => separatorRun(' '.repeat(size)),
+  },
   {
     label: 'space + 2-group head',
-    text: `+1 12 34 56${' '.repeat(100_000)}78999`,
+    build: (size: number): string => `+1 12 34 56${' '.repeat(size)}78999`,
   },
-  { label: 'tab run', text: separatorRun('\t'.repeat(100_000)) },
+  {
+    label: 'tab run',
+    build: (size: number): string => separatorRun('\t'.repeat(size)),
+  },
   {
     label: 'newline run',
-    text: `+1 12 34 56${'\n'.repeat(100_000)}78999`,
+    build: (size: number): string => `+1 12 34 56${'\n'.repeat(size)}78999`,
   },
-  { label: '-._/ run', text: separatorRun('-._/'.repeat(25_000)) },
-  { label: 'ideographic space run', text: separatorRun('\u3000'.repeat(100_000)) },
-  { label: 'em space run', text: separatorRun('\u2003'.repeat(100_000)) },
+  {
+    label: '-._/ run',
+    build: (size: number): string => separatorRun('-._/'.repeat(Math.ceil(size / 4))),
+  },
+  {
+    label: 'ideographic space run',
+    build: (size: number): string => separatorRun('\u3000'.repeat(size)),
+  },
+  {
+    label: 'em space run',
+    build: (size: number): string => separatorRun('\u2003'.repeat(size)),
+  },
   {
     label: 'fullwidth digits and ideographic space',
-    text: `＋１ １２ ３４${'　'.repeat(100_000)}５６７８９９９９９`,
+    build: (size: number): string => `＋１ １２ ３４${'　'.repeat(size)}５６７８９９９９９`,
   },
 ] as const;
 
 test.each(separatorRunPerfInputs)(
   'rejected +cc final group scans separators linearly on $label',
-  ({ text }) => {
-    expect(text.length).toBeGreaterThanOrEqual(100_000);
-    redact(text.slice(0, 1_000));
-    expect(bestOfFive(() => redact(text))).toBeLessThan(50);
+  ({ label, build }) => {
+    assertLinearScaling(label, redact, build);
+    expectCatastrophicCeiling(label, redact, build);
   },
 );
+
+/**
+ * The ratio gate must still catch super-linear behaviour. This deliberately quadratic
+ * mutant is measured by the same helper at the same S = 25KB / 4S = 100KB sizes, so the
+ * gate's ability to fail is itself under test rather than assumed. Its double loop runs
+ * over text.length / 64 so the 100KB case stays runnable in CI; the growth is still
+ * exactly quadratic (4x input -> 16x work) and lands well above the ratio limit.
+ */
+const QUADRATIC_MUTANT_DIVISOR = 64;
+let quadraticSink = 0;
+
+function quadraticMutant(text: string): void {
+  const length = Math.max(1, Math.floor(text.length / QUADRATIC_MUTANT_DIVISOR));
+  let accumulator = 0;
+  for (let index = 0; index < length; index += 1) {
+    for (let other = 0; other < length; other += 1) {
+      accumulator = (accumulator + index + other) | 0;
+    }
+  }
+  quadraticSink = accumulator;
+}
+
+test('linearity gate rejects a deliberately quadratic mutant at S=25KB/4S=100KB', () => {
+  expect(() =>
+    assertLinearScaling('quadratic mutant', quadraticMutant, (size) => 'x'.repeat(size)),
+  ).toThrow(/super-linear/);
+  expect(quadraticSink).toBeGreaterThanOrEqual(0);
+});
 
 const closingTagVariants = [
   '</untrusted_document>',
