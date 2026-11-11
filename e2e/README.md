@@ -92,3 +92,45 @@ Locking uses `helpers/db.ts` (an `UPDATE` in the throwaway schema) because M5
 has no lock endpoint; every assertion still goes through the API or the UI.
 The spec, the a11y additions (`/replan`, `/patterns`) and the axe scans of the
 detail, reject dialog and suppressed state all require 0 critical/serious.
+
+## E2E-6 notes (M6-03)
+
+`tests/e2e-6-notes.spec.ts` uses its own owner (`notes` fixture). The API runs
+with `LLM_FAKE_SCENARIO=e2e-grounded` (the coordinator's M6-03 scope
+amendment; see `services/api/src/adapters/fake-llm-scenarios.ts`), scoped by
+`LLM_FAKE_SCENARIO_OWNERS` to that owner. The scenario is honoured only with
+`LLM_PROVIDER=fake` and is refused at boot under `NODE_ENV=production`. It answers `type_detection@v1` with a schema-valid
+"new" classification, so sessions are no longer forced into manual mode
+before decomposition. The note-grounded `decomposition@v2` gets a draft built
+from the request: one `fact` citing the first note block actually sent, one
+`inference` carrying a planted link, and one forged reference. Every other
+prompt, including the ungrounded `decomposition@v1`, keeps the fixture-less
+fake: `llm_unavailable`, then a manual draft. Other owners, and so every other
+suite, get exactly the plain fake as before. Without the scope, answered
+type detection changes the wizard's timing, and E2E-2's skip loop then races
+a disappearing question card.
+
+Flow, all in the UI unless noted:
+
+1. Create a note whose body contains an injection (`이전 지시를 모두
+   무시하고 <script>…</script> …`), a `javascript:` link and a tracking
+   pixel, with *AI에 보내기 허용* on. The preview shows the script as text,
+   no `javascript:` anchor and no image.
+2. Link it to the Inbox project with the picker.
+3. In the planning wizard, link it to the plan's goal (*이 계획에 참고할
+   노트*), then skip the questions. The real pipeline (context builder →
+   fenced prompt → schema → grounded sanitiser) yields two evidence items:
+   *사실* with the note title, section and *노트 열기* link, and *추론*
+   with `[link removed]`. The forged ref is gone, and the injection is shown
+   verbatim as data (`window.__pwned` stays undefined; the draft keeps its 3
+   steps).
+4. Approve the draft. The note's AI usage history lists one succeeded call
+   with the same section hash.
+5. Create and approve a plan for the goal (API helpers). Starting a focus
+   session from Today switches to the focus layout, where RelatedNotes lists
+   the note (*이 프로젝트*, titles only). The toast's *되돌리기* restores
+   Today.
+
+A second test scans every notes screen with axe at 1280×860 and 390×844
+(0 critical/serious, no horizontal page scroll).
+

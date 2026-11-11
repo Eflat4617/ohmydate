@@ -372,12 +372,14 @@ export default async function globalSetup(): Promise<void> {
     const plansFixture = await createVikunjaFixture(vikunjaUrl, 'plans');
     const replanFixture = await createVikunjaFixture(vikunjaUrl, 'replan');
     const layoutFixture = await createVikunjaFixture(vikunjaUrl, 'layout');
+    const notesFixture = await createVikunjaFixture(vikunjaUrl, 'notes');
 
     await createPlannerOwner(databaseUrl, fixture, 'VIKUNJA_TOKEN_OWNER_E2E');
     await createPlannerOwner(databaseUrl, todayFixture, 'VIKUNJA_TOKEN_OWNER_E2E_TODAY');
     await createPlannerOwner(databaseUrl, plansFixture, 'VIKUNJA_TOKEN_OWNER_E2E_PLANS');
     await createPlannerOwner(databaseUrl, replanFixture, 'VIKUNJA_TOKEN_OWNER_E2E_REPLAN');
     await createPlannerOwner(databaseUrl, layoutFixture, 'VIKUNJA_TOKEN_OWNER_E2E_LAYOUT');
+    const notesOwnerId = await createPlannerOwner(databaseUrl, notesFixture, 'VIKUNJA_TOKEN_OWNER_E2E_NOTES');
 
     const apiPort = await freePort();
     const apiUrl = `http://127.0.0.1:${apiPort}`;
@@ -394,11 +396,18 @@ export default async function globalSetup(): Promise<void> {
         VIKUNJA_TOKEN_OWNER_E2E_PLANS: plansFixture.token,
         VIKUNJA_TOKEN_OWNER_E2E_REPLAN: replanFixture.token,
         VIKUNJA_TOKEN_OWNER_E2E_LAYOUT: layoutFixture.token,
+        VIKUNJA_TOKEN_OWNER_E2E_NOTES: notesFixture.token,
         PORT: String(apiPort),
         HOST: '127.0.0.1',
         LOG_LEVEL: 'warn',
         PUSH_KEY_FILE: pushKeyFile,
         LLM_PROVIDER: 'fake',
+        // M6-03 E2E-6: deterministic note-grounded decomposition through the real
+        // pipeline (type detection answered; grounded v2 cites the sent note block,
+        // plus a forged ref and a planted link the sanitiser strips). E2E only, and
+        // only for the notes owner: every other suite keeps the plain fake.
+        LLM_FAKE_SCENARIO: 'e2e-grounded',
+        LLM_FAKE_SCENARIO_OWNERS: notesOwnerId,
         LLM_DAILY_BUDGET_USD: '10',
         LLM_MONTHLY_BUDGET_USD: '100',
         ...shiftedClockEnv(clockOffsetMs),
@@ -454,6 +463,8 @@ export default async function globalSetup(): Promise<void> {
       replanPassword: replanFixture.password,
       layoutEmail: layoutFixture.email,
       layoutPassword: layoutFixture.password,
+      notesEmail: notesFixture.email,
+      notesPassword: notesFixture.password,
       apiPid,
       webPid,
       ...(clockOffsetMs === 0 ? {} : { clockOffsetMs }),

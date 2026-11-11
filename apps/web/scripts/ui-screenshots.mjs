@@ -7,6 +7,7 @@
 //   node scripts/ui-screenshots.mjs --label after --only 14-today
 //   node scripts/ui-screenshots.mjs --label m5-03 --flows replan,patterns   # M5-03 screens only
 //   node scripts/ui-screenshots.mjs --label m6-02 --flows adaptive          # M6-02 layout modes
+//   node scripts/ui-screenshots.mjs --label m6-03 --flows notes             # M6-03 notes screens
 //
 // Output: docs/ui-polish/<label>/<screen>-<viewport>[-dark][-full].png and
 //         docs/ui-polish/<label>/sweep-report.json
@@ -34,7 +35,7 @@ function arg(name, fallback) {
 
 const label = arg('label', 'after');
 const only = arg('only', '');
-// Comma-separated subset of flows (main, daily, ai, replan, patterns, adaptive); default: all.
+// Comma-separated subset of flows (main, daily, ai, replan, patterns, adaptive, notes); default: all.
 const flowFilter = arg('flows', '')
   .split(',')
   .map((name) => name.trim())
@@ -50,8 +51,12 @@ const VIEWPORTS = [
   { name: 'narrow', width: 360, height: 780, capture: false },
 ];
 const SCHEMES = ['light', 'dark'];
-const DARK_CAPTURES = /^(14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus)/;
-const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns|34-layout-overview|38-layout-deadline-risk|39-layout-review)/;
+const DARK_CAPTURES = /^(14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-wizard-evidence)/;
+const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns|34-layout-overview|38-layout-deadline-risk|39-layout-review|43-notes-editor|50-wizard-evidence)/;
+// Synthetic ids from src/mocks/notes-seed.ts (M6-03).
+const NOTE_THESIS_ID = '01900000-0000-7000-8000-0000000003a1';
+const NOTE_MEETING_ID = '01900000-0000-7000-8000-0000000003a2';
+const SAMPLE_PROJECT_ID = '01900000-0000-7000-8000-000000000003';
 // Synthetic ids from src/mocks/replan.ts (M5-03 scenario).
 const REPLAN_PENDING_ID = '01900000-0000-7000-8000-0000000002a1';
 const REPLAN_EXPIRED_ID = '01900000-0000-7000-8000-0000000002a4';
@@ -515,6 +520,120 @@ async function flowAdaptive(browser, run) {
   }
 }
 
+async function openNote(page, id) {
+  await go(page, `/notes/${id}`);
+  await page.locator('[data-note-title]').waitFor();
+  await page.locator('[data-note-ai-usage]').waitFor();
+}
+
+// M6-03 notes screens (07 §3.5): list, editor with the safe preview, link
+// picker, AI usage, the 412 conflict and delete dialogs, the project notes
+// tab, the task detail with "설명을 노트로 승격", the wizard's reference notes
+// with draft evidence, and RelatedNotes in the focus layout.
+async function flowNotes(browser, run) {
+  {
+    const { context, page } = await newPage(browser, run);
+    await go(page, isMobile(run) ? '/notes' : `/notes/${NOTE_THESIS_ID}`);
+    await layoutMode(page, 'notes');
+    await page.locator('[data-note-item]').first().waitFor();
+    await dismissToasts(page);
+    await checkpoint(page, '42-notes-list', run);
+
+    await openNote(page, NOTE_THESIS_ID);
+    await dismissToasts(page);
+    await checkpoint(page, '43-notes-editor', run);
+
+    await page.locator('[data-note-link-add]').click();
+    await page.getByRole('dialog', { name: '연결할 대상 고르기' }).waitFor();
+    await page.locator('input[name="link-picker-kind"][value="task"]').check();
+    await checkpoint(page, '44-notes-link-picker', run);
+    await page.getByRole('button', { name: '취소' }).click();
+
+    await page.locator('[data-note-ai-usage]').scrollIntoViewIfNeeded();
+    await checkpoint(page, '45-notes-ai-usage', run);
+
+    // Another device saved meanwhile: the next save answers 412.
+    await page.locator('[data-note-mode="edit"]').check();
+    await page.locator('[data-note-body]').fill('# 졸업 논문 참고 문헌\n\n오프라인에서 고친 내용');
+    await page.evaluate((id) => {
+      const note = window.__OHMYDATE_MOCK_DB__?.notes.documents.get(id);
+      if (note !== undefined) {
+        note.version += 2;
+        note.title = '졸업 논문 참고 문헌 (다른 기기)';
+      }
+    }, NOTE_THESIS_ID);
+    await page.locator('[data-note-save]').click();
+    await page.getByRole('alertdialog', { name: '다른 곳에서 이 노트가 바뀌었어요' }).waitFor();
+    await checkpoint(page, '46-notes-conflict', run);
+    await page.getByRole('button', { name: '서버 내용 불러오기' }).click();
+
+    await page.locator('[data-note-delete]').click();
+    await page.getByRole('alertdialog', { name: '노트를 삭제할까요?' }).waitFor();
+    await checkpoint(page, '47-notes-delete-confirm', run);
+    await page.getByRole('button', { name: '취소' }).click();
+
+    await go(page, `/projects/${SAMPLE_PROJECT_ID}?tab=notes`);
+    await page.locator('[data-project-notes] [data-linked-note]').first().waitFor();
+    await dismissToasts(page);
+    await checkpoint(page, '48-project-notes-tab', run);
+
+    // A full load re-creates the in-page mock database: seed the description,
+    // then open the task from its row (in-app navigation keeps the data).
+    await go(page, '/inbox');
+    await page.locator('[data-task-detail-link]').first().waitFor();
+    await page.evaluate(() => {
+      const tasks = [...(window.__OHMYDATE_MOCK_DB__?.tasks.values() ?? [])];
+      const task = tasks.find((item) => item.title === '주간 계획 돌아보기');
+      if (task !== undefined) task.description = '<p>지난주 회고 메모: <b>집중 시간</b>이 부족했음.</p><p>다음 주에는 오전에 블록을 먼저 잡기.</p>';
+    });
+    await page.locator('[data-task-detail-link]', { hasText: '주간 계획 돌아보기' }).click();
+    await page.locator('[data-task-description]').waitFor();
+    await dismissToasts(page);
+    await checkpoint(page, '49-task-detail', run);
+    await context.close();
+  }
+  {
+    const { context, page } = await newPage(browser, run);
+    await go(page, '/plan/new');
+    await page.locator('#wizard-title').fill('졸업 논문 실험 계획');
+    await page.getByRole('button', { name: '다음' }).click();
+    await page.locator('[data-wizard-notes]').waitFor();
+    await page.locator('[data-wizard-notes-add]').click();
+    const picker = page.getByRole('dialog', { name: '참고할 노트 고르기' });
+    await picker.waitFor();
+    await picker.getByRole('button', { name: '“졸업 논문 참고 문헌” 이 계획에 연결' }).click();
+    await picker.getByText('연결됨').waitFor();
+    await picker.getByRole('button', { name: '닫기' }).click();
+    for (let guard = 0; guard < 12; guard += 1) {
+      if (await page.getByRole('heading', { name: '4단계 · 단계 초안' }).isVisible()) break;
+      const card = page.locator('.question-card').first();
+      if ((await card.count()) === 0) {
+        await page.waitForTimeout(150);
+        continue;
+      }
+      await card.getByRole('button', { name: '건너뛰기' }).click();
+      await page.waitForTimeout(200);
+    }
+    await page.locator('[data-wizard-evidence] .evidence-note-title').first().waitFor();
+    await page.locator('[data-wizard-evidence]').scrollIntoViewIfNeeded();
+    await dismissToasts(page);
+    await checkpoint(page, '50-wizard-evidence', run);
+    await context.close();
+  }
+  {
+    const { context, page } = await newPage(browser, run, { notes: 'focus' });
+    await go(page, '/today');
+    await page.locator('.today-card').first().waitFor();
+    await page.getByRole('button', { name: '집중 시작' }).first().click();
+    await layoutMode(page, 'focus');
+    await page.locator(`[data-related-note="${NOTE_MEETING_ID}"]`).waitFor();
+    await dismissOtherToasts(page, '레이아웃이 바뀌었어요');
+    await page.locator('[data-panel="related-notes"]').scrollIntoViewIfNeeded();
+    await checkpoint(page, '51-focus-related-notes', run);
+    await context.close();
+  }
+}
+
 // The dev server can reload a page while it optimises deps; retry a flow once
 // (findings from the failed attempt are discarded).
 async function withRetry(flow, browser, run) {
@@ -553,6 +672,7 @@ async function main() {
           replan: flowReplan,
           patterns: flowPatterns,
           adaptive: flowAdaptive,
+          notes: flowNotes,
         };
         for (const [name, flow] of Object.entries(flows)) {
           if (flowFilter.length > 0 && !flowFilter.includes(name)) continue;

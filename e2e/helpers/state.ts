@@ -27,6 +27,9 @@ export interface E2EState {
   /** M6-02 E2E-6 (layout): own owner so its focus sessions and layout prefs are isolated. */
   readonly layoutEmail: string;
   readonly layoutPassword: string;
+  /** M6-03 E2E-6 (notes): own owner so its notes, goal links and sessions are isolated. */
+  readonly notesEmail: string;
+  readonly notesPassword: string;
   /** Base (unscoped) database URL; tests add `search_path` for `databaseSchema`. */
   readonly baseDatabaseUrl: string;
   readonly apiPid: number;
