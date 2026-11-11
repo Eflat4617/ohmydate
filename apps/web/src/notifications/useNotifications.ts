@@ -7,6 +7,8 @@ import {
 } from '../api';
 import { t } from '../i18n';
 import { errorMessage } from '../i18n/problem';
+import { runOwnerBound } from '../session/ownerBound';
+import { onActiveOwnerChange } from '../session/ownerEpoch';
 import { useOfflineStore } from '../stores/offline';
 import { useToastStore } from '../stores/toast';
 
@@ -46,6 +48,10 @@ export function useNotifications(options: NotificationsOptions = {}) {
     }, nextDelay);
   }
 
+  // Owner isolation (ADR-023): a poll or a dismiss belongs to the user who was
+  // signed in when it started. A response that arrives after a user switch is
+  // dropped — the previous user's notifications are neither listed nor toasted
+  // for the next one.
   async function poll(): Promise<void> {
     if (stopped) return;
     if (!offline.online) {
@@ -55,24 +61,32 @@ export function useNotifications(options: NotificationsOptions = {}) {
     }
     loading.value = true;
     error.value = null;
-    try {
-      const page = await client.listNotifications({ limit: 50 });
-      items.value = page.items;
-      for (const item of page.items) {
-        if (item.state !== 'sent') continue;
-        const key = `${item.id}:${item.version}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        toast.show(notificationLabel(item), { duration: 8000 });
-      }
-      delay = baseDelay;
-    } catch (cause) {
-      error.value = errorMessage(cause, t('notifications.loadFailed'));
-      delay = Math.min(delay * 2, maxDelay);
-    } finally {
-      loading.value = false;
-      schedule(delay);
-    }
+    await runOwnerBound(
+      async (owner) => {
+        try {
+          const page = await owner.wait(client.listNotifications({ limit: 50 }));
+          items.value = page.items;
+          for (const item of page.items) {
+            if (item.state !== 'sent') continue;
+            const key = `${item.id}:${item.version}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            toast.show(notificationLabel(item), { duration: 8000 });
+          }
+          delay = baseDelay;
+        } catch (cause) {
+          owner.rethrowIfStale(cause);
+          error.value = errorMessage(cause, t('notifications.loadFailed'));
+          delay = Math.min(delay * 2, maxDelay);
+        }
+      },
+      {
+        onSettled: () => {
+          loading.value = false;
+          schedule(delay);
+        },
+      },
+    );
   }
 
   async function refresh(): Promise<void> {
@@ -88,15 +102,30 @@ export function useNotifications(options: NotificationsOptions = {}) {
       error.value = t('notifications.dismissOffline');
       return false;
     }
-    try {
-      const updated = await client.dismissNotification(item.id, uuidV7Key(), item.version);
-      items.value = items.value.map((current) => (current.id === updated.id ? updated : current));
-      return true;
-    } catch (cause) {
-      error.value = errorMessage(cause, t('notifications.dismissFailed'));
-      return false;
-    }
+    const outcome = await runOwnerBound(
+      async (owner) => {
+        const updated = await owner.wait(client.dismissNotification(item.id, uuidV7Key(), item.version));
+        items.value = items.value.map((current) => (current.id === updated.id ? updated : current));
+      },
+      {
+        onError: (cause) => {
+          error.value = errorMessage(cause, t('notifications.dismissFailed'));
+        },
+      },
+    );
+    return outcome.status === 'done';
   }
+
+  // What is listed and what was already announced belong to the previous
+  // user; a panel that stays mounted starts over for the next one.
+  const stopWatchingOwner = onActiveOwnerChange(() => {
+    items.value = [];
+    seen.clear();
+    error.value = null;
+    loading.value = false;
+    delay = baseDelay;
+    if (!stopped) schedule(baseDelay);
+  });
 
   function start(): void {
     stopped = false;
@@ -111,7 +140,10 @@ export function useNotifications(options: NotificationsOptions = {}) {
     }
   }
 
-  onUnmounted(stop);
+  onUnmounted(() => {
+    stop();
+    stopWatchingOwner();
+  });
 
   return { items, visibleItems, loading, error, start, stop, refresh, poll, dismiss };
 }

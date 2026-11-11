@@ -84,7 +84,20 @@ export const vueScriptProcessor = {
 
 const offsetsByFile = new Map();
 
+/** `(owner: OwnerScope, …) => …`: a helper that runs inside someone's bound task. */
+function takesOwnerScope(node) {
+  const annotation = node.params[0]?.typeAnnotation?.typeAnnotation;
+  return (
+    annotation !== undefined &&
+    annotation.type === 'TSTypeReference' &&
+    annotation.typeName.type === 'Identifier' &&
+    annotation.typeName.name === 'OwnerScope'
+  );
+}
+
+/** The function given to `runOwnerBound(…)`, or any function whose first parameter is an OwnerScope. */
 function isBoundTask(node) {
+  if (takesOwnerScope(node)) return true;
   const parent = node.parent;
   if (parent === undefined || parent === null || parent.type !== 'CallExpression') return false;
   if (parent.arguments[0] !== node) return false;
@@ -94,21 +107,31 @@ function isBoundTask(node) {
 }
 
 /**
- * Inside the task given to `runOwnerBound`, every `await` must go through the
- * owner scope (`owner.wait(…)`, `owner.pages(…)`). The scope refuses to resume
- * a continuation whose owner changed, so no line after an await can run for
- * the wrong user — the check a hand-written fence forgets.
+ * Inside the task given to `runOwnerBound` (and inside any helper that takes
+ * an `OwnerScope` as its first parameter):
+ * - every `await` goes through the owner scope (`owner.wait(…)`,
+ *   `owner.pages(…)`), which refuses to resume a continuation whose owner
+ *   changed — so no line after an await can run for the wrong user;
+ * - every `catch` starts with `owner.rethrowIfStale(cause)`, so the failure
+ *   of a stale owner's request is not shown or retried as a real one;
+ * - there is no `finally` (it would run for the stale owner too): cleanup
+ *   goes in the `onSettled` option.
+ * These are the checks a hand-written fence forgets.
  */
 const boundAwait = {
   meta: {
     type: 'problem',
-    docs: { description: 'await through the owner scope inside runOwnerBound' },
+    docs: { description: 'keep a runOwnerBound task from acting for a stale owner' },
     schema: [],
     messages: {
       unbound:
         'Inside runOwnerBound, await through the owner scope: `await {{name}}.wait(…)`. A bare await resumes even after the signed-in user changed (ADR-023).',
       noScope:
         'This runOwnerBound task awaits but takes no owner scope. Declare it (`async (owner) => …`) and use `await owner.wait(…)`.',
+      unguardedCatch:
+        'Inside runOwnerBound, a catch must start with `{{name}}.rethrowIfStale({{param}})`: otherwise the failure of a request the owner change aborted is handled as a real error (ADR-023).',
+      noFinally:
+        'Inside runOwnerBound, do not use `finally`: it also runs after the signed-in user changed. Put the cleanup in the `onSettled` option.',
     },
   },
   create(context) {
@@ -142,7 +165,37 @@ const boundAwait = {
       if (!viaScope) context.report({ node, messageId: 'unbound', data: { name } });
     }
 
+    function checkCatch(node) {
+      const name = current();
+      if (name === null) return;
+      const param = node.param !== null && node.param.type === 'Identifier' ? node.param.name : null;
+      const first = node.body.body[0];
+      const guarded =
+        name !== '' &&
+        param !== null &&
+        first !== undefined &&
+        first.type === 'ExpressionStatement' &&
+        first.expression.type === 'CallExpression' &&
+        first.expression.callee.type === 'MemberExpression' &&
+        first.expression.callee.object.type === 'Identifier' &&
+        first.expression.callee.object.name === name &&
+        first.expression.callee.property.name === 'rethrowIfStale' &&
+        first.expression.arguments[0]?.type === 'Identifier' &&
+        first.expression.arguments[0].name === param;
+      if (!guarded) {
+        context.report({
+          node,
+          messageId: 'unguardedCatch',
+          data: { name: name === '' ? 'owner' : name, param: param ?? 'cause' },
+        });
+      }
+    }
+
     return {
+      CatchClause: checkCatch,
+      'TryStatement[finalizer]': (node) => {
+        if (current() !== null) context.report({ node: node.finalizer, messageId: 'noFinally' });
+      },
       FunctionDeclaration: enter,
       FunctionExpression: enter,
       ArrowFunctionExpression: enter,

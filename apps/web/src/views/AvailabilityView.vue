@@ -21,6 +21,7 @@ import UiIcon from '../components/ui/UiIcon.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { t } from '../i18n';
 import { errorMessage } from '../i18n/problem';
+import { runOwnerBound } from '../session/ownerBound';
 
 const offline = useOfflineStore();
 const queryClient = useQueryClient();
@@ -171,42 +172,56 @@ const canSave = computed(
   () => offline.mutationsEnabled && draft.value !== null && validationErrors.value.length === 0 && !saving.value,
 );
 
+// Owner isolation (ADR-023): both continuations run under the owner who
+// started them. If the signed-in user changed meanwhile, nothing is cached,
+// announced or shown.
 async function reload(): Promise<void> {
-  const fresh = await plannerClient.getAvailability({ fresh: true });
-  queryClient.setQueryData(['availability'], fresh);
-  if (!dirty.value) draft.value = cloneAvailability(fresh);
+  await runOwnerBound(async (owner) => {
+    const fresh = await owner.wait(plannerClient.getAvailability({ fresh: true }));
+    queryClient.setQueryData(['availability'], fresh);
+    if (!dirty.value) draft.value = cloneAvailability(fresh);
+  });
 }
 
 async function save(): Promise<void> {
-  if (draft.value === null || !canSave.value) return;
+  const local = draft.value;
+  if (local === null || !canSave.value) return;
   saving.value = true;
   error.value = null;
   message.value = '';
-  const payload = buildPayload(draft.value);
+  const payload = buildPayload(local);
   const scope = 'availability:put';
-  const action = actions.begin(scope, payload, (left, right) => JSON.stringify(left) === JSON.stringify(right), draft.value.version);
-  try {
-    const updated = await plannerClient.putAvailability(payload, action.key, draft.value.version);
-    actions.settle(scope, action);
-    draft.value = cloneAvailability(updated);
-    dirty.value = false;
-    queryClient.setQueryData(['availability'], updated);
-    message.value = t('availability.savedMessage', { version: updated.version });
-  } catch (cause) {
-    if (cause instanceof ApiError && cause.status === 412) {
-      const server = await plannerClient.getAvailability({ fresh: true });
-      queryClient.setQueryData(['availability'], server);
-      conflict.value = { server, local: cloneAvailability(draft.value) };
-      message.value = '';
-      error.value = null;
-      await nextTick();
-      conflictHeading.value?.focus();
-      return;
-    }
-    error.value = errorMessage(cause, t('availability.saveError'));
-  } finally {
-    saving.value = false;
-  }
+  const action = actions.begin(scope, payload, (left, right) => JSON.stringify(left) === JSON.stringify(right), local.version);
+  await runOwnerBound(
+    async (owner) => {
+      try {
+        const updated = await owner.wait(plannerClient.putAvailability(payload, action.key, local.version));
+        actions.settle(scope, action);
+        draft.value = cloneAvailability(updated);
+        dirty.value = false;
+        queryClient.setQueryData(['availability'], updated);
+        message.value = t('availability.savedMessage', { version: updated.version });
+      } catch (cause) {
+        owner.rethrowIfStale(cause);
+        if (cause instanceof ApiError && cause.status === 412) {
+          const server = await owner.wait(plannerClient.getAvailability({ fresh: true }));
+          queryClient.setQueryData(['availability'], server);
+          conflict.value = { server, local: cloneAvailability(draft.value ?? local) };
+          message.value = '';
+          error.value = null;
+          await owner.wait(nextTick());
+          conflictHeading.value?.focus();
+          return;
+        }
+        error.value = errorMessage(cause, t('availability.saveError'));
+      }
+    },
+    {
+      onSettled: () => {
+        saving.value = false;
+      },
+    },
+  );
 }
 
 function keepLocal(): void {

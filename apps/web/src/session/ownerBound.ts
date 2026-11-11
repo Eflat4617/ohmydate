@@ -20,11 +20,18 @@ import { ANONYMOUS_OWNER } from './ownerStorage';
  * - the OwnerBinding is captured when it is called, before the first await;
  * - the task awaits through the scope (`await owner.wait(…)`), which never
  *   resumes for a stale owner — it rejects with OwnerChangedError as soon as
- *   the owner changes (ESLint rule owner-isolation/bound-await requires it);
+ *   the owner changes;
+ * - a `catch` inside the task starts with `owner.rethrowIfStale(cause)`, so a
+ *   stale failure is never handled (shown, retried) as a real one;
+ * - cleanup goes in `onSettled`, not `finally`: a `finally` block would also
+ *   run for the stale owner;
  * - `owner.signal` cancels the requests, `owner.binding` is what storage
  *   writes take;
  * - when the owner changed, the task's result and its failure are dropped:
  *   neither `onError` nor `onSettled` runs, and the outcome is `stale`.
+ *
+ * ESLint rule owner-isolation/bound-await enforces the three "inside the
+ * task" rules, so they cannot be forgotten on the next screen.
  */
 
 /** Work outlived the owner it started for; whatever it produced must be dropped. */
@@ -93,6 +100,12 @@ export interface OwnerScope {
   /** Throws OwnerChangedError when the owner changed. */
   assertCurrent(): void;
   /**
+   * First line of every `catch` in a bound task: a failure that is (or was
+   * caused by) the owner change is thrown on, so the handler below it only
+   * ever sees a real failure of the current owner's action.
+   */
+  rethrowIfStale(cause: unknown): void;
+  /**
    * Await `pending` for this owner only: resolves or rejects like it while the
    * owner is current, rejects with OwnerChangedError as soon as it is not —
    * also when `pending` never settles or ignores the signal.
@@ -141,6 +154,10 @@ export function ownerScopeOf(binding: OwnerBinding): OwnerScope {
     signal: binding.signal,
     isCurrent: () => isOwnerBindingCurrent(binding),
     assertCurrent: () => assertOwnerCurrent(binding),
+    rethrowIfStale(cause) {
+      if (cause instanceof OwnerChangedError) throw cause;
+      assertOwnerCurrent(binding);
+    },
     wait: (pending) => waitFor(binding, pending),
     pages: (fetchPage, options) => collectPages(binding, fetchPage, options),
   };

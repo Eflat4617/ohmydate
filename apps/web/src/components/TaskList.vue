@@ -2,6 +2,8 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { ActionStore, plannerClient, type Task } from '../api';
 import { useTaskActions } from '../composables/useTaskActions';
+import { runOwnerBound } from '../session/ownerBound';
+import { captureOwnerBinding, type OwnerBinding } from '../session/ownerEpoch';
 import { useOfflineStore } from '../stores/offline';
 import { useToastStore } from '../stores/toast';
 import { useUiStore } from '../stores/ui';
@@ -121,9 +123,12 @@ function onRemove(task: Task): void {
     action: { label: t('taskList.undo'), handler: () => undoDelete(task.id) },
     duration: UNDO_MS,
   });
+  // The delete belongs to whoever clicked it (ADR-023): if the signed-in user
+  // changes during the undo window, the timer sends nothing.
+  const binding = captureOwnerBinding();
   const timer = setTimeout(() => {
     deleteTimers.delete(task.id);
-    void commitDelete(task);
+    void commitDelete(task, binding);
   }, UNDO_MS);
   deleteTimers.set(task.id, timer);
 }
@@ -147,20 +152,26 @@ function cancelAllDeletes(reason: string): void {
   toast.show(reason);
 }
 
-async function commitDelete(task: Task): Promise<void> {
-  if (!offline.online || props.disabled) {
-    unhide(task.id);
-    toast.show(t('taskList.deleteCancelledDisabled'));
-    return;
-  }
-  try {
-    const deleted = await remove(task);
-    if (deleted) emit('refresh');
-    else unhide(task.id);
-  } catch {
-    unhide(task.id);
-    toast.show(t('taskList.deleteFailed'), { tone: 'error' });
-  }
+async function commitDelete(task: Task, binding: OwnerBinding): Promise<void> {
+  await runOwnerBound(
+    async (owner) => {
+      if (!offline.online || props.disabled) {
+        unhide(task.id);
+        toast.show(t('taskList.deleteCancelledDisabled'));
+        return;
+      }
+      try {
+        const deleted = await owner.wait(remove(task));
+        if (deleted) emit('refresh');
+        else unhide(task.id);
+      } catch (cause) {
+        owner.rethrowIfStale(cause);
+        unhide(task.id);
+        toast.show(t('taskList.deleteFailed'), { tone: 'error' });
+      }
+    },
+    { binding },
+  );
 }
 
 watch(
