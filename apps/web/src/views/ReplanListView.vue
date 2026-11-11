@@ -12,7 +12,6 @@ import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { t, tp } from '../i18n';
 import { browserTimeZone, formatDateTime } from '../i18n/format';
 import { proposalStateLabel, reasonLabel, triggerLabel } from '../i18n/replan';
-import { activePlanRevision, rememberedActivePlan } from '../session/activePlan';
 import { captureOwnerBinding } from '../session/ownerEpoch';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
@@ -36,9 +35,10 @@ const items = computed(() => listQuery.data.value?.items ?? []);
 const pending = computed(() => items.value.filter((item) => item.state === 'pending'));
 const history = computed(() => items.value.filter((item) => item.state !== 'pending'));
 
-const rememberedPlanId = computed(() => {
-  void activePlanRevision.value;
-  return rememberedActivePlan(sessionStore.ownerId);
+/** "재계획 요청" targets the plan of the newest proposal (server planId, FU-70). */
+const latestPlanId = computed(() => {
+  const newest = [...items.value].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+  return newest?.planId ?? null;
 });
 
 const STATE_TONES = {
@@ -69,7 +69,7 @@ function tone(item: ReplanProposal) {
     </header>
 
     <p class="muted replan-policy"><UiIcon name="info" :size="16" /> {{ t('replan.policy') }}</p>
-    <ReplanRequestButton v-if="rememberedPlanId" :plan-id="rememberedPlanId" show-help />
+    <ReplanRequestButton v-if="latestPlanId" :plan-id="latestPlanId" show-help />
 
     <div v-if="listQuery.isLoading.value">
       <p class="visually-hidden" role="status">{{ t('replan.loading') }}</p>

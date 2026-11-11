@@ -71,6 +71,8 @@ export {
   type ReplanTriggerKind,
   type ReplanReasonCode,
   type ReplanCandidate,
+  type ReplanBefore,
+  type ReplanBeforeBlock,
   type ReplanCandidateFlag,
   type ReplanRequest,
   type EstimationProfile,
@@ -82,6 +84,7 @@ export { ApiError, apiErrorFromPayload, apiErrorFromResponse, parseProblem, type
 export { findInboxProject } from './inbox';
 export {
   ActionStore,
+  isStoredFinalResult,
   isUuidV7Key,
   newActionId,
   uuidV7Key,

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   ActionStore,
   ApiError,
+  isStoredFinalResult,
   plannerClient,
   type EstimationProfile,
   type EstimationProfileGroup,
@@ -154,7 +155,8 @@ async function toggle(item: EstimationProfileItem, include: boolean): Promise<vo
     await profileQuery.refetch();
     await announce(excluded ? t('patterns.excludedDone') : t('patterns.includedDone'));
   } catch (cause) {
-    if (cause instanceof ApiError) actions.settle(scope, action);
+    // M5-03R-1 M1: keep the key unless the server stored a final result.
+    if (isStoredFinalResult(cause)) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     if (cause instanceof ApiError && cause.status === 412) {
       await profileQuery.refetch();
@@ -208,7 +210,8 @@ async function confirmReset(): Promise<void> {
     await nextTick();
     summaryHeading.value?.focus();
   } catch (cause) {
-    if (cause instanceof ApiError) actions.settle(scope, action);
+    // M5-03R-1 M1: keep the key unless the server stored a final result.
+    if (isStoredFinalResult(cause)) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     resetError.value = errorMessage(cause, t('patterns.resetError'));
   } finally {

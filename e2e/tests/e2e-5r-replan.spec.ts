@@ -44,6 +44,12 @@ const DETECTION_TIMEOUT_MS = 11 * MINUTE;
 interface ProposalDto {
   readonly id: string;
   readonly state: string;
+  readonly planId: string;
+  readonly basePlanVersion: number;
+  readonly before?: {
+    readonly blocks: readonly { id: string; taskId: string; startAt: string; endAt: string; locked: boolean }[];
+    readonly metrics: { readonly totalFocusMin: number; readonly minSlackMin: number };
+  };
   readonly version: number;
   readonly availabilityVersion: number;
   readonly trigger: {
@@ -198,6 +204,11 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       expect(proposal.trigger.kind).toBe('commitment_conflict');
       expect(proposal.trigger.affectedTaskIds).toEqual([movedBlock.taskId]);
       expect(proposal.candidate.blocks.some((block) => block.taskId === lockedBlock?.taskId)).toBe(false);
+      // FU-70: the server names the plan and snapshots every block it replaces or keeps.
+      expect(proposal.planId).toBe(planId);
+      expect(proposal.basePlanVersion).toBeGreaterThanOrEqual(1);
+      expect(proposal.before?.blocks.map((block) => block.id).sort()).toEqual(approvedBlocks.map((block) => block.id).sort());
+      expect(proposal.before?.blocks.find((block) => block.id === lockedBlock?.id)?.locked).toBe(true);
       const notices = (await listNotifications(page, state)).filter(
         (item) => item.dedupeKey === `replan_proposal:${proposal?.id}`,
       );

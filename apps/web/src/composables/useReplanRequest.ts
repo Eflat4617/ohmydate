@@ -2,6 +2,7 @@ import { ref } from 'vue';
 import {
   ActionStore,
   ApiError,
+  isStoredFinalResult,
   plannerClient,
   type ReplanProposal,
   type ReplanReasonCode,
@@ -11,7 +12,6 @@ import { t } from '../i18n';
 import { browserTimeZone } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
 import { suppressedText } from '../i18n/replan';
-import { forgetActivePlan } from '../session/activePlan';
 import { captureOwnerBinding, isOwnerBindingCurrent } from '../session/ownerEpoch';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
@@ -24,9 +24,11 @@ export interface ReplanRequestOptions {
 
 /**
  * `POST /replan-proposals:request` (user_request) with the 08 §1 rules: one
- * Idempotency-Key per logical submission, reused only for a network retry. A
- * 409 replan_suppressed is a *stored* domain result, so the key is dropped on
- * any API answer — otherwise a later retry would replay the old 409.
+ * Idempotency-Key per logical submission. Network loss and transient answers
+ * (`idempotency_in_progress`, 5xx, …) keep the key so the retry replays the
+ * original request instead of creating (and superseding with) a second
+ * proposal; only a stored final result — success or a stored 409/422 such as
+ * replan_suppressed — ends the action (M5-03R-1 M1).
  */
 export function useReplanRequest() {
   const auth = useAuthStore();
@@ -60,7 +62,7 @@ export function useReplanRequest() {
       actions.settle(scope, action);
       return isOwnerBindingCurrent(binding) ? created : null;
     } catch (cause) {
-      if (cause instanceof ApiError) actions.settle(scope, action);
+      if (isStoredFinalResult(cause)) actions.settle(scope, action);
       if (!isOwnerBindingCurrent(binding)) return null;
       if (cause instanceof ApiError && cause.code === 'replan_suppressed') {
         error.value = suppressedText(cause.retryAfterSeconds, Date.now(), auth.user?.timeZone ?? browserTimeZone());
@@ -68,7 +70,6 @@ export function useReplanRequest() {
       } else if (cause instanceof ApiError && cause.code === 'proposal_state_conflict') {
         error.value = t('replan.noActivePlan');
       } else if (cause instanceof ApiError && cause.status === 404) {
-        forgetActivePlan(binding.ownerId, planId);
         error.value = t('replan.planMissing');
       } else {
         error.value = errorMessage(cause, t('replan.requestError'));

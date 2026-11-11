@@ -6681,6 +6681,185 @@
         },
         "type": "object"
       },
+      "ReplanBefore": {
+        "additionalProperties": false,
+        "properties": {
+          "blocks": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "endAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "id": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "locked": {
+                  "type": "boolean"
+                },
+                "planVersionId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "startAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "status": {
+                  "anyOf": [
+                    {
+                      "const": "planned",
+                      "type": "string"
+                    },
+                    {
+                      "const": "done",
+                      "type": "string"
+                    },
+                    {
+                      "const": "skipped",
+                      "type": "string"
+                    },
+                    {
+                      "const": "moved",
+                      "type": "string"
+                    },
+                    {
+                      "const": "superseded",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "taskId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
+                "version": {
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "id",
+                "planVersionId",
+                "taskId",
+                "startAt",
+                "endAt",
+                "locked",
+                "status",
+                "version"
+              ],
+              "type": "object"
+            },
+            "maxItems": 5000,
+            "type": "array"
+          },
+          "capturedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": false,
+            "properties": {
+              "minSlackMin": {
+                "type": "number"
+              },
+              "taskSlack": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "dueAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "slackMin": {
+                      "type": "number"
+                    },
+                    "taskId": {
+                      "format": "uuid",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "taskId",
+                    "dueAt",
+                    "slackMin"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              "totalFocusMin": {
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "required": [
+              "totalFocusMin",
+              "minSlackMin",
+              "taskSlack"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "capturedAt",
+          "blocks",
+          "metrics"
+        ],
+        "type": "object"
+      },
+      "ReplanBeforeMetrics": {
+        "additionalProperties": false,
+        "properties": {
+          "minSlackMin": {
+            "type": "number"
+          },
+          "taskSlack": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "dueAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "slackMin": {
+                  "type": "number"
+                },
+                "taskId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "taskId",
+                "dueAt",
+                "slackMin"
+              ],
+              "type": "object"
+            },
+            "maxItems": 500,
+            "type": "array"
+          },
+          "totalFocusMin": {
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "totalFocusMin",
+          "minSlackMin",
+          "taskSlack"
+        ],
+        "type": "object"
+      },
       "ReplanCandidate": {
         "additionalProperties": false,
         "properties": {
@@ -7129,10 +7308,148 @@
             "minimum": 1,
             "type": "integer"
           },
+          "basePlanVersion": {
+            "minimum": 1,
+            "type": "integer"
+          },
           "basePlanVersionId": {
             "format": "uuid",
             "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
             "type": "string"
+          },
+          "before": {
+            "additionalProperties": false,
+            "properties": {
+              "blocks": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "endAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                      "type": "string"
+                    },
+                    "locked": {
+                      "type": "boolean"
+                    },
+                    "planVersionId": {
+                      "format": "uuid",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                      "type": "string"
+                    },
+                    "startAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "status": {
+                      "anyOf": [
+                        {
+                          "const": "planned",
+                          "type": "string"
+                        },
+                        {
+                          "const": "done",
+                          "type": "string"
+                        },
+                        {
+                          "const": "skipped",
+                          "type": "string"
+                        },
+                        {
+                          "const": "moved",
+                          "type": "string"
+                        },
+                        {
+                          "const": "superseded",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "taskId": {
+                      "format": "uuid",
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                      "type": "string"
+                    },
+                    "version": {
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "planVersionId",
+                    "taskId",
+                    "startAt",
+                    "endAt",
+                    "locked",
+                    "status",
+                    "version"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 5000,
+                "type": "array"
+              },
+              "capturedAt": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "metrics": {
+                "additionalProperties": false,
+                "properties": {
+                  "minSlackMin": {
+                    "type": "number"
+                  },
+                  "taskSlack": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "dueAt": {
+                          "format": "date-time",
+                          "type": "string"
+                        },
+                        "slackMin": {
+                          "type": "number"
+                        },
+                        "taskId": {
+                          "format": "uuid",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "taskId",
+                        "dueAt",
+                        "slackMin"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 500,
+                    "type": "array"
+                  },
+                  "totalFocusMin": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "totalFocusMin",
+                  "minSlackMin",
+                  "taskSlack"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "capturedAt",
+              "blocks",
+              "metrics"
+            ],
+            "type": "object"
           },
           "candidate": {
             "additionalProperties": false,
@@ -7588,6 +7905,11 @@
             "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
             "type": "string"
           },
+          "planId": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          },
           "state": {
             "anyOf": [
               {
@@ -7690,8 +8012,10 @@
         "required": [
           "id",
           "state",
+          "planId",
           "trigger",
           "basePlanVersionId",
+          "basePlanVersion",
           "availabilityVersion",
           "candidate",
           "createdAt",
@@ -7764,10 +8088,148 @@
                   "minimum": 1,
                   "type": "integer"
                 },
+                "basePlanVersion": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
                 "basePlanVersionId": {
                   "format": "uuid",
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
+                },
+                "before": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "blocks": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "endAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "id": {
+                            "format": "uuid",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                            "type": "string"
+                          },
+                          "locked": {
+                            "type": "boolean"
+                          },
+                          "planVersionId": {
+                            "format": "uuid",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                            "type": "string"
+                          },
+                          "startAt": {
+                            "format": "date-time",
+                            "type": "string"
+                          },
+                          "status": {
+                            "anyOf": [
+                              {
+                                "const": "planned",
+                                "type": "string"
+                              },
+                              {
+                                "const": "done",
+                                "type": "string"
+                              },
+                              {
+                                "const": "skipped",
+                                "type": "string"
+                              },
+                              {
+                                "const": "moved",
+                                "type": "string"
+                              },
+                              {
+                                "const": "superseded",
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "taskId": {
+                            "format": "uuid",
+                            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                            "type": "string"
+                          },
+                          "version": {
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "planVersionId",
+                          "taskId",
+                          "startAt",
+                          "endAt",
+                          "locked",
+                          "status",
+                          "version"
+                        ],
+                        "type": "object"
+                      },
+                      "maxItems": 5000,
+                      "type": "array"
+                    },
+                    "capturedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "metrics": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "minSlackMin": {
+                          "type": "number"
+                        },
+                        "taskSlack": {
+                          "items": {
+                            "additionalProperties": false,
+                            "properties": {
+                              "dueAt": {
+                                "format": "date-time",
+                                "type": "string"
+                              },
+                              "slackMin": {
+                                "type": "number"
+                              },
+                              "taskId": {
+                                "format": "uuid",
+                                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "taskId",
+                              "dueAt",
+                              "slackMin"
+                            ],
+                            "type": "object"
+                          },
+                          "maxItems": 500,
+                          "type": "array"
+                        },
+                        "totalFocusMin": {
+                          "minimum": 0,
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "totalFocusMin",
+                        "minSlackMin",
+                        "taskSlack"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "capturedAt",
+                    "blocks",
+                    "metrics"
+                  ],
+                  "type": "object"
                 },
                 "candidate": {
                   "additionalProperties": false,
@@ -8223,6 +8685,11 @@
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 },
+                "planId": {
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                },
                 "state": {
                   "anyOf": [
                     {
@@ -8325,8 +8792,10 @@
               "required": [
                 "id",
                 "state",
+                "planId",
                 "trigger",
                 "basePlanVersionId",
+                "basePlanVersion",
                 "availabilityVersion",
                 "candidate",
                 "createdAt",
@@ -8410,6 +8879,29 @@
         },
         "required": [
           "planId"
+        ],
+        "type": "object"
+      },
+      "ReplanTaskSlack": {
+        "additionalProperties": false,
+        "properties": {
+          "dueAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "slackMin": {
+            "type": "number"
+          },
+          "taskId": {
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "dueAt",
+          "slackMin"
         ],
         "type": "object"
       },

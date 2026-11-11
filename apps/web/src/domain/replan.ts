@@ -1,19 +1,11 @@
 /**
- * Pure helpers for the replan proposal screen (M5-03). No I/O and no clock:
- * the view passes the proposal, the approved blocks it loaded and the task
- * deadlines it knows about.
+ * Pure helpers for the replan proposal screen (M5-03, M5-03R-1 H1).
  *
- * Contract notes (06 §7, 08 §2.6, pg-replan-store approve):
- * - `candidate.blocks` is the complete replacement for the plan's *unlocked*
- *   future blocks (fixed ones included); approval supersedes exactly that set.
- * - Locked blocks are never part of a candidate. They stay as the same row and
- *   are shown here as "unchanged".
- * - "Future" is measured from the moment the proposal was computed
- *   (`trigger.detectedAt`), not the viewer's clock, so the diff of a pending
- *   proposal is stable while it is open.
- * - The proposal does not carry its plan id, so the plan's task set is
- *   inferred: candidate tasks ∪ affected tasks ∪ tasks of blocks written by
- *   the base plan version.
+ * The before side is the server's authoritative snapshot (`proposal.before`,
+ * FU-70): every block of the base plan that the candidate replaces (unlocked)
+ * or keeps (locked), across the whole horizon. The web never reconstructs it
+ * from a calendar query, so the diff below is exact; a proposal without a
+ * snapshot gets no diff at all.
  */
 
 export interface TimedBlock {
@@ -22,11 +14,9 @@ export interface TimedBlock {
   readonly endAt: string;
 }
 
-export interface ApprovedBlockLike extends TimedBlock {
+export interface SnapshotBlock extends TimedBlock {
   readonly id: string;
-  readonly planVersionId: string;
   readonly locked: boolean;
-  readonly status: string;
 }
 
 export type BlockChangeKind = 'moved' | 'shrunk' | 'extended' | 'added' | 'removed';
@@ -38,28 +28,14 @@ export interface BlockChange {
   readonly after?: TimedBlock;
 }
 
-export interface ReplanDiffInput {
-  readonly candidateBlocks: readonly TimedBlock[];
-  readonly currentBlocks: readonly ApprovedBlockLike[];
-  readonly affectedTaskIds: readonly string[];
-  readonly basePlanVersionId: string;
-  /** Instant the proposal was computed (`trigger.detectedAt`). */
-  readonly since: string;
-}
-
-export interface ReplanDiff {
+export interface ReplanDiff<B extends SnapshotBlock = SnapshotBlock> {
   /** Only the blocks that differ, in time order. */
   readonly changes: readonly BlockChange[];
-  /** Locked future blocks of the plan: never moved by a replan. */
-  readonly locked: readonly ApprovedBlockLike[];
+  /** Locked blocks of the snapshot: kept as they are by approval. */
+  readonly locked: readonly B[];
   /** Unlocked blocks that stay exactly where they are. */
   readonly unchangedCount: number;
-  /** The plan's current unlocked future blocks (the "before" side). */
-  readonly before: readonly ApprovedBlockLike[];
-  readonly planTaskIds: ReadonlySet<string>;
 }
-
-const INACTIVE = new Set(['superseded', 'done']);
 
 function ms(instant: string): number {
   return Date.parse(instant);
@@ -89,92 +65,49 @@ function changeTime(change: BlockChange): number {
   );
 }
 
-/** Before/after difference of a replan candidate against the approved schedule. */
-export function replanDiff(input: ReplanDiffInput): ReplanDiff {
-  const sinceMs = ms(input.since);
-  const planTaskIds = new Set<string>([
-    ...input.candidateBlocks.map((block) => block.taskId),
-    ...input.affectedTaskIds,
-    ...input.currentBlocks
-      .filter((block) => block.planVersionId === input.basePlanVersionId)
-      .map((block) => block.taskId),
-  ]);
-  const future = input.currentBlocks.filter(
-    (block) =>
-      planTaskIds.has(block.taskId) && !INACTIVE.has(block.status) && ms(block.startAt) >= sinceMs,
-  );
-  const before = future.filter((block) => !block.locked).sort(byStart);
-  const locked = future.filter((block) => block.locked).sort(byStart);
-
-  const changes: BlockChange[] = [];
-  let unchangedCount = 0;
-  const taskIds = [...new Set([...before.map((b) => b.taskId), ...input.candidateBlocks.map((b) => b.taskId)])];
-  for (const taskId of taskIds) {
-    const left = before.filter((block) => block.taskId === taskId);
-    const right = [...input.candidateBlocks.filter((block) => block.taskId === taskId)].sort(byStart);
-    const remainingLeft: ApprovedBlockLike[] = [];
-    const unmatchedRight = [...right];
-    for (const block of left) {
-      const index = unmatchedRight.findIndex((candidate) => sameInterval(candidate, block));
-      if (index === -1) {
-        remainingLeft.push(block);
-      } else {
-        unmatchedRight.splice(index, 1);
-        unchangedCount += 1;
-      }
-    }
-    const pairs = Math.min(remainingLeft.length, unmatchedRight.length);
-    for (let index = 0; index < pairs; index += 1) {
-      const from = remainingLeft[index] as ApprovedBlockLike;
-      const to = unmatchedRight[index] as TimedBlock;
-      changes.push({
-        kind: changeKind(from, to),
-        taskId,
-        before: { taskId, startAt: from.startAt, endAt: from.endAt },
-        after: { taskId, startAt: to.startAt, endAt: to.endAt },
-      });
-    }
-    for (const from of remainingLeft.slice(pairs)) {
-      changes.push({ kind: 'removed', taskId, before: { taskId, startAt: from.startAt, endAt: from.endAt } });
-    }
-    for (const to of unmatchedRight.slice(pairs)) {
-      changes.push({ kind: 'added', taskId, after: { taskId, startAt: to.startAt, endAt: to.endAt } });
-    }
-  }
-  changes.sort((left, right) => changeTime(left) - changeTime(right) || left.taskId.localeCompare(right.taskId));
-  return { changes, locked, unchangedCount, before, planTaskIds };
-}
-
-/** Planned focus minutes of a block set. */
-export function plannedMinutes(blocks: readonly TimedBlock[]): number {
-  return blocks.reduce(
-    (sum, block) => sum + Math.max(0, Math.round((ms(block.endAt) - ms(block.startAt)) / 60_000)),
-    0,
-  );
+function plain(block: TimedBlock): TimedBlock {
+  return { taskId: block.taskId, startAt: block.startAt, endAt: block.endAt };
 }
 
 /**
- * Smallest deadline slack in minutes (due − end of the task's last block),
- * the scheduler's `minSlackMin` definition without per-task buffers. Tasks
- * without a deadline or without blocks are ignored; `null` when none count.
+ * Candidate vs the before snapshot. Unlocked snapshot blocks are what approval
+ * supersedes; locked ones stay. Per task, identical intervals are unchanged,
+ * the rest pair up in time order (moved / shrunk / extended) and leftovers are
+ * removed or added.
  */
-export function deadlineSlackMinutes(
-  blocks: readonly TimedBlock[],
-  dueByTask: ReadonlyMap<string, string>,
-): number | null {
-  const lastEnd = new Map<string, number>();
-  for (const block of blocks) {
-    lastEnd.set(block.taskId, Math.max(lastEnd.get(block.taskId) ?? Number.NEGATIVE_INFINITY, ms(block.endAt)));
+export function replanDiff<B extends SnapshotBlock>(
+  beforeBlocks: readonly B[],
+  candidateBlocks: readonly TimedBlock[],
+): ReplanDiff<B> {
+  const replaced = beforeBlocks.filter((block) => !block.locked).sort(byStart);
+  const locked = beforeBlocks.filter((block) => block.locked).sort(byStart);
+  const changes: BlockChange[] = [];
+  let unchangedCount = 0;
+  const taskIds = [...new Set([...replaced.map((block) => block.taskId), ...candidateBlocks.map((block) => block.taskId)])];
+  for (const taskId of taskIds) {
+    const left = replaced.filter((block) => block.taskId === taskId);
+    const unmatched = candidateBlocks.filter((block) => block.taskId === taskId).sort(byStart);
+    const remaining: B[] = [];
+    for (const block of left) {
+      const index = unmatched.findIndex((candidate) => sameInterval(candidate, block));
+      if (index === -1) {
+        remaining.push(block);
+      } else {
+        unmatched.splice(index, 1);
+        unchangedCount += 1;
+      }
+    }
+    const pairs = Math.min(remaining.length, unmatched.length);
+    for (let index = 0; index < pairs; index += 1) {
+      const from = remaining[index] as B;
+      const to = unmatched[index] as TimedBlock;
+      changes.push({ kind: changeKind(from, to), taskId, before: plain(from), after: plain(to) });
+    }
+    for (const from of remaining.slice(pairs)) changes.push({ kind: 'removed', taskId, before: plain(from) });
+    for (const to of unmatched.slice(pairs)) changes.push({ kind: 'added', taskId, after: plain(to) });
   }
-  let minimum: number | null = null;
-  for (const [taskId, due] of dueByTask) {
-    const end = lastEnd.get(taskId);
-    const dueMs = ms(due);
-    if (end === undefined || !Number.isFinite(dueMs)) continue;
-    const slack = Math.floor((dueMs - end) / 60_000);
-    minimum = minimum === null ? slack : Math.min(minimum, slack);
-  }
-  return minimum;
+  changes.sort((left, right) => changeTime(left) - changeTime(right) || left.taskId.localeCompare(right.taskId));
+  return { changes, locked, unchangedCount };
 }
 
 export interface RetryWait {
@@ -191,18 +124,4 @@ export function retryWait(retryAfterSeconds: number, nowMs: number): RetryWait |
     minutes: Math.max(1, Math.ceil(retryAfterSeconds / 60)),
     untilMs: nowMs + Math.ceil(retryAfterSeconds * 1000),
   };
-}
-
-/** Time window that covers both sides of a proposal (for `GET /schedule-blocks`). */
-export function proposalWindow(
-  candidateBlocks: readonly TimedBlock[],
-  since: string,
-  maxDays = 366,
-): { from: string; to: string } {
-  // Minute-aligned like every other list query; the diff itself filters by `since`.
-  const fromMs = Math.floor(ms(since) / 60_000) * 60_000;
-  const lastEnd = candidateBlocks.reduce((max, block) => Math.max(max, ms(block.endAt)), fromMs);
-  const dayMs = 24 * 60 * 60 * 1000;
-  const toMs = Math.min(fromMs + maxDays * dayMs, Math.ceil(lastEnd / 60_000) * 60_000 + 14 * dayMs);
-  return { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() };
 }

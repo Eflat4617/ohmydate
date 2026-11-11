@@ -5,10 +5,9 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
   ActionStore,
   ApiError,
+  isStoredFinalResult,
   plannerClient,
-  type PlanVersion,
   type ReplanProposal,
-  type ScheduleBlock,
   type Task,
   type Violation,
 } from '../api';
@@ -24,14 +23,7 @@ import UiIcon from '../components/ui/UiIcon.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import type { IconName } from '../components/ui/icons';
 import { useReplanRequest } from '../composables/useReplanRequest';
-import {
-  deadlineSlackMinutes,
-  plannedMinutes,
-  proposalWindow,
-  replanDiff,
-  type BlockChangeKind,
-  type TimedBlock,
-} from '../domain/replan';
+import { replanDiff, type BlockChangeKind, type TimedBlock } from '../domain/replan';
 import { t, tp } from '../i18n';
 import { browserTimeZone, formatDateTime, formatDateTimeRange, formatDuration, formatSignedDuration } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
@@ -44,7 +36,6 @@ import {
   triggerBody,
   triggerLabel,
 } from '../i18n/replan';
-import { activePlanRevision, rememberActivePlan, rememberedActivePlan } from '../session/activePlan';
 import { captureOwnerBinding, isOwnerBindingCurrent } from '../session/ownerEpoch';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
@@ -53,9 +44,11 @@ import { useSessionStore } from '../stores/session';
 /**
  * Replan proposal detail (M5-03, 05 §11, 06 §7, 08 §2.6). Shows why the
  * proposal exists, only the blocks it changes (locked blocks are listed as
- * unchanged), before/after metrics and the scheduler's original explanation.
- * Approve pins `If-Match: W/"availability:<n>"`; reject pins the proposal
- * version and explains the 24 h same-reason suppression first.
+ * unchanged), before/after metrics and the scheduler's explanation.
+ * The before side is the server's snapshot (`proposal.before`, FU-70 /
+ * M5-03R-1 H1); without one the comparison is declared unavailable instead of
+ * guessed. Approve pins `If-Match: W/"availability:<n>"`; reject pins the
+ * proposal version and explains the 24 h same-reason suppression first.
  */
 const props = defineProps<{ id: string }>();
 
@@ -82,32 +75,6 @@ const proposalQuery = useQuery({
 });
 const proposal = computed<ReplanProposal | null>(() => proposalQuery.data.value ?? null);
 const pending = computed(() => proposal.value?.state === 'pending');
-
-const blocksQuery = useQuery({
-  queryKey: computed(() => ['replan-blocks', props.id, proposal.value?.version ?? 0, ownerKey.value]),
-  queryFn: async () => {
-    const value = proposal.value;
-    if (value === null) throw new Error('proposal is not loaded');
-    const binding = captureOwnerBinding();
-    const span = proposalWindow(value.candidate.blocks, value.trigger.detectedAt);
-    const items: ScheduleBlock[] = [];
-    let cursor: string | undefined;
-    for (let page = 0; page < 10; page += 1) {
-      const result = await plannerClient.listScheduleBlocks({
-        from: span.from,
-        to: span.to,
-        limit: 500,
-        ...(cursor === undefined ? {} : { cursor }),
-        signal: binding.signal,
-      });
-      items.push(...result.items);
-      if (result.nextCursor === null) break;
-      cursor = result.nextCursor;
-    }
-    return items;
-  },
-  enabled: computed(() => pending.value),
-});
 
 const tasksQuery = useQuery({
   queryKey: computed(() => ['tasks', 'replan', ownerKey.value]),
@@ -137,28 +104,13 @@ const taskNames = computed<Record<string, string>>(() =>
   Object.fromEntries((tasksQuery.data.value ?? []).map((task) => [task.id, task.title])),
 );
 
+const before = computed(() => proposal.value?.before ?? null);
+
 const diff = computed(() => {
   const value = proposal.value;
-  const blocks = blocksQuery.data.value;
-  if (value === null || !pending.value || blocks === undefined) return null;
-  return replanDiff({
-    candidateBlocks: value.candidate.blocks,
-    currentBlocks: blocks,
-    affectedTaskIds: value.trigger.affectedTaskIds,
-    basePlanVersionId: value.basePlanVersionId,
-    since: value.trigger.detectedAt,
-  });
-});
-
-const dueByTask = computed(() => {
-  const map = new Map<string, string>();
-  const planTasks = diff.value?.planTaskIds;
-  if (planTasks === undefined) return map;
-  for (const taskId of planTasks) {
-    const due = tasksById.value.get(taskId)?.dueAt;
-    if (due !== undefined) map.set(taskId, due);
-  }
-  return map;
+  const snapshot = before.value;
+  if (value === null || snapshot === null) return null;
+  return replanDiff(snapshot.blocks, value.candidate.blocks);
 });
 
 interface MetricRow {
@@ -166,51 +118,47 @@ interface MetricRow {
   readonly label: string;
   readonly now: string;
   readonly proposed: string;
+  readonly delta?: string;
 }
 
-function slackText(minutes: number | null): string {
-  return minutes === null ? t('replan.slackNone') : formatDuration(minutes);
-}
-
+/** Both sides come from the server with the same rules (06 §6); nothing is estimated here. */
 const metricRows = computed<MetricRow[]>(() => {
   const value = proposal.value;
-  const current = diff.value;
-  if (value === null || current === null) return [];
-  const lockedBlocks: readonly TimedBlock[] = current.locked;
-  const now: TimedBlock[] = [...current.before, ...lockedBlocks];
-  const next: TimedBlock[] = [...value.candidate.blocks, ...lockedBlocks];
-  const rows: MetricRow[] = [
+  const snapshot = before.value;
+  if (value === null || snapshot === null) return [];
+  const focusDelta = value.candidate.metrics.totalFocusMin - snapshot.metrics.totalFocusMin;
+  return [
     {
       key: 'slack',
       label: t('replan.slack'),
-      now: slackText(deadlineSlackMinutes(now, dueByTask.value)),
-      proposed: slackText(deadlineSlackMinutes(next, dueByTask.value)),
+      now: formatDuration(snapshot.metrics.minSlackMin),
+      proposed: formatDuration(value.candidate.metrics.minSlackMin),
     },
     {
       key: 'planned',
       label: t('replan.planned'),
-      now: formatDuration(plannedMinutes(now)),
-      proposed: formatDuration(plannedMinutes(next)),
+      now: formatDuration(snapshot.metrics.totalFocusMin),
+      proposed: formatDuration(value.candidate.metrics.totalFocusMin),
+      ...(focusDelta === 0 ? {} : { delta: formatSignedDuration(focusDelta) }),
     },
   ];
-  return rows;
 });
 
-const plannedDelta = computed(() => {
+/** Per affected deadline task: its slack in the before snapshot. */
+const affectedSlack = computed(() => {
   const value = proposal.value;
-  const current = diff.value;
-  if (value === null || current === null) return 0;
-  return plannedMinutes(value.candidate.blocks) - plannedMinutes(current.before);
-});
-
-const proposedForAffected = computed(() => {
-  const value = proposal.value;
-  if (value === null) return [];
+  const snapshot = before.value;
+  if (value === null || snapshot === null) return [];
   const affected = new Set(value.trigger.affectedTaskIds);
-  return value.candidate.blocks
-    .filter((block) => affected.has(block.taskId))
-    .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt));
+  return snapshot.metrics.taskSlack
+    .filter((entry) => affected.has(entry.taskId))
+    .map((entry) => ({ taskId: entry.taskId, title: titleOf(entry.taskId), slack: formatDuration(entry.slackMin) }));
 });
+
+/** Legacy proposals (no snapshot): only the candidate is known. */
+const candidateBlocks = computed(() =>
+  [...(proposal.value?.candidate.blocks ?? [])].sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt)),
+);
 
 const affectedTitles = computed(() => {
   const value = proposal.value;
@@ -252,17 +200,13 @@ const readOnlyBody = computed(() => {
   return state === undefined || state === 'pending' ? '' : t(`replan.stateBody.${state}`);
 });
 
-const rememberedPlanId = computed(() => {
-  void activePlanRevision.value;
-  return rememberedActivePlan(sessionStore.ownerId);
-});
+const planId = computed(() => proposal.value?.planId ?? null);
 
 const busy = ref<'approve' | 'reject' | 'refresh' | null>(null);
 const announcement = ref('');
 const actionError = ref<string | null>(null);
 const notice = ref<string | null>(null);
 const violations = ref<Violation[]>([]);
-const approvedVersion = ref<PlanVersion | null>(null);
 const conflictOpen = ref(false);
 const rejectOpen = ref(false);
 const rejectReason = ref('');
@@ -272,7 +216,6 @@ const stateRegion = ref<HTMLElement | null>(null);
 watch(
   () => props.id,
   () => {
-    approvedVersion.value = null;
     notice.value = null;
     actionError.value = null;
     violations.value = [];
@@ -296,7 +239,6 @@ async function focusState(): Promise<void> {
 
 async function refreshAll(): Promise<void> {
   await proposalQuery.refetch();
-  if (pending.value) await blocksQuery.refetch();
 }
 
 async function invalidateSchedules(): Promise<void> {
@@ -319,24 +261,17 @@ async function approve(): Promise<void> {
   const scope = `replan:approve:${value.id}`;
   const action = actions.begin(scope, { id: value.id }, samePayload, value.availabilityVersion);
   try {
-    const version = await plannerClient.approveReplanProposal(
-      value.id,
-      action.key,
-      value.availabilityVersion,
-      binding.signal,
-    );
+    await plannerClient.approveReplanProposal(value.id, action.key, value.availabilityVersion, binding.signal);
     actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
-    rememberActivePlan(binding.ownerId, version.planId);
-    approvedVersion.value = version;
     await refreshAll();
     await invalidateSchedules();
     await announce(t('replan.approved'));
     await focusState();
   } catch (cause) {
-    const transient =
-      cause instanceof ApiError && (cause.code === 'approval_in_progress' || cause.code === 'idempotency_in_progress');
-    if (cause instanceof ApiError && !transient) actions.settle(scope, action);
+    // 412 is not stored but the If-Match it pinned is now stale: the next try
+    // carries a new availability version and therefore a new key (ActionStore).
+    if (isStoredFinalResult(cause)) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     if (cause instanceof ApiError && cause.status === 412) {
       conflictOpen.value = true;
@@ -392,7 +327,7 @@ async function confirmReject(): Promise<void> {
     await announce(t('replan.rejected'));
     await focusState();
   } catch (cause) {
-    if (cause instanceof ApiError) actions.settle(scope, action);
+    if (isStoredFinalResult(cause)) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     if (cause instanceof ApiError && (cause.status === 412 || cause.code === 'proposal_state_conflict')) {
       rejectOpen.value = false;
@@ -421,9 +356,8 @@ async function refreshAfterConflict(): Promise<void> {
 
 async function recomputeAfterConflict(): Promise<void> {
   const value = proposal.value;
-  const planId = rememberedPlanId.value;
-  if (value === null || planId === null) return;
-  const created = await recompute.request(planId, {
+  if (value === null) return;
+  const created = await recompute.request(value.planId, {
     reason: value.trigger.reason,
     affectedTaskIds: value.trigger.affectedTaskIds,
   });
@@ -528,14 +462,17 @@ function closeConflict(): void {
                 <td class="tabular">{{ row.now }}</td>
                 <td class="tabular">
                   {{ row.proposed }}
-                  <span v-if="row.key === 'planned' && plannedDelta !== 0" class="muted">
-                    ({{ formatSignedDuration(plannedDelta) }})
-                  </span>
+                  <span v-if="row.delta" class="muted">({{ row.delta }})</span>
                 </td>
               </tr>
             </tbody>
           </table>
           <p v-if="metricRows.length > 0" class="field-help">{{ t('replan.slackHelp') }}</p>
+          <ul v-if="affectedSlack.length > 0" class="plain-list replan-task-slack" :aria-label="t('replan.taskSlackList')">
+            <li v-for="entry in affectedSlack" :key="entry.taskId" :data-task-slack="entry.taskId">
+              {{ t('replan.taskSlack', { title: entry.title, duration: entry.slack }) }}
+            </li>
+          </ul>
           <dl class="kv-list replan-kv">
             <dt>{{ t('replan.changed') }}</dt>
             <dd class="tabular" data-metric="changed">
@@ -549,71 +486,65 @@ function closeConflict(): void {
         </UiCard>
 
         <section class="replan-diff" aria-labelledby="replan-diff-title">
-          <template v-if="pending">
+          <template v-if="diff && before">
             <div class="section-head">
               <h2 id="replan-diff-title" class="h2">{{ t('replan.diffTitle') }}</h2>
               <p class="muted">{{ t('replan.diffLede') }}</p>
+              <p class="subtle replan-snapshot-at">
+                {{ t('replan.snapshotAt', { time: formatDateTime(before.capturedAt, timeZone) }) }}
+              </p>
             </div>
-            <div v-if="blocksQuery.isLoading.value" aria-hidden="true">
-              <UiSkeleton variant="lines" :count="3" />
-            </div>
-            <UiBanner v-else-if="blocksQuery.isError.value" tone="error">
-              <p class="error-text" role="alert">{{ t('replan.loadError') }}</p>
-              <template #actions>
-                <UiButton size="sm" icon="sync" @click="blocksQuery.refetch()">{{ t('common.retry') }}</UiButton>
-              </template>
-            </UiBanner>
-            <template v-else-if="diff">
-              <ul v-if="diff.changes.length > 0" class="replan-changes" :aria-label="t('replan.diffList')">
-                <li
-                  v-for="(change, index) in diff.changes"
-                  :key="`${change.taskId}-${index}`"
-                  class="replan-change"
-                  :data-change="change.kind"
-                  :data-task-id="change.taskId"
-                >
-                  <div class="replan-change-head">
-                    <UiBadge :tone="CHANGE_TONES[change.kind]">
-                      <UiIcon :name="CHANGE_ICONS[change.kind]" :size="14" />{{ changeLabel(change.kind) }}
-                    </UiBadge>
-                    <span class="replan-change-title">{{ titleOf(change.taskId) }}</span>
+            <ul v-if="diff.changes.length > 0" class="replan-changes" :aria-label="t('replan.diffList')">
+              <li
+                v-for="(change, index) in diff.changes"
+                :key="`${change.taskId}-${index}`"
+                class="replan-change"
+                :data-change="change.kind"
+                :data-task-id="change.taskId"
+              >
+                <div class="replan-change-head">
+                  <UiBadge :tone="CHANGE_TONES[change.kind]">
+                    <UiIcon :name="CHANGE_ICONS[change.kind]" :size="14" />{{ changeLabel(change.kind) }}
+                  </UiBadge>
+                  <span class="replan-change-title">{{ titleOf(change.taskId) }}</span>
+                </div>
+                <dl class="replan-change-times">
+                  <div v-if="change.before" class="replan-change-time replan-change-time--before">
+                    <dt>{{ t('replan.before') }}</dt>
+                    <dd><del class="tabular">{{ range(change.before) }}</del></dd>
                   </div>
-                  <dl class="replan-change-times">
-                    <div v-if="change.before" class="replan-change-time replan-change-time--before">
-                      <dt>{{ t('replan.before') }}</dt>
-                      <dd><del class="tabular">{{ range(change.before) }}</del></dd>
-                    </div>
-                    <div v-if="change.after" class="replan-change-time replan-change-time--after">
-                      <dt>{{ t('replan.after') }}</dt>
-                      <dd><ins class="tabular">{{ range(change.after) }}</ins></dd>
-                    </div>
-                  </dl>
+                  <div v-if="change.after" class="replan-change-time replan-change-time--after">
+                    <dt>{{ t('replan.after') }}</dt>
+                    <dd><ins class="tabular">{{ range(change.after) }}</ins></dd>
+                  </div>
+                </dl>
+              </li>
+            </ul>
+            <p v-else class="muted replan-diff-empty">{{ t('replan.diffEmpty') }}</p>
+
+            <div v-if="diff.locked.length > 0" class="replan-locked">
+              <h3 class="h3">{{ t('replan.lockedTitle') }}</h3>
+              <ul class="replan-locked-list" :aria-label="t('replan.lockedList')">
+                <li v-for="block in diff.locked" :key="block.id" :data-block-id="block.id" data-locked>
+                  <UiBadge tone="outline"><UiIcon name="lock" :size="14" />{{ t('replan.locked') }}</UiBadge>
+                  <span class="replan-change-title">{{ titleOf(block.taskId) }}</span>
+                  <span class="tabular muted">{{ range(block) }}</span>
                 </li>
               </ul>
-              <p v-else class="muted replan-diff-empty">{{ t('replan.diffEmpty') }}</p>
-
-              <div v-if="diff.locked.length > 0" class="replan-locked">
-                <h3 class="h3">{{ t('replan.lockedTitle') }}</h3>
-                <ul class="replan-locked-list" :aria-label="t('replan.lockedList')">
-                  <li v-for="block in diff.locked" :key="block.id" :data-block-id="block.id" data-locked>
-                    <UiBadge tone="outline"><UiIcon name="lock" :size="14" />{{ t('replan.locked') }}</UiBadge>
-                    <span class="replan-change-title">{{ titleOf(block.taskId) }}</span>
-                    <span class="tabular muted">{{ range(block) }}</span>
-                  </li>
-                </ul>
-              </div>
-              <p v-if="diff.unchangedCount > 0" class="muted replan-unchanged">
-                {{ tp('replan.unchanged', diff.unchangedCount) }}
-              </p>
-            </template>
+            </div>
+            <p v-if="diff.unchangedCount > 0" class="muted replan-unchanged">
+              {{ tp('replan.unchanged', diff.unchangedCount) }}
+            </p>
           </template>
           <template v-else>
             <div class="section-head">
               <h2 id="replan-diff-title" class="h2">{{ t('replan.proposedTitle') }}</h2>
-              <p class="muted">{{ t('replan.proposedLede') }}</p>
             </div>
-            <ul v-if="proposedForAffected.length > 0" class="approved-schedule-list" :aria-label="t('replan.proposedList')">
-              <li v-for="(block, index) in proposedForAffected" :key="`${block.taskId}-${index}`">
+            <UiBanner tone="warn" class="replan-no-comparison" data-no-comparison>
+              <p>{{ t('replan.noComparison') }}</p>
+            </UiBanner>
+            <ul v-if="candidateBlocks.length > 0" class="approved-schedule-list" :aria-label="t('replan.proposedList')">
+              <li v-for="(block, index) in candidateBlocks" :key="`${block.taskId}-${index}`" data-proposed-block>
                 <span class="approved-schedule-title">{{ titleOf(block.taskId) }}</span>
                 <span class="approved-schedule-time">{{ range(block) }}</span>
               </li>
@@ -664,9 +595,9 @@ function closeConflict(): void {
             </UiButton>
           </div>
         </UiCard>
-        <UiCard v-else-if="rememberedPlanId" class="replan-actions" aria-labelledby="replan-again-title">
+        <UiCard v-else-if="planId" class="replan-actions" aria-labelledby="replan-again-title">
           <h2 id="replan-again-title" class="card-title">{{ t('replan.request') }}</h2>
-          <ReplanRequestButton :plan-id="rememberedPlanId" show-help />
+          <ReplanRequestButton :plan-id="planId" show-help />
         </UiCard>
       </div>
     </template>
@@ -743,7 +674,7 @@ function closeConflict(): void {
           {{ t('replan.conflictRefresh') }}
         </UiButton>
         <UiButton
-          v-if="rememberedPlanId"
+          v-if="planId"
           icon="reschedule"
           :disabled="busy !== null || recompute.busy.value || readOnly"
           :busy="recompute.busy.value"

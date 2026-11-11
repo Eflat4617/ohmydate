@@ -11,7 +11,6 @@ import {
   seedReplanScenario,
 } from '../src/mocks/replan';
 import { server } from '../src/mocks/server';
-import { rememberActivePlan, rememberedActivePlan } from '../src/session/activePlan';
 import { useOfflineStore } from '../src/stores/offline';
 import ReplanProposalView from '../src/views/ReplanProposalView.vue';
 import { bodyText, buttonWith, mountView, waitForText, type Mounted } from './m5-test-utils';
@@ -168,7 +167,8 @@ describe('Replan proposal detail (M5-03)', () => {
     expect(wrapper.text()).toContain('제안을 승인했어요. 새 일정이 반영됐어요.');
     expect(wrapper.find('[data-replan-approve]').exists()).toBe(false);
     expect(wrapper.find('[data-replan-reject]').exists()).toBe(false);
-    expect(rememberedActivePlan(null)).toBe(MOCK_PLAN_ID);
+    // The plan id comes from the server (proposal.planId); nothing is stored locally.
+    expect(Object.keys(localStorage).some((key) => key.startsWith('ohmydate.plan'))).toBe(false);
     // Only the overlapped block moved: the locked block row and the untouched blocks stay.
     expect(mockDb.extraScheduleBlocks.find((block) => block.id === LOCKED_BLOCK_ID)?.locked).toBe(true);
     expect(mockDb.today.blocks.map((block) => block.taskId)).not.toContain(proposal.trigger.affectedTaskIds[0]);
@@ -258,9 +258,11 @@ describe('Replan proposal detail (M5-03)', () => {
     expect(wrapper.get('[data-readonly]').text()).toContain(body);
     expect(wrapper.find('[data-replan-approve]').exists()).toBe(false);
     expect(wrapper.find('[data-replan-reject]').exists()).toBe(false);
-    // A processed proposal is not diffed against today's schedule.
-    expect(wrapper.find('.replan-change').exists()).toBe(false);
-    expect(wrapper.text()).toContain('제안했던 블록');
+    // The snapshot is authoritative for the moment it was taken, so the
+    // processed proposal still shows what it would have changed, read-only.
+    expect(wrapper.findAll('.replan-change')).toHaveLength(1);
+    expect(wrapper.text()).toContain('11월 14일 (토) 오후 6:30 기준 일정과 비교했어요.');
+    expect(wrapper.find('[data-no-comparison]').exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -333,13 +335,12 @@ describe('재계획 요청 (user_request)', () => {
     wrapper.unmount();
   });
 
-  it('forgets a plan the server no longer knows (negative)', async () => {
+  it('explains a plan the server no longer knows and keeps nothing on the device (negative)', async () => {
     const missing = '01900000-0000-7000-8000-00000000ffff';
-    rememberActivePlan(null, missing);
     const { wrapper } = await mountView(ReplanRequestButton, { path: '/today', props: { planId: missing } });
     await buttonWith(wrapper, '재계획 요청').trigger('click');
     await waitForText(wrapper, '이 계획을 찾을 수 없어요');
-    expect(rememberedActivePlan(null)).toBeNull();
+    expect(localStorage.length).toBe(0);
     wrapper.unmount();
   });
 });

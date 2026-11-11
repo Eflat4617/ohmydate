@@ -6,6 +6,7 @@ import type {
   Notification,
   PlanBlock,
   PlanVersion,
+  ReplanBefore,
   ReplanCandidate,
   ReplanProposal,
   ReplanReasonCode,
@@ -131,22 +132,72 @@ export function mockScheduleBlocks(db: MockDb): ScheduleBlock[] {
   ];
 }
 
-function planTaskIds(db: MockDb, proposal: ReplanProposal): Set<string> {
-  return new Set([
-    ...proposal.candidate.blocks.map((block) => block.taskId),
-    ...proposal.trigger.affectedTaskIds,
-    ...mockScheduleBlocks(db)
-      .filter((block) => block.planVersionId === proposal.basePlanVersionId)
-      .map((block) => block.taskId),
-  ]);
+const MINUTE_MS = 60_000;
+export const MOCK_PLAN_REVISION = 3;
+
+interface MetricInterval {
+  readonly taskId: string;
+  readonly startAt: string;
+  readonly endAt: string;
+}
+
+/**
+ * The server's before/candidate metric rules (services/api replan-before.ts,
+ * 06 §6): focus over every occupied interval; per deadline task slack = due −
+ * end of its last interval; min over deadline tasks.
+ */
+export function mockMetrics(db: MockDb, intervals: readonly MetricInterval[]): ReplanBefore['metrics'] {
+  let totalFocusMin = 0;
+  const lastEnd = new Map<string, number>();
+  for (const interval of intervals) {
+    const startMs = Date.parse(interval.startAt);
+    const endMs = Date.parse(interval.endAt);
+    if (endMs <= startMs) continue;
+    totalFocusMin += (endMs - startMs) / MINUTE_MS;
+    lastEnd.set(interval.taskId, Math.max(lastEnd.get(interval.taskId) ?? 0, endMs));
+  }
+  const taskSlack: ReplanBefore['metrics']['taskSlack'] = [];
+  for (const taskId of lastEnd.keys()) {
+    const due = db.tasks.get(taskId)?.dueAt;
+    const end = lastEnd.get(taskId);
+    if (due === undefined || end === undefined) continue;
+    taskSlack.push({ taskId, dueAt: due, slackMin: (Date.parse(due) - end) / MINUTE_MS });
+  }
+  const minSlackMin = taskSlack.length === 0 ? 0 : Math.min(...taskSlack.map((entry) => entry.slackMin));
+  return { totalFocusMin, minSlackMin, taskSlack };
+}
+
+/** Authoritative before side, like the API: the plan's future blocks (locked flag included) at `since`. */
+export function mockBefore(db: MockDb, since: string): ReplanBefore {
+  const sinceMs = Date.parse(since);
+  const all = mockScheduleBlocks(db).filter((block) => block.status !== 'superseded' && block.status !== 'done');
+  const blocks = all
+    .filter((block) => Date.parse(block.startAt) >= sinceMs)
+    .sort((left, right) => left.startAt.localeCompare(right.startAt));
+  return { capturedAt: since, blocks, metrics: mockMetrics(db, all) };
+}
+
+/** Candidate metrics with the same rules: history + locked + candidate placements. */
+function candidateMetrics(db: MockDb, since: string, blocks: readonly PlanBlock[]): Pick<ReplanCandidate['metrics'], 'totalFocusMin' | 'minSlackMin'> {
+  const sinceMs = Date.parse(since);
+  const fixed = mockScheduleBlocks(db).filter(
+    (block) => block.status !== 'superseded' && (block.locked || Date.parse(block.startAt) < sinceMs),
+  );
+  const metrics = mockMetrics(db, [...fixed, ...blocks]);
+  return { totalFocusMin: metrics.totalFocusMin, minSlackMin: metrics.minSlackMin };
 }
 
 /** Supersede the plan's unlocked future blocks and insert the candidate (pg-replan-store approve). */
 function applyCandidate(db: MockDb, proposal: ReplanProposal): PlanVersion {
   const since = Date.parse(proposal.createdAt);
-  const tasks = planTaskIds(db, proposal);
-  const keep = (block: { taskId: string; startAt: string; locked?: boolean }) =>
-    !tasks.has(block.taskId) || block.locked === true || Date.parse(block.startAt) < since;
+  // The snapshot names exactly what approval supersedes; a legacy row falls
+  // back to the candidate's tasks (the mock's single plan).
+  const replaced = new Set((proposal.before?.blocks ?? []).filter((block) => !block.locked).map((block) => block.id));
+  const tasks = new Set([...proposal.candidate.blocks.map((block) => block.taskId), ...proposal.trigger.affectedTaskIds]);
+  const keep = (block: { id: string; taskId: string; startAt: string; locked?: boolean }) =>
+    proposal.before === undefined
+      ? !tasks.has(block.taskId) || block.locked === true || Date.parse(block.startAt) < since
+      : !replaced.has(block.id);
   const versionId = createUuidV7();
   const todayBlocks: TodayBlock[] = db.today.blocks.filter((block) => keep({ ...block, locked: false }));
   const extra: ScheduleBlock[] = db.extraScheduleBlocks.filter((block) => keep(block));
@@ -212,11 +263,11 @@ function requestedCandidate(db: MockDb, since: number): ReplanCandidate {
     };
   }
   const total = blocks.reduce((sum, block) => sum + (Date.parse(block.endAt) - Date.parse(block.startAt)) / 60_000, 0);
+  const sinceIso = new Date(since).toISOString();
   return {
     blocks,
     metrics: {
-      totalFocusMin: total,
-      minSlackMin: 1_440,
+      ...candidateMetrics(db, sinceIso, blocks),
       maxDailyLoadMin: Math.min(total, 300),
       avgDailyLoadMin: total / 3,
       contextSwitches: Math.max(0, blocks.length - 1),
@@ -250,14 +301,18 @@ function proposalDto(
   availabilityVersion: number,
   createdAt: string,
   version = 1,
+  before?: ReplanBefore,
 ): ReplanProposal {
   return {
     id,
     state,
+    planId: MOCK_PLAN_ID,
     trigger,
     basePlanVersionId: MOCK_PLAN_VERSION_ID,
+    basePlanVersion: MOCK_PLAN_REVISION,
     availabilityVersion,
     candidate,
+    ...(before === undefined ? {} : { before }),
     createdAt,
     expiresAt: new Date(Date.parse(createdAt) + DAY_MS).toISOString(),
     version,
@@ -339,8 +394,7 @@ export function seedReplanScenario(db: MockDb, options: ReplanScenarioOptions = 
     {
       blocks,
       metrics: {
-        totalFocusMin: 175,
-        minSlackMin: 1_440 + 22 * 60 + 15,
+        ...candidateMetrics(db, createdAt, blocks),
         maxDailyLoadMin: 90,
         avgDailyLoadMin: 58.3,
         contextSwitches: 2,
@@ -363,6 +417,8 @@ export function seedReplanScenario(db: MockDb, options: ReplanScenarioOptions = 
     },
     db.availabilityVersion,
     createdAt,
+    1,
+    mockBefore(db, createdAt),
   );
   db.replanProposals.set(pending.id, pending);
 
@@ -390,6 +446,7 @@ export function seedReplanScenario(db: MockDb, options: ReplanScenarioOptions = 
         1,
         '2026-11-13T08:00:00.000Z',
         2,
+        mockBefore(db, '2026-11-13T00:00:00.000Z'),
       ),
     );
     db.replanProposals.set(
@@ -408,6 +465,7 @@ export function seedReplanScenario(db: MockDb, options: ReplanScenarioOptions = 
         1,
         '2026-11-12T07:00:00.000Z',
         2,
+        mockBefore(db, '2026-11-13T00:00:00.000Z'),
       ),
     );
     db.replanProposals.set(
@@ -421,6 +479,7 @@ export function seedReplanScenario(db: MockDb, options: ReplanScenarioOptions = 
           detectedAt: '2026-11-11T06:00:00.000Z',
           affectedTaskIds: [TODAY_TASK_ONE_ID],
         },
+        // Persisted before FU-70: no before snapshot, so no comparison is shown.
         quiet,
         1,
         '2026-11-11T06:00:00.000Z',
@@ -562,6 +621,8 @@ export function createReplanHandlers(db: MockDb) {
         candidate,
         db.availabilityVersion,
         createdAt,
+        1,
+        mockBefore(db, createdAt),
       );
       db.replanProposals.set(proposal.id, proposal);
       remember(db, token, 201, proposal, { ETag: etag(proposal.version) });

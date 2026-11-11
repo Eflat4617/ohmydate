@@ -14,7 +14,6 @@ import {
 } from '../src/mocks/replan';
 import { sessionJournal } from '../src/session/journal';
 import { resetFocusClientIdForTests } from '../src/session/clientId';
-import { rememberActivePlan } from '../src/session/activePlan';
 import ReplanListView from '../src/views/ReplanListView.vue';
 import TodayView from '../src/views/TodayView.vue';
 import { mountView, waitForText } from './m5-test-utils';
@@ -66,16 +65,23 @@ describe('Pending replan entry points (M5-03)', () => {
     wrapper.unmount();
   });
 
-  it('offers “재계획 요청” on Today only once a plan id is known (negative first)', async () => {
+  it('offers “재계획 요청” on Today only once the server named a plan in a proposal (negative first)', async () => {
     const first = await mountView(TodayView, { path: '/today' });
     await waitForText(first.wrapper, TODAY_TASK_ONE_TITLE);
     expect(first.wrapper.find('[data-replan-request]').exists()).toBe(false);
     first.wrapper.unmount();
 
-    rememberActivePlan(null, MOCK_PLAN_ID);
+    seedReplanScenario(mockDb);
+    const request = vi.spyOn(plannerClient, 'requestReplanProposal');
     const second = await mountView(TodayView, { path: '/today' });
     await waitForText(second.wrapper, TODAY_TASK_ONE_TITLE);
-    expect(second.wrapper.get('[data-replan-request]').text()).toBe('재계획 요청');
+    await vi.waitFor(() => expect(second.wrapper.find('[data-replan-request]').exists()).toBe(true));
+    await second.wrapper.get('[data-replan-request]').trigger('click');
+    await vi.waitFor(() => expect(request).toHaveBeenCalled());
+    await request.mock.results[0]?.value;
+    expect(request.mock.calls[0]?.[0]).toEqual({ planId: MOCK_PLAN_ID });
+    // Nothing about the plan is kept on the device.
+    expect(Object.keys(localStorage).some((key) => key.startsWith('ohmydate.plan'))).toBe(false);
     second.wrapper.unmount();
   });
 

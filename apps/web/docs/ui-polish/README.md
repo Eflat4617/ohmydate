@@ -204,22 +204,30 @@ The UI is Korean (`<html lang="ko">`). All copy lives in one bundled catalog,
   reasons and 422 findings render through `ExplanationList` (FU-62 coded
   `explanationItems` / violation `messageCode` in Korean); rows persisted
   before FU-62 keep the original lines under *계산 근거 (원문)* (`lang="en"`).
-  The diff is
-  computed client-side (`src/domain/replan.ts`) from `candidate.blocks` against
-  the approved blocks from `trigger.detectedAt`.
+  The diff and the metrics come only from the server (FU-70, M5-03R-1 H1):
+  `candidate.blocks` against `proposal.before.blocks` (every block of the base
+  plan that approval replaces or keeps, over the whole horizon, locked flag
+  included) and `candidate.metrics` against `before.metrics` (same rules).
+  The web never queries a calendar window to rebuild the before side. A
+  proposal persisted without a snapshot shows its candidate blocks only, with
+  a notice that the comparison is unavailable — never a guessed diff.
 - **Actions.** *승인* sends `If-Match: W/"availability:<n>"` (the proposal's
   snapshot) plus a UUIDv7 `Idempotency-Key`; 412 opens an `alertdialog`
   (*새로 고침* / *지금 상태로 다시 계산*), 409 `proposal_state_conflict` re-reads
   and shows the read-only state. *거절* first explains the 24 h same-reason
   suppression (with the end time) in a dialog whose focus starts on *취소*.
   *재계획 요청* shows `409 replan_suppressed` as a wait (`1일 뒤(11월 15일 (일)
-  오후 6:40)`) from `Retry-After`. Approved / rejected / expired / superseded
+  오후 6:40)`) from `Retry-After`. Every action keeps its Idempotency-Key across
+  network loss and transient answers (`idempotency_in_progress`,
+  `approval_in_progress`, 5xx) and only takes a fresh key after a stored final
+  result (2xx or a stored 409/422 such as `replan_suppressed`) —
+  `isStoredFinalResult` in `src/api/idempotency.ts` (M5-03R-1 M1). Approved / rejected / expired / superseded
   proposals are read-only. Outcomes are announced in a polite live region and
   focus moves to the state summary.
-- **Plan id gap.** `ReplanRequest` needs a plan id that neither Today nor a
-  proposal carries, so the web remembers the last active plan per owner
-  (`src/session/activePlan.ts`: from `PlanVersion.planId` and active plan
-  pages). The request button only appears when one is known.
+- **Plan id.** Proposals carry `planId` and `basePlanVersion` (FU-70). The
+  request button uses the proposal's plan on its detail page, the plan's own id
+  on an active plan page, and the newest proposal's `planId` on Today and the
+  list; nothing is remembered on the device.
 - **내 패턴 (`/patterns`).** Summary (counted records, confidence as
   낮음/보통/높음 + %), the cold-start rule (template, else AI ×1.3 with low
   confidence) and the shrinkage/outlier rules in Korean, one card per task type

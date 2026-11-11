@@ -35,7 +35,7 @@ import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 import { useToastStore } from '../stores/toast';
 import { focusClientId } from '../session/clientId';
-import { activePlanRevision, rememberActivePlan, rememberedActivePlan } from '../session/activePlan';
+import { useLatestReplanPlan } from '../composables/useLatestReplanPlan';
 import {
   captureOwnerBinding,
   isOwnerBindingCurrent,
@@ -185,12 +185,9 @@ const riskTone = computed(() => {
   }
 });
 
-// M5-03: "재계획 요청" needs the plan id, which Today does not carry; use the
-// plan this owner last approved or opened (see session/activePlan.ts).
-const replanPlanId = computed(() => {
-  void activePlanRevision.value;
-  return rememberedActivePlan(sessionStore.ownerId);
-});
+// M5-03: "재계획 요청" targets the plan of the newest replan proposal (its
+// server-provided planId, FU-70); Today itself carries no plan id.
+const { planId: replanPlanId } = useLatestReplanPlan();
 
 const isLoading = computed(
   () => todayQuery.isLoading.value || (today.value !== null && scheduleQuery.isLoading.value),
@@ -365,7 +362,7 @@ async function approveProposal(): Promise<void> {
   const scope = `today:approve:${value.id}`;
   try {
     const action = actions.begin(scope, { proposalId: value.id }, samePayload);
-    const version = await plannerClient.approveTodayProposal(
+    await plannerClient.approveTodayProposal(
       value.id,
       action.key,
       proposalIfMatch(value),
@@ -373,7 +370,6 @@ async function approveProposal(): Promise<void> {
     );
     actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
-    rememberActivePlan(binding.ownerId, version.planId);
     toast.show(t('today.proposalApproved'));
     proposal.value = null;
     await refresh();
