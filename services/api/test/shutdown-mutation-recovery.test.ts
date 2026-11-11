@@ -225,6 +225,8 @@ describe.skipIf(!hasDatabase)('drain-aborted mutation recovery', () => {
     'remote PATCH survives an aborted follow-up GET with recovery and idempotency cleanup',
     async () => {
       const fixture = await createFixture();
+      // Production installs the shutdown controller before it ever listens.
+      const close = createApplicationClose(fixture.app, 300, 2_000);
       const address = new URL(
         await fixture.app.listen({ host: '127.0.0.1', port: 0 }),
       );
@@ -274,7 +276,7 @@ describe.skipIf(!hasDatabase)('drain-aborted mutation recovery', () => {
 
         const shutdown = createShutdownController({
           logger: { info: () => undefined, error: () => undefined },
-          close: createApplicationClose(fixture.app, 300, 2_000),
+          close,
           destroy: async () => {
             const mapping = await fixture.mappings.get('task', fixture.taskId);
             const rows = await fixture.store.db
@@ -358,6 +360,75 @@ describe.skipIf(!hasDatabase)('drain-aborted mutation recovery', () => {
         expect(fixture.output()).not.toContain('driver has already been destroyed');
       } finally {
         await cleanup(fixture, true);
+      }
+    },
+    30_000,
+  );
+
+  test(
+    'a connected client receives the 503 provider_unavailable instead of a transport error',
+    async () => {
+      const fixture = await createFixture();
+      // Production installs the shutdown controller before it ever listens.
+      const close = createApplicationClose(fixture.app, 200, 2_000);
+      const address = new URL(
+        await fixture.app.listen({ host: '127.0.0.1', port: 0 }),
+      );
+      let closeApp = true;
+      try {
+        const login = await fetch(`${address.toString()}api/v1/auth/login`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ email: fixture.email, password: fixture.password }),
+        });
+        expect(login.status).toBe(204);
+        const cookiePairs = login.headers
+          .getSetCookie()
+          .map((entry) => entry.split(';', 1)[0] ?? '');
+        const cookie = cookiePairs.join('; ');
+        const csrf =
+          cookiePairs.find((pair) => pair.startsWith('csrf='))?.slice('csrf='.length) ?? '';
+
+        const pending = fetch(`${address.toString()}api/v1/tasks/${fixture.taskId}`, {
+          method: 'PATCH',
+          headers: {
+            'content-type': 'application/json',
+            cookie,
+            'x-csrf-token': csrf,
+            'idempotency-key': fixture.idempotencyKey,
+            'if-match': 'W/"1"',
+          },
+          body: JSON.stringify({ title: 'Remote title applied by PATCH' }),
+        });
+
+        await fixture.provider.secondGetStarted;
+        let exitCode: number | undefined;
+        const exited = new Promise<void>((resolve) => {
+          const shutdown = createShutdownController({
+            logger: { info: () => undefined, error: () => undefined },
+            close,
+            destroy: async () => {
+              await fixture.store.db.destroy();
+            },
+            exit: (code) => {
+              exitCode = code;
+              resolve();
+            },
+            deadlineMs: 5_000,
+          });
+          shutdown('SIGTERM');
+        });
+
+        const response = await pending;
+        expect(response.status).toBe(503);
+        expect(await response.json()).toMatchObject({ code: 'provider_unavailable' });
+
+        await exited;
+        closeApp = false;
+        expect(exitCode).toBe(0);
+        expect(fixture.output()).not.toContain('unsettled operations');
+      } finally {
+        await cleanup(fixture, closeApp);
       }
     },
     30_000,

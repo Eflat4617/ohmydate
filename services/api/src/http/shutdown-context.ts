@@ -1,4 +1,5 @@
 import type { IncomingMessage } from 'node:http';
+import type { Socket } from 'node:net';
 import { runWithAbortSignal } from '@ohmydate/provider-vikunja';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
@@ -13,14 +14,13 @@ export const UNMATCHED_ROUTE = 'unmatched';
 
 interface OperationRecord {
   readonly meta: ShutdownRequestMeta;
+  readonly raw: IncomingMessage;
   /**
    * Set as soon as the route handler starts. Only then can the handler promise
    * be the settlement signal; before that an aborted request can never start.
    */
   handlerStarted: boolean;
   settled: boolean;
-  /** Removes the connection-close fallback listener once settled. */
-  detach?: () => void;
 }
 
 interface RequestActivity {
@@ -32,6 +32,12 @@ const controllers = new WeakMap<FastifyInstance, AbortController>();
 const activities = new WeakMap<FastifyInstance, RequestActivity>();
 const requestMeta = new WeakMap<IncomingMessage, ShutdownRequestMeta>();
 const requestOperations = new WeakMap<IncomingMessage, OperationRecord>();
+/**
+ * One connection-close listener per socket, shared by every request that has
+ * not started its handler yet. A listener per request would emit
+ * MaxListenersExceededWarning after 10 pipelined requests.
+ */
+const unstartedBySocket = new WeakMap<Socket, Set<OperationRecord>>();
 
 function notifyWhenEmpty(activity: RequestActivity): void {
   if (activity.operations.size > 0) return;
@@ -40,24 +46,54 @@ function notifyWhenEmpty(activity: RequestActivity): void {
   for (const waiter of waiters) waiter();
 }
 
-function settleOperation(app: FastifyInstance, request: FastifyRequest): void {
+function settleRecord(app: FastifyInstance, operation: OperationRecord): void {
   const activity = activities.get(app);
-  const operation = requestOperations.get(request.raw);
-  if (activity === undefined || operation === undefined) return;
-  if (operation.settled) return;
+  if (activity === undefined || operation.settled) return;
   operation.settled = true;
-  operation.detach?.();
-  requestOperations.delete(request.raw);
+  const socket = operation.raw.socket;
+  if (socket !== null) unstartedBySocket.get(socket)?.delete(operation);
+  requestOperations.delete(operation.raw);
   activity.operations.delete(operation);
   notifyWhenEmpty(activity);
 }
 
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return (
-    (typeof value === 'object' || typeof value === 'function') &&
-    value !== null &&
-    typeof (value as { then?: unknown }).then === 'function'
-  );
+function registerUnstarted(app: FastifyInstance, operation: OperationRecord): void {
+  const socket = operation.raw.socket;
+  if (socket === null) return;
+  let pending = unstartedBySocket.get(socket);
+  if (pending === undefined) {
+    pending = new Set<OperationRecord>();
+    unstartedBySocket.set(socket, pending);
+    socket.once('close', () => {
+      const records = unstartedBySocket.get(socket);
+      if (records === undefined) return;
+      unstartedBySocket.delete(socket);
+      for (const record of [...records]) {
+        // A handler that already started is settled only by its own promise.
+        if (!record.handlerStarted) settleRecord(app, record);
+      }
+    });
+  }
+  pending.add(operation);
+}
+
+function createOperation(
+  app: FastifyInstance,
+  raw: IncomingMessage,
+  meta: ShutdownRequestMeta,
+): OperationRecord {
+  const activity = activities.get(app);
+  const operation: OperationRecord = {
+    meta,
+    raw,
+    handlerStarted: false,
+    settled: false,
+  };
+  requestMeta.set(raw, meta);
+  requestOperations.set(raw, operation);
+  activity?.operations.add(operation);
+  registerUnstarted(app, operation);
+  return operation;
 }
 
 /**
@@ -66,7 +102,7 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
  * Every request runs inside `runWithAbortSignal`, so provider clients used by
  * the handler observe the drain deadline without every port carrying a signal.
  * In-flight tracking follows the route handler's own promise, not socket or
- * response events: a client disconnect does not settle the operation, while a
+ * response events: a client disconnect does not settle an operation, while a
  * handler that finishes (even after a socket abort, stream abort or hijack)
  * always releases its record. The same hook captures the registered route
  * template (or the constant `unmatched`) for forced-closure logs; request and
@@ -82,31 +118,11 @@ export function installShutdownContext(app: FastifyInstance): AbortController {
   activities.set(app, activity);
 
   app.addHook('onRequest', (request, _reply, done) => {
-    const meta: ShutdownRequestMeta = {
+    createOperation(app, request.raw, {
       reqId: typeof request.id === 'string' ? request.id : String(request.id),
       method: request.method,
       route: request.routeOptions.url ?? UNMATCHED_ROUTE,
-    };
-    const operation: OperationRecord = {
-      meta,
-      handlerStarted: false,
-      settled: false,
-    };
-    requestMeta.set(request.raw, meta);
-    requestOperations.set(request.raw, operation);
-    activity.operations.add(operation);
-    // A request whose connection dies before its handler starts (incomplete
-    // body, forced socket close) can never reach handler settlement. Listen on
-    // the socket, not on `request.raw`: IncomingMessage 'close' also fires
-    // when a normal body is fully received, which would settle early.
-    const socket = request.raw.socket;
-    if (socket !== null) {
-      const onSocketClose = (): void => {
-        if (!operation.handlerStarted) settleOperation(app, request);
-      };
-      socket.once('close', onSocketClose);
-      operation.detach = () => socket.removeListener('close', onSocketClose);
-    }
+    });
     runWithAbortSignal(controller.signal, done);
   });
 
@@ -123,29 +139,43 @@ export function installShutdownContext(app: FastifyInstance): AbortController {
       request: FastifyRequest,
       reply: FastifyReply,
     ): unknown {
-      const operation = requestOperations.get(request.raw);
-      if (operation !== undefined) operation.handlerStarted = true;
+      let operation = requestOperations.get(request.raw);
+      if (operation === undefined || operation.settled) {
+        // The connection may have closed while an I/O-backed preHandler ran.
+        // Fastify still starts the handler, so hold a live operation again:
+        // only the handler promise may settle it from here on.
+        operation = createOperation(app, request.raw, {
+          reqId: typeof request.id === 'string' ? request.id : String(request.id),
+          method: request.method,
+          route:
+            routeOptions.url ?? request.routeOptions.url ?? UNMATCHED_ROUTE,
+        });
+      }
+      operation.handlerStarted = true;
+      const socket = request.raw.socket;
+      if (socket !== null) unstartedBySocket.get(socket)?.delete(operation);
+      const record = operation;
+
       let result: unknown;
       try {
         result = original.call(this, request, reply);
       } catch (error) {
-        settleOperation(app, request);
+        settleRecord(app, record);
         throw error;
       }
-      if (isThenable(result)) {
-        return result.then(
-          (value) => {
-            settleOperation(app, request);
-            return value;
-          },
-          (error: unknown) => {
-            settleOperation(app, request);
-            throw error;
-          },
-        );
-      }
-      settleOperation(app, request);
-      return result;
+      // Chain through a real promise: a Fastify Reply is a callback-based
+      // thenable whose `then` returns undefined, so a rejection handled in the
+      // thenable callback would escape as an uncaught exception.
+      return Promise.resolve(result).then(
+        (value) => {
+          settleRecord(app, record);
+          return value;
+        },
+        (error: unknown) => {
+          settleRecord(app, record);
+          throw error;
+        },
+      );
     } as typeof routeOptions.handler;
   });
 
@@ -155,7 +185,7 @@ export function installShutdownContext(app: FastifyInstance): AbortController {
   const settleIfNeverStarted = (request: FastifyRequest): void => {
     const operation = requestOperations.get(request.raw);
     if (operation !== undefined && !operation.handlerStarted) {
-      settleOperation(app, request);
+      settleRecord(app, operation);
     }
   };
   app.addHook('onResponse', (request, _reply, done) => {

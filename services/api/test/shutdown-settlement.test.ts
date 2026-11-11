@@ -242,6 +242,27 @@ beforeAll(() => {
   }
 }, 120_000);
 
+describe('boot validation', () => {
+  test('rejects SHUTDOWN_CLEANUP_BUDGET_MS that reaches the hard deadline', async () => {
+    const port = await freePort();
+    const spawned = spawnApp(distMain, {
+      DATABASE_URL: 'postgres://unused@127.0.0.1:1/unused',
+      HOST: '127.0.0.1',
+      PORT: String(port),
+      LOG_LEVEL: 'silent',
+      SHUTDOWN_CLEANUP_BUDGET_MS: '3000',
+    });
+    try {
+      const { code } = await waitForExit(spawned.child, 10_000);
+      expect(code).toBe(1);
+      expect(spawned.output()).toContain('SHUTDOWN_CLEANUP_BUDGET_MS');
+    } finally {
+      stop(spawned.child);
+      await waitForExit(spawned.child, 5_000).catch(() => undefined);
+    }
+  }, 20_000);
+});
+
 describe.skipIf(!hasDatabase)('disconnected-client mutation survives real SIGTERM', () => {
   test(
     'remote PATCH is reconciled and the idempotency row released after process exit',
