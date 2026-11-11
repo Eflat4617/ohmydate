@@ -1548,6 +1548,43 @@ export const ko = {
     requestFailed: '요청을 처리하지 못했어요.',
   },
 
+  // FU-76: waiting for long AI calls in the planning wizard (own group).
+  aiWait: {
+    typeDetectionTitle: 'AI가 비슷한 작업을 찾고 있어요 · 보통 10–20초',
+    decompositionTitle: 'AI가 단계를 만들고 있어요 · 보통 30초–1분',
+    elapsed: '{time} 지났어요',
+    seconds: '{seconds}초',
+    minutes: '{minutes}분',
+    minutesSeconds: '{minutes}분 {seconds}초',
+    calm: '다른 화면으로 가거나 새로 고쳐도 AI 작업은 계속돼요. 돌아오면 이어서 보여 드릴게요.',
+    slow: '평소보다 오래 걸리고 있어요. 조금만 더 기다려 주세요.',
+    overdue: '응답이 많이 늦어요. 상태를 다시 확인하거나 직접 작성으로 계속할 수 있어요.',
+    reconnecting: '연결이 끊겼어요. 다시 연결되면 결과를 이어서 확인할게요.',
+    cancel: '취소',
+    manual: '직접 작성으로 계속',
+    cancelling: 'AI 작업을 멈추는 중…',
+    checkAgain: '다시 확인',
+    actions: 'AI 작업 선택지',
+    live: {
+      progress: '아직 작업 중이에요. {time} 지났어요.',
+      slow: '평소보다 오래 걸리고 있어요. {time} 지났어요.',
+      done: 'AI 작업이 끝났어요.',
+      cancelled: 'AI 작업을 취소했어요. 직접 작성으로 계속해요.',
+    },
+    interrupted: {
+      title: 'AI 작업이 중단됐어요',
+      body: '서버가 다시 시작되면서 단계 만들기가 멈췄어요. 다시 시도하거나 직접 작성으로 계속할 수 있어요.',
+      detectionBody: 'AI 유형 확인이 중단돼서 직접 작성으로 계속해요.',
+      retry: '다시 시도',
+    },
+    cancelledNotice: 'AI 작업을 취소했어요. 입력한 내용은 그대로 두고 직접 작성으로 이어서 진행해요.',
+    errors: {
+      ai_interrupted: 'AI 작업이 중단됐어요.',
+      ai_cancelled: 'AI 작업을 취소했어요.',
+      unknown: 'AI 작업을 끝내지 못했어요.',
+    },
+  },
+
   draft: {
     stepCount: '단계가 {min}–{max}개 있어야 해요 (지금 {count}개)',
     duplicateKey: '단계 키가 겹쳐요: {key}',

@@ -17,7 +17,19 @@ import {
   type GroundedDecompositionOutput,
   type LlmCompleteRequest,
 } from '@ohmydate/llm';
-import { configFromEnv, createConfig, parseLlmFakeScenario, parseLlmFakeScenarioOwners } from '../src/config.js';
+import { createInMemoryRepositories } from '@ohmydate/provider-native/in-memory';
+import { FakeClock, createSeededIdGenerator } from '@ohmydate/testkit';
+import { Kysely, PostgresDialect } from 'kysely';
+import pg from 'pg';
+import { buildApp, fakeLlmFor } from '../src/app.js';
+import {
+  assertFakeKnobsAllowed,
+  configFromEnv,
+  createConfig,
+  parseLlmFakeScenario,
+  parseLlmFakeScenarioOwners,
+} from '../src/config.js';
+import type { Database } from '../src/db/types.js';
 import {
   E2eGroundedFakeLlm,
   FORGED_DOC_ID,
@@ -32,6 +44,7 @@ import { buildDecompositionLlmInput, intakeQueryText } from '../src/application/
 import {
   authHeaders,
   createTestContext,
+  databaseUrl,
   hasDatabase,
   login,
   newIdempotencyKey,
@@ -90,16 +103,34 @@ describe('LLM_FAKE_SCENARIO config (boot refusal)', () => {
     ).toBe('e2e-grounded');
   });
 
-  test('refuses production, a real provider and unknown scenarios (negative)', () => {
+  test('refuses production, a real provider and unknown scenarios through the shared fake-knob guard (negative)', () => {
     expect(() => configFromEnv({ LLM_FAKE_SCENARIO: 'e2e-grounded', NODE_ENV: 'production' })).toThrow(
-      'LLM_FAKE_SCENARIO is refused when NODE_ENV=production',
+      'LLM_FAKE_SCENARIO is a test-only fake knob and is rejected when NODE_ENV=production',
     );
     expect(() => configFromEnv({ LLM_FAKE_SCENARIO: 'e2e-grounded', NODE_ENV: ' Production ' })).toThrow(/production/);
     expect(() =>
-      configFromEnv({ LLM_PROVIDER: 'deepseek', LLM_FAKE_SCENARIO: 'e2e-grounded', LLM_API_KEY_FILE: '/run/key' }),
+      configFromEnv({
+        LLM_PROVIDER: 'deepseek',
+        LLM_FAKE_SCENARIO: 'e2e-grounded',
+        LLM_API_KEY_FILE: '/run/key',
+        LLM_SESSION_HEADER: 'off',
+      }),
     ).toThrow('LLM_FAKE_SCENARIO is only allowed with LLM_PROVIDER=fake');
     expect(() => configFromEnv({ LLM_FAKE_SCENARIO: 'record-everything' })).toThrow(/LLM_FAKE_SCENARIO must be/);
-    expect(() => parseLlmFakeScenario('deepseek', 'e2e-grounded', undefined)).toThrow(/LLM_PROVIDER=fake/);
+    expect(parseLlmFakeScenario('e2e-grounded')).toBe('e2e-grounded');
+    expect(parseLlmFakeScenario(undefined)).toBeNull();
+    // Programmatic configs (createConfig / buildApp) go through the same guard.
+    const base = createConfig({ llmProvider: 'fake' });
+    expect(() => assertFakeKnobsAllowed({ ...base, llmFakeScenario: 'e2e-grounded' })).not.toThrow();
+    expect(() => assertFakeKnobsAllowed({ ...base, llmProvider: 'deepseek', llmFakeScenario: 'e2e-grounded' })).toThrow(
+      /LLM_FAKE_SCENARIO is only allowed with LLM_PROVIDER=fake/,
+    );
+    expect(() => assertFakeKnobsAllowed({ ...base, nodeEnv: 'production', llmFakeScenario: 'e2e-grounded' })).toThrow(
+      /LLM_FAKE_SCENARIO.*production/,
+    );
+    expect(() =>
+      assertFakeKnobsAllowed({ ...base, nodeEnv: 'Production', llmFakeScenarioOwners: [OWNER] }),
+    ).toThrow(/LLM_FAKE_SCENARIO_OWNERS.*production/);
   });
 
   test('scopes the scenario to listed owners; owners without a scenario or malformed ids are refused (negative)', () => {
@@ -109,6 +140,92 @@ describe('LLM_FAKE_SCENARIO config (boot refusal)', () => {
     ).toEqual([OWNER, DOC]);
     expect(() => configFromEnv({ LLM_FAKE_SCENARIO_OWNERS: OWNER })).toThrow('LLM_FAKE_SCENARIO_OWNERS requires LLM_FAKE_SCENARIO');
     expect(() => parseLlmFakeScenarioOwners('e2e-grounded', 'alice,bob')).toThrow(/owner ids/);
+  });
+});
+
+describe('fake composition: e2e-grounded base wrapped by FU-76 scripted owners', () => {
+  const SCRIPTED = '01900000-0000-7000-8000-0000000000bb';
+  const PLAIN = '01900000-0000-7000-8000-0000000000cc';
+
+  test('scenario owner gets grounded output, scripted owner the slow scripted answer, others the plain fake', async () => {
+    const config = createConfig({
+      llmProvider: 'fake',
+      llmFakeScenario: 'e2e-grounded',
+      llmFakeScenarioOwners: [OWNER],
+      llmFakeScriptedOwners: [SCRIPTED],
+      llmFakeLatencyMs: 60,
+    });
+    expect(() => assertFakeKnobsAllowed(config)).not.toThrow();
+    const llm = fakeLlmFor(config);
+    const { input: body, context } = groundedInput();
+
+    const grounded = await llm.complete({ ...request('decomposition', 'v2', body), ownerId: OWNER });
+    const output = grounded.output as GroundedDecompositionOutput;
+    expect(output.evidence[0]).toMatchObject({ kind: 'fact', docId: DOC, sectionHash: context.sections[0]?.sectionHash });
+    expect(validateOutput('llm.decomposition.v2', output).valid).toBe(true);
+
+    const started = Date.now();
+    const scripted = await llm.complete({ ...request('decomposition', 'v2', body), ownerId: SCRIPTED });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+    expect(scripted.output).toMatchObject({ evidence: [], steps: [{ title: '자료 모으기' }, {}, {}] });
+
+    // Neither layer answers anyone else: the plain fixture-less fake (manual mode).
+    await expect(llm.complete({ ...request('decomposition', 'v2', body), ownerId: PLAIN })).rejects.toBeInstanceOf(LlmUnavailable);
+    await expect(llm.complete({ ...request('type_detection', 'v1', {}), ownerId: PLAIN })).rejects.toBeInstanceOf(LlmUnavailable);
+    // Each owner stays in its own layer: the scenario owner is never slowed, the scripted owner never grounded.
+    const scenarioDetect = await llm.complete({ ...request('type_detection', 'v1', {}), ownerId: OWNER });
+    expect(scenarioDetect.output).toEqual({ classification: 'new', confidence: 0.5, reasons: [] });
+  });
+
+  test('production rejects both knobs together, from env and from a programmatic config (negative)', () => {
+    expect(() =>
+      configFromEnv({
+        NODE_ENV: 'production',
+        LLM_PROVIDER: 'fake',
+        LLM_FAKE_SCENARIO: 'e2e-grounded',
+        LLM_FAKE_SCENARIO_OWNERS: OWNER,
+        LLM_FAKE_SCRIPTED_OWNERS: SCRIPTED,
+        LLM_FAKE_LATENCY_MS: '5000',
+      }),
+    ).toThrow(/production/);
+    const both = createConfig({
+      llmProvider: 'fake',
+      nodeEnv: 'production',
+      llmFakeScenario: 'e2e-grounded',
+      llmFakeScenarioOwners: [OWNER],
+      llmFakeScriptedOwners: [SCRIPTED],
+      llmFakeLatencyMs: 5000,
+    });
+    expect(() => assertFakeKnobsAllowed(both)).toThrow(/production/);
+    expect(() => assertFakeKnobsAllowed({ ...both, llmFakeScriptedOwners: [], llmFakeLatencyMs: 0 })).toThrow(/LLM_FAKE_SCENARIO/);
+  });
+
+  test.skipIf(!hasDatabase)('boot (buildApp) refuses a production config that carries the scenario', async () => {
+    const clock = new FakeClock();
+    const ids = createSeededIdGenerator(603, clock);
+    const pool = new pg.Pool({ connectionString: databaseUrl ?? '' });
+    const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
+    try {
+      await expect(
+        buildApp({
+          config: createConfig({
+            databaseUrl: databaseUrl ?? null,
+            logLevel: 'silent',
+            llmProvider: 'fake',
+            nodeEnv: 'production',
+            llmFakeScenario: 'e2e-grounded',
+            llmFakeScenarioOwners: [OWNER],
+          }),
+          repos: createInMemoryRepositories({ clock, ids }),
+          clock,
+          ids,
+          db,
+          logger: false,
+        }),
+      ).rejects.toThrow(/LLM_FAKE_SCENARIO.*production/);
+    } finally {
+      await db.destroy();
+    }
   });
 });
 

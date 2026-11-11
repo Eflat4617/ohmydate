@@ -9,8 +9,14 @@ import {
 } from './errors.js';
 import type { LlmCompleteRequest, LlmCompleteResponse, LlmPort, LlmUsage } from './port.js';
 import { assertRedactInputSize } from './privacy.js';
-import { structuredSystemPrompt } from './output-contract.js';
 import { effectiveMaxOutputTokens } from './prompt-limits.js';
+import {
+  buildStructuredMessages,
+  withStrictJsonInstruction,
+  type StructuredChatMessage,
+} from './structured-messages.js';
+
+export { STRICT_JSON_INSTRUCTION } from './structured-messages.js';
 
 /**
  * ADR-022 product adapter: OpenAI-compatible chat completions.
@@ -59,10 +65,7 @@ export interface OpenAICompatibleLlmOptions {
   readonly maxOutputTokens?: number;
 }
 
-interface ChatMessage {
-  readonly role: 'system' | 'user';
-  readonly content: string;
-}
+type ChatMessage = StructuredChatMessage;
 
 interface ChatRequestBody {
   readonly model: string;
@@ -89,10 +92,6 @@ const defaultSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-
-export const STRICT_JSON_INSTRUCTION =
-  '\n\nReturn only a single valid JSON object that matches the requested schema. ' +
-  'Do not wrap it in Markdown fences and do not add prose outside the JSON.';
 
 /**
  * Internal classification only. The provider's `error.type` string is inspected
@@ -201,11 +200,7 @@ export class OpenAICompatibleLlm implements LlmPort {
     } catch (error) {
       if (!(error instanceof ResponseFormatUnsupportedError)) throw error;
       // Exactly one fallback, never part of the outage retry loop.
-      const fallbackMessages = messages.map((message) =>
-        message.role === 'system'
-          ? { ...message, content: `${message.content}${STRICT_JSON_INSTRUCTION}` }
-          : message,
-      );
+      const fallbackMessages = withStrictJsonInstruction(messages);
       responseBody = await this.#send(
         this.#body(fallbackMessages, false, maxTokens),
         request.signal,
@@ -235,15 +230,11 @@ export class OpenAICompatibleLlm implements LlmPort {
   }
 
   #messages(request: LlmCompleteRequest): ChatMessage[] {
-    // The prompt file plus the output contract generated from the schema registry.
-    const system = structuredSystemPrompt(request.promptId, request.version, request.schemaId);
-    const user = JSON.stringify(request.input ?? {}) ?? '{}';
-    assertRedactInputSize(system);
-    assertRedactInputSize(user);
-    return [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ];
+    // FU-54: the shared builder PolicyLlm reserves against (prompt file plus the
+    // output contract generated from the schema registry, then the user input).
+    const messages = buildStructuredMessages(request);
+    for (const message of messages) assertRedactInputSize(message.content);
+    return [...messages];
   }
 
   #body(messages: readonly ChatMessage[], jsonMode: boolean, maxTokens: number): ChatRequestBody {

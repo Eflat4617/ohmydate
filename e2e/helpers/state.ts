@@ -30,6 +30,11 @@ export interface E2EState {
   /** M6-03 E2E-6 (notes): own owner so its notes, goal links and sessions are isolated. */
   readonly notesEmail: string;
   readonly notesPassword: string;
+  /** FU-76 E2E-AI: own owner whose fake AI answers after `aiWaitLatencyMs`. */
+  readonly aiWaitEmail: string;
+  readonly aiWaitPassword: string;
+  readonly aiWaitOwnerId: string;
+  readonly aiWaitLatencyMs: number;
   /** Base (unscoped) database URL; tests add `search_path` for `databaseSchema`. */
   readonly baseDatabaseUrl: string;
   readonly apiPid: number;

@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
+  AI_REQUEST_CLIENT_BOUND_MS,
   ActionStore,
+  AiRequestTimeoutError,
   ApiError,
   plannerClient,
   type DecompositionDraft,
@@ -11,6 +13,7 @@ import {
   type IntakeAnswerInput,
   type IntakeField,
   type IntakeInput,
+  type IdempotentAction,
   type IntakeSession,
   type PlannedQuestion,
 } from '../api';
@@ -21,6 +24,14 @@ import {
   type DraftIssue,
 } from '../domain/draftValidation';
 import { useOfflineStore } from '../stores/offline';
+import { useAuthStore } from '../stores/auth';
+import {
+  captureOwnerBinding,
+  isOwnerBindingCurrent,
+  isOwnerResetPending,
+  onActiveOwnerChange,
+  type OwnerBinding,
+} from '../session/ownerEpoch';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -30,6 +41,15 @@ import UiIcon from '../components/ui/UiIcon.vue';
 import UiSpinner from '../components/ui/UiSpinner.vue';
 import EvidenceList from '../components/notes/EvidenceList.vue';
 import WizardNotesPanel from '../components/notes/WizardNotesPanel.vue';
+import AiWaitPanel from '../components/AiWaitPanel.vue';
+import {
+  AI_WAIT_POLL_MS,
+  readStoredAiWait,
+  sessionAwaitsAi,
+  useAiWait,
+  type AiWaitKind,
+  type PendingAiWait,
+} from '../composables/useAiWait';
 import { t } from '../i18n';
 import I18nT from '../i18n/I18nT';
 import { formatPercent } from '../i18n/format';
@@ -43,6 +63,7 @@ const route = useRoute();
 const router = useRouter();
 const queryClient = useQueryClient();
 const offline = useOfflineStore();
+const auth = useAuthStore();
 const actions = new ActionStore();
 
 const STEPS = [1, 2, 3, 4, 5] as const;
@@ -124,7 +145,11 @@ const questions = computed<PlannedQuestion[]>(() =>
   (session.value?.questions ?? []).filter((question) => !hasLocalValue(question.field)),
 );
 const assumptions = computed(() => session.value?.assumptions ?? []);
-const canMutate = computed(() => offline.mutationsEnabled && !busy.value);
+// FU-76: one in-flight AI wait at a time; other mutations wait for it.
+const aiWait = useAiWait();
+const aiPanel = ref<InstanceType<typeof AiWaitPanel> | null>(null);
+const aiWaiting = computed(() => aiWait.pending.value !== null);
+const canMutate = computed(() => offline.mutationsEnabled && !busy.value && !aiWaiting.value);
 const questionsLocked = computed(() => !canMutate.value || paused.value);
 const draftLocked = computed(() => !canMutate.value || paused.value);
 
@@ -175,17 +200,35 @@ watch(
 );
 
 function llmIssueText(code: string): string {
-  const reason = isProblemCode(code) ? problemMessage(code) : problemMessage('llm_unavailable');
+  const reason = isProblemCode(code) ? problemMessage(code) : t('aiWait.errors.unknown');
   return `${reason} ${t('wizard.llmCode', { code })}`;
 }
+
+/** FU-76 session error codes with their own (calmer) notices instead of the LLM banner. */
+const AI_RUN_CODES: ReadonlySet<string> = new Set(['ai_interrupted', 'ai_cancelled']);
 
 watch(
   () => session.value?.error,
   (error) => {
-    if (error !== undefined) llmIssue.value = llmIssueText(error.code);
+    if (error !== undefined && !AI_RUN_CODES.has(error.code)) llmIssue.value = llmIssueText(error.code);
+    if (error !== undefined && AI_RUN_CODES.has(error.code)) llmIssue.value = null;
   },
   { immediate: true },
 );
+
+const sessionErrorCode = computed(() => session.value?.error?.code);
+/** Interrupted decomposition with nothing running: offer 다시 시도 (POST :resume). */
+const interruptedDecomposition = computed(
+  () =>
+    sessionErrorCode.value === 'ai_interrupted' &&
+    session.value?.state === 'decomposition' &&
+    session.value.manual === false &&
+    session.value.draft === undefined,
+);
+const interruptedFallback = computed(
+  () => sessionErrorCode.value === 'ai_interrupted' && !interruptedDecomposition.value,
+);
+const cancelledNotice = computed(() => sessionErrorCode.value === 'ai_cancelled');
 
 watch(currentStep, async (next, previous) => {
   if (next === previous) return;
@@ -214,6 +257,417 @@ async function refreshSession(): Promise<IntakeSession | null> {
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// FU-76: waiting for long AI calls.
+//
+// Owner isolation (ADR-023, FU-76R-1 H2): every flow below captures the
+// OwnerBinding before its first await and drops itself (no cache, storage,
+// navigation or further request) once the binding is stale; an owner change
+// stops polling/replay at once. Stopping on the client never cancels the
+// server's AI call.
+// ---------------------------------------------------------------------------
+
+let aiController: AbortController | null = null;
+let aiCancelRequested = false;
+let pollToken = 0;
+
+/** The verified owner (confirmed by /me) and its binding, or null before verification. */
+function verifiedOwner(): { readonly binding: OwnerBinding; readonly ownerId: string } | null {
+  const binding = captureOwnerBinding();
+  const user = auth.user;
+  if (!auth.confirmed || user === null || isOwnerResetPending()) return null;
+  if (binding.ownerId !== user.id) return null;
+  return { binding, ownerId: user.id };
+}
+
+/** The record names its owner only when verified; otherwise it is never persisted. */
+function ownedRecord(record: Omit<PendingAiWait, 'ownerId'>): {
+  readonly record: PendingAiWait;
+  readonly binding: OwnerBinding;
+} {
+  const owner = verifiedOwner();
+  return owner === null
+    ? { record, binding: captureOwnerBinding() }
+    : { record: { ...record, ownerId: owner.ownerId }, binding: owner.binding };
+}
+
+function stale(binding: OwnerBinding): boolean {
+  return disposed || !isOwnerBindingCurrent(binding);
+}
+
+/** User cancel and owner invalidation both stop the request on the client only. */
+function freshAiSignal(binding: OwnerBinding): AbortSignal {
+  const controller = new AbortController();
+  aiController = controller;
+  aiCancelRequested = false;
+  if (binding.signal.aborted) controller.abort();
+  else binding.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  return controller.signal;
+}
+
+const offOwnerChange = onActiveOwnerChange(() => {
+  // The store already dropped every stored record; drop the in-memory wait
+  // and stop every loop. The previous owner's server call keeps running.
+  pollToken += 1;
+  aiController?.abort();
+  aiController = null;
+  aiWait.reset();
+  creating.value = false;
+});
+onUnmounted(offOwnerChange);
+
+/**
+ * The response did not arrive but the request may have run: a network error,
+ * the client bound, or a proxy error without a problem body. The session (or
+ * the idempotent create replay) is polled instead of re-submitting.
+ */
+function isConnectionLoss(cause: unknown): boolean {
+  if (cause instanceof TypeError || cause instanceof AiRequestTimeoutError) return true;
+  if (cause instanceof DOMException && cause.name === 'AbortError') return true;
+  return (
+    cause instanceof ApiError &&
+    cause.code === 'unknown' &&
+    (cause.status === 0 || cause.status === 502 || cause.status === 503 || cause.status === 504)
+  );
+}
+
+function isInProgress(cause: unknown): cause is ApiError {
+  return cause instanceof ApiError && cause.status === 409 && cause.code === 'idempotency_in_progress';
+}
+
+async function focusAfterWait(wasShown: boolean): Promise<void> {
+  if (!wasShown) return;
+  await nextTick();
+  heading.value?.focus();
+}
+
+function finishWithSession(binding: OwnerBinding, updated: IntakeSession, outcome: 'done' | 'cancelled'): void {
+  if (stale(binding)) return;
+  const wasShown = aiWait.revealed.value;
+  aiController = null;
+  applySession(updated);
+  aiWait.finish(outcome);
+  void focusAfterWait(wasShown);
+}
+
+watch(
+  () => aiWait.revealed.value,
+  async (shown) => {
+    if (!shown) return;
+    await nextTick();
+    aiPanel.value?.focus();
+  },
+);
+
+/** Owner-bound pause between polls; false once the owner or the loop changed. */
+async function pause(binding: OwnerBinding, token: number, ms: number): Promise<boolean> {
+  await delay(ms);
+  return !stale(binding) && token === pollToken;
+}
+
+/** Reloaded or reconnected: follow the session state, never re-submit. */
+async function pollSession(binding: OwnerBinding, id: string): Promise<void> {
+  const token = ++pollToken;
+  for (;;) {
+    if (stale(binding) || token !== pollToken || aiWait.pending.value === null) return;
+    if (!offline.online) {
+      aiWait.connectionLost.value = true;
+    } else {
+      try {
+        const fresh = await plannerClient.getIntakeSession(id, { fresh: true });
+        if (stale(binding) || token !== pollToken) return;
+        aiWait.connectionLost.value = false;
+        if (sessionAwaitsAi(fresh) === null) {
+          finishWithSession(binding, fresh, 'done');
+          return;
+        }
+        queryClient.setQueryData(['intake', fresh.id], fresh);
+      } catch (cause) {
+        if (stale(binding) || token !== pollToken) return;
+        if (isConnectionLoss(cause)) {
+          aiWait.connectionLost.value = true;
+        } else {
+          aiWait.finish('silent');
+          handleError(cause);
+          return;
+        }
+      }
+    }
+    if (!(await pause(binding, token, AI_WAIT_POLL_MS))) return;
+  }
+}
+
+/** A create replay (same Idempotency-Key) until the stored outcome exists. */
+async function replayCreate(
+  binding: OwnerBinding,
+  input: IntakeInput,
+  key: string,
+): Promise<IntakeSession | null> {
+  const token = ++pollToken;
+  for (;;) {
+    if (stale(binding) || token !== pollToken) return null;
+    const started = aiWait.pending.value?.startedAt ?? Date.now();
+    if (aiWait.cancelling.value && Date.now() - started > AI_REQUEST_CLIENT_BOUND_MS) return null;
+    if (!offline.online) {
+      aiWait.connectionLost.value = true;
+      if (!(await pause(binding, token, AI_WAIT_POLL_MS))) return null;
+      continue;
+    }
+    try {
+      const created = await plannerClient.createIntakeSession(input, key, { signal: binding.signal });
+      if (stale(binding) || token !== pollToken) return null;
+      aiWait.connectionLost.value = false;
+      return created;
+    } catch (cause) {
+      if (stale(binding) || token !== pollToken) return null;
+      if (isInProgress(cause)) {
+        if (!(await pause(binding, token, Math.max(1, cause.retryAfterSeconds ?? 1) * 1_000))) return null;
+        continue;
+      }
+      if (isConnectionLoss(cause)) {
+        aiWait.connectionLost.value = true;
+        if (!(await pause(binding, token, AI_WAIT_POLL_MS))) return null;
+        continue;
+      }
+      throw cause;
+    }
+  }
+}
+
+function finishCreateWithError(binding: OwnerBinding, cause: unknown): void {
+  if (stale(binding)) return;
+  aiController = null;
+  aiWait.finish('silent');
+  creating.value = false;
+  handleError(cause);
+}
+
+async function onCreated(
+  binding: OwnerBinding,
+  created: IntakeSession,
+  outcome: 'done' | 'cancelled' = 'done',
+): Promise<void> {
+  if (stale(binding)) return;
+  const action = actions.peek<IntakeInput>('intake:create');
+  if (action !== undefined) actions.settle('intake:create', action);
+  queryClient.setQueryData(['intake', created.id], created);
+  aiController = null;
+  aiWait.finish(outcome);
+  creating.value = false;
+  await router.push({ name: 'plan-session', params: { sessionId: created.id } });
+}
+
+async function sendCreate(binding: OwnerBinding, input: IntakeInput, key: string): Promise<void> {
+  const signal = freshAiSignal(binding);
+  try {
+    const created = await plannerClient.createIntakeSession(input, key, { signal });
+    await onCreated(binding, created);
+  } catch (cause) {
+    if (aiCancelRequested || stale(binding)) return;
+    if (!isConnectionLoss(cause) && !isInProgress(cause)) {
+      finishCreateWithError(binding, cause);
+      return;
+    }
+    try {
+      const created = await replayCreate(binding, input, key);
+      if (created !== null) await onCreated(binding, created);
+    } catch (replayCause) {
+      finishCreateWithError(binding, replayCause);
+    }
+  }
+}
+
+/**
+ * Answers / type confirmation / 다시 시도 may run the decomposition. The wait
+ * is recorded at once (so a reload resumes it) but only shown once the request
+ * is actually slow; a quick answer never flashes the panel.
+ */
+async function sendAiMutation(
+  current: IntakeSession,
+  scope: string,
+  token: IdempotentAction<unknown>,
+  send: (signal: AbortSignal) => Promise<IntakeSession>,
+  reveal: 'now' | 'delayed' = 'delayed',
+  kind: AiWaitKind = 'decomposition',
+): Promise<IntakeSession | undefined> {
+  if (!offline.mutationsEnabled) {
+    mutationError.value = t('wizard.offlineMutation');
+    return undefined;
+  }
+  mutationError.value = null;
+  const owned = ownedRecord({ kind, startedAt: Date.now(), sessionId: current.id });
+  const binding = owned.binding;
+  aiWait.start(owned.record, { reveal, binding });
+  const signal = freshAiSignal(binding);
+  try {
+    const updated = await send(signal);
+    if (stale(binding)) return undefined;
+    actions.settle(scope, token);
+    finishWithSession(binding, updated, 'done');
+    return updated;
+  } catch (cause) {
+    if (aiCancelRequested || stale(binding)) return undefined;
+    if (isConnectionLoss(cause)) {
+      aiWait.connectionLost.value = !offline.online;
+      void pollSession(binding, current.id);
+      return undefined;
+    }
+    aiController = null;
+    aiWait.finish('silent');
+    handleError(cause);
+    return undefined;
+  }
+}
+
+/** 취소 or 직접 작성으로 계속 during a wait: POST :manual stops the run server-side. */
+async function stopAiWait(): Promise<void> {
+  const pending = aiWait.pending.value;
+  if (pending === null || aiWait.cancelling.value) return;
+  const binding = captureOwnerBinding();
+  aiWait.cancelling.value = true;
+  aiCancelRequested = true;
+  aiController?.abort();
+  pollToken += 1;
+  let id = pending.sessionId;
+  if (id === undefined && pending.create !== undefined) {
+    // The create has not returned its id yet: the same key replays it once the
+    // (short) type detection is stored, then the session goes manual.
+    let created: IntakeSession | null = null;
+    try {
+      created = await replayCreate(binding, pending.create.input, pending.create.key);
+    } catch {
+      created = null;
+    }
+    if (stale(binding)) return;
+    if (created === null) {
+      // Could not reach it within the bound: keep the inputs on step 1.
+      aiWait.finish('silent');
+      actions.clear();
+      creating.value = false;
+      mutationError.value = t('aiWait.overdue');
+      return;
+    }
+    id = created.id;
+    queryClient.setQueryData(['intake', created.id], created);
+  }
+  if (id === undefined) {
+    aiWait.finish('silent');
+    return;
+  }
+  try {
+    const fresh = await plannerClient.getIntakeSession(id, { fresh: true });
+    if (stale(binding)) return;
+    const scope = `intake:${id}:manual`;
+    const token = actions.begin(scope, { manual: true }, samePayload, fresh.version);
+    const manual = await plannerClient.enterManualIntakeMode(id, token.key, fresh.version);
+    if (stale(binding)) return;
+    actions.settle(scope, token);
+    if (pending.create !== undefined) await onCreated(binding, manual, 'cancelled');
+    else finishWithSession(binding, manual, 'cancelled');
+  } catch (cause) {
+    if (stale(binding)) return;
+    aiController = null;
+    aiWait.finish('silent');
+    creating.value = false;
+    handleError(cause);
+    if (pending.create !== undefined && id !== undefined) {
+      await router.push({ name: 'plan-session', params: { sessionId: id } });
+    }
+  }
+}
+
+/** Overdue / reconnect: look at the state now instead of waiting for the next poll. */
+async function checkAiNow(): Promise<void> {
+  const pending = aiWait.pending.value;
+  if (pending === null) return;
+  const binding = captureOwnerBinding();
+  if (pending.sessionId !== undefined) {
+    void pollSession(binding, pending.sessionId);
+    return;
+  }
+  if (pending.create !== undefined) {
+    try {
+      const created = await replayCreate(binding, pending.create.input, pending.create.key);
+      if (created !== null) await onCreated(binding, created);
+    } catch (cause) {
+      finishCreateWithError(binding, cause);
+    }
+  }
+}
+
+async function continueManually(): Promise<void> {
+  if (aiWaiting.value) await stopAiWait();
+  else await enterManual();
+}
+
+async function retryAi(): Promise<void> {
+  const current = session.value;
+  if (current === null) return;
+  const scope = `intake:${current.id}:retry`;
+  const token = actions.begin(scope, { retry: true }, samePayload, current.version);
+  await sendAiMutation(
+    current,
+    scope,
+    token,
+    (signal) => plannerClient.resumeIntakeSession(current.id, token.key, current.version, { signal }),
+    'now',
+  );
+}
+
+// A reload (or another device) finds the session still waiting for the AI.
+// The stored start time is used only for the same verified owner.
+watch(
+  session,
+  (value) => {
+    if (value === null || aiWait.pending.value !== null) return;
+    const kind = sessionAwaitsAi(value);
+    if (kind === null) return;
+    const owner = verifiedOwner();
+    const stored = owner === null ? null : readStoredAiWait(owner.ownerId);
+    const updatedAt = Date.parse(value.updatedAt);
+    const startedAt =
+      stored?.sessionId === value.id
+        ? stored.startedAt
+        : Number.isFinite(updatedAt)
+          ? Math.min(Date.now(), updatedAt)
+          : Date.now();
+    const owned = ownedRecord({ kind, startedAt, sessionId: value.id });
+    aiWait.start(owned.record, { reveal: 'now', binding: owned.binding });
+    void pollSession(owned.binding, value.id);
+  },
+  { immediate: true },
+);
+
+// A reload during the create (type detection) replays the same request key,
+// but only for the same verified owner that stored it.
+onMounted(async () => {
+  if (!isNew.value) {
+    void auth.ensureOwnerConfirmed();
+    return;
+  }
+  const bootstrap = captureOwnerBinding();
+  await auth.ensureOwnerConfirmed();
+  if (stale(bootstrap) || !isNew.value || aiWait.pending.value !== null) return;
+  const owner = verifiedOwner();
+  if (owner === null) return;
+  const stored: PendingAiWait | null = readStoredAiWait(owner.ownerId);
+  if (stored?.create === undefined || stored.sessionId !== undefined) return;
+  const binding = owner.binding;
+  form.title = stored.create.form.title;
+  form.dueAt = stored.create.form.dueAt;
+  form.description = stored.create.form.description;
+  form.fileName = stored.create.form.fileName;
+  creating.value = true;
+  aiWait.start(stored, { reveal: 'now', binding });
+  const { input, key } = stored.create;
+  try {
+    const created = await replayCreate(binding, input, key);
+    if (created !== null) await onCreated(binding, created);
+  } catch (cause) {
+    finishCreateWithError(binding, cause);
+  }
+});
 
 function handleError(cause: unknown): void {
   if (cause instanceof ApiError) {
@@ -288,19 +742,25 @@ async function createSession(): Promise<void> {
     mutationError.value = t('wizard.titleRequired');
     return;
   }
-  creating.value = true;
-  try {
-    const input = buildInput();
-    const scope = 'intake:create';
-    const action = actions.begin(scope, input, samePayload);
-    const created = await run(() => plannerClient.createIntakeSession(input, action.key));
-    if (created === undefined) return;
-    actions.settle(scope, action);
-    queryClient.setQueryData(['intake', created.id], created);
-    await router.push({ name: 'plan-session', params: { sessionId: created.id } });
-  } finally {
-    creating.value = false;
+  if (!offline.mutationsEnabled) {
+    mutationError.value = t('wizard.offlineMutation');
+    return;
   }
+  if (creating.value) return;
+  mutationError.value = null;
+  creating.value = true;
+  const input = buildInput();
+  const action = actions.begin('intake:create', input, samePayload);
+  // FU-76: type detection waits for the AI; the record lets a reload replay
+  // the same key (and restore these inputs) instead of creating twice. It is
+  // persisted only for the verified owner (FU-76R-1 H2).
+  const owned = ownedRecord({
+    kind: 'type_detection',
+    startedAt: Date.now(),
+    create: { key: action.key, input, form: { ...form } },
+  });
+  aiWait.start(owned.record, { reveal: 'delayed', binding: owned.binding });
+  await sendCreate(owned.binding, input, action.key);
 }
 
 async function confirmType(similar: boolean): Promise<void> {
@@ -313,12 +773,11 @@ async function confirmType(similar: boolean): Promise<void> {
       : { similar: false as const };
   const scope = `intake:${current.id}:type`;
   const action = actions.begin(scope, confirmation, samePayload, current.version);
-  const updated = await run(() =>
-    plannerClient.confirmIntakeType(current.id, confirmation, action.key, current.version),
+  await sendAiMutation(current, scope, action, (signal) =>
+    plannerClient.confirmIntakeType(current.id, confirmation, action.key, current.version, {
+      signal,
+    }),
   );
-  if (updated === undefined) return;
-  actions.settle(scope, action);
-  applySession(updated);
 }
 
 function isBooleanField(field: IntakeField): boolean {
@@ -363,18 +822,12 @@ async function answer(question: PlannedQuestion, action: 'answer' | 'skip' | 'id
       : { questionKey: question.field, action };
   const scope = `intake:${current.id}:answers:${question.field}`;
   const actionToken = actions.begin(scope, payload, samePayload, current.version);
-  const updated = await run(() =>
-    plannerClient.answerIntakeQuestions(
-      current.id,
-      [payload],
-      actionToken.key,
-      current.version,
-    ),
+  const updated = await sendAiMutation(current, scope, actionToken, (signal) =>
+    plannerClient.answerIntakeQuestions(current.id, [payload], actionToken.key, current.version, {
+      signal,
+    }),
   );
-  if (updated === undefined) return;
-  actions.settle(scope, actionToken);
-  answerText[question.field] = '';
-  applySession(updated);
+  if (updated !== undefined) answerText[question.field] = '';
 }
 
 async function enterManual(): Promise<void> {
@@ -619,6 +1072,7 @@ const evidence = computed(() => session.value?.draft?.evidence);
     </header>
 
     <p class="visually-hidden" aria-live="polite">{{ liveMessage }}</p>
+    <p class="visually-hidden" aria-live="polite" data-testid="ai-wait-live">{{ aiWait.announcement.value }}</p>
 
     <nav :aria-label="t('wizard.stepper')" class="wizard-stepper">
       <ol class="wizard-progress">
@@ -660,6 +1114,33 @@ const evidence = computed(() => session.value?.draft?.evidence);
       </template>
     </UiBanner>
 
+    <UiBanner
+      v-if="interruptedDecomposition && !aiWaiting"
+      tone="warn"
+      class="llm-banner"
+      role="alert"
+      :title="t('aiWait.interrupted.title')"
+      data-testid="ai-interrupted"
+    >
+      <p>{{ t('aiWait.interrupted.body') }}</p>
+      <template #actions>
+        <UiButton size="sm" variant="primary" icon="sync" :disabled="!canMutate" @click="retryAi">
+          {{ t('aiWait.interrupted.retry') }}
+        </UiButton>
+        <UiButton size="sm" :disabled="!canMutate" @click="enterManual">
+          {{ t('aiWait.manual') }}
+        </UiButton>
+      </template>
+    </UiBanner>
+
+    <UiBanner v-else-if="interruptedFallback" tone="info" role="status">
+      {{ t('aiWait.interrupted.detectionBody') }}
+    </UiBanner>
+
+    <UiBanner v-else-if="cancelledNotice" tone="info" role="status" data-testid="ai-cancelled">
+      {{ t('aiWait.cancelledNotice') }}
+    </UiBanner>
+
     <UiBanner v-if="!offline.mutationsEnabled" tone="offline" class="offline-note" role="status">
       {{ t('wizard.offline') }}
     </UiBanner>
@@ -673,6 +1154,20 @@ const evidence = computed(() => session.value?.draft?.evidence);
         <RouterLink class="btn btn--primary" to="/plan/new">{{ t('wizard.startNew') }}</RouterLink>
       </div>
     </UiCard>
+
+    <AiWaitPanel
+      v-else-if="aiWait.revealed.value && aiWait.pending.value !== null"
+      ref="aiPanel"
+      :kind="aiWait.pending.value.kind"
+      :elapsed-ms="aiWait.elapsedMs.value"
+      :phase="aiWait.phase.value"
+      :cancelling="aiWait.cancelling.value"
+      :connection-lost="aiWait.connectionLost.value"
+      :can-act="offline.mutationsEnabled"
+      @cancel="stopAiWait"
+      @manual="stopAiWait"
+      @check-again="checkAiNow"
+    />
 
     <UiCard v-else-if="!isNew && sessionQuery.isLoading.value" class="wizard-card">
       <p class="loading-row"><UiSpinner /> {{ t('wizard.loading') }}</p>
@@ -1081,7 +1576,12 @@ const evidence = computed(() => session.value?.draft?.evidence);
       v-if="session !== null && !terminal && currentStep >= 2 && currentStep <= 4"
       class="wizard-footer"
     >
-      <UiButton variant="ghost" size="sm" :disabled="!canMutate || paused" @click="enterManual">
+      <UiButton
+        variant="ghost"
+        size="sm"
+        :disabled="!offline.mutationsEnabled || busy || paused || aiWait.cancelling.value"
+        @click="continueManually"
+      >
         {{ t('wizard.toManual') }}
       </UiButton>
     </footer>

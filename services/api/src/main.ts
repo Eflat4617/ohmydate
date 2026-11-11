@@ -52,6 +52,13 @@ export const SHUTDOWN_DEADLINE_MS = 15_000;
  * trickling or idle socket can be force-closed while the process still exits
  * 0 (FU-37R finding 2). Providers must still bound their own retries; the
  * drain budget is not the provider timeout budget.
+ *
+ * FU-76: an intake AI call (decomposition 30–45 s typical, up to the 270 s
+ * request bound) deliberately outlives this drain instead of stretching it.
+ * At expiry the application shutdown signal aborts the call (runStructured
+ * `signal`), PolicyLlm settles the reservation, and the request records
+ * agent_run `cancelled` and session error `ai_interrupted` inside the cleanup
+ * budget, so the user sees "다시 시도" (POST :resume) after the restart.
  */
 export const SHUTDOWN_DRAIN_BUDGET_MS = 12_000;
 

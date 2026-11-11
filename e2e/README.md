@@ -98,8 +98,11 @@ detail, reject dialog and suppressed state all require 0 critical/serious.
 `tests/e2e-6-notes.spec.ts` uses its own owner (`notes` fixture). The API runs
 with `LLM_FAKE_SCENARIO=e2e-grounded` (the coordinator's M6-03 scope
 amendment; see `services/api/src/adapters/fake-llm-scenarios.ts`), scoped by
-`LLM_FAKE_SCENARIO_OWNERS` to that owner. The scenario is honoured only with
-`LLM_PROVIDER=fake` and is refused at boot under `NODE_ENV=production`. It answers `type_detection@v1` with a schema-valid
+`LLM_FAKE_SCENARIO_OWNERS` to that owner. Both knobs belong to the shared fake-knob
+guard (`assertFakeKnobsAllowed`): they are honoured only with `LLM_PROVIDER=fake`
+and refused under `NODE_ENV=production`. The scenario is the base fake that FU-76's
+scripted slow owners (`LLM_FAKE_SCRIPTED_OWNERS`, E2E-AI) wrap, so both run
+side by side for their own owners. It answers `type_detection@v1` with a schema-valid
 "new" classification, so sessions are no longer forced into manual mode
 before decomposition. The note-grounded `decomposition@v2` gets a draft built
 from the request: one `fact` citing the first note block actually sent, one

@@ -727,11 +727,21 @@ export function createIntakeHandlers(db: MockDb) {
         session.pausedFrom = session.state;
         session.state = 'needs_input';
       } else if (action === 'resume') {
-        if (session.state !== 'needs_input') {
+        if (
+          session.state === 'decomposition' &&
+          session.error?.code === 'ai_interrupted' &&
+          session.draft === undefined &&
+          !session.manual
+        ) {
+          // FU-76 "다시 시도": re-run an interrupted decomposition.
+          delete session.error;
+          session.draft = buildDraft(session, db);
+        } else if (session.state !== 'needs_input') {
           return rememberDomainResult(db, token, 409, 'illegal_transition', 'session is not paused');
+        } else {
+          session.state = 'clarification';
+          delete session.pausedFrom;
         }
-        session.state = 'clarification';
-        delete session.pausedFrom;
       } else if (action === 'cancel') {
         const advanced = transition(session.state, { type: 'user_cancelled' });
         session.state = advanced.state;

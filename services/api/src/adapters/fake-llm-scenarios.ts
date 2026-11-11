@@ -9,9 +9,11 @@ import {
 /**
  * E2E-only fake LLM scenarios (M6-03 scope amendment, coordinator-approved).
  *
- * `LLM_FAKE_SCENARIO=e2e-grounded` is honoured only together with
- * `LLM_PROVIDER=fake` and is refused at boot under `NODE_ENV=production`
- * (config.ts). It lets the real-API E2E suite drive the note-grounded intake
+ * `LLM_FAKE_SCENARIO=e2e-grounded` (+ `LLM_FAKE_SCENARIO_OWNERS`) is a fake-only
+ * knob of the shared `assertFakeKnobsAllowed` guard (config.ts): honoured only
+ * with `LLM_PROVIDER=fake`, rejected under `NODE_ENV=production`, for env and
+ * programmatic configs alike. `createBaseFakeLlm` is the base LlmPort that
+ * FU-76's `ScriptedFakeLlm` wraps (app.ts `fakeLlmFor`). It lets the real-API E2E suite drive the note-grounded intake
  * pipeline end to end without a provider:
  *
  * - `type_detection@v1` answers a schema-valid "new" classification so the
