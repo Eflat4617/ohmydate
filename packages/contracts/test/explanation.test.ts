@@ -20,6 +20,8 @@ import {
   schemaRegistry,
   type PlanCandidateDto,
 } from '../src/index.js';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { compile } from './ajv.js';
 
 const TASK_ID = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55';
@@ -237,5 +239,31 @@ describe('explanation code contract (FU-62)', () => {
     ).toBe(true);
     expect(violation({ code: 'H1', message: 'x', messageCode: 'policy_summary', params: {} })).toBe(false);
     expect(violation({ code: 'H1', message: 'x', messageCode: 'h1_unknown', params: {} })).toBe(false);
+  });
+});
+
+describe('06 §6.1 code tables (FU-62)', () => {
+  const spec = readFileSync(
+    fileURLToPath(new URL('../../../docs/blueprint/06-SCHEDULER-SPEC.md', import.meta.url)),
+    'utf8',
+  );
+  const start = spec.indexOf('### 6.1 ');
+  const end = spec.indexOf('\n## ', start);
+  const section = spec.slice(start, end === -1 ? undefined : end);
+  const rows = [...section.matchAll(/^\| `([a-z0-9_]+)` \|(.*)$/gm)];
+
+  it('lists every contract code exactly once', () => {
+    expect(start).toBeGreaterThan(-1);
+    const documented = rows.map((row) => row[1] ?? '');
+    expect(new Set(documented).size).toBe(documented.length);
+    expect(sorted(documented)).toEqual(sorted(EXPLANATION_CODES));
+  });
+
+  it('labels each violation code with its H-kind', () => {
+    for (const code of VIOLATION_MESSAGE_CODES) {
+      const row = rows.find((entry) => entry[1] === code);
+      const kind = row?.[2]?.split('|')[0]?.trim() ?? '';
+      expect(kind.toLowerCase().startsWith(code.slice(0, 2)), `${code} → ${kind}`).toBe(true);
+    }
   });
 });
