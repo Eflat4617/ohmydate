@@ -297,18 +297,3 @@ export function renderMarkdown(source: string): VNodeChild[] {
   while (stack.length > 0) close();
   return root;
 }
-
-/** Plain-text summary for list rows (no Markdown symbols, no addresses). */
-export function plainSummary(source: string, max = 120): string {
-  const text = source
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/<[^>\n]*>/g, ' ')
-    .replace(/^[ \t]*(?:#{1,6}|>|[-*+]|\d+[.)])[ \t]+/gm, '')
-    .replace(/[*_~`|]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const chars = Array.from(text);
-  return chars.length > max ? `${chars.slice(0, max).join('')}…` : text;
-}

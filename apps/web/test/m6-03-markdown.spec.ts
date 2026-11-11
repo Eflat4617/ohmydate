@@ -1,6 +1,7 @@
 import { mount, type VueWrapper } from '@vue/test-utils';
 import MarkdownView from '../src/components/notes/MarkdownView.vue';
-import { plainSummary, safeExternalHref } from '../src/components/notes/markdown';
+import { safeExternalHref } from '../src/components/notes/markdown';
+import { noteSummary, plainSummary } from '../src/components/notes/summary';
 
 /**
  * M6-03 Markdown preview: markdown-it parses (html/linkify/typographer off),
@@ -247,5 +248,8 @@ describe('markdown helpers', () => {
       '제목 굵게 링크 p 태그',
     );
     expect(plainSummary('가'.repeat(200), 10)).toBe(`${'가'.repeat(10)}…`);
+    // A first heading that repeats the title is not repeated in the row.
+    expect(noteSummary('회의록', '\n# 회의록\n\n본문')).toBe('본문');
+    expect(noteSummary('회의록', '# 다른 제목\n본문')).toBe('다른 제목 본문');
   });
 });

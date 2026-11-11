@@ -8,7 +8,7 @@ import UiBadge from '../ui/UiBadge.vue';
 import UiBanner from '../ui/UiBanner.vue';
 import UiButton from '../ui/UiButton.vue';
 import UiSkeleton from '../ui/UiSkeleton.vue';
-import { plainSummary } from './markdown';
+import { noteSummary } from './summary';
 
 /**
  * Notes linked to something (project tab, task detail): title, a plain-text
@@ -49,7 +49,7 @@ const timeZone = computed(() => auth.user?.timeZone ?? browserTimeZone());
     <ul v-else class="linked-note-list" :aria-label="label">
       <li v-for="note in notes" :key="note.id" class="linked-note">
         <RouterLink :to="`/notes/${note.id}`" class="linked-note-title" :data-linked-note="note.id">{{ note.title }}</RouterLink>
-        <span v-if="plainSummary(note.bodyMd, 80)" class="linked-note-summary muted">{{ plainSummary(note.bodyMd, 80) }}</span>
+        <span v-if="noteSummary(note.title, note.bodyMd, 80)" class="linked-note-summary muted">{{ noteSummary(note.title, note.bodyMd, 80) }}</span>
         <span class="linked-note-meta">
           <time :datetime="note.updatedAt" class="tabular">{{ t('notes.updated', { time: formatDateTime(note.updatedAt, timeZone) }) }}</time>
           <UiBadge v-if="note.llmAllowed" tone="accent">{{ t('notes.badges.aiAllowed') }}</UiBadge>

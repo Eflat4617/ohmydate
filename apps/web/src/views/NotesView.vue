@@ -5,7 +5,7 @@ import { useInfiniteQuery } from '@tanstack/vue-query';
 import { plannerClient, type ContextDocument, type ContextDocumentPage } from '../api';
 import NoteConfirmDialog from '../components/notes/NoteConfirmDialog.vue';
 import NoteEditor from '../components/notes/NoteEditor.vue';
-import { plainSummary } from '../components/notes/markdown';
+import { noteSummary } from '../components/notes/summary';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -215,7 +215,7 @@ async function onDeleted(): Promise<void> {
 }
 
 function summaryOf(note: ContextDocument): string {
-  return plainSummary(note.bodyMd, 90);
+  return noteSummary(note.title, note.bodyMd, 90);
 }
 </script>
 

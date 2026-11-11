@@ -302,6 +302,28 @@ describe('Notes workspace — editor', () => {
     expect(preview.text()).toContain('<script>window.__x=1</script>');
   });
 
+  it('offers side by side on desktop and debounces the preview while typing', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('min-width: 1024px'),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    try {
+      const app = await openNote(NOTE_MEETING_ID);
+      // An opened note starts side by side on desktop, preview already filled.
+      expect((app.wrapper.get('[data-note-mode="split"]').element as HTMLInputElement).checked).toBe(true);
+      expect(app.wrapper.get('.note-body').classes()).toContain('note-body--split');
+      expect(app.wrapper.get('[data-note-preview]').text()).toContain('지난 회의 메모');
+      await setValue(app.wrapper.get('[data-note-body]'), '## 바로 바뀌지 않음');
+      expect(app.wrapper.get('[data-note-preview]').text()).toContain('지난 회의 메모');
+      await vi.waitFor(() => expect(app.wrapper.get('[data-note-preview] h4').text()).toBe('바로 바뀌지 않음'));
+      expect(app.wrapper.get('[data-note-body]').isVisible()).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('turning “AI에 보내기 허용” on is saved explicitly, with a warning for P1 notes', async () => {
     const requests = captureRequests();
     const app = await openNote(NOTE_PRIVATE_ID);

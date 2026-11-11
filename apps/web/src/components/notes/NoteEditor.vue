@@ -199,21 +199,22 @@ const showPreview = computed(() => effectiveMode.value !== 'edit');
 // The preview follows the text at once, except side by side while typing.
 const previewSource = ref(fields.bodyMd);
 let previewTimer: ReturnType<typeof setTimeout> | null = null;
+function syncPreview(): void {
+  if (previewTimer !== null) clearTimeout(previewTimer);
+  previewTimer = null;
+  previewSource.value = fields.bodyMd;
+}
+watch(effectiveMode, syncPreview);
 watch(
-  () => [fields.bodyMd, effectiveMode.value] as const,
-  ([body, current]) => {
-    if (previewTimer !== null) clearTimeout(previewTimer);
-    previewTimer = null;
-    if (current !== 'split') {
-      previewSource.value = body;
+  () => fields.bodyMd,
+  () => {
+    if (effectiveMode.value !== 'split') {
+      syncPreview();
       return;
     }
-    previewTimer = setTimeout(() => {
-      previewTimer = null;
-      previewSource.value = fields.bodyMd;
-    }, SPLIT_DEBOUNCE_MS);
+    if (previewTimer !== null) clearTimeout(previewTimer);
+    previewTimer = setTimeout(syncPreview, SPLIT_DEBOUNCE_MS);
   },
-  { immediate: true },
 );
 
 function unloadGuard(event: BeforeUnloadEvent): void {
