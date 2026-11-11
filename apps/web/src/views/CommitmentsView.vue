@@ -25,6 +25,14 @@ import {
   type WeekdayCode,
 } from '../domain/rrule';
 import { useOfflineStore } from '../stores/offline';
+import UiBadge from '../components/ui/UiBadge.vue';
+import UiBanner from '../components/ui/UiBanner.vue';
+import UiButton from '../components/ui/UiButton.vue';
+import UiCard from '../components/ui/UiCard.vue';
+import UiEmptyState from '../components/ui/UiEmptyState.vue';
+import UiField from '../components/ui/UiField.vue';
+import UiIcon from '../components/ui/UiIcon.vue';
+import UiSkeleton from '../components/ui/UiSkeleton.vue';
 
 const offline = useOfflineStore();
 const queryClient = useQueryClient();
@@ -255,150 +263,193 @@ function onFromChange(event: Event): void {
 </script>
 
 <template>
-  <section class="page">
+  <section class="page page--wide commitments-page">
     <header class="page-header">
-      <div>
+      <div class="page-heading">
         <h1>Commitments</h1>
-        <p class="muted">Fixed calendar time that planning must work around.</p>
+        <p class="page-lede">Fixed calendar time that planning must work around.</p>
       </div>
     </header>
 
-    <p v-if="!offline.mutationsEnabled" class="offline-note" role="status">
+    <UiBanner v-if="!offline.mutationsEnabled" tone="offline" class="offline-note" role="status">
       Read-only while offline. Commitment edits are disabled.
-    </p>
-    <p class="status-region" role="status" aria-live="polite">{{ message }}</p>
-    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    </UiBanner>
+    <p class="status-region status-note" role="status" aria-live="polite">{{ message }}</p>
+    <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
 
-    <fieldset class="settings-group">
-      <legend>List range</legend>
-      <div class="range-row">
-        <label for="commitment-from">From</label>
-        <input id="commitment-from" :value="fromDate" type="date" @change="onFromChange" />
-        <label for="commitment-to">To</label>
-        <input id="commitment-to" v-model="toDate" type="date" @change="rangeTouched = true" />
-      </div>
-    </fieldset>
+    <div class="commitments-layout">
+      <div class="commitments-list-column">
+        <fieldset class="settings-group settings-group--compact">
+          <legend>List range</legend>
+          <div class="field-grid">
+            <UiField id="commitment-from" label="From">
+              <input id="commitment-from" :value="fromDate" type="date" @change="onFromChange" />
+            </UiField>
+            <UiField id="commitment-to" label="To">
+              <input id="commitment-to" v-model="toDate" type="date" @change="rangeTouched = true" />
+            </UiField>
+          </div>
+        </fieldset>
 
-    <div v-if="commitmentsQuery.isLoading.value" class="muted">Loading commitments…</div>
-    <div v-else-if="commitmentsQuery.isError.value" class="error-panel">
-      <p class="error-text" role="alert">Could not load commitments.</p>
-      <button type="button" @click="refresh">Retry</button>
-    </div>
-    <ul v-else-if="commitments.length === 0" class="empty-state" aria-live="polite">
-      <li>No commitments in this range.</li>
-    </ul>
-    <ul v-else class="commitment-list">
-      <li v-for="commitment in commitments" :key="commitment.id" class="commitment-item">
-        <div class="commitment-main">
-          <strong>{{ commitment.title }}</strong>
-          <span class="muted">
-            {{ localInputValue(commitment.startAt, commitment.timeZone).replace('T', ' ') }} –
-            {{ formatLocalTime(commitment.endAt, commitment.timeZone) }} · {{ commitment.timeZone }}
-          </span>
-          <span v-if="commitment.rrule" class="muted">Repeats: {{ commitment.rrule }}</span>
-          <span class="muted">Version {{ commitment.version }}</span>
+        <div v-if="commitmentsQuery.isLoading.value">
+          <p class="visually-hidden" role="status">Loading commitments…</p>
+          <UiSkeleton variant="card" :count="2" :lines="2" />
         </div>
-        <ul v-if="(commitment.occurrences?.length ?? 0) > 0" class="occurrence-list">
-          <li v-for="occurrence in commitment.occurrences" :key="`${occurrence.startAt}-${occurrence.endAt}`">
-            {{ localInputValue(occurrence.startAt, commitment.timeZone).replace('T', ' ') }} –
-            {{ formatLocalTime(occurrence.endAt, commitment.timeZone) }}
-          </li>
+        <UiBanner v-else-if="commitmentsQuery.isError.value" tone="error" class="error-panel">
+          <p class="error-text" role="alert">Could not load commitments.</p>
+          <template #actions>
+            <UiButton size="sm" icon="sync" @click="refresh">Retry</UiButton>
+          </template>
+        </UiBanner>
+        <UiEmptyState
+          v-else-if="commitments.length === 0"
+          icon="commitment"
+          title="No commitments in this range."
+          aria-live="polite"
+        />
+        <ul v-else class="commitment-list">
+          <UiCard v-for="commitment in commitments" :key="commitment.id" as="li" class="commitment-item">
+            <div class="commitment-main">
+              <div class="commitment-title-row">
+                <span class="commitment-swatch" aria-hidden="true"></span>
+                <strong class="commitment-title">{{ commitment.title }}</strong>
+                <UiBadge v-if="commitment.rrule" tone="info">
+                  <UiIcon name="reschedule" :size="12" />Repeats
+                </UiBadge>
+              </div>
+              <span class="commitment-when tabular">
+                {{ localInputValue(commitment.startAt, commitment.timeZone).replace('T', ' ') }} –
+                {{ formatLocalTime(commitment.endAt, commitment.timeZone) }} · {{ commitment.timeZone }}
+              </span>
+              <span v-if="commitment.rrule" class="subtle commitment-rule">Repeats: {{ commitment.rrule }}</span>
+              <span class="subtle commitment-version">Version {{ commitment.version }}</span>
+            </div>
+            <ul v-if="(commitment.occurrences?.length ?? 0) > 0" class="occurrence-list">
+              <li v-for="occurrence in commitment.occurrences" :key="`${occurrence.startAt}-${occurrence.endAt}`">
+                {{ localInputValue(occurrence.startAt, commitment.timeZone).replace('T', ' ') }} –
+                {{ formatLocalTime(occurrence.endAt, commitment.timeZone) }}
+              </li>
+            </ul>
+            <div class="card-footer card-footer--end">
+              <UiButton
+                size="sm"
+                variant="ghost"
+                icon="edit"
+                :disabled="!offline.mutationsEnabled || busy"
+                @click="edit(commitment)"
+              >
+                Edit<span class="visually-hidden"> {{ commitment.title }}</span>
+              </UiButton>
+              <UiButton
+                size="sm"
+                variant="danger-ghost"
+                icon="trash"
+                class="danger"
+                :disabled="!offline.mutationsEnabled || busy"
+                @click="remove(commitment)"
+              >
+                Delete<span class="visually-hidden"> {{ commitment.title }}</span>
+              </UiButton>
+            </div>
+          </UiCard>
         </ul>
-        <div class="task-actions">
-          <button type="button" :disabled="!offline.mutationsEnabled || busy" @click="edit(commitment)">
-            Edit {{ commitment.title }}
-          </button>
-          <button
-            type="button"
-            class="danger"
-            :disabled="!offline.mutationsEnabled || busy"
-            @click="remove(commitment)"
-          >
-            Delete {{ commitment.title }}
-          </button>
-        </div>
-      </li>
-    </ul>
+      </div>
 
-    <form class="settings-form" @submit.prevent="save">
-      <fieldset class="settings-group">
-        <legend>{{ form.id === null ? 'New commitment' : 'Edit commitment' }}</legend>
-        <h2 ref="formHeading" class="sr-only" tabindex="-1">
-          {{ form.id === null ? 'New commitment form' : 'Edit commitment form' }}
-        </h2>
-        <label for="commitment-title">Title</label>
-        <input
-          id="commitment-title"
-          v-model="form.title"
-          type="text"
-          maxlength="200"
-          :disabled="!offline.mutationsEnabled"
-        />
-        <label for="commitment-start">Start (local wall clock)</label>
-        <input
-          id="commitment-start"
-          v-model="form.startLocal"
-          type="datetime-local"
-          :disabled="!offline.mutationsEnabled"
-        />
-        <label for="commitment-end">End (local wall clock)</label>
-        <input
-          id="commitment-end"
-          v-model="form.endLocal"
-          type="datetime-local"
-          :disabled="!offline.mutationsEnabled"
-        />
-        <label for="commitment-timezone">IANA time zone</label>
-        <input
-          id="commitment-timezone"
-          v-model="form.timeZone"
-          type="text"
-          :disabled="!offline.mutationsEnabled"
-        />
-      </fieldset>
-
-      <fieldset class="settings-group">
-        <legend>Repeat</legend>
-        <div class="preset-row" role="group" aria-label="Weekly recurrence presets">
-          <label v-for="day in DAYS" :key="day.code" class="checkbox-label">
+      <form class="settings-form commitment-editor" @submit.prevent="save">
+        <fieldset class="settings-group">
+          <legend>{{ form.id === null ? 'New commitment' : 'Edit commitment' }}</legend>
+          <h2 ref="formHeading" class="sr-only" tabindex="-1">
+            {{ form.id === null ? 'New commitment form' : 'Edit commitment form' }}
+          </h2>
+          <UiField id="commitment-title" label="Title">
             <input
-              type="checkbox"
-              :checked="presetDays.includes(day.code)"
+              id="commitment-title"
+              v-model="form.title"
+              type="text"
+              maxlength="200"
+              placeholder="e.g. Seminar, commute, family dinner"
               :disabled="!offline.mutationsEnabled"
-              @change="toggleDay(day.code)"
             />
-            {{ day.label }}
-          </label>
+          </UiField>
+          <div class="field-grid">
+            <UiField id="commitment-start" label="Start (local wall clock)">
+              <input
+                id="commitment-start"
+                v-model="form.startLocal"
+                type="datetime-local"
+                :disabled="!offline.mutationsEnabled"
+              />
+            </UiField>
+            <UiField id="commitment-end" label="End (local wall clock)">
+              <input
+                id="commitment-end"
+                v-model="form.endLocal"
+                type="datetime-local"
+                :disabled="!offline.mutationsEnabled"
+              />
+            </UiField>
+          </div>
+          <UiField id="commitment-timezone" label="IANA time zone">
+            <input
+              id="commitment-timezone"
+              v-model="form.timeZone"
+              type="text"
+              :disabled="!offline.mutationsEnabled"
+            />
+          </UiField>
+        </fieldset>
+
+        <fieldset class="settings-group">
+          <legend>Repeat</legend>
+          <div class="choice-group day-choices" role="group" aria-label="Weekly recurrence presets">
+            <label v-for="day in DAYS" :key="day.code" class="choice-chip">
+              <input
+                type="checkbox"
+                :checked="presetDays.includes(day.code)"
+                :disabled="!offline.mutationsEnabled"
+                @change="toggleDay(day.code)"
+              />
+              {{ day.label }}
+            </label>
+          </div>
+          <UiField
+            id="commitment-rrule"
+            label="Raw RRULE (optional)"
+            help="Presets write a weekly rule; raw rules accept a bounded RFC 5545 subset."
+          >
+            <template #default="{ describedby }">
+              <input
+                id="commitment-rrule"
+                v-model="form.rrule"
+                type="text"
+                class="mono-input"
+                placeholder="FREQ=WEEKLY;BYDAY=MO,WE"
+                :aria-describedby="describedby"
+                :disabled="!offline.mutationsEnabled"
+              />
+            </template>
+          </UiField>
+        </fieldset>
+
+        <section class="card card--flat occurrence-preview" aria-labelledby="occurrence-preview-title">
+          <h2 id="occurrence-preview-title" class="h2">Occurrences preview</h2>
+          <p v-if="preview.length === 0" class="muted" aria-live="polite">No occurrences in the selected range.</p>
+          <ul v-else class="occurrence-list" aria-live="polite">
+            <li v-for="occurrence in preview" :key="`${occurrence.startAt}-${occurrence.endAt}`">
+              {{ formatOccurrence(occurrence.startAt, occurrence.endAt) }}
+            </li>
+          </ul>
+        </section>
+
+        <div class="form-actions">
+          <UiButton type="submit" variant="primary" :busy="busy" :disabled="!offline.mutationsEnabled || busy">
+            {{ form.id === null ? 'Create commitment' : 'Save commitment' }}
+          </UiButton>
+          <UiButton v-if="form.id !== null" variant="ghost" :disabled="busy" @click="resetForm">
+            Cancel edit
+          </UiButton>
         </div>
-        <label for="commitment-rrule">Raw RRULE (optional)</label>
-        <input
-          id="commitment-rrule"
-          v-model="form.rrule"
-          type="text"
-          placeholder="FREQ=WEEKLY;BYDAY=MO,WE"
-          :disabled="!offline.mutationsEnabled"
-        />
-        <p class="muted">Presets write a weekly rule; raw rules accept a bounded RFC 5545 subset.</p>
-      </fieldset>
-
-      <section aria-labelledby="occurrence-preview-title">
-        <h2 id="occurrence-preview-title" class="h2">Occurrences preview</h2>
-        <p v-if="preview.length === 0" class="muted" aria-live="polite">No occurrences in the selected range.</p>
-        <ul v-else class="occurrence-list" aria-live="polite">
-          <li v-for="occurrence in preview" :key="`${occurrence.startAt}-${occurrence.endAt}`">
-            {{ formatOccurrence(occurrence.startAt, occurrence.endAt) }}
-          </li>
-        </ul>
-      </section>
-
-      <div class="form-actions">
-        <button type="submit" class="primary-action" :disabled="!offline.mutationsEnabled || busy">
-          {{ form.id === null ? 'Create commitment' : 'Save commitment' }}
-        </button>
-        <button v-if="form.id !== null" type="button" :disabled="busy" @click="resetForm">
-          Cancel edit
-        </button>
-      </div>
-    </form>
+      </form>
+    </div>
   </section>
 </template>

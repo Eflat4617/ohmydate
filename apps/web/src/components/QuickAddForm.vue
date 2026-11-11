@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import UiButton from './ui/UiButton.vue';
+import UiIcon from './ui/UiIcon.vue';
 
 const props = defineProps<{ disabled?: boolean }>();
 const emit = defineEmits<{ submit: [title: string] }>();
@@ -26,22 +28,24 @@ defineExpose({ focus, clear });
 </script>
 
 <template>
-  <form class="quick-add" @submit.prevent="submit">
-    <label for="quick-add-title">Quick add task</label>
+  <form class="quick-add" :class="{ 'quick-add--disabled': disabled }" @submit.prevent="submit">
+    <label for="quick-add-title" class="quick-add-label">Quick add task</label>
     <div class="quick-add-row">
+      <UiIcon name="plus" class="quick-add-icon" />
       <input
         id="quick-add-title"
         ref="input"
         v-model="title"
+        class="quick-add-input"
         type="text"
         maxlength="200"
         placeholder="What needs doing?"
         autocomplete="off"
         :disabled="disabled"
       />
-      <button type="submit" class="primary-action" :disabled="disabled || title.trim().length === 0">
+      <UiButton type="submit" variant="primary" :disabled="disabled || title.trim().length === 0">
         Add task
-      </button>
+      </UiButton>
     </div>
   </form>
 </template>

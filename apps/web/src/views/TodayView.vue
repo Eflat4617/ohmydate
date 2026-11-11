@@ -12,7 +12,17 @@ import {
   type TodayProposal,
 } from '../api';
 import ProposalPreview from '../components/ProposalPreview.vue';
+import UiBadge from '../components/ui/UiBadge.vue';
+import UiBanner from '../components/ui/UiBanner.vue';
+import UiButton from '../components/ui/UiButton.vue';
+import UiCard from '../components/ui/UiCard.vue';
+import UiDialog from '../components/ui/UiDialog.vue';
+import UiEmptyState from '../components/ui/UiEmptyState.vue';
+import UiField from '../components/ui/UiField.vue';
+import UiIcon from '../components/ui/UiIcon.vue';
+import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { addDaysToDate, zonedWallClockToInstant } from '../domain/time';
+import { rememberFocusBlocks } from '../composables/focusContext';
 import { durationMinutes, formatClock, formatDay, formatSlack, localDateIso } from '../format';
 import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
@@ -125,6 +135,38 @@ const blocks = computed<TodayBlock[]>(() => {
           status: approved.status,
         };
   });
+});
+
+// Presentational only: lets Focus show the task title / planned length.
+watch(
+  blocks,
+  (list) => {
+    const current = today.value;
+    if (current !== null && list.length > 0) rememberFocusBlocks(sessionStore.ownerId, list, current.timeZone);
+  },
+  { immediate: true },
+);
+
+// Presentational only: which card gets the "Next up" emphasis.
+const mountedAt = Date.now();
+const nextBlockId = computed(() => {
+  const next = blocks.value.find(
+    (block) => block.status !== 'done' && block.status !== 'skipped' && Date.parse(block.endAt) > mountedAt,
+  );
+  return next?.id ?? null;
+});
+const plannedMinutes = computed(() =>
+  blocks.value.reduce((sum, block) => sum + durationMinutes(block.startAt, block.endAt), 0),
+);
+const riskTone = computed(() => {
+  switch (today.value?.risk.level) {
+    case 'high':
+      return 'danger' as const;
+    case 'medium':
+      return 'warn' as const;
+    default:
+      return 'success' as const;
+  }
 });
 
 const isLoading = computed(
@@ -374,105 +416,160 @@ function resumeActive(): void {
 </script>
 
 <template>
-  <section class="page today-page">
+  <section class="page page--wide today-page">
     <header class="page-header">
-      <div>
+      <div class="page-heading">
         <h1>Today</h1>
-        <p v-if="today" class="muted">
+        <p v-if="today" class="page-lede today-date">
           {{ formatDay(today.date) }}
-          <span class="chip chip--slack">Slack {{ formatSlack(today.slackMin) }}</span>
+          <span class="chip chip--slack badge--accent">Slack {{ formatSlack(today.slackMin) }}</span>
         </p>
       </div>
-      <span v-if="readOnly" class="chip chip--offline" role="status">Read-only while offline</span>
+      <div class="page-actions">
+        <UiBadge v-if="readOnly" tone="offline" dot class="chip--offline" role="status">
+          Read-only while offline
+        </UiBadge>
+      </div>
     </header>
 
-    <div v-if="activeSession" class="resume-banner" role="status">
+    <UiBanner v-if="activeSession" tone="accent" inline icon="clock" class="resume-banner" role="status">
       <span>You have a focus session waiting to resume.</span>
-      <button type="button" class="primary-action" @click="resumeActive">Resume session</button>
-    </div>
+      <template #actions>
+        <UiButton variant="primary" size="sm" icon="play" @click="resumeActive">Resume session</UiButton>
+      </template>
+    </UiBanner>
 
-    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
-    <div v-if="resumeOffer && activeSession" class="resume-banner">
+    <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
+    <UiBanner v-if="resumeOffer && activeSession" tone="info" inline class="resume-banner">
       <span>A session is already running.</span>
-      <button type="button" @click="resumeActive">Resume the active session</button>
-    </div>
+      <template #actions>
+        <UiButton size="sm" @click="resumeActive">Resume the active session</UiButton>
+      </template>
+    </UiBanner>
 
-    <section v-if="quarantinedCount > 0" class="error-panel quarantine-notice" role="status">
+    <UiBanner
+      v-if="quarantinedCount > 0"
+      as="section"
+      tone="warn"
+      title="Focus events need attention"
+      class="error-panel quarantine-notice"
+      role="status"
+    >
       <p class="error-text">
         {{ quarantinedCount }} saved focus event{{ quarantinedCount === 1 ? '' : 's' }} could not
         be replayed and {{ quarantinedCount === 1 ? 'was' : 'were' }} set aside on this device.
       </p>
-      <div class="dialog-actions">
-        <button type="button" :disabled="retryBusy" @click="retryQuarantine">Retry upload</button>
-        <button type="button" :disabled="retryBusy" @click="dismissQuarantine">Dismiss</button>
-      </div>
-    </section>
+      <template #actions>
+        <UiButton size="sm" icon="sync" :disabled="retryBusy" :busy="retryBusy" @click="retryQuarantine">
+          Retry upload
+        </UiButton>
+        <UiButton size="sm" variant="ghost" :disabled="retryBusy" @click="dismissQuarantine">Dismiss</UiButton>
+      </template>
+    </UiBanner>
 
-    <div v-if="isLoading" class="today-skeleton" aria-hidden="true">
-      <div class="skeleton-card" />
-      <div class="skeleton-card" />
+    <div v-if="isLoading" class="today-layout today-skeleton" aria-hidden="true">
+      <div class="today-summary"><UiSkeleton variant="card" :count="1" :lines="2" /></div>
+      <div class="today-list"><UiSkeleton variant="card" :count="2" :lines="3" /></div>
     </div>
-    <div v-else-if="isError" class="error-panel">
+    <UiBanner v-else-if="isError" tone="error" class="error-panel">
       <p class="error-text" role="alert">Could not load today’s plan.</p>
-      <button type="button" @click="refresh()">Retry</button>
-    </div>
+      <template #actions>
+        <UiButton size="sm" icon="sync" @click="refresh()">Retry</UiButton>
+      </template>
+    </UiBanner>
 
-    <template v-else-if="today">
-      <div class="today-meta">
-        <ul class="chip-row" aria-label="Risk and slack">
-          <li class="chip" :class="`chip--risk-${today.risk.level}`">Risk: {{ today.risk.level }}</li>
-          <li v-for="reason in today.risk.reasons" :key="reason" class="chip">
-            {{ reason }}
-          </li>
-        </ul>
-        <button type="button" :disabled="readOnly || busy" @click="acceptToday()">
-          Accept plan
-        </button>
-      </div>
-
-      <ul v-if="blocks.length > 0" class="today-blocks" aria-label="Today’s blocks">
-        <li
-          v-for="(block, index) in blocks"
-          :key="block.id"
-          class="today-card"
-          :data-block-id="block.id"
-        >
-          <div class="today-card-main">
-            <span class="today-index" aria-hidden="true">{{ index + 1 }}</span>
-            <div>
-              <h2 class="today-title">{{ block.title }}</h2>
-              <p class="muted">
-                {{ formatClock(block.startAt, today.timeZone) }}–{{ formatClock(block.endAt, today.timeZone) }}
-                · {{ durationMinutes(block.startAt, block.endAt) }}m
-              </p>
+    <div v-else-if="today" class="today-layout">
+      <aside class="today-summary" aria-labelledby="today-summary-title">
+        <UiCard class="today-meta">
+          <h2 id="today-summary-title" class="eyebrow">Day at a glance</h2>
+          <dl class="stat-grid">
+            <div class="stat">
+              <dt>Slack</dt>
+              <dd class="stat-value">{{ formatSlack(today.slackMin) }}</dd>
             </div>
+            <div class="stat">
+              <dt>Planned</dt>
+              <dd class="stat-value">{{ formatSlack(plannedMinutes) }}</dd>
+            </div>
+            <div class="stat">
+              <dt>Blocks</dt>
+              <dd class="stat-value">{{ blocks.length }}</dd>
+            </div>
+          </dl>
+          <div class="today-risk">
+            <ul class="chip-row" aria-label="Risk and slack">
+              <li class="chip badge" :class="[`chip--risk-${today.risk.level}`, `badge--${riskTone}`]">
+                <span class="badge-dot" aria-hidden="true"></span>Risk: {{ today.risk.level }}
+              </li>
+              <li v-for="reason in today.risk.reasons" :key="reason" class="chip badge--wrap">
+                {{ reason }}
+              </li>
+            </ul>
           </div>
-          <ul class="chip-row" aria-label="Block risk">
-            <li class="chip chip--slack">Slack {{ formatSlack(today.slackMin) }}</li>
-            <li class="chip" :class="`chip--risk-${today.risk.level}`">{{ today.risk.level }} risk</li>
-          </ul>
-          <div class="today-card-actions">
-            <button
-              type="button"
-              class="primary-action"
-              :disabled="readOnly || startingBlockId !== null"
-              @click="startFocus(block)"
-            >
-              {{ startingBlockId === block.id ? 'Starting…' : 'Start focus' }}
-            </button>
-            <button type="button" :disabled="readOnly || busy" @click="openShrink(block)">
-              Shrink
-            </button>
-            <button type="button" :disabled="readOnly || busy" @click="reschedule(block)">
-              Reschedule
-            </button>
+          <div class="card-footer">
+            <UiButton block icon="check" :disabled="readOnly || busy" @click="acceptToday()">
+              Accept plan
+            </UiButton>
           </div>
-        </li>
-      </ul>
-      <p v-else class="empty-state">
-        Nothing scheduled today · pick something from the Inbox.
-      </p>
-    </template>
+        </UiCard>
+      </aside>
+
+      <div class="today-list">
+        <ul v-if="blocks.length > 0" class="today-blocks" aria-label="Today’s blocks">
+          <UiCard
+            v-for="(block, index) in blocks"
+            :key="block.id"
+            as="li"
+            class="today-card"
+            :class="{ 'today-card--next': block.id === nextBlockId }"
+            :data-block-id="block.id"
+          >
+            <div class="today-card-main">
+              <span class="today-index" aria-hidden="true">{{ index + 1 }}</span>
+              <div class="today-card-text">
+                <p v-if="block.id === nextBlockId" class="today-next-label eyebrow">Next up</p>
+                <h2 class="today-title">{{ block.title }}</h2>
+                <p class="today-time">
+                  <UiIcon name="clock" :size="16" />
+                  <span class="tabular">
+                    {{ formatClock(block.startAt, today.timeZone) }}–{{ formatClock(block.endAt, today.timeZone) }}
+                  </span>
+                  · {{ durationMinutes(block.startAt, block.endAt) }}m
+                </p>
+              </div>
+            </div>
+            <ul class="chip-row" aria-label="Block risk">
+              <li class="chip chip--slack">Slack {{ formatSlack(today.slackMin) }}</li>
+              <li class="chip" :class="[`chip--risk-${today.risk.level}`, `badge--${riskTone}`]">
+                {{ today.risk.level }} risk
+              </li>
+            </ul>
+            <div class="today-card-actions">
+              <UiButton
+                variant="primary"
+                icon="play"
+                :disabled="readOnly || startingBlockId !== null"
+                :busy="startingBlockId === block.id"
+                @click="startFocus(block)"
+              >
+                {{ startingBlockId === block.id ? 'Starting…' : 'Start focus' }}
+              </UiButton>
+              <UiButton icon="shrink" :disabled="readOnly || busy" @click="openShrink(block)">
+                Shrink
+              </UiButton>
+              <UiButton icon="reschedule" :disabled="readOnly || busy" @click="reschedule(block)">
+                Reschedule
+              </UiButton>
+            </div>
+          </UiCard>
+        </ul>
+        <UiEmptyState v-else icon="today" title="Nothing scheduled today · pick something from the Inbox.">
+          <template #actions>
+            <RouterLink class="btn btn--secondary" to="/inbox">Open Inbox</RouterLink>
+          </template>
+        </UiEmptyState>
+      </div>
+    </div>
 
     <ProposalPreview
       v-if="proposal"
@@ -485,18 +582,27 @@ function resumeActive(): void {
       @cancel="proposal = null"
     />
 
-    <div v-if="shrinkingBlock" class="dialog-backdrop" role="presentation">
-      <section class="dialog" role="dialog" aria-modal="true" aria-labelledby="shrink-title">
-        <h2 id="shrink-title">Shrink “{{ shrinkingBlock.title }}”</h2>
-        <label for="shrink-minutes">New length in minutes</label>
-        <input id="shrink-minutes" v-model.number="shrinkTarget" type="number" min="1" max="100000" />
-        <div class="dialog-actions">
-          <button type="button" class="primary-action" :disabled="busy || shrinkTarget < 1" @click="previewShrink">
-            Preview shrink
-          </button>
-          <button type="button" :disabled="busy" @click="shrinkingBlock = null">Cancel</button>
-        </div>
-      </section>
-    </div>
+    <UiDialog
+      v-if="shrinkingBlock"
+      labelledby="shrink-title"
+      size="sm"
+      as="section"
+      :dismissible="!busy"
+      @close="shrinkingBlock = null"
+    >
+      <header class="dialog-heading">
+        <h2 id="shrink-title" class="dialog-title">Shrink “{{ shrinkingBlock.title }}”</h2>
+        <p class="muted">You will see a preview before anything changes.</p>
+      </header>
+      <UiField id="shrink-minutes" label="New length in minutes">
+        <input id="shrink-minutes" v-model.number="shrinkTarget" type="number" min="1" max="100000" data-autofocus />
+      </UiField>
+      <div class="dialog-actions">
+        <UiButton variant="ghost" :disabled="busy" @click="shrinkingBlock = null">Cancel</UiButton>
+        <UiButton variant="primary" :disabled="busy || shrinkTarget < 1" :busy="busy" @click="previewShrink">
+          Preview shrink
+        </UiButton>
+      </div>
+    </UiDialog>
   </section>
 </template>

@@ -324,10 +324,11 @@ describe.skipIf(!hasDatabase)('0012 replanning schema', () => {
 
   test('suppression rows are unique per owner and reason and expire in the future', async () => {
     const ownerId = await insertUser();
+    // Pin created_at so `until > created_at` never depends on the live DB clock.
     const insert = (reason: string, until: string) =>
       client.query(
-        `INSERT INTO replan_suppression (owner_id, reason_code, until)
-         VALUES ($1, $2, $3)`,
+        `INSERT INTO replan_suppression (owner_id, reason_code, until, created_at)
+         VALUES ($1, $2, $3, '2026-11-11T00:00:00Z')`,
         [ownerId, reason, until],
       );
 
@@ -382,8 +383,8 @@ describe.skipIf(!hasDatabase)('0012 replanning schema', () => {
     const { planId, versionId } = await insertPlan(ownerId, taskId);
     await insertProposal({ ownerId, planId, basePlanVersionId: versionId });
     await client.query(
-      `INSERT INTO replan_suppression (owner_id, reason_code, until)
-       VALUES ($1, 'deadline_slack_negative', '2026-11-12T09:00:00Z')`,
+      `INSERT INTO replan_suppression (owner_id, reason_code, until, created_at)
+       VALUES ($1, 'deadline_slack_negative', '2026-11-12T09:00:00Z', '2026-11-11T00:00:00Z')`,
       [ownerId],
     );
     await client.query(

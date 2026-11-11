@@ -4,6 +4,10 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { plannerClient, type Project, type Task } from '../api';
 import { useOfflineStore } from '../stores/offline';
 import TaskList from '../components/TaskList.vue';
+import UiBanner from '../components/ui/UiBanner.vue';
+import UiButton from '../components/ui/UiButton.vue';
+import UiIcon from '../components/ui/UiIcon.vue';
+import UiSkeleton from '../components/ui/UiSkeleton.vue';
 
 const props = defineProps<{ id: string }>();
 
@@ -33,19 +37,27 @@ async function refresh(): Promise<void> {
 <template>
   <section class="page">
     <header class="page-header">
-      <div>
+      <div class="page-heading">
         <p class="breadcrumb">
-          <RouterLink to="/projects">Projects</RouterLink>
+          <RouterLink to="/projects"><UiIcon name="arrow-left" :size="16" />Projects</RouterLink>
         </p>
         <h1>{{ project?.title ?? 'Project' }}</h1>
+        <p v-if="tasksQuery.data.value" class="page-lede">
+          {{ tasks.length }} task{{ tasks.length === 1 ? '' : 's' }}
+        </p>
       </div>
     </header>
 
-    <p v-if="tasksQuery.isLoading.value" class="muted">Loading tasks…</p>
-    <div v-else-if="tasksQuery.isError.value" class="error-panel">
-      <p class="error-text" role="alert">Could not load project tasks.</p>
-      <button type="button" @click="tasksQuery.refetch()">Retry</button>
+    <div v-if="tasksQuery.isLoading.value">
+      <p class="visually-hidden" role="status">Loading tasks…</p>
+      <UiSkeleton variant="card" :count="3" :lines="1" />
     </div>
+    <UiBanner v-else-if="tasksQuery.isError.value" tone="error" class="error-panel">
+      <p class="error-text" role="alert">Could not load project tasks.</p>
+      <template #actions>
+        <UiButton size="sm" icon="sync" @click="tasksQuery.refetch()">Retry</UiButton>
+      </template>
+    </UiBanner>
     <TaskList
       v-else
       :tasks="tasks"

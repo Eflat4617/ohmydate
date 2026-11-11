@@ -2,6 +2,10 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
+import BrandMark from '../components/BrandMark.vue';
+import UiBanner from '../components/ui/UiBanner.vue';
+import UiButton from '../components/ui/UiButton.vue';
+import UiField from '../components/ui/UiField.vue';
 
 const email = ref('');
 const password = ref('');
@@ -20,35 +24,40 @@ async function submit(): Promise<void> {
 
 <template>
   <main class="auth-page">
-    <section class="auth-card">
-      <h1 id="login-heading">Sign in to OhMyDate</h1>
-      <p class="muted">One next action, easy to find.</p>
-      <form aria-labelledby="login-heading" @submit.prevent="submit">
-        <label for="login-email">Email</label>
-        <input
-          id="login-email"
-          v-model="email"
-          type="email"
-          autocomplete="username"
-          required
-          :disabled="auth.loading"
-        />
+    <section class="auth-card" aria-labelledby="login-heading">
+      <header class="auth-header">
+        <BrandMark :size="44" />
+        <h1 id="login-heading">Sign in to OhMyDate</h1>
+        <p class="muted">One next action, easy to find.</p>
+      </header>
+      <form class="auth-form" aria-labelledby="login-heading" @submit.prevent="submit">
+        <UiField id="login-email" label="Email">
+          <input
+            id="login-email"
+            v-model="email"
+            type="email"
+            autocomplete="username"
+            required
+            :disabled="auth.loading"
+          />
+        </UiField>
 
-        <label for="login-password">Password</label>
-        <input
-          id="login-password"
-          v-model="password"
-          type="password"
-          autocomplete="current-password"
-          required
-          :disabled="auth.loading"
-        />
+        <UiField id="login-password" label="Password">
+          <input
+            id="login-password"
+            v-model="password"
+            type="password"
+            autocomplete="current-password"
+            required
+            :disabled="auth.loading"
+          />
+        </UiField>
 
-        <p v-if="auth.error" class="error-text" role="alert">{{ auth.error }}</p>
+        <UiBanner v-if="auth.error" tone="error" role="alert">{{ auth.error }}</UiBanner>
 
-        <button type="submit" class="primary-action" :disabled="auth.loading">
+        <UiButton type="submit" variant="primary" size="lg" block :disabled="auth.loading" :busy="auth.loading">
           {{ auth.loading ? 'Signing in…' : 'Sign in' }}
-        </button>
+        </UiButton>
       </form>
     </section>
   </main>

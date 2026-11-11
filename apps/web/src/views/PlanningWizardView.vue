@@ -21,6 +21,13 @@ import {
   type DraftIssue,
 } from '../domain/draftValidation';
 import { useOfflineStore } from '../stores/offline';
+import UiBadge from '../components/ui/UiBadge.vue';
+import UiBanner from '../components/ui/UiBanner.vue';
+import UiButton from '../components/ui/UiButton.vue';
+import UiCard from '../components/ui/UiCard.vue';
+import UiField from '../components/ui/UiField.vue';
+import UiIcon from '../components/ui/UiIcon.vue';
+import UiSpinner from '../components/ui/UiSpinner.vue';
 
 const props = defineProps<{ sessionId?: string }>();
 
@@ -543,33 +550,35 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
 <template>
   <section class="page wizard" aria-labelledby="wizard-heading">
     <header class="page-header">
-      <div>
+      <div class="page-heading">
         <p class="breadcrumb">
-          <RouterLink to="/inbox">Inbox</RouterLink>
+          <RouterLink to="/inbox"><UiIcon name="arrow-left" :size="16" />Inbox</RouterLink>
         </p>
         <h1 id="wizard-heading" ref="heading" tabindex="-1">계획 마법사</h1>
+        <p class="page-lede">할 일을 단계로 나누고, 일정에 맞는 초안을 함께 만듭니다.</p>
       </div>
-      <div v-if="session !== null && !terminal && currentStep < 5" class="wizard-controls">
-        <button
+      <div v-if="session !== null && !terminal && currentStep < 5" class="page-actions wizard-controls">
+        <UiButton
           v-if="canPause"
-          type="button"
+          size="sm"
+          icon="pause"
           :disabled="!canMutate"
           @click="sessionAction('pause')"
         >
           일시정지
-        </button>
-        <button v-else-if="canResume" type="button" :disabled="!canMutate" @click="sessionAction('resume')">
+        </UiButton>
+        <UiButton v-else-if="canResume" size="sm" icon="play" :disabled="!canMutate" @click="sessionAction('resume')">
           재개
-        </button>
-        <button type="button" class="danger" :disabled="!canMutate" @click="sessionAction('cancel')">
+        </UiButton>
+        <UiButton size="sm" variant="danger-ghost" class="danger" :disabled="!canMutate" @click="sessionAction('cancel')">
           취소
-        </button>
+        </UiButton>
       </div>
     </header>
 
     <p class="visually-hidden" aria-live="polite">{{ liveMessage }}</p>
 
-    <nav aria-label="계획 단계">
+    <nav aria-label="계획 단계" class="wizard-stepper">
       <ol class="wizard-progress">
         <li
           v-for="(label, index) in STEP_LABELS"
@@ -580,288 +589,339 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
           }"
           :aria-current="currentStep === index + 1 ? 'step' : undefined"
         >
-          <span class="wizard-progress-number">{{ index + 1 }}</span>
-          <span>{{ label }}</span>
-          <span v-if="index === 4" class="muted">곧 지원</span>
+          <span class="wizard-progress-number">
+            <UiIcon v-if="currentStep > index + 1" name="check" :size="14" />
+            <template v-else>{{ index + 1 }}</template>
+          </span>
+          <span class="wizard-progress-label">{{ label }}</span>
+          <span v-if="index === 4" class="wizard-progress-note">곧 지원</span>
         </li>
       </ol>
     </nav>
 
-    <div v-if="llmIssue !== null" class="llm-banner" role="alert">
+    <UiBanner v-if="llmIssue !== null" tone="error" class="llm-banner" role="alert" title="AI 도움 없이 계속할 수 있어요">
       <p>AI를 사용할 수 없습니다: {{ llmIssue }}</p>
       <p>다른 기능은 계속 사용할 수 있으며, 직접 작성으로 진행할 수 있습니다.</p>
-      <button v-if="session !== null && !terminal" type="button" :disabled="!canMutate" @click="enterManual">
-        직접 작성으로 전환
-      </button>
-      <button v-else type="button" :disabled="creating" @click="createSession">다시 시도</button>
-    </div>
+      <template #actions>
+        <UiButton v-if="session !== null && !terminal" size="sm" :disabled="!canMutate" @click="enterManual">
+          직접 작성으로 전환
+        </UiButton>
+        <UiButton v-else size="sm" icon="sync" :disabled="creating" @click="createSession">다시 시도</UiButton>
+      </template>
+    </UiBanner>
 
-    <p v-if="!offline.mutationsEnabled" class="offline-note" role="status">
+    <UiBanner v-if="!offline.mutationsEnabled" tone="offline" class="offline-note" role="status">
       오프라인: 읽기 전용입니다. 연결이 돌아오면 변경할 수 있습니다.
-    </p>
+    </UiBanner>
 
-    <p v-if="mutationError !== null" class="error-text" role="alert">{{ mutationError }}</p>
+    <UiBanner v-if="mutationError !== null" tone="error" role="alert">{{ mutationError }}</UiBanner>
 
-    <div v-if="terminal" class="wizard-card" role="status">
+    <UiCard v-if="terminal" class="wizard-card wizard-card--center" role="status">
       <h2>계획 세션이 종료되었습니다</h2>
       <p class="muted">이 세션은 더 이상 변경할 수 없습니다.</p>
-      <RouterLink to="/plan/new">새 계획 시작</RouterLink>
-    </div>
+      <div class="card-actions">
+        <RouterLink class="btn btn--primary" to="/plan/new">새 계획 시작</RouterLink>
+      </div>
+    </UiCard>
 
-    <div v-else-if="!isNew && sessionQuery.isLoading.value" class="wizard-card">
-      <p class="muted">계획을 불러오는 중…</p>
-    </div>
+    <UiCard v-else-if="!isNew && sessionQuery.isLoading.value" class="wizard-card">
+      <p class="loading-row"><UiSpinner /> 계획을 불러오는 중…</p>
+    </UiCard>
 
-    <div v-else-if="!isNew && sessionQuery.isError.value" class="wizard-card error-panel">
+    <UiBanner v-else-if="!isNew && sessionQuery.isError.value" tone="error" class="wizard-card error-panel">
       <p class="error-text" role="alert">계획을 불러오지 못했습니다.</p>
-      <button type="button" @click="retry">다시 시도</button>
-    </div>
+      <template #actions>
+        <UiButton size="sm" icon="sync" @click="retry">다시 시도</UiButton>
+      </template>
+    </UiBanner>
 
-    <form
+    <UiCard
       v-else-if="currentStep === 1"
+      as="form"
       class="wizard-card"
       aria-labelledby="step1-heading"
       @submit.prevent="createSession"
     >
-      <h2 id="step1-heading">1단계 · 기본정보</h2>
-      <p class="muted">제목과 마감만 있으면 시작할 수 있습니다.</p>
+      <header class="wizard-card-header">
+        <h2 id="step1-heading">1단계 · 기본정보</h2>
+        <p class="muted">제목과 마감만 있으면 시작할 수 있습니다.</p>
+      </header>
 
-      <label for="wizard-title">제목</label>
-      <input
-        id="wizard-title"
-        v-model="form.title"
-        type="text"
-        maxlength="200"
-        required
-        :disabled="creating || !offline.mutationsEnabled"
-      />
+      <UiField id="wizard-title" label="제목">
+        <input
+          id="wizard-title"
+          v-model="form.title"
+          type="text"
+          maxlength="200"
+          required
+          placeholder="예: 주간 보고서 작성"
+          :disabled="creating || !offline.mutationsEnabled"
+        />
+      </UiField>
 
-      <label for="wizard-due">마감 (선택, 현지 시간)</label>
-      <input
-        id="wizard-due"
-        v-model="form.dueAt"
-        type="datetime-local"
-        :disabled="creating || !offline.mutationsEnabled"
-      />
+      <div class="field-grid">
+        <UiField id="wizard-due" label="마감 (선택, 현지 시간)">
+          <input
+            id="wizard-due"
+            v-model="form.dueAt"
+            type="datetime-local"
+            :disabled="creating || !offline.mutationsEnabled"
+          />
+        </UiField>
+        <UiField id="wizard-file" label="파일 이름 (선택, 업로드는 곧 지원)">
+          <input
+            id="wizard-file"
+            v-model="form.fileName"
+            type="text"
+            maxlength="200"
+            :disabled="creating || !offline.mutationsEnabled"
+          />
+        </UiField>
+      </div>
 
-      <label for="wizard-description">설명 (선택)</label>
-      <textarea
-        id="wizard-description"
-        v-model="form.description"
-        rows="3"
-        maxlength="4000"
-        :disabled="creating || !offline.mutationsEnabled"
-      ></textarea>
+      <UiField id="wizard-description" label="설명 (선택)">
+        <textarea
+          id="wizard-description"
+          v-model="form.description"
+          rows="3"
+          maxlength="4000"
+          :disabled="creating || !offline.mutationsEnabled"
+        ></textarea>
+      </UiField>
 
-      <label for="wizard-file">파일 이름 (선택, 업로드는 곧 지원)</label>
-      <input
-        id="wizard-file"
-        v-model="form.fileName"
-        type="text"
-        maxlength="200"
-        :disabled="creating || !offline.mutationsEnabled"
-      />
+      <div class="wizard-card-footer">
+        <UiButton
+          type="submit"
+          variant="primary"
+          :busy="creating"
+          :disabled="creating || !offline.mutationsEnabled || form.title.trim().length === 0"
+        >
+          {{ creating ? '만드는 중…' : '다음' }}
+        </UiButton>
+      </div>
+    </UiCard>
 
-      <button
-        type="submit"
-        class="primary-action"
-        :disabled="creating || !offline.mutationsEnabled || form.title.trim().length === 0"
-      >
-        {{ creating ? '만드는 중…' : '다음' }}
-      </button>
-    </form>
-
-    <section
+    <UiCard
       v-else-if="currentStep === 2"
       class="wizard-card"
       aria-labelledby="step2-heading"
     >
-      <h2 id="step2-heading">2단계 · 유형 확인</h2>
+      <header class="wizard-card-header">
+        <h2 id="step2-heading">2단계 · 유형 확인</h2>
+      </header>
       <div class="similar-card" role="group" aria-labelledby="similar-heading">
-        <h3 id="similar-heading">이전 작업과 비슷해요</h3>
-        <p>
-          이전 <strong>{{ templateName }}</strong> 유형과 비슷합니다.
-          신뢰도 <strong>{{ confidencePercent }}%</strong>
-        </p>
+        <div class="similar-card-head">
+          <span class="dialog-icon"><UiIcon name="plan" :size="22" /></span>
+          <div>
+            <h3 id="similar-heading">이전 작업과 비슷해요</h3>
+            <p>
+              이전 <strong>{{ templateName }}</strong> 유형과 비슷합니다.
+              신뢰도 <strong>{{ confidencePercent }}%</strong>
+            </p>
+          </div>
+        </div>
+        <div class="confidence-meter" aria-hidden="true">
+          <span class="confidence-meter-fill" :style="{ width: `${confidencePercent}%` }"></span>
+        </div>
         <ul class="reason-list" aria-label="판단 근거">
-          <li v-for="reason in detectedReasons" :key="reason" class="chip">{{ reason }}</li>
+          <li v-for="reason in detectedReasons" :key="reason" class="chip badge--accent">{{ reason }}</li>
         </ul>
-        <p>이번에도 같은 유형인가요?</p>
+        <p class="similar-question">이번에도 같은 유형인가요?</p>
         <div class="dialog-actions">
-          <button
-            type="button"
-            class="primary-action"
+          <UiButton
+            variant="primary"
+            icon="check"
             :disabled="!canMutate || paused || templateId === undefined"
             @click="confirmType(true)"
           >
             예
-          </button>
-          <button type="button" :disabled="!canMutate || paused" @click="confirmType(false)">아니오</button>
+          </UiButton>
+          <UiButton :disabled="!canMutate || paused" @click="confirmType(false)">아니오</UiButton>
         </div>
       </div>
-    </section>
+    </UiCard>
 
-    <section
+    <UiCard
       v-else-if="currentStep === 3"
       class="wizard-card"
       aria-labelledby="step3-heading"
     >
-      <h2 id="step3-heading">3단계 · 질문</h2>
-      <p class="muted">라운드당 최대 5개 질문입니다. 모르면 [모름], 나중에 답하려면 [건너뛰기]를 선택하세요.</p>
-      <p v-if="paused" class="offline-note" role="status">
+      <header class="wizard-card-header">
+        <h2 id="step3-heading">3단계 · 질문</h2>
+        <p class="muted">라운드당 최대 5개 질문입니다. 모르면 [모름], 나중에 답하려면 [건너뛰기]를 선택하세요.</p>
+      </header>
+      <UiBanner v-if="paused" tone="info" class="offline-note" role="status">
         일시정지되었습니다. 재개하면 이어서 답할 수 있습니다.
-      </p>
+      </UiBanner>
 
       <ul v-if="questions.length > 0" class="question-list">
         <li v-for="question in questions" :key="question.field" class="question-card">
           <fieldset :disabled="questionsLocked">
             <legend>
               {{ question.prompt }}
-              <span v-if="question.required" class="chip">필수</span>
+              <UiBadge v-if="question.required" tone="warn">필수</UiBadge>
             </legend>
 
-            <label :for="`answer-${question.field}`">답변</label>
-            <select
-              v-if="isSelectField(question.field)"
-              :id="`answer-${question.field}`"
-              v-model="answerText[question.field]"
-            >
-              <option value="">선택하세요</option>
-              <option value="small">small</option>
-              <option value="medium">medium</option>
-              <option value="large">large</option>
-            </select>
-            <input
-              v-else-if="isBooleanField(question.field)"
-              :id="`answer-${question.field}`"
-              v-model="answerBoolean[question.field]"
-              type="checkbox"
-            />
-            <input
-              v-else-if="isNumberField(question.field)"
-              :id="`answer-${question.field}`"
-              v-model.number="answerNumber[question.field]"
-              type="number"
-            />
-            <input
-              v-else
-              :id="`answer-${question.field}`"
-              v-model="answerText[question.field]"
-              type="text"
-              maxlength="2000"
-            />
+            <div class="question-answer">
+              <label :for="`answer-${question.field}`" class="field-label">답변</label>
+              <select
+                v-if="isSelectField(question.field)"
+                :id="`answer-${question.field}`"
+                v-model="answerText[question.field]"
+              >
+                <option value="">선택하세요</option>
+                <option value="small">small</option>
+                <option value="medium">medium</option>
+                <option value="large">large</option>
+              </select>
+              <input
+                v-else-if="isBooleanField(question.field)"
+                :id="`answer-${question.field}`"
+                v-model="answerBoolean[question.field]"
+                type="checkbox"
+              />
+              <input
+                v-else-if="isNumberField(question.field)"
+                :id="`answer-${question.field}`"
+                v-model.number="answerNumber[question.field]"
+                type="number"
+              />
+              <input
+                v-else
+                :id="`answer-${question.field}`"
+                v-model="answerText[question.field]"
+                type="text"
+                maxlength="2000"
+              />
+            </div>
 
-            <div class="dialog-actions">
-              <button
-                type="button"
-                class="primary-action"
+            <div class="question-actions">
+              <UiButton
+                variant="primary"
+                size="sm"
                 :disabled="questionsLocked"
                 @click="answer(question, 'answer')"
               >
                 답변
-              </button>
-              <button type="button" :disabled="questionsLocked" @click="answer(question, 'idk')">
+              </UiButton>
+              <UiButton size="sm" :disabled="questionsLocked" @click="answer(question, 'idk')">
                 모름
-              </button>
-              <button type="button" :disabled="questionsLocked" @click="answer(question, 'skip')">
+              </UiButton>
+              <UiButton size="sm" variant="ghost" :disabled="questionsLocked" @click="answer(question, 'skip')">
                 건너뛰기
-              </button>
+              </UiButton>
             </div>
           </fieldset>
         </li>
       </ul>
       <p v-else class="muted">남은 질문이 없습니다.</p>
 
-      <section v-if="assumptions.length > 0" aria-labelledby="assumptions-heading">
+      <section v-if="assumptions.length > 0" class="assumptions" aria-labelledby="assumptions-heading">
         <h3 id="assumptions-heading">가정</h3>
         <ul class="assumption-list">
           <li v-for="assumption in assumptions" :key="assumption.field" class="assumption-item">
-            <span>{{ fieldLabel(assumption.field) }}</span>
+            <span class="assumption-field">{{ fieldLabel(assumption.field) }}</span>
             <span class="chip">{{ reasonLabel(assumption.reason) }}</span>
             <span class="muted">{{ assumption.value }}</span>
           </li>
         </ul>
       </section>
-    </section>
+    </UiCard>
 
-    <section
+    <UiCard
       v-else-if="currentStep === 4"
       class="wizard-card"
       aria-labelledby="step4-heading"
     >
-      <h2 id="step4-heading">4단계 · 단계 초안</h2>
-      <p class="muted">단계 수 3–12, P50 ≤ 240분, P90 ≥ P50, 검토/버퍼 1개 이상, 순환 없는 의존 관계.</p>
+      <header class="wizard-card-header">
+        <h2 id="step4-heading">4단계 · 단계 초안</h2>
+        <p class="muted">단계 수 3–12, P50 ≤ 240분, P90 ≥ P50, 검토/버퍼 1개 이상, 순환 없는 의존 관계.</p>
+      </header>
 
-      <p v-if="draftConflict" class="error-text" role="alert">
+      <UiBanner v-if="draftConflict" tone="conflict" role="alert" class="draft-conflict">
         다른 곳에서 초안이 먼저 변경되었습니다. 작성 중인 내용은 유지됩니다.
-        <button type="button" class="link-button" @click="reloadDraft">최신 초안 불러오기</button>
-      </p>
+        <template #actions>
+          <UiButton size="sm" icon="sync" @click="reloadDraft">최신 초안 불러오기</UiButton>
+        </template>
+      </UiBanner>
 
       <template v-if="draft !== null">
         <ol class="draft-step-list">
           <li v-for="(step, index) in draft.steps" :key="step.key" class="draft-step-card">
-            <h3>{{ step.key }}</h3>
+            <header class="draft-step-head">
+              <h3><span class="draft-step-index" aria-hidden="true">{{ index + 1 }}</span>{{ step.key }}</h3>
+              <UiBadge :tone="step.kind === 'review' || step.kind === 'buffer' ? 'info' : 'neutral'">
+                {{ step.kind }}
+              </UiBadge>
+            </header>
 
-            <label :for="`step-title-${step.key}`">제목</label>
-            <input
-              :id="`step-title-${step.key}`"
-              v-model="step.title"
-              type="text"
-              maxlength="120"
-              :disabled="!offline.mutationsEnabled || paused"
-            />
+            <UiField :id="`step-title-${step.key}`" label="제목">
+              <input
+                :id="`step-title-${step.key}`"
+                v-model="step.title"
+                type="text"
+                maxlength="120"
+                :disabled="!offline.mutationsEnabled || paused"
+              />
+            </UiField>
 
-            <label :for="`step-deliverable-${step.key}`">산출물</label>
-            <input
-              :id="`step-deliverable-${step.key}`"
-              v-model="step.deliverable"
-              type="text"
-              maxlength="300"
-              :disabled="!offline.mutationsEnabled || paused"
-            />
+            <div class="field-grid">
+              <UiField :id="`step-deliverable-${step.key}`" label="산출물">
+                <input
+                  :id="`step-deliverable-${step.key}`"
+                  v-model="step.deliverable"
+                  type="text"
+                  maxlength="300"
+                  :disabled="!offline.mutationsEnabled || paused"
+                />
+              </UiField>
+              <UiField :id="`step-done-${step.key}`" label="완료 기준">
+                <input
+                  :id="`step-done-${step.key}`"
+                  v-model="step.doneCriteria"
+                  type="text"
+                  maxlength="300"
+                  :disabled="!offline.mutationsEnabled || paused"
+                />
+              </UiField>
+            </div>
 
-            <label :for="`step-done-${step.key}`">완료 기준</label>
-            <input
-              :id="`step-done-${step.key}`"
-              v-model="step.doneCriteria"
-              type="text"
-              maxlength="300"
-              :disabled="!offline.mutationsEnabled || paused"
-            />
+            <div class="field-grid field-grid--3">
+              <UiField :id="`step-kind-${step.key}`" label="종류">
+                <select
+                  :id="`step-kind-${step.key}`"
+                  v-model="step.kind"
+                  :disabled="!offline.mutationsEnabled || paused"
+                >
+                  <option value="prep">prep</option>
+                  <option value="work">work</option>
+                  <option value="review">review</option>
+                  <option value="buffer">buffer</option>
+                </select>
+              </UiField>
+              <UiField :id="`step-p50-${step.key}`" label="P50 (분)">
+                <input
+                  :id="`step-p50-${step.key}`"
+                  v-model.number="step.estimate.p50Minutes"
+                  type="number"
+                  min="5"
+                  max="2400"
+                  :disabled="!offline.mutationsEnabled || paused"
+                />
+              </UiField>
+              <UiField :id="`step-p90-${step.key}`" label="P90 (분)">
+                <input
+                  :id="`step-p90-${step.key}`"
+                  v-model.number="step.estimate.p90Minutes"
+                  type="number"
+                  min="5"
+                  max="4800"
+                  :disabled="!offline.mutationsEnabled || paused"
+                />
+              </UiField>
+            </div>
 
-            <label :for="`step-kind-${step.key}`">종류</label>
-            <select
-              :id="`step-kind-${step.key}`"
-              v-model="step.kind"
-              :disabled="!offline.mutationsEnabled || paused"
-            >
-              <option value="prep">prep</option>
-              <option value="work">work</option>
-              <option value="review">review</option>
-              <option value="buffer">buffer</option>
-            </select>
-
-            <label :for="`step-p50-${step.key}`">P50 (분)</label>
-            <input
-              :id="`step-p50-${step.key}`"
-              v-model.number="step.estimate.p50Minutes"
-              type="number"
-              min="5"
-              max="2400"
-              :disabled="!offline.mutationsEnabled || paused"
-            />
-
-            <label :for="`step-p90-${step.key}`">P90 (분)</label>
-            <input
-              :id="`step-p90-${step.key}`"
-              v-model.number="step.estimate.p90Minutes"
-              type="number"
-              min="5"
-              max="4800"
-              :disabled="!offline.mutationsEnabled || paused"
-            />
-
-            <fieldset class="dependency-fieldset">
+            <fieldset class="dependency-fieldset choice-group">
               <legend>선행 단계</legend>
               <label
                 v-for="candidate in draft.steps.filter((item) => item.key !== step.key)"
@@ -878,79 +938,87 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
               </label>
             </fieldset>
 
-            <p v-for="issue in issuesFor(step)" :key="issue.code + issue.message" class="error-text">
-              {{ issue.message }}
+            <p v-for="issue in issuesFor(step)" :key="issue.code + issue.message" class="error-text field-error">
+              <UiIcon name="error" :size="16" /><span>{{ issue.message }}</span>
             </p>
 
-            <button
-              type="button"
-              class="danger"
-              :disabled="draftLocked || draft.steps.length <= 3"
-              @click="removeStep(index)"
-            >
-              단계 삭제
-            </button>
+            <div class="draft-step-footer">
+              <UiButton
+                size="sm"
+                variant="danger-ghost"
+                icon="trash"
+                class="danger"
+                :disabled="draftLocked || draft.steps.length <= 3"
+                @click="removeStep(index)"
+              >
+                단계 삭제
+              </UiButton>
+            </div>
           </li>
         </ol>
 
-        <p v-for="issue in generalDraftIssues" :key="issue.code + issue.message" class="error-text">
-          {{ issue.message }}
+        <p v-for="issue in generalDraftIssues" :key="issue.code + issue.message" class="error-text field-error">
+          <UiIcon name="error" :size="16" /><span>{{ issue.message }}</span>
         </p>
 
-        <div class="dialog-actions">
-          <button
-            type="button"
+        <div class="wizard-card-footer wizard-card-footer--split">
+          <UiButton
+            icon="plus"
+            variant="ghost"
             :disabled="draftLocked || draft.steps.length >= 12"
             @click="addStep"
           >
             단계 추가
-          </button>
-          <button type="button" :disabled="draftLocked" @click="saveDraft">초안 저장</button>
-          <button
-            type="button"
-            class="primary-action"
-            :disabled="draftLocked"
-            @click="approve"
-          >
-            초안 승인
-          </button>
+          </UiButton>
+          <div class="cluster">
+            <UiButton :disabled="draftLocked" @click="saveDraft">초안 저장</UiButton>
+            <UiButton
+              variant="primary"
+              icon="check"
+              :disabled="draftLocked"
+              @click="approve"
+            >
+              초안 승인
+            </UiButton>
+          </div>
         </div>
       </template>
-      <p v-else class="muted">초안을 준비하는 중…</p>
+      <p v-else class="loading-row"><UiSpinner /> 초안을 준비하는 중…</p>
 
-      <section v-if="assumptions.length > 0" aria-labelledby="draft-assumptions-heading">
+      <section v-if="assumptions.length > 0" class="assumptions" aria-labelledby="draft-assumptions-heading">
         <h3 id="draft-assumptions-heading">가정</h3>
         <ul class="assumption-list">
           <li v-for="assumption in assumptions" :key="assumption.field" class="assumption-item">
-            <span>{{ fieldLabel(assumption.field) }}</span>
+            <span class="assumption-field">{{ fieldLabel(assumption.field) }}</span>
             <span class="chip">{{ reasonLabel(assumption.reason) }}</span>
             <span class="muted">{{ assumption.value }}</span>
           </li>
         </ul>
       </section>
-    </section>
+    </UiCard>
 
-    <section
+    <UiCard
       v-else-if="currentStep === 5"
-      class="wizard-card"
+      class="wizard-card wizard-card--center"
       aria-labelledby="step5-heading"
     >
+      <span class="success-mark" aria-hidden="true"><UiIcon name="check" :size="28" /></span>
       <h2 id="step5-heading">초안 승인 완료</h2>
       <p>단계 초안이 승인되어 작업이 생성되었습니다.</p>
       <p class="next-milestone">{{ nextMilestone }}</p>
-      <div class="dialog-actions">
-        <RouterLink class="button-link" to="/inbox">인박스에서 생성된 작업 보기</RouterLink>
-        <RouterLink class="button-link" to="/projects">프로젝트 보기</RouterLink>
+      <div class="card-actions">
+        <RouterLink class="btn btn--primary" to="/inbox">인박스에서 생성된 작업 보기</RouterLink>
+        <RouterLink class="btn btn--secondary" to="/projects">프로젝트 보기</RouterLink>
       </div>
-    </section>
+    </UiCard>
 
     <footer
       v-if="session !== null && !terminal && currentStep >= 2 && currentStep <= 4"
       class="wizard-footer"
     >
-      <button type="button" class="link-button" :disabled="!canMutate || paused" @click="enterManual">
+      <UiButton variant="ghost" size="sm" :disabled="!canMutate || paused" @click="enterManual">
         직접 작성으로 전환
-      </button>
+      </UiButton>
     </footer>
   </section>
 </template>
