@@ -17,6 +17,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "gen:api": "node scripts/generate-api.mjs",
+    "lint": "eslint .",
     "test": "vitest run",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json"
   },
