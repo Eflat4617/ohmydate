@@ -206,9 +206,16 @@ export type PolicyName = 'front_loaded' | 'balanced' | 'focus_blocked';
  * requirement (`remainingMin` when supplied, else P90), capped per task.
  * `changedBlocks` is the symmetric difference between the returned (movable)
  * blocks and the non-fixed `ScheduleInput.existingBlocks`; locked and
- * past/in-progress fixed blocks are excluded. `deficitMin` is the candidate's
- * own H7 shortfall, while `capacityDeficitMin` is the pre-generation capacity
- * upper bound from `deficit()`.
+ * past/in-progress fixed blocks are excluded. This is the exact 06 §7 change
+ * metric per block key (`taskId|start|end`), summed across tasks. On a replan,
+ * blocks of tasks outside the trigger scope (the tasks hit plus their
+ * transitive successors) are preserved exactly; the change bound is
+ * `2 * affectedExistingBlocks + 2`. If a candidate cannot meet that bound its
+ * `explanation` starts a line with "Replan change bound exceeded:" and the
+ * result carries the same note as `diversityNote`; it is never silently
+ * exceeded. `deficitMin` is the candidate's own H7 shortfall, while
+ * `capacityDeficitMin` is the pre-generation capacity upper bound from
+ * `deficit()`.
  *
  * When every attempt is infeasible, the generator picks the attempt with the
  * smallest `deficitMin`, then the fewest violations, then the most retained

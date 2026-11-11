@@ -26,7 +26,10 @@ import { POLICIES, POLICY_NAMES } from './policies.js';
 import { createPrng, type Prng } from './prng.js';
 import { canonicalJson, sha256Hex } from './hash.js';
 
-export const GENERATOR_VERSION = 'm3-02.4';
+export const GENERATOR_VERSION = 'm3-02.5';
+
+/** Explanation prefix used when a replan exceeds its 06 §7 change bound. */
+const REPLAN_BOUND_PREFIX = 'Replan change bound exceeded:';
 
 interface Interval {
   startMs: number;
@@ -63,6 +66,14 @@ interface ReplanBlock {
 interface ReplanPlan {
   movable: ReplanBlock[];
   baseAffectedTasks: Set<string>;
+  /**
+   * Future existing blocks of tasks outside the trigger scope. They are
+   * always re-emitted exactly (06 §7) and never released by later attempts.
+   */
+  frozen: ReplanBlock[];
+  frozenTasks: Set<string>;
+  /** Existing blocks of affected tasks; used for the change bound. */
+  affectedExistingBlocks: number;
   /** Non-fixed existing blocks, used for the changedBlocks metric. */
   movableExisting: Interval[];
 }
@@ -167,7 +178,24 @@ export function generate(
       maxImprovement,
     ),
   );
-  return finalize(candidates);
+  const result = finalize(candidates);
+  const boundNotes = [
+    ...new Set(
+      candidates.flatMap((candidate) =>
+        candidate.explanation.filter((line) =>
+          line.startsWith(REPLAN_BOUND_PREFIX),
+        ),
+      ),
+    ),
+  ];
+  if (boundNotes.length > 0) {
+    const note = boundNotes.join(' ');
+    result.diversityNote =
+      result.diversityNote === undefined
+        ? note
+        : `${result.diversityNote} ${note}`;
+  }
+  return result;
 }
 
 function canonicalInstant(value: string): string {
@@ -258,10 +286,14 @@ function capacityDeficit(context: BuildContext): number {
           };
     return deficit(capacityInput).total.deficitMin;
   } catch {
-    return input.tasks.reduce(
-      (sum, task) => sum + taskRequiredMinutes(task, input.prefs.riskLevel),
-      0,
-    );
+    let total = 0;
+    for (const task of input.tasks) {
+      total = boundedMinuteAdd(
+        total,
+        taskRequiredMinutes(task, input.prefs.riskLevel),
+      );
+    }
+    return total;
   }
 }
 
@@ -273,12 +305,27 @@ function capacityDeficit(context: BuildContext): number {
 function finiteRequiredTotal(input: ScheduleInput): number {
   let total = 0;
   for (const task of input.tasks) {
-    const required = taskRequiredMinutes(task, input.prefs.riskLevel);
-    if (Number.isFinite(required) && required > 0) {
-      total += required;
-    }
+    total = boundedMinuteAdd(
+      total,
+      taskRequiredMinutes(task, input.prefs.riskLevel),
+    );
   }
   return total;
+}
+
+/**
+ * Saturating addition for minute totals. Finite inputs individual values can
+ * still overflow when summed (FU-43); the result stays finite and
+ * JSON-serializable instead of becoming Infinity.
+ */
+function boundedMinuteAdd(total: number, value: number): number {
+  if (!Number.isFinite(value) || value <= 0) {
+    return total;
+  }
+  if (!Number.isFinite(total) || total > Number.MAX_SAFE_INTEGER - value) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return total + value;
 }
 
 function invalidInputCandidate(
@@ -518,17 +565,31 @@ function prepareReplan(context: BuildContext): ReplanPlan {
       continue;
     }
     const fixedMin = minutesOf(context.lockedByTask.get(taskId) ?? []);
+    const requiredMin = taskRequiredMinutes(task, context.riskLevel);
     if (
-      fixedMin + movableMin >
-      taskRequiredMinutes(task, context.riskLevel) + 1e-9
+      Math.abs(fixedMin + movableMin - requiredMin) > 1e-9
     ) {
+      // An existing-block set that does not exactly cover the requirement is
+      // not a complete seed: release the task so the remainder can be placed
+      // (or the whole task rescheduled when the seed blocks the optimum).
       affected.add(taskId);
     }
   }
 
+  // Dry-run seed validation to learn which tasks genuinely have to be
+  // released (invalid commitment-overlapping seed, changed dependency,
+  // unrepresentable remainder). Everything else is frozen exactly.
+  const dryRun = buildReplanSeeds(context, { movable, frozenTasks: new Set() }, affected);
+  const baseAffectedTasks = propagateAffected(context, dryRun.affected);
+  const frozen = movable.filter(
+    (item) => !baseAffectedTasks.has(item.taskId),
+  );
   return {
     movable,
-    baseAffectedTasks: propagateAffected(context, affected),
+    baseAffectedTasks,
+    frozen,
+    frozenTasks: new Set(frozen.map((item) => item.taskId)),
+    affectedExistingBlocks: movable.length - frozen.length,
     movableExisting,
   };
 }
@@ -541,7 +602,7 @@ function prepareReplan(context: BuildContext): ReplanPlan {
  */
 function buildReplanSeeds(
   context: BuildContext,
-  replan: ReplanPlan,
+  replan: Pick<ReplanPlan, 'movable' | 'frozenTasks'>,
   initialAffected: Set<string>,
 ): { seeds: Placement[]; affected: Set<string> } {
   const taskById = new Map(
@@ -559,13 +620,15 @@ function buildReplanSeeds(
     let failedTask: string | undefined;
 
     for (const item of replan.movable) {
-      if (affected.has(item.taskId)) {
+      const frozenSeed = replan.frozenTasks.has(item.taskId);
+      if (affected.has(item.taskId) && !frozenSeed) {
         continue;
       }
       const slot = findContainingSlot(context, item.startMs, item.endMs);
       if (
-        slot === undefined ||
-        !passes(context, state, item.startMs, item.endMs)
+        !frozenSeed &&
+        (slot === undefined ||
+          !passes(context, state, item.startMs, item.endMs))
       ) {
         failedTask = item.taskId;
         break;
@@ -575,7 +638,7 @@ function buildReplanSeeds(
         durationMin: (item.endMs - item.startMs) / MINUTE_MS,
         startMs: item.startMs,
         endMs: item.endMs,
-        slotId: slot.id,
+        slotId: slot?.id ?? -1,
         localHour: localHourOf(
           item.startMs,
           item.endMs,
@@ -676,6 +739,12 @@ function buildReplanSeeds(
     }
 
     const propagated = propagateAffected(context, next);
+    // Unaffected tasks stay frozen even if a seed-level check wanted to
+    // release them; the caller reports an infeasible/flagged candidate rather
+    // than silently moving untouched blocks (06 §7).
+    for (const taskId of replan.frozenTasks) {
+      propagated.delete(taskId);
+    }
     if (setsEqual(propagated, affected)) {
       return { seeds, affected };
     }
@@ -683,6 +752,22 @@ function buildReplanSeeds(
   }
 
   return { seeds: [], affected };
+}
+
+/** Frozen, unaffected existing blocks as seeds; never released. */
+function frozenSeeds(
+  context: BuildContext,
+  replan: ReplanPlan,
+): Placement[] {
+  return replan.frozen.map((item) => ({
+    taskId: item.taskId,
+    durationMin: (item.endMs - item.startMs) / MINUTE_MS,
+    startMs: item.startMs,
+    endMs: item.endMs,
+    slotId: findContainingSlot(context, item.startMs, item.endMs)?.id ?? -1,
+    localHour: localHourOf(item.startMs, item.endMs, context.input.timeZone),
+    seeded: true,
+  }));
 }
 
 function dependencyCompletion(
@@ -889,31 +974,28 @@ function generateForPolicy(
   ) {
     const violating = new Set<string>();
     for (const violation of result.violations) {
-      if (violation.taskId !== undefined) {
+      if (
+        violation.taskId !== undefined &&
+        !replan.frozenTasks.has(violation.taskId)
+      ) {
         violating.add(violation.taskId);
       }
     }
+    // A violation without a movable task owner (for example H6) or one that
+    // only touches frozen/unaffected blocks cannot be repaired by releasing
+    // more tasks; keep the best candidate and flag it instead of moving
+    // untouched blocks (06 §7).
     if (violating.size === 0) {
-      for (const seeded of attempt.seeds) {
-        violating.add(seeded.taskId);
-      }
-      if (violating.size === 0) {
-        break;
-      }
+      break;
     }
     const next = propagateAffected(context, new Set([...affected, ...violating]));
-    if (setsEqual(next, affected)) {
-      for (const seeded of attempt.seeds) {
-        next.add(seeded.taskId);
-      }
-      const expanded = propagateAffected(context, next);
-      if (setsEqual(expanded, affected)) {
-        break;
-      }
-      affected = expanded;
-    } else {
-      affected = next;
+    for (const taskId of replan.frozenTasks) {
+      next.delete(taskId);
     }
+    if (setsEqual(next, affected)) {
+      break;
+    }
+    affected = next;
     attempt = buildReplanSeeds(context, replan, affected);
     result = runPlacementAttempt(
       context,
@@ -936,22 +1018,24 @@ function generateForPolicy(
     }
   }
 
-  // Final fallback: no seeds. If a still-seeded attempt was feasible we never
-  // get here, so the first feasible attempt wins. When every attempt is
-  // infeasible, rank by the smallest H7 deficit, then the fewest violations,
-  // and only then by retained seeds (plan continuity). Partial plans should
-  // first place as much required work as possible.
+  // Final fallback: release every affected task but keep frozen/unaffected
+  // blocks. If a still-seeded attempt was feasible we never get here, so the
+  // first feasible attempt wins. When every attempt is infeasible, rank by the
+  // smallest H7 deficit, then the fewest violations, and only then by retained
+  // seeds (plan continuity). Partial plans should first place as much required
+  // work as possible. Unaffected blocks are never released (06 §7).
   if (result.violations.length > 0) {
-    const noSeeds = runPlacementAttempt(
+    const frozen = frozenSeeds(context, replan);
+    const fresh = runPlacementAttempt(
       context,
       policy,
       seed,
       maxImprovement,
-      [],
+      frozen,
     );
-    if (isBetterAttempt(noSeeds, 0, bestResult, bestRetainedSeeds)) {
-      bestResult = noSeeds;
-      bestRetainedSeeds = 0;
+    if (isBetterAttempt(fresh, frozen.length, bestResult, bestRetainedSeeds)) {
+      bestResult = fresh;
+      bestRetainedSeeds = frozen.length;
     }
   }
   result = bestResult;
@@ -966,10 +1050,13 @@ function generateForPolicy(
     capacityDeficitMin,
   );
   const feasible = result.violations.length === 0;
-  const requiredTotalMin = context.input.tasks.reduce(
-    (sum, task) => sum + taskRequiredMinutes(task, context.riskLevel),
-    0,
-  );
+  let requiredTotalMin = 0;
+  for (const task of context.input.tasks) {
+    requiredTotalMin = boundedMinuteAdd(
+      requiredTotalMin,
+      taskRequiredMinutes(task, context.riskLevel),
+    );
+  }
   const placedTotalMin = Math.max(0, requiredTotalMin - metrics.deficitMin);
 
   const explanation: string[] = [
@@ -991,6 +1078,15 @@ function generateForPolicy(
     `Unplaced minutes (H7 shortfall): ${metrics.deficitMin} min.`,
   );
   explanation.push(`Capacity deficit: ${capacityDeficitMin} min.`);
+
+  if (replan.movableExisting.length > 0) {
+    const bound = replan.affectedExistingBlocks * 2 + 2;
+    if (metrics.changedBlocks > bound) {
+      explanation.push(
+        `${REPLAN_BOUND_PREFIX} ${metrics.changedBlocks} changed block(s) > ${bound} (2 × ${replan.affectedExistingBlocks} affected existing block(s) + 2). Unaffected blocks were preserved; this candidate is the best available.`,
+      );
+    }
+  }
 
   return {
     policy,
