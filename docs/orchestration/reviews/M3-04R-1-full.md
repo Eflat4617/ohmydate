@@ -1,0 +1,103 @@
+REVIEW VERDICT: REQUEST_CHANGES
+Scope: torgal/m3-03-plan-contracts...e0b1d17 (848dfa7, 22bc7ae, e0b1d17). Probes ran from the session scratchpad against isolated PG schemas and a synthetic live Vikunja account. No worktree writes.
+
+Findings (most severe first):
+  [HIGH] Focus 1 confirmed: in PROVIDER=vikunja (production) planning cannot work end to end, because nothing writes planner `task`/`project` identity rows.
+    Evidence: live probe with buildApp(provider:'vikunja') and createVikunjaRepositories against VIKUNJA_URL:
+      POST /tasks 201 -> 0 rows in planner `task`.
+      POST /plans -> 422 validation_failed /scope/<id> missing_estimate.
+      INSERT estimate for that task id -> 23503 estimate_task_fk (0005:142). So FU-45 as written will also fail.
+      With estimate_task_fk dropped in the probe schema (simulating an FU-45 writer): POST /plans 201 (feasible, 1 block), then approve -> 409 illegal_transition "referenced task or version vanished" (23503 schedule_block_task_fk, 0007:233). It never returns 500.
+      After a minimal shadow (project(id,owner_id,title) + task(id,owner_id,project_id); task.project_id is NOT NULL since 0002), the same approve -> 201.
+      No writer exists on any branch (git grep insertInto('task'|'estimate') over torgal/ohmydate, m2-03, m2-04, m3-05 is empty). The worker's tests hand-insert task/project/estimate rows (planning.test.ts:56-105), which hides this.
+      Goal scope is dead the same way: resolveGoalTasks (pg-planning-store.ts:541-559) reads planner task/project.goal_id, and no API or provider sets project.goal_id.
+    Required change (coordinator picks):
+      (a) Minimal, no migration: a shared ensurePlannerTaskIdentity(trx, ownerId, tasks) that does INSERT project ... ON CONFLICT (id) DO NOTHING plus INSERT task(id, owner_id, project_id, cache fields) ... ON CONFLICT (id) DO NOTHING. Call it inside the approval TX before the schedule_block insert (tasks are already re-read via TaskRepository in prepare) and from the FU-45 estimate writer. A cross-owner id collision still fails the (id,owner_id) FK -> 409.
+      (b) Migration 0009 dropping schedule_block_task_fk and estimate_task_fk, validating through TaskRepository instead. Weaker integrity.
+      Either way, extend FU-45 to cover task identity rows and add a Vikunja-composition planning test.
+  [HIGH] POST /plans, preview-edit and regenerate see only the first 100 commitment rows (ordered by id, not filtered by range). Approve sees all of them, so "feasible" candidates are then rejected.
+    Evidence: plan-service.ts:713-720 takes page.items of listCommitments(limit 100); pg-planning-store.ts:297-308 has limit<=100, ORDER BY id, no time filter. Approve uses #commitmentsRaw (all rows, :632).
+      Probe A: 100 old Feb-2026 one-offs plus 1 all-day blocker over 11-11..11-14. POST /plans 201 gives a feasible candidate 2026-11-11T09:00-10:00 inside the blocker; approve -> 422 constraint_violation H1 "overlaps a commitment". Regenerate repeats it, so the user can never get an approvable plan.
+    Required change: assemble from the same unpaged, owner-scoped query as approval (range-prefiltered: rrule IS NOT NULL OR (start_at < horizon.end AND end_at > horizon.start)). Add a >100-commitments test.
+  [HIGH] Candidates contain blocks for dependency-closure tasks and out-of-scope locked tasks, and preview-edit/approve then reject those blocks as "not in the plan scope".
+    Evidence: createPlan and regenerate plan #taskClosureIds plus locked-task ids (plan-service.ts:358-364, 532-538). preview and approve preflight against scope.taskIds only (:421-424, :489-496, :589-597, :749), and approve loads tasks without the closure (:501).
+      Probe B: main dependsOn dep, scope [main]. Candidate blocks [dep, main], feasible. preview-edit of the unchanged blocks -> 422 /blocks/0; approve with no body -> 422 /editedBlocks/0 "task <dep> is not in the plan scope".
+      Probe G: T1 approved in plan1, then its current estimate grows 60->120. Plan2 with scope [t2] schedules extra T1 blocks; approve -> 422 /editedBlocks/0.
+      Probe B2: done tasks (a done dependency, or a done id in taskIds) are scheduled again, because Task.status is not filtered.
+    Required change: use one planning task set (closure minus done) for generation, preflight and approval re-validation. Persist it with the plan or recompute it identically. Give out-of-scope locked tasks no new placement (e.g. remainingMin = their locked minutes). Don't preflight unedited candidates under the /editedBlocks prefix. Add negative tests.
+  [HIGH] History and in-progress blocks are invisible to generate(), so candidates marked feasible collide with work already in progress.
+    Evidence: assembleScheduleInput drops start<now blocks from both lockedBlocks and existingBlocks (plan-service.ts:239-240). They reach only validate() as historyBlocks. The scheduler learns about history only through input.existingBlocks (generate.ts:363).
+      Probe C: plan1 block 09:00-10:00 approved, clock set to 09:30. Plan2 for t2 gives a feasible candidate 09:30-10:30; approve -> 422 constraint_violation [H1 overlap with t1, H6 continuous focus]. The H6 daily-load cap is also blind to today's history.
+    Required change: pass history blocks of all plans into ScheduleInput.existingBlocks (the scheduler's documented history channel), keeping remainingMin = required - history. Add clock-inside-horizon tests; none of the API tests move the FakeClock off its default start of 2026-01-01.
+  [MEDIUM] Re-approving a plan supersedes its own past and in-progress (history) blocks, so history is lost and remainingMin re-inflates.
+    Evidence: pg-planning-store.ts:649-671 supersedes every non-superseded block of the plan's versions regardless of start_at.
+      Probe D: task 120 min, blocks 09:00-10:00 and 10:15-11:15 approved. At 10:20, regenerate (0 blocks needed) and re-approve -> 201, and both blocks become `superseded` (including the in-progress one). A new plan for the same task re-schedules the full 120 min. This violates 06 §7.1: history is a fixed record.
+    Required change: supersede only blocks with start_at >= now (status planned). History blocks stay active; the validator's historyBlocks already prevent EXCLUDE overlap.
+  [MEDIUM] The RRULE adapter accepts rules it then silently mis-expands, so commitments land on the wrong days.
+    Evidence (rrule.ts:59-141, :200; probe output):
+      FREQ=MONTHLY;BYDAY=1MO from Mon 2026-11-02 -> 12-02, 01-02, 02-02 (expected first Mondays 12-07, 01-04, 02-01).
+      DAILY;BYDAY=MO,WE,FR -> 7 per week (expected 3).
+      MONTHLY;BYMONTHDAY=15 -> on the 1st.
+      BYSETPOS, BYMONTH, BYHOUR, and COUNT+UNTIL together are all accepted.
+      UNTIL is treated as exclusive: DAILY;UNTIL=20261113T090000Z from 11-11 09:00Z -> 11-11, 11-12 only. RFC 5545 is inclusive. The date-only form behaves the same way.
+      DST gap: 02:30 America/New_York on 2027-03-14 -> 07:30Z (03:30 EDT, Temporal 'compatible'), while 08 §3 says "next valid time".
+      Correct: NY weekly fall-back (13Z -> 14Z), and overlap resolves to the first occurrence.
+      Guard: a YEARLY rule started 1900 throws the safety-bound RangeError, so that user's every list/plan returns 422.
+    Required change: reject unsupported parts (allow only FREQ/INTERVAL/COUNT/UNTIL, BYDAY for WEEKLY without ordinals, WKST=MO). Make UNTIL inclusive and the DATE form local end-of-day. Reject COUNT together with UNTIL. Document or align gap handling with the scheduler. Add rrule unit tests: there are none, and no DST commitment test exists.
+  [MEDIUM] 08 §1 idempotency storage rule is broken for planning domain results.
+    Evidence: ConstraintViolationError, PlanConflictError and AvailabilityChangedError extend Error (planning-errors.ts:4,17,32). runIdempotent stores only DomainError results (routes.ts:354). 422 constraint_violation, 409 PlanConflict and RangeError-422 therefore release the key, and a same-key retry re-executes (it can later become 201). Probe F: after a 422 constraint_violation, 0 idempotency_record rows exist for the key.
+    Required change: route these through the stored 409/422 path (412 stays unstored). Add a replay test.
+  [LOW] Approve re-reads tasks from TaskRepository (Vikunja HTTP) inside the PG TX while holding FOR UPDATE on user_availability_version and plan (plan-service.ts:511-512, via pg-planning-store.ts:644).
+    Lock time is then bounded only by provider timeouts and retries. It blocks the user's PUT /availability, commitment writes and other approvals. ProviderUnavailable there returns 503, which contradicts the "never 503 in practice" doc and claim (plan-service.ts:472-475). Suggestion: keep only the pre-TX provider check (:502) and re-check PG-side state in the TX, or document the 503.
+  [LOW] app.ts:338-346 maps any RangeError on any route to 422 validation_failed with the raw message, which masks programming errors. Suggestion: throw a typed error from rrule.ts and listCommitments.
+  [LOW] Error-path details:
+    H0 findings from the in-validator check get a path without an index (preview '/blocks' :457, approve prefix only :625).
+    Unedited approvals report /editedBlocks/<i> even though no editedBlocks were sent.
+    preview-edit with a vanished task returns 422 /scope (it loads tasks in 'create' mode, :430) instead of 409.
+  [LOW] The schedule_approval replay lookup runs after the availability If-Match check (pg-planning-store.ts:589-606).
+    Once the 24h generic record expires, a replay returns 412 instead of the stored version. Reusing the same key for a different candidate of the same plan returns the earlier version, not 422 mismatch.
+  [LOW] Scope/process:
+    pnpm-lock.yaml is outside ALLOWED PATHS. It is needed for the services/api dependency; +6 lines (scheduler workspace link, temporal-polyfill 1.0.8).
+    contracts/src/index.ts adds an ApprovePlanRequest type export, which goes beyond the M3-03R2 fixes but is harmless.
+    temporal-polyfill: needed because rrule.ts imports it directly. It is the same version the scheduler already depends on, so there is no new third-party package; MIT.
+
+Verified OK:
+  Focus 2: EXCLUDE was forced for real (an active block under a soft-deleted plan, so the validator was bypassed). Result: 23P01 -> 422 constraint_violation H1, with full rollback (0 plan_version/schedule_approval/outbox rows).
+  Outbox: approval writes plan.approved {planId, planVersionId, version}.
+  Concurrency: FOR UPDATE plus a first-write upsert precede every availability/commitment/approval write. Two approvals of one plan give 201 + 409/412.
+  Focus 5: preview If-Match is the plan version (412 version_conflict); the path-prefix test is present; the route walk and owner-isolation tests pass.
+  The remainingMin formula follows the scheduler contract. The seed derivation is deterministic. 0008 has the right shape and a correct down migration.
+
+Contract / license / security / migration impact:
+  Contract: only the preview-edit description changed (OpenAPI and web schema regenerated, check:api-client clean).
+  License: no new third-party package (temporal-polyfill 1.0.8 MIT is already a scheduler dependency).
+  Security: owner scoping holds on all reads and writes; no sensitive logging found.
+  Migration 0008: availability time_zone and prefs are needed. project.goal_id has no writer anywhere, so goal scope is unreachable outside hand-seeded tests. The down migration drops only 0008 objects.
+
+Missing tests:
+  - history and in-progress blocks (clock inside the horizon) for create, approve and re-approve, including remainingMin;
+  - dependency-closure and out-of-scope locked-task approval;
+  - more than 100 commitments;
+  - a committed real 23P01 test (my probe covers it);
+  - an outbox row assertion;
+  - true races: approval vs PUT /availability and approval vs commitment create (only a sequential stale If-Match is tested);
+  - replay of stored 409/422 results;
+  - rrule unit tests (UNTIL inclusive, BY* rejection, DST in the commitment tz);
+  - deferred FK at COMMIT -> 409 (not re-forced);
+  - Vikunja-composition planning.
+
+Verification actually executed: yes
+  1. DATABASE_URL=postgres://ohmydate:ohmydate-dev-only@127.0.0.1:55432/planner_test VIKUNJA_URL=http://127.0.0.1:3456 corepack pnpm --filter @ohmydate/api test -> exit 0 (38 files, 225 passed / 9 skipped).
+  2. Same env, corepack pnpm run ci -> exit 0: root 102 files 1137 passed / 27 skipped; web 13 files 69 passed; check:api-client clean; boundaries 258 files / 0 violations; build-smoke /healthz 200 and SIGTERM exit 0.
+  3. git diff --check torgal/m3-03-plan-contracts...e0b1d17 -> exit 0. Changed paths: 23 total, 22 allowed; pnpm-lock.yaml is the exception noted above.
+  4. Probes (vitest --root <session scratchpad>, isolated t_* schemas dropped afterwards):
+     - rrule.probe -> exit 0.
+     - planning.probe A-G -> exit 0 on the final run. The first run's D failure was my setup (non-splittable default); after the fix it was rerun.
+     - vikunja.probe (live Vikunja, synthetic account, tasks deleted afterwards) -> exit 0 on the rerun. The first attempt failed on my shadow row's missing project_id.
+git status --porcelain after review: empty (HEAD e0b1d17)
+Residual risks:
+  - plan_version.candidate_id has no FK, so a regenerate after approval deletes the approved candidate's metrics/explanation (audit gap, pre-existing 0007).
+  - The non-superuser btree_gist bootstrap is still unexercised (FU-44).
+  - 0006 is still not integrated on this stack.
+  - The 27 root skips remain.
+  - Performance: per-task sequential provider GETs in create/preview/approve, and a day-by-day RRULE walk from DTSTART (about 30 ms per 10-year daily rule).

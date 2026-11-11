@@ -164,7 +164,7 @@ const PageQuerySchema = Type.Object(
   { additionalProperties: false, $id: 'PageQuery' },
 );
 
-export const routes: readonly RouteDefinition[] = [
+const coreRoutes: readonly RouteDefinition[] = [
   {
     method: 'post',
     path: '/auth/login',
@@ -328,11 +328,9 @@ export const routes: readonly RouteDefinition[] = [
 /**
  * Intake and template routes (08 §2.3).
  *
- * They live in a separate array from `routes` on purpose: the API composition
- * root registers handlers only for milestone-complete operations, while the
- * OpenAPI document must describe the full contract. `contractRoutes` is the
- * single source consumed by the generator and contract tests; M2-03 moves
- * these entries into `routes` when the handlers exist.
+ * M2-03 wires the handlers for every operation below, so `routes` (the
+ * registered table) includes them after `coreRoutes`. `contractRoutes` remains
+ * the single source consumed by the generator and contract tests.
  */
 export const intakeRoutes: readonly RouteDefinition[] = [
   {
@@ -344,8 +342,7 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     body: IntakeSessionCreateSchema,
     responses: {
       201: { description: 'Intake session created', schema: IntakeSessionSchema },
-      202: { description: 'Intake session accepted; type detection is running' },
-      ...problems(400, 401, 403, 409, 422, 503),
+      ...problems(400, 401, 403, 409, 422),
     },
   },
   {
@@ -371,7 +368,7 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     body: IntakeAnswersRequestSchema,
     responses: {
       200: { description: 'Updated intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
     },
   },
   {
@@ -384,7 +381,7 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     body: IntakeTypeConfirmationSchema,
     responses: {
       200: { description: 'Updated intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
     },
   },
   {
@@ -429,24 +426,24 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     method: 'post',
     path: '/intake-sessions/{id}:pause',
     operationId: 'pauseIntakeSession',
-    summary: 'Pause an intake interview',
+    summary: 'Pause an intake interview (state becomes needs_input; other states return 409)',
     params: IntakeSessionIdParamsSchema,
     headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       200: { description: 'Paused intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
     },
   },
   {
     method: 'post',
     path: '/intake-sessions/{id}:resume',
     operationId: 'resumeIntakeSession',
-    summary: 'Resume a paused intake interview',
+    summary: 'Resume a paused intake interview (needs_input restores the previous state)',
     params: IntakeSessionIdParamsSchema,
     headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       200: { description: 'Resumed intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
     },
   },
   {
@@ -458,7 +455,7 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       200: { description: 'Cancelled intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
     },
   },
   {
@@ -470,7 +467,7 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     headers: IfMatchAndIdempotencyHeadersSchema,
     responses: {
       200: { description: 'Manual-mode intake session', schema: IntakeSessionSchema },
-      ...problems(400, 401, 403, 404, 409, 412, 428),
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
     },
   },
   {
@@ -500,6 +497,13 @@ export const intakeRoutes: readonly RouteDefinition[] = [
     },
   },
 ];
+
+/**
+ * Registered routes for the served API. M2-03 moved the intake/template
+ * handlers into the composition root, so `intakeRoutes` is now part of the
+ * registered table rather than a contract-only preview.
+ */
+export const routes: readonly RouteDefinition[] = [...coreRoutes, ...intakeRoutes];
 
 /**
  * Planning, availability and commitment routes (08 §2.4, §2.4a).
@@ -655,11 +659,7 @@ export const planningRoutes: readonly RouteDefinition[] = [
   },
 ];
 
-export const contractRoutes: readonly RouteDefinition[] = [
-  ...routes,
-  ...intakeRoutes,
-  ...planningRoutes,
-];
+export const contractRoutes: readonly RouteDefinition[] = [...routes, ...planningRoutes];
 
 export const schemaRegistry = {
   Problem: ProblemSchema,

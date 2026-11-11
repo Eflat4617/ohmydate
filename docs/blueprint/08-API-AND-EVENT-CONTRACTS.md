@@ -16,7 +16,7 @@
   | GET | 선택 If-None-Match(304) | 없음 | — |
   | `/auth/login`, `/auth/logout` | 없음 | 없음 | — |
   모든 Problem 응답 media type = `application/problem+json`. 모든 경로는 입력 검증 실패 400(형식)/422(도메인), provider를 거치는 경로는 503을 개별 선언.
-- **멱등 기록 저장 규칙 확정(2026-11-11, M1-07R2 지적):** 저장·재생 대상은 **2xx 응답과 409/422 도메인 결과**뿐이다. 400/401/403/412/428/429/5xx 및 `idempotency_in_progress`는 저장하지 않으며 같은 키로 재시도 가능(키 예약은 해제). 요청 해시는 메서드+경로+정규화 본문으로 계산하고 **If-Match는 해시에 포함하지 않는다**. 클라이언트는 If-Match가 바뀌는 재시도(예: 충돌 후 덮어쓰기)에 새 키를 발급하는 것을 권장한다.
+- **멱등 기록 저장 규칙 확정(2026-11-11, M1-07R2 지적):** 저장·재생 대상은 **2xx 응답과 409/422 도메인 결과**뿐이다. 400/401/403/412/428/429/5xx, `idempotency_in_progress`, 그리고 일시적 경합 409 `approval_in_progress`(Retry-After 동반, ADR-020 §11)는 저장하지 않으며 같은 키로 재시도 가능(키 예약은 해제). 요청 해시는 메서드+경로+정규화 본문으로 계산하고 **If-Match는 해시에 포함하지 않는다**. 클라이언트는 If-Match가 바뀌는 재시도(예: 충돌 후 덮어쓰기)에 새 키를 발급하는 것을 권장한다.
 - 목록: `{items, nextCursor}` 커서 페이지네이션.
 - 권한: 모든 리소스 `owner_id = session.userId` 검사(리포지토리 레벨 강제).
 
@@ -62,7 +62,7 @@
 |---|---|
 | POST /plans | `{scope:{goalId|taskIds}, policies?:[…], horizon}` → Plan + candidates(≤3) 201, Idem. 응답에 `availabilityVersion` |
 | GET /plans/{id} | Plan + candidates + metrics |
-| POST /plans/{id}/candidates/{cid}:preview-edit | 편집된 블록 → validator 결과(부작용 없음) |
+| POST /plans/{id}/candidates/{cid}:preview-edit | 편집된 블록 → validator 결과(부작용 없음). `If-Match: W/"<plan.version>"`(2026-11-11 확정), 사전 검증 오류 경로 `/blocks/<i>` |
 | POST /plans/{id}/candidates/{cid}:approve | `If-Match: W/"availability:<n>"`, Idem, body `{editedBlocks?}` → PlanVersion 201 / 412 availability_changed / 422 constraint_violation{violations[]} |
 | POST /plans/{id}:regenerate | 412 후 재생성 |
 

@@ -77,6 +77,21 @@ export interface AppConfig {
   readonly loginRateLimit: LoginRateLimitConfig;
   readonly logLevel: string;
   /**
+   * LLM provider selection. Only `fake` is wired in M2-03 (GB-1 pending);
+   * missing/other values leave the provider unconfigured, so intake steps fail
+   * to manual mode instead of calling a paid API.
+   */
+  readonly llmProvider: string | null;
+  /** Daily USD ceiling for the BudgetGuard. Zero/absent fails closed (ADR-008). */
+  readonly llmDailyBudgetUsd: number;
+  /** Monthly USD ceiling for the BudgetGuard. Zero/absent fails closed (ADR-008). */
+  readonly llmMonthlyBudgetUsd: number;
+  /**
+   * ADR-020 §7: succession wait for an approval whose previous holder lost its
+   * dedicated lock connection. Must be >= the Vikunja client call budget.
+   */
+  readonly providerMaxCallMs: number;
+  /**
    * Fastify trustProxy. Default false: only enable when the API sits behind a
    * trusted reverse proxy (09 §5 tailnet proxy) and X-Forwarded-For is stripped.
    * A boolean, proxy address (string), list of addresses, or hop count.
@@ -86,6 +101,7 @@ export interface AppConfig {
 
 export const DEFAULT_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 export const DEFAULT_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_PROVIDER_MAX_CALL_MS = 40_000;
 
 export const defaultConfig: AppConfig = {
   provider: 'memory',
@@ -99,6 +115,10 @@ export const defaultConfig: AppConfig = {
   idempotencyTtlMs: DEFAULT_IDEMPOTENCY_TTL_MS,
   loginRateLimit: { limit: 5, windowMs: 60_000 },
   logLevel: 'info',
+  llmProvider: null,
+  llmDailyBudgetUsd: 0,
+  llmMonthlyBudgetUsd: 0,
+  providerMaxCallMs: DEFAULT_PROVIDER_MAX_CALL_MS,
   trustProxy: false,
 };
 
@@ -129,7 +149,33 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     reconcileIntervalMs,
     databaseUrl,
     vikunjaSecretsDir: env['VIKUNJA_SECRETS_DIR'] ?? null,
+    llmProvider: env['LLM_PROVIDER'] ?? null,
+    llmDailyBudgetUsd: parseBudget('LLM_DAILY_BUDGET_USD', env['LLM_DAILY_BUDGET_USD']),
+    llmMonthlyBudgetUsd: parseBudget('LLM_MONTHLY_BUDGET_USD', env['LLM_MONTHLY_BUDGET_USD']),
+    providerMaxCallMs: parsePositiveInt(
+      'PROVIDER_MAX_CALL_MS',
+      env['PROVIDER_MAX_CALL_MS'],
+      DEFAULT_PROVIDER_MAX_CALL_MS,
+    ),
   });
+}
+
+function parsePositiveInt(name: string, raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+function parseBudget(name: string, raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === '') return 0;
+  const value = Number.parseFloat(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative number`);
+  }
+  return value;
 }
 
 export function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {

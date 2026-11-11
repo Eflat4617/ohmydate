@@ -2,6 +2,8 @@ import cookie from '@fastify/cookie';
 import { createServer as createHttpServer } from 'node:http';
 import { registerIanaTimeZoneFormat } from '@ohmydate/contracts';
 import { DomainError, type Clock, type IdGenerator } from '@ohmydate/domain';
+import { BudgetGuard, FakeLlm, type LlmPort } from '@ohmydate/llm';
+import { vikunjaCallBudgetMs } from '@ohmydate/provider-vikunja';
 import Fastify, {
   type FastifyInstance,
   type FastifyServerOptions,
@@ -17,6 +19,7 @@ import { InMemorySessionStore } from './adapters/in-memory-session-store.js';
 import { PgIdempotencyStore } from './adapters/pg-idempotency-store.js';
 import { PgPlanningStore } from './adapters/pg-planning-store.js';
 import { PgUserRepository } from './adapters/pg-user-repository.js';
+import { IntakeError } from './application/intake/intake-error.js';
 import { createVikunjaRepositories } from './adapters/vikunja/composition.js';
 import { listReconcilerOwnerIds } from './adapters/vikunja/owner-accounts.js';
 import {
@@ -37,6 +40,7 @@ import {
   ConstraintViolationError,
   PlanConflictError,
 } from './application/planning-errors.js';
+import { installShutdownContext } from './http/shutdown-context.js';
 import './http/fastify-augment.js';
 
 export type LoggerOption = NonNullable<FastifyServerOptions['logger']>;
@@ -66,6 +70,13 @@ export interface BuildAppOptions {
   readonly loggerInstance?: LoggerInstanceOption;
   /** Test override for forcing idempotency-store failures. */
   readonly idempotency?: IdempotencyStore;
+  /**
+   * Injected LLM adapter. Default composition uses FakeLlm only when
+   * `LLM_PROVIDER=fake`; otherwise no provider is wired (GB-1 pending).
+   */
+  readonly llm?: LlmPort;
+  /** Test override for the fail-closed budget guard. */
+  readonly budgetGuard?: BudgetGuard;
   /**
    * Test override for the reconciler's advisory-lock key. Production uses the
    * stable VIKUNJA_RECONCILE_ADVISORY_LOCK_KEY; a distinct key lets parallel
@@ -242,6 +253,19 @@ function registerHealthRoutes(
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const { config, clock, ids, db } = options;
+  // ADR-020 §10: the succession wait must cover the slowest single HTTP
+  // request so a replaced approver's already-started request cannot still be
+  // running; requests it would start later are fenced before fetch.
+  const minimumCallBudget = vikunjaCallBudgetMs();
+  if (
+    !Number.isInteger(config.providerMaxCallMs) ||
+    config.providerMaxCallMs < minimumCallBudget
+  ) {
+    throw new Error(
+      `PROVIDER_MAX_CALL_MS must be an integer >= ${minimumCallBudget} ` +
+        '(the Vikunja client one-request attempts*timeout+backoff budget)',
+    );
+  }
   const logging =
     options.loggerInstance === undefined
       ? { logger: options.logger ?? defaultLoggerOptions(config) }
@@ -291,6 +315,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.server.timeout = connectionTimeoutMs;
 
   app.decorateRequest('authSession', null);
+  installShutdownContext(app);
   await app.register(cookie);
 
   app.addHook('onSend', async (request, reply, payload) => {
@@ -359,10 +384,24 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         error.errors,
       );
     }
+    if (error instanceof IntakeError) {
+      if (error.headers !== undefined) {
+        for (const [name, value] of Object.entries(error.headers)) reply.header(name, value);
+      }
+      return sendProblem(request, reply, error.status, error.code, error.title, error.detail);
+    }
     if (error instanceof DomainError) {
       const problem = domainErrorToProblem(error);
       if (problem.status === 500) {
-        request.log.error({ err: error }, 'unhandled domain error');
+        request.log.error(
+          {
+            code: problem.code,
+            name: (error as Error).name,
+            route: request.routeOptions.url ?? request.url.split('?', 1)[0],
+            reqId: request.id,
+          },
+          'unhandled domain error',
+        );
         return sendProblem(
           request,
           reply,
@@ -393,7 +432,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     if (statusCode === 429) {
       return sendProblem(request, reply, 429, 'rate_limited', 'Rate limited', 'retry later');
     }
-    request.log.error({ err: error }, 'unhandled request error');
+    request.log.error(
+      {
+        code: 'internal_error',
+        name: (error as Error).name,
+        route: request.routeOptions.url ?? request.url.split('?', 1)[0],
+        reqId: request.id,
+      },
+      'unhandled request error',
+    );
     return sendProblem(
       request,
       reply,
@@ -440,15 +487,31 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   }
 
   const planningStore = new PgPlanningStore({ db, clock, ids });
+  const llm =
+    options.llm ?? (config.llmProvider === 'fake' ? new FakeLlm() : null);
+  const budgetGuard =
+    options.budgetGuard ??
+    new BudgetGuard(
+      {
+        dailyUsd: config.llmDailyBudgetUsd,
+        monthlyUsd: config.llmMonthlyBudgetUsd,
+      },
+      { allowUnpricedModels: ['fake-llm'] },
+    );
+
   const runtime = createRuntime({
     config,
     clock,
+    ids,
+    db,
     users,
     sessions,
     idempotency,
     auth,
     repos,
     planningStore,
+    llm,
+    budgetGuard,
   });
 
   registerHealthRoutes(app, config, db);

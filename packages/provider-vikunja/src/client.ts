@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   NotFoundError,
   ProviderUnavailableError,
@@ -23,6 +24,8 @@ export interface VikunjaClientOptions {
   readonly timeoutMs?: number;
   readonly retries?: number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
+  /** Default cancellation signal for every request made by this client. */
+  readonly signal?: AbortSignal;
 }
 
 export interface VikunjaProblem {
@@ -114,12 +117,73 @@ export interface RequestOptions {
   readonly contentType?: string;
   readonly ifMatch?: string;
   readonly headers?: Readonly<Record<string, string>>;
+  /**
+   * Cancels this request when aborted. The token is combined with the
+   * per-attempt timeout; an aborted caller signal stops the retry loop.
+   */
+  readonly signal?: AbortSignal;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_RETRIES = 2;
+const RETRY_BACKOFF_BASE_MS = 100;
+
+/**
+ * ADR-020 §10: upper bound for one HTTP request using the default client
+ * (retries + per-attempt timeout + exponential backoff). The intake succession
+ * window (`PROVIDER_MAX_CALL_MS`) must be at least this long so a replaced
+ * approver's already-started request is guaranteed to have finished; requests
+ * the holder would start after losing ownership are fenced before fetch.
+ */
+export function vikunjaCallBudgetMs(): number {
+  let backoff = 0;
+  for (let attempt = 0; attempt < DEFAULT_RETRIES; attempt += 1) {
+    backoff += RETRY_BACKOFF_BASE_MS * 2 ** attempt;
+  }
+  return (DEFAULT_RETRIES + 1) * DEFAULT_TIMEOUT_MS + backoff;
+}
 const JSON_CONTENT_TYPE = 'application/json';
 const MERGE_PATCH_CONTENT_TYPE = 'application/merge-patch+json';
+
+/**
+ * Ambient cancellation context for provider calls made while serving a
+ * request. The API installs its shutdown signal here, so every Vikunja client
+ * used by the handler (including clients constructed outside the handler)
+ * observes the same deadline without threading a signal through every port.
+ */
+const abortSignalContext = new AsyncLocalStorage<AbortSignal>();
+
+export function runWithAbortSignal<T>(signal: AbortSignal, callback: () => T): T {
+  return abortSignalContext.run(signal, callback);
+}
+
+export function currentAbortSignal(): AbortSignal | undefined {
+  return abortSignalContext.getStore();
+}
+
+/**
+ * ADR-020 §9–10: approval-scoped request fence. `beforeRequest` runs before
+ * every HTTP attempt (including the very first), so a caller can renew its
+ * holder CAS/touch immediately before the request starts. The signal is
+ * combined with the ambient cancellation context by `request()`.
+ */
+export interface ProviderRequestGuard {
+  readonly signal?: AbortSignal;
+  readonly beforeRequest?: () => Promise<void> | void;
+}
+
+const requestGuardContext = new AsyncLocalStorage<ProviderRequestGuard>();
+
+export function runWithProviderRequestGuard<T>(
+  guard: ProviderRequestGuard,
+  callback: () => T,
+): T {
+  return requestGuardContext.run(guard, callback);
+}
+
+export function currentProviderRequestGuard(): ProviderRequestGuard | undefined {
+  return requestGuardContext.getStore();
+}
 
 /**
  * Stable Vikunja numeric error codes observed on the v2.8.0 instance. Only the
@@ -215,6 +279,7 @@ export class VikunjaClient {
   readonly #timeoutMs: number;
   readonly #retries: number;
   readonly #sleep: (milliseconds: number) => Promise<void>;
+  readonly #defaultSignal: AbortSignal | undefined;
 
   #token: string | undefined;
 
@@ -224,6 +289,7 @@ export class VikunjaClient {
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#retries = options.retries ?? DEFAULT_RETRIES;
     this.#sleep = options.sleep ?? sleepDefault;
+    this.#defaultSignal = options.signal;
     this.#token = options.token;
   }
 
@@ -459,11 +525,38 @@ export class VikunjaClient {
     const url = `${this.#baseUrl}/api/v2${path}${buildQuery(options.query)}`;
     const idempotent = method === 'GET';
     const maxAttempts = idempotent ? this.#retries + 1 : 1;
+    const guard = currentProviderRequestGuard();
+    // ADR-020 §9: the approval fence and the ambient request/shutdown signal
+    // must both be able to stop this request; an explicit per-call signal does
+    // not opt out of cancellation.
+    const signals = [
+      options.signal,
+      this.#defaultSignal,
+      guard?.signal,
+      currentAbortSignal(),
+    ].filter((candidate): candidate is AbortSignal => candidate !== undefined);
+    const signal =
+      signals.length <= 1 ? signals[0] : AbortSignal.any(signals);
 
     let lastError: unknown;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      // ADR-020 §9: check the fence before EVERY attempt, not only retries.
+      // Once aborted no new request (including a rollback DELETE) may start.
+      if (isAborted(signal)) {
+        lastError = new ProviderUnavailableError('vikunja');
+        break;
+      }
       try {
-        return await this.#attempt<T>(method, url, options);
+        if (guard?.beforeRequest !== undefined) {
+          await guard.beforeRequest();
+          // The touch may observe ownership loss or the signal may fire while
+          // the ledger write is pending; never start fetch after that.
+          if (isAborted(signal)) {
+            lastError = new ProviderUnavailableError('vikunja');
+            break;
+          }
+        }
+        return await this.#attempt<T>(method, url, options, signal);
       } catch (error) {
         if (error instanceof TransportFailure) {
           lastError = error.domainError;
@@ -474,7 +567,10 @@ export class VikunjaClient {
           const retryable = idempotent && isNetworkError(error);
           if (!retryable || attempt + 1 >= maxAttempts) break;
         }
-        await this.#sleep(100 * 2 ** attempt);
+        // A shutdown deadline must stop the retry loop even if it fires while
+        // the backoff sleep is pending.
+        if (isAborted(signal)) break;
+        await this.#sleep(RETRY_BACKOFF_BASE_MS * 2 ** attempt);
       }
     }
 
@@ -487,9 +583,22 @@ export class VikunjaClient {
     method: string,
     url: string,
     options: RequestOptions,
+    signal: AbortSignal | undefined,
   ): Promise<ResponseEnvelope<T>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
+    let abortedExternally = false;
+    const onExternalAbort = (): void => {
+      abortedExternally = true;
+      controller.abort();
+    };
+    if (signal !== undefined) {
+      if (signal.aborted) {
+        clearTimeout(timer);
+        throw new TransportFailure(new ProviderUnavailableError('vikunja'), false);
+      }
+      signal.addEventListener('abort', onExternalAbort, { once: true });
+    }
     const headers: Record<string, string> = {
       Accept: JSON_CONTENT_TYPE,
       ...options.headers,
@@ -513,12 +622,17 @@ export class VikunjaClient {
       });
       text = await response.text();
     } catch (error) {
+      if (abortedExternally) {
+        // The caller's shutdown signal is terminal: retrying cannot outlive it.
+        throw new TransportFailure(new ProviderUnavailableError('vikunja'), false);
+      }
       if (isAbortError(error)) {
         throw new TransportFailure(new ProviderUnavailableError('vikunja'), true);
       }
       throw error;
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onExternalAbort);
     }
 
     // Vikunja answers a merge-patch that changes nothing with 304 Not Modified.
@@ -579,6 +693,10 @@ function isAbortError(error: unknown): boolean {
     error instanceof Error &&
     (error.name === 'AbortError' || error.name === 'TimeoutError')
   );
+}
+
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal !== undefined && signal.aborted;
 }
 
 function isNetworkError(error: unknown): boolean {

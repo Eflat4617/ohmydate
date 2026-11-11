@@ -1,4 +1,5 @@
 import {
+  intakeRoutes,
   planningRoutes,
   routes,
   type ApprovePlanRequest,
@@ -6,6 +7,13 @@ import {
   type CommitmentCreate,
   type CommitmentListQuery,
   type CommitmentPatch,
+  type DecompositionDraftDto,
+  type DecompositionDraftPatch,
+  type IntakeAnswersRequest,
+  type IntakeSessionCreate,
+  type IntakeSessionDto,
+  type IntakeSessionIdParams,
+  type IntakeTypeConfirmation,
   type LoginRequest,
   type Project as ProjectDto,
   type ProjectCreate,
@@ -16,6 +24,9 @@ import {
   type TaskIdParams,
   type TaskListQuery,
   type TaskPatch,
+  type TaskTemplate,
+  type TaskTemplateIdParams,
+  type TaskTemplateListQuery,
   type User as UserDto,
   type UserSettingsPatch,
   type PlanCandidateParams,
@@ -51,8 +62,20 @@ import type {
 import { AuthService } from '../application/auth-service.js';
 import { PlanService } from '../application/plan-service.js';
 import type { PlanningStore } from '../application/planning-ports.js';
+import { IntakeError } from '../application/intake/intake-error.js';
+import { IntakeService } from '../application/intake/intake-service.js';
+import { InProcessIntakeApprovalLock } from '../application/intake/in-process-approval-lock.js';
+import { PgAgentRunRepository } from '../adapters/pg-agent-run-repository.js';
+import { PgIntakeApprovalLock } from '../adapters/pg-intake-approval-lock.js';
+import { PgIntakeApprovalRepository } from '../adapters/pg-intake-approval-repository.js';
+import { PgIntakeSessionRepository } from '../adapters/pg-intake-session-repository.js';
+import { PgTaskTemplateRepository } from '../adapters/pg-task-template-repository.js';
 import { ProjectService } from '../application/project-service.js';
 import { TaskService } from '../application/task-service.js';
+import type { Database } from '../db/types.js';
+import type { BudgetGuard, LlmPort } from '@ohmydate/llm';
+import type { IdGenerator } from '@ohmydate/domain';
+import type { Kysely } from 'kysely';
 import {
   etagForBody,
   etagForVersion,
@@ -78,6 +101,7 @@ export interface RouteRuntime {
   readonly projects: ProjectService;
   readonly tasks: TaskService;
   readonly planning: PlanService;
+  readonly intake: IntakeService;
 }
 
 interface RouteMeta {
@@ -351,24 +375,42 @@ async function runIdempotent(
       }
     };
 
-    if (error instanceof DomainError) {
-      const problem = domainErrorToProblem(error);
-      if (problem.status === 409 || problem.status === 422) {
-        try {
-          await runtime.idempotency.complete({
-            ownerId: auth.userId,
-            key,
-            response: {
-              status: problem.status,
-              body: problemBodyFor(request, problem),
-              headers: { 'Content-Type': 'application/problem+json' },
+    const problem =
+      error instanceof DomainError
+        ? domainErrorToProblem(error)
+        : error instanceof IntakeError
+          ? {
+              status: error.status,
+              code: error.code,
+              title: error.title,
+              detail: error.detail,
+            }
+          : undefined;
+
+    // ADR-020 §11: a succession-wait 409 `approval_in_progress` is transient
+    // contention, not a stored domain result. Release its reservation so the
+    // same Idempotency-Key can retry once the previous holder's window ends.
+    const transientConflict = error instanceof IntakeError && error.transient;
+    if (
+      problem !== undefined &&
+      (problem.status === 409 || problem.status === 422) &&
+      !transientConflict
+    ) {
+      try {
+        await runtime.idempotency.complete({
+          ownerId: auth.userId,
+          key,
+          response: {
+            status: problem.status,
+            body: problemBodyFor(request, problem),
+            headers: {
+              'Content-Type': 'application/problem+json',
+              ...(error instanceof IntakeError ? (error.headers ?? {}) : {}),
             },
-            outbox: [],
-          });
-        } catch {
-          await releaseQuietly();
-        }
-      } else {
+          },
+          outbox: [],
+        });
+      } catch {
         await releaseQuietly();
       }
     } else {
@@ -724,6 +766,190 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
     createCommitment,
     updateCommitment,
     deleteCommitment,
+    createIntakeSession: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const session = await runtime.intake.create(
+          auth.userId,
+          request.body as IntakeSessionCreate,
+        );
+        return {
+          status: 201,
+          body: session,
+          headers: {
+            ETag: etagForVersion(session.version),
+            Location: `/api/v1/intake-sessions/${session.id}`,
+          },
+        };
+      }),
+    getIntakeSession: async (request, reply) => {
+      const auth = currentAuth(request);
+      const id = (request.params as IntakeSessionIdParams).id as Id;
+      const session: IntakeSessionDto = await runtime.intake.get(auth.userId, id);
+      const etag = etagForVersion(session.version);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(session);
+    },
+    answerIntakeQuestions: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const expected = requireIfMatch(request);
+        const session = await runtime.intake.submitAnswers(
+          auth.userId,
+          id,
+          request.body as IntakeAnswersRequest,
+          expected,
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    confirmIntakeType: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const expected = requireIfMatch(request);
+        const session = await runtime.intake.confirmType(
+          auth.userId,
+          id,
+          request.body as IntakeTypeConfirmation,
+          expected,
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    getIntakeDraft: async (request, reply) => {
+      const auth = currentAuth(request);
+      const id = (request.params as IntakeSessionIdParams).id as Id;
+      const result = await runtime.intake.getDraft(auth.userId, id);
+      const etag = etagForVersion(result.version);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(result.draft);
+    },
+    updateIntakeDraft: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const expected = requireIfMatch(request);
+        const result = await runtime.intake.patchDraft(
+          auth.userId,
+          id,
+          request.body as DecompositionDraftPatch,
+          expected,
+        );
+        return {
+          status: 200,
+          body: result.draft as DecompositionDraftDto,
+          headers: { ETag: etagForVersion(result.version) },
+        };
+      }),
+    approveIntakeDraft: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const expected = requireIfMatch(request);
+        const result = await runtime.intake.approveDraft(
+          auth.userId,
+          id,
+          expected,
+          requireIdempotencyKey(request),
+        );
+        return {
+          status: 200,
+          body: result.session,
+          headers: { ETag: etagForVersion(result.session.version) },
+          outbox: result.tasks.map((task) => ({
+            topic: 'task.created',
+            taskId: task.id,
+            version: task.version,
+          })),
+        };
+      }),
+    pauseIntakeSession: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const session = await runtime.intake.pause(
+          auth.userId,
+          id,
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    resumeIntakeSession: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const session = await runtime.intake.resume(
+          auth.userId,
+          id,
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    cancelIntakeSession: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const session = await runtime.intake.cancel(
+          auth.userId,
+          id,
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    enterManualIntakeMode: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as IntakeSessionIdParams).id as Id;
+        const session = await runtime.intake.enterManual(
+          auth.userId,
+          id,
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: session,
+          headers: { ETag: etagForVersion(session.version) },
+        };
+      }),
+    listTaskTemplates: async (request, reply) => {
+      const auth = currentAuth(request);
+      const page = await runtime.intake.listTemplates(
+        auth.userId,
+        request.query as TaskTemplateListQuery,
+      );
+      const body = { items: page.items, nextCursor: page.nextCursor };
+      const etag = etagForBody(body);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(body);
+    },
+    getTaskTemplate: async (request, reply) => {
+      const auth = currentAuth(request);
+      const id = (request.params as TaskTemplateIdParams).id as Id;
+      const template: TaskTemplate = await runtime.intake.getTemplate(auth.userId, id);
+      const etag = etagForVersion(template.version);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(template);
+    },
   };
 }
 
@@ -733,7 +959,11 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
  * swallow every POST /tasks/<x> (including /tasks/<id> and other actions).
  */
 export function toFastifyPath(path: string): string {
-  const withActions = path.replace(
+  const withCollectionAction = path.replace(
+    /\/([^/{}]+):([A-Za-z][A-Za-z0-9-]*)$/,
+    '/$1::$2',
+  );
+  const withActions = withCollectionAction.replace(
     /\{([^}]+)\}:([A-Za-z][A-Za-z0-9-]*)$/,
     ':$1([^:]+)::$2',
   );
@@ -821,7 +1051,7 @@ function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
 
 export function registerRoutes(app: FastifyInstance, runtime: RouteRuntime): void {
   const handlers = buildHandlers(runtime);
-  for (const route of [...routes, ...planningRoutes]) {
+  for (const route of [...routes, ...planningRoutes, ...intakeRoutes]) {
     const meta = routeMeta(route);
     const handler = handlers[meta.operationId];
     if (handler === undefined) {
@@ -845,13 +1075,35 @@ export function registerRoutes(app: FastifyInstance, runtime: RouteRuntime): voi
 export function createRuntime(options: {
   config: AppConfig;
   clock: Clock;
+  ids: IdGenerator;
+  db: Kysely<Database>;
   users: UserRepository;
   sessions: SessionStore;
   idempotency: IdempotencyStore;
   auth: AuthService;
   repos: AppRepositories;
   planningStore: PlanningStore;
+  llm: LlmPort | null;
+  budgetGuard: BudgetGuard;
 }): RouteRuntime {
+  const databaseUrl = options.config.databaseUrl;
+  const approvalLock =
+    databaseUrl !== null && databaseUrl.length > 0
+      ? new PgIntakeApprovalLock({ connectionString: databaseUrl })
+      : new InProcessIntakeApprovalLock();
+  const intake = new IntakeService({
+    clock: options.clock,
+    ids: options.ids,
+    sessions: new PgIntakeSessionRepository(options.db, options.clock, options.ids),
+    templates: new PgTaskTemplateRepository(options.db),
+    agentRuns: new PgAgentRunRepository(options.db),
+    approvals: new PgIntakeApprovalRepository(options.db, options.clock),
+    approvalLock,
+    providerMaxCallMs: options.config.providerMaxCallMs,
+    tasks: options.repos.tasks,
+    llm: options.llm,
+    budgetGuard: options.budgetGuard,
+  });
   return {
     config: options.config,
     clock: options.clock,
@@ -866,6 +1118,7 @@ export function createRuntime(options: {
       store: options.planningStore,
       clock: options.clock,
     }),
+    intake,
   };
 }
 

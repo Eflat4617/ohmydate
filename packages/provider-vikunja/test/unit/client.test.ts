@@ -7,6 +7,8 @@ import {
 import {
   VikunjaClient,
   mapVikunjaError,
+  runWithAbortSignal,
+  runWithProviderRequestGuard,
   toValidationIssues,
 } from '../../src/client.js';
 import { FakeHttp } from './fake-http.js';
@@ -229,5 +231,176 @@ describe('VikunjaClient response validation', () => {
     });
 
     await expect(client.getTask('1')).rejects.toBeInstanceOf(ProviderUnavailableError);
+  });
+});
+
+describe('VikunjaClient abort signal', () => {
+  test('a caller abort stops the retry loop with no further attempts', async () => {
+    const controller = new AbortController();
+    let attempts = 0;
+    const sleeps: number[] = [];
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      retries: 5,
+      fetch: (_input, init) => {
+        attempts += 1;
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            reject(error);
+          });
+          // Abort while the first attempt is in flight, as a shutdown
+          // deadline does.
+          controller.abort();
+        });
+      },
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds);
+      },
+    });
+
+    await expect(
+      client.request('GET', '/tasks/1', { signal: controller.signal }),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(attempts).toBe(1);
+    expect(sleeps).toEqual([]);
+  });
+
+  test('an ambient request-context signal is observed without per-call wiring', async () => {
+    const controller = new AbortController();
+    let attempts = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      retries: 3,
+      fetch: (_input, init) => {
+        attempts += 1;
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            reject(error);
+          });
+          controller.abort();
+        });
+      },
+      sleep: async () => {},
+    });
+
+    await expect(
+      runWithAbortSignal(controller.signal, () => client.getTask('1')),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(attempts).toBe(1);
+  });
+
+  test('an already-aborted signal makes no fetch attempt at all', async () => {
+    let attempts = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      fetch: async () => {
+        attempts += 1;
+        return new Response('{}', { status: 200 });
+      },
+      sleep: async () => {},
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      client.request('GET', '/tasks/1', { signal: controller.signal }),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(attempts).toBe(0);
+  });
+});
+
+describe('abort context isolation', () => {
+  test('an aborted ambient context does not affect calls outside that context', async () => {
+    const http = new FakeHttp(() => ({ status: 200, body: { id: 1, title: 'ok' } }));
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      fetch: http.fetch,
+      sleep: async () => {},
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      runWithAbortSignal(controller.signal, () => client.getTask('1')),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(http.calls).toHaveLength(0);
+
+    const result = await client.getTask('1');
+    expect(result.data.title).toBe('ok');
+    expect(http.calls).toHaveLength(1);
+  });
+});
+
+describe('approval request guard (ADR-020 §9-10)', () => {
+  test('beforeRequest runs before every attempt, including the first', async () => {
+    let attempts = 0;
+    let touches = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      retries: 1,
+      fetch: async () => {
+        attempts += 1;
+        return new Response('{"error":"boom"}', { status: 500 });
+      },
+      sleep: async () => {},
+    });
+
+    await expect(
+      runWithProviderRequestGuard(
+        { beforeRequest: () => { touches += 1; } },
+        () => client.getTask('1'),
+      ),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(attempts).toBe(2);
+    expect(touches).toBe(2);
+  });
+
+  test('an abort raised by the touch stops the request before fetch', async () => {
+    const controller = new AbortController();
+    let attempts = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      fetch: async () => {
+        attempts += 1;
+        return new Response('{"id":1,"title":"ok"}', { status: 200 });
+      },
+      sleep: async () => {},
+    });
+
+    await expect(
+      runWithProviderRequestGuard(
+        {
+          signal: controller.signal,
+          beforeRequest: () => controller.abort(),
+        },
+        () => client.getTask('1'),
+      ),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(attempts).toBe(0);
+  });
+
+  test('a touch failure (lost holder CAS) propagates and starts no request', async () => {
+    const lost = new Error('ownership lost');
+    let attempts = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      fetch: async () => {
+        attempts += 1;
+        return new Response('{"id":1,"title":"ok"}', { status: 200 });
+      },
+      sleep: async () => {},
+    });
+
+    await expect(
+      runWithProviderRequestGuard(
+        { beforeRequest: () => { throw lost; } },
+        () => client.getTask('1'),
+      ),
+    ).rejects.toBe(lost);
+    expect(attempts).toBe(0);
   });
 });

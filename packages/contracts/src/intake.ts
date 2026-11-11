@@ -54,6 +54,8 @@ const IntakeInputValueSchema = Type.Union([
  */
 export const IntakeInputSchema = Type.Object(
   {
+    title: Type.String({ minLength: 1, maxLength: 200 }),
+    description: Type.Optional(Type.String({ maxLength: 4_000 })),
     deliverable: Type.Optional(Type.String({ maxLength: 2_000 })),
     dueAt: Type.Optional(InstantSchema),
     estimatedScope: Type.Optional(Type.Union([
@@ -96,13 +98,36 @@ export const IntakeAnswerSchema = Type.Object(
   { additionalProperties: false, $id: 'IntakeAnswer' },
 );
 
-export const IntakeAnswerInputSchema = Type.Object(
-  {
-    questionKey: IntakeFieldSchema,
-    action: IntakeAnswerActionSchema,
-    value: Type.Optional(IntakeInputValueSchema),
-  },
-  { additionalProperties: false },
+/**
+ * Answers are a discriminated union on `action`: a real answer must carry a
+ * value, while `skip`/`idk` must not smuggle one in (08 §2.3).
+ */
+export const IntakeAnswerInputSchema = Type.Union(
+  [
+    Type.Object(
+      {
+        questionKey: IntakeFieldSchema,
+        action: Type.Literal('answer'),
+        value: IntakeInputValueSchema,
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        questionKey: IntakeFieldSchema,
+        action: Type.Literal('skip'),
+      },
+      { additionalProperties: false },
+    ),
+    Type.Object(
+      {
+        questionKey: IntakeFieldSchema,
+        action: Type.Literal('idk'),
+      },
+      { additionalProperties: false },
+    ),
+  ],
+  { $id: 'IntakeAnswerInput' },
 );
 
 export const IntakeAnswersRequestSchema = Type.Object(

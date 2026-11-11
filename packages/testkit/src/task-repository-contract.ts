@@ -96,6 +96,29 @@ export function describeTaskRepositoryContract(
       await context.cleanup();
     });
 
+    it('honours a caller-supplied plannedId and never duplicates the task', async () => {
+      const project = await createProject(context, context.ownerA, 'project-planned');
+      const plannedId = context.ids.next();
+      const first = await context.repo.create(
+        context.ownerA,
+        { projectId: project.id, title: 'Planned retry' },
+        'planned-first',
+        { plannedId },
+      );
+      expect(first.id).toBe(plannedId);
+
+      const second = await context.repo.create(
+        context.ownerA,
+        { projectId: project.id, title: 'Planned retry' },
+        'planned-second',
+        { plannedId },
+      );
+      expect(second.id).toBe(plannedId);
+
+      const all = await listAll(context.repo, context.ownerA, { projectId: project.id });
+      expect(all.filter((task) => task.id === plannedId)).toHaveLength(1);
+    });
+
     it('creates and reads a task, preserving the dueAt instant across offsets', async () => {
       const project = await createProject(context, context.ownerA, 'project-roundtrip');
       const dueAt = '2026-11-20T23:59:00+09:00' as Instant;

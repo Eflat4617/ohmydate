@@ -40,8 +40,13 @@ class NonStrictTaskRepository implements TaskRepository {
     this.#inner = inner;
   }
 
-  create(ownerId: Id, input: TaskCreate, idemKey: string): Promise<Task> {
-    return this.#inner.create(ownerId, input, idemKey);
+  create(
+    ownerId: Id,
+    input: TaskCreate,
+    idemKey: string,
+    opts?: { readonly plannedId?: Id },
+  ): Promise<Task> {
+    return this.#inner.create(ownerId, input, idemKey, opts);
   }
 
   get(ownerId: Id, id: Id): Promise<Task | null> {

@@ -1,4 +1,13 @@
 import { sql, type ColumnType, type RawBuilder } from 'kysely';
+import pg from 'pg';
+
+/**
+ * PostgreSQL `date` (OID 1082) has no timezone. node-postgres' default parser
+ * builds a local-midnight `Date`, which shifts the calendar day when the host
+ * timezone is not UTC. The Kysely schema types `date` columns as `string`, so
+ * keep the raw `YYYY-MM-DD` text instead.
+ */
+pg.types.setTypeParser(1082, (value: string) => value);
 
 /**
  * Hand-written Kysely view of the M1 planner schema
@@ -311,6 +320,28 @@ export interface IntakeAnswerTable {
   version: Col<'integer', false, true>;
 }
 
+export interface IntakeApprovalTable {
+  session_id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  draft_version: Col<'integer', false, false>;
+  state: Col<'text', false, true>;
+  lease_expires_at: Col<'timestamptz', false, false>;
+  idempotency_key: Col<'text', false, false>;
+  holder_token: Col<'text', true, false>;
+  last_call_started_at: Col<'timestamptz', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+}
+
+export interface IntakeApprovalStepTable {
+  session_id: Col<'uuid', false, false>;
+  step_key: Col<'text', false, false>;
+  planned_task_id: Col<'uuid', false, false>;
+  state: Col<'text', false, true>;
+  task_id: Col<'uuid', true, false>;
+  dependency_state: Col<'text', true, false>;
+}
+
 export interface EstimateTable {
   id: Col<'uuid', false, false>;
   owner_id: Col<'uuid', false, false>;
@@ -560,6 +591,8 @@ export interface Database {
   task_type_fingerprint: TaskTypeFingerprintTable;
   intake_session: IntakeSessionTable;
   intake_answer: IntakeAnswerTable;
+  intake_approval: IntakeApprovalTable;
+  intake_approval_step: IntakeApprovalStepTable;
   estimate: EstimateTable;
   estimate_evidence: EstimateEvidenceTable;
   agent_run: AgentRunTable;
@@ -777,6 +810,26 @@ export const databaseTables = {
     created_at: col('timestamptz', false, true),
     updated_at: col('timestamptz', false, true),
     version: col('integer', false, true),
+  },
+  intake_approval: {
+    session_id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    draft_version: col('integer', false, false),
+    state: col('text', false, true),
+    lease_expires_at: col('timestamptz', false, false),
+    idempotency_key: col('text', false, false),
+    holder_token: col('text', true, false),
+    last_call_started_at: col('timestamptz', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+  },
+  intake_approval_step: {
+    session_id: col('uuid', false, false),
+    step_key: col('text', false, false),
+    planned_task_id: col('uuid', false, false),
+    state: col('text', false, true),
+    task_id: col('uuid', true, false),
+    dependency_state: col('text', true, false),
   },
   intake_answer: {
     id: col('uuid', false, false),
@@ -1061,6 +1114,8 @@ type TableAssertions = {
   >;
   intake_session: AssertTableColumns<IntakeSessionTable, typeof databaseTables.intake_session>;
   intake_answer: AssertTableColumns<IntakeAnswerTable, typeof databaseTables.intake_answer>;
+  intake_approval: AssertTableColumns<IntakeApprovalTable, typeof databaseTables.intake_approval>;
+  intake_approval_step: AssertTableColumns<IntakeApprovalStepTable, typeof databaseTables.intake_approval_step>;
   estimate: AssertTableColumns<EstimateTable, typeof databaseTables.estimate>;
   estimate_evidence: AssertTableColumns<EstimateEvidenceTable, typeof databaseTables.estimate_evidence>;
   agent_run: AssertTableColumns<AgentRunTable, typeof databaseTables.agent_run>;

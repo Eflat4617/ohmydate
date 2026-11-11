@@ -12,6 +12,7 @@ export const PROBLEM_CODES = [
   'budget_exceeded',
   'dependency_cycle',
   'illegal_transition',
+  'approval_in_progress',
   'not_found',
   'forbidden',
   'rate_limited',

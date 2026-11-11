@@ -84,8 +84,20 @@ export class InMemoryTaskRepository implements TaskRepository {
     this.#projects = options.projects;
   }
 
-  async create(ownerId: Id, input: TaskCreate, idemKey: string): Promise<Task> {
+  async create(
+    ownerId: Id,
+    input: TaskCreate,
+    idemKey: string,
+    opts?: { readonly plannedId?: Id },
+  ): Promise<Task> {
     const normalized = validateTaskCreate(input);
+    if (opts?.plannedId !== undefined) {
+      const planned = this.#tasks.get(opts.plannedId);
+      if (planned !== undefined && planned.ownerId === ownerId) {
+        return cloneTask(planned);
+      }
+    }
+    const plannedId = opts?.plannedId;
     const requestHash = canonicalJson(normalized);
     const idempotencyId = `${ownerId}:${idemKey}`;
     const existing = this.#idempotency.get(idempotencyId);
@@ -115,7 +127,7 @@ export class InMemoryTaskRepository implements TaskRepository {
           ? (await this.#projects.getInbox(ownerId)).id
           : await this.#requireProject(ownerId, normalized.projectId);
 
-      const id = this.#ids.next();
+      const id = plannedId ?? this.#ids.next();
       this.#assertDependencies(ownerId, normalized.dependsOn);
       this.#assertAcyclic(ownerId, { id, dependsOn: normalized.dependsOn });
 

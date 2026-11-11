@@ -28,7 +28,7 @@ orca orchestration task-list --ready --brief
 # DeepSeek 구현 워커 (모델/effort는 저장소 opencode.jsonc로 고정; 플래그 없음)
 orca orchestration worker-start --task <TASK_ID> --worktree new-child --name m1-01-monorepo --agent opencode --setup run --json
 # Sol 리뷰어: 정산된 구현 worktree에 읽기 전용으로
-orca orchestration worker-start --task <REVIEW_TASK_ID> --worktree "id:<repoId>::<impl worktree path>" --agent codex --model gpt-6.1-sol --effort high --json
+orca orchestration worker-start --task <REVIEW_TASK_ID> --worktree "id:<repoId>::<impl worktree path>" --agent codex --model gpt-6.1-sol --effort medium --json
 ```
 - 시작 후 **턴 종료**. Orca가 `worker_done`/`question`/`escalation`으로 깨움. 폴링 스크립트 금지.
 - receipt에 `next`가 있으면 따름. 실패 시 재실행 금지 → `failedStage` 확인 후 `FAILURE-AND-RECOVERY.md`.
