@@ -115,7 +115,6 @@ export class PgNotificationStore implements NotificationStore {
       .updateTable('notification')
       .set({
         state: 'dismissed',
-        sent_at: null,
         version: sql<number>`version + 1`,
         updated_at: nowDate,
       })

@@ -1,6 +1,7 @@
 import type { Export } from '@ohmydate/contracts';
 import {
   instantToEpochMs,
+  type Clock,
   type Id,
   type Instant,
 } from '@ohmydate/domain';
@@ -23,11 +24,17 @@ function toDate(value: string): Date {
   return new Date(instantToEpochMs(value as Instant));
 }
 
+const MAX_EXPORT_BYTES = 52_428_800;
+
 export class PgExportStore implements ExportStore {
   readonly #db: Db;
+  readonly #clock: Clock;
 
-  constructor(options: { db: Db }) {
+  constructor(options: { db: Db; clock?: Clock }) {
     this.#db = options.db;
+    this.#clock = options.clock ?? {
+      now: () => new Date().toISOString() as Instant,
+    };
   }
 
   async createQueued(ownerId: Id, id: Id, now: Instant): Promise<void> {
@@ -73,36 +80,29 @@ export class PgExportStore implements ExportStore {
     now: Instant,
     expiresAt: Instant,
   ): Promise<ExportRecord> {
-    await this.#db.transaction().execute(async (trx) => {
-      await trx
-        .insertInto('job')
-        .values({
-          id,
-          owner_id: ownerId,
-          kind: 'export_artifact',
-          run_at: toDate(now),
-          unique_key: content.toString('utf8'),
-          status: 'completed',
-          created_at: toDate(now),
+    if (content.byteLength > MAX_EXPORT_BYTES) {
+      throw new Error('export artifact exceeds the 50 MB limit');
+    }
+    // One UPDATE writes artifact bytes, content type, size and state=ready, so
+    // a failure leaves the job running/failed without a partial artifact.
+    const row = await this.#db.transaction().execute(async (trx) =>
+      trx
+        .updateTable('export_job')
+        .set({
+          state: 'ready',
+          artifact_key: `export:${id}`,
+          artifact: content,
+          content_type: 'application/json',
+          size_bytes: content.byteLength,
+          expires_at: toDate(expiresAt),
+          completed_at: toDate(now),
           updated_at: toDate(now),
         })
-        .onConflict((oc) => oc.column('id').doUpdateSet({ unique_key: content.toString('utf8'), updated_at: toDate(now) }))
-        .execute();
-    });
-    const row = await this.#db
-      .updateTable('export_job')
-      .set({
-        state: 'ready',
-        artifact_key: `export:${id}`,
-        size_bytes: content.byteLength,
-        expires_at: toDate(expiresAt),
-        completed_at: toDate(now),
-        updated_at: toDate(now),
-      })
-      .where('id', '=', id)
-      .where('owner_id', '=', ownerId)
-      .returningAll()
-      .executeTakeFirstOrThrow();
+        .where('id', '=', id)
+        .where('owner_id', '=', ownerId)
+        .returningAll()
+        .executeTakeFirstOrThrow(),
+    );
     return this.#map(row);
   }
 
@@ -123,20 +123,28 @@ export class PgExportStore implements ExportStore {
       .where('id', '=', id)
       .where('owner_id', '=', ownerId)
       .where('state', '=', 'ready')
+      .where('artifact', 'is not', null)
+      .where((eb) =>
+        eb.or([eb('expires_at', 'is', null), eb('expires_at', '>', toDate(this.#clock.now()))]),
+      )
       .executeTakeFirst();
-    if (row === undefined) return null;
-    const artifact = await this.#db
-      .selectFrom('job')
-      .select('unique_key')
-      .where('id', '=', id)
-      .where('owner_id', '=', ownerId)
-      .where('kind', '=', 'export_artifact')
-      .executeTakeFirst();
-    if (artifact === undefined) return null;
+    if (row === undefined || row.artifact === null) return null;
     return {
       record: this.#map(row),
-      content: Buffer.from(artifact.unique_key, 'utf8'),
+      content: Buffer.from(row.artifact),
+      contentType: row.content_type ?? 'application/json',
     };
+  }
+
+  async purgeExpired(now: Instant): Promise<number> {
+    const result = await this.#db
+      .updateTable('export_job')
+      .set({ artifact: null, content_type: null, updated_at: toDate(now) })
+      .where('artifact', 'is not', null)
+      .where('expires_at', 'is not', null)
+      .where('expires_at', '<=', toDate(now))
+      .executeTakeFirst();
+    return Number(result.numUpdatedRows);
   }
 
   #map(row: {

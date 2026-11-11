@@ -1,4 +1,12 @@
-import type { PlanBlock, PlanVersionDto, ScheduleBlockDto, TodayProposalBlock } from '@ohmydate/contracts';
+import type {
+  Availability,
+  AvailabilityPreferencesDto,
+  Commitment,
+  PlanBlock,
+  PlanVersionDto,
+  ScheduleBlockDto,
+  TodayProposalBlock,
+} from '@ohmydate/contracts';
 import {
   IdempotencyMismatchError,
   NotFoundError,
@@ -19,15 +27,47 @@ import {
 import { proposalConflict } from '../application/daily-errors.js';
 import type {
   NewTodayProposal,
+  PreparedTodayApproval,
+  TodayApprovalSnapshot,
   TodayProposalRecord,
   TodayStore,
 } from '../application/today-service.js';
+import type { ApprovedBlock, EstimateRecord } from '../application/planning-ports.js';
 
 type Db = Kysely<Database>;
 type Trx = Transaction<Database>;
 
+const DEFAULT_PREFS: AvailabilityPreferencesDto = {
+  maxDailyFocusMin: 240,
+  breakAfterMin: 60,
+  breakMin: 15,
+  dayStartLocal: '08:00',
+  dayEndLocal: '18:00',
+  riskLevel: 'p50',
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) ? value : fallback;
+}
+
+function stringOr(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function parsePrefs(value: unknown): AvailabilityPreferencesDto {
+  if (!isRecord(value)) return DEFAULT_PREFS;
+  return {
+    maxDailyFocusMin: numberOr(value['maxDailyFocusMin'], DEFAULT_PREFS.maxDailyFocusMin),
+    breakAfterMin: numberOr(value['breakAfterMin'], DEFAULT_PREFS.breakAfterMin),
+    breakMin: numberOr(value['breakMin'], DEFAULT_PREFS.breakMin),
+    dayStartLocal: stringOr(value['dayStartLocal'], DEFAULT_PREFS.dayStartLocal),
+    dayEndLocal: stringOr(value['dayEndLocal'], DEFAULT_PREFS.dayEndLocal),
+    riskLevel: value['riskLevel'] === 'p90' ? 'p90' : 'p50',
+  };
 }
 
 function parsePlanBlocks(value: unknown): PlanBlock[] {
@@ -56,12 +96,48 @@ function parseProposalBlocks(value: unknown): TodayProposalBlock[] {
   });
 }
 
+function parsePayload(value: unknown): {
+  planId: Id;
+  kind: 'shrink' | 'reschedule';
+  date: string;
+  timeZone: string;
+  blocks: TodayProposalBlock[];
+  candidateBlocks: PlanBlock[];
+  basePlanVersion: number;
+  createdAt: string;
+} {
+  const parsed = (typeof value === 'string' ? JSON.parse(value) : value) as {
+    planId: string;
+    kind: string;
+    date: string;
+    timeZone: string;
+    blocks: unknown;
+    candidateBlocks: unknown;
+    basePlanVersion: number;
+    createdAt: string;
+  };
+  return {
+    planId: parsed.planId as Id,
+    kind: parsed.kind === 'shrink' ? 'shrink' : 'reschedule',
+    date: parsed.date,
+    timeZone: parsed.timeZone,
+    blocks: parseProposalBlocks(parsed.blocks),
+    candidateBlocks: parsePlanBlocks(parsed.candidateBlocks),
+    basePlanVersion: parsed.basePlanVersion,
+    createdAt: parsed.createdAt,
+  };
+}
+
 function toInstant(value: Date | string): Instant {
   return (value instanceof Date ? value.toISOString() : value) as Instant;
 }
 
 function toDate(value: string): Date {
   return new Date(instantToEpochMs(value as Instant));
+}
+
+function toDateString(value: Date | string): string {
+  return value instanceof Date ? value.toISOString().slice(0, 10) : value;
 }
 
 function isPgError(error: unknown, code: string): boolean {
@@ -82,30 +158,26 @@ export class PgTodayStore implements TodayStore {
   async createProposal(input: NewTodayProposal): Promise<TodayProposalRecord> {
     const now = new Date(instantToEpochMs(input.now));
     const payload = {
-      id: input.id,
       planId: input.planId,
       kind: input.kind,
       date: input.date,
       timeZone: input.timeZone,
       blocks: input.blocks,
       candidateBlocks: input.candidateBlocks,
-      basePlanVersionId: input.basePlanVersionId,
       basePlanVersion: input.basePlanVersion,
-      availabilityVersion: input.availabilityVersion,
-      expiresAt: input.expiresAt,
       createdAt: input.now,
     };
     const row = await this.#db
-      .insertInto('job')
+      .insertInto('today_proposal')
       .values({
         id: input.id,
         owner_id: input.ownerId,
-        kind: 'today_proposal',
-        run_at: now,
-        unique_key: JSON.stringify(payload),
-        status: 'pending',
+        base_plan_version_id: input.basePlanVersionId,
+        availability_version: input.availabilityVersion,
+        payload: jsonb(payload as unknown as JsonValue),
+        state: 'pending',
+        expires_at: toDate(input.expiresAt),
         created_at: now,
-        updated_at: now,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -114,11 +186,10 @@ export class PgTodayStore implements TodayStore {
 
   async getProposal(ownerId: Id, id: Id): Promise<TodayProposalRecord | null> {
     const row = await this.#db
-      .selectFrom('job')
+      .selectFrom('today_proposal')
       .selectAll()
       .where('id', '=', id)
       .where('owner_id', '=', ownerId)
-      .where('kind', '=', 'today_proposal')
       .executeTakeFirst();
     return row === undefined ? null : this.#mapProposal(row);
   }
@@ -128,6 +199,7 @@ export class PgTodayStore implements TodayStore {
     readonly expectedAvailabilityVersion: number;
     readonly idempotencyKey: string;
     readonly now: Instant;
+    prepare(snapshot: TodayApprovalSnapshot): Promise<PreparedTodayApproval>;
   }): Promise<PlanVersionDto> {
     try {
       return await this.#db.transaction().execute(async (trx) => {
@@ -159,26 +231,24 @@ export class PgTodayStore implements TodayStore {
         }
 
         const proposalRow = await trx
-          .selectFrom('job')
+          .selectFrom('today_proposal')
           .selectAll()
           .where('id', '=', input.proposal.id)
           .where('owner_id', '=', input.proposal.ownerId)
-          .where('kind', '=', 'today_proposal')
           .forUpdate()
           .executeTakeFirst();
         if (proposalRow === undefined) {
           throw new NotFoundError('today proposal', input.proposal.id);
         }
-        if (proposalRow.status !== 'pending') {
+        if (proposalRow.state !== 'pending') {
           throw proposalConflict('the proposal is no longer pending');
         }
-        const payload = this.#parseJobPayload(proposalRow.unique_key);
-        if (payload.expiresAt !== undefined && Date.parse(payload.expiresAt) < now.getTime()) {
+        if (proposalRow.expires_at.getTime() < now.getTime()) {
           throw proposalConflict('proposal has expired');
         }
-        if (payload.availabilityVersion !== availabilityRow.version) {
+        if (proposalRow.availability_version !== availabilityRow.version) {
           throw new AvailabilityChangedError(
-            payload.availabilityVersion,
+            proposalRow.availability_version,
             availabilityRow.version,
           );
         }
@@ -192,16 +262,49 @@ export class PgTodayStore implements TodayStore {
           .forUpdate()
           .executeTakeFirst();
         if (planRow === undefined) throw new NotFoundError('plan', input.proposal.planId);
+        const payload = parsePayload(proposalRow.payload);
         if (
           planRow.version !== payload.basePlanVersion ||
-          planRow.current_version_id !== payload.basePlanVersionId
+          planRow.current_version_id !== proposalRow.base_plan_version_id
         ) {
           throw new PlanConflictError(
             `plan changed since the proposal: expected ${payload.basePlanVersion}, found ${planRow.version}`,
           );
         }
 
+        const availability = await this.#readAvailability(trx, input.proposal.ownerId);
+        const commitments = await this.#commitmentsRange(
+          trx,
+          input.proposal.ownerId,
+          planRow.horizon_start,
+          planRow.horizon_end,
+        );
+        const blocks = await this.#listActiveBlocks(trx, input.proposal.ownerId);
         const candidateBlocks = payload.candidateBlocks;
+        const taskIds = [...new Set(candidateBlocks.map((block) => block.taskId))] as Id[];
+        await this.#assertTasksLive(trx, input.proposal.ownerId, taskIds);
+        const estimates = await this.#loadEstimates(trx, input.proposal.ownerId, [
+          ...new Set([
+            ...taskIds,
+            ...blocks.filter((block) => block.planId === input.proposal.planId).map((block) => block.taskId),
+          ]),
+        ]);
+        const prepared = await input.prepare({
+          planId: input.proposal.planId,
+          basePlanVersionId: proposalRow.base_plan_version_id as Id,
+          basePlanVersion: payload.basePlanVersion,
+          timeZone: planRow.time_zone,
+          horizon: {
+            start: toInstant(planRow.horizon_start),
+            end: toInstant(planRow.horizon_end),
+          },
+          availability,
+          commitments,
+          blocks,
+          estimates,
+          candidateBlocks,
+        });
+
         const planVersionIds = await trx
           .selectFrom('plan_version')
           .select('id')
@@ -248,7 +351,7 @@ export class PgTodayStore implements TodayStore {
           .execute();
 
         const insertedBlocks: ScheduleBlockDto[] = [];
-        for (const block of candidateBlocks) {
+        for (const block of prepared.blocks) {
           const row = await trx
             .insertInto('schedule_block')
             .values({
@@ -295,11 +398,10 @@ export class PgTodayStore implements TodayStore {
           .execute();
 
         await trx
-          .updateTable('job')
-          .set({ status: 'completed', version: sql<number>`version + 1`, updated_at: now })
+          .updateTable('today_proposal')
+          .set({ state: 'approved' })
           .where('id', '=', input.proposal.id)
           .where('owner_id', '=', input.proposal.ownerId)
-          .where('kind', '=', 'today_proposal')
           .execute();
 
         await trx
@@ -346,57 +448,171 @@ export class PgTodayStore implements TodayStore {
     }
   }
 
-  #parseJobPayload(raw: string): {
-    planId: Id;
-    kind: 'shrink' | 'reschedule';
-    date: string;
-    timeZone: string;
-    blocks: TodayProposalBlock[];
-    candidateBlocks: PlanBlock[];
-    basePlanVersionId: Id;
-    basePlanVersion: number;
-    availabilityVersion: number;
-    expiresAt?: string;
-    createdAt: string;
-  } {
-    const parsed = JSON.parse(raw) as {
-      planId: string;
-      kind: string;
-      date: string;
-      timeZone: string;
-      blocks: unknown;
-      candidateBlocks: unknown;
-      basePlanVersionId: string;
-      basePlanVersion: number;
-      availabilityVersion: number;
-      expiresAt?: string;
-      createdAt: string;
-    };
+  async #assertTasksLive(trx: Trx, ownerId: Id, taskIds: readonly Id[]): Promise<void> {
+    if (taskIds.length === 0) return;
+    const rows = await trx
+      .selectFrom('task')
+      .select(['id', 'status_cache', 'deleted_at'])
+      .where('owner_id', '=', ownerId)
+      .where('id', 'in', taskIds)
+      .execute();
+    const found = new Map(rows.map((row) => [row.id, row]));
+    for (const taskId of taskIds) {
+      const row = found.get(taskId);
+      if (row === undefined || row.deleted_at !== null || row.status_cache === 'done') {
+        throw new PlanConflictError(`scoped task is no longer schedulable: ${taskId}`);
+      }
+    }
+  }
+
+  async #readAvailability(db: Db | Trx, ownerId: Id): Promise<Availability> {
+    const versionRow = await db
+      .selectFrom('user_availability_version')
+      .selectAll()
+      .where('owner_id', '=', ownerId)
+      .executeTakeFirst();
+    const userRow = await db
+      .selectFrom('user')
+      .select('time_zone')
+      .where('id', '=', ownerId)
+      .executeTakeFirst();
+    const rules = await db
+      .selectFrom('availability_rule')
+      .selectAll()
+      .where('owner_id', '=', ownerId)
+      .orderBy('weekday', 'asc')
+      .orderBy('start_local', 'asc')
+      .execute();
+    const exceptions = await db
+      .selectFrom('availability_exception')
+      .selectAll()
+      .where('owner_id', '=', ownerId)
+      .orderBy('date', 'asc')
+      .execute();
     return {
-      planId: parsed.planId as Id,
-      kind: parsed.kind === 'shrink' ? 'shrink' : 'reschedule',
-      date: parsed.date,
-      timeZone: parsed.timeZone,
-      blocks: parseProposalBlocks(parsed.blocks),
-      candidateBlocks: parsePlanBlocks(parsed.candidateBlocks),
-      basePlanVersionId: parsed.basePlanVersionId as Id,
-      basePlanVersion: parsed.basePlanVersion,
-      availabilityVersion: parsed.availabilityVersion,
-      ...(parsed.expiresAt === undefined ? {} : { expiresAt: parsed.expiresAt }),
-      createdAt: parsed.createdAt,
+      version: versionRow?.version ?? 1,
+      timeZone: versionRow?.time_zone ?? userRow?.time_zone ?? 'UTC',
+      rules: rules.map((row) => ({
+        weekday: row.weekday,
+        startLocal: row.start_local,
+        endLocal: row.end_local,
+        kind: row.kind === 'focus' ? 'focus' : 'work',
+      })),
+      exceptions: exceptions.map((row) => ({
+        date: toDateString(row.date),
+        kind: row.kind === 'extra' ? 'extra' : 'off',
+        ...(row.start_local === null ? {} : { startLocal: row.start_local }),
+        ...(row.end_local === null ? {} : { endLocal: row.end_local }),
+      })),
+      prefs: parsePrefs(versionRow?.prefs),
     };
+  }
+
+  async #commitmentsRange(
+    db: Db | Trx,
+    ownerId: Id,
+    from: Date | string,
+    to: Date | string,
+  ): Promise<Commitment[]> {
+    const fromIso = toInstant(from);
+    const toIso = toInstant(to);
+    const rows = await db
+      .selectFrom('commitment_event')
+      .selectAll()
+      .where('owner_id', '=', ownerId)
+      .where('deleted_at', 'is', null)
+      .where((eb) =>
+        eb.or([
+          eb('rrule', 'is not', null),
+          eb.and([eb('start_at', '<', new Date(toIso)), eb('end_at', '>', new Date(fromIso))]),
+        ]),
+      )
+      .orderBy('start_at', 'asc')
+      .orderBy('id', 'asc')
+      .execute();
+    return rows.map((row) => ({
+      id: row.id as Id,
+      ownerId: row.owner_id as Id,
+      title: row.title,
+      startAt: toInstant(row.start_at),
+      endAt: toInstant(row.end_at),
+      timeZone: row.time_zone,
+      ...(row.rrule === null ? {} : { rrule: row.rrule }),
+      source: row.source as Commitment['source'],
+      version: row.version,
+      createdAt: toInstant(row.created_at),
+      updatedAt: toInstant(row.updated_at),
+    }));
+  }
+
+  async #listActiveBlocks(db: Db | Trx, ownerId: Id): Promise<ApprovedBlock[]> {
+    const rows = await db
+      .selectFrom('schedule_block')
+      .innerJoin('plan_version', 'plan_version.id', 'schedule_block.plan_version_id')
+      .innerJoin('plan', 'plan.id', 'plan_version.plan_id')
+      .select([
+        'schedule_block.id',
+        'schedule_block.plan_version_id',
+        'schedule_block.task_id',
+        'schedule_block.start_at',
+        'schedule_block.end_at',
+        'schedule_block.status',
+        'schedule_block.locked',
+        'schedule_block.version',
+        'plan.id as plan_id',
+      ])
+      .where('schedule_block.owner_id', '=', ownerId)
+      .where('schedule_block.status', '<>', 'superseded')
+      .where('plan.deleted_at', 'is', null)
+      .execute();
+    return rows.map((row) => ({
+      id: row.id as Id,
+      planId: row.plan_id as Id,
+      planVersionId: row.plan_version_id as Id,
+      taskId: row.task_id as Id,
+      startAt: toInstant(row.start_at),
+      endAt: toInstant(row.end_at),
+      status: row.status,
+      locked: row.locked,
+      version: row.version,
+    }));
+  }
+
+  async #loadEstimates(
+    db: Db | Trx,
+    ownerId: Id,
+    taskIds: readonly Id[],
+  ): Promise<ReadonlyMap<string, EstimateRecord>> {
+    if (taskIds.length === 0) return new Map();
+    const rows = await db
+      .selectFrom('estimate')
+      .select(['task_id', 'p50_min', 'p90_min'])
+      .where('owner_id', '=', ownerId)
+      .where('is_current', '=', true)
+      .where('task_id', 'in', taskIds)
+      .execute();
+    const result = new Map<string, EstimateRecord>();
+    for (const row of rows) {
+      result.set(row.task_id, {
+        taskId: row.task_id as Id,
+        p50Min: row.p50_min,
+        p90Min: row.p90_min,
+      });
+    }
+    return result;
   }
 
   #mapProposal(row: {
     id: string;
     owner_id: string;
-    unique_key: string;
-    status: string;
-    version: number;
+    base_plan_version_id: string;
+    availability_version: number;
+    payload: unknown;
+    state: string;
+    expires_at: Date | string;
     created_at: Date | string;
-    updated_at: Date | string;
   }): TodayProposalRecord {
-    const payload = this.#parseJobPayload(row.unique_key);
+    const payload = parsePayload(row.payload);
     return {
       id: row.id as Id,
       ownerId: row.owner_id as Id,
@@ -406,14 +622,14 @@ export class PgTodayStore implements TodayStore {
       timeZone: payload.timeZone,
       blocks: payload.blocks,
       candidateBlocks: payload.candidateBlocks,
-      basePlanVersionId: payload.basePlanVersionId,
+      basePlanVersionId: row.base_plan_version_id as Id,
       basePlanVersion: payload.basePlanVersion,
-      availabilityVersion: payload.availabilityVersion,
-      state: row.status === 'completed' ? 'approved' : row.status === 'failed' ? 'expired' : 'pending',
-      ...(payload.expiresAt === undefined ? {} : { expiresAt: payload.expiresAt as Instant }),
-      version: row.version,
+      availabilityVersion: row.availability_version,
+      state: row.state === 'approved' ? 'approved' : row.state === 'expired' ? 'expired' : 'pending',
+      expiresAt: toInstant(row.expires_at),
+      version: 1,
       createdAt: toInstant(row.created_at),
-      updatedAt: toInstant(row.updated_at),
+      updatedAt: toInstant(row.created_at),
     };
   }
 
@@ -451,14 +667,7 @@ export class PgTodayStore implements TodayStore {
         owner_id: ownerId,
         version: 1,
         time_zone: userRow?.time_zone ?? 'UTC',
-        prefs: jsonb({
-          maxDailyFocusMin: 240,
-          breakAfterMin: 60,
-          breakMin: 15,
-          dayStartLocal: '08:00',
-          dayEndLocal: '18:00',
-          riskLevel: 'p50',
-        } as unknown as JsonValue),
+        prefs: jsonb(DEFAULT_PREFS as unknown as JsonValue),
       })
       .onConflict((oc) => oc.column('owner_id').doNothing())
       .execute();

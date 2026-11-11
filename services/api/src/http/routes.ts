@@ -1036,7 +1036,7 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
         const artifact = await runtime.exports.download(auth.userId, params.id as Id);
         return reply
           .code(200)
-          .type('application/json')
+          .type(artifact.contentType)
           .header(
             'Content-Disposition',
             `attachment; filename="ohmydate-export-${params.id}.json"`,
@@ -1416,7 +1416,7 @@ export function createRuntime(options: {
     key: resolvePushKey(options.config),
     clock: options.clock,
   });
-  const exportStore = new PgExportStore({ db: options.db });
+  const exportStore = new PgExportStore({ db: options.db, clock: options.clock });
   const exports = new ExportService({
     store: exportStore,
     builder: new PgExportPayloadBuilder({ db: options.db }),

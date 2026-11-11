@@ -29,7 +29,7 @@ export function resolvePushKey(config: AppConfig): PushKey {
     key = parseKeyMaterial(readFileSync(config.pushKeyFile, 'utf8'), 'PUSH_KEY_FILE');
   } else if (config.pushKey !== null && config.pushKey.length > 0) {
     key = parseKeyMaterial(config.pushKey, 'PUSH_KEY');
-  } else if (!config.pushKeyRequired) {
+  } else if (config.provider === 'memory') {
     key = randomBytes(32);
   } else {
     throw new Error(

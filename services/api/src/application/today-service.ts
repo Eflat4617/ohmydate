@@ -1,6 +1,8 @@
 import type {
+  Availability,
   Commitment,
   PlanBlock,
+  PlanHorizon,
   PlanVersionDto,
   Today,
   TodayBlock,
@@ -90,6 +92,23 @@ export interface NewTodayProposal {
   readonly now: Instant;
 }
 
+export interface TodayApprovalSnapshot {
+  readonly planId: Id;
+  readonly basePlanVersionId: Id;
+  readonly basePlanVersion: number;
+  readonly timeZone: string;
+  readonly horizon: PlanHorizon;
+  readonly availability: Availability;
+  readonly commitments: readonly Commitment[];
+  readonly blocks: readonly ApprovedBlock[];
+  readonly estimates: ReadonlyMap<string, EstimateRecord>;
+  readonly candidateBlocks: readonly PlanBlock[];
+}
+
+export interface PreparedTodayApproval {
+  readonly blocks: readonly PlanBlock[];
+}
+
 export interface TodayStore {
   createProposal(input: NewTodayProposal): Promise<TodayProposalRecord>;
   getProposal(ownerId: Id, id: Id): Promise<TodayProposalRecord | null>;
@@ -98,6 +117,7 @@ export interface TodayStore {
     readonly expectedAvailabilityVersion: number;
     readonly idempotencyKey: string;
     readonly now: Instant;
+    prepare(snapshot: TodayApprovalSnapshot): Promise<PreparedTodayApproval>;
   }): Promise<PlanVersionDto>;
 }
 
@@ -474,27 +494,66 @@ export class TodayService {
         proposal.availabilityVersion,
       );
     }
-    const snapshot = await this.#snapshot(ownerId, now);
-    if (snapshot.active.planId !== proposal.planId) {
+    const before = await this.#snapshot(ownerId, now);
+    if (before.active.planId !== proposal.planId) {
       throw proposalConflict('the active plan changed since the proposal was created');
     }
-    if (snapshot.active.planVersionId !== proposal.basePlanVersionId) {
+    if (before.active.planVersionId !== proposal.basePlanVersionId) {
       throw proposalConflict('the plan version changed since the proposal was created');
     }
-    this.#assertPlanVersion(snapshot.active, proposal.basePlanVersion);
-    if (snapshot.active.availabilityVersion !== proposal.availabilityVersion) {
+    this.#assertPlanVersion(before.active, proposal.basePlanVersion);
+    if (before.active.availabilityVersion !== proposal.availabilityVersion) {
       throw new AvailabilityChangedError(
         proposal.availabilityVersion,
-        snapshot.active.availabilityVersion,
+        before.active.availabilityVersion,
       );
     }
-    this.#validateCandidate(snapshot, proposal.candidateBlocks, now);
     return this.#today.approveProposal({
       proposal,
       expectedAvailabilityVersion,
       idempotencyKey,
       now,
+      prepare: async (approval) =>
+        this.#prepareApproval(approval, before.tasks, now),
     });
+  }
+
+  /**
+   * Runs inside the approval transaction with the freshly re-read availability,
+   * commitments, active blocks and estimates. Task attributes come from the
+   * provider repository; PgTodayStore separately checks the local task rows for
+   * soft-delete/completion inside the same TX before calling this.
+   */
+  async #prepareApproval(
+    approval: TodayApprovalSnapshot,
+    tasks: ReadonlyMap<string, Task>,
+    now: Instant,
+  ): Promise<PreparedTodayApproval> {
+    const active: ActivePlanRevision = {
+      planId: approval.planId,
+      planVersionId: approval.basePlanVersionId,
+      revision: approval.basePlanVersion,
+      timeZone: approval.timeZone,
+      horizon: approval.horizon,
+      scope: { taskIds: [...new Set(approval.candidateBlocks.map((block) => block.taskId))] },
+      availabilityVersion: approval.availability.version,
+    };
+    const planBlocks = approval.blocks.filter((block) => block.planId === approval.planId);
+    const otherBlocks = approval.blocks.filter((block) => block.planId !== approval.planId);
+    this.#validateCandidate(
+      {
+        active,
+        availability: approval.availability,
+        commitments: approval.commitments,
+        planBlocks,
+        otherBlocks,
+        tasks,
+        estimates: approval.estimates,
+      },
+      approval.candidateBlocks,
+      now,
+    );
+    return { blocks: approval.candidateBlocks };
   }
 
   async #persistProposal(

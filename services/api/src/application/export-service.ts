@@ -25,6 +25,7 @@ export interface ExportRecord {
 export interface ExportArtifact {
   readonly record: ExportRecord;
   readonly content: Buffer;
+  readonly contentType: string;
 }
 
 export interface ExportStore {
@@ -40,6 +41,8 @@ export interface ExportStore {
   ): Promise<ExportRecord>;
   get(ownerId: Id, id: Id): Promise<ExportRecord | null>;
   readArtifact(ownerId: Id, id: Id): Promise<ExportArtifact | null>;
+  /** Nulls artifact bytes whose `expires_at` has passed. Returns row count. */
+  purgeExpired(now: Instant): Promise<number>;
 }
 
 export interface ExportServiceDependencies {
@@ -80,13 +83,17 @@ export class ExportService {
 
   async get(ownerId: Id, id: Id, baseUrl = 'http://localhost'): Promise<Export> {
     const record = await this.#store.get(ownerId, id);
-    if (record === null) throw new NotFoundError('export', id);
+    if (record === null || isExpired(record, this.#clock.now())) {
+      throw new NotFoundError('export', id);
+    }
     return toDto(record, baseUrl.replace(/\/+$/, ''));
   }
 
   async download(ownerId: Id, id: Id): Promise<ExportArtifact> {
     const artifact = await this.#store.readArtifact(ownerId, id);
-    if (artifact === null) throw new NotFoundError('export', id);
+    if (artifact === null || isExpired(artifact.record, this.#clock.now())) {
+      throw new NotFoundError('export', id);
+    }
     return artifact;
   }
 
@@ -104,6 +111,10 @@ export class ExportService {
       await this.#store.markFailed(ownerId, id, code.length === 0 ? 'export_failed' : code, started);
     }
   }
+}
+
+function isExpired(record: ExportRecord, now: Instant): boolean {
+  return record.expiresAt !== undefined && Date.parse(record.expiresAt) <= Date.parse(now);
 }
 
 function toDto(record: ExportRecord, baseUrl: string): Export {

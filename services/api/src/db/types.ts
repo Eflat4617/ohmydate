@@ -653,11 +653,24 @@ export interface ExportJobTable {
   completed_at: Col<'timestamptz', true, false>;
   expires_at: Col<'timestamptz', true, false>;
   artifact_key: Col<'text', true, false>;
+  artifact: Col<'bytea', true, false>;
+  content_type: Col<'text', true, false>;
   size_bytes: Col<'integer', true, false>;
   failure_code: Col<'text', true, false>;
   created_at: Col<'timestamptz', false, true>;
   updated_at: Col<'timestamptz', false, true>;
   version: Col<'integer', false, true>;
+}
+
+export interface TodayProposalTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  base_plan_version_id: Col<'uuid', false, false>;
+  availability_version: Col<'integer', false, false>;
+  payload: Col<'jsonb', false, false>;
+  state: Col<'text', false, true>;
+  expires_at: Col<'timestamptz', false, false>;
+  created_at: Col<'timestamptz', false, true>;
 }
 
 export interface Database {
@@ -697,6 +710,7 @@ export interface Database {
   notification: NotificationTable;
   push_subscription: PushSubscriptionTable;
   export_job: ExportJobTable;
+  today_proposal: TodayProposalTable;
   vikunja_mapping: VikunjaMappingTable;
   vikunja_planner_fields: VikunjaPlannerFieldsTable;
   vikunja_change_journal: VikunjaChangeJournalTable;
@@ -1172,11 +1186,23 @@ export const databaseTables = {
     completed_at: col('timestamptz', true, false),
     expires_at: col('timestamptz', true, false),
     artifact_key: col('text', true, false),
+    artifact: col('bytea', true, false),
+    content_type: col('text', true, false),
     size_bytes: col('integer', true, false),
     failure_code: col('text', true, false),
     created_at: col('timestamptz', false, true),
     updated_at: col('timestamptz', false, true),
     version: col('integer', false, true),
+  },
+  today_proposal: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    base_plan_version_id: col('uuid', false, false),
+    availability_version: col('integer', false, false),
+    payload: col('jsonb', false, false),
+    state: col('text', false, true),
+    expires_at: col('timestamptz', false, false),
+    created_at: col('timestamptz', false, true),
   },
   vikunja_mapping: {
     entity_type: col('text', false, false),
@@ -1326,6 +1352,7 @@ type TableAssertions = {
     typeof databaseTables.push_subscription
   >;
   export_job: AssertTableColumns<ExportJobTable, typeof databaseTables.export_job>;
+  today_proposal: AssertTableColumns<TodayProposalTable, typeof databaseTables.today_proposal>;
   vikunja_mapping: AssertTableColumns<
     VikunjaMappingTable,
     typeof databaseTables.vikunja_mapping

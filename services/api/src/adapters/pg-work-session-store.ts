@@ -126,48 +126,55 @@ export class PgWorkSessionStore implements WorkSessionStore {
     expectedVersion: number,
     update: WorkSessionUpdate,
   ): Promise<WorkSessionRecord> {
-    return this.#db.transaction().execute(async (trx) => {
-      const now = toDate(update.now);
-      const row = await trx
-        .updateTable('work_session')
-        .set({
-          state: update.state,
-          ended_at: update.endedAt === undefined ? null : toDate(update.endedAt),
-          focused_sec: update.focusedSec,
-          paused_sec: update.pausedSec,
-          version: sql<number>`version + 1`,
-          updated_at: now,
-        })
-        .where('id', '=', id)
-        .where('owner_id', '=', ownerId)
-        .where('version', '=', expectedVersion)
-        .returningAll()
-        .executeTakeFirst();
-      if (row === undefined) {
-        const current = await trx
-          .selectFrom('work_session')
-          .select(['version'])
-          .where('id', '=', id)
-          .where('owner_id', '=', ownerId)
-          .executeTakeFirst();
-        if (current === undefined) throw new NotFoundError('work session', id);
-        throw new VersionConflictError(expectedVersion as never, current.version as never);
-      }
-      if (update.state === 'completed' && row.block_id !== null) {
-        await trx
-          .updateTable('schedule_block')
+    try {
+      return await this.#db.transaction().execute(async (trx) => {
+        const now = toDate(update.now);
+        const row = await trx
+          .updateTable('work_session')
           .set({
-            status: 'done',
+            state: update.state,
+            ended_at: update.endedAt === undefined ? null : toDate(update.endedAt),
+            focused_sec: update.focusedSec,
+            paused_sec: update.pausedSec,
             version: sql<number>`version + 1`,
             updated_at: now,
           })
-          .where('id', '=', row.block_id)
+          .where('id', '=', id)
           .where('owner_id', '=', ownerId)
-          .where('status', '<>', 'superseded')
-          .execute();
+          .where('version', '=', expectedVersion)
+          .returningAll()
+          .executeTakeFirst();
+        if (row === undefined) {
+          const current = await trx
+            .selectFrom('work_session')
+            .select(['version'])
+            .where('id', '=', id)
+            .where('owner_id', '=', ownerId)
+            .executeTakeFirst();
+          if (current === undefined) throw new NotFoundError('work session', id);
+          throw new VersionConflictError(expectedVersion as never, current.version as never);
+        }
+        if (update.state === 'completed' && row.block_id !== null) {
+          await trx
+            .updateTable('schedule_block')
+            .set({
+              status: 'done',
+              version: sql<number>`version + 1`,
+              updated_at: now,
+            })
+            .where('id', '=', row.block_id)
+            .where('owner_id', '=', ownerId)
+            .where('status', '<>', 'superseded')
+            .execute();
+        }
+        return this.#map(row);
+      });
+    } catch (error) {
+      if (isPgError(error, '23505', 'work_session_one_active_per_owner')) {
+        throw activeSessionExists();
       }
-      return this.#map(row);
-    });
+      throw error;
+    }
   }
 
   async createReview(input: {
