@@ -338,6 +338,17 @@ test.each(originalCharWordBoundaries)(
   },
 );
 
+/**
+ * FU-38cR2 LOW: the capped-key run extension must only fire at the pattern's `L_max`, not
+ * for any word run that merely fails the trailing boundary.
+ */
+test.each([
+  `ghp_${'a'.repeat(30)}_tail`,
+  `xoxb-${'a'.repeat(20)}_x`,
+])('short key-like word with an underscore tail stays unmasked: %s', (input) => {
+  expect(redact(input)).toEqual({ text: input, report: [] });
+});
+
 test.each([
   '1010-1234-5678',
   '010-1234-56789',
@@ -417,16 +428,111 @@ const knownLimitations = [
     name: 'domain label longer than 63 characters',
     text: `jane@${'a'.repeat(64)}.com`,
   },
-  {
-    name: 'mixed superscript and math digits in one number',
-    text: '⁰¹⁰-¹²³⁴-⁵⁶⁷𝟖',
-  },
 ];
 
 test.each(knownLimitations)(
   'known limitation remains unmasked: $name',
   ({ text }) => {
     expect(redact(text)).toEqual({ text, report: [] });
+  },
+);
+
+/**
+ * ADR-019 (10)-(11): shapes the redesign deliberately leaves out of scope. They are pinned
+ * with their exact current output (which equals FU-32's output) instead of being dropped
+ * from the gate corpus.
+ */
+const pinnedKnownLimitations = [
+  {
+    name: 'glued same-kind RRN window',
+    input: '900101-1234567900101-1234567',
+    output: '900101-[REDACTED_RRN]-1234567',
+  },
+  {
+    name: 'glued same-kind RRN windows (dust)',
+    input: '900101-1234567870304-2345678',
+    output: '900101-[REDACTED_RRN]-2345678',
+  },
+  {
+    name: 'glued 010 phone pair',
+    input: '0101234567801012345678',
+    output: '0101234567801012345678',
+  },
+  {
+    name: 'glued 02 phone pair',
+    input: '02012345670201234567',
+    output: '02012345670201234567',
+  },
+  {
+    name: 'glued 070 phone pair',
+    input: '0701234567807012345678',
+    output: '0701234567807012345678',
+  },
+  {
+    name: '3+ glued ASCII cross-kind chain',
+    input: '9001011234567010123456789001011234567',
+    output: '9001011234567010123456789001011234567',
+  },
+  {
+    name: '3+ glued ASCII cross-kind chain (dashed R+P+R)',
+    input: '900101-1234567010-1234-5678900101-1234567',
+    output: '900101-1234567010-1234-5678900101-1234567',
+  },
+  {
+    name: 'glued ghp_ key pair (FU-32 parity)',
+    input: `ghp_${'a'.repeat(93)}ghp_${'a'.repeat(93)}`,
+    output: `ghp_${'a'.repeat(93)}ghp_${'a'.repeat(93)}`,
+  },
+  {
+    name: '33 dashes exceed the non-whitespace separator cap',
+    input: `010${'-'.repeat(33)}1234-5678`,
+    output: `010${'-'.repeat(33)}1234-5678`,
+  },
+  {
+    name: 'spaced-dash run exceeds the non-whitespace separator cap',
+    input: `900101${' -'.repeat(17)}1234567`,
+    output: `900101${' -'.repeat(17)}1234567`,
+  },
+  {
+    name: '40 dots exceed the non-whitespace separator cap',
+    input: `010${'.'.repeat(40)}1234.5678`,
+    output: `010${'.'.repeat(40)}1234.5678`,
+  },
+] as const;
+
+test.each(pinnedKnownLimitations)(
+  'known limitation keeps its exact current output: $name',
+  ({ input, output }) => {
+    expect(redact(input).text).toBe(output);
+  },
+);
+
+/**
+ * FU-38c item 6: mixed super/subscript + real-digit tokens now validate the whole
+ * normalised shape and mask completely. The former `⁰¹⁰-¹²³⁴-⁵⁶⁷𝟖` known-limitation case
+ * is asserted positively here (stronger than the previous unmasked assertion).
+ */
+const mixedDigitTokens: readonly {
+  readonly input: string;
+  readonly kind: 'rrn' | 'phone';
+  readonly suffix?: string;
+}[] = [
+  { input: '¹²³⁴⁵⁶-1234567', kind: 'rrn' },
+  { input: '⁰¹⁰-1234-5678', kind: 'phone' },
+  { input: '¹⁹00101¹²³⁴⁵⁶𝟕', kind: 'rrn' },
+  { input: '⁰¹⁰-¹²³⁴-⁵⁶⁷𝟖', kind: 'phone' },
+  { input: '⁰¹⁰-¹²³⁴-⁵⁶⁷⁸²', kind: 'phone', suffix: '²' },
+  { input: '⁹⁰⁰¹⁰¹-¹²³⁴⁵⁶⁷²', kind: 'rrn', suffix: '²' },
+];
+
+test.each(mixedDigitTokens)(
+  'masks the mixed super/subscript + Nd token $input completely',
+  ({ input, kind, suffix }) => {
+    const result = redact(`x ${input} y`);
+    const mask = kind === 'rrn' ? '[REDACTED_RRN]' : '[REDACTED_PHONE]';
+    expect(result.text).toBe(`x ${mask}${suffix ?? ''} y`);
+    expect(result.report).toEqual([{ kind, count: 1 }]);
+    expect(result.text).not.toContain(input);
   },
 );
 

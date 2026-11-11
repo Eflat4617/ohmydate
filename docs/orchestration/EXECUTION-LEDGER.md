@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -18,6 +18,9 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 13:21 | **M23-UIR-1 REQUEST_CHANGES (Sol medium)**: E2E-3 실흐름 확인(DB 직접 쓰기 없음). HIGH — 마법사 세션 전환 시 이전 세션 초안이 새 세션에 PATCH됨. MEDIUM — constraint_violation 문제 코드 미인식, DST 공백 시각 뒤로 이동, 반복 시간 블록 5분으로 붕괴, 지연 재시도/미리보기가 오프라인에서도 전송. 수정 1/2 → ctx_239111fefbee (+E2E 키보드 완주·편집 블록 승인 영속 확인) | reviews/M23-UIR-1.md | orchestrator |
+| 2026-11-11 13:18 | M4-01 질문: bytea 컬럼 종류 → 범위 확장 승인(types.ts ColumnKind + 기존 types.test.ts 매핑 1줄 추가, 추가만) | msg_65b223a59c83 | orchestrator |
+| 2026-11-11 12:44 | **FU-08cR APPROVE (Sol medium)**: Opus 승인분 사후 확인 — 초안 승인 정확히 한 번(크래시 후 재시도·잠금 손실·P2/P6/P7 실환경) 및 종료 처리(빌드 코드·실제 SIGTERM 후 PG 확인) 모두 유지. 새 HIGH 없음 | reviews/FU-08cR.md | orchestrator |
 | 2026-11-11 12:23 | **FU-38dR-1 REQUEST_CHANGES (Sol medium)**: 독립 62k A/B(공백 문맥 제외) 회귀 0, CC_PHONE FU-32 동일 확인. HIGH — ASCII 공백 접기 빠른 경로가 원문 좌표를 두 번 변환해 앞글자/번호 전체 노출(공백 문맥 60k에서 17,336 토큰 회귀). MEDIUM — A/B 예외가 ADR 명시 목록보다 넓음. GB-1 미준비. 수정 1/2 → ctx_0bf7dea8733b | reviews/FU-38dR-1.md | orchestrator |
 | 2026-11-11 12:19 | **M3-04cR-1 REQUEST_CHANGES (Sol medium)**: HIGH — RRULE 건너뛰기에서 YEARLY COUNT 오계산·2월 29일 보정으로 실제 약속과 겹치는 일정이 승인됨(API 재현). R2 프로브 H/H2/I/J/K/R·Vikunja 구성 통과 확인. 수정 1/2 → ctx_dde69e5eb547 | reviews/M3-04cR-1.md | orchestrator |
 | 2026-11-11 12:13 | **Sol 복귀(medium)**: codex exec 헤더 model gpt-6.1-sol / reasoning effort medium, SOL_OK. M3-04c worker_done(7a0920e, api 317 pass, ci 1241). Sol medium 리뷰 시작: M3-04cR ctx_e693d5cf187e, FU-38dR ctx_265a8ecf4129(GB-1 관문, 첫 Sol 확인) — worker-start 영수증 effort=medium, Codex 롤아웃 turn_context로 재확인 | codex probe, worker-start, rollout | orchestrator |
@@ -102,6 +105,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-38c/d | ctx_56a43299d88f (Sol medium) | 8f2db58 | **APPROVE** — 독립 62k+60k A/B vs FU-32 회귀 0(예외 전 원수치), 성능 선형, **GB-1 스캐너 관문 통과** | FU-49 | **Accepted, merged 2fc56e8**; ci 1376 pass/29 skip + web 69 |
 | M3-04 (+c) | ctx_4651f7471f10 (Sol medium) | 225ca3f | **APPROVE** — RRULE 독립 기준 440규칙/2,967건 불일치 0 | FU-48 | **Accepted, merged 5da710f**; ci 1245 pass/27 skip + web 69; E2E 4/4 |
 | M2-03 (+c,+d) | ctx_9ed2dbe8d4d4 (opus-fallback) | 3bc0a0e | **APPROVE** — P0–P9 재현, 모든 HTTP 요청 직전 소유권 확인 | FU-47 | **Accepted, merged 87dad91**; ci 1175 pass |
 | M3-03 | ctx_31e02ba75606 (opus-fallback) | ec8513f | **APPROVE** (0006 뒤 병합) | — | **Accepted, merged 0462c19**; 충돌 해결(routes/migrate test) 후 ci 1203 pass/27 skip + web 69, OpenAPI 29 paths |
