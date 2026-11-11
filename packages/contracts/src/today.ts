@@ -207,6 +207,19 @@ export const SessionIdParamsSchema = Type.Object(
   { additionalProperties: false, $id: 'SessionIdParams' },
 );
 
+export const SessionListQuerySchema = Type.Object(
+  {
+    state: Type.Optional(WorkSessionStateSchema),
+    cursor: Type.Optional(CursorSchema),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+  },
+  { additionalProperties: false, $id: 'SessionListQuery' },
+);
+
+export const WorkSessionPageSchema = pageSchema(WorkSessionSchema, {
+  id: 'WorkSessionPage',
+});
+
 /**
  * Offline replay body for :pause/:resume/:complete. `clientAt` is the device
  * clock at the event. It is accepted within [session.startedAt,
@@ -458,6 +471,8 @@ export type WorkSessionState = Static<typeof WorkSessionStateSchema>;
 export type WorkSession = Static<typeof WorkSessionSchema>;
 export type SessionCreate = Static<typeof SessionCreateSchema>;
 export type SessionIdParams = Static<typeof SessionIdParamsSchema>;
+export type SessionListQuery = Static<typeof SessionListQuerySchema>;
+export type WorkSessionPage = Static<typeof WorkSessionPageSchema>;
 export type SessionEventRequest = Static<typeof SessionEventRequestSchema>;
 export type SessionOutcome = Static<typeof SessionOutcomeSchema>;
 export type SessionReasonChip = Static<typeof SessionReasonChipSchema>;

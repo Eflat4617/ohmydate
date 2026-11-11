@@ -97,6 +97,10 @@ export interface AppConfig {
    * A boolean, proxy address (string), list of addresses, or hop count.
    */
   readonly trustProxy: boolean | string | string[] | number;
+  /** Path to the 32-byte Web Push encryption key (base64 or hex). */
+  readonly pushKeyFile: string | null;
+  /** Inline Web Push encryption key (base64 or hex) as an env-ref fallback. */
+  readonly pushKey: string | null;
 }
 
 export const DEFAULT_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -120,7 +124,16 @@ export const defaultConfig: AppConfig = {
   llmMonthlyBudgetUsd: 0,
   providerMaxCallMs: DEFAULT_PROVIDER_MAX_CALL_MS,
   trustProxy: false,
+  pushKeyFile: null,
+  pushKey: null,
 };
+
+/**
+ * Deterministic key used only by `createConfig` callers that do not supply one
+ * (unit/integration tests). The production env path (`configFromEnv`) leaves
+ * both key fields null, so boot fails closed whenever PROVIDER != memory.
+ */
+export const DEV_SYNTHETIC_PUSH_KEY = '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0';
 
 /**
  * Reads the documented provider wiring from the environment. `PROVIDER`
@@ -157,6 +170,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env['PROVIDER_MAX_CALL_MS'],
       DEFAULT_PROVIDER_MAX_CALL_MS,
     ),
+    pushKeyFile: env['PUSH_KEY_FILE'] ?? null,
+    pushKey: env['PUSH_KEY'] ?? null,
   });
 }
 
@@ -187,9 +202,21 @@ export function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
       ...overrides.loginRateLimit,
     },
   };
-  if (overrides.reconcileIntervalMs !== undefined) return merged;
-  return {
-    ...merged,
-    reconcileIntervalMs: defaultReconcileIntervalMs(merged.provider, merged.databaseUrl),
-  };
+  const resolved =
+    overrides.reconcileIntervalMs !== undefined
+      ? merged
+      : {
+          ...merged,
+          reconcileIntervalMs: defaultReconcileIntervalMs(merged.provider, merged.databaseUrl),
+        };
+  if (
+    overrides.pushKey === undefined &&
+    overrides.pushKeyFile === undefined &&
+    resolved.pushKey === null &&
+    resolved.pushKeyFile === null &&
+    resolved.provider !== 'memory'
+  ) {
+    return { ...resolved, pushKey: DEV_SYNTHETIC_PUSH_KEY };
+  }
+  return resolved;
 }

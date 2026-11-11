@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
-import { rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import net from 'node:net';
+import os from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -111,6 +112,14 @@ async function main() {
   const admin = new Client({ connectionString: databaseUrl });
   await admin.connect();
 
+  const pushKeyDir = await mkdtemp(join(os.tmpdir(), 'ohmydate-smoke-push-'));
+  const pushKeyFile = join(pushKeyDir, 'push.key');
+  await writeFile(
+    pushKeyFile,
+    '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0\n',
+    { mode: 0o600 },
+  );
+
   let child;
   try {
     await admin.query(`CREATE SCHEMA "${schema}"`);
@@ -131,6 +140,7 @@ async function main() {
         PROVIDER: 'vikunja',
         VIKUNJA_URL: 'http://127.0.0.1:9',
         VIKUNJA_RECONCILE_INTERVAL_MS: '0',
+        PUSH_KEY_FILE: pushKeyFile,
         HOST: '127.0.0.1',
         PORT: String(port),
         LOG_LEVEL: 'silent',
@@ -161,6 +171,7 @@ async function main() {
     if (child !== undefined && child.exitCode === null) child.kill('SIGKILL');
     await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`).catch(() => undefined);
     await admin.end();
+    await rm(pushKeyDir, { recursive: true, force: true });
   }
 }
 

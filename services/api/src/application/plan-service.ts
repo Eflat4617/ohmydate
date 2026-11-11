@@ -13,6 +13,8 @@ import type {
   PlanScope,
   PlanVersionDto,
   ScheduleBlockDto,
+  ScheduleBlockListQuery,
+  ScheduleBlockPage,
   Violation as ContractViolation,
 } from '@ohmydate/contracts';
 import {
@@ -461,6 +463,85 @@ export class PlanService {
     const plan = await this.#store.getPlan(ownerId, id);
     if (plan === null) throw new NotFoundError('plan', id);
     return plan;
+  }
+
+  /**
+   * FU-51: active approved blocks overlapping `[from, to)`. The cursor is
+   * `startAt|id`, matching the ascending `(startAt, id)` order. Ranges longer
+   * than 366 days are rejected before reading any rows.
+   */
+  async listScheduleBlocks(
+    ownerId: Id,
+    query: ScheduleBlockListQuery,
+  ): Promise<ScheduleBlockPage> {
+    const fromMs = Date.parse(query.from);
+    const toMs = Date.parse(query.to);
+    if (!Number.isFinite(fromMs)) {
+      throw new ValidationFailedError([{ path: '/from', message: 'invalid instant' }]);
+    }
+    if (!Number.isFinite(toMs)) {
+      throw new ValidationFailedError([{ path: '/to', message: 'invalid instant' }]);
+    }
+    if (toMs <= fromMs) {
+      throw new ValidationFailedError([
+        { path: '/to', message: 'to must be after from' },
+      ]);
+    }
+    if (toMs - fromMs > MAX_HORIZON_DAYS * DAY_MS) {
+      throw new ValidationFailedError([
+        { path: '/to', message: `range spans more than ${MAX_HORIZON_DAYS} days` },
+      ]);
+    }
+    const limit = query.limit ?? 100;
+    let cursor: { startMs: number; id: string } | undefined;
+    if (query.cursor !== undefined) {
+      const split = query.cursor.indexOf('|');
+      if (split <= 0) {
+        throw new ValidationFailedError([
+          { path: '/cursor', message: 'invalid schedule-block cursor' },
+        ]);
+      }
+      const startMs = Date.parse(query.cursor.slice(0, split));
+      const id = query.cursor.slice(split + 1);
+      if (!Number.isFinite(startMs) || id.length === 0) {
+        throw new ValidationFailedError([
+          { path: '/cursor', message: 'invalid schedule-block cursor' },
+        ]);
+      }
+      cursor = { startMs, id };
+    }
+    const blocks = (await this.#store.listActiveBlocks(ownerId))
+      .filter((block) => {
+        const start = Date.parse(block.startAt);
+        const end = Date.parse(block.endAt);
+        return start < toMs && end > fromMs;
+      })
+      .sort((a, b) => {
+        const byStart = Date.parse(a.startAt) - Date.parse(b.startAt);
+        return byStart !== 0 ? byStart : a.id.localeCompare(b.id);
+      })
+      .filter((block) => {
+        if (cursor === undefined) return true;
+        const start = Date.parse(block.startAt);
+        return start > cursor.startMs || (start === cursor.startMs && block.id > cursor.id);
+      });
+    const page = blocks.slice(0, limit);
+    return {
+      items: page.map((block) => ({
+        id: block.id,
+        planVersionId: block.planVersionId,
+        taskId: block.taskId,
+        startAt: block.startAt,
+        endAt: block.endAt,
+        locked: block.locked,
+        status: block.status as ScheduleBlockDto['status'],
+        version: block.version,
+      })),
+      nextCursor:
+        blocks.length > limit
+          ? `${page[page.length - 1]?.startAt ?? ''}|${page[page.length - 1]?.id ?? ''}`
+          : null,
+    };
   }
 
   async previewEdit(

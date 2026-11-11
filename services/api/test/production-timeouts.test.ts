@@ -163,6 +163,7 @@ describe.skipIf(!hasDatabase)('production HTTP timeout regressions', () => {
         DATABASE_URL: databaseUrl as string,
         PGOPTIONS: `-c search_path=${schema}`,
         PROVIDER: 'vikunja',
+        PUSH_KEY: '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0',
         VIKUNJA_URL: 'http://127.0.0.1:9',
         VIKUNJA_RECONCILE_INTERVAL_MS: '0',
         HOST: '127.0.0.1',

@@ -446,7 +446,18 @@ describe.skipIf(!hasDatabase)('0009 today/session schema', () => {
       schema,
       migrationsDir,
     });
-    expect(rolledBack).toBe('0009_today_sessions.sql');
+    expect(rolledBack).toBe('0010_daily_storage.sql');
+    const proposalTable = await client.query<{ name: string | null }>(
+      `SELECT to_regclass('today_proposal')::text AS name`,
+    );
+    expect(proposalTable.rows[0]?.name).toBeNull();
+
+    const rolledBackAgain = await rollbackLatest({
+      databaseUrl: requireDatabaseUrl(),
+      schema,
+      migrationsDir,
+    });
+    expect(rolledBackAgain).toBe('0009_today_sessions.sql');
 
     for (const table of M4_TABLES) {
       const gone = await client.query<{ name: string | null }>(
@@ -465,6 +476,6 @@ describe.skipIf(!hasDatabase)('0009 today/session schema', () => {
       schema,
       migrationsDir,
     });
-    expect(reapplied.applied).toEqual(['0009_today_sessions.sql']);
+    expect(reapplied.applied).toEqual(['0009_today_sessions.sql', '0010_daily_storage.sql']);
   });
 });

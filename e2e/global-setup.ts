@@ -234,6 +234,12 @@ export default async function globalSetup(): Promise<void> {
 
   await fs.rm(stateDir, { recursive: true, force: true });
   await fs.mkdir(logsDir, { recursive: true });
+  const pushKeyFile = path.join(logsDir, 'push.key');
+  await fs.writeFile(
+    pushKeyFile,
+    '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0\n',
+    { mode: 0o600 },
+  );
 
   let schemaCreated = false;
   let apiPid = 0;
@@ -315,6 +321,7 @@ export default async function globalSetup(): Promise<void> {
         PORT: String(apiPort),
         HOST: '127.0.0.1',
         LOG_LEVEL: 'warn',
+        PUSH_KEY_FILE: pushKeyFile,
         LLM_PROVIDER: 'fake',
         LLM_DAILY_BUDGET_USD: '10',
         LLM_MONTHLY_BUDGET_USD: '100',

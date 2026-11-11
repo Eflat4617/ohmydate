@@ -36,6 +36,7 @@ const MIGRATION_FILES = [
   '0007_planning_core.sql',
   '0008_plan_api_persistence.sql',
   '0009_today_sessions.sql',
+  '0010_daily_storage.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -98,6 +99,9 @@ const M4_TABLES = [
   'work_session',
 ];
 
+// 0010_daily_storage.sql.
+const DAILY_STORAGE_TABLES = ['today_proposal'];
+
 describe.skipIf(!hasDatabase)('migration runner', () => {
   let schema: string;
 
@@ -141,6 +145,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           ...APPROVAL_TABLES,
           ...PLANNING_TABLES,
           ...M4_TABLES,
+          ...DAILY_STORAGE_TABLES,
           'schema_migrations',
         ].sort(),
       );
@@ -457,6 +462,23 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
             `SELECT to_regclass('schedule_block')::text AS name`,
           );
           expect(stillThere.rows[0]?.name).not.toBeNull();
+        } else if (migration === '0010_daily_storage.sql') {
+          for (const table of DAILY_STORAGE_TABLES) {
+            const gone = await client.query<{ name: string | null }>(
+              `SELECT to_regclass($1)::text AS name`,
+              [table],
+            );
+            expect({ table, name: gone.rows[0]?.name }).toEqual({ table, name: null });
+          }
+          const columns = await client.query<{ column_name: string }>(
+            `SELECT column_name
+               FROM information_schema.columns
+              WHERE table_schema = $1 AND table_name = 'export_job'
+                AND column_name IN ('artifact', 'content_type')
+              ORDER BY column_name`,
+            [schema],
+          );
+          expect(columns.rows.map((row) => row.column_name)).toEqual([]);
         } else if (migration === '0007_planning_core.sql') {
           for (const table of PLANNING_TABLES) {
             const gone = await client.query<{ name: string | null }>(

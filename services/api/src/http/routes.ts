@@ -1,4 +1,5 @@
 import {
+  dailyRoutes,
   planningRoutes,
   routes,
   type ApprovePlanRequest,
@@ -33,6 +34,23 @@ import {
   type PlanIdParams,
   type PreviewEditRequest,
   type RouteDefinition,
+  type EstimationFeedback,
+  type ExportIdParams,
+  type NotificationIdParams,
+  type NotificationQuery,
+  type PushSubscriptionCreate,
+  type PushSubscriptionIdParams,
+  type SessionCreate,
+  type SessionEventRequest,
+  type SessionIdParams,
+  type SessionListQuery,
+  type SessionReviewRequest,
+  type ScheduleBlockListQuery,
+  type TodayAcceptRequest,
+  type TodayQuery,
+  type TodayRescheduleRequest,
+  type TodayShrinkRequest,
+  type TodayProposalParams,
 } from '@ohmydate/contracts';
 import { timingSafeEqual } from 'node:crypto';
 import {
@@ -62,6 +80,7 @@ import { AuthService } from '../application/auth-service.js';
 import { PlanService } from '../application/plan-service.js';
 import type { PlanningStore } from '../application/planning-ports.js';
 import { IntakeError } from '../application/intake/intake-error.js';
+import { DailyProblemError } from '../application/daily-errors.js';
 import { IntakeService } from '../application/intake/intake-service.js';
 import { InProcessIntakeApprovalLock } from '../application/intake/in-process-approval-lock.js';
 import { PgAgentRunRepository } from '../adapters/pg-agent-run-repository.js';
@@ -71,6 +90,16 @@ import { PgIntakeSessionRepository } from '../adapters/pg-intake-session-reposit
 import { PgTaskTemplateRepository } from '../adapters/pg-task-template-repository.js';
 import { ProjectService } from '../application/project-service.js';
 import { TaskService } from '../application/task-service.js';
+import { TodayService } from '../application/today-service.js';
+import { SessionService } from '../application/session-service.js';
+import type { NotificationStore } from '../application/notification-service.js';
+import { PgTodayStore } from '../adapters/pg-today-store.js';
+import { PgWorkSessionStore } from '../adapters/pg-work-session-store.js';
+import { PgNotificationStore } from '../adapters/pg-notification-store.js';
+import { PgPushSubscriptionStore } from '../adapters/pg-push-subscription-store.js';
+import { ExportService } from '../application/export-service.js';
+import { PgExportPayloadBuilder, PgExportStore } from '../adapters/pg-export-store.js';
+import { resolvePushKey } from '../application/push-crypto.js';
 import type { Database } from '../db/types.js';
 import type { BudgetGuard, LlmPort } from '@ohmydate/llm';
 import type { IdGenerator } from '@ohmydate/domain';
@@ -106,6 +135,11 @@ export interface RouteRuntime {
   readonly tasks: TaskService;
   readonly planning: PlanService;
   readonly intake: IntakeService;
+  readonly today: TodayService;
+  readonly workSessions: SessionService;
+  readonly notifications: NotificationStore;
+  readonly pushSubscriptions: PgPushSubscriptionStore;
+  readonly exports: ExportService;
 }
 
 interface RouteMeta {
@@ -383,14 +417,21 @@ async function runIdempotent(
       error instanceof DomainError
         ? domainErrorToProblem(error)
         : (planningErrorToProblem(error) ??
-          (error instanceof IntakeError
+          (error instanceof DailyProblemError
             ? {
                 status: error.status,
                 code: error.code,
                 title: error.title,
-                detail: error.detail,
+                ...(error.detail === undefined ? {} : { detail: error.detail }),
               }
-            : undefined));
+            : error instanceof IntakeError
+              ? {
+                  status: error.status,
+                  code: error.code,
+                  title: error.title,
+                  detail: error.detail,
+                }
+              : undefined));
 
     // ADR-020 §11: a succession-wait 409 `approval_in_progress` is transient
     // contention, not a stored domain result. Release its reservation so the
@@ -672,6 +713,163 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       return { status: 204 };
     });
 
+  const acceptToday = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const body = request.body as TodayAcceptRequest;
+      const today = await runtime.today.accept(auth.userId, body.date, requireIfMatch(request));
+      return {
+        status: 200,
+        body: today,
+        headers: { ETag: etagForVersion(today.version) },
+      };
+    });
+
+  const shrinkToday = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const proposal = await runtime.today.shrink(
+        auth.userId,
+        request.body as TodayShrinkRequest,
+        requireIfMatch(request),
+      );
+      return {
+        status: 201,
+        body: proposal,
+        headers: { ETag: etagForVersion(proposal.version) },
+      };
+    });
+
+  const rescheduleToday = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const proposal = await runtime.today.reschedule(
+        auth.userId,
+        request.body as TodayRescheduleRequest,
+        requireIfMatch(request),
+      );
+      return {
+        status: 201,
+        body: proposal,
+        headers: { ETag: etagForVersion(proposal.version) },
+      };
+    });
+
+  const approveTodayProposal = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as TodayProposalParams;
+      const version = await runtime.today.approveProposal(
+        auth.userId,
+        params.id as Id,
+        requireAvailabilityIfMatch(request),
+        requireIdempotencyKey(request),
+      );
+      return {
+        status: 201,
+        body: version,
+        headers: { ETag: etagForVersion(version.version) },
+      };
+    });
+
+  const createSession = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const session = await runtime.workSessions.create(
+        auth.userId,
+        request.body as SessionCreate,
+      );
+      return {
+        status: 201,
+        body: session,
+        headers: { ETag: etagForVersion(session.version) },
+      };
+    });
+
+  const sessionAction = (
+    action: 'pause' | 'resume' | 'complete',
+  ) => async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as SessionIdParams;
+      const body = request.body as SessionEventRequest;
+      const expected = requireIfMatch(request) as Version;
+      const session =
+        action === 'pause'
+          ? await runtime.workSessions.pause(auth.userId, params.id as Id, body, expected)
+          : action === 'resume'
+            ? await runtime.workSessions.resume(auth.userId, params.id as Id, body, expected)
+            : await runtime.workSessions.complete(auth.userId, params.id as Id, body, expected);
+      return {
+        status: 200,
+        body: session,
+        headers: { ETag: etagForVersion(session.version) },
+      };
+    });
+
+  const reviewSession = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as SessionIdParams;
+      const feedback: EstimationFeedback = await runtime.workSessions.review(
+        auth.userId,
+        params.id as Id,
+        request.body as SessionReviewRequest,
+        requireIfMatch(request) as Version,
+      );
+      return { status: 201, body: feedback };
+    });
+
+  const dismissNotification = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as NotificationIdParams;
+      const notification = await runtime.notifications.dismiss(
+        auth.userId,
+        params.id as Id,
+        requireIfMatch(request),
+        runtime.clock.now(),
+      );
+      return {
+        status: 200,
+        body: notification,
+        headers: { ETag: etagForVersion(notification.version) },
+      };
+    });
+
+  const createPushSubscription = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const subscription = await runtime.pushSubscriptions.create(
+        auth.userId,
+        request.body as PushSubscriptionCreate,
+      );
+      return {
+        status: 201,
+        body: subscription,
+        headers: { ETag: etagForVersion(subscription.version) },
+      };
+    });
+
+  const deletePushSubscription = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as PushSubscriptionIdParams;
+      await runtime.pushSubscriptions.delete(
+        auth.userId,
+        params.id as Id,
+        requireIfMatch(request),
+      );
+      return { status: 204 };
+    });
+
+  const createExport = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const started = await runtime.exports.start(auth.userId);
+      return { status: 202, body: started };
+    });
+
   return {
     login: async (request, reply) => {
       const body = request.body as LoginRequest;
@@ -771,6 +969,90 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
     createCommitment,
     updateCommitment,
     deleteCommitment,
+    getToday: async (request, reply) => {
+      const auth = currentAuth(request);
+      const query = request.query as TodayQuery;
+      const today = await runtime.today.getToday(auth.userId, query.date);
+      const etag = etagForVersion(today.version);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(today);
+    },
+    acceptToday,
+    shrinkToday,
+    rescheduleToday,
+    approveTodayProposal,
+    createSession,
+    getSession: async (request, reply) => {
+      const auth = currentAuth(request);
+      const params = request.params as SessionIdParams;
+      const session = await runtime.workSessions.get(auth.userId, params.id as Id);
+      const etag = etagForVersion(session.version);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(session);
+    },
+    listSessions: async (request, reply) => {
+      const auth = currentAuth(request);
+      const page = await runtime.workSessions.list(
+        auth.userId,
+        request.query as SessionListQuery,
+      );
+      const etag = etagForBody(page);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(page);
+    },
+    listScheduleBlocks: async (request, reply) => {
+      const auth = currentAuth(request);
+      const page = await runtime.planning.listScheduleBlocks(
+        auth.userId,
+        request.query as ScheduleBlockListQuery,
+      );
+      const etag = etagForBody(page);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(page);
+    },
+    pauseSession: sessionAction('pause'),
+    resumeSession: sessionAction('resume'),
+    completeSession: sessionAction('complete'),
+    reviewSession,
+    listNotifications: async (request, reply) => {
+      const auth = currentAuth(request);
+      const page = await runtime.notifications.list(
+        auth.userId,
+        request.query as NotificationQuery,
+      );
+      const etag = etagForBody(page);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(page);
+    },
+    dismissNotification,
+    createPushSubscription,
+    deletePushSubscription,
+    createExport,
+    getExport: async (request, reply) => {
+      const auth = currentAuth(request);
+      const params = request.params as ExportIdParams;
+      const query = (request.query ?? {}) as { download?: unknown };
+      if (query.download === '1' || query.download === 1) {
+        const artifact = await runtime.exports.download(auth.userId, params.id as Id);
+        return reply
+          .code(200)
+          .type(artifact.contentType)
+          .header(
+            'Content-Disposition',
+            `attachment; filename="ohmydate-export-${params.id}.json"`,
+          )
+          .send(artifact.content);
+      }
+      const host = request.headers.host ?? 'localhost';
+      const record = await runtime.exports.get(
+        auth.userId,
+        params.id as Id,
+        `${request.protocol}://${host}`,
+      );
+      const etag = etagForBody(record);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(record);
+    },
     createIntakeSession: async (request, reply) =>
       runIdempotent(runtime, request, reply, async () => {
         const auth = currentAuth(request);
@@ -1043,6 +1325,7 @@ function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
     if (meta.requireIfMatch) {
       if (
         meta.operationId === 'approvePlanCandidate' ||
+        meta.operationId === 'approveTodayProposal' ||
         meta.operationId === 'putAvailability'
       ) {
         requireAvailabilityIfMatch(request);
@@ -1056,7 +1339,7 @@ function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
 
 export function registerRoutes(app: FastifyInstance, runtime: RouteRuntime): void {
   const handlers = buildHandlers(runtime);
-  for (const route of [...routes, ...planningRoutes]) {
+  for (const route of [...routes, ...planningRoutes, ...dailyRoutes]) {
     const meta = routeMeta(route);
     const handler = handlers[meta.operationId];
     if (handler === undefined) {
@@ -1109,6 +1392,37 @@ export function createRuntime(options: {
     llm: options.llm,
     budgetGuard: options.budgetGuard,
   });
+  const todayStore = new PgTodayStore({
+    db: options.db,
+    clock: options.clock,
+    ids: options.ids,
+  });
+  const today = new TodayService({
+    tasks: options.repos.tasks,
+    planning: options.planningStore,
+    today: todayStore,
+    clock: options.clock,
+    ids: options.ids,
+  });
+  const sessions = new SessionService({
+    store: new PgWorkSessionStore({ db: options.db }),
+    clock: options.clock,
+    ids: options.ids,
+  });
+  const notifications = new PgNotificationStore({ db: options.db, ids: options.ids });
+  const pushSubscriptions = new PgPushSubscriptionStore({
+    db: options.db,
+    ids: options.ids,
+    key: resolvePushKey(options.config),
+    clock: options.clock,
+  });
+  const exportStore = new PgExportStore({ db: options.db, clock: options.clock });
+  const exports = new ExportService({
+    store: exportStore,
+    builder: new PgExportPayloadBuilder({ db: options.db }),
+    clock: options.clock,
+    ids: options.ids,
+  });
   return {
     config: options.config,
     clock: options.clock,
@@ -1124,6 +1438,11 @@ export function createRuntime(options: {
       clock: options.clock,
     }),
     intake,
+    today,
+    workSessions: sessions,
+    notifications,
+    pushSubscriptions,
+    exports,
   };
 }
 

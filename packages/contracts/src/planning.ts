@@ -5,6 +5,7 @@ import {
   IdSchema,
   InstantSchema,
   VersionSchema,
+  pageSchema,
 } from './common.js';
 import { ViolationSchema } from './problem.js';
 
@@ -383,6 +384,24 @@ export const ScheduleBlockSchema = Type.Object(
   { additionalProperties: false, $id: 'ScheduleBlock' },
 );
 
+/**
+ * Calendar range query (FU-51): active approved blocks whose interval
+ * overlaps `[from, to)`. The API rejects ranges longer than 366 days.
+ */
+export const ScheduleBlockListQuerySchema = Type.Object(
+  {
+    from: InstantSchema,
+    to: InstantSchema,
+    cursor: Type.Optional(CursorSchema),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
+  },
+  { additionalProperties: false, $id: 'ScheduleBlockListQuery' },
+);
+
+export const ScheduleBlockPageSchema = pageSchema(ScheduleBlockSchema, {
+  id: 'ScheduleBlockPage',
+});
+
 export const PLAN_VERSION_CREATORS = ['user', 'replan'] as const;
 
 export type PlanVersionCreatorName = (typeof PLAN_VERSION_CREATORS)[number];
@@ -431,4 +450,6 @@ export type PreviewEditRequest = Static<typeof PreviewEditRequestSchema>;
 export type PreviewEditResponse = Static<typeof PreviewEditResponseSchema>;
 export type ApprovePlanRequest = Static<typeof ApprovePlanRequestSchema>;
 export type ScheduleBlockDto = Static<typeof ScheduleBlockSchema>;
+export type ScheduleBlockListQuery = Static<typeof ScheduleBlockListQuerySchema>;
+export type ScheduleBlockPage = Static<typeof ScheduleBlockPageSchema>;
 export type PlanVersionDto = Static<typeof PlanVersionSchema>;
