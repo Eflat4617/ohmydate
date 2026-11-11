@@ -91,11 +91,13 @@ export {
   DEFAULT_LLM_REQUEST_TIMEOUT_MS,
   DEFAULT_STALE_RESERVATION_MARGIN_MS,
   InMemorySpendLedger,
+  LLM_ATTEMPT_CHAINS_WITH_FALLBACK,
   estimateInputTokensFromChars,
   estimateInputTokensUpperBound,
   estimateReservationUsd,
   roundUpToMicroUsd,
   staleReservationThresholdMs,
+  staleReservationThresholdWithFallbackMs,
   type LlmSpendLedger,
   type LlmSpendReserveInput,
   type LlmSpendRow,
@@ -161,6 +163,16 @@ export {
 } from './schema-registry.js';
 
 export {
+  STRICT_JSON_INSTRUCTION,
+  buildStructuredMessages,
+  structuredContentBytes,
+  withStrictJsonInstruction,
+  type StructuredChatMessage,
+  type StructuredMessageRequest,
+} from './structured-messages.js';
+
+export {
+  DEFAULT_ABORT_SETTLE_GRACE_MS,
   appendValidationErrors,
   runStructured,
   type RunStructuredOptions,

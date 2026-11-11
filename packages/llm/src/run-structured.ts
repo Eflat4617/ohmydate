@@ -46,7 +46,26 @@ export interface RunStructuredOptions {
   readonly allowUnbudgeted?: boolean;
   readonly estimatedCostUsd?: number;
   readonly signal?: AbortSignal;
+  /**
+   * FU-76: wall-clock bound for the whole call (every attempt, retry backoff
+   * and the single repair). Each attempt's timer is the smaller of its
+   * per-attempt timeout and the time left; with nothing left the call fails as
+   * `LlmTimeoutError` before another attempt is reserved. Absent -> unbounded
+   * chain (each attempt still has its own timer).
+   */
+  readonly totalTimeoutMs?: number;
+  /**
+   * FU-54: after a timeout or caller abort wins the race against an attempt
+   * whose billing policy already reported a charge, wait at most this long for
+   * the attempt to settle so the policy's final charge is recorded. Default 1000.
+   */
+  readonly abortSettleGraceMs?: number;
+  /** Test seam for the total-deadline clock (default `Date.now`). */
+  readonly now?: () => number;
 }
+
+/** Default FU-54 grace for an aborted, already-charged attempt to settle. */
+export const DEFAULT_ABORT_SETTLE_GRACE_MS = 1_000;
 
 export interface RunStructuredResult {
   readonly output: unknown;
@@ -88,18 +107,43 @@ export function appendValidationErrors(
   return { input, ...repair };
 }
 
+/** Resolves when `call` settles (either way) or after `graceMs`, whichever is first. */
+async function settledWithin(call: Promise<unknown>, graceMs: number): Promise<void> {
+  if (graceMs <= 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      call.then(
+        () => undefined,
+        () => undefined,
+      ),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, graceMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 function callWithTimeout(
   port: LlmPort,
   request: Parameters<LlmPort['complete']>[0],
   timeoutMs: number,
   outerSignal: AbortSignal | undefined,
+  settleGraceMs: number,
 ): Promise<LlmCompleteResponse> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let removeOuterListener: (() => void) | undefined;
+  let raceError: LlmError | undefined;
+  // FU-54: the latest charge the policy reported for THIS attempt (its
+  // reservation as soon as it is made, then the settled amount).
+  let charge: LlmUsage | undefined;
 
   const abortPromise = new Promise<never>((_resolve, reject) => {
-    const abortWith = (reason: Error): void => {
+    const abortWith = (reason: LlmError): void => {
+      raceError = reason;
       reject(reason);
       controller.abort(reason);
     };
@@ -122,11 +166,41 @@ function callWithTimeout(
     }
   });
 
-  const call = port.complete({ ...request, signal: controller.signal });
-  return Promise.race([call, abortPromise]).finally(() => {
-    if (timer !== undefined) clearTimeout(timer);
-    removeOuterListener?.();
+  // A pre-aborted signal never dispatches the attempt (no reservation, no charge).
+  if (raceError !== undefined) {
+    // The abort promise already rejected; observe it so it is not reported as unhandled.
+    abortPromise.catch(() => undefined);
+    return Promise.reject(raceError);
+  }
+
+  const upstreamCharge = request.onCharge;
+  const call = port.complete({
+    ...request,
+    signal: controller.signal,
+    onCharge: (usage) => {
+      charge = usage;
+      upstreamCharge?.(usage);
+    },
   });
+  return Promise.race([call, abortPromise])
+    .catch(async (error: unknown) => {
+      // FU-54: the timer or the caller abort beat the attempt, so the attempt's
+      // own error (with the usage its policy settled) is never seen here. When a
+      // billing policy has reported a charge for this attempt, give the aborted
+      // attempt a bounded moment to settle (the transport aborts at once) and
+      // carry the policy's final charge, so agent_run cost matches the ledger.
+      // An attempt with no reported charge (no policy, or aborted before its
+      // reservation) is not waited for.
+      if (error === raceError && raceError !== undefined && charge !== undefined) {
+        await settledWithin(call, settleGraceMs);
+        raceError.usage = charge;
+      }
+      throw error;
+    })
+    .finally(() => {
+      if (timer !== undefined) clearTimeout(timer);
+      removeOuterListener?.();
+    });
 }
 
 export async function runStructured(
@@ -142,6 +216,15 @@ export async function runStructured(
     options.promptLimits ?? DEFAULT_PROMPT_LIMIT_OVERRIDES,
   );
   const timeoutMs = options.timeoutMs ?? limits?.timeoutMs ?? DEFAULT_STRUCTURED_TIMEOUT_MS;
+  const now = options.now ?? Date.now;
+  const settleGraceMs = Math.max(0, options.abortSettleGraceMs ?? DEFAULT_ABORT_SETTLE_GRACE_MS);
+  const totalTimeoutMs =
+    options.totalTimeoutMs !== undefined &&
+    Number.isFinite(options.totalTimeoutMs) &&
+    options.totalTimeoutMs > 0
+      ? options.totalTimeoutMs
+      : undefined;
+  const deadline = totalTimeoutMs === undefined ? undefined : now() + totalTimeoutMs;
   const maxOutputTokens = request.maxOutputTokens ?? limits?.maxOutputTokens;
   // Forward the timeout to the adapter only when it is not the historical default,
   // so the adapter's own per-attempt timer never undercuts a longer call budget.
@@ -184,6 +267,10 @@ export async function runStructured(
   try {
     for (;;) {
       assertNotAborted();
+      // FU-76: never start (or reserve) an attempt the total bound cannot cover.
+      const remainingMs = deadline === undefined ? timeoutMs : deadline - now();
+      if (remainingMs <= 0) throw new LlmTimeoutError(totalTimeoutMs ?? timeoutMs);
+      const attemptTimeoutMs = Math.min(timeoutMs, Math.ceil(remainingMs));
       budgetGuard?.assertCanSpend(options.estimatedCostUsd ?? 0);
       attempts += 1;
 
@@ -201,10 +288,13 @@ export async function runStructured(
             ...(request.budget === undefined ? {} : { budget: request.budget }),
             ...(request.onDispatch === undefined ? {} : { onDispatch: request.onDispatch }),
             ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
-            ...(forwardTimeout ? { timeoutMs } : {}),
+            ...(forwardTimeout || attemptTimeoutMs < timeoutMs
+              ? { timeoutMs: attemptTimeoutMs }
+              : {}),
           },
-          timeoutMs,
+          attemptTimeoutMs,
           options.signal,
+          settleGraceMs,
         );
       } catch (error) {
         // A failed attempt can still be billable (e.g. PolicyLlm settles the

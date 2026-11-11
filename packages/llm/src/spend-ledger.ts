@@ -1,8 +1,6 @@
 import { BudgetExceeded } from './errors.js';
-import {
-  STRICT_JSON_INSTRUCTION,
-  type LlmPricingPerMillion,
-} from './openai-compatible-llm.js';
+import type { LlmPricingPerMillion } from './openai-compatible-llm.js';
+import { STRICT_JSON_INSTRUCTION } from './structured-messages.js';
 
 /**
  * FU-52c spend ledger contract (§H3/H4/H5/S1/S2). Production uses the
@@ -29,10 +27,16 @@ export const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_LLM_MAX_RETRIES = 2;
 /** Extra grace after the slowest possible attempt chain before recovery. */
 export const DEFAULT_STALE_RESERVATION_MARGIN_MS = 60_000;
+/**
+ * Attempt chains one adapter call may run: the JSON-mode request plus the
+ * single strict-instruction fallback, each with its own 429/5xx retries.
+ */
+export const LLM_ATTEMPT_CHAINS_WITH_FALLBACK = 2;
 
 /**
- * Age after which an open reservation is certainly abandoned:
- * `requestTimeout x (retries + 1) + margin`.
+ * Single attempt-chain formula: `requestTimeout x (retries + 1) + margin`.
+ * It does not cover the JSON-mode fallback; reservation recovery uses
+ * `staleReservationThresholdWithFallbackMs` (FU-54).
  */
 export function staleReservationThresholdMs(
   requestTimeoutMs: number = DEFAULT_LLM_REQUEST_TIMEOUT_MS,
@@ -41,6 +45,25 @@ export function staleReservationThresholdMs(
 ): number {
   return (
     Math.max(0, requestTimeoutMs) * (Math.max(0, retries) + 1) +
+    Math.max(0, marginMs)
+  );
+}
+
+/**
+ * FU-54: age after which an open reservation is certainly abandoned, counting
+ * the JSON-mode fallback. One `OpenAICompatibleLlm.complete` call may run the
+ * JSON-mode chain and then the fallback chain, each `requestTimeout x
+ * (retries + 1)`, so the threshold is
+ * `requestTimeout x (retries + 1) x 2 + margin`. The policy never relies on a
+ * caller (runStructured) capping the adapter below that.
+ */
+export function staleReservationThresholdWithFallbackMs(
+  requestTimeoutMs: number = DEFAULT_LLM_REQUEST_TIMEOUT_MS,
+  retries: number = DEFAULT_LLM_MAX_RETRIES,
+  marginMs: number = DEFAULT_STALE_RESERVATION_MARGIN_MS,
+): number {
+  return (
+    staleReservationThresholdMs(requestTimeoutMs, retries, 0) * LLM_ATTEMPT_CHAINS_WITH_FALLBACK +
     Math.max(0, marginMs)
   );
 }

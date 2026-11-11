@@ -48,6 +48,14 @@ export interface LlmCompleteRequest {
    */
   readonly onDispatch?: () => void;
   /**
+   * FU-54: billing policies (`PolicyLlm`) report the charge they hold for this
+   * attempt: the reservation upper bound as soon as it is made, then the
+   * settled amount (actual usage, or the reservation on timeout/abort). A
+   * caller whose own timer or abort wins the race uses the latest value so the
+   * recorded cost matches the ledger. Adapters ignore it; it must not throw.
+   */
+  readonly onCharge?: (charge: LlmUsage) => void;
+  /**
    * Per-call output bound (prompt limits). Policy reservation and the adapter's
    * `max_tokens` both use it (see `effectiveMaxOutputTokens`); absent -> configured default.
    */
