@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 13:21 | **M23-UIR-1 REQUEST_CHANGES (Sol medium)**: E2E-3 실흐름 확인(DB 직접 쓰기 없음). HIGH — 마법사 세션 전환 시 이전 세션 초안이 새 세션에 PATCH됨. MEDIUM — constraint_violation 문제 코드 미인식, DST 공백 시각 뒤로 이동, 반복 시간 블록 5분으로 붕괴, 지연 재시도/미리보기가 오프라인에서도 전송. 수정 1/2 → ctx_239111fefbee (+E2E 키보드 완주·편집 블록 승인 영속 확인) | reviews/M23-UIR-1.md | orchestrator |
 | 2026-11-11 13:18 | M4-01 질문: bytea 컬럼 종류 → 범위 확장 승인(types.ts ColumnKind + 기존 types.test.ts 매핑 1줄 추가, 추가만) | msg_65b223a59c83 | orchestrator |
 | 2026-11-11 12:44 | **FU-08cR APPROVE (Sol medium)**: Opus 승인분 사후 확인 — 초안 승인 정확히 한 번(크래시 후 재시도·잠금 손실·P2/P6/P7 실환경) 및 종료 처리(빌드 코드·실제 SIGTERM 후 PG 확인) 모두 유지. 새 HIGH 없음 | reviews/FU-08cR.md | orchestrator |
 | 2026-11-11 12:23 | **FU-38dR-1 REQUEST_CHANGES (Sol medium)**: 독립 62k A/B(공백 문맥 제외) 회귀 0, CC_PHONE FU-32 동일 확인. HIGH — ASCII 공백 접기 빠른 경로가 원문 좌표를 두 번 변환해 앞글자/번호 전체 노출(공백 문맥 60k에서 17,336 토큰 회귀). MEDIUM — A/B 예외가 ADR 명시 목록보다 넓음. GB-1 미준비. 수정 1/2 → ctx_0bf7dea8733b | reviews/FU-38dR-1.md | orchestrator |
