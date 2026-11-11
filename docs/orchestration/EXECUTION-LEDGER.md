@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 11:02 | FU-38d worker_done(e7feb7e): FU-32 CC_PHONE 원문 복원 + 1자리 지역 별도 패턴, 범위 밖 형태 명시 목록 고정, llm 425 pass·heavy 317s·ci 1160 pass. GB-1 관문은 Sol 확인 필수이므로 Opus 중복 리뷰 생략, **12:03 이후 Sol medium 리뷰(FU-38dR) 예정** — 토큰 절약 | worker report | orchestrator |
 | 2026-11-11 10:46 | **M3-04R-1 REQUEST_CHANGES (Opus 대체)**: HIGH 4 — Vikunja 모드에서 planner task/project 행이 없어 추정·승인 불가(재현), 약속 100개만 조회, 의존 폐포/잠금 작업 블록이 사전 검증에서 거부, 이력 블록이 생성기에 안 보임. MEDIUM 3 — 재승인이 이력 블록 superseded, RRULE 오전개, 계획 도메인 오류 멱등 미저장. 결정: (a) ensurePlannerTaskIdentity(마이그레이션 없음) + FU-45 이번 라운드 포함, 목표 범위는 intake_approval_step 기준. 수정 1/2 → ctx_8a9bcb068a5c | reviews/M3-04R-1-full.md | orchestrator |
 | 2026-11-11 10:35 | **FU-38cR2 REQUEST_CHANGES (Opus 대체) → FU-38c BLOCKED**: 1차 지적(키 상한·공백·인접 과잉·성능 게이트) 해결 확인. 새 HIGH — CC_PHONE 재작성으로 일반 국제 형식(+82 1012345678, +1 4155552671 등) 통째 노출, 216k A/B 1,506 토큰 회귀. 리뷰어가 사본에서 해법 검증(FU-32 패턴 유지 + 1자리 지역 별도 패턴 → 0 회귀). → **ADR-019 보강 2(9–11)** + 좁은 Task **FU-38d** | reviews/FU-38cR2.md | orchestrator |
 | 2026-11-11 10:13 | M3-05 worker_done(c16e883, web 85 tests, DeepSeek-high 101). 리뷰는 M3-04 병합 후 실제 API 연결과 함께(토큰 절약). 계약 확정: preview-edit If-Match = 일정안 버전, 오류 경로 /blocks/<i> → 08 갱신·M3-04에 전달. FU-38cR2 Opus 대체 시작(ctx_b83948b99f6d) | worker report | orchestrator |
