@@ -266,3 +266,109 @@ test('budget guard records successful usage', async () => {
   expect(guard.snapshot().spentTodayUsd).toBe(0.25);
   expect(guard.snapshot().spentThisMonthUsd).toBe(0.25);
 });
+
+describe('terminal LlmError usage includes every charged attempt', () => {
+  const invalid = { classification: 'maybe' };
+
+  class ChargedThenFail implements LlmPort {
+    calls = 0;
+
+    constructor(private readonly failure: Error) {}
+
+    async complete(): Promise<LlmCompleteResponse> {
+      this.calls += 1;
+      if (this.calls === 1) {
+        return {
+          output: invalid,
+          usage: { inputTokens: 100, outputTokens: 10, costUsd: 0.1 },
+          model: 'fixture',
+          latencyMs: 1,
+        };
+      }
+      throw this.failure;
+    }
+  }
+
+  test('repair rejection carries the first attempt usage', async () => {
+    const port = new ChargedThenFail(new LlmUnavailable('repair rejected', 'provider', false));
+    let error: unknown;
+    try {
+      await runStructured(port, request, unbudgeted);
+    } catch (cause) {
+      error = cause;
+    }
+    expect(error).toBeInstanceOf(LlmUnavailable);
+    expect((error as { usage?: unknown }).usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 10,
+      costUsd: 0.1,
+    });
+    expect(port.calls).toBe(2);
+  });
+
+  test('transport failure on the repair carries the first attempt usage', async () => {
+    const port = new ChargedThenFail(new LlmUnavailable('connection reset', 'provider', false));
+    let error: unknown;
+    try {
+      await runStructured(port, request, unbudgeted);
+    } catch (cause) {
+      error = cause;
+    }
+    expect(error).toBeInstanceOf(LlmUnavailable);
+    expect((error as { usage?: unknown }).usage).toMatchObject({
+      inputTokens: 100,
+      outputTokens: 10,
+      costUsd: 0.1,
+    });
+  });
+
+  test('timeout after a charged first attempt carries that attempt usage', async () => {
+    const port: LlmPort = {
+      complete: (() => {
+        let calls = 0;
+        return async () => {
+          calls += 1;
+          if (calls === 1) {
+            return {
+              output: invalid,
+              usage: { inputTokens: 100, outputTokens: 10, costUsd: 0.1 },
+              model: 'fixture',
+              latencyMs: 1,
+            };
+          }
+          return new Promise<never>(() => {});
+        };
+      })(),
+    };
+    let error: unknown;
+    try {
+      await runStructured(port, request, { ...unbudgeted, timeoutMs: 10 });
+    } catch (cause) {
+      error = cause;
+    }
+    expect(error).toBeInstanceOf(LlmTimeoutError);
+    expect((error as { usage?: unknown }).usage).toMatchObject({
+      inputTokens: 100,
+      outputTokens: 10,
+      costUsd: 0.1,
+    });
+  });
+
+  test('usage attached by a failed attempt is merged, not overwritten', async () => {
+    const failure = new LlmUnavailable('gateway budget rejected the call', 'provider', false);
+    failure.usage = { inputTokens: 50, outputTokens: 5, costUsd: 0.05 };
+    const port = new ChargedThenFail(failure);
+    let error: unknown;
+    try {
+      await runStructured(port, request, unbudgeted);
+    } catch (cause) {
+      error = cause;
+    }
+    expect(error).toBeInstanceOf(LlmUnavailable);
+    const usage = (error as { usage?: { inputTokens: number; outputTokens: number; costUsd: number } })
+      .usage;
+    expect(usage?.inputTokens).toBe(150);
+    expect(usage?.outputTokens).toBe(15);
+    expect(usage?.costUsd).toBeCloseTo(0.15, 12);
+  });
+});

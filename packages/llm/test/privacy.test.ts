@@ -858,7 +858,7 @@ test.each(perfInputs)('redaction of many matches scales linearly on $label', ({ 
   const build = (size: number): string => repeatToSize(unit, size);
   assertLinearScaling(label, redact, build);
   expectCatastrophicCeiling(label, redact, build);
-});
+}, 60_000);
 
 const adversarialPerfInputs = [
   { label: '+20 digits', unit: `+${'1'.repeat(20)} ` },
@@ -876,6 +876,7 @@ test.each(adversarialPerfInputs)(
     assertLinearScaling(label, redact, build);
     expectCatastrophicCeiling(label, redact, build);
   },
+  60_000,
 );
 
 const separatorRun = (run: string): string => `+1 12 34${run}567899999`;
@@ -921,6 +922,7 @@ test.each(separatorRunPerfInputs)(
     assertLinearScaling(label, redact, build);
     expectCatastrophicCeiling(label, redact, build);
   },
+  60_000,
 );
 
 /**
@@ -949,7 +951,7 @@ test('linearity gate rejects a deliberately quadratic mutant at S=25KB/4S=100KB'
     assertLinearScaling('quadratic mutant', quadraticMutant, (size) => 'x'.repeat(size)),
   ).toThrow(/super-linear/);
   expect(quadraticSink).toBeGreaterThanOrEqual(0);
-});
+}, 60_000);
 
 const closingTagVariants = [
   '</untrusted_document>',

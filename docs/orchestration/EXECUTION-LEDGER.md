@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | 9c62fb6 (M4-02), ba2911c (M4-01), ac17b02 (M23-UI), 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | d0e2c79 (FU-52), 9c62fb6 (M4-02), ba2911c (M4-01), ac17b02 (M23-UI), 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -18,6 +18,15 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 16:30 | **M4-UIR2 REQUEST_CHANGES (Opus 대체) → M4-UI BLOCKED**: 1차 H1·H2·H4·타이머·푸시 해결 확인, H3은 순차 전환만 해결. HIGH — 요청 진행 중 계정 전환 시 A의 세션·이벤트가 B 저장소로 이동(A 손실, B 대기열 영구 정지; P1/P2 재현). → 좁은 Task **M4-UIc**(소유자 epoch·시작 시 소유자 고정·403/404 격리) | reviews/M4-UIR2.md | orchestrator |
+| 2026-11-11 16:21 | **Sol 한도 재도달**(17:12 재시도 안내). M4-UIR2(ctx_52e0d001e37b) errored — 중단 직전 'account-switch race remains the blocking finding' 언급 → 패킷에 메모 추가 후 Opus 5.5 xhigh 대체로 retry-of. gpt-6-luna 전환 제안 거부 | worker-read | orchestrator |
+| 2026-11-11 16:13 | FU-52c 질문 → 범위 확장 승인: llm_spend.settle_reason(CHECK) + db/types.ts 최소 2줄 | msg_3e93b822108f | orchestrator |
+| 2026-11-11 16:10 | **FU-52R2 REQUEST_CHANGES (Sol medium) → FU-52 BLOCKED**: 1차 HIGH 6 해결 확인(키 표식 안전, 예산 0 호출 0, 소액 상한 호출 0, 재시도·누락 사용량 과금, 종료 순서 복원+변이 거부). 남은 HIGH — 입력 토큰 예약이 chars/3 평균이라 동시 다국어 호출이 상한 초과. MEDIUM 2(잔존 예약 복구 없음, 실패 재시도 사용량 누락). → 좁은 Task **FU-52c**(UTF-8 바이트 상한 예약, 잔존 예약 정산 복구, 사용량 누적) | reviews/FU-52R2.md | orchestrator |
+| 2026-11-11 15:38 | **FU-52R-1 REQUEST_CHANGES (Sol medium)**: HIGH 6 — gateway error.type로 키 노출 가능, 예산 0이 기본 예산으로 대체, 호출 전 예상·호출 후 상한 확인 없음(동시 호출 초과), 재시도·실패 호출 비용 누락, 사용량 누락 응답이 무료 처리, 종료 순서 검증 약화. 결정: 내부 오류 분류 상수, 0=비활성, 0011 llm_spend 예약·정산 원장(소유자별 advisory lock, max_tokens 상한), 순서 검증 복원(변이 증명), 세션 비밀값 파일. 수정 1/2 | reviews/FU-52R-1.md | orchestrator |
+| 2026-11-11 15:36 | **M4-UIR-1 REQUEST_CHANGES (Sol medium)**: HIGH 4 — Today가 다른 일정안 블록을 섞어 422, 빠른 오프라인 조작이 저널을 영구 정지, 세션/저널이 사용자 간 공유(로그아웃 후 잔존), Focus 시작 재시도가 같은 키에 다른 본문. MEDIUM 2 — 복원 시 타이머 0, 오프라인 푸시 동의 가능. 수정 1/2 → ctx_29e1c46aee7c | reviews/M4-UIR-1.md | orchestrator |
+| 2026-11-11 15:25 | **FU-52 실호출 스모크 성공**(세션 헤더 포함, 합성 입력): model deepseek-v4.1-flash, 5.7s, 입력 201/출력 221 토큰, $0.00016, 스키마 필드 4개. CI 흔들림 원인 = FU-50 선형성 테스트가 부하 시 기본 5s 테스트 시간 제한 초과 → 테스트별 시간 제한 지정 지시(기준 불변) | 스모크 출력 | orchestrator |
+| 2026-11-11 15:15 | **사용자 결정: 제품 LLM 경로 = OpenCode Go 유지**(위험 감수: 설계 용도 밖·남용 감시, 워커와 한도 공유). ADR-022 보강 2 | AskUserQuestion 응답 | orchestrator |
+| 2026-11-11 15:12 | FU-52 worker_done(47c6311,b217b53). **orchestrator 실호출 스모크(합성 입력)**: OpenCode Go 게이트웨이 400 MissingSessionID(x-opencode-session 필요). 문서 확인: "designed for OpenCode and other coding agents… Traffic is monitored for abuse", 비코딩 앱 사용 명시 금지는 없음, 월·5시간·주간 한도는 개발 워커와 공유 가능. 어댑터에 세션 헤더(HMAC 파생) 추가 지시, **공급 경로는 사용자 결정 요청** | 스모크 출력, opencode docs | orchestrator |
 | 2026-11-11 14:44 | FU-52 질문 → 범위 확장 승인: routes.ts(PATCH /me/settings 동의·예산 필드), ports.ts, auth-service.ts, pg-user-repository.ts(user.settings jsonb, 마이그레이션 없음), intake-service.ts(실제 공급자 id·ownerId 전달). M4-02와 routes.ts/app.ts 충돌 예상 → 최소·추가 변경만, 병합은 orchestrator | msg_477c93b2f97c | orchestrator |
 | 2026-11-11 14:38 | **사용자: 제품 LLM = OpenCode Go deepseek-v4.1-flash medium, 키 파일 제공**. 키 파일이 저장소 루트에 있어 즉시 .gitignore(*api_key*.txt, deploy/secrets/) + chmod 600 — 커밋 이력 없음 확인, 내용 미열람. ADR-022 보강, AGENTS.md 비밀 파일 금지 규칙 추가 | 사용자 메시지 | orchestrator |
 | 2026-11-11 14:33 | **사용자 결정 변경: GB-1 = DeepSeek API** → ADR-022(ADR-021 대체). 제품 키는 사용자가 발급해 비밀 파일로 주입, 워커용 opencode 자격증명 재사용 금지, 금액 예산 상한(사용자 확정 대기, 기본 보수적). FU-52 갱신 | 사용자 메시지 | orchestrator |
@@ -114,6 +123,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-52 (+52c) | ctx_e76ac2289629 (opus-fallback) | 6cf7806 | **APPROVE** — 한국어 동시 20건 최악 지출 $0.0304 ≤ $0.035, 키 표식 안전 | FU-54 | **Accepted, merged d0e2c79**; 충돌(마이그레이션 픽스처) 해결, ci 1496 pass/29 skip + web 112 |
 | M4-02 | ctx_0ecb8620f811 (Sol medium) | f154993 | **APPROVE** | FU-53; 부속 범위: e2e/global-setup.ts·build-smoke.mjs(합성 푸시 키), schema.d.ts | **Accepted, merged 9c62fb6**; ci 1424 pass/29 skip + web 112; E2E 8/8 |
 | M23-UI (M2-04+M3-05) | ctx_222e15ba47b3 (Sol medium) | fcaa451 | **APPROVE** | FU-51 | **Accepted, merged ac17b02**; E2E 8/8 (E2E-1/2/3) |
 | M4-01 | ctx_9e55749432e8 (Sol medium) | 003308c | **APPROVE** | — | **Accepted, merged ba2911c**; 통합 수정: 웹 Problem 코드 맵에 M4 코드 2개 추가(타입 드리프트 검사가 잡음). ci 1396 pass, 실패 1 = FU-50 성능 테스트(부하, 단독 재실행 통과) → FU-50 착수 |

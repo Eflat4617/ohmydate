@@ -9,6 +9,7 @@ import type {
   SessionStore,
   UserRecord,
   UserRepository,
+  UserSettingsPatch,
 } from './ports.js';
 
 export interface AuthServiceDeps {
@@ -89,7 +90,7 @@ export class AuthService {
 
   async updateSettings(
     userId: Id,
-    patch: { readonly timeZone?: string; readonly locale?: string },
+    patch: UserSettingsPatch,
     expectedVersion: number,
   ): Promise<UserRecord> {
     return this.#users.updateSettings(userId, patch, expectedVersion);

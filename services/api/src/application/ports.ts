@@ -5,12 +5,34 @@ export interface AppRepositories {
   readonly projects: ProjectRepository;
 }
 
+export interface LlmConsentSettings {
+  readonly granted: boolean;
+  readonly at: Instant;
+  readonly provider: string;
+}
+
+export interface LlmBudgetSettings {
+  readonly dailyUsd: number;
+  readonly monthlyUsd: number;
+}
+
+/** 05 §12 / ADR-022: owner-scoped consent + budget in `user.settings.llm`. */
+export interface LlmUserSettings {
+  readonly consent?: LlmConsentSettings;
+  readonly budget?: LlmBudgetSettings;
+}
+
+export interface UserSettings {
+  readonly llm?: LlmUserSettings;
+}
+
 export interface UserRecord {
   readonly id: Id;
   readonly email: string;
   readonly passwordHash: string;
   readonly timeZone: string;
   readonly locale: string;
+  readonly settings: UserSettings;
   readonly version: number;
   readonly createdAt: Instant;
   readonly updatedAt: Instant;
@@ -19,6 +41,8 @@ export interface UserRecord {
 export interface UserSettingsPatch {
   readonly timeZone?: string;
   readonly locale?: string;
+  /** Already-normalized consent timestamp/provider from the route handler. */
+  readonly llm?: LlmUserSettings;
 }
 
 export interface UserRepository {

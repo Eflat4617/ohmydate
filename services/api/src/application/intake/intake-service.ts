@@ -45,6 +45,8 @@ import {
 } from '@ohmydate/domain';
 import {
   BudgetExceeded,
+  GatewayError,
+  LlmError,
   LlmUnavailable,
   SchemaViolation,
   buildUntrustedBlock,
@@ -109,6 +111,8 @@ export interface IntakeServiceOptions {
   readonly providerMaxCallMs: number;
   /** `null` means no provider is configured: LLM-dependent steps notify manual mode. */
   readonly llm: LlmPort | null;
+  /** Configured provider id for agent_run metadata when a call fails. */
+  readonly llmProvider?: string;
   readonly budgetGuard: BudgetGuard;
   readonly config?: IntakeAgentConfig;
 }
@@ -437,6 +441,7 @@ export class IntakeService {
   readonly #approvalLock: IntakeApprovalLock;
   readonly #providerMaxCallMs: number;
   readonly #llm: LlmPort | null;
+  readonly #llmProvider: string;
   readonly #budgetGuard: BudgetGuard;
   readonly #config: IntakeAgentConfig;
 
@@ -451,6 +456,7 @@ export class IntakeService {
     this.#approvalLock = options.approvalLock;
     this.#providerMaxCallMs = options.providerMaxCallMs;
     this.#llm = options.llm;
+    this.#llmProvider = options.llmProvider ?? 'fake';
     this.#budgetGuard = options.budgetGuard;
     this.#config = options.config ?? INTAKE_AGENT_CONFIG;
   }
@@ -515,7 +521,12 @@ export class IntakeService {
       error = { code: 'llm_unavailable', message: 'no LLM provider configured; manual mode' };
     } else {
       try {
-        const output = await this.#runDetectionLlm(ownerId, body.input, templates.items);
+        const output = await this.#runDetectionLlm(
+          ownerId,
+          session.id,
+          body.input,
+          templates.items,
+        );
         detection = {
           ...detection,
           detected: {
@@ -534,7 +545,9 @@ export class IntakeService {
           const message =
             caught instanceof SchemaViolation
               ? 'LLM type detection did not match the schema after one repair; manual mode'
-              : 'LLM unavailable; manual mode';
+              : caught instanceof GatewayError
+                ? `LLM unavailable (${caught.classification}); manual mode`
+                : 'LLM unavailable; manual mode';
           error = { code: 'llm_unavailable', message };
         } else {
           throw caught;
@@ -1267,6 +1280,7 @@ export class IntakeService {
 
   async #runDetectionLlm(
     ownerId: Id,
+    sessionId: Id,
     input: IntakeInput,
     templates: readonly TaskTemplate[],
   ): Promise<DetectionLlmOutput> {
@@ -1280,6 +1294,8 @@ export class IntakeService {
           ...TYPE_DETECTION_PROMPT,
           input: bundle.input,
           schemaId: TYPE_DETECTION_SCHEMA,
+          ownerId,
+          sessionKey: sessionId,
         },
         { budgetGuard: this.#budgetGuard, estimatedCostUsd: 0 },
       );
@@ -1288,7 +1304,7 @@ export class IntakeService {
         purpose: 'detect_type',
         promptIdVersion: `${TYPE_DETECTION_PROMPT.promptId}@${TYPE_DETECTION_PROMPT.version}`,
         model: result.model,
-        provider: 'fake',
+        provider: result.provider ?? this.#llmProvider,
         tokensIn: result.usage.inputTokens,
         tokensOut: result.usage.outputTokens,
         costUsd: result.usage.costUsd ?? 0,
@@ -1298,15 +1314,16 @@ export class IntakeService {
       });
       return result.output as DetectionLlmOutput;
     } catch (error) {
+      const usage = usageFromError(error);
       await this.#recordRun({
         ownerId,
         purpose: 'detect_type',
         promptIdVersion: `${TYPE_DETECTION_PROMPT.promptId}@${TYPE_DETECTION_PROMPT.version}`,
         model: 'unknown',
-        provider: 'fake',
-        tokensIn: 0,
-        tokensOut: 0,
-        costUsd: 0,
+        provider: this.#llmProvider,
+        tokensIn: usage.inputTokens,
+        tokensOut: usage.outputTokens,
+        costUsd: usage.costUsd ?? 0,
         latencyMs: 0,
         status: runStatus(error),
         redactionReport: bundle.redactionReport,
@@ -1358,6 +1375,8 @@ export class IntakeService {
           ...DECOMPOSITION_PROMPT,
           input: bundle.input,
           schemaId: DECOMPOSITION_SCHEMA,
+          ownerId: session.ownerId,
+          sessionKey: session.id,
         },
         { budgetGuard: this.#budgetGuard, estimatedCostUsd: 0 },
       );
@@ -1366,7 +1385,7 @@ export class IntakeService {
         purpose: 'decomposition',
         promptIdVersion: `${DECOMPOSITION_PROMPT.promptId}@${DECOMPOSITION_PROMPT.version}`,
         model: result.model,
-        provider: 'fake',
+        provider: result.provider ?? this.#llmProvider,
         tokensIn: result.usage.inputTokens,
         tokensOut: result.usage.outputTokens,
         costUsd: result.usage.costUsd ?? 0,
@@ -1396,15 +1415,16 @@ export class IntakeService {
       });
       return session;
     } catch (error) {
+      const usage = usageFromError(error);
       await this.#recordRun({
         ownerId: session.ownerId,
         purpose: 'decomposition',
         promptIdVersion: `${DECOMPOSITION_PROMPT.promptId}@${DECOMPOSITION_PROMPT.version}`,
         model: 'unknown',
-        provider: 'fake',
-        tokensIn: 0,
-        tokensOut: 0,
-        costUsd: 0,
+        provider: this.#llmProvider,
+        tokensIn: usage.inputTokens,
+        tokensOut: usage.outputTokens,
+        costUsd: usage.costUsd ?? 0,
         latencyMs: 0,
         status: runStatus(error),
         redactionReport: bundle.redactionReport,
@@ -1525,6 +1545,15 @@ export class IntakeService {
       updatedAt: session.updatedAt,
     };
   }
+}
+
+function usageFromError(error: unknown): {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly costUsd?: number;
+} {
+  if (error instanceof LlmError && error.usage !== undefined) return error.usage;
+  return { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 }
 
 function runStatus(error: unknown): AgentRunStatus {

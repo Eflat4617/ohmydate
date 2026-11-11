@@ -9,14 +9,18 @@ export {
 
 export {
   BudgetExceeded,
+  GatewayError,
   LlmError,
   LlmTimeoutError,
   LlmUnavailable,
+  MissingSessionIdError,
   PromptNotFoundError,
+  ResponseFormatUnsupportedError,
   SchemaViolation,
   UnknownSchemaError,
   type BudgetBlockReason,
   type BudgetLimitKind,
+  type GatewayClassification,
   type LlmErrorCode,
 } from './errors.js';
 
@@ -29,6 +33,38 @@ export {
   type FakeLlmResponse,
 } from './fake-llm.js';
 
+export {
+  DEFAULT_DEEPSEEK_PRICING,
+  OpenAICompatibleLlm,
+  type LlmPricingPerMillion,
+  type OpenAICompatibleLlmOptions,
+} from './openai-compatible-llm.js';
+
+export {
+  PolicyLlm,
+  type LlmConsentRecord,
+  type PolicyLlmOptions,
+  type ResolvedLlmAccess,
+} from './policy-llm.js';
+
+export {
+  DEFAULT_LLM_MAX_RETRIES,
+  DEFAULT_LLM_REQUEST_TIMEOUT_MS,
+  DEFAULT_STALE_RESERVATION_MARGIN_MS,
+  InMemorySpendLedger,
+  estimateInputTokensFromChars,
+  estimateInputTokensUpperBound,
+  estimateReservationUsd,
+  roundUpToMicroUsd,
+  staleReservationThresholdMs,
+  type LlmSpendLedger,
+  type LlmSpendReserveInput,
+  type LlmSpendRow,
+  type LlmSpendSettleInput,
+  type LlmSpendSettleReason,
+  type LlmSpendTotals,
+} from './spend-ledger.js';
+
 export type {
   LlmBudget,
   LlmCompleteRequest,
@@ -38,6 +74,8 @@ export type {
 } from './port.js';
 
 export {
+  MAX_REDACT_INPUT,
+  assertRedactInputSize,
   buildUntrustedBlock,
   redact,
   type RedactionCount,

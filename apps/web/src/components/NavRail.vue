@@ -52,6 +52,9 @@ function newTask(): void {
           Notifications
         </button>
       </li>
+      <li>
+        <RouterLink to="/settings/ai">AI settings</RouterLink>
+      </li>
     </ul>
     <div class="nav-secondary">
       <button type="button" class="link-button" @click="ui.openSearch">

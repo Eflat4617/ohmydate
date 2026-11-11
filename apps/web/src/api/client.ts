@@ -25,6 +25,7 @@ export type PushSubscriptionCreate = components['schemas']['PushSubscriptionCrea
 export type Export = components['schemas']['Export'];
 export type ExportStartResponse = components['schemas']['ExportStartResponse'];
 export type PlanVersion = components['schemas']['PlanVersion'];
+export type UserSettingsPatch = components['schemas']['UserSettingsPatch'];
 export type Page<T> = { items: T[]; nextCursor: string | null };
 export type IntakeInput = components['schemas']['IntakeInput'];
 export type IntakeSession = components['schemas']['IntakeSession'];
@@ -172,6 +173,26 @@ export class PlannerClient {
 
   async getMe(): Promise<User> {
     const { data, error, response } = await this.client.GET('/me');
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty user response');
+    this.remember('user', data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async updateMySettings(
+    patch: UserSettingsPatch,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<User> {
+    const { data, error, response } = await this.client.PATCH('/me/settings', {
+      params: {
+        header: {
+          'If-Match': etagForVersion(expectedVersion),
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+      body: patch,
+    });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty user response');
     this.remember('user', data.version, response.headers.get('ETag'));

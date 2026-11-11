@@ -2711,6 +2711,94 @@
           }
         ]
       },
+      "LlmBudget": {
+        "additionalProperties": false,
+        "properties": {
+          "dailyUsd": {
+            "minimum": 0,
+            "type": "number"
+          },
+          "monthlyUsd": {
+            "minimum": 0,
+            "type": "number"
+          }
+        },
+        "required": [
+          "dailyUsd",
+          "monthlyUsd"
+        ],
+        "type": "object"
+      },
+      "LlmConsent": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "granted": {
+            "type": "boolean"
+          },
+          "provider": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "granted",
+          "at",
+          "provider"
+        ],
+        "type": "object"
+      },
+      "LlmSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "additionalProperties": false,
+            "properties": {
+              "dailyUsd": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "monthlyUsd": {
+                "minimum": 0,
+                "type": "number"
+              }
+            },
+            "required": [
+              "dailyUsd",
+              "monthlyUsd"
+            ],
+            "type": "object"
+          },
+          "consent": {
+            "additionalProperties": false,
+            "properties": {
+              "at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "granted": {
+                "type": "boolean"
+              },
+              "provider": {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "granted",
+              "at",
+              "provider"
+            ],
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "LoginRequest": {
         "additionalProperties": false,
         "properties": {
@@ -6303,6 +6391,65 @@
             "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
             "type": "string"
           },
+          "llm": {
+            "additionalProperties": false,
+            "properties": {
+              "budget": {
+                "additionalProperties": false,
+                "properties": {
+                  "dailyUsd": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "monthlyUsd": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "dailyUsd",
+                  "monthlyUsd"
+                ],
+                "type": "object"
+              },
+              "consent": {
+                "additionalProperties": false,
+                "properties": {
+                  "at": {
+                    "format": "date-time",
+                    "type": "string"
+                  },
+                  "granted": {
+                    "type": "boolean"
+                  },
+                  "provider": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "granted",
+                  "at",
+                  "provider"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "llmProvider": {
+            "anyOf": [
+              {
+                "const": "fake",
+                "type": "string"
+              },
+              {
+                "const": "deepseek",
+                "type": "string"
+              }
+            ]
+          },
           "locale": {
             "maxLength": 35,
             "minLength": 2,
@@ -6335,6 +6482,38 @@
       "UserSettingsPatch": {
         "additionalProperties": false,
         "properties": {
+          "llm": {
+            "additionalProperties": false,
+            "properties": {
+              "budget": {
+                "additionalProperties": false,
+                "properties": {
+                  "dailyUsd": {
+                    "minimum": 0,
+                    "type": "number"
+                  },
+                  "monthlyUsd": {
+                    "minimum": 0,
+                    "type": "number"
+                  }
+                },
+                "type": "object"
+              },
+              "consent": {
+                "additionalProperties": false,
+                "properties": {
+                  "granted": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "granted"
+                ],
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
           "locale": {
             "maxLength": 35,
             "minLength": 2,

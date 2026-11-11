@@ -3,6 +3,7 @@ import AvailabilityView from './views/AvailabilityView.vue';
 import CommitmentsView from './views/CommitmentsView.vue';
 import FocusView from './views/FocusView.vue';
 import InboxView from './views/InboxView.vue';
+import LlmSettingsView from './views/LlmSettingsView.vue';
 import LoginView from './views/LoginView.vue';
 import PlanComparisonView from './views/PlanComparisonView.vue';
 import PlanNewView from './views/PlanNewView.vue';
@@ -25,6 +26,7 @@ export const router = createRouter({
     { path: '/focus/:sessionId', name: 'focus', component: FocusView, props: true },
     { path: '/commitments', name: 'commitments', component: CommitmentsView },
     { path: '/settings/availability', name: 'availability', component: AvailabilityView },
+    { path: '/settings/ai', name: 'ai-settings', component: LlmSettingsView },
     { path: '/plans/new', name: 'plans-new', component: PlanNewView },
     { path: '/plans/:id', name: 'plan', component: PlanComparisonView, props: true },
     { path: '/:pathMatch(.*)*', redirect: '/inbox' },
