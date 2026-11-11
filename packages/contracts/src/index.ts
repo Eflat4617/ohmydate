@@ -21,9 +21,19 @@ export {
 } from './common.js';
 
 export {
+  LlmBudgetPatchSchema,
+  LlmBudgetSchema,
+  LlmConsentPatchSchema,
+  LlmConsentSchema,
+  LlmSettingsPatchSchema,
+  LlmSettingsSchema,
   LoginRequestSchema,
   UserSchema,
   UserSettingsPatchSchema,
+  type LlmBudget,
+  type LlmConsent,
+  type LlmSettings,
+  type LlmSettingsPatch,
   type LoginRequest,
   type User,
   type UserSettingsPatch,

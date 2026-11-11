@@ -1,5 +1,11 @@
 import type { DecompositionStepDto, IntakeInput, IntakeSessionDto } from '@ohmydate/contracts';
-import { BudgetGuard, FakeLlm, appendValidationErrors, validateOutput } from '@ohmydate/llm';
+import {
+  BudgetGuard,
+  FakeLlm,
+  LlmUnavailable,
+  appendValidationErrors,
+  validateOutput,
+} from '@ohmydate/llm';
 import {
   buildDecompositionLlmInput,
   buildDetectionLlmInput,
@@ -129,6 +135,55 @@ function actionHeaders(session: TestSession, version: number): Record<string, st
 }
 
 describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
+  test('a failed repair persists the accumulated usage of the charged detection attempt', async () => {
+    const detectionInput = buildDetectionLlmInput(readyInput, []);
+    const invalid = { classification: 'maybe' };
+    const errors = validateOutput('llm.type_detection.v1', invalid).errors;
+    const repairedInput = appendValidationErrors(detectionInput.input, errors);
+    const llm = new FakeLlm([
+      {
+        promptId: 'type_detection',
+        input: detectionInput.input,
+        response: {
+          output: invalid,
+          usage: { inputTokens: 100, outputTokens: 10, costUsd: 0.1 },
+        },
+      },
+      {
+        promptId: 'type_detection',
+        input: repairedInput,
+        response: {
+          error: new LlmUnavailable('gateway rejected the repair', 'provider', false),
+        },
+      },
+    ]);
+    const ctx = await createTestContext({ llm, budgetGuard: generousGuard() });
+    const ownerId = await ctx.seedUser({
+      email: 'intake-usage@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'intake-usage@example.com', 'correct-horse');
+
+    try {
+      const created = await createSession(ctx, session, readyInput);
+      expect(created.response.statusCode).toBe(201);
+      expect((created.body as IntakeSessionDto).manual).toBe(true);
+
+      const run = await ctx.db
+        .selectFrom('agent_run')
+        .selectAll()
+        .where('owner_id', '=', ownerId)
+        .where('purpose', '=', 'detect_type')
+        .executeTakeFirstOrThrow();
+      expect(run.status).toBe('failed');
+      expect(run.tokens_in).toBe(100);
+      expect(run.tokens_out).toBe(10);
+      expect(Number(run.cost_usd)).toBeCloseTo(0.1, 12);
+    } finally {
+      await ctx.close();
+    }
+  });
+
   test('scenario A: new type detection, decomposition, draft edit, idempotent approval', async () => {
     const detectionInput = buildDetectionLlmInput(readyInput, []);
     const answerInput: IntakeInput = { ...readyInput, priority: 2 };

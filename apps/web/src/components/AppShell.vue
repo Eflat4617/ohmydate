@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
 import BottomNav from './BottomNav.vue';
 import HelpDialog from './HelpDialog.vue';
+import LlmConsentDialog from './LlmConsentDialog.vue';
 import NavRail from './NavRail.vue';
 import OfflineBanner from './OfflineBanner.vue';
 import SearchDialog from './SearchDialog.vue';
@@ -12,8 +14,16 @@ import ToastHost from './ToastHost.vue';
 
 const ui = useUiStore();
 const offline = useOfflineStore();
+const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
+const consentDismissed = ref(false);
+const consentOpen = computed(
+  () =>
+    !consentDismissed.value &&
+    auth.user?.llmProvider === 'deepseek' &&
+    auth.user.llm?.consent?.granted !== true,
+);
 
 let teardownOffline: (() => void) | null = null;
 
@@ -82,6 +92,7 @@ function onKeydown(event: KeyboardEvent): void {
 onMounted(() => {
   teardownOffline = offline.initialize();
   window.addEventListener('keydown', onKeydown);
+  if (auth.user === null) void auth.loadCurrent();
 });
 
 onUnmounted(() => {
@@ -105,4 +116,5 @@ onUnmounted(() => {
   <ToastHost />
   <HelpDialog :open="ui.helpOpen" @close="ui.closeDialogs()" />
   <SearchDialog :open="ui.searchOpen" @close="ui.closeDialogs()" />
+  <LlmConsentDialog :open="consentOpen" @close="consentDismissed = true" />
 </template>

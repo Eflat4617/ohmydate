@@ -13,6 +13,8 @@ export interface LlmBudget {
 export interface LlmUsage {
   readonly inputTokens: number;
   readonly outputTokens: number;
+  /** Provider-reported cached prompt tokens, when the provider exposes them. */
+  readonly cachedInputTokens?: number;
   /**
    * Provider-reported cost. Real adapters MUST return a finite, non-negative costUsd;
    * omitting it makes the BudgetGuard fail closed (05 §8, ADR-008). Fake/local pricing may
@@ -26,6 +28,13 @@ export interface LlmCompleteRequest {
   readonly version: string;
   readonly input: unknown;
   readonly schemaId: string;
+  /** Owner whose settings provide consent + budget limits (05 §12, ADR-022). */
+  readonly ownerId?: string;
+  /**
+   * Logical conversation key (the intake session id). Adapters may derive a
+   * non-identifying provider session header from `ownerId + sessionKey`.
+   */
+  readonly sessionKey?: string;
   readonly budget?: LlmBudget;
   /** Aborted by the caller timeout; adapters must stop work when this fires. */
   readonly signal?: AbortSignal;
@@ -36,6 +45,8 @@ export interface LlmCompleteResponse {
   readonly output: unknown;
   readonly usage: LlmUsage;
   readonly model: string;
+  /** Provider id used for agent_run metadata (e.g. `deepseek`). */
+  readonly provider?: string;
   readonly latencyMs: number;
 }
 

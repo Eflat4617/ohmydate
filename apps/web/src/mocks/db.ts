@@ -152,6 +152,7 @@ export function createMockDb(): MockDb {
     email: 'planner@example.test',
     timeZone: 'Asia/Seoul',
     locale: 'en',
+    llmProvider: 'fake',
     version: 1,
     createdAt,
     updatedAt: createdAt,

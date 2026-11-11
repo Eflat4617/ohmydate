@@ -16,7 +16,12 @@ import {
   shutdownRequestMeta,
   waitForOperationSettlement,
 } from './http/shutdown-context.js';
-import { configFromEnv, type AppConfig } from './config.js';
+import {
+  configFromEnv,
+  loadLlmApiKey,
+  loadLlmSessionSecret,
+  type AppConfig,
+} from './config.js';
 import type { Database } from './db/types.js';
 
 const { Pool } = pg;
@@ -295,6 +300,8 @@ export interface ShutdownControllerOptions {
   readonly destroy: () => Promise<void>;
   readonly exit: (code: number) => void;
   readonly deadlineMs?: number;
+  /** Test-only synchronous ordering seam; production leaves it undefined. */
+  readonly trace?: (event: 'db_destroy_started' | 'db_destroyed') => void;
 }
 
 export type ShutdownController = (signal: NodeJS.Signals) => void;
@@ -342,11 +349,14 @@ export function createShutdownController(options: ShutdownControllerOptions): Sh
         failed = true;
         options.logger.error({ err: error }, 'graceful shutdown failed');
       }
+      options.trace?.('db_destroy_started');
       try {
         await options.destroy();
       } catch (error) {
         failed = true;
         options.logger.error({ err: error }, 'database shutdown failed');
+      } finally {
+        options.trace?.('db_destroyed');
       }
       finish(failed ? 1 : 0);
     })();
@@ -386,6 +396,7 @@ export function createApplicationClose(
   app: FastifyInstance,
   drainMs: number = SHUTDOWN_DRAIN_BUDGET_MS,
   cleanupMs: number = shutdownCleanupBudgetMs(),
+  trace?: (event: 'unsettled') => void,
 ): () => Promise<void> {
   const sockets = new Set<Socket>();
   const pending = new Map<IncomingMessage, ServerResponse>();
@@ -513,6 +524,7 @@ export function createApplicationClose(
         { count: pendingOperationCount(app), routes },
         'unsettled operations after shutdown cleanup budget',
       );
+      trace?.('unsettled');
       throw new Error(
         `shutdown cannot settle ${String(pendingOperationCount(app))} in-flight operation(s)`,
       );
@@ -570,6 +582,10 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
   }
   // Validate before opening a pool so a misconfigured budget is a boot error.
   const cleanupBudgetMs = shutdownCleanupBudgetMs(env);
+  // ADR-022: read the product key exactly once; never log or store it in config.
+  const llmApiKey = loadLlmApiKey(baseConfig);
+  // Stable HMAC secret for the gateway session header (read once, never logged).
+  const llmSessionSecret = loadLlmSessionSecret(baseConfig);
 
   const config: AppConfig = {
     ...baseConfig,
@@ -594,7 +610,14 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
   };
   attachPoolErrorHandler(pool, (error) => poolErrorReport.report(error));
 
-  const app: FastifyInstance = await buildApp({ config, clock, ids, db });
+  const app: FastifyInstance = await buildApp({
+    config,
+    clock,
+    ids,
+    db,
+    ...(llmApiKey.length === 0 ? {} : { llmApiKey }),
+    ...(llmSessionSecret.length === 0 ? {} : { llmSessionSecret }),
+  });
   poolErrorReport.report = (error) =>
     app.log.warn(pgClientErrorDetails(error), 'pg client error');
 

@@ -1,3 +1,14 @@
+import type { LlmUsage } from './port.js';
+
+/** Internal gateway classification. Provider strings never leave the adapter. */
+export type GatewayClassification =
+  | 'missing_session'
+  | 'auth'
+  | 'rate_limited'
+  | 'invalid_request'
+  | 'server'
+  | 'unknown';
+
 export type LlmErrorCode =
   | 'llm_unavailable'
   | 'budget_exceeded'
@@ -7,6 +18,8 @@ export type LlmErrorCode =
 
 export abstract class LlmError extends Error {
   abstract readonly code: LlmErrorCode;
+  /** Billable usage when the failure happened after a paid provider attempt. */
+  usage?: LlmUsage;
 
   protected constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
@@ -20,8 +33,48 @@ export class LlmUnavailable extends LlmError {
   constructor(
     message = 'llm provider unavailable',
     readonly reason: 'provider' | 'timeout' | 'aborted' = 'provider',
+    /**
+     * False once the adapter has exhausted its own 429/5xx retries or hit a
+     * non-retryable 4xx, so `runStructured` does not start a second retry loop.
+     */
+    readonly retryable = true,
   ) {
     super(message);
+  }
+}
+
+/**
+ * The gateway rejected `response_format: json_object`. The adapter turns this
+ * into exactly one strict-instruction retry; it is never retried as an outage.
+ */
+export class ResponseFormatUnsupportedError extends LlmUnavailable {
+  constructor(message = 'provider rejected response_format json_object') {
+    super(message, 'provider', false);
+  }
+}
+
+/**
+ * A classified gateway rejection. Only the internal enum is carried; provider
+ * error strings, bodies and headers are never copied into the error.
+ */
+export class GatewayError extends LlmUnavailable {
+  constructor(
+    readonly status: number,
+    readonly classification: GatewayClassification,
+    retryable = false,
+  ) {
+    super(
+      `llm gateway error (HTTP ${status}, ${classification})`,
+      'provider',
+      retryable,
+    );
+  }
+}
+
+/** OpenCode Go requires `x-opencode-session`; a 400 for it is never retried. */
+export class MissingSessionIdError extends GatewayError {
+  constructor(status = 400) {
+    super(status, 'missing_session');
   }
 }
 
@@ -87,8 +140,10 @@ export class SchemaViolation extends LlmError {
   constructor(
     readonly schemaId: string,
     readonly errors: readonly string[],
+    usage?: LlmUsage,
   ) {
     super(`llm output does not match ${schemaId}: ${errors.join('; ')}`);
+    if (usage !== undefined) this.usage = usage;
   }
 }
 

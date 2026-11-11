@@ -1,5 +1,11 @@
 import type { BudgetGuard } from './budget.js';
-import { BudgetExceeded, LlmTimeoutError, LlmUnavailable, SchemaViolation } from './errors.js';
+import {
+  BudgetExceeded,
+  LlmError,
+  LlmTimeoutError,
+  LlmUnavailable,
+  SchemaViolation,
+} from './errors.js';
 import type { LlmCompleteResponse, LlmPort, LlmUsage } from './port.js';
 import { validateOutput } from './schema-registry.js';
 
@@ -8,6 +14,10 @@ export interface StructuredLlmRequest {
   readonly version: string;
   readonly input: unknown;
   readonly schemaId: string;
+  /** Propagated to the provider so consent/budget are resolved per owner. */
+  readonly ownerId?: string;
+  /** Intake session id; adapters may derive a non-identifying session header. */
+  readonly sessionKey?: string;
   readonly budget?: import('./port.js').LlmBudget;
 }
 
@@ -28,6 +38,8 @@ export interface RunStructuredResult {
   readonly output: unknown;
   readonly usage: LlmUsage;
   readonly model: string;
+  /** Provider id for agent_run metadata (defaults to the adapter's response). */
+  readonly provider?: string;
   readonly latencyMs: number;
   readonly attempts: number;
   readonly repairs: number;
@@ -111,6 +123,24 @@ export async function runStructured(
   let attempts = 0;
   let unavailableRetries = 0;
   let repairs = 0;
+  const totalUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+    costUsd?: number;
+  } = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+
+  const addUsage = (usage: LlmUsage): void => {
+    totalUsage.inputTokens += usage.inputTokens;
+    totalUsage.outputTokens += usage.outputTokens;
+    if (usage.cachedInputTokens !== undefined) {
+      totalUsage.cachedInputTokens =
+        (totalUsage.cachedInputTokens ?? 0) + usage.cachedInputTokens;
+    }
+    if (usage.costUsd !== undefined) {
+      totalUsage.costUsd = (totalUsage.costUsd ?? 0) + usage.costUsd;
+    }
+  };
 
   const assertNotAborted = (): void => {
     if (options.signal?.aborted === true) {
@@ -118,61 +148,78 @@ export async function runStructured(
     }
   };
 
-  for (;;) {
-    assertNotAborted();
-    budgetGuard?.assertCanSpend(options.estimatedCostUsd ?? 0);
-    attempts += 1;
-
-    let response: LlmCompleteResponse;
-    try {
-      response = await callWithTimeout(
-        port,
-        {
-          promptId: request.promptId,
-          version: request.version,
-          input,
-          schemaId: request.schemaId,
-          ...(request.budget === undefined ? {} : { budget: request.budget }),
-        },
-        timeoutMs,
-        options.signal,
-      );
-    } catch (error) {
-      if (!(error instanceof LlmUnavailable)) throw error;
-      // Caller aborts and timeouts are never retried (05 §8: only 429/5xx outages).
-      if (error.reason === 'aborted') throw error;
-      if (error instanceof LlmTimeoutError) throw error;
+  try {
+    for (;;) {
       assertNotAborted();
-      if (unavailableRetries < maxUnavailableRetries) {
-        unavailableRetries += 1;
+      budgetGuard?.assertCanSpend(options.estimatedCostUsd ?? 0);
+      attempts += 1;
+
+      let response: LlmCompleteResponse;
+      try {
+        response = await callWithTimeout(
+          port,
+          {
+            promptId: request.promptId,
+            version: request.version,
+            input,
+            schemaId: request.schemaId,
+            ...(request.ownerId === undefined ? {} : { ownerId: request.ownerId }),
+            ...(request.sessionKey === undefined ? {} : { sessionKey: request.sessionKey }),
+            ...(request.budget === undefined ? {} : { budget: request.budget }),
+          },
+          timeoutMs,
+          options.signal,
+        );
+      } catch (error) {
+        // A failed attempt can still be billable (e.g. PolicyLlm settles the
+        // reservation); keep that usage before deciding whether to retry.
+        if (error instanceof LlmError && error.usage !== undefined) addUsage(error.usage);
+        if (!(error instanceof LlmUnavailable)) throw error;
+        // Caller aborts and timeouts are never retried (05 §8: only 429/5xx outages).
+        if (error.reason === 'aborted') throw error;
+        if (error instanceof LlmTimeoutError) throw error;
+        // The adapter already exhausted its own 429/5xx retries, or the failure
+        // was a non-retryable 4xx. Never start a second retry loop.
+        if (!error.retryable) throw error;
         assertNotAborted();
-        await sleep(backoffBaseMs * 2 ** (unavailableRetries - 1));
+        if (unavailableRetries < maxUnavailableRetries) {
+          unavailableRetries += 1;
+          assertNotAborted();
+          await sleep(backoffBaseMs * 2 ** (unavailableRetries - 1));
+          continue;
+        }
+        throw error;
+      }
+
+      budgetGuard?.record(response.usage, { model: response.model });
+      addUsage(response.usage);
+
+      const validation = validateOutput(request.schemaId, response.output);
+      if (validation.valid) {
+        return {
+          output: response.output,
+          usage: totalUsage as LlmUsage,
+          model: response.model,
+          ...(response.provider === undefined ? {} : { provider: response.provider }),
+          latencyMs: response.latencyMs,
+          attempts,
+          repairs,
+          schemaId: request.schemaId,
+        };
+      }
+
+      if (repairs === 0) {
+        repairs += 1;
+        input = appendValidationErrors(request.input, validation.errors);
         continue;
       }
-      throw error;
+
+      throw new SchemaViolation(request.schemaId, validation.errors);
     }
-
-    budgetGuard?.record(response.usage, { model: response.model });
-
-    const validation = validateOutput(request.schemaId, response.output);
-    if (validation.valid) {
-      return {
-        output: response.output,
-        usage: response.usage,
-        model: response.model,
-        latencyMs: response.latencyMs,
-        attempts,
-        repairs,
-        schemaId: request.schemaId,
-      };
-    }
-
-    if (repairs === 0) {
-      repairs += 1;
-      input = appendValidationErrors(request.input, validation.errors);
-      continue;
-    }
-
-    throw new SchemaViolation(request.schemaId, validation.errors);
+  } catch (error) {
+    // Every terminal LlmError reports the usage of all charged attempts so the
+    // caller (intake -> agent_run) persists the full billable total.
+    if (error instanceof LlmError) error.usage = { ...totalUsage } as LlmUsage;
+    throw error;
   }
 }

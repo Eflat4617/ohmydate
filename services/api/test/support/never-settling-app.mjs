@@ -52,18 +52,25 @@ app.get('/never', async () => {
   return new Promise(() => undefined);
 });
 
+let sequence = 0;
+const trace = (event) => {
+  sequence += 1;
+  process.stdout.write(`SEQ:${sequence}:${event}\n`);
+};
+
 const shutdown = createShutdownController({
   logger: {
     info: () => undefined,
     error: (details, message) => app.log.error(details, message),
   },
-  close: createApplicationClose(app, drainMs, cleanupMs),
+  close: createApplicationClose(app, drainMs, cleanupMs, trace),
   destroy: async () => {
     await db.destroy();
     process.stdout.write('DB_DESTROYED\n');
   },
   exit: (code) => process.exit(code),
   deadlineMs,
+  trace,
 });
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => shutdown(signal));
