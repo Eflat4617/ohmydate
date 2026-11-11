@@ -1,11 +1,13 @@
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
 import { ApiError, plannerClient, type User } from '../api';
-import { sessionJournal } from '../session/journal';
+import { invalidateOwnerEpoch, ownerState } from '../session/ownerEpoch';
 import { useSessionStore } from './session';
 
 export const useAuthStore = defineStore('auth', () => {
   const sessions = useSessionStore();
+  const ownerId = ownerState.ownerId;
+  const epoch = ownerState.epoch;
   const user = ref<User | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
@@ -13,12 +15,12 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email: string, password: string): Promise<User> {
     loading.value = true;
     error.value = null;
+    invalidateOwnerEpoch();
     try {
       await plannerClient.login(email, password);
       const current = await plannerClient.getMe();
       user.value = current;
       sessions.setOwner(current.id);
-      sessionJournal.setOwner(current.id);
       return current;
     } catch (cause) {
       error.value =
@@ -30,14 +32,14 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function logout(): Promise<void> {
+    invalidateOwnerEpoch();
     try {
       await plannerClient.logout();
     } finally {
       user.value = null;
       sessions.setOwner(null);
-      sessionJournal.setOwner(null);
     }
   }
 
-  return { user, loading, error, login, logout };
+  return { user, ownerId, epoch, loading, error, login, logout };
 });

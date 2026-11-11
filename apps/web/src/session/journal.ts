@@ -19,10 +19,15 @@ export type QueuedSessionEvent = Omit<SessionEventRecord, 'seq' | 'ownerId'> & {
 
 export interface SessionJournal {
   setOwner(ownerId: string | null): void;
-  append(event: QueuedSessionEvent): Promise<SessionEventRecord>;
-  list(sessionId?: string): Promise<SessionEventRecord[]>;
+  append(event: QueuedSessionEvent, ownerId?: string | null): Promise<SessionEventRecord>;
+  list(sessionId?: string, ownerId?: string | null): Promise<SessionEventRecord[]>;
   remove(seq: number): Promise<void>;
-  clear(): Promise<void>;
+  clear(ownerId?: string | null): Promise<void>;
+}
+
+function resolveOwner(explicit: string | null | undefined, fallback: string): string {
+  if (explicit === undefined) return fallback;
+  return explicit ?? ANONYMOUS_OWNER;
 }
 
 const DB_NAME = 'ohmydate-focus';
@@ -70,13 +75,13 @@ export class IndexedDbSessionJournal implements SessionJournal {
     return this.database;
   }
 
-  async append(event: QueuedSessionEvent): Promise<SessionEventRecord> {
+  async append(event: QueuedSessionEvent, ownerId?: string | null): Promise<SessionEventRecord> {
     const database = await this.db();
     const transaction = database.transaction(STORE, 'readwrite');
     const store = transaction.objectStore(STORE);
     const record: Omit<SessionEventRecord, 'seq'> = {
       ...event,
-      ownerId: event.ownerId ?? this.ownerId,
+      ownerId: resolveOwner(ownerId, event.ownerId ?? this.ownerId),
     };
     const key = await requestResult(store.add(record));
     await new Promise<void>((resolve, reject) => {
@@ -87,12 +92,13 @@ export class IndexedDbSessionJournal implements SessionJournal {
     return { ...record, seq: Number(key) };
   }
 
-  async list(sessionId?: string): Promise<SessionEventRecord[]> {
+  async list(sessionId?: string, ownerId?: string | null): Promise<SessionEventRecord[]> {
     const database = await this.db();
     const transaction = database.transaction(STORE, 'readonly');
     const store = transaction.objectStore(STORE);
     const records = await requestResult<SessionEventRecord[]>(store.getAll());
-    const owned = records.filter((item) => (item.ownerId ?? ANONYMOUS_OWNER) === this.ownerId);
+    const owner = resolveOwner(ownerId, this.ownerId);
+    const owned = records.filter((item) => (item.ownerId ?? ANONYMOUS_OWNER) === owner);
     const filtered = sessionId === undefined ? owned : owned.filter((item) => item.sessionId === sessionId);
     return filtered.sort((left, right) => left.seq - right.seq);
   }
@@ -108,13 +114,14 @@ export class IndexedDbSessionJournal implements SessionJournal {
     });
   }
 
-  async clear(): Promise<void> {
+  async clear(ownerId?: string | null): Promise<void> {
     const database = await this.db();
     const transaction = database.transaction(STORE, 'readwrite');
     const store = transaction.objectStore(STORE);
     const records = await requestResult<SessionEventRecord[]>(store.getAll());
+    const owner = resolveOwner(ownerId, this.ownerId);
     for (const record of records) {
-      if ((record.ownerId ?? ANONYMOUS_OWNER) === this.ownerId) store.delete(record.seq);
+      if ((record.ownerId ?? ANONYMOUS_OWNER) === owner) store.delete(record.seq);
     }
     await new Promise<void>((resolve, reject) => {
       transaction.oncomplete = () => resolve();
@@ -133,19 +140,20 @@ export class MemorySessionJournal implements SessionJournal {
     this.ownerId = ownerId ?? ANONYMOUS_OWNER;
   }
 
-  async append(event: QueuedSessionEvent): Promise<SessionEventRecord> {
+  async append(event: QueuedSessionEvent, ownerId?: string | null): Promise<SessionEventRecord> {
     this.sequence += 1;
     const record = {
       ...event,
-      ownerId: event.ownerId ?? this.ownerId,
+      ownerId: resolveOwner(ownerId, event.ownerId ?? this.ownerId),
       seq: this.sequence,
     };
     this.records.push(record);
     return record;
   }
 
-  async list(sessionId?: string): Promise<SessionEventRecord[]> {
-    const owned = this.records.filter((item) => (item.ownerId ?? ANONYMOUS_OWNER) === this.ownerId);
+  async list(sessionId?: string, ownerId?: string | null): Promise<SessionEventRecord[]> {
+    const owner = resolveOwner(ownerId, this.ownerId);
+    const owned = this.records.filter((item) => (item.ownerId ?? ANONYMOUS_OWNER) === owner);
     const records = sessionId === undefined ? owned : owned.filter((item) => item.sessionId === sessionId);
     return [...records].sort((left, right) => left.seq - right.seq);
   }
@@ -154,8 +162,9 @@ export class MemorySessionJournal implements SessionJournal {
     this.records = this.records.filter((item) => item.seq !== seq);
   }
 
-  async clear(): Promise<void> {
-    this.records = this.records.filter((item) => (item.ownerId ?? ANONYMOUS_OWNER) !== this.ownerId);
+  async clear(ownerId?: string | null): Promise<void> {
+    const owner = resolveOwner(ownerId, this.ownerId);
+    this.records = this.records.filter((item) => (item.ownerId ?? ANONYMOUS_OWNER) !== owner);
   }
 }
 

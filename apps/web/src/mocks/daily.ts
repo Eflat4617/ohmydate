@@ -61,7 +61,7 @@ function addMinutes(iso: string, minutes: number): string {
 function clampInstant(value: string, minMs: number, maxMs: number): string | null {
   const parsed = Date.parse(value);
   if (!Number.isFinite(parsed)) return null;
- 	return new Date(Math.min(maxMs, Math.max(minMs, parsed))).toISOString();
+	return new Date(Math.min(maxMs, Math.max(minMs, parsed))).toISOString();
 }
 
 function sessionProblem(token: IdempotencyToken, db: MockDb, code: ProblemCode, detail: string): Response {

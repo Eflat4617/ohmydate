@@ -6,6 +6,11 @@ import {
   readActiveOwnerId,
   writeActiveOwnerId,
 } from '../session/owner';
+import {
+  isOwnerBindingCurrent,
+  setActiveOwner,
+  type OwnerBinding,
+} from '../session/ownerEpoch';
 
 const STORAGE_KEY_PREFIX = 'ohmydate.focus.sessions';
 
@@ -57,32 +62,51 @@ export const useSessionStore = defineStore('session', () => {
     return sessions.value[sessionId] ?? null;
   }
 
-  function remember(session: WorkSession): void {
+  function remember(session: WorkSession, binding?: OwnerBinding): void {
+    if (binding !== undefined && !isOwnerBindingCurrent(binding)) {
+      const target = binding.ownerId;
+      writeStorage(target, { ...readStorage(target), [session.id]: session });
+      return;
+    }
     sessions.value = { ...sessions.value, [session.id]: session };
     writeStorage(ownerId.value, sessions.value);
   }
 
-  function update(session: WorkSession): void {
-    remember(session);
+  function update(session: WorkSession, binding?: OwnerBinding): void {
+    remember(session, binding);
   }
 
-  function forget(sessionId: string): void {
+  function forget(sessionId: string, binding?: OwnerBinding): void {
+    if (binding !== undefined && !isOwnerBindingCurrent(binding)) {
+      const target = binding.ownerId;
+      const stored = { ...readStorage(target) };
+      delete stored[sessionId];
+      writeStorage(target, stored);
+      return;
+    }
     const next = { ...sessions.value };
     delete next[sessionId];
     sessions.value = next;
     writeStorage(ownerId.value, next);
   }
 
-  function setPendingCount(count: number): void {
+  function setPendingCount(count: number, binding?: OwnerBinding): void {
+    if (binding !== undefined && !isOwnerBindingCurrent(binding)) return;
     pendingCount.value = count;
   }
 
-  function setSyncState(state: SyncState, message: string | null = null): void {
+  function setSyncState(
+    state: SyncState,
+    message: string | null = null,
+    binding?: OwnerBinding,
+  ): void {
+    if (binding !== undefined && !isOwnerBindingCurrent(binding)) return;
     syncState.value = state;
     syncMessage.value = message;
   }
 
   function setOwner(nextOwnerId: string | null): void {
+    setActiveOwner(nextOwnerId);
     ownerId.value = nextOwnerId;
     writeActiveOwnerId(nextOwnerId);
     sessions.value = readStorage(nextOwnerId);

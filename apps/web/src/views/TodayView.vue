@@ -18,6 +18,10 @@ import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 import { useToastStore } from '../stores/toast';
 import { focusClientId } from '../session/clientId';
+import {
+  captureOwnerBinding,
+  isOwnerBindingCurrent,
+} from '../session/ownerEpoch';
 
 const router = useRouter();
 const offline = useOfflineStore();
@@ -56,18 +60,24 @@ const scheduleQuery = useQuery({
 const resumableQuery = useQuery({
   queryKey: computed(() => ['sessions', 'resumable', ownerId.value ?? 'anonymous']),
   queryFn: async () => {
+    const binding = captureOwnerBinding();
     const active = await plannerClient.listSessions({ state: 'active', limit: 1 });
-    if (active.items[0] !== undefined) return active.items[0];
-    const paused = await plannerClient.listSessions({ state: 'paused', limit: 1 });
-    return paused.items[0] ?? null;
+    let session = active.items[0] ?? null;
+    if (session === null) {
+      const paused = await plannerClient.listSessions({ state: 'paused', limit: 1 });
+      session = paused.items[0] ?? null;
+    }
+    return { ownerId: binding.ownerId, session };
   },
   enabled: computed(() => offline.online),
 });
 
 watch(
   resumableQuery.data,
-  (session) => {
-    if (session !== null && session !== undefined) sessionStore.remember(session);
+  (result) => {
+    if (result === undefined || result.session === null) return;
+    if (result.ownerId !== sessionStore.ownerId) return;
+    sessionStore.remember(result.session);
   },
   { immediate: true },
 );
@@ -110,9 +120,13 @@ const busy = ref(false);
 const proposal = ref<TodayProposal | null>(null);
 const proposalError = ref<string | null>(null);
 
-const activeSession = computed(
-  () => sessionStore.active ?? resumableQuery.data.value ?? null,
-);
+const activeSession = computed(() => {
+  const fromQuery =
+    resumableQuery.data.value?.ownerId === sessionStore.ownerId
+      ? resumableQuery.data.value.session
+      : null;
+  return sessionStore.active ?? fromQuery ?? null;
+});
 
 function samePayload<T>(left: T, right: T): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
@@ -132,6 +146,7 @@ async function refresh(): Promise<void> {
 async function acceptToday(blockIds?: string[]): Promise<void> {
   const current = today.value;
   if (current === null || readOnly.value || busy.value) return;
+  const binding = captureOwnerBinding();
   busy.value = true;
   error.value = null;
   try {
@@ -139,9 +154,11 @@ async function acceptToday(blockIds?: string[]): Promise<void> {
     const action = actions.begin(`today:accept:${current.date}`, payload, samePayload, current.version);
     await plannerClient.acceptToday(action.payload, action.key, current.version);
     actions.settle(`today:accept:${current.date}`, action);
+    if (!isOwnerBindingCurrent(binding)) return;
     toast.show('Today’s plan accepted.');
     await refresh();
   } catch (cause) {
+    if (!isOwnerBindingCurrent(binding)) return;
     error.value = messageFor(cause);
   } finally {
     busy.value = false;
@@ -159,16 +176,20 @@ async function previewShrink(): Promise<void> {
   const current = today.value;
   const block = shrinkingBlock.value;
   if (current === null || block === null || readOnly.value || busy.value) return;
+  const binding = captureOwnerBinding();
   busy.value = true;
   error.value = null;
   try {
     const payload = { date: current.date, blockId: block.id, targetMin: shrinkTarget.value };
     const scope = `today:shrink:${block.id}`;
     const action = actions.begin(scope, payload, samePayload, current.version);
-    proposal.value = await plannerClient.shrinkToday(action.payload, action.key, current.version);
+    const result = await plannerClient.shrinkToday(action.payload, action.key, current.version);
     actions.settle(scope, action);
+    if (!isOwnerBindingCurrent(binding)) return;
+    proposal.value = result;
     shrinkingBlock.value = null;
   } catch (cause) {
+    if (!isOwnerBindingCurrent(binding)) return;
     error.value = messageFor(cause);
   } finally {
     busy.value = false;
@@ -178,15 +199,19 @@ async function previewShrink(): Promise<void> {
 async function reschedule(block: TodayBlock): Promise<void> {
   const current = today.value;
   if (current === null || readOnly.value || busy.value) return;
+  const binding = captureOwnerBinding();
   busy.value = true;
   error.value = null;
   try {
     const payload = { date: current.date, blockIds: [block.id] };
     const scope = `today:reschedule:${block.id}`;
     const action = actions.begin(scope, payload, samePayload, current.version);
-    proposal.value = await plannerClient.rescheduleToday(action.payload, action.key, current.version);
+    const result = await plannerClient.rescheduleToday(action.payload, action.key, current.version);
     actions.settle(scope, action);
+    if (!isOwnerBindingCurrent(binding)) return;
+    proposal.value = result;
   } catch (cause) {
+    if (!isOwnerBindingCurrent(binding)) return;
     error.value = messageFor(cause);
   } finally {
     busy.value = false;
@@ -200,6 +225,7 @@ function proposalIfMatch(value: TodayProposal): string {
 async function approveProposal(): Promise<void> {
   const value = proposal.value;
   if (value === null || readOnly.value || busy.value) return;
+  const binding = captureOwnerBinding();
   busy.value = true;
   proposalError.value = null;
   const scope = `today:approve:${value.id}`;
@@ -207,10 +233,12 @@ async function approveProposal(): Promise<void> {
     const action = actions.begin(scope, { proposalId: value.id }, samePayload);
     await plannerClient.approveTodayProposal(value.id, action.key, proposalIfMatch(value));
     actions.settle(scope, action);
+    if (!isOwnerBindingCurrent(binding)) return;
     toast.show('Proposal approved. Your plan is updated.');
     proposal.value = null;
     await refresh();
   } catch (cause) {
+    if (!isOwnerBindingCurrent(binding)) return;
     if (cause instanceof ApiError && cause.status === 412) {
       proposalError.value = 'This proposal is stale. Review the latest plan and propose again.';
       proposal.value = null;
@@ -228,6 +256,7 @@ async function startFocus(block: TodayBlock): Promise<void> {
   startingBlockId.value = block.id;
   error.value = null;
   resumeOffer.value = false;
+  const binding = captureOwnerBinding();
   const scope = `focus:start:${block.taskId}`;
   let action = actions.peek<SessionCreate>(scope);
   try {
@@ -241,10 +270,15 @@ async function startFocus(block: TodayBlock): Promise<void> {
     action = actions.begin(scope, input, samePayload);
     const session = await plannerClient.createSession(action.payload, action.key);
     actions.settle(scope, action);
+    if (!isOwnerBindingCurrent(binding)) {
+      sessionStore.remember(session, binding);
+      return;
+    }
     sessionStore.remember(session);
     await router.push(`/focus/${session.id}`);
   } catch (cause) {
     if (action !== undefined && cause instanceof ApiError) actions.settle(scope, action);
+    if (!isOwnerBindingCurrent(binding)) return;
     if (cause instanceof ApiError && cause.status === 409 && cause.code === 'active_session_exists') {
       resumeOffer.value = true;
       await resumableQuery.refetch();

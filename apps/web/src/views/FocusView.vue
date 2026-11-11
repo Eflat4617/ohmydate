@@ -20,6 +20,10 @@ import {
   sendFocusEvent,
 } from '../session/focusQueue';
 import { sessionJournal, type FocusEventKind } from '../session/journal';
+import {
+  captureOwnerBinding,
+  isOwnerBindingCurrent,
+} from '../session/ownerEpoch';
 import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 import { useToastStore } from '../stores/toast';
@@ -139,6 +143,7 @@ async function startFromQuery(): Promise<void> {
   }
   startBusy.value = true;
   error.value = null;
+  const binding = captureOwnerBinding();
   const scope = `focus:start:${taskId}`;
   let action = actions.peek<SessionCreate>(scope);
   try {
@@ -153,10 +158,15 @@ async function startFromQuery(): Promise<void> {
     action = actions.begin(scope, input, samePayload);
     const started = await plannerClient.createSession(action.payload, action.key);
     actions.settle(scope, action);
+    if (!isOwnerBindingCurrent(binding)) {
+      sessions.remember(started, binding);
+      return;
+    }
     sessions.remember(started);
     await router.replace(`/focus/${started.id}`);
   } catch (cause) {
     if (action !== undefined && cause instanceof ApiError) actions.settle(scope, action);
+    if (!isOwnerBindingCurrent(binding)) return;
     if (cause instanceof ApiError && cause.status === 409 && cause.code === 'active_session_exists') {
       resumeOffer.value = true;
       error.value = 'An active focus session already exists.';
@@ -170,17 +180,23 @@ async function startFromQuery(): Promise<void> {
 
 async function restoreSession(): Promise<void> {
   if (isNew.value) return;
+  const binding = captureOwnerBinding();
   loadState.value = 'idle';
   const local = sessions.get(sessionId.value);
   if (local !== null) {
     if (!offline.online || sessions.pendingCount > 0) return;
     try {
       const fresh = await plannerClient.getSession(local.id, { fresh: true });
+      if (!isOwnerBindingCurrent(binding)) {
+        if (fresh.version >= local.version) sessions.remember(fresh, binding);
+        return;
+      }
       if (fresh.version >= local.version) {
         sessions.update(fresh);
         remoteSession.value = fresh;
       }
     } catch (cause) {
+      if (!isOwnerBindingCurrent(binding)) return;
       if (cause instanceof ApiError && (cause.status === 404 || cause.status === 403)) {
         sessions.forget(local.id);
         remoteSession.value = null;
@@ -199,10 +215,15 @@ async function restoreSession(): Promise<void> {
   loadState.value = 'loading';
   try {
     const fresh = await plannerClient.getSession(sessionId.value, { fresh: true });
+    if (!isOwnerBindingCurrent(binding)) {
+      sessions.remember(fresh, binding);
+      return;
+    }
     remoteSession.value = fresh;
     sessions.remember(fresh);
     loadState.value = 'idle';
   } catch (cause) {
+    if (!isOwnerBindingCurrent(binding)) return;
     loadState.value = 'missing';
     error.value =
       cause instanceof ApiError && (cause.status === 404 || cause.status === 403)
@@ -222,6 +243,7 @@ async function perform(kind: FocusEventKind): Promise<void> {
   if (kind === 'complete' && initial.state !== 'active' && initial.state !== 'paused') return;
 
   await scheduleOperation(async () => {
+    const binding = captureOwnerBinding();
     const current = session.value;
     if (current === null) return;
     if (kind === 'pause' && current.state !== 'active') return;
@@ -231,8 +253,14 @@ async function perform(kind: FocusEventKind): Promise<void> {
     error.value = null;
     const mustQueue = !offline.online || sessions.pendingCount > 0;
     if (mustQueue) {
-      await enqueueFocusEvent({ store: sessions, online: offline.online }, current, kind);
-      if (offline.online) await flushFocusJournal({ store: sessions, online: true });
+      await enqueueFocusEvent(
+        { store: sessions, online: offline.online, binding },
+        current,
+        kind,
+      );
+      if (offline.online && isOwnerBindingCurrent(binding)) {
+        await flushFocusJournal({ store: sessions, online: true });
+      }
       return;
     }
 
@@ -246,14 +274,19 @@ async function perform(kind: FocusEventKind): Promise<void> {
         idempotencyKey: key,
         expectedVersion: current.version,
       });
-      sessions.update(updated);
+      sessions.update(updated, binding);
     } catch (cause) {
       if (cause instanceof ApiError) {
+        if (!isOwnerBindingCurrent(binding)) return;
         error.value = cause.detail;
         now.value = Date.now();
         return;
       }
-      await enqueueFocusEvent({ store: sessions, online: false, key, clientAt }, current, kind);
+      await enqueueFocusEvent(
+        { store: sessions, online: false, key, clientAt, binding },
+        current,
+        kind,
+      );
     }
   });
 }

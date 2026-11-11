@@ -56,6 +56,10 @@ async function enablePush(): Promise<void> {
       pushStatus.value = 'denied';
       return;
     }
+    if (!offline.online) {
+      pushStatus.value = 'idle';
+      return;
+    }
     const registration = await navigator.serviceWorker.ready;
     const existing = await registration.pushManager.getSubscription();
     const key = import.meta.env.VITE_VAPID_PUBLIC_KEY;

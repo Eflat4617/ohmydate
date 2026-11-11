@@ -2,12 +2,15 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { login } from '../helpers/app';
 import {
+  apiFetch,
   approveCandidateWithBlocks,
   createApprovedGoal,
   createApprovedGoalWithSingleStep,
   createPlanFromGoal,
   editableBlocksForToday,
+  expectOk,
   getWorkSession,
+  idempotencyKey,
   listNotifications,
   setContinuousWeeklyAvailability,
 } from '../helpers/planner';
@@ -15,6 +18,39 @@ import { readState } from '../helpers/state';
 
 const state = readState();
 const account = { email: state.todayEmail, password: state.todayPassword };
+
+async function scheduleBlock(
+  page: Page,
+  blockId: string,
+  from: string,
+  to: string,
+): Promise<{ id: string; startAt: string; endAt: string } | undefined> {
+  const response = await apiFetch(
+    page,
+    state,
+    `/schedule-blocks?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&limit=100`,
+  );
+  const body = (await expectOk(response, 'GET /schedule-blocks')) as {
+    items: { id: string; startAt: string; endAt: string }[];
+  };
+  return body.items.find((block) => block.id === blockId);
+}
+
+async function allowTenMinuteSessions(page: Page, taskIds: readonly string[]): Promise<void> {
+  for (const taskId of new Set(taskIds)) {
+    const taskResponse = await apiFetch(page, state, `/tasks/${taskId}`);
+    const task = (await expectOk(taskResponse, 'GET /tasks/{id}')) as { version: number };
+    const response = await apiFetch(page, state, `/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: {
+        'If-Match': `W/"${task.version}"`,
+        'Idempotency-Key': idempotencyKey(),
+      },
+      body: { session: { minMinutes: 10, maxMinutes: 30 }, splittable: true },
+    });
+    await expectOk(response, 'PATCH /tasks/{id}');
+  }
+}
 
 async function blockingAxeViolations(page: Page) {
   const results = await new AxeBuilder({ page })
@@ -207,13 +243,26 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     });
     await expect(page.locator('.today-card', { hasText: firstTitle })).toHaveCount(0);
 
+    await allowTenMinuteSessions(
+      page,
+      currentApproved.blocks.map((block) => block.taskId),
+    );
+    const anchor = currentApproved.blocks[0];
+    if (anchor === undefined) throw new Error('current plan has no anchor block');
+    const rangeFrom = new Date(Date.parse(anchor.startAt) - 86_400_000).toISOString();
+    const rangeTo = new Date(Date.parse(anchor.startAt) + 2 * 86_400_000).toISOString();
+
     for (const label of [`${secondTitle} prep`, `${secondTitle} work`, `${secondTitle} review`]) {
       const card = page.locator('.today-card', { hasText: label });
       await expect(card).toBeVisible();
       await expect(card.getByRole('button', { name: 'Shrink' })).toBeEnabled();
+      const blockId = await card.getAttribute('data-block-id');
+      if (blockId === null) throw new Error(`card ${label} has no block id`);
+      const beforeShrink = await scheduleBlock(page, blockId, rangeFrom, rangeTo);
+      if (beforeShrink === undefined) throw new Error(`schedule block ${blockId} is missing`);
 
       await card.getByRole('button', { name: 'Shrink' }).click();
-      await page.locator('#shrink-minutes').fill('15');
+      await page.locator('#shrink-minutes').fill('10');
       await page.getByRole('button', { name: 'Preview shrink' }).click();
       await expect(page.getByRole('heading', { name: 'Proposal preview' })).toBeVisible();
       let approveResponse = page.waitForResponse(
@@ -229,6 +278,16 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
       await expect(refreshed.getByRole('button', { name: 'Reschedule' })).toBeEnabled({
         timeout: 20_000,
       });
+      const shrunkBlockId = (await refreshed.getAttribute('data-block-id')) ?? blockId;
+      const expectedEnd = new Date(Date.parse(beforeShrink.startAt) + 10 * 60_000).toISOString();
+      await expect
+        .poll(async () => (await scheduleBlock(page, shrunkBlockId, rangeFrom, rangeTo))?.endAt)
+        .toBe(expectedEnd);
+
+      const beforeReschedule = await scheduleBlock(page, shrunkBlockId, rangeFrom, rangeTo);
+      if (beforeReschedule === undefined) {
+        throw new Error(`schedule block ${shrunkBlockId} disappeared`);
+      }
       await refreshed.getByRole('button', { name: 'Reschedule' }).click();
       await expect(page.getByRole('heading', { name: 'Proposal preview' })).toBeVisible();
       approveResponse = page.waitForResponse(
@@ -239,6 +298,14 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
       await page.getByRole('button', { name: 'Approve proposal' }).click();
       expect((await approveResponse).status()).toBe(201);
       await expect(page.getByRole('heading', { name: 'Proposal preview' })).toBeHidden();
+
+      const rescheduled = page.locator('.today-card', { hasText: label });
+      await expect(rescheduled).toBeVisible({ timeout: 20_000 });
+      const rescheduledBlockId =
+        (await rescheduled.getAttribute('data-block-id')) ?? shrunkBlockId;
+      await expect
+        .poll(async () => (await scheduleBlock(page, rescheduledBlockId, rangeFrom, rangeTo))?.startAt)
+        .not.toBe(beforeReschedule.startAt);
     }
     await expect(page.getByRole('alert')).toHaveCount(0);
     await context.close();

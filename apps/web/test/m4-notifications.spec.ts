@@ -108,6 +108,64 @@ describe('Notifications panel', () => {
     }
   });
 
+  it('re-checks online state after the push permission prompt is answered', async () => {
+    const pinia = createPinia();
+    const offline = useOfflineStore(pinia);
+    const pendingPermission: { resolve: ((permission: 'granted') => void) | null } = {
+      resolve: null,
+    };
+    const requestPermission = vi.fn(
+      () =>
+        new Promise<'granted'>((resolve) => {
+          pendingPermission.resolve = resolve;
+        }),
+    );
+    const subscribe = vi.fn();
+    vi.stubGlobal('Notification', { requestPermission });
+    vi.stubGlobal('PushManager', function PushManager() {});
+    const serviceWorkerDescriptor = Object.getOwnPropertyDescriptor(navigator, 'serviceWorker');
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: {
+        ready: Promise.resolve({
+          pushManager: {
+            getSubscription: vi.fn(async () => null),
+            subscribe,
+          },
+        }),
+      },
+    });
+    const createSubscription = vi.spyOn(plannerClient, 'createPushSubscription');
+
+    const wrapper = mount(NotificationsPanel, {
+      props: { open: true },
+      global: { plugins: [pinia] },
+      attachTo: document.body,
+    });
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Push notifications'));
+    const enable = wrapper.findAll('button').find((item) => item.text().includes('Enable push'));
+    if (enable === undefined) throw new Error('missing push button');
+    expect(enable.attributes('disabled')).toBeUndefined();
+    await enable.trigger('click');
+    await vi.waitFor(() => expect(requestPermission).toHaveBeenCalledTimes(1));
+
+    offline.setOnline(false);
+    const grantPermission = pendingPermission.resolve;
+    if (grantPermission === null) throw new Error('permission request was not made');
+    grantPermission('granted');
+    await vi.waitFor(() => expect(wrapper.text()).toContain('Connect to enable push notifications.'));
+    expect(subscribe).not.toHaveBeenCalled();
+    expect(createSubscription).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+    vi.unstubAllGlobals();
+    if (serviceWorkerDescriptor === undefined) {
+      Reflect.deleteProperty(navigator, 'serviceWorker');
+    } else {
+      Object.defineProperty(navigator, 'serviceWorker', serviceWorkerDescriptor);
+    }
+  });
+
   it('exposes dialog and control roles (axe-lite)', async () => {
     const pinia = createPinia();
     const wrapper = mount(NotificationsPanel, {

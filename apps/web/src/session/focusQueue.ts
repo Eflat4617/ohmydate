@@ -6,12 +6,22 @@ import {
   type WorkSession,
 } from '../api';
 import { sessionJournal as defaultJournal, type FocusEventKind, type SessionEventRecord, type SessionJournal } from './journal';
+import {
+  captureOwnerBinding,
+  isOwnerBindingCurrent,
+  type OwnerBinding,
+} from './ownerEpoch';
+import { quarantineRecord } from './quarantine';
 
 export interface FocusStoreLike {
   get(sessionId: string): WorkSession | null;
-  update(session: WorkSession): void;
-  setPendingCount(count: number): void;
-  setSyncState(state: 'idle' | 'offline' | 'syncing' | 'synced' | 'conflict', message?: string | null): void;
+  update(session: WorkSession, binding?: OwnerBinding): void;
+  setPendingCount(count: number, binding?: OwnerBinding): void;
+  setSyncState(
+    state: 'idle' | 'offline' | 'syncing' | 'synced' | 'conflict',
+    message?: string | null,
+    binding?: OwnerBinding,
+  ): void;
 }
 
 export interface FlushResult {
@@ -30,9 +40,14 @@ interface QueueOptions {
 interface EnqueueOptions extends QueueOptions {
   readonly key?: string;
   readonly clientAt?: string;
+  readonly binding?: OwnerBinding;
 }
 
-const flushes = new WeakMap<SessionJournal, Promise<FlushResult>>();
+const flushes = new WeakMap<SessionJournal, Map<string, Promise<FlushResult>>>();
+
+function flushKey(binding: OwnerBinding): string {
+  return `${binding.ownerId ?? 'anonymous'}:${binding.epoch}`;
+}
 
 export function applyOptimistic(session: WorkSession, kind: FocusEventKind, clientAt: string): WorkSession {
   const version = session.version + 1;
@@ -74,23 +89,28 @@ export async function enqueueFocusEvent(
   kind: FocusEventKind,
 ): Promise<WorkSession> {
   const journal = options.journal ?? defaultJournal;
+  const binding = options.binding ?? captureOwnerBinding();
   const clientAt = options.clientAt ?? new Date().toISOString();
   const key = options.key ?? uuidV7Key();
-  await journal.append({
-    id: cryptoRandomId(),
-    sessionId: session.id,
-    kind,
-    clientAt,
-    idempotencyKey: key,
-    expectedVersion: session.version,
-  });
+  await journal.append(
+    {
+      id: cryptoRandomId(),
+      sessionId: session.id,
+      kind,
+      clientAt,
+      idempotencyKey: key,
+      expectedVersion: session.version,
+    },
+    binding.ownerId,
+  );
   const optimistic = applyOptimistic(session, kind, clientAt);
-  options.store.update(optimistic);
-  const remaining = (await journal.list()).length;
-  options.store.setPendingCount(remaining);
+  options.store.update(optimistic, binding);
+  const remaining = (await journal.list(undefined, binding.ownerId)).length;
+  options.store.setPendingCount(remaining, binding);
   options.store.setSyncState(
     'offline',
     `${remaining} focus event${remaining === 1 ? '' : 's'} saved on this device. Uploading automatically when you reconnect.`,
+    binding,
   );
   return optimistic;
 }
@@ -111,58 +131,109 @@ export async function sendFocusEvent(
 
 export function flushFocusJournal(options: QueueOptions): Promise<FlushResult> {
   const journal = options.journal ?? defaultJournal;
-  const existing = flushes.get(journal);
+  const binding = captureOwnerBinding();
+  const key = flushKey(binding);
+  let byOwner = flushes.get(journal);
+  if (byOwner === undefined) {
+    byOwner = new Map();
+    flushes.set(journal, byOwner);
+  }
+  const existing = byOwner.get(key);
   if (existing !== undefined) return existing;
-  const pending = runFlush({ ...options, journal }).finally(() => {
-    flushes.delete(journal);
+  const pending = runFlush({ ...options, journal, binding }).finally(() => {
+    byOwner?.delete(key);
   });
-  flushes.set(journal, pending);
+  byOwner.set(key, pending);
   return pending;
 }
 
-async function runFlush(options: QueueOptions & { journal: SessionJournal }): Promise<FlushResult> {
-  const records = await options.journal.list();
+async function remainingFor(journal: SessionJournal, binding: OwnerBinding): Promise<number> {
+  return (await journal.list(undefined, binding.ownerId)).length;
+}
+
+async function runFlush(
+  options: QueueOptions & { journal: SessionJournal; binding: OwnerBinding },
+): Promise<FlushResult> {
+  const { binding } = options;
+  const records = await options.journal.list(undefined, binding.ownerId);
+  if (!isOwnerBindingCurrent(binding)) {
+    return { uploaded: 0, remaining: records.length, conflict: null };
+  }
   if (records.length === 0) {
-    options.store.setPendingCount(0);
-    options.store.setSyncState('idle');
+    options.store.setPendingCount(0, binding);
+    options.store.setSyncState('idle', null, binding);
     return { uploaded: 0, remaining: 0, conflict: null };
   }
   if (!options.online) {
-    options.store.setPendingCount(records.length);
+    options.store.setPendingCount(records.length, binding);
     options.store.setSyncState(
       'offline',
       `${records.length} focus event${records.length === 1 ? '' : 's'} saved on this device. Uploading automatically when you reconnect.`,
+      binding,
     );
     return { uploaded: 0, remaining: records.length, conflict: null };
   }
 
   const client = options.client ?? plannerClient;
-  options.store.setSyncState('syncing', 'Uploading saved focus events…');
+  options.store.setSyncState('syncing', 'Uploading saved focus events…', binding);
   let uploaded = 0;
+  let quarantined = 0;
   for (const record of records) {
+    if (!isOwnerBindingCurrent(binding)) {
+      return {
+        uploaded,
+        remaining: await remainingFor(options.journal, binding),
+        conflict: null,
+      };
+    }
     try {
       const updated = await sendFocusEvent(client, record);
-      options.store.update(updated);
       await options.journal.remove(record.seq);
       uploaded += 1;
-      const remaining = (await options.journal.list()).length;
-      options.store.setPendingCount(remaining);
+      options.store.update(updated, binding);
+      options.store.setPendingCount(await remainingFor(options.journal, binding), binding);
     } catch (cause) {
-      const remaining = (await options.journal.list()).length;
-      options.store.setPendingCount(remaining);
+      if (!isOwnerBindingCurrent(binding)) {
+        return {
+          uploaded,
+          remaining: await remainingFor(options.journal, binding),
+          conflict: null,
+        };
+      }
+      if (cause instanceof ApiError && (cause.status === 403 || cause.status === 404)) {
+        quarantineRecord(binding.ownerId, record, cause.detail);
+        await options.journal.remove(record.seq);
+        quarantined += 1;
+        options.store.setPendingCount(await remainingFor(options.journal, binding), binding);
+        continue;
+      }
+      const remaining = await remainingFor(options.journal, binding);
+      options.store.setPendingCount(remaining, binding);
       if (cause instanceof ApiError && (cause.status === 409 || cause.status === 412 || cause.status === 422)) {
         const message = `${cause.detail} Saved focus events were kept on this device.`;
-        options.store.setSyncState('conflict', message);
+        options.store.setSyncState('conflict', message, binding);
         return { uploaded, remaining, conflict: message };
       }
       options.store.setSyncState(
         'offline',
         `${remaining} focus event${remaining === 1 ? '' : 's'} still waiting to upload.`,
+        binding,
       );
       return { uploaded, remaining, conflict: null };
     }
   }
-  options.store.setSyncState('synced', 'Saved focus events uploaded.');
+  if (!isOwnerBindingCurrent(binding)) {
+    return { uploaded, remaining: await remainingFor(options.journal, binding), conflict: null };
+  }
+  if (quarantined > 0) {
+    options.store.setSyncState(
+      'conflict',
+      `${quarantined} saved focus event${quarantined === 1 ? '' : 's'} could not be replayed because the session is no longer available. It was set aside on this device.`,
+      binding,
+    );
+    return { uploaded, remaining: 0, conflict: null };
+  }
+  options.store.setSyncState('synced', 'Saved focus events uploaded.', binding);
   return { uploaded, remaining: 0, conflict: null };
 }
 
