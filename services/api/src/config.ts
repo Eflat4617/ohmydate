@@ -167,6 +167,13 @@ export interface AppConfig {
   readonly pushKeyFile: string | null;
   /** Inline Web Push encryption key (base64 or hex) as an env-ref fallback. */
   readonly pushKey: string | null;
+  /**
+   * FU-79 E2E only (`E2E_RESET_LOGIN_RATE_LIMIT=1`, fake provider): exposes
+   * `POST /api/v1/__e2e__/reset-login-rate-limit` so Playwright can isolate
+   * each test from the previous one's fixed login window. Rejected in
+   * production by `assertFakeKnobsAllowed`; the limiter itself is unchanged.
+   */
+  readonly e2eResetLoginRateLimit: boolean;
 }
 
 export const DEFAULT_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -216,6 +223,7 @@ export const defaultConfig: AppConfig = {
   trustProxy: false,
   pushKeyFile: null,
   pushKey: null,
+  e2eResetLoginRateLimit: false,
 };
 
 /**
@@ -321,6 +329,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ),
     pushKeyFile: env['PUSH_KEY_FILE'] ?? null,
     pushKey: env['PUSH_KEY'] ?? null,
+    e2eResetLoginRateLimit: env['E2E_RESET_LOGIN_RATE_LIMIT'] === '1',
   });
   assertFakeKnobsAllowed(config);
   return config;
@@ -334,6 +343,7 @@ export function fakeKnobsOf(config: AppConfig): FakeKnob[] {
   return [
     ['LLM_FAKE_SCRIPTED_OWNERS', config.llmFakeScriptedOwners.length > 0],
     ['LLM_FAKE_LATENCY_MS', config.llmFakeLatencyMs > 0],
+    ['E2E_RESET_LOGIN_RATE_LIMIT', config.e2eResetLoginRateLimit],
   ];
 }
 

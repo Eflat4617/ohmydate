@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../helpers/test';
+import { localDayStartMs, nextLocalMorningMs } from '../helpers/day-clock';
 import {
   availabilityWindows,
   calendarBlockSelector,
@@ -199,5 +200,32 @@ test.describe('E2E-3 plan edit pickers', () => {
     expect(koreanClock('2026-11-12T15:00:00Z', 'Asia/Seoul')).toBe('오전 12:00');
     expect(koreanClock('2026-11-13T03:05:00Z', 'Asia/Seoul')).toBe('오후 12:05');
     expect(koreanClock('2026-11-13T10:00:00Z', 'Asia/Seoul')).toBe('오후 7:00');
+  });
+
+  test('day clock pins a simulated morning across midnight and DST transitions', () => {
+    // The wall-clock moments FU-79 reproduces: 21:50 and 23:59 UTC would leave
+    // too little of the UTC day, 00:01 is the next morning.
+    const lateEvening = Date.parse('2026-11-12T21:50:00Z');
+    expect(localDayStartMs(lateEvening, 'UTC')).toBe(Date.parse('2026-11-12T00:00:00Z'));
+    expect(nextLocalMorningMs(lateEvening, 'UTC')).toBe(Date.parse('2026-11-13T09:00:00Z'));
+    expect(nextLocalMorningMs(Date.parse('2026-11-12T23:59:00Z'), 'UTC')).toBe(
+      Date.parse('2026-11-13T09:00:00Z'),
+    );
+    expect(nextLocalMorningMs(Date.parse('2026-11-13T00:01:00Z'), 'UTC')).toBe(
+      Date.parse('2026-11-13T09:00:00Z'),
+    );
+
+    // America/New_York spring forward (2026-03-08 02:00 EST -> 03:00 EDT).
+    expect(localDayStartMs(Date.parse('2026-03-08T06:30:00Z'), 'America/New_York')).toBe(
+      Date.parse('2026-03-08T05:00:00Z'),
+    );
+    expect(nextLocalMorningMs(Date.parse('2026-03-08T04:30:00Z'), 'America/New_York')).toBe(
+      Date.parse('2026-03-08T13:00:00Z'),
+    );
+
+    // Fall back (2026-11-01 02:00 EDT -> 01:00 EST): 09:00 local is EST.
+    expect(nextLocalMorningMs(Date.parse('2026-11-01T06:00:00Z'), 'America/New_York')).toBe(
+      Date.parse('2026-11-01T14:00:00Z'),
+    );
   });
 });

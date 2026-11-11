@@ -27,3 +27,15 @@ export async function installBrowserClock(context: BrowserContext, clock: TestCl
   if (clock.offsetMs === 0) return;
   await context.clock.install({ time: clock.nowMs() });
 }
+
+/**
+ * FU-79: pin the browser to the simulator's "today" even on a real-time run.
+ * Specs that assert day boundaries call this with the instant returned by
+ * helpers/day-clock.ts so the UI's local date never follows the wall clock.
+ */
+export async function installBrowserClockAt(
+  context: BrowserContext,
+  nowMs: number,
+): Promise<void> {
+  await context.clock.install({ time: nowMs });
+}

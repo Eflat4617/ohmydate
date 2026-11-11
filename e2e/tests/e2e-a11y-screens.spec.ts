@@ -1,6 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { expect, test } from '../helpers/test';
 import { login } from '../helpers/app';
+import { installBrowserClockAt, testClock } from '../helpers/clock';
+import { nextLocalMorningMs } from '../helpers/day-clock';
 import {
   approveCandidateWithBlocks,
   createApprovedGoalWithSingleStep,
@@ -26,6 +29,9 @@ import { readState } from '../helpers/state';
 
 const state = readState();
 const account = { email: state.plansEmail, password: state.plansPassword };
+/** FU-79: simulate a local morning with room for the plan and a commitment. */
+const clock = testClock(state);
+const simulatedDayMs = nextLocalMorningMs(clock.nowMs(), 'UTC');
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1280, height: 800 };
@@ -121,17 +127,20 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
     const title = `E2E a11y ${suffix}`;
     const commitmentTitle = `E2E a11y commitment ${suffix}`;
     const context = await browser.newContext({ timezoneId: 'UTC', viewport: DESKTOP });
+    await installBrowserClockAt(context, simulatedDayMs);
     const page = await context.newPage();
     await login(page, state, account);
+    const apiNowMs = clock.nowMs();
 
     await test.step('seed a plan with blocks today and one commitment', async () => {
       await setContinuousWeeklyAvailability(page, state);
-      const goal = await createApprovedGoalWithSingleStep(page, state, title);
+      const goal = await createApprovedGoalWithSingleStep(page, state, title, {
+        nowMs: apiNowMs,
+      });
       if (goal.goalId === undefined) throw new Error('approved goal id is missing');
-      const plan = await createPlanFromGoal(page, state, goal.goalId);
-      const now = Date.now();
+      const plan = await createPlanFromGoal(page, state, goal.goalId, { nowMs: apiNowMs });
       // The list endpoints take minute-precision instants.
-      const minute = Math.floor(now / 60_000) * 60_000;
+      const minute = Math.floor(simulatedDayMs / 60_000) * 60_000;
       const from = new Date(minute - 86_400_000).toISOString();
       const to = new Date(minute + 2 * 86_400_000).toISOString();
       const busy = [
@@ -142,12 +151,13 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         page,
         state,
         plan,
-        blocksAroundBusy(plan, busy, now),
+        blocksAroundBusy(plan, busy, simulatedDayMs),
       );
       expect(approved.blocks.length).toBeGreaterThan(0);
-      // A finished half hour at the start of today (UTC): inside the
-      // Commitments page's default week range, clear of the new blocks.
-      const dayStart = new Date(now);
+      // A finished half hour at the start of the simulated day (UTC):
+      // inside the Commitments page's default week range, clear of the new
+      // blocks (the plan starts at 09:05 local).
+      const dayStart = new Date(simulatedDayMs);
       dayStart.setUTCHours(0, 0, 0, 0);
       await createOverlappingCommitment(
         page,

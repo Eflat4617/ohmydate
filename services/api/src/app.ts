@@ -779,6 +779,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     { prefix: API_PREFIX },
   );
 
+  // FU-79: E2E-only, fake-provider-only isolation of the fixed login window.
+  // Not part of the public contract/OpenAPI; production boot rejects the knob.
+  if (config.e2eResetLoginRateLimit) {
+    app.post(`${API_PREFIX}/__e2e__/reset-login-rate-limit`, async (_request, reply) => {
+      runtime.auth.resetLoginRateLimit();
+      return reply.code(204).send();
+    });
+  }
+
   const leaderConnection = config.databaseUrl;
   const useLeaderLock =
     config.provider === 'vikunja' &&
