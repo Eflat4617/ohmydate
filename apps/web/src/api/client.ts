@@ -76,6 +76,27 @@ export type EstimationProfile = components['schemas']['EstimationProfile'];
 export type EstimationProfileGroup = components['schemas']['EstimationProfileGroup'];
 export type EstimationProfileItem = components['schemas']['EstimationProfileItem'];
 export type EstimationReset = components['schemas']['EstimationReset'];
+export type ContextDocument = components['schemas']['ContextDocument'];
+export type ContextDocumentCreate = components['schemas']['ContextDocumentCreate'];
+export type ContextDocumentPatch = components['schemas']['ContextDocumentPatch'];
+export type ContextDocumentPage = components['schemas']['ContextDocumentPage'];
+export type DocumentLink = components['schemas']['DocumentLink'];
+export type DocumentLinkCreate = components['schemas']['DocumentLinkCreate'];
+export type DocumentTargetKind = DocumentLink['targetKind'];
+export type NoteSensitivity = ContextDocument['sensitivity'];
+export type NoteAiUsage = components['schemas']['NoteAiUsage'];
+export type NoteAiUsagePage = components['schemas']['NoteAiUsagePage'];
+export type NoteAiUsageStatus = NoteAiUsage['status'];
+export type DecompositionEvidence = components['schemas']['DecompositionEvidence'];
+
+export interface DocumentListOptions {
+  readonly q?: string;
+  readonly targetKind?: DocumentTargetKind;
+  readonly targetId?: string;
+  readonly cursor?: string;
+  readonly limit?: number;
+  readonly signal?: AbortSignal;
+}
 
 export interface PlannerClientOptions {
   readonly baseUrl?: string;
@@ -220,9 +241,10 @@ export class PlannerClient {
     return data;
   }
 
-  async listProjects(options: { cursor?: string; limit?: number } = {}): Promise<Page<Project>> {
+  async listProjects(options: { cursor?: string; limit?: number; signal?: AbortSignal } = {}): Promise<Page<Project>> {
     const { data, error, response } = await this.client.GET('/projects', {
       params: { query: pageQuery(options) },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty project page');
@@ -244,7 +266,7 @@ export class PlannerClient {
   }
 
   async listTasks(
-    options: { projectId?: string; status?: TaskStatus; cursor?: string; limit?: number } = {},
+    options: { projectId?: string; status?: TaskStatus; cursor?: string; limit?: number; signal?: AbortSignal } = {},
   ): Promise<Page<Task>> {
     const query: {
       projectId?: string;
@@ -257,17 +279,21 @@ export class PlannerClient {
     if (options.cursor !== undefined) query.cursor = options.cursor;
     if (options.limit !== undefined) query.limit = options.limit;
 
-    const { data, error, response } = await this.client.GET('/tasks', { params: { query } });
+    const { data, error, response } = await this.client.GET('/tasks', {
+      params: { query },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty task page');
     for (const task of data.items) this.remember(`task:${task.id}`, task.version);
     return data;
   }
 
-  async getTask(taskId: string, options: { fresh?: boolean } = {}): Promise<Task> {
+  async getTask(taskId: string, options: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<Task> {
     const { data, error, response } = await this.client.GET('/tasks/{id}', {
       params: { path: { id: taskId } },
       ...(options.fresh === true ? { cache: 'no-store' as RequestCache } : {}),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty task response');
@@ -1313,6 +1339,183 @@ export class PlannerClient {
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty estimation profile');
+    return data;
+  }
+
+  // ── Notes (ContextDocument, 08 §2.7, M6-01) ──────────────────────────
+  // Reads are `no-store`: note bodies are private and must never come back
+  // stale from the HTTP cache after an edit in another tab.
+
+  cachedDocumentVersion(documentId: string): number | undefined {
+    return this.versions.get(`document:${documentId}`);
+  }
+
+  async listDocuments(options: DocumentListOptions = {}): Promise<ContextDocumentPage> {
+    const query: {
+      q?: string;
+      targetKind?: DocumentTargetKind;
+      targetId?: string;
+      cursor?: string;
+      limit?: number;
+    } = {};
+    if (options.q !== undefined) query.q = options.q;
+    if (options.targetKind !== undefined) query.targetKind = options.targetKind;
+    if (options.targetId !== undefined) query.targetId = options.targetId;
+    if (options.cursor !== undefined) query.cursor = options.cursor;
+    if (options.limit !== undefined) query.limit = options.limit;
+    const { data, error, response } = await this.client.GET('/documents', {
+      params: { query },
+      cache: 'no-store',
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty document page');
+    for (const item of data.items) this.remember(`document:${item.id}`, item.version);
+    return data;
+  }
+
+  async getDocument(documentId: string, signal?: AbortSignal): Promise<ContextDocument> {
+    const { data, error, response } = await this.client.GET('/documents/{id}', {
+      params: { path: { id: documentId } },
+      cache: 'no-store',
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty document response');
+    this.remember(`document:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async createDocument(
+    input: ContextDocumentCreate,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<ContextDocument> {
+    const { data, error, response } = await this.client.POST('/documents', {
+      params: { header: { 'Idempotency-Key': idempotencyKey } },
+      body: input,
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty document response');
+    this.remember(`document:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async updateDocument(
+    documentId: string,
+    patch: ContextDocumentPatch,
+    idempotencyKey: string,
+    expectedVersion: number,
+    signal?: AbortSignal,
+  ): Promise<ContextDocument> {
+    const { data, error, response } = await this.client.PATCH('/documents/{id}', {
+      params: {
+        path: { id: documentId },
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      body: patch,
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty document response');
+    this.remember(`document:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async deleteDocument(
+    documentId: string,
+    idempotencyKey: string,
+    expectedVersion: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const { error, response } = await this.client.DELETE('/documents/{id}', {
+      params: {
+        path: { id: documentId },
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    this.versions.delete(`document:${documentId}`);
+  }
+
+  /** If-Match is the NOTE version; the answer is the note at version + 1. */
+  async linkDocument(
+    documentId: string,
+    link: DocumentLinkCreate,
+    idempotencyKey: string,
+    expectedVersion: number,
+    signal?: AbortSignal,
+  ): Promise<ContextDocument> {
+    const { data, error, response } = await this.client.POST('/documents/{id}/links', {
+      params: {
+        path: { id: documentId },
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      body: link,
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty document response');
+    this.remember(`document:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async unlinkDocument(
+    documentId: string,
+    linkId: string,
+    idempotencyKey: string,
+    expectedVersion: number,
+    signal?: AbortSignal,
+  ): Promise<ContextDocument> {
+    const { data, error, response } = await this.client.DELETE('/documents/{id}/links/{linkId}', {
+      params: {
+        path: { id: documentId, linkId },
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty document response');
+    this.remember(`document:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async listDocumentAiUsage(
+    documentId: string,
+    options: { cursor?: string; limit?: number; signal?: AbortSignal } = {},
+  ): Promise<NoteAiUsagePage> {
+    const { data, error, response } = await this.client.GET('/documents/{id}/ai-usage', {
+      params: { path: { id: documentId }, query: pageQuery(options) },
+      cache: 'no-store',
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty AI usage page');
+    return data;
+  }
+
+  /**
+   * 07 §7 "작업 설명을 노트로 승격": If-Match is the TASK version. 409
+   * `illegal_transition` means a live promoted note already exists.
+   */
+  async promoteTaskDescription(
+    taskId: string,
+    idempotencyKey: string,
+    expectedTaskVersion: number,
+    signal?: AbortSignal,
+  ): Promise<ContextDocument> {
+    const { data, error, response } = await this.client.POST('/tasks/{id}:promote-description', {
+      params: {
+        path: { id: taskId },
+        header: { 'If-Match': etagForVersion(expectedTaskVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty document response');
+    this.remember(`document:${data.id}`, data.version, response.headers.get('ETag'));
     return data;
   }
 

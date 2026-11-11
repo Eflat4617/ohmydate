@@ -6,7 +6,6 @@ import InboxView from './views/InboxView.vue';
 import LayoutSettingsView from './views/LayoutSettingsView.vue';
 import LlmSettingsView from './views/LlmSettingsView.vue';
 import LoginView from './views/LoginView.vue';
-import NotesPlaceholderView from './views/NotesPlaceholderView.vue';
 import PlanComparisonView from './views/PlanComparisonView.vue';
 import PlanNewView from './views/PlanNewView.vue';
 import ProjectDetailView from './views/ProjectDetailView.vue';
@@ -15,7 +14,10 @@ import PlanningWizardView from './views/PlanningWizardView.vue';
 import PatternsView from './views/PatternsView.vue';
 import ReplanListView from './views/ReplanListView.vue';
 import ReplanProposalView from './views/ReplanProposalView.vue';
+import TaskDetailView from './views/TaskDetailView.vue';
 import TodayView from './views/TodayView.vue';
+
+const NotesView = () => import('./views/NotesView.vue');
 
 /** The app's route table (exported so tests can mount it on a memory history). */
 export const routes: RouteRecordRaw[] = [
@@ -32,8 +34,12 @@ export const routes: RouteRecordRaw[] = [
   { path: '/settings/availability', name: 'availability', component: AvailabilityView },
   { path: '/settings/ai', name: 'ai-settings', component: LlmSettingsView },
   { path: '/settings/layout', name: 'layout-settings', component: LayoutSettingsView },
-  // M6-02 placeholder so the `notes` layout has a page; M6-03 replaces the view.
-  { path: '/notes', name: 'notes', component: NotesPlaceholderView },
+  // M6-03 notes workspace: one view for the list, a new note and an open note.
+  // Loaded on demand, so the Markdown parser stays out of the main bundle.
+  { path: '/notes', name: 'notes', component: NotesView },
+  { path: '/notes/new', name: 'notes-new', component: NotesView },
+  { path: '/notes/:id', name: 'notes-detail', component: NotesView },
+  { path: '/tasks/:id', name: 'task', component: TaskDetailView, props: true },
   { path: '/plans/new', name: 'plans-new', component: PlanNewView },
   { path: '/plans/:id', name: 'plan', component: PlanComparisonView, props: true },
   { path: '/replan', name: 'replan', component: ReplanListView },

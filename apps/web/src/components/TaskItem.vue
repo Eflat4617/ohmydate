@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, inject, nextTick, ref, watch } from 'vue';
+import { RouterLink, routerKey } from 'vue-router';
 import type { Task } from '../api';
 import UiBadge from './ui/UiBadge.vue';
 import UiButton from './ui/UiButton.vue';
@@ -28,6 +29,9 @@ const emit = defineEmits<{
 }>();
 
 const editInput = ref<HTMLInputElement | null>(null);
+// The title opens the task detail (linked notes, "설명을 노트로 승격") when a
+// router is installed; isolated mounts (component tests) keep plain text.
+const hasRouter = inject(routerKey, null) !== null;
 
 const isDone = computed(() => props.task.status === 'done');
 const statusLabel = computed(() => {
@@ -114,7 +118,10 @@ function onInput(event: Event): void {
         <UiIcon v-if="isDone" name="check" :size="14" />
       </span>
       <div class="task-main">
-        <span class="task-title">{{ task.title }}</span>
+        <RouterLink v-if="hasRouter" :to="`/tasks/${task.id}`" class="task-title task-title-link" data-task-detail-link>
+          {{ task.title }}
+        </RouterLink>
+        <span v-else class="task-title">{{ task.title }}</span>
         <UiBadge class="task-status" :tone="statusTone" :data-status="task.status">{{ statusLabel }}</UiBadge>
       </div>
       <div class="task-actions">

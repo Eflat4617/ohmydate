@@ -1,6 +1,7 @@
 import { setupServer } from 'msw/node';
 import { createHandlers } from './handlers';
 import { createIntakeHandlers } from './intake-handlers';
+import { createNotesHandlers } from './notes';
 import { createPlanningHandlers } from './planning-handlers';
 import { createReplanHandlers } from './replan';
 import { mockDb } from './db';
@@ -10,4 +11,5 @@ export const server = setupServer(
   ...createIntakeHandlers(mockDb),
   ...createPlanningHandlers(mockDb),
   ...createReplanHandlers(mockDb),
+  ...createNotesHandlers(mockDb),
 );

@@ -4,7 +4,6 @@ import { registerIanaTimeZoneFormat } from '@ohmydate/contracts';
 import { DomainError, type Clock, type IdGenerator } from '@ohmydate/domain';
 import {
   BudgetGuard,
-  FakeLlm,
   OpenAICompatibleLlm,
   PolicyLlm,
   maxPromptTimeoutMs,
@@ -23,6 +22,7 @@ import { assertFakeKnobsAllowed, llmPromptLimits, type AppConfig } from './confi
 import type { AppRepositories, IdempotencyStore } from './application/ports.js';
 import type { Id } from '@ohmydate/domain';
 import { AuthService } from './application/auth-service.js';
+import { createBaseFakeLlm } from './adapters/fake-llm-scenarios.js';
 import { Argon2PasswordHasher } from './adapters/argon2-password-hasher.js';
 import { InMemoryLoginRateLimiter } from './adapters/in-memory-login-rate-limiter.js';
 import { InMemorySessionStore } from './adapters/in-memory-session-store.js';
@@ -418,14 +418,15 @@ async function createConfiguredLlm(input: {
 }
 
 /**
- * `LLM_PROVIDER=fake` composition. The base fake mode comes first (the
- * fixture-less FakeLlm: immediate llm_unavailable -> manual mode; other fake
- * modes plug in here); the FU-76 scripted slow owners WRAP it and delegate
- * every other owner to it, so no fake mode shadows another. Fake knobs were
- * already checked by `assertFakeKnobsAllowed` (never in production).
+ * `LLM_PROVIDER=fake` composition. The base fake mode comes first: the
+ * fixture-less FakeLlm (immediate llm_unavailable -> manual mode), or, with
+ * `LLM_FAKE_SCENARIO`, the M6-03 scenario for its owners on top of that plain
+ * fake. The FU-76 scripted slow owners WRAP the base and delegate every other
+ * owner to it, so no fake mode shadows another. Fake knobs were already checked
+ * by `assertFakeKnobsAllowed` (never in production).
  */
-function fakeLlmFor(config: AppConfig): LlmPort {
-  const base: LlmPort = new FakeLlm();
+export function fakeLlmFor(config: AppConfig): LlmPort {
+  const base: LlmPort = createBaseFakeLlm({ scenario: config.llmFakeScenario, owners: config.llmFakeScenarioOwners });
   if (config.llmFakeScriptedOwners.length === 0) return base;
   return new ScriptedFakeLlm({
     inner: base,
