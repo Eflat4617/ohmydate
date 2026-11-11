@@ -4,6 +4,7 @@ import { routerKey } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import type { ReplanProposal } from '../api';
 import { useReplanRequest } from '../composables/useReplanRequest';
+import { runOwnerBound } from '../session/ownerBound';
 import { t } from '../i18n';
 import { useOfflineStore } from '../stores/offline';
 import { useToastStore } from '../stores/toast';
@@ -32,13 +33,17 @@ const offline = useOfflineStore();
 const toast = useToastStore();
 const { busy, error, hint, request } = useReplanRequest();
 
+// Owner isolation (ADR-023): the toast and the navigation belong to the
+// owner who asked; after a user switch the new proposal opens for nobody.
 async function submit(): Promise<void> {
-  const created = await request(props.planId);
-  if (created === null) return;
-  toast.show(t('replan.requested'));
-  await queryClient.invalidateQueries({ queryKey: ['replan-proposals'] });
-  emit('created', created);
-  if (router !== null) await router.push(`/replan/${created.id}`);
+  await runOwnerBound(async (owner) => {
+    const created = await owner.wait(request(props.planId));
+    if (created === null) return;
+    toast.show(t('replan.requested'));
+    await owner.wait(queryClient.invalidateQueries({ queryKey: ['replan-proposals'] }));
+    emit('created', created);
+    if (router !== null) await owner.wait(router.push(`/replan/${created.id}`));
+  });
 }
 </script>
 

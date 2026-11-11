@@ -1,5 +1,7 @@
 import type { VueWrapper } from '@vue/test-utils';
-import { newActionId, plannerClient, type WorkSession } from '../src/api';
+import { HttpResponse, http } from 'msw';
+import { newActionId, plannerClient, type Plan, type Task, type User, type WorkSession } from '../src/api';
+import NotificationsPanel from '../src/components/NotificationsPanel.vue';
 import { setLayoutClock } from '../src/layout/clock';
 import {
   SEED_COMMITMENT_ID,
@@ -11,6 +13,9 @@ import {
 } from '../src/mocks/db';
 import { NOTE_MEETING_ID } from '../src/mocks/notes-seed';
 import { REPLAN_PENDING_ID, seedReplanScenario } from '../src/mocks/replan';
+import { FEEDBACK_IDS } from '../src/mocks/replan-seed';
+import { server } from '../src/mocks/server';
+import { useAuthStore } from '../src/stores/auth';
 import { useSessionStore } from '../src/stores/session';
 import { buttonInElement, dialogByTitle, setValue } from './m6-03-notes-utils';
 import { IN_REVIEW_WINDOW, startedSession, useTestClock } from './m6-layout-utils';
@@ -390,7 +395,166 @@ const CASES: OwnerSwitchCase[] = [
     },
     markers: ['A-private-goal', 'A-private-description'],
   },
+  {
+    name: 'plans: generate candidates',
+    covers: ['src/views/PlanNewView.vue'],
+    path: () => `/plans/new?taskIds=${seedTaskId()}`,
+    ready: async (wrapper) => {
+      await vi.waitFor(() => expect(wrapper.text()).toContain('작업 1개'));
+    },
+    hold: { method: 'POST', path: /\/plans$/ },
+    act: async (wrapper) => {
+      await buttonByText(wrapper, '후보 만들기').trigger('click');
+    },
+  },
+  {
+    name: 'plans: approve a candidate',
+    covers: ['src/views/PlanComparisonView.vue'],
+    path: async () => `/plans/${(await createPlan()).id}`,
+    ready: planReady,
+    hold: { method: 'POST', path: /\/candidates\/[^/]+:approve$/ },
+    act: async (wrapper) => {
+      await buttonByText(wrapper, '이 일정으로 확정').trigger('click');
+    },
+  },
+  {
+    name: 'plans: preview a keyboard edit',
+    covers: ['src/views/PlanComparisonView.vue'],
+    path: async () => `/plans/${(await createPlan()).id}`,
+    ready: planReady,
+    hold: { method: 'POST', path: ':preview-edit' },
+    act: async (wrapper) => {
+      await wrapper.findAll('.calendar-block')[0]?.trigger('keydown', { key: 'ArrowDown' });
+    },
+  },
+  {
+    name: 'patterns: exclude a record',
+    covers: ['src/views/PatternsView.vue'],
+    path: '/patterns',
+    ready: patternsReady,
+    hold: { method: 'PATCH', path: '/estimation/feedback/' },
+    act: async (wrapper) => {
+      await wrapper.get(`[data-feedback-id="${FEEDBACK_IDS.one}"] [data-include]`).trigger('change');
+    },
+  },
+  {
+    name: 'patterns: reset everything',
+    covers: ['src/views/PatternsView.vue'],
+    path: '/patterns',
+    ready: async (wrapper) => {
+      await patternsReady(wrapper);
+      await wrapper.get('[data-reset-all]').trigger('click');
+      await vi.waitFor(() => expect(document.querySelector('[data-reset-confirm]')).not.toBeNull());
+    },
+    hold: { method: 'POST', path: '/estimation:reset' },
+    act: async () => {
+      document.querySelector<HTMLButtonElement>('[data-reset-confirm]')?.click();
+    },
+  },
+  {
+    name: 'task: promote the description to a note',
+    covers: ['src/views/TaskDetailView.vue', 'src/composables/notes.ts'],
+    path: () => {
+      const task = seedTask();
+      task.description = '<p>A-private-description</p>';
+      task.version += 1;
+      return `/tasks/${task.id}`;
+    },
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await vi.waitFor(() => expect(wrapper.find('[data-task-promote]').exists()).toBe(true));
+      await vi.waitFor(() => expect(wrapper.get('[data-task-promote]').attributes('disabled')).toBeUndefined());
+    },
+    hold: { method: 'POST', path: ':promote-description' },
+    act: async (wrapper) => {
+      await wrapper.get('[data-task-promote]').trigger('click');
+    },
+  },
+  {
+    name: 'notifications: a poll answered late',
+    covers: ['src/notifications/useNotifications.ts', 'src/components/NotificationsPanel.vue'],
+    // The panel polls as soon as it mounts, so the hold must already be in place.
+    mount: (stage) => {
+      startHold = stage.hold({ method: 'GET', path: '/notifications' });
+      return stage.mount(NotificationsPanel, { props: { open: true } });
+    },
+    ready: async () => {
+      await startHold?.arrived();
+    },
+    act: async () => {
+      startHold?.release();
+    },
+    markers: ['곧 마감되는 작업이 있어요'],
+  },
+  {
+    name: 'notifications: dismiss',
+    covers: ['src/notifications/useNotifications.ts', 'src/components/NotificationsPanel.vue'],
+    mount: (stage) => stage.mount(NotificationsPanel, { props: { open: true } }),
+    ready: async (wrapper) => {
+      await vi.waitFor(() => expect(wrapper.findAll('.notification-item').length).toBeGreaterThan(0));
+    },
+    hold: { method: 'POST', path: ':dismiss' },
+    act: async (wrapper) => {
+      await buttonByText(wrapper.findAll('.notification-item')[0] as unknown as VueWrapper, '지우기').trigger('click');
+    },
+  },
+  {
+    name: 'AI settings: grant consent',
+    covers: ['src/views/LlmSettingsView.vue', 'src/stores/auth.ts'],
+    path: '/settings/ai',
+    seed: async (stage) => {
+      mockDb.user = { ...mockDb.user, llmProvider: 'deepseek' };
+      await useAuthStore(stage.pinia).loadCurrent();
+      server.use(
+        http.patch('*/api/v1/me/settings', () => {
+          const next: User = {
+            ...mockDb.user,
+            version: mockDb.user.version + 1,
+            llm: { consent: { granted: true, at: '2026-11-12T09:30:00.000Z', provider: 'deepseek' } },
+          };
+          return HttpResponse.json(next as unknown as Record<string, unknown>, { headers: { ETag: `W/"${next.version}"` } });
+        }),
+      );
+    },
+    ready: async (wrapper) => {
+      await vi.waitFor(() => expect(wrapper.findAll('button').some((item) => item.text().includes('AI 계획 도움 켜기'))).toBe(true));
+    },
+    hold: { method: 'PATCH', path: '/me/settings' },
+    act: async (wrapper) => {
+      await buttonByText(wrapper, 'AI 계획 도움 켜기').trigger('click');
+    },
+  },
 ];
+
+function seedTask(): Task {
+  const task = [...mockDb.tasks.values()].find((item) => item.title === SEED_TASK_TITLE);
+  if (task === undefined) throw new Error('seed task missing');
+  return task;
+}
+
+function seedTaskId(): string {
+  return seedTask().id;
+}
+
+function createPlan(): Promise<Plan> {
+  return plannerClient.createPlan(
+    {
+      scope: { taskIds: [seedTaskId()] },
+      horizon: { start: '2026-11-11T00:00:00.000Z', end: '2026-11-25T00:00:00.000Z' },
+      policies: ['front_loaded', 'balanced', 'focus_blocked'],
+    },
+    newActionId('plan-create'),
+  );
+}
+
+async function planReady(wrapper: VueWrapper): Promise<void> {
+  await vi.waitFor(() => expect(wrapper.findAll('.candidate-card').length).toBeGreaterThan(0));
+  await vi.waitFor(() => expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0));
+}
+
+async function patternsReady(wrapper: VueWrapper): Promise<void> {
+  await vi.waitFor(() => expect(wrapper.find(`[data-feedback-id="${FEEDBACK_IDS.one}"]`).exists()).toBe(true));
+}
 
 async function noteReady(wrapper: VueWrapper): Promise<void> {
   await vi.waitFor(() => expect(wrapper.find('[data-note-links]').exists()).toBe(true));

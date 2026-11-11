@@ -5,7 +5,8 @@ import { defineComponent, h, nextTick, type Component, type Plugin } from 'vue';
 import { RouterView, createMemoryHistory, createRouter, type Router } from 'vue-router';
 import App from '../../src/App.vue';
 import AdaptiveFrame from '../../src/components/layout/AdaptiveFrame.vue';
-import { mockDb } from '../../src/mocks/db';
+import { mockDb, resetMockDb } from '../../src/mocks/db';
+import { server } from '../../src/mocks/server';
 import { routes } from '../../src/router';
 import { sessionJournal } from '../../src/session/journal';
 import { OWNER_STORAGE_KEY } from '../../src/session/owner';
@@ -97,6 +98,12 @@ export interface LeakReport {
   readonly markers: readonly string[];
 }
 
+/** Live-region texts and dialogs an owner switch produces on a screen by itself. */
+export interface SwitchReference {
+  readonly live: readonly string[];
+  readonly dialogs: number;
+}
+
 export interface OwnerSwitchStage {
   readonly ownerA: string;
   readonly ownerB: string;
@@ -118,6 +125,16 @@ export interface OwnerSwitchStage {
   /** Hold matching responses in flight (the server has already acted) until released. */
   hold(match: HoldMatch): HeldResponses;
   /**
+   * Start counting requests (call right before the action) and hold the
+   * `index`-th one sent from now on, whatever it is. Used to switch the owner
+   * at each network await of a continuation in turn.
+   */
+  holdNth(index: number): HeldResponses;
+  /** Start counting requests without holding any (a discovery run). */
+  markActionStart(): void;
+  /** Requests sent since `markActionStart()` / `holdNth()`. */
+  requestsSinceMark(): readonly RequestRecord[];
+  /**
    * The signed-in user changes to B. `reset` (default) is the production path:
    * another tab signed in, this page decides on a hard reset. `adopt` changes
    * the owner without one. Requests sent afterwards are recorded and never
@@ -125,9 +142,16 @@ export interface OwnerSwitchStage {
    */
   switchOwner(options?: { via?: 'reset' | 'adopt' }): Promise<void>;
   settle(): Promise<void>;
+  /**
+   * What this screen shows on an owner switch when nothing is in flight (its
+   * own "loading" notice, say): not counted as a leak. See `switchReference`.
+   */
+  expectOnSwitch(reference: SwitchReference): void;
+  /** After `switchOwner()`: what appeared on the screen because of the switch alone. */
+  switchReference(): SwitchReference;
   /** What leaked since the switch. `markers`: strings that identify A's private data. */
   leaks(markers?: readonly string[]): LeakReport;
-  expectNoLeak(markers?: readonly string[]): void;
+  expectNoLeak(markers?: readonly string[], context?: string): void;
   /** Start observing for a control run (no owner switch): call before releasing. */
   watchEffects(): void;
   /** Control run: the action must have had an observable effect for its own owner. */
@@ -141,6 +165,31 @@ interface Hold {
   released: boolean;
   release: () => void;
   readonly gate: Promise<void>;
+  /** Held by position (`holdNth`), not by pattern. */
+  byPosition: boolean;
+}
+
+function newHold(match: HoldMatch): Hold {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { match, count: 0, released: false, release, gate, byPosition: false };
+}
+
+function handleOf(hold: Hold, label: string): HeldResponses {
+  return {
+    get count() {
+      return hold.count;
+    },
+    async arrived(count = 1) {
+      await vi.waitFor(() => expect(hold.count, `held ${label}`).toBeGreaterThanOrEqual(count), { timeout: 3_000 });
+    },
+    release() {
+      hold.released = true;
+      hold.release();
+    },
+  };
 }
 
 function matches(match: HoldMatch, method: string, path: string): boolean {
@@ -166,6 +215,14 @@ function isDeclaredKey(key: string): boolean {
   return Object.values(ownerSlots).some((slot) => key.startsWith(`${slot.prefix}:`));
 }
 
+/**
+ * A screen that stays mounted may tell the next user that it is loading, or
+ * could not load, their data (its queries restart for them). That is its own
+ * reaction to the switch and says nothing about the previous user; anything
+ * else that appears is counted as a leak.
+ */
+const LOAD_STATE = /불러오(는 중|지 못했)/;
+
 function liveTexts(): string[] {
   const nodes = document.body.querySelectorAll('[role="status"], [role="alert"], [aria-live]');
   return [...nodes].map((node) => (node.textContent ?? '').replace(/\s+/g, ' ').trim()).filter((text) => text.length > 0);
@@ -176,6 +233,9 @@ function dialogCount(): number {
 }
 
 export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
+  // A fresh mock server for every stage: one test may build several in a row.
+  server.resetHandlers();
+  resetMockDb();
   const ownerA = mockDb.user.id;
   localStorage.clear();
   sessionStorage.clear();
@@ -194,12 +254,17 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
   const wrappers: VueWrapper[] = [];
   const requests: RequestRecord[] = [];
   const holds: Hold[] = [];
+  let mark: number | null = null;
+  let nth: { index: number; hold: Hold } | null = null;
   let switched = false;
   let journalForB = 0;
+  let expected: SwitchReference = { live: [], dialogs: 0 };
   let baseline: { route: string; live: string[]; dialogs: number; keys: string[]; dom: string; toasts: number } | null = null;
 
+  // One stage at a time: a previous stage's interception must not be wrapped again.
+  if (vi.isMockFunction(globalThis.fetch)) vi.mocked(globalThis.fetch).mockRestore();
   const transport = globalThis.fetch;
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+  const interception = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const request = input instanceof Request ? input : new Request(input, init);
     const method = request.method.toUpperCase();
     const path = new URL(request.url).pathname;
@@ -207,7 +272,11 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
     // B's server never answers within the test: anything that shows up after
     // the switch can only have come from A's held response.
     if (switched) return new Promise<Response>(() => {});
-    const hold = holds.find((item) => !item.released && matches(item.match, method, path));
+    const ordinal = mark === null ? -1 : requests.length - 1 - mark;
+    const hold =
+      nth !== null && !nth.hold.released && ordinal === nth.index
+        ? nth.hold
+        : holds.find((item) => !item.released && !item.byPosition && matches(item.match, method, path));
     const response = await transport(request);
     if (hold === undefined) return response;
     // Worst case on purpose: the response is delivered on release even though
@@ -270,8 +339,10 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
     const before = baseline;
     const keys = storageKeys();
     const route = router.currentRoute.value.fullPath;
-    const haystack = [
-      document.body.textContent ?? '',
+    // What A's own screen already showed before the switch is not a leak; a
+    // marker counts when it turns up afterwards, anywhere B could see it.
+    const screen = document.body.textContent ?? '';
+    const elsewhere = [
       JSON.stringify(queryClient.getQueryCache().getAll().map((query) => query.state.data ?? null)),
       // A's own namespace may keep A's data (ADR-023 §1); everything else may not.
       storageValuesOutside(ownerA),
@@ -282,13 +353,17 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
       journal: journalForB,
       toasts: toasts.toasts.map((toast) => toast.message),
       navigation: route === before.route ? null : `${before.route} -> ${route}`,
-      announcements: liveTexts().filter((text) => !before.live.includes(text)),
-      dialogs: Math.max(0, dialogCount() - before.dialogs),
+      announcements: liveTexts().filter(
+        (text) => !before.live.includes(text) && !expected.live.includes(text) && !LOAD_STATE.test(text),
+      ),
+      dialogs: Math.max(0, dialogCount() - before.dialogs - expected.dialogs),
       cache: cacheWithData(),
       mutations: requests
         .filter((request) => request.era === 'after' && request.method !== 'GET' && request.method !== 'HEAD')
         .map((request) => `${request.method} ${request.path}`),
-      markers: markers.filter((marker) => haystack.includes(marker)),
+      markers: markers.filter(
+        (marker) => elsewhere.includes(marker) || (screen.includes(marker) && !before.dom.includes(marker)),
+      ),
     };
   }
 
@@ -341,30 +416,35 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
     },
 
     hold(match) {
-      let release: () => void = () => {};
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const hold: Hold = { match, count: 0, released: false, release, gate };
+      const hold = newHold(match);
       holds.push(hold);
-      return {
-        get count() {
-          return hold.count;
-        },
-        async arrived(count = 1) {
-          await vi.waitFor(() => expect(hold.count, `held ${JSON.stringify(match)}`).toBeGreaterThanOrEqual(count), {
-            timeout: 3_000,
-          });
-        },
-        release() {
-          hold.released = true;
-          hold.release();
-        },
-      };
+      return handleOf(hold, JSON.stringify(match));
+    },
+
+    holdNth(index) {
+      mark = requests.length;
+      const hold = newHold({ path: '' });
+      nth = { index, hold };
+      holds.push(hold);
+      // `holds` is only searched by pattern for unreleased holds; this one is
+      // matched by position, so keep the pattern from matching anything.
+      hold.byPosition = true;
+      return handleOf(hold, `request #${index} after the action`);
+    },
+
+    markActionStart() {
+      mark = requests.length;
+    },
+
+    requestsSinceMark() {
+      return mark === null ? [] : requests.slice(mark);
     },
 
     async switchOwner(options = {}) {
       if (switched) throw new Error('the owner was already switched');
+      // Taken before the switch: cancelling A's requests resumes A's
+      // continuations at once, and what they do then counts as well.
+      baseline = snapshot();
       switched = true;
       if (options.via === 'adopt') {
         adoptActiveOwner(OWNER_B, 'storage');
@@ -375,7 +455,6 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
       }
       expect(ownerState.ownerId.value).toBe(OWNER_B);
       await settle();
-      baseline = snapshot();
     },
 
     async settle() {
@@ -383,10 +462,23 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
       if (switched) journalForB = (await sessionJournal.list(undefined, OWNER_B)).length;
     },
 
+    expectOnSwitch(reference) {
+      expected = reference;
+    },
+
+    switchReference() {
+      if (baseline === null) throw new Error('switchOwner() was not called');
+      const before = baseline;
+      return {
+        live: liveTexts().filter((text) => !before.live.includes(text)),
+        dialogs: Math.max(0, dialogCount() - before.dialogs),
+      };
+    },
+
     leaks,
 
-    expectNoLeak(markers = []) {
-      expect(leaks(markers)).toEqual({
+    expectNoLeak(markers = [], context) {
+      expect(leaks(markers), context).toEqual({
         storage: [],
         journal: 0,
         toasts: [],
@@ -425,6 +517,7 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
         hold.release();
       }
       for (const wrapper of wrappers.splice(0)) wrapper.unmount();
+      interception.mockRestore();
       queryClient.clear();
       document.body.innerHTML = '';
       localStorage.clear();
@@ -445,8 +538,10 @@ export interface OwnerSwitchCase {
   readonly name: string;
   /** Source files whose asynchronous writes this case exercises (see the sweep's manifest). */
   readonly covers: readonly string[];
-  /** Route to mount. */
-  readonly path: string | ((stage: OwnerSwitchStage) => string | Promise<string>);
+  /** Route to mount (the routed view, without AppShell). */
+  readonly path?: string | ((stage: OwnerSwitchStage) => string | Promise<string>);
+  /** Instead of a route: mount something else with the stage's plugins. */
+  readonly mount?: (stage: OwnerSwitchStage) => VueWrapper | Promise<VueWrapper>;
   /** Mount inside the adaptive frame (layout panels). */
   readonly frame?: boolean;
   /** Prepare mock data before the view mounts. */
@@ -469,8 +564,14 @@ export interface OwnerSwitchCase {
 async function arrange(testCase: OwnerSwitchCase): Promise<{ stage: OwnerSwitchStage; wrapper: VueWrapper }> {
   const stage = await createOwnerSwitchStage();
   await testCase.seed?.(stage);
-  const path = typeof testCase.path === 'function' ? await testCase.path(stage) : testCase.path;
-  const wrapper = await stage.mountView(path, { frame: testCase.frame === true });
+  let wrapper: VueWrapper;
+  if (testCase.mount !== undefined) {
+    wrapper = await testCase.mount(stage);
+  } else {
+    if (testCase.path === undefined) throw new Error(`${testCase.name}: give the case a path or a mount`);
+    const path = typeof testCase.path === 'function' ? await testCase.path(stage) : testCase.path;
+    wrapper = await stage.mountView(path, { frame: testCase.frame === true });
+  }
   await testCase.ready(wrapper, stage);
   await stage.settle();
   return { stage, wrapper };
@@ -486,6 +587,18 @@ async function arrange(testCase: OwnerSwitchCase): Promise<{ stage: OwnerSwitchS
 export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
   describe(testCase.name, () => {
     let stage: OwnerSwitchStage | null = null;
+    let reference: SwitchReference | null = null;
+
+    /** The screen's own reaction to an owner switch with nothing in flight. */
+    async function idleReference(): Promise<SwitchReference> {
+      if (reference !== null) return reference;
+      const idle = await arrange(testCase);
+      await idle.stage.switchOwner();
+      await idle.stage.settle();
+      reference = idle.stage.switchReference();
+      await idle.stage.dispose();
+      return reference;
+    }
 
     afterEach(async () => {
       await stage?.dispose();
@@ -509,8 +622,10 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
     });
 
     it('switch: released after another user signed in, it reaches nothing of theirs', async () => {
+      const onSwitch = await idleReference();
       const arranged = await arrange(testCase);
       stage = arranged.stage;
+      stage.expectOnSwitch(onSwitch);
       if (testCase.hold === undefined) {
         await stage.switchOwner();
         await testCase.act(arranged.wrapper, stage);
@@ -526,5 +641,56 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
       await stage.settle();
       stage.expectNoLeak(testCase.markers);
     });
+
+    // A continuation usually awaits more than once (the mutation, then a
+    // re-read, then a refresh). The switch above lands on the first await; this
+    // one finds every request the action leads to and switches the owner
+    // while each of them is pending, in turn.
+    it('switch at every network await of the action: nothing reaches the next user', async () => {
+      if (testCase.hold === undefined) return;
+      const onSwitch = await idleReference();
+      const discovery = await arrange(testCase);
+      stage = discovery.stage;
+      stage.markActionStart();
+      await testCase.act(discovery.wrapper, stage);
+      const declared = testCase.hold;
+      const sent = stage;
+      // A debounced action sends its first request a little later.
+      await vi.waitFor(
+        () => expect(sent.requestsSinceMark().some((request) => matches(declared, request.method, request.path))).toBe(true),
+        { timeout: 3_000 },
+      );
+      await stage.settle();
+      await testCase.afterwards?.(stage);
+      await stage.settle();
+      const total = Math.min(stage.requestsSinceMark().length, MAX_EXPLORED_AWAITS);
+      await stage.dispose();
+      stage = null;
+      expect(total, 'the action sent no request').toBeGreaterThan(0);
+
+      for (let index = 0; index < total; index += 1) {
+        const arranged = await arrange(testCase);
+        stage = arranged.stage;
+        stage.expectOnSwitch(onSwitch);
+        const held = stage.holdNth(index);
+        await testCase.act(arranged.wrapper, stage);
+        await held.arrived();
+        const pending = stage.requestsSinceMark()[index];
+        await stage.switchOwner();
+        held.release();
+        await stage.settle();
+        await testCase.afterwards?.(stage);
+        await stage.settle();
+        stage.expectNoLeak(
+          testCase.markers,
+          `owner switched while request #${index} (${pending?.method} ${pending?.path}) was pending`,
+        );
+        await stage.dispose();
+        stage = null;
+      }
+    });
   });
 }
+
+/** Upper bound on the requests explored per case (a polling screen never stops sending). */
+const MAX_EXPLORED_AWAITS = 8;

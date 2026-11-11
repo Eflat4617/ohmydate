@@ -36,6 +36,7 @@ import {
   triggerBody,
   triggerLabel,
 } from '../i18n/replan';
+import { runOwnerBound } from '../session/ownerBound';
 import { captureOwnerBinding, isOwnerBindingCurrent } from '../session/ownerEpoch';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
@@ -250,45 +251,55 @@ async function invalidateSchedules(): Promise<void> {
   ]);
 }
 
+// Owner isolation (ADR-023): approve, reject and the conflict follow-ups run
+// under the owner who started them (runOwnerBound). After a user switch
+// nothing is cached, announced or navigated.
 async function approve(): Promise<void> {
   const value = proposal.value;
   if (value === null || !pending.value || readOnly.value || busy.value !== null) return;
-  const binding = captureOwnerBinding();
   busy.value = 'approve';
   actionError.value = null;
   notice.value = null;
   violations.value = [];
   const scope = `replan:approve:${value.id}`;
   const action = actions.begin(scope, { id: value.id }, samePayload, value.availabilityVersion);
-  try {
-    await plannerClient.approveReplanProposal(value.id, action.key, value.availabilityVersion, binding.signal);
-    actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    await refreshAll();
-    await invalidateSchedules();
-    await announce(t('replan.approved'));
-    await focusState();
-  } catch (cause) {
-    // 412 is not stored but the If-Match it pinned is now stale: the next try
-    // carries a new availability version and therefore a new key (ActionStore).
-    if (isStoredFinalResult(cause)) actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    if (cause instanceof ApiError && cause.status === 412) {
-      conflictOpen.value = true;
-    } else if (cause instanceof ApiError && cause.code === 'proposal_state_conflict') {
-      await refreshAll();
-      notice.value = t('replan.stateChanged');
-      await announce(t('replan.stateChanged'));
-      await focusState();
-    } else if (cause instanceof ApiError && cause.code === 'constraint_violation') {
-      violations.value = cause.problem?.violations ?? [];
-      actionError.value = errorMessage(cause);
-    } else {
-      actionError.value = errorMessage(cause, t('replan.approveError'));
-    }
-  } finally {
-    busy.value = null;
-  }
+  await runOwnerBound(
+    async (owner) => {
+      try {
+        await owner.wait(
+          plannerClient.approveReplanProposal(value.id, action.key, value.availabilityVersion, owner.signal),
+        );
+        actions.settle(scope, action);
+        await owner.wait(refreshAll());
+        await owner.wait(invalidateSchedules());
+        await owner.wait(announce(t('replan.approved')));
+        await owner.wait(focusState());
+      } catch (cause) {
+        owner.rethrowIfStale(cause);
+        // 412 is not stored but the If-Match it pinned is now stale: the next try
+        // carries a new availability version and therefore a new key (ActionStore).
+        if (isStoredFinalResult(cause)) actions.settle(scope, action);
+        if (cause instanceof ApiError && cause.status === 412) {
+          conflictOpen.value = true;
+        } else if (cause instanceof ApiError && cause.code === 'proposal_state_conflict') {
+          await owner.wait(refreshAll());
+          notice.value = t('replan.stateChanged');
+          await owner.wait(announce(t('replan.stateChanged')));
+          await owner.wait(focusState());
+        } else if (cause instanceof ApiError && cause.code === 'constraint_violation') {
+          violations.value = cause.problem?.violations ?? [];
+          actionError.value = errorMessage(cause);
+        } else {
+          actionError.value = errorMessage(cause, t('replan.approveError'));
+        }
+      }
+    },
+    {
+      onSettled: () => {
+        busy.value = null;
+      },
+    },
+  );
 }
 
 function openReject(): void {
@@ -303,7 +314,6 @@ const rejectUntil = computed(() => formatDateTime(Date.now() + DAY_MS, timeZone.
 async function confirmReject(): Promise<void> {
   const value = proposal.value;
   if (value === null || !pending.value || readOnly.value || busy.value !== null) return;
-  const binding = captureOwnerBinding();
   busy.value = 'reject';
   rejectError.value = null;
   notice.value = null;
@@ -311,60 +321,77 @@ async function confirmReject(): Promise<void> {
   const payload = { id: value.id, ...(reason.length > 0 ? { reason } : {}) };
   const scope = `replan:reject:${value.id}`;
   const action = actions.begin(scope, payload, samePayload, value.version);
-  try {
-    const updated = await plannerClient.rejectReplanProposal(
-      value.id,
-      action.key,
-      value.version,
-      reason.length > 0 ? reason : undefined,
-      binding.signal,
-    );
-    actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    queryClient.setQueryData(proposalKey.value, updated);
-    rejectOpen.value = false;
-    await queryClient.invalidateQueries({ queryKey: ['replan-proposals'] });
-    await announce(t('replan.rejected'));
-    await focusState();
-  } catch (cause) {
-    if (isStoredFinalResult(cause)) actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    if (cause instanceof ApiError && (cause.status === 412 || cause.code === 'proposal_state_conflict')) {
-      rejectOpen.value = false;
-      await refreshAll();
-      const message = cause.status === 412 ? t('replan.versionChanged') : t('replan.stateChanged');
-      notice.value = message;
-      await announce(message);
-      await focusState();
-    } else {
-      rejectError.value = errorMessage(cause, t('replan.rejectError'));
-    }
-  } finally {
-    busy.value = null;
-  }
+  await runOwnerBound(
+    async (owner) => {
+      try {
+        const updated = await owner.wait(
+          plannerClient.rejectReplanProposal(
+            value.id,
+            action.key,
+            value.version,
+            reason.length > 0 ? reason : undefined,
+            owner.signal,
+          ),
+        );
+        actions.settle(scope, action);
+        queryClient.setQueryData(proposalKey.value, updated);
+        rejectOpen.value = false;
+        await owner.wait(queryClient.invalidateQueries({ queryKey: ['replan-proposals'] }));
+        await owner.wait(announce(t('replan.rejected')));
+        await owner.wait(focusState());
+      } catch (cause) {
+        owner.rethrowIfStale(cause);
+        if (isStoredFinalResult(cause)) actions.settle(scope, action);
+        if (cause instanceof ApiError && (cause.status === 412 || cause.code === 'proposal_state_conflict')) {
+          rejectOpen.value = false;
+          await owner.wait(refreshAll());
+          const message = cause.status === 412 ? t('replan.versionChanged') : t('replan.stateChanged');
+          notice.value = message;
+          await owner.wait(announce(message));
+          await owner.wait(focusState());
+        } else {
+          rejectError.value = errorMessage(cause, t('replan.rejectError'));
+        }
+      }
+    },
+    {
+      onSettled: () => {
+        busy.value = null;
+      },
+    },
+  );
 }
 
 async function refreshAfterConflict(): Promise<void> {
   busy.value = 'refresh';
-  try {
-    await refreshAll();
-  } finally {
-    busy.value = null;
-    conflictOpen.value = false;
-  }
+  await runOwnerBound(
+    async (owner) => {
+      await owner.wait(refreshAll());
+    },
+    {
+      onSettled: () => {
+        busy.value = null;
+        conflictOpen.value = false;
+      },
+    },
+  );
 }
 
 async function recomputeAfterConflict(): Promise<void> {
   const value = proposal.value;
   if (value === null) return;
-  const created = await recompute.request(value.planId, {
-    reason: value.trigger.reason,
-    affectedTaskIds: value.trigger.affectedTaskIds,
+  await runOwnerBound(async (owner) => {
+    const created = await owner.wait(
+      recompute.request(value.planId, {
+        reason: value.trigger.reason,
+        affectedTaskIds: value.trigger.affectedTaskIds,
+      }),
+    );
+    if (created === null) return;
+    conflictOpen.value = false;
+    await owner.wait(queryClient.invalidateQueries({ queryKey: ['replan-proposals'] }));
+    if (router !== null) await owner.wait(router.push(`/replan/${created.id}`));
   });
-  if (created === null) return;
-  conflictOpen.value = false;
-  await queryClient.invalidateQueries({ queryKey: ['replan-proposals'] });
-  if (router !== null) await router.push(`/replan/${created.id}`);
 }
 
 function closeConflict(): void {

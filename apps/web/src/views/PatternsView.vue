@@ -23,7 +23,8 @@ import { t, tp } from '../i18n';
 import { browserTimeZone, formatDate, formatDuration, formatNumber } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
 import { confidenceText, groupDimensionLabel, ratioText, stepKindLabel } from '../i18n/replan';
-import { captureOwnerBinding, isOwnerBindingCurrent } from '../session/ownerEpoch';
+import { runOwnerBound } from '../session/ownerBound';
+import { captureOwnerBinding } from '../session/ownerEpoch';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
@@ -139,34 +140,43 @@ function samePayload<T>(left: T, right: T): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+// Owner isolation (ADR-023): toggle and reset run under the owner who started
+// them (runOwnerBound). After a user switch nothing is cached or announced.
 async function toggle(item: EstimationProfileItem, include: boolean): Promise<void> {
   if (readOnly.value || busyId.value !== null) return;
   const excluded = !include;
   if (item.excluded === excluded) return;
-  const binding = captureOwnerBinding();
   busyId.value = item.feedbackId;
   errorText.value = null;
   const scope = `feedback:${item.feedbackId}`;
   const action = actions.begin(scope, { excluded }, samePayload, item.version);
-  try {
-    await plannerClient.patchEstimationFeedback(item.feedbackId, excluded, action.key, item.version, binding.signal);
-    actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    await profileQuery.refetch();
-    await announce(excluded ? t('patterns.excludedDone') : t('patterns.includedDone'));
-  } catch (cause) {
-    // M5-03R-1 M1: keep the key unless the server stored a final result.
-    if (isStoredFinalResult(cause)) actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    if (cause instanceof ApiError && cause.status === 412) {
-      await profileQuery.refetch();
-      errorText.value = t('patterns.toggleConflict');
-    } else {
-      errorText.value = errorMessage(cause, t('patterns.toggleError'));
-    }
-  } finally {
-    busyId.value = null;
-  }
+  await runOwnerBound(
+    async (owner) => {
+      try {
+        await owner.wait(
+          plannerClient.patchEstimationFeedback(item.feedbackId, excluded, action.key, item.version, owner.signal),
+        );
+        actions.settle(scope, action);
+        await owner.wait(profileQuery.refetch());
+        await owner.wait(announce(excluded ? t('patterns.excludedDone') : t('patterns.includedDone')));
+      } catch (cause) {
+        owner.rethrowIfStale(cause);
+        // M5-03R-1 M1: keep the key unless the server stored a final result.
+        if (isStoredFinalResult(cause)) actions.settle(scope, action);
+        if (cause instanceof ApiError && cause.status === 412) {
+          await owner.wait(profileQuery.refetch());
+          errorText.value = t('patterns.toggleConflict');
+        } else {
+          errorText.value = errorMessage(cause, t('patterns.toggleError'));
+        }
+      }
+    },
+    {
+      onSettled: () => {
+        busyId.value = null;
+      },
+    },
+  );
 }
 
 function onToggle(item: EstimationProfileItem, event: Event): void {
@@ -194,29 +204,34 @@ const resetCount = computed(() => {
 async function confirmReset(): Promise<void> {
   const target = resetTarget.value;
   if (target === null || readOnly.value || resetBusy.value) return;
-  const binding = captureOwnerBinding();
   resetBusy.value = true;
   resetError.value = null;
   const scope = `estimation:reset:${target.scope}:${target.templateId ?? ''}`;
   const action = actions.begin(scope, target, samePayload);
-  try {
-    const refreshed = await plannerClient.resetEstimation(action.payload, action.key, binding.signal);
-    actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    queryClient.setQueryData(profileKey.value, refreshed);
-    resetTarget.value = null;
-    visibleCount.value = PAGE_SIZE;
-    await announce(t('patterns.resetDone'));
-    await nextTick();
-    summaryHeading.value?.focus();
-  } catch (cause) {
-    // M5-03R-1 M1: keep the key unless the server stored a final result.
-    if (isStoredFinalResult(cause)) actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    resetError.value = errorMessage(cause, t('patterns.resetError'));
-  } finally {
-    resetBusy.value = false;
-  }
+  await runOwnerBound(
+    async (owner) => {
+      try {
+        const refreshed = await owner.wait(plannerClient.resetEstimation(action.payload, action.key, owner.signal));
+        actions.settle(scope, action);
+        queryClient.setQueryData(profileKey.value, refreshed);
+        resetTarget.value = null;
+        visibleCount.value = PAGE_SIZE;
+        await owner.wait(announce(t('patterns.resetDone')));
+        await owner.wait(nextTick());
+        summaryHeading.value?.focus();
+      } catch (cause) {
+        owner.rethrowIfStale(cause);
+        // M5-03R-1 M1: keep the key unless the server stored a final result.
+        if (isStoredFinalResult(cause)) actions.settle(scope, action);
+        resetError.value = errorMessage(cause, t('patterns.resetError'));
+      }
+    },
+    {
+      onSettled: () => {
+        resetBusy.value = false;
+      },
+    },
+  );
 }
 </script>
 
