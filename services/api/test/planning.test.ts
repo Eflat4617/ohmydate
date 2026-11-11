@@ -487,6 +487,13 @@ describe.skipIf(!hasDatabase)('planning API (M3-04)', () => {
     });
     expect(valid.statusCode).toBe(200);
     expect((valid.json() as { feasible: boolean }).feasible).toBe(true);
+
+    const versions = await ctx.db
+      .selectFrom('plan_version')
+      .select('id')
+      .where('plan_id', '=', plan.id)
+      .execute();
+    expect(versions).toHaveLength(0);
   });
 
   test('approve is atomic, idempotent and rejects stale availability', async () => {
@@ -595,6 +602,31 @@ describe.skipIf(!hasDatabase)('planning API (M3-04)', () => {
         (violation) => violation.code,
       ),
     ).toContain('H1');
+  });
+
+  test('approve returns 409 when a scoped task vanished after generation', async () => {
+    const session = await login(ctx, 'planner@example.com', 'correct-horse');
+    const availabilityVersion = await putAvailability(ctx, session);
+    const { task } = await seedTask(ctx, aliceId, {
+      dueAt: '2026-11-13T18:00:00Z',
+      title: 'Vanishing task',
+    });
+    const plan = await createPlan(ctx, session, [task.id]);
+    const candidate = plan.candidates[0];
+    expect(candidate).toBeDefined();
+    await ctx.repos.tasks.softDelete(aliceId, task.id, task.version);
+
+    const response = await ctx.app.inject({
+      method: 'POST',
+      url: `/api/v1/plans/${plan.id}/candidates/${candidate?.id}:approve`,
+      headers: authHeaders(session, {
+        'if-match': `W/"availability:${availabilityVersion}"`,
+        'idempotency-key': newIdempotencyKey(),
+      }),
+      payload: {},
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ code: 'illegal_transition' });
   });
 
   test('two concurrent approvals: one 201, one conflict, no overlapping active blocks', async () => {
