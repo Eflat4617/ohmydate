@@ -17,7 +17,11 @@ const ORDER = ['locked', 'focus', 'planning', 'risk', 'review', 'notes', 'overvi
 function onAutoChange(event: Event): void {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
-  layout.setAutoSwitch(target.checked);
+  if (!layout.setAutoSwitch(target.checked)) {
+    // Not saved (the signed-in user changed): show what is really in effect.
+    target.checked = layout.prefs.autoSwitch;
+    return;
+  }
   status.value = target.checked ? t('layout.announce.autoOn') : t('layout.announce.autoOff');
 }
 
@@ -29,7 +33,7 @@ function lockCurrent(): void {
 
 function unlock(): void {
   layout.unlock();
-  status.value = t('layout.announce.unlocked');
+  if (layout.prefs.locked === null) status.value = t('layout.announce.unlocked');
 }
 </script>
 

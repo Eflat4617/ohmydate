@@ -6,6 +6,7 @@ import { focusContextFor } from '../../composables/focusContext';
 import { t, tp } from '../../i18n';
 import { useLayoutContext } from '../../layout/context';
 import { skipReviewToday } from '../../layout/localSignals';
+import { captureOwnerBinding } from '../../session/ownerEpoch';
 import { useLayoutStore } from '../../stores/layout';
 import { useSessionStore } from '../../stores/session';
 
@@ -14,6 +15,9 @@ const MAX_LISTED = 3;
 const context = useLayoutContext();
 const layout = useLayoutStore();
 const sessions = useSessionStore();
+// The owner this panel was rendered for (ADR-023): its answer is stored for
+// that owner only, and dropped if the signed-in user changed meanwhile.
+const binding = captureOwnerBinding();
 const headingId = `layout-review-${useId()}`;
 
 const pending = computed(() =>
@@ -25,7 +29,7 @@ const pending = computed(() =>
 const count = computed(() => context.unreviewed.value.length);
 
 function skip(): void {
-  skipReviewToday(sessions.ownerId, context.day.value);
+  if (!skipReviewToday(binding, context.day.value)) return;
   layout.intent({ announce: true });
 }
 </script>

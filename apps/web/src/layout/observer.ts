@@ -24,7 +24,7 @@ export interface ContextObserver {
  * into the policy's signals. Interaction (typing/dragging) is tracked
  * separately because it is read at decision time, not watched.
  */
-export function useContextObserver(now: Ref<number>): ContextObserver {
+export function useContextObserver(now: Readonly<Ref<number>>): ContextObserver {
   const route = useRoute();
   const auth = useAuthStore();
   const sessions = useSessionStore();

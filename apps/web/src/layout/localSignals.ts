@@ -1,10 +1,15 @@
 import { ref } from 'vue';
 import { ownerStorageSuffix } from '../session/owner';
+import { isOwnerBindingCurrent, type OwnerBinding } from '../session/ownerEpoch';
 
 /**
  * Small per-owner, per-device facts the layout needs and the API does not
  * expose: "I saw today's deadline risk", "I already reviewed this session",
  * "skip today's review prompt". Only ids and dates are stored, never content.
+ *
+ * Writers take the OwnerBinding captured where the action started (ADR-023):
+ * they write only into that owner's namespace, and nothing at all once the
+ * owner or its epoch changed (a late continuation after a user switch).
  */
 const RISK_ACK = 'ohmydate.layout.riskAck';
 const REVIEWED = 'ohmydate.layout.reviewed';
@@ -37,8 +42,10 @@ function write(name: string, value: string): void {
   layoutSignalRevision.value += 1;
 }
 
-export function acknowledgeRisk(ownerId: string | null, day: string): void {
-  write(key(RISK_ACK, ownerId), day);
+export function acknowledgeRisk(binding: OwnerBinding, day: string): boolean {
+  if (!isOwnerBindingCurrent(binding)) return false;
+  write(key(RISK_ACK, binding.ownerId), day);
+  return true;
 }
 
 export function isRiskAcknowledged(ownerId: string | null, day: string): boolean {
@@ -46,8 +53,10 @@ export function isRiskAcknowledged(ownerId: string | null, day: string): boolean
   return read(key(RISK_ACK, ownerId)) === day;
 }
 
-export function skipReviewToday(ownerId: string | null, day: string): void {
-  write(key(REVIEW_SKIP, ownerId), day);
+export function skipReviewToday(binding: OwnerBinding, day: string): boolean {
+  if (!isOwnerBindingCurrent(binding)) return false;
+  write(key(REVIEW_SKIP, binding.ownerId), day);
+  return true;
 }
 
 export function isReviewSkipped(ownerId: string | null, day: string): boolean {
@@ -66,10 +75,12 @@ function reviewedIds(ownerId: string | null): string[] {
   }
 }
 
-export function markSessionReviewed(ownerId: string | null, sessionId: string): void {
-  const ids = reviewedIds(ownerId).filter((id) => id !== sessionId);
+export function markSessionReviewed(binding: OwnerBinding, sessionId: string): boolean {
+  if (!isOwnerBindingCurrent(binding)) return false;
+  const ids = reviewedIds(binding.ownerId).filter((id) => id !== sessionId);
   ids.push(sessionId);
-  write(key(REVIEWED, ownerId), JSON.stringify(ids.slice(-MAX_REVIEWED)));
+  write(key(REVIEWED, binding.ownerId), JSON.stringify(ids.slice(-MAX_REVIEWED)));
+  return true;
 }
 
 export function isSessionReviewed(ownerId: string | null, sessionId: string): boolean {

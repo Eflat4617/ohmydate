@@ -16,6 +16,7 @@ import {
 import { layoutPrefsKey, parseLayoutPrefs, readLayoutPrefs, writeLayoutPrefs } from '../src/layout/prefs';
 import { focusRouteSessionId, routeKindOf, workspacePathFor } from '../src/layout/routes';
 import { riskTaskCount } from '../src/layout/useTodaySnapshot';
+import { adoptActiveOwner, captureOwnerBinding, invalidateOwnerEpoch, type OwnerBinding } from '../src/session/ownerEpoch';
 
 // Vitest drops CSS imports (even `?raw`), so read the stylesheets as files.
 function stylesheet(name: string): string {
@@ -43,6 +44,12 @@ function signals(overrides: Partial<LayoutSignals> = {}): LayoutSignals {
   };
 }
 
+/** Writers take the binding of the owner an action started for (ADR-023). */
+function bindOwner(): OwnerBinding {
+  adoptActiveOwner(OWNER, 'bootstrap');
+  return captureOwnerBinding();
+}
+
 beforeEach(() => {
   localStorage.clear();
   document.body.innerHTML = '';
@@ -55,7 +62,7 @@ describe('layout preferences (per owner, this device)', () => {
   });
 
   it('round-trips and keys by owner', () => {
-    writeLayoutPrefs(OWNER, { autoSwitch: false, locked: 'focus' });
+    expect(writeLayoutPrefs(bindOwner(), { autoSwitch: false, locked: 'focus' })).toBe(true);
     expect(readLayoutPrefs(OWNER)).toEqual({ autoSwitch: false, locked: 'focus' });
     expect(readLayoutPrefs(null)).toEqual(DEFAULT_PREFERENCES);
     expect(layoutPrefsKey(OWNER)).toBe(`ohmydate.layout.prefs:${OWNER}`);
@@ -71,7 +78,7 @@ describe('layout preferences (per owner, this device)', () => {
 
 describe('local layout signals', () => {
   it('remembers the risk acknowledgement for one day only', () => {
-    acknowledgeRisk(OWNER, '2026-11-14');
+    expect(acknowledgeRisk(bindOwner(), '2026-11-14')).toBe(true);
     expect(isRiskAcknowledged(OWNER, '2026-11-14')).toBe(true);
     expect(isRiskAcknowledged(OWNER, '2026-11-15')).toBe(false);
     expect(isRiskAcknowledged(null, '2026-11-14')).toBe(false);
@@ -79,13 +86,24 @@ describe('local layout signals', () => {
 
   it('tracks reviewed sessions and the skipped review day', () => {
     expect(isSessionReviewed(OWNER, SESSION)).toBe(false);
-    markSessionReviewed(OWNER, SESSION);
-    markSessionReviewed(OWNER, SESSION);
+    const binding = bindOwner();
+    markSessionReviewed(binding, SESSION);
+    markSessionReviewed(binding, SESSION);
     expect(isSessionReviewed(OWNER, SESSION)).toBe(true);
     expect(JSON.parse(localStorage.getItem(`ohmydate.layout.reviewed:${OWNER}`) ?? '[]')).toEqual([SESSION]);
-    skipReviewToday(OWNER, '2026-11-14');
+    skipReviewToday(binding, '2026-11-14');
     expect(isReviewSkipped(OWNER, '2026-11-14')).toBe(true);
     expect(isReviewSkipped(OWNER, '2026-11-15')).toBe(false);
+  });
+
+  it('writes nothing once the binding is stale (owner epoch changed) (negative)', () => {
+    const binding = bindOwner();
+    invalidateOwnerEpoch();
+    expect(acknowledgeRisk(binding, '2026-11-14')).toBe(false);
+    expect(skipReviewToday(binding, '2026-11-14')).toBe(false);
+    expect(markSessionReviewed(binding, SESSION)).toBe(false);
+    expect(writeLayoutPrefs(binding, { autoSwitch: false, locked: null })).toBe(false);
+    expect(Object.keys(localStorage).filter((key) => key.startsWith('ohmydate.layout.'))).toEqual([]);
   });
 
   it('ignores a corrupted reviewed list (negative)', () => {

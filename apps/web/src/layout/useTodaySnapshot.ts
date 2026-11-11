@@ -1,7 +1,7 @@
 import { computed, type ComputedRef } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { plannerClient, type Today } from '../api';
-import { localDateIso } from '../format';
+import { localDateAt, useLayoutNow } from './now';
 import { captureOwnerBinding } from '../session/ownerEpoch';
 import { useSessionStore } from '../stores/session';
 
@@ -13,16 +13,18 @@ export interface TodaySnapshot {
 
 /**
  * The same `GET /today` query TodayView uses (same key), so the layout's
- * panels and the Today page share one cached response.
+ * panels and the Today page share one cached response. The date follows the
+ * shared clock, so a screen left open past midnight asks for the new day.
  */
 export function useTodaySnapshot(): TodaySnapshot {
   const sessions = useSessionStore();
-  const date = localDateIso();
+  const now = useLayoutNow();
+  const date = computed(() => localDateAt(now.value));
   const query = useQuery({
-    queryKey: computed(() => ['today', date, sessions.ownerId ?? 'anonymous']),
+    queryKey: computed(() => ['today', date.value, sessions.ownerId ?? 'anonymous']),
     queryFn: () => {
       const binding = captureOwnerBinding();
-      return plannerClient.getToday(date, binding.signal);
+      return plannerClient.getToday(date.value, binding.signal);
     },
   });
   return {

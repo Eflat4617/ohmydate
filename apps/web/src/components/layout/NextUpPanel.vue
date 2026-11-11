@@ -5,7 +5,7 @@ import UiIcon from '../ui/UiIcon.vue';
 import UiSkeleton from '../ui/UiSkeleton.vue';
 import { t } from '../../i18n';
 import { formatDuration, formatTimeRange, minutesBetween } from '../../i18n/format';
-import { layoutClock } from '../../layout/clock';
+import { useLayoutNow } from '../../layout/now';
 import { useTodaySnapshot } from '../../layout/useTodaySnapshot';
 import { useSessionStore } from '../../stores/session';
 
@@ -14,6 +14,8 @@ const props = defineProps<{ count: number }>();
 const route = useRoute();
 const sessions = useSessionStore();
 const { today, isLoading } = useTodaySnapshot();
+// Reactive: a block drops out once the shared clock passes its end.
+const now = useLayoutNow();
 const headingId = `layout-next-up-${useId()}`;
 
 // The block being worked on right now is not "next".
@@ -21,7 +23,7 @@ const currentBlockId = computed(() => sessions.active?.blockId ?? null);
 const upcoming = computed(() => {
   const current = today.value;
   if (current === null) return [];
-  const now = layoutClock().now();
+  const at = now.value;
   return current.blocks
     .filter(
       (block) =>
@@ -29,7 +31,7 @@ const upcoming = computed(() => {
         block.status !== 'skipped' &&
         block.status !== 'superseded' &&
         block.id !== currentBlockId.value &&
-        Date.parse(block.endAt) > now,
+        Date.parse(block.endAt) > at,
     )
     .slice(0, props.count);
 });

@@ -8,6 +8,7 @@ import { newActionId, plannerClient, type WorkSession } from '../src/api';
 import { setLayoutClock } from '../src/layout/clock';
 import { TODAY_BLOCK_ONE_ID, TODAY_TASK_ONE_ID, mockDb } from '../src/mocks/db';
 import { OWNER_STORAGE_KEY } from '../src/session/owner';
+import { adoptActiveOwner } from '../src/session/ownerEpoch';
 import { routes } from '../src/router';
 import { useSessionStore } from '../src/stores/session';
 
@@ -54,6 +55,8 @@ export async function settle(): Promise<void> {
 export async function mountApp(path: string, prepare?: (pinia: Pinia) => void | Promise<void>): Promise<MountedApp> {
   // The signed-in mock owner, so stores created before mount already use it.
   localStorage.setItem(OWNER_STORAGE_KEY, mockDb.user.id);
+  // Module-level owner state outlives a test; start every mount as the mock owner.
+  adoptActiveOwner(mockDb.user.id, 'bootstrap');
   const pinia = createPinia();
   await prepare?.(pinia);
   const router = createRouter({ history: createMemoryHistory(), routes });

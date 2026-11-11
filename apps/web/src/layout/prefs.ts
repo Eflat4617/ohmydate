@@ -1,5 +1,6 @@
 import { DEFAULT_PREFERENCES, isLayoutMode, type LayoutPreferences } from '@ohmydate/ui-policy';
 import { ownerStorageSuffix } from '../session/owner';
+import { isOwnerBindingCurrent, type OwnerBinding } from '../session/ownerEpoch';
 
 /**
  * "레이아웃 자동 전환" and the lock, per owner, on this device only. Stored as a
@@ -34,11 +35,17 @@ export function readLayoutPrefs(ownerId: string | null): LayoutPreferences {
   }
 }
 
-export function writeLayoutPrefs(ownerId: string | null, prefs: LayoutPreferences): void {
-  if (typeof localStorage === 'undefined') return;
+/** Writes into the binding's owner namespace only while that binding is current (ADR-023). */
+export function writeLayoutPrefs(binding: OwnerBinding, prefs: LayoutPreferences): boolean {
+  if (!isOwnerBindingCurrent(binding)) return false;
+  if (typeof localStorage === 'undefined') return true;
   try {
-    localStorage.setItem(layoutPrefsKey(ownerId), JSON.stringify({ autoSwitch: prefs.autoSwitch, locked: prefs.locked }));
+    localStorage.setItem(
+      layoutPrefsKey(binding.ownerId),
+      JSON.stringify({ autoSwitch: prefs.autoSwitch, locked: prefs.locked }),
+    );
   } catch {
     // Storage can be unavailable; the in-memory preference still applies.
   }
+  return true;
 }

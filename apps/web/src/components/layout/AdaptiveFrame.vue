@@ -12,12 +12,14 @@ import {
 } from '@ohmydate/ui-policy';
 import { t } from '../../i18n';
 import { layoutClock } from '../../layout/clock';
+import { refreshLayoutNow, useLayoutNow } from '../../layout/now';
 import { LAYOUT_CONTEXT } from '../../layout/context';
 import { captureFocus, restoreFocus } from '../../layout/focusKeeper';
 import { createInteractionTracker } from '../../layout/interaction';
 import { useContextObserver } from '../../layout/observer';
 import { PANEL_REGISTRY } from '../../layout/registry';
 import { PLANNING_ROUTES, routeKindOf, workspacePathFor } from '../../layout/routes';
+import { captureOwnerBinding, isOwnerBindingCurrent } from '../../session/ownerEpoch';
 import { useLayoutStore } from '../../stores/layout';
 
 /**
@@ -29,12 +31,12 @@ import { useLayoutStore } from '../../stores/layout';
 // While a switch waits for the user, check this often whether they paused
 // (removing a focused field fires no focus event, so events alone miss it).
 const IDLE_POLL_MS = 500;
-const CLOCK_TICK_MS = 30_000;
 
 const route = useRoute();
 const router = useRouter();
 const layout = useLayoutStore();
-const now = ref(layoutClock().now());
+// Shared reactive clock: the same tick drives Next up, the review window and the day.
+const now = useLayoutNow();
 const observer = useContextObserver(now);
 provide(LAYOUT_CONTEXT, observer);
 
@@ -45,12 +47,10 @@ let expectedPath: string | null = null;
 let applying = 0;
 let holdTimer: ReturnType<typeof setTimeout> | null = null;
 let idleTimer: ReturnType<typeof setTimeout> | null = null;
-let tickTimer: ReturnType<typeof setInterval> | null = null;
 
 function input(): LayoutInput {
-  now.value = layoutClock().now();
   return {
-    now: now.value,
+    now: refreshLayoutNow(),
     signals: observer.signals.value,
     prefs: layout.prefs,
     interaction: tracker.snapshot(frameEl.value),
@@ -71,10 +71,14 @@ displayed.value = valid(layout.current);
 let awaitingFirstData = observer.today.value === null;
 
 async function apply(spec: LayoutSpec | null): Promise<void> {
+  // Any newer call (also a reset to null after an owner change) cancels an
+  // older one that is still waiting for its navigation.
+  const run = ++applying;
   // 07 §2.1: an invalid spec is never rendered; the previous layout stays.
   const next = valid(spec);
   if (next === null) return;
-  const run = ++applying;
+  // ADR-023: a continuation that resumes after a user switch shows nothing.
+  const owner = captureOwnerBinding();
   const snapshot = captureFocus(frameEl.value);
   const target = workspacePathFor(next, routeKindOf(route));
   if (target !== null && target !== route.path) {
@@ -84,11 +88,11 @@ async function apply(spec: LayoutSpec | null): Promise<void> {
     } catch {
       expectedPath = null;
     }
-    if (run !== applying) return;
+    if (run !== applying || !isOwnerBindingCurrent(owner)) return;
   }
   displayed.value = next;
   await nextTick();
-  if (run !== applying) return;
+  if (run !== applying || !isOwnerBindingCurrent(owner)) return;
   const restored = restoreFocus(snapshot, frameEl.value);
   const lost = document.activeElement === null || document.activeElement === document.body;
   if (layout.consumeFocusRequest() && restored === null && lost) {
@@ -178,9 +182,6 @@ function onInteractionChange(): void {
 
 onMounted(() => {
   tracker.start();
-  tickTimer = setInterval(() => {
-    now.value = layoutClock().now();
-  }, CLOCK_TICK_MS);
   void apply(layout.current);
 });
 
@@ -189,7 +190,6 @@ onBeforeUnmount(() => {
   layout.detach(input);
   holdTimer = clearTimer(holdTimer);
   idleTimer = clearTimer(idleTimer);
-  if (tickTimer !== null) clearInterval(tickTimer);
 });
 
 const spec = computed(() => displayed.value);

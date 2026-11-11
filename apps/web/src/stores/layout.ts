@@ -1,6 +1,7 @@
-import { computed, nextTick, ref, shallowRef, watch } from 'vue';
+import { computed, nextTick, ref, shallowRef } from 'vue';
 import { defineStore } from 'pinia';
 import {
+  DEFAULT_PREFERENCES,
   applyUserIntent,
   canUndo,
   pageItemOf,
@@ -17,7 +18,13 @@ import {
 import { t } from '../i18n';
 import { layoutClock } from '../layout/clock';
 import { readLayoutPrefs, writeLayoutPrefs } from '../layout/prefs';
-import { useSessionStore } from './session';
+import {
+  captureOwnerBinding,
+  isOwnerBindingCurrent,
+  isOwnerResetPending,
+  onActiveOwnerChange,
+  type OwnerBinding,
+} from '../session/ownerEpoch';
 import { useToastStore } from './toast';
 
 /** The layout toast stays long enough to reach "되돌리기" comfortably. */
@@ -30,12 +37,20 @@ export type InputSource = () => LayoutInput;
  * preferences, the undo toast and the polite announcement. The frame on the
  * screen attaches an input source; without one (tests that mount a single
  * view, or screens without the adaptive frame) the store stays passive.
+ *
+ * Owner isolation (ADR-023): everything here belongs to the owner bound when
+ * it was loaded. On any owner change the store drops that state at once
+ * (synchronously, before a watcher or a late continuation can run). While a
+ * hard reset is pending it stays closed — no layout is computed and nothing
+ * is written — so the new owner's namespace only opens on the reloaded page,
+ * after /me. A confirmed adoption (bootstrap) opens the new owner's prefs.
  */
 export const useLayoutStore = defineStore('layout', () => {
-  const sessions = useSessionStore();
   const toast = useToastStore();
 
-  const prefs = ref<LayoutPreferences>(readLayoutPrefs(sessions.ownerId));
+  let binding: OwnerBinding = captureOwnerBinding();
+  let closed = isOwnerResetPending();
+  const prefs = ref<LayoutPreferences>(closed ? DEFAULT_PREFERENCES : readLayoutPrefs(binding.ownerId));
   const machine = shallowRef<LayoutState | null>(null);
   const lastOutcome = shallowRef<StepOutcome | null>(null);
   const announcement = ref('');
@@ -49,16 +64,21 @@ export const useLayoutStore = defineStore('layout', () => {
   const undoAvailable = computed(() => machine.value !== null && canUndo(machine.value));
   const attached = ref(false);
 
-  watch(
-    () => sessions.ownerId,
-    (owner, previous) => {
-      if (owner === previous) return;
-      prefs.value = readLayoutPrefs(owner);
-      machine.value = null;
-      dismissToast();
-      if (source !== null) intent();
-    },
-  );
+  function writable(): boolean {
+    return !closed && isOwnerBindingCurrent(binding);
+  }
+
+  onActiveOwnerChange(() => {
+    dismissToast();
+    machine.value = null;
+    lastOutcome.value = null;
+    announcement.value = '';
+    focusRequest = false;
+    binding = captureOwnerBinding();
+    closed = isOwnerResetPending();
+    prefs.value = closed ? DEFAULT_PREFERENCES : readLayoutPrefs(binding.ownerId);
+    if (!closed && source !== null) intent();
+  });
 
   function modeName(mode: LayoutMode): string {
     return t(`layout.mode.${mode}`);
@@ -67,8 +87,9 @@ export const useLayoutStore = defineStore('layout', () => {
   function announce(text: string): void {
     // Clear first so the same sentence is announced again.
     announcement.value = '';
+    const owner = binding;
     void nextTick(() => {
-      announcement.value = text;
+      if (owner === binding && writable()) announcement.value = text;
     });
   }
 
@@ -77,9 +98,11 @@ export const useLayoutStore = defineStore('layout', () => {
     toastId = null;
   }
 
-  function setPrefs(next: LayoutPreferences): void {
+  /** Only into the bound owner's namespace, and only while that owner is current. */
+  function setPrefs(next: LayoutPreferences): boolean {
+    if (!writable() || !writeLayoutPrefs(binding, next)) return false;
     prefs.value = next;
-    writeLayoutPrefs(sessions.ownerId, next);
+    return true;
   }
 
   function attach(next: InputSource): void {
@@ -96,7 +119,7 @@ export const useLayoutStore = defineStore('layout', () => {
 
   /** The user navigated or acknowledged something: apply at once, quietly. */
   function intent(options: { announce?: boolean } = {}): boolean {
-    if (source === null) return false;
+    if (source === null || !writable()) return false;
     const result = applyUserIntent(machine.value, source());
     machine.value = result.state;
     lastOutcome.value = null;
@@ -110,7 +133,7 @@ export const useLayoutStore = defineStore('layout', () => {
 
   /** Re-evaluate after a context change the user did not ask for directly. */
   function step(): StepOutcome | null {
-    if (source === null || machine.value === null) return null;
+    if (source === null || machine.value === null || !writable()) return null;
     const result = stepLayout(machine.value, source());
     if (result.state !== machine.value) machine.value = result.state;
     lastOutcome.value = result.outcome;
@@ -132,7 +155,7 @@ export const useLayoutStore = defineStore('layout', () => {
   }
 
   function undo(): boolean {
-    if (machine.value === null) return false;
+    if (machine.value === null || !writable()) return false;
     const result = undoLayout(machine.value, layoutClock().now());
     if (!result.undone) return false;
     machine.value = result.state;
@@ -143,30 +166,28 @@ export const useLayoutStore = defineStore('layout', () => {
     return true;
   }
 
-  function setAutoSwitch(value: boolean): void {
-    if (prefs.value.autoSwitch === value) return;
-    setPrefs({ ...prefs.value, autoSwitch: value });
+  function setAutoSwitch(value: boolean): boolean {
+    if (prefs.value.autoSwitch === value) return writable();
+    if (!setPrefs({ ...prefs.value, autoSwitch: value })) return false;
     announce(value ? t('layout.announce.autoOn') : t('layout.announce.autoOff'));
     if (value) step();
+    return true;
   }
 
   function disableAutoSwitch(): void {
-    setAutoSwitch(false);
-    toast.show(t('layout.toast.autoOff'));
+    if (setAutoSwitch(false)) toast.show(t('layout.toast.autoOff'));
   }
 
   function lockCurrent(): boolean {
     const spec = current.value;
-    if (spec === null) return false;
-    setPrefs({ ...prefs.value, locked: spec.mode });
+    if (spec === null || !setPrefs({ ...prefs.value, locked: spec.mode })) return false;
     step();
     announce(t('layout.announce.locked', { mode: modeName(spec.mode) }));
     return true;
   }
 
   function unlock(): void {
-    if (prefs.value.locked === null) return;
-    setPrefs({ ...prefs.value, locked: null });
+    if (prefs.value.locked === null || !setPrefs({ ...prefs.value, locked: null })) return;
     announce(t('layout.announce.unlocked'));
     step();
   }
@@ -176,7 +197,7 @@ export const useLayoutStore = defineStore('layout', () => {
    * (switched to this session's focus page); otherwise the caller navigates.
    */
   function sessionStarted(sessionId: string): boolean {
-    if (source === null) return false;
+    if (source === null || !writable()) return false;
     step();
     const page = current.value === null ? null : pageItemOf(current.value);
     return page?.component === 'FocusTimer' && page.props.sessionId === sessionId;
@@ -190,7 +211,7 @@ export const useLayoutStore = defineStore('layout', () => {
 
   /** Apply an externally supplied spec only if it validates (07 §2.1). */
   function propose(candidate: unknown): boolean {
-    if (machine.value === null) return false;
+    if (machine.value === null || !writable()) return false;
     const result = proposeLayout(machine.value, candidate);
     machine.value = result.state;
     return result.accepted;

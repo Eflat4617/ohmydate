@@ -7,12 +7,14 @@ import { riskReasonText } from '../../i18n/server';
 import { useLayoutContext } from '../../layout/context';
 import { acknowledgeRisk } from '../../layout/localSignals';
 import { riskTaskCount } from '../../layout/useTodaySnapshot';
+import { captureOwnerBinding } from '../../session/ownerEpoch';
 import { useLayoutStore } from '../../stores/layout';
-import { useSessionStore } from '../../stores/session';
 
 const context = useLayoutContext();
 const layout = useLayoutStore();
-const sessions = useSessionStore();
+// The owner this panel was rendered for (ADR-023): its answer is stored for
+// that owner only, and dropped if the signed-in user changed meanwhile.
+const binding = captureOwnerBinding();
 const headingId = `layout-risk-${useId()}`;
 
 const atRisk = computed(() => riskTaskCount(context.today.value) > 0);
@@ -27,7 +29,7 @@ const reasons = computed(() => {
 });
 
 function acknowledge(): void {
-  acknowledgeRisk(sessions.ownerId, context.day.value);
+  if (!acknowledgeRisk(binding, context.day.value)) return;
   // An explicit answer from the user: apply at once, without the hold.
   layout.intent({ announce: true });
 }
