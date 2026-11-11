@@ -2,9 +2,11 @@ import type { Id } from '@ohmydate/domain';
 import { sql, type Kysely } from 'kysely';
 import type { Database, JsonValue } from '../db/types.js';
 import { jsonb } from '../db/types.js';
+import { lockOwnerSpend, syncRunUsageFromLedger } from './pg-spend-ledger.js';
 import {
   draftKind,
   type AgentProposalInput,
+  type AgentRunCompletion,
   type AgentRunInput,
   type AgentRunRepository,
   type StoredDraft,
@@ -45,6 +47,52 @@ export class PgAgentRunRepository implements AgentRunRepository {
         redaction_report: jsonb(input.redactionReport as unknown as JsonValue),
       })
       .execute();
+  }
+
+  /**
+   * FU-76R-1 H1: status/model/latency come from the caller; cost and tokens
+   * come from the run's linked ledger rows whenever it has any (open rows at
+   * their reservation), the caller's usage only for unlinked runs (fake
+   * providers). Taken under the owner's spend lock, so a settlement that
+   * commits later rewrites the cost from the ledger again and the two converge.
+   */
+  async completeRun(ownerId: Id, id: Id, completion: AgentRunCompletion): Promise<void> {
+    await this.#db.transaction().execute(async (trx) => {
+      await lockOwnerSpend(trx, ownerId);
+      const updated = await trx
+        .updateTable('agent_run')
+        .set({
+          model: completion.model,
+          provider: completion.provider,
+          tokens_in: completion.tokensIn,
+          tokens_out: completion.tokensOut,
+          cost_usd: completion.costUsd.toFixed(6),
+          latency_ms: completion.latencyMs,
+          status: completion.status,
+          updated_at: sql`now()`,
+          version: sql<number>`version + 1`,
+        } as never)
+        .where('id', '=', id)
+        .where('owner_id', '=', ownerId)
+        .where('status', '=', 'pending')
+        .executeTakeFirst();
+      if (Number(updated.numUpdatedRows) > 0) await syncRunUsageFromLedger(trx, ownerId, id);
+    });
+  }
+
+  async cancelStalePending(olderThanMs: number): Promise<number> {
+    const seconds = Math.max(0, olderThanMs) / 1_000;
+    const result = await this.#db
+      .updateTable('agent_run')
+      .set({
+        status: 'cancelled',
+        updated_at: sql`now()`,
+        version: sql<number>`version + 1`,
+      } as never)
+      .where('status', '=', 'pending')
+      .where('created_at', '<', sql<Date>`now() - make_interval(secs => ${seconds})`)
+      .executeTakeFirst();
+    return Number(result.numUpdatedRows);
   }
 
   async saveDraft(input: AgentProposalInput): Promise<void> {

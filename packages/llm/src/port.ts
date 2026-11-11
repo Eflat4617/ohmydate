@@ -48,6 +48,21 @@ export interface LlmCompleteRequest {
    */
   readonly onDispatch?: () => void;
   /**
+   * FU-54: billing policies (`PolicyLlm`) report the charge they hold for this
+   * attempt: the reservation upper bound as soon as it is made, then the
+   * settled amount (actual usage, or the reservation on timeout/abort). A
+   * caller whose own timer or abort wins the race uses the latest value so the
+   * recorded cost matches the ledger. Adapters ignore it; it must not throw.
+   */
+  readonly onCharge?: (charge: LlmUsage) => void;
+  /**
+   * FU-76R-1 H1: the agent run the caller recorded (pending) before this call.
+   * Billing policies link their ledger rows to it, so the run's cost is
+   * derived from the ledger (the single source of truth) and converges even
+   * when a settlement finishes after the caller has stopped waiting.
+   */
+  readonly agentRunId?: string;
+  /**
    * Per-call output bound (prompt limits). Policy reservation and the adapter's
    * `max_tokens` both use it (see `effectiveMaxOutputTokens`); absent -> configured default.
    */

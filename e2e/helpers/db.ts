@@ -14,7 +14,10 @@ const require = createRequire(path.join(repoRoot, 'services/api/package.json'));
 const pg = require('pg') as {
   Client: new (options: { connectionString: string }) => {
     connect(): Promise<void>;
-    query(text: string, values?: unknown[]): Promise<{ rowCount: number | null }>;
+    query(
+      text: string,
+      values?: unknown[],
+    ): Promise<{ rowCount: number | null; rows: Record<string, unknown>[] }>;
     end(): Promise<void>;
   };
 };
@@ -36,6 +39,25 @@ export async function lockScheduleBlock(state: E2EState, blockId: string): Promi
       [blockId],
     );
     if (result.rowCount !== 1) throw new Error(`schedule block ${blockId} could not be locked`);
+  } finally {
+    await client.end();
+  }
+}
+
+/** FU-76: statuses of an owner's AI runs for one purpose (oldest first). */
+export async function agentRunStatuses(
+  state: E2EState,
+  ownerId: string,
+  purpose: string,
+): Promise<string[]> {
+  const client = new pg.Client({ connectionString: scopedUrl(state) });
+  await client.connect();
+  try {
+    const result = await client.query(
+      'SELECT status FROM agent_run WHERE owner_id = $1 AND purpose = $2 ORDER BY created_at, id',
+      [ownerId, purpose],
+    );
+    return result.rows.map((row) => String(row['status']));
   } finally {
     await client.end();
   }

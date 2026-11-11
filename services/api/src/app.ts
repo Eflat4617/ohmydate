@@ -3,15 +3,13 @@ import { createServer as createHttpServer } from 'node:http';
 import { registerIanaTimeZoneFormat } from '@ohmydate/contracts';
 import { DomainError, type Clock, type IdGenerator } from '@ohmydate/domain';
 import {
-  BudgetExceeded,
   BudgetGuard,
   FakeLlm,
   OpenAICompatibleLlm,
   PolicyLlm,
   maxPromptTimeoutMs,
-  staleReservationThresholdMs,
+  staleReservationThresholdWithFallbackMs,
   type LlmPort,
-  type LlmSpendLedger,
   type ResolvedLlmAccess,
 } from '@ohmydate/llm';
 import { vikunjaCallBudgetMs } from '@ohmydate/provider-vikunja';
@@ -19,9 +17,9 @@ import Fastify, {
   type FastifyInstance,
   type FastifyServerOptions,
 } from 'fastify';
-import type { Kysely, Transaction } from 'kysely';
+import type { Kysely } from 'kysely';
 import { sql } from 'kysely';
-import { llmPromptLimits, type AppConfig } from './config.js';
+import { assertFakeKnobsAllowed, llmPromptLimits, type AppConfig } from './config.js';
 import type { AppRepositories, IdempotencyStore } from './application/ports.js';
 import type { Id } from '@ohmydate/domain';
 import { AuthService } from './application/auth-service.js';
@@ -29,6 +27,8 @@ import { Argon2PasswordHasher } from './adapters/argon2-password-hasher.js';
 import { InMemoryLoginRateLimiter } from './adapters/in-memory-login-rate-limiter.js';
 import { InMemorySessionStore } from './adapters/in-memory-session-store.js';
 import { PgIdempotencyStore } from './adapters/pg-idempotency-store.js';
+import { createPgSpendLedger } from './adapters/pg-spend-ledger.js';
+import { ScriptedFakeLlm } from './adapters/scripted-fake-llm.js';
 import { PgPlanningStore } from './adapters/pg-planning-store.js';
 import { PgUserRepository, parseUserSettings } from './adapters/pg-user-repository.js';
 import { IntakeError } from './application/intake/intake-error.js';
@@ -350,7 +350,7 @@ async function createConfiguredLlm(input: {
 }): Promise<LlmPort | null> {
   const { options, config, db, clock, ids } = input;
   if (options.llm !== undefined) return options.llm;
-  if (config.llmProvider === 'fake') return new FakeLlm();
+  if (config.llmProvider === 'fake') return fakeLlmFor(config);
 
   const apiKey = options.llmApiKey;
   if (apiKey === undefined || apiKey.length === 0) {
@@ -409,8 +409,28 @@ async function createConfiguredLlm(input: {
     newReservationId: () => ids.next(),
     now: () => new Date(clock.now()),
     // A decomposition attempt may legitimately run for llmDecompositionTimeoutMs;
-    // only reservations older than the slowest attempt chain are recovered.
-    staleAfterMs: staleReservationThresholdMs(maxPromptTimeoutMs(llmPromptLimits(config))),
+    // only reservations older than the slowest attempt chain (JSON-mode plus
+    // the strict-instruction fallback, FU-54) are recovered.
+    staleAfterMs: staleReservationThresholdWithFallbackMs(
+      maxPromptTimeoutMs(llmPromptLimits(config)),
+    ),
+  });
+}
+
+/**
+ * `LLM_PROVIDER=fake` composition. The base fake mode comes first (the
+ * fixture-less FakeLlm: immediate llm_unavailable -> manual mode; other fake
+ * modes plug in here); the FU-76 scripted slow owners WRAP it and delegate
+ * every other owner to it, so no fake mode shadows another. Fake knobs were
+ * already checked by `assertFakeKnobsAllowed` (never in production).
+ */
+function fakeLlmFor(config: AppConfig): LlmPort {
+  const base: LlmPort = new FakeLlm();
+  if (config.llmFakeScriptedOwners.length === 0) return base;
+  return new ScriptedFakeLlm({
+    inner: base,
+    latencyMs: config.llmFakeLatencyMs,
+    owners: config.llmFakeScriptedOwners,
   });
 }
 
@@ -420,133 +440,22 @@ function hasExplicitBudget(value: unknown): boolean {
   return llm !== null && typeof llm === 'object' && !Array.isArray(llm) && Object.hasOwn(llm, 'budget');
 }
 
-/**
- * PostgreSQL spend ledger: one advisory-locked transaction reserves against
- * settled actual + open reserved rows, and settlement returns fresh totals so
- * an actual overrun blocks the next call while keeping the charge.
- */
-function createPgSpendLedger(db: Kysely<Database>): LlmSpendLedger {
-  const totalsQuery = async (
-    trx: Transaction<Database>,
-    ownerId: string,
-    dayStart: string,
-    monthStart: string,
-  ): Promise<{ dayUsd: number; monthUsd: number }> => {
-    const row = await trx
-      .selectFrom('llm_spend')
-      .select([
-        sql<string>`coalesce(sum(
-          case when created_at >= ${dayStart}
-            then case when state = 'settled' then coalesce(actual_usd, reserved_usd) else reserved_usd end
-            else 0 end
-        ), 0)`.as('day'),
-        sql<string>`coalesce(sum(
-          case when state = 'settled' then coalesce(actual_usd, reserved_usd) else reserved_usd end
-        ), 0)`.as('month'),
-      ])
-      .where('owner_id', '=', ownerId as Id)
-      .where('state', '!=', 'released')
-      .where('created_at', '>=', new Date(monthStart))
-      .executeTakeFirst();
-    return { dayUsd: Number(row?.day ?? 0), monthUsd: Number(row?.month ?? 0) };
-  };
+const startupSweeps = new WeakMap<
+  FastifyInstance,
+  Promise<{ readonly runs: number; readonly sessions: number } | null>
+>();
 
-  return {
-    async reserve(input) {
-      await db.transaction().execute(async (trx) => {
-        await sql`select pg_advisory_xact_lock(hashtextextended(${input.ownerId}, 0))`.execute(
-          trx,
-        );
-        // On-demand stale recovery: settle abandoned reservations at their
-        // reserved amount inside the same lock. Never release them, because the
-        // provider may already have billed the attempt.
-        const staleCutoff = new Date(
-          Date.parse(input.createdAt) - input.staleAfterMs,
-        );
-        await trx
-          .updateTable('llm_spend')
-          .set({
-            state: 'settled',
-            actual_usd: sql`reserved_usd`,
-            input_tokens: 0,
-            output_tokens: 0,
-            cached_tokens: 0,
-            settled_at: new Date(input.createdAt),
-            settle_reason: 'recovered',
-          })
-          .where('owner_id', '=', input.ownerId as Id)
-          .where('state', '=', 'reserved')
-          .where('created_at', '<', staleCutoff)
-          .execute();
-        const spent = await totalsQuery(trx, input.ownerId, input.dayStart, input.monthStart);
-        if (spent.dayUsd + input.estimateUsd > input.dailyLimitUsd) {
-          throw new BudgetExceeded(
-            'daily',
-            input.dailyLimitUsd,
-            spent.dayUsd,
-            'projected_limit',
-          );
-        }
-        if (spent.monthUsd + input.estimateUsd > input.monthlyLimitUsd) {
-          throw new BudgetExceeded(
-            'monthly',
-            input.monthlyLimitUsd,
-            spent.monthUsd,
-            'projected_limit',
-          );
-        }
-        await trx
-          .insertInto('llm_spend')
-          .values({
-            id: input.id as Id,
-            owner_id: input.ownerId as Id,
-            purpose: input.purpose,
-            state: 'reserved',
-            reserved_usd: input.estimateUsd.toFixed(6),
-            input_tokens: 0,
-            output_tokens: 0,
-            cached_tokens: 0,
-            created_at: new Date(input.createdAt),
-          })
-          .execute();
-      });
-    },
-    async settle(input) {
-      let totals = { dayUsd: 0, monthUsd: 0 };
-      await db.transaction().execute(async (trx) => {
-        const existing = await trx
-          .selectFrom('llm_spend')
-          .select('owner_id')
-          .where('id', '=', input.id as Id)
-          .executeTakeFirst();
-        const ownerId = existing?.owner_id;
-        if (ownerId === undefined) return;
-        await sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 0))`.execute(
-          trx,
-        );
-        await trx
-          .updateTable('llm_spend')
-          .set({
-            state: 'settled',
-            actual_usd: input.actualUsd.toFixed(6),
-            input_tokens: input.inputTokens,
-            output_tokens: input.outputTokens,
-            cached_tokens: input.cachedTokens,
-            settled_at: input.settledAt,
-            settle_reason: input.reason ?? 'actual',
-          })
-          .where('id', '=', input.id as Id)
-          .where('state', '=', 'reserved')
-          .execute();
-        totals = await totalsQuery(trx, ownerId, input.dayStart, input.monthStart);
-      });
-      return totals;
-    },
-  };
+/** FU-76: the background startup sweep of `app` (tests await it). */
+export function startupSweepFor(
+  app: FastifyInstance,
+): Promise<{ readonly runs: number; readonly sessions: number } | null> | undefined {
+  return startupSweeps.get(app);
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const { config, clock, ids, db } = options;
+  // FU-76R-1 H3: a config built without configFromEnv is checked at boot too.
+  assertFakeKnobsAllowed(config);
   // ADR-020 §10: the succession wait must cover the slowest single HTTP
   // request so a replaced approver's already-started request cannot still be
   // running; requests it would start later are fenced before fetch.
@@ -838,6 +747,30 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
 
   registerHealthRoutes(app, config, db);
+
+  // FU-76 startup sweep: AI runs and intake sessions left "in flight" by a
+  // crashed process (older than the intake AI request bound) become
+  // cancelled / ai_interrupted. It runs in the background so an unreachable
+  // database never blocks boot; onClose waits for it only briefly.
+  const sweep = runtime.intake.sweepOrphanedAiRuns().then(
+    (result) => {
+      if (result.runs > 0 || result.sessions > 0) {
+        app.log.warn(result, 'swept orphaned intake AI runs');
+      }
+      return result;
+    },
+    (error: unknown) => {
+      app.log.warn(
+        { name: error instanceof Error ? error.name : 'unknown' },
+        'orphaned intake AI run sweep failed',
+      );
+      return null;
+    },
+  );
+  startupSweeps.set(app, sweep);
+  app.addHook('onClose', async () => {
+    await Promise.race([sweep, new Promise((resolve) => setTimeout(resolve, 1_000).unref())]);
+  });
 
   await app.register(
     async (instance) => {

@@ -27,6 +27,11 @@ export interface E2EState {
   /** M6-02 E2E-6 (layout): own owner so its focus sessions and layout prefs are isolated. */
   readonly layoutEmail: string;
   readonly layoutPassword: string;
+  /** FU-76 E2E-AI: own owner whose fake AI answers after `aiWaitLatencyMs`. */
+  readonly aiWaitEmail: string;
+  readonly aiWaitPassword: string;
+  readonly aiWaitOwnerId: string;
+  readonly aiWaitLatencyMs: number;
   /** Base (unscoped) database URL; tests add `search_path` for `databaseSchema`. */
   readonly baseDatabaseUrl: string;
   readonly apiPid: number;

@@ -22,6 +22,8 @@ const pg = require('pg') as {
 const DEFAULT_DATABASE_URL =
   'postgres://ohmydate:ohmydate-dev-only@127.0.0.1:55432/planner_test';
 const DEFAULT_VIKUNJA_URL = 'http://127.0.0.1:3456';
+/** FU-76: scripted fake AI latency for the AI-wait owner (E2E-AI). */
+const AI_WAIT_LATENCY_MS = 5_000;
 
 const VIKUNJA_TOKEN_PERMISSIONS = {
   projects: ['create', 'read_all', 'read_one', 'update', 'delete', 'permanent'],
@@ -372,12 +374,20 @@ export default async function globalSetup(): Promise<void> {
     const plansFixture = await createVikunjaFixture(vikunjaUrl, 'plans');
     const replanFixture = await createVikunjaFixture(vikunjaUrl, 'replan');
     const layoutFixture = await createVikunjaFixture(vikunjaUrl, 'layout');
+    // FU-76 E2E-AI: own owner whose (fake) AI answers slowly, so the wizard's
+    // wait state, cancel and reload-resume run against the real API.
+    const aiWaitFixture = await createVikunjaFixture(vikunjaUrl, 'aiwait');
 
     await createPlannerOwner(databaseUrl, fixture, 'VIKUNJA_TOKEN_OWNER_E2E');
     await createPlannerOwner(databaseUrl, todayFixture, 'VIKUNJA_TOKEN_OWNER_E2E_TODAY');
     await createPlannerOwner(databaseUrl, plansFixture, 'VIKUNJA_TOKEN_OWNER_E2E_PLANS');
     await createPlannerOwner(databaseUrl, replanFixture, 'VIKUNJA_TOKEN_OWNER_E2E_REPLAN');
     await createPlannerOwner(databaseUrl, layoutFixture, 'VIKUNJA_TOKEN_OWNER_E2E_LAYOUT');
+    const aiWaitOwnerId = await createPlannerOwner(
+      databaseUrl,
+      aiWaitFixture,
+      'VIKUNJA_TOKEN_OWNER_E2E_AIWAIT',
+    );
 
     const apiPort = await freePort();
     const apiUrl = `http://127.0.0.1:${apiPort}`;
@@ -394,11 +404,16 @@ export default async function globalSetup(): Promise<void> {
         VIKUNJA_TOKEN_OWNER_E2E_PLANS: plansFixture.token,
         VIKUNJA_TOKEN_OWNER_E2E_REPLAN: replanFixture.token,
         VIKUNJA_TOKEN_OWNER_E2E_LAYOUT: layoutFixture.token,
+        VIKUNJA_TOKEN_OWNER_E2E_AIWAIT: aiWaitFixture.token,
         PORT: String(apiPort),
         HOST: '127.0.0.1',
         LOG_LEVEL: 'warn',
         PUSH_KEY_FILE: pushKeyFile,
         LLM_PROVIDER: 'fake',
+        // Fake-only knob: just the AI-wait owner gets 5 s scripted answers;
+        // every other owner keeps the immediate manual-mode fallback.
+        LLM_FAKE_SCRIPTED_OWNERS: aiWaitOwnerId,
+        LLM_FAKE_LATENCY_MS: String(AI_WAIT_LATENCY_MS),
         LLM_DAILY_BUDGET_USD: '10',
         LLM_MONTHLY_BUDGET_USD: '100',
         ...shiftedClockEnv(clockOffsetMs),
@@ -454,6 +469,10 @@ export default async function globalSetup(): Promise<void> {
       replanPassword: replanFixture.password,
       layoutEmail: layoutFixture.email,
       layoutPassword: layoutFixture.password,
+      aiWaitEmail: aiWaitFixture.email,
+      aiWaitPassword: aiWaitFixture.password,
+      aiWaitOwnerId,
+      aiWaitLatencyMs: AI_WAIT_LATENCY_MS,
       apiPid,
       webPid,
       ...(clockOffsetMs === 0 ? {} : { clockOffsetMs }),

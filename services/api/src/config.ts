@@ -141,6 +141,18 @@ export interface AppConfig {
   readonly llmDailyBudgetUsd: number;
   readonly llmMonthlyBudgetUsd: number;
   /**
+   * FU-76 E2E only, honoured only with `LLM_PROVIDER=fake`: owners in
+   * `LLM_FAKE_SCRIPTED_OWNERS` (comma-separated ids) get slow, schema-valid
+   * scripted answers after `LLM_FAKE_LATENCY_MS`. Empty/0 -> plain FakeLlm.
+   */
+  readonly llmFakeScriptedOwners: readonly string[];
+  readonly llmFakeLatencyMs: number;
+  /**
+   * `NODE_ENV` as given (null when unset). `production` rejects every
+   * fake-only test knob (see `assertFakeKnobsAllowed`).
+   */
+  readonly nodeEnv: string | null;
+  /**
    * ADR-020 §7: succession wait for an approval whose previous holder lost its
    * dedicated lock connection. Must be >= the Vikunja client call budget.
    */
@@ -197,6 +209,9 @@ export const defaultConfig: AppConfig = {
   llmPriceCachedPerM: DEFAULT_LLM_PRICE_CACHED_PER_M,
   llmDailyBudgetUsd: DEFAULT_LLM_DAILY_BUDGET_USD,
   llmMonthlyBudgetUsd: DEFAULT_LLM_MONTHLY_BUDGET_USD,
+  llmFakeScriptedOwners: [],
+  llmFakeLatencyMs: 0,
+  nodeEnv: null,
   providerMaxCallMs: DEFAULT_PROVIDER_MAX_CALL_MS,
   trustProxy: false,
   pushKeyFile: null,
@@ -238,7 +253,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     llmSessionHeader,
     env['LLM_SESSION_SECRET_FILE'],
   );
-  return createConfig({
+  const config = createConfig({
+    nodeEnv: env['NODE_ENV'] === undefined || env['NODE_ENV'].trim() === '' ? null : env['NODE_ENV'],
     provider: providerKind,
     vikunjaUrl: env['VIKUNJA_URL'] ?? null,
     vikunjaTokenFile: env['VIKUNJA_TOKEN_FILE'] ?? null,
@@ -293,6 +309,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env['LLM_MONTHLY_BUDGET_USD'],
       DEFAULT_LLM_MONTHLY_BUDGET_USD,
     ),
+    llmFakeScriptedOwners: parseFakeScriptedOwners(llmProvider, env['LLM_FAKE_SCRIPTED_OWNERS']),
+    llmFakeLatencyMs:
+      env['LLM_FAKE_LATENCY_MS'] === undefined || env['LLM_FAKE_LATENCY_MS'].trim() === ''
+        ? 0
+        : parseNonNegativeInt('LLM_FAKE_LATENCY_MS', env['LLM_FAKE_LATENCY_MS']),
     providerMaxCallMs: parsePositiveInt(
       'PROVIDER_MAX_CALL_MS',
       env['PROVIDER_MAX_CALL_MS'],
@@ -301,6 +322,38 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     pushKeyFile: env['PUSH_KEY_FILE'] ?? null,
     pushKey: env['PUSH_KEY'] ?? null,
   });
+  assertFakeKnobsAllowed(config);
+  return config;
+}
+
+/** A fake-only test knob: its env name and whether this configuration sets it. */
+export type FakeKnob = readonly [name: string, set: boolean];
+
+/** The fake-only knobs this configuration knows about (FU-76 scripted slow owners). */
+export function fakeKnobsOf(config: AppConfig): FakeKnob[] {
+  return [
+    ['LLM_FAKE_SCRIPTED_OWNERS', config.llmFakeScriptedOwners.length > 0],
+    ['LLM_FAKE_LATENCY_MS', config.llmFakeLatencyMs > 0],
+  ];
+}
+
+/**
+ * FU-76R-1 H3: the ONE guard for fake-only test knobs, applied at config parse
+ * and again at boot (buildApp). Any set knob requires `LLM_PROVIDER=fake` and
+ * is rejected when `NODE_ENV=production`. Other fake modes (e.g. M6-03's
+ * `LLM_FAKE_SCENARIO`) pass their knobs as `extra` or are added to
+ * `fakeKnobsOf`, so every knob shares the same rule.
+ */
+export function assertFakeKnobsAllowed(config: AppConfig, extra: readonly FakeKnob[] = []): void {
+  for (const [name, set] of [...fakeKnobsOf(config), ...extra]) {
+    if (!set) continue;
+    if (config.llmProvider !== 'fake') {
+      throw new Error(`${name} is only allowed with LLM_PROVIDER=fake`);
+    }
+    if (config.nodeEnv === 'production') {
+      throw new Error(`${name} is a test-only fake knob and is rejected when NODE_ENV=production`);
+    }
+  }
 }
 
 function parseLlmProvider(raw: string | undefined): LlmProviderKind {
@@ -457,6 +510,34 @@ export function llmPromptLimits(config: AppConfig): PromptLimitOverrides {
       timeoutMs: config.llmDecompositionTimeoutMs,
     },
   };
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+
+/** FU-76: scripted slow fake owners; rejected for a real provider (fake-only E2E knob). */
+function parseFakeScriptedOwners(provider: LlmProviderKind, raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  if (provider !== 'fake') {
+    throw new Error('LLM_FAKE_SCRIPTED_OWNERS is only allowed with LLM_PROVIDER=fake');
+  }
+  const owners = raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  for (const owner of owners) {
+    if (!UUID_PATTERN.test(owner)) {
+      throw new Error('LLM_FAKE_SCRIPTED_OWNERS must be a comma-separated list of user ids');
+    }
+  }
+  return owners;
+}
+
+function parseNonNegativeInt(name: string, raw: string): number {
+  const value = Number.parseInt(raw, 10);
+  if (!/^\d+$/u.test(raw.trim()) || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return value;
 }
 
 function parseMoney(name: string, raw: string | undefined, fallback: number): number {

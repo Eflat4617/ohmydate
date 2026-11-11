@@ -1,12 +1,12 @@
 import { BudgetExceeded, LlmError, LlmUnavailable } from './errors.js';
 import type { LlmPricingPerMillion } from './openai-compatible-llm.js';
 import type { LlmBudget, LlmCompleteRequest, LlmCompleteResponse, LlmPort, LlmUsage } from './port.js';
-import { structuredSystemPrompt } from './output-contract.js';
 import { effectiveMaxOutputTokens } from './prompt-limits.js';
+import { buildStructuredMessages } from './structured-messages.js';
 import {
   estimateInputTokensUpperBound,
   estimateReservationUsd,
-  staleReservationThresholdMs,
+  staleReservationThresholdWithFallbackMs,
   type LlmSpendLedger,
   type LlmSpendSettleReason,
   type LlmSpendTotals,
@@ -51,7 +51,10 @@ export interface PolicyLlmOptions {
   readonly maxOutputTokens: number;
   readonly newReservationId: () => string;
   readonly now?: () => Date;
-  /** Age after which an open reservation is recovered (default timeout x (retries+1) + margin). */
+  /**
+   * Age after which an open reservation is recovered (default
+   * timeout x (retries + 1) x 2 JSON-mode/fallback chains + margin, FU-54).
+   */
   readonly staleAfterMs?: number;
   /** Bounded retries when the settlement write fails (default 2). */
   readonly settlementRetries?: number;
@@ -84,6 +87,11 @@ function explicitLimits(value: LlmBudget | 'invalid'): LlmBudget {
   return { dailyUsd, monthlyUsd };
 }
 
+/** Read through a call so TypeScript does not narrow a signal that can flip while awaiting. */
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
 function attachUsage(error: unknown, usage: LlmUsage): void {
   if (error instanceof LlmError) error.usage = usage;
 }
@@ -104,7 +112,10 @@ export class PolicyLlm implements LlmPort {
   constructor(options: PolicyLlmOptions) {
     this.#options = options;
     this.#now = options.now ?? (() => new Date());
-    this.#staleAfterMs = Math.max(0, options.staleAfterMs ?? staleReservationThresholdMs());
+    this.#staleAfterMs = Math.max(
+      0,
+      options.staleAfterMs ?? staleReservationThresholdWithFallbackMs(),
+    );
     this.#settlementRetries = Math.max(0, options.settlementRetries ?? 2);
     this.#settlementBackoffMs = Math.max(0, options.settlementBackoffMs ?? 50);
     this.#sleep = options.sleep ?? defaultSleep;
@@ -129,18 +140,22 @@ export class PolicyLlm implements LlmPort {
       );
     }
 
+    // FU-76: a caller that already gave up (user cancel, shutdown) never reserves.
+    if (isAborted(request.signal)) {
+      throw new LlmUnavailable('llm call aborted by caller', 'aborted', false);
+    }
+
     const configured = access?.budget ?? null;
     const limits: LlmBudget =
       configured === null ? validDefaults(this.#options.defaultBudget) : explicitLimits(configured);
 
-    // The adapter sends exactly these messages (plus the fallback instruction on
-    // a JSON-mode rejection), so the reservation is an upper bound for dispatch.
-    // Same system message (prompt + generated contract) and the same per-call
-    // output bound the adapter will send, so the reservation stays an upper bound.
-    const system = structuredSystemPrompt(request.promptId, request.version, request.schemaId);
-    const user = JSON.stringify(request.input ?? {}) ?? '{}';
+    // FU-54: the adapter sends exactly these messages (built by the same shared
+    // builder, plus the fallback instruction on a JSON-mode rejection, which the
+    // bound already includes) with the same per-call output bound, so the
+    // reservation stays an upper bound for dispatch.
+    const [system, user] = buildStructuredMessages(request);
     const estimateUsd = estimateReservationUsd(
-      estimateInputTokensUpperBound(system, user),
+      estimateInputTokensUpperBound(system.content, user.content),
       effectiveMaxOutputTokens(request.maxOutputTokens, this.#options.maxOutputTokens),
       this.#options.pricing,
     );
@@ -162,7 +177,18 @@ export class PolicyLlm implements LlmPort {
       monthStart,
       createdAt: nowIso,
       staleAfterMs: this.#staleAfterMs,
+      ...(request.agentRunId === undefined ? {} : { agentRunId: request.agentRunId }),
     });
+    // FU-54: from here on the attempt may be billed; until settlement the
+    // reservation is the charge (and stays the charge if the call is aborted).
+    const reportCharge = (usage: LlmUsage): void => {
+      try {
+        request.onCharge?.(usage);
+      } catch {
+        // A reporting hook can never change billing or the outcome.
+      }
+    };
+    reportCharge({ inputTokens: 0, outputTokens: 0, costUsd: estimateUsd });
 
     const settle = (
       actualUsd: number,
@@ -181,6 +207,18 @@ export class PolicyLlm implements LlmPort {
         reason,
       });
 
+    // FU-54/FU-76: aborted while the reservation was being written. The prompt
+    // never left the process, so the row settles at its true cost (zero) and
+    // that zero is the charge the caller records.
+    if (isAborted(request.signal)) {
+      const unsent: LlmUsage = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+      await settle(0, unsent, 'actual');
+      reportCharge(unsent);
+      const error = new LlmUnavailable('llm call aborted by caller', 'aborted', false);
+      attachUsage(error, unsent);
+      throw error;
+    }
+
     let response: LlmCompleteResponse;
     try {
       response = await this.#options.inner.complete(request);
@@ -190,6 +228,7 @@ export class PolicyLlm implements LlmPort {
       // stale recovery, and the policy never pretends it was settled.
       const reservedUsage: LlmUsage = { inputTokens: 0, outputTokens: 0, costUsd: estimateUsd };
       await settle(estimateUsd, reservedUsage, 'reserved_fallback');
+      reportCharge(reservedUsage);
       attachUsage(error, reservedUsage);
       throw error;
     }
@@ -199,12 +238,16 @@ export class PolicyLlm implements LlmPort {
     if (actualUsd === undefined || !Number.isFinite(actualUsd) || actualUsd < 0) {
       const reservedUsage: LlmUsage = { ...usage, costUsd: estimateUsd };
       await settle(estimateUsd, reservedUsage, 'reserved_fallback');
+      reportCharge(reservedUsage);
       const error = new BudgetExceeded('daily', limits.dailyUsd, 0, 'unpriced_usage');
       attachUsage(error, reservedUsage);
       throw error;
     }
 
     const totals = await settle(actualUsd, usage, 'actual');
+    // A failed settlement write leaves the row reserved (recovered later at the
+    // reservation), so only a written actual replaces the reported charge.
+    if (totals !== null) reportCharge(usage);
     if (totals === null) {
       // The charge is already conservative (reserved upper bound); return the
       // paid result and let stale recovery settle the row later.

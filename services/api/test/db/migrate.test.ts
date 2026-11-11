@@ -40,6 +40,7 @@ const MIGRATION_FILES = [
   '0011_llm_spend.sql',
   '0012_replanning.sql',
   '0013_context_documents.sql',
+  '0014_agent_run_cancelled.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -465,6 +466,20 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
             `SELECT to_regclass('user_availability_version')::text AS name`,
           );
           expect(stillThere.rows[0]?.name).not.toBeNull();
+        } else if (migration === '0014_agent_run_cancelled.sql') {
+          // FU-76: only the status CHECK changes; the table stays and 'cancelled'
+          // is rejected again.
+          const constraint = await client.query<{ definition: string }>(
+            `SELECT pg_get_constraintdef(c.oid) AS definition
+               FROM pg_constraint AS c
+               JOIN pg_class AS t ON t.oid = c.conrelid
+               JOIN pg_namespace AS n ON n.oid = t.relnamespace
+              WHERE n.nspname = $1 AND t.relname = 'agent_run'
+                AND c.conname = 'agent_run_status_valid'`,
+            [schema],
+          );
+          expect(constraint.rows[0]?.definition).toMatch(/budget_exceeded/);
+          expect(constraint.rows[0]?.definition).not.toMatch(/cancelled/);
         } else if (migration === '0012_replanning.sql') {
           for (const table of REPLANNING_TABLES) {
             const gone = await client.query<{ name: string | null }>(
