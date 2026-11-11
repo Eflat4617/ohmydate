@@ -257,6 +257,10 @@ function canonicalInput(
     })),
     lockedBlocks: input.lockedBlocks.map(canonicalBlock),
     existingBlocks: (input.existingBlocks ?? []).map(canonicalBlock),
+    // FU-59: hashed only when supplied, so pre-M5 inputs keep their hash.
+    ...(input.affectedTaskIds === undefined
+      ? {}
+      : { affectedTaskIds: [...new Set(input.affectedTaskIds)].sort() }),
     prefs: input.prefs,
     seed,
     maxLocalImprovement,
@@ -524,6 +528,14 @@ function prepareReplan(context: BuildContext): ReplanPlan {
   );
 
   const affected = new Set<string>();
+  // FU-59: explicit caller scope. Unknown ids are ignored: the caller may pass
+  // tasks that disappeared between its read and generation, and an unknown task
+  // has no blocks to release anyway.
+  for (const taskId of context.input.affectedTaskIds ?? []) {
+    if (taskById.has(taskId)) {
+      affected.add(taskId);
+    }
+  }
   const movableMinutesByTask = new Map<string, number>();
   for (const item of movable) {
     const task = taskById.get(item.taskId);

@@ -11,7 +11,6 @@ import {
 } from '../api';
 import {
   addDaysToDate,
-  formatLocalTime,
   instantFromLocalInput,
   localInputValue,
   startOfWeek,
@@ -33,20 +32,15 @@ import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiField from '../components/ui/UiField.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
+import { t } from '../i18n';
+import { formatDateTimeRange } from '../i18n/format';
+import { errorMessage } from '../i18n/problem';
 
 const offline = useOfflineStore();
 const queryClient = useQueryClient();
 const actions = new ActionStore();
 
-const DAYS: Array<{ code: WeekdayCode; label: string }> = [
-  { code: 'MO', label: 'Mon' },
-  { code: 'TU', label: 'Tue' },
-  { code: 'WE', label: 'Wed' },
-  { code: 'TH', label: 'Thu' },
-  { code: 'FR', label: 'Fri' },
-  { code: 'SA', label: 'Sat' },
-  { code: 'SU', label: 'Sun' },
-];
+const DAYS: readonly WeekdayCode[] = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
 
 const fallbackZone =
   typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC';
@@ -142,8 +136,8 @@ const preview = computed(() => {
   return expandOccurrences(previewSource.value, range.value.from, range.value.to, 20);
 });
 
-function formatOccurrence(startAt: string, endAt: string): string {
-  return `${localInputValue(startAt, form.timeZone).replace('T', ' ')} – ${formatLocalTime(endAt, form.timeZone)}`;
+function formatOccurrence(startAt: string, endAt: string, timeZone: string = form.timeZone): string {
+  return formatDateTimeRange(startAt, endAt, timeZone);
 }
 
 function resetForm(): void {
@@ -174,15 +168,15 @@ async function refresh(): Promise<void> {
 async function save(): Promise<void> {
   if (!offline.mutationsEnabled || busy.value) return;
   if (previewSource.value === null) {
-    error.value = 'Start and end must be valid local times.';
+    error.value = t('commitments.invalidTimes');
     return;
   }
   if (Date.parse(previewSource.value.endAt) <= Date.parse(previewSource.value.startAt)) {
-    error.value = 'End must be after start.';
+    error.value = t('commitments.endAfterStart');
     return;
   }
   if (form.title.trim().length === 0) {
-    error.value = 'A title is required.';
+    error.value = t('commitments.titleRequired');
     return;
   }
   busy.value = true;
@@ -201,7 +195,7 @@ async function save(): Promise<void> {
       const action = actions.begin(scope, input, (left, right) => JSON.stringify(left) === JSON.stringify(right));
       await plannerClient.createCommitment(input, action.key);
       actions.settle(scope, action);
-      message.value = 'Commitment created.';
+      message.value = t('commitments.created');
     } else {
       const patch: CommitmentPatch = {
         title: form.title.trim(),
@@ -214,19 +208,15 @@ async function save(): Promise<void> {
       const action = actions.begin(scope, patch, (left, right) => JSON.stringify(left) === JSON.stringify(right));
       await plannerClient.updateCommitment(form.id, patch, action.key);
       actions.settle(scope, action);
-      message.value = 'Commitment updated.';
+      message.value = t('commitments.updated');
     }
     resetForm();
     await refresh();
   } catch (cause) {
-    if (cause instanceof ApiError) {
-      error.value =
-        cause.status === 412
-          ? 'This commitment changed elsewhere. Reload the list before editing again.'
-          : cause.detail;
-    } else {
-      error.value = 'Could not save the commitment.';
-    }
+    error.value =
+      cause instanceof ApiError && cause.status === 412
+        ? t('commitments.changedElsewhere')
+        : errorMessage(cause, t('commitments.saveError'));
   } finally {
     busy.value = false;
   }
@@ -242,10 +232,10 @@ async function remove(commitment: Commitment): Promise<void> {
     await plannerClient.deleteCommitment(commitment.id, action.key);
     actions.settle(scope, action);
     if (form.id === commitment.id) resetForm();
-    message.value = 'Commitment deleted.';
+    message.value = t('commitments.deleted');
     await refresh();
   } catch (cause) {
-    error.value = cause instanceof ApiError ? cause.detail : 'Could not delete the commitment.';
+    error.value = errorMessage(cause, t('commitments.deleteError'));
   } finally {
     busy.value = false;
   }
@@ -266,13 +256,13 @@ function onFromChange(event: Event): void {
   <section class="page page--wide commitments-page">
     <header class="page-header">
       <div class="page-heading">
-        <h1>Commitments</h1>
-        <p class="page-lede">Fixed calendar time that planning must work around.</p>
+        <h1>{{ t('commitments.title') }}</h1>
+        <p class="page-lede">{{ t('commitments.lede') }}</p>
       </div>
     </header>
 
     <UiBanner v-if="!offline.mutationsEnabled" tone="offline" class="offline-note" role="status">
-      Read-only while offline. Commitment edits are disabled.
+      {{ t('commitments.offline') }}
     </UiBanner>
     <p class="status-region status-note" role="status" aria-live="polite">{{ message }}</p>
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
@@ -280,31 +270,31 @@ function onFromChange(event: Event): void {
     <div class="commitments-layout">
       <div class="commitments-list-column">
         <fieldset class="settings-group settings-group--compact">
-          <legend>List range</legend>
+          <legend>{{ t('commitments.range') }}</legend>
           <div class="field-grid">
-            <UiField id="commitment-from" label="From">
+            <UiField id="commitment-from" :label="t('commitments.from')">
               <input id="commitment-from" :value="fromDate" type="date" @change="onFromChange" />
             </UiField>
-            <UiField id="commitment-to" label="To">
+            <UiField id="commitment-to" :label="t('commitments.to')">
               <input id="commitment-to" v-model="toDate" type="date" @change="rangeTouched = true" />
             </UiField>
           </div>
         </fieldset>
 
         <div v-if="commitmentsQuery.isLoading.value">
-          <p class="visually-hidden" role="status">Loading commitments…</p>
+          <p class="visually-hidden" role="status">{{ t('commitments.loading') }}</p>
           <UiSkeleton variant="card" :count="2" :lines="2" />
         </div>
         <UiBanner v-else-if="commitmentsQuery.isError.value" tone="error" class="error-panel">
-          <p class="error-text" role="alert">Could not load commitments.</p>
+          <p class="error-text" role="alert">{{ t('commitments.loadError') }}</p>
           <template #actions>
-            <UiButton size="sm" icon="sync" @click="refresh">Retry</UiButton>
+            <UiButton size="sm" icon="sync" @click="refresh">{{ t('common.retry') }}</UiButton>
           </template>
         </UiBanner>
         <UiEmptyState
           v-else-if="commitments.length === 0"
           icon="commitment"
-          title="No commitments in this range."
+          :title="t('commitments.empty')"
           aria-live="polite"
         />
         <ul v-else class="commitment-list">
@@ -314,20 +304,21 @@ function onFromChange(event: Event): void {
                 <span class="commitment-swatch" aria-hidden="true"></span>
                 <strong class="commitment-title">{{ commitment.title }}</strong>
                 <UiBadge v-if="commitment.rrule" tone="info">
-                  <UiIcon name="reschedule" :size="12" />Repeats
+                  <UiIcon name="reschedule" :size="12" />{{ t('commitments.repeats') }}
                 </UiBadge>
               </div>
               <span class="commitment-when tabular">
-                {{ localInputValue(commitment.startAt, commitment.timeZone).replace('T', ' ') }} –
-                {{ formatLocalTime(commitment.endAt, commitment.timeZone) }} · {{ commitment.timeZone }}
+                {{ formatOccurrence(commitment.startAt, commitment.endAt, commitment.timeZone) }} ·
+                {{ commitment.timeZone }}
               </span>
-              <span v-if="commitment.rrule" class="subtle commitment-rule">Repeats: {{ commitment.rrule }}</span>
-              <span class="subtle commitment-version">Version {{ commitment.version }}</span>
+              <span v-if="commitment.rrule" class="subtle commitment-rule">
+                {{ t('commitments.repeatRule', { rule: commitment.rrule }) }}
+              </span>
+              <span class="subtle commitment-version">{{ t('common.version', { version: commitment.version }) }}</span>
             </div>
             <ul v-if="(commitment.occurrences?.length ?? 0) > 0" class="occurrence-list">
               <li v-for="occurrence in commitment.occurrences" :key="`${occurrence.startAt}-${occurrence.endAt}`">
-                {{ localInputValue(occurrence.startAt, commitment.timeZone).replace('T', ' ') }} –
-                {{ formatLocalTime(occurrence.endAt, commitment.timeZone) }}
+                {{ formatOccurrence(occurrence.startAt, occurrence.endAt, commitment.timeZone) }}
               </li>
             </ul>
             <div class="card-footer card-footer--end">
@@ -338,7 +329,8 @@ function onFromChange(event: Event): void {
                 :disabled="!offline.mutationsEnabled || busy"
                 @click="edit(commitment)"
               >
-                Edit<span class="visually-hidden"> {{ commitment.title }}</span>
+                <span class="visually-hidden">{{ t('commitments.hiddenTitle', { title: commitment.title }) }}</span
+                >{{ t('common.edit') }}
               </UiButton>
               <UiButton
                 size="sm"
@@ -348,7 +340,8 @@ function onFromChange(event: Event): void {
                 :disabled="!offline.mutationsEnabled || busy"
                 @click="remove(commitment)"
               >
-                Delete<span class="visually-hidden"> {{ commitment.title }}</span>
+                <span class="visually-hidden">{{ t('commitments.hiddenTitle', { title: commitment.title }) }}</span
+                >{{ t('common.delete') }}
               </UiButton>
             </div>
           </UiCard>
@@ -357,22 +350,22 @@ function onFromChange(event: Event): void {
 
       <form class="settings-form commitment-editor" @submit.prevent="save">
         <fieldset class="settings-group">
-          <legend>{{ form.id === null ? 'New commitment' : 'Edit commitment' }}</legend>
+          <legend>{{ form.id === null ? t('commitments.newLegend') : t('commitments.editLegend') }}</legend>
           <h2 ref="formHeading" class="sr-only" tabindex="-1">
-            {{ form.id === null ? 'New commitment form' : 'Edit commitment form' }}
+            {{ form.id === null ? t('commitments.newForm') : t('commitments.editForm') }}
           </h2>
-          <UiField id="commitment-title" label="Title">
+          <UiField id="commitment-title" :label="t('commitments.titleLabel')">
             <input
               id="commitment-title"
               v-model="form.title"
               type="text"
               maxlength="200"
-              placeholder="e.g. Seminar, commute, family dinner"
+              :placeholder="t('commitments.titlePlaceholder')"
               :disabled="!offline.mutationsEnabled"
             />
           </UiField>
           <div class="field-grid">
-            <UiField id="commitment-start" label="Start (local wall clock)">
+            <UiField id="commitment-start" :label="t('commitments.start')">
               <input
                 id="commitment-start"
                 v-model="form.startLocal"
@@ -380,7 +373,7 @@ function onFromChange(event: Event): void {
                 :disabled="!offline.mutationsEnabled"
               />
             </UiField>
-            <UiField id="commitment-end" label="End (local wall clock)">
+            <UiField id="commitment-end" :label="t('commitments.end')">
               <input
                 id="commitment-end"
                 v-model="form.endLocal"
@@ -389,7 +382,7 @@ function onFromChange(event: Event): void {
               />
             </UiField>
           </div>
-          <UiField id="commitment-timezone" label="IANA time zone">
+          <UiField id="commitment-timezone" :label="t('commitments.timeZone')">
             <input
               id="commitment-timezone"
               v-model="form.timeZone"
@@ -400,22 +393,22 @@ function onFromChange(event: Event): void {
         </fieldset>
 
         <fieldset class="settings-group">
-          <legend>Repeat</legend>
-          <div class="choice-group day-choices" role="group" aria-label="Weekly recurrence presets">
-            <label v-for="day in DAYS" :key="day.code" class="choice-chip">
+          <legend>{{ t('commitments.repeat') }}</legend>
+          <div class="choice-group day-choices" role="group" :aria-label="t('commitments.presets')">
+            <label v-for="day in DAYS" :key="day" class="choice-chip">
               <input
                 type="checkbox"
-                :checked="presetDays.includes(day.code)"
+                :checked="presetDays.includes(day)"
                 :disabled="!offline.mutationsEnabled"
-                @change="toggleDay(day.code)"
+                @change="toggleDay(day)"
               />
-              {{ day.label }}
+              {{ t(`commitments.day.${day}`) }}
             </label>
           </div>
           <UiField
             id="commitment-rrule"
-            label="Raw RRULE (optional)"
-            help="Presets write a weekly rule; raw rules accept a bounded RFC 5545 subset."
+            :label="t('commitments.rrule')"
+            :help="t('commitments.rruleHelp')"
           >
             <template #default="{ describedby }">
               <input
@@ -432,8 +425,8 @@ function onFromChange(event: Event): void {
         </fieldset>
 
         <section class="card card--flat occurrence-preview" aria-labelledby="occurrence-preview-title">
-          <h2 id="occurrence-preview-title" class="h2">Occurrences preview</h2>
-          <p v-if="preview.length === 0" class="muted" aria-live="polite">No occurrences in the selected range.</p>
+          <h2 id="occurrence-preview-title" class="h2">{{ t('commitments.preview') }}</h2>
+          <p v-if="preview.length === 0" class="muted" aria-live="polite">{{ t('commitments.previewEmpty') }}</p>
           <ul v-else class="occurrence-list" aria-live="polite">
             <li v-for="occurrence in preview" :key="`${occurrence.startAt}-${occurrence.endAt}`">
               {{ formatOccurrence(occurrence.startAt, occurrence.endAt) }}
@@ -443,10 +436,10 @@ function onFromChange(event: Event): void {
 
         <div class="form-actions">
           <UiButton type="submit" variant="primary" :busy="busy" :disabled="!offline.mutationsEnabled || busy">
-            {{ form.id === null ? 'Create commitment' : 'Save commitment' }}
+            {{ form.id === null ? t('commitments.create') : t('commitments.save') }}
           </UiButton>
           <UiButton v-if="form.id !== null" variant="ghost" :disabled="busy" @click="resetForm">
-            Cancel edit
+            {{ t('commitments.cancelEdit') }}
           </UiButton>
         </div>
       </form>

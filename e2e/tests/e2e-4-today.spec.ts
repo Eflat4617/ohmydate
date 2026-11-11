@@ -66,8 +66,8 @@ async function blockingAxeViolations(page: Page) {
 }
 
 async function openNotifications(page: Page): Promise<void> {
-  await page.locator('.nav-rail').getByRole('button', { name: 'Notifications' }).click();
-  await expect(page.getByRole('dialog', { name: 'Notifications' })).toBeVisible();
+  await page.locator('.nav-rail').getByRole('button', { name: '알림' }).click();
+  await expect(page.getByRole('dialog', { name: '알림' })).toBeVisible();
 }
 
 test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', () => {
@@ -97,12 +97,12 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     if (sessionBlock === undefined) throw new Error('approved plan has no block to start from');
 
     await page.goto(`${state.webUrl}/today`);
-    await expect(page.getByRole('heading', { name: 'Today' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
     const cards = page.locator('.today-card');
     await expect(cards).toHaveCount(3, { timeout: 20_000 });
     expect(await blockingAxeViolations(page)).toEqual([]);
 
-    await cards.nth(1).getByRole('button', { name: 'Start focus' }).focus();
+    await cards.nth(1).getByRole('button', { name: '집중 시작' }).focus();
     await page.keyboard.press('Enter');
     await page.waitForURL(/\/focus\/[0-9a-f-]{36}$/);
     await expect(page.locator('.focus-timer')).toBeVisible();
@@ -111,20 +111,20 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     await page.keyboard.press('f');
     await expect(page.locator('.focus-timer')).toBeFocused();
     await page.keyboard.press('Space');
-    await expect(page.getByText('Paused', { exact: true })).toBeVisible();
+    await expect(page.getByText('일시정지됨', { exact: true })).toBeVisible();
     await page.keyboard.press('Space');
-    await expect(page.getByText('Focusing', { exact: true })).toBeVisible();
+    await expect(page.getByText('집중하는 중', { exact: true })).toBeVisible();
     await page.keyboard.press('Enter');
 
     await expect(
-      page.getByRole('heading', { name: 'How did the session go?' }),
+      page.getByRole('heading', { name: '이번 세션은 어땠나요?' }),
     ).toBeVisible();
-    await page.getByRole('radio', { name: 'Partial' }).check();
-    await page.getByRole('checkbox', { name: 'Task was larger' }).check();
-    await page.getByLabel('Note (optional, private)').fill('E2E focus review note.');
-    await page.getByRole('button', { name: 'Submit review' }).click();
-    await expect(page.getByRole('heading', { name: 'Estimation feedback' })).toBeVisible();
-    await expect(page.getByText(/Estimated .* · actual/)).toBeVisible();
+    await page.getByRole('radio', { name: '일부만' }).check();
+    await page.getByRole('checkbox', { name: '생각보다 컸어요' }).check();
+    await page.getByLabel('메모 (선택, 나만 볼 수 있어요)').fill('E2E focus review note.');
+    await page.getByRole('button', { name: '회고 저장' }).click();
+    await expect(page.getByRole('heading', { name: '추정 피드백' })).toBeVisible();
+    await expect(page.getByText(/예상 .* · 실제/)).toBeVisible();
 
     let notificationId = '';
     await expect
@@ -151,7 +151,7 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     const row = page.locator(`[data-notification-id="${notificationId}"]`);
     await expect(row).toHaveCount(1);
     await expect(row).toBeVisible();
-    await row.getByRole('button', { name: /Dismiss notification/ }).click();
+    await row.getByRole('button', { name: /알림 지우기/ }).click();
     await expect(row).toHaveCount(0);
     await expect
       .poll(async () => {
@@ -174,24 +174,24 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     await page.goto(`${state.webUrl}/today`);
     const cards = page.locator('.today-card');
     await expect(cards).toHaveCount(3, { timeout: 20_000 });
-    await cards.first().getByRole('button', { name: 'Start focus' }).click();
+    await cards.first().getByRole('button', { name: '집중 시작' }).click();
     await page.waitForURL(/\/focus\/[0-9a-f-]{36}$/);
     const sessionId = page.url().split('/').at(-1);
     if (sessionId === undefined || sessionId.length === 0) {
       throw new Error('focus URL did not contain a session id');
     }
-    await expect(page.getByText('Focusing', { exact: true })).toBeVisible();
+    await expect(page.getByText('집중하는 중', { exact: true })).toBeVisible();
 
     await context.setOffline(true);
-    await expect(page.getByText(/Offline · timer keeps running locally/)).toBeVisible();
-    await page.getByRole('button', { name: 'Pause' }).click();
-    await expect(page.getByText('Paused', { exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'Resume' }).click();
-    await expect(page.getByText('Focusing', { exact: true })).toBeVisible();
-    await expect(page.getByText(/2 focus events saved on this device/)).toBeVisible();
+    await expect(page.getByText(/오프라인 · 타이머는 이 기기에서 계속 돌아가요/)).toBeVisible();
+    await page.getByRole('button', { name: '일시정지' }).click();
+    await expect(page.getByText('일시정지됨', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '다시 시작' }).click();
+    await expect(page.getByText('집중하는 중', { exact: true })).toBeVisible();
+    await expect(page.getByText(/집중 기록 2개를 이 기기에 저장했어요/)).toBeVisible();
 
     await context.setOffline(false);
-    await expect(page.getByText(/Saved focus events uploaded/)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/저장해 둔 집중 기록을 모두 올렸어요/)).toBeVisible({ timeout: 20_000 });
 
     const replayed = await getWorkSession(page, state, sessionId);
     expect(replayed.state).toBe('active');
@@ -199,9 +199,9 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     expect(replayed.focusedSec).toBeGreaterThanOrEqual(0);
     expect(replayed.pausedSec).toBeGreaterThanOrEqual(0);
 
-    await page.getByRole('button', { name: 'Complete' }).click();
+    await page.getByRole('button', { name: '완료' }).click();
     await expect(
-      page.getByRole('heading', { name: 'How did the session go?' }),
+      page.getByRole('heading', { name: '이번 세션은 어땠나요?' }),
     ).toBeVisible();
     const completed = await getWorkSession(page, state, sessionId);
     expect(completed.state).toBe('completed');
@@ -255,27 +255,27 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     for (const label of [`${secondTitle} prep`, `${secondTitle} work`, `${secondTitle} review`]) {
       const card = page.locator('.today-card', { hasText: label });
       await expect(card).toBeVisible();
-      await expect(card.getByRole('button', { name: 'Shrink' })).toBeEnabled();
+      await expect(card.getByRole('button', { name: '축소' })).toBeEnabled();
       const blockId = await card.getAttribute('data-block-id');
       if (blockId === null) throw new Error(`card ${label} has no block id`);
       const beforeShrink = await scheduleBlock(page, blockId, rangeFrom, rangeTo);
       if (beforeShrink === undefined) throw new Error(`schedule block ${blockId} is missing`);
 
-      await card.getByRole('button', { name: 'Shrink' }).click();
+      await card.getByRole('button', { name: '축소' }).click();
       await page.locator('#shrink-minutes').fill('10');
-      await page.getByRole('button', { name: 'Preview shrink' }).click();
-      await expect(page.getByRole('heading', { name: 'Proposal preview' })).toBeVisible();
+      await page.getByRole('button', { name: '축소 미리보기' }).click();
+      await expect(page.getByRole('heading', { name: '제안 미리보기' })).toBeVisible();
       let approveResponse = page.waitForResponse(
         (response) =>
           response.request().method() === 'POST' &&
           new URL(response.url()).pathname.includes('/today/proposals/'),
       );
-      await page.getByRole('button', { name: 'Approve proposal' }).click();
+      await page.getByRole('button', { name: '제안 승인' }).click();
       expect((await approveResponse).status()).toBe(201);
-      await expect(page.getByRole('heading', { name: 'Proposal preview' })).toBeHidden();
+      await expect(page.getByRole('heading', { name: '제안 미리보기' })).toBeHidden();
 
       const refreshed = page.locator('.today-card', { hasText: label });
-      await expect(refreshed.getByRole('button', { name: 'Reschedule' })).toBeEnabled({
+      await expect(refreshed.getByRole('button', { name: '재배치' })).toBeEnabled({
         timeout: 20_000,
       });
       const shrunkBlockId = (await refreshed.getAttribute('data-block-id')) ?? blockId;
@@ -288,16 +288,16 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
       if (beforeReschedule === undefined) {
         throw new Error(`schedule block ${shrunkBlockId} disappeared`);
       }
-      await refreshed.getByRole('button', { name: 'Reschedule' }).click();
-      await expect(page.getByRole('heading', { name: 'Proposal preview' })).toBeVisible();
+      await refreshed.getByRole('button', { name: '재배치' }).click();
+      await expect(page.getByRole('heading', { name: '제안 미리보기' })).toBeVisible();
       approveResponse = page.waitForResponse(
         (response) =>
           response.request().method() === 'POST' &&
           new URL(response.url()).pathname.includes('/today/proposals/'),
       );
-      await page.getByRole('button', { name: 'Approve proposal' }).click();
+      await page.getByRole('button', { name: '제안 승인' }).click();
       expect((await approveResponse).status()).toBe(201);
-      await expect(page.getByRole('heading', { name: 'Proposal preview' })).toBeHidden();
+      await expect(page.getByRole('heading', { name: '제안 미리보기' })).toBeHidden();
 
       const rescheduled = page.locator('.today-card', { hasText: label });
       await expect(rescheduled).toBeVisible({ timeout: 20_000 });

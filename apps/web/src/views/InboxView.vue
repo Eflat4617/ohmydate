@@ -11,6 +11,7 @@ import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
+import { t, tp } from '../i18n';
 
 const offline = useOfflineStore();
 const ui = useUiStore();
@@ -89,14 +90,14 @@ async function refresh(): Promise<void> {
   <section class="page">
     <header class="page-header">
       <div class="page-heading">
-        <h1>Inbox</h1>
-        <p class="page-lede">Capture now, organise later.</p>
+        <h1>{{ t('inbox.title') }}</h1>
+        <p class="page-lede">{{ t('inbox.lede') }}</p>
       </div>
       <div class="page-actions">
         <UiBadge v-if="!offline.mutationsEnabled" tone="offline" dot class="offline-note" role="status">
-          Read-only while offline.
+          {{ t('common.readOnlyOffline') }}
         </UiBadge>
-        <UiBadge v-else-if="openCount > 0" tone="outline">{{ openCount }} open</UiBadge>
+        <UiBadge v-else-if="openCount > 0" tone="outline">{{ tp('inbox.openCount', openCount) }}</UiBadge>
       </div>
     </header>
 
@@ -104,28 +105,26 @@ async function refresh(): Promise<void> {
     <UiBanner v-if="createError" tone="error" role="alert">{{ createError }}</UiBanner>
 
     <div v-if="isLoading" class="list-loading">
-      <p class="visually-hidden" role="status">Loading tasks…</p>
+      <p class="visually-hidden" role="status">{{ t('inbox.loading') }}</p>
       <UiSkeleton variant="card" :count="3" :lines="1" />
     </div>
     <UiBanner v-else-if="isError" tone="error" class="error-panel">
-      <p class="error-text" role="alert">Could not load tasks.</p>
+      <p class="error-text" role="alert">{{ t('inbox.loadError') }}</p>
       <template #actions>
-        <UiButton size="sm" icon="sync" @click="refetchAll()">Retry</UiButton>
+        <UiButton size="sm" icon="sync" @click="refetchAll()">{{ t('common.retry') }}</UiButton>
       </template>
     </UiBanner>
     <UiBanner v-else-if="inboxMissing" tone="warn" class="error-panel">
-      <p class="error-text" role="alert">
-        Inbox project is missing. Tasks cannot be shown until it exists.
-      </p>
+      <p class="error-text" role="alert">{{ t('inbox.missing') }}</p>
       <template #actions>
-        <UiButton size="sm" icon="sync" @click="refetchAll()">Retry</UiButton>
+        <UiButton size="sm" icon="sync" @click="refetchAll()">{{ t('common.retry') }}</UiButton>
       </template>
     </UiBanner>
     <TaskList
       v-else
       :tasks="tasks"
       :disabled="!offline.mutationsEnabled"
-      empty-text="Inbox zero. Add the next thing on your mind above."
+      :empty-text="t('inbox.empty')"
       @refresh="refresh"
     />
   </section>

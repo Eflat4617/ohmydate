@@ -81,6 +81,7 @@ export interface IntakeSessionRepository {
       readonly policyOk: boolean;
       readonly constraintOk: boolean;
       readonly issues: readonly { readonly code: string; readonly message: string }[];
+      readonly editedEstimateKeys: readonly string[];
     },
     expectedVersion: number,
   ): Promise<IntakeSessionRecord>;
@@ -140,6 +141,12 @@ export interface StoredDraft {
   readonly constraintOk: boolean;
   readonly policyOk: boolean;
   readonly issues: readonly { readonly code: string; readonly message: string }[];
+  /**
+   * FU-48: step keys whose estimate the user edited (or added) through
+   * PATCH /draft since the draft was generated. Approval records those
+   * estimates with method `personal` instead of the generator's method.
+   */
+  readonly editedEstimateKeys: readonly string[];
 }
 
 export interface AgentRunRepository {
@@ -241,7 +248,7 @@ export interface IntakeApprovalStore {
       readonly taskId: Id;
       readonly p50Min: number;
       readonly p90Min: number;
-      readonly method: 'template' | 'llm';
+      readonly method: 'template' | 'llm' | 'personal';
       readonly confidence: number;
     }[];
   }): Promise<IntakeSessionRecord>;

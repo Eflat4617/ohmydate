@@ -2,7 +2,7 @@
 // UI-POLISH evidence: screenshots + a11y/overflow sweep against the synthetic
 // MSW mock (VITE_MOCK=1). No real API, accounts or personal data are involved.
 //
-//   node scripts/ui-screenshots.mjs --label after            # spawns vite on :5199
+//   node scripts/ui-screenshots.mjs --label after-ko         # spawns vite on :5199 (Korean UI, UI-I18N)
 //   node scripts/ui-screenshots.mjs --label before --url http://127.0.0.1:5199
 //   node scripts/ui-screenshots.mjs --label after --only 14-today
 //
@@ -138,7 +138,7 @@ async function newPage(browser, run, overrides) {
     colorScheme: run.scheme,
     reducedMotion: 'reduce',
     timezoneId: 'Asia/Seoul',
-    locale: 'en-US',
+    locale: 'ko-KR',
   });
   const page = await context.newPage();
   await page.clock.setFixedTime(FIXED_NOW);
@@ -163,7 +163,7 @@ async function flowMain(browser, run) {
   const { context, page } = await newPage(browser, run);
 
   await go(page, '/login');
-  await page.getByRole('heading', { name: 'Sign in to OhMyDate' }).waitFor();
+  await page.getByRole('heading', { name: 'OhMyDate에 로그인' }).waitFor();
   await checkpoint(page, '01-login', run);
 
   await go(page, '/inbox');
@@ -172,18 +172,18 @@ async function flowMain(browser, run) {
 
   // Conflict: another "device" bumps the seeded task while we edit it.
   const firstTitle = (await page.locator('.task-item .task-title').first().textContent())?.trim() ?? '';
-  await page.getByRole('button', { name: `Edit title of ${firstTitle}` }).click();
-  await page.getByLabel('Task title').fill(`${firstTitle} (my edit)`);
+  await page.getByRole('button', { name: `${firstTitle} 제목 수정` }).click();
+  await page.getByLabel('작업 제목').fill(`${firstTitle} (내 수정)`);
   await page.evaluate((title) => {
     const db = window.__OHMYDATE_MOCK_DB__;
     const task = [...db.tasks.values()].find((item) => item.title === title);
     if (task !== undefined) {
       task.version += 1;
-      task.title = `${title} (changed on phone)`;
+      task.title = `${title} (휴대폰에서 수정)`;
       db.taskRevision += 1;
     }
   }, firstTitle);
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('button', { name: '저장', exact: true }).click();
   await page.getByRole('dialog').waitFor();
   await checkpoint(page, '03-conflict-dialog', run);
   await page.keyboard.press('Escape');
@@ -191,8 +191,8 @@ async function flowMain(browser, run) {
   await go(page, '/projects');
   await page.locator('.project-list li').first().waitFor();
   await checkpoint(page, '04-projects', run);
-  await page.getByRole('link', { name: 'Thesis' }).click();
-  await page.getByRole('heading', { name: 'Thesis' }).waitFor();
+  await page.getByRole('link', { name: '졸업 논문' }).click();
+  await page.getByRole('heading', { name: '졸업 논문' }).waitFor();
   await checkpoint(page, '05-project-detail', run);
 
   await go(page, '/plan/new');
@@ -222,23 +222,23 @@ async function flowMain(browser, run) {
   await checkpoint(page, '09-wizard-step4', run);
 
   await go(page, '/plans/new');
-  await page.getByRole('heading', { name: 'New plan' }).waitFor();
+  await page.getByRole('heading', { name: '새 일정안' }).waitFor();
   await settle(page);
   const boxes = page.locator('.task-picker input[type="checkbox"]');
   const count = await boxes.count();
   for (let index = 0; index < Math.min(count, 3); index += 1) await boxes.nth(index).check();
   await checkpoint(page, '10-plan-new', run);
-  await page.getByRole('button', { name: 'Generate candidates' }).click();
-  await page.getByRole('heading', { name: /^Plan comparison$/ }).waitFor();
+  await page.getByRole('button', { name: '후보 만들기' }).click();
+  await page.getByRole('heading', { name: /^일정안 비교$/ }).waitFor();
   await page.locator('.candidate-card').first().waitFor();
   await checkpoint(page, '11-plan-comparison', run);
 
   await go(page, '/settings/availability');
-  await page.getByRole('heading', { name: 'Availability' }).waitFor();
+  await page.getByRole('heading', { name: '가용 시간', level: 1 }).waitFor();
   await checkpoint(page, '12-availability', run);
 
   await go(page, '/commitments');
-  await page.getByRole('heading', { name: 'Commitments' }).waitFor();
+  await page.getByRole('heading', { name: '약속', level: 1 }).waitFor();
   await checkpoint(page, '13-commitments', run);
 
   await context.close();
@@ -251,47 +251,47 @@ async function flowDaily(browser, run) {
   await checkpoint(page, '14-today', run);
 
   await context.setOffline(true);
-  await page.getByText(/You are offline/).first().waitFor();
+  await page.getByText(/오프라인이에요/).first().waitFor();
   await checkpoint(page, '15-today-offline', run);
   await context.setOffline(false);
-  await page.getByText(/You are offline/).first().waitFor({ state: 'detached' }).catch(() => undefined);
+  await page.getByText(/오프라인이에요/).first().waitFor({ state: 'detached' }).catch(() => undefined);
 
-  await page.getByRole('button', { name: 'Start focus' }).first().click();
+  await page.getByRole('button', { name: '집중 시작' }).first().click();
   await page.locator('.focus-timer').waitFor();
   await page.clock.setFixedTime(new Date(FIXED_NOW.getTime() + (24 * 60 + 37) * 1000));
   await page.waitForTimeout(1200);
   await checkpoint(page, '16-focus', run);
 
-  const calm = page.getByRole('button', { name: 'Calm mode' });
+  const calm = page.getByRole('button', { name: '몰입 모드' });
   if ((await calm.count()) > 0) {
     await calm.click();
     await checkpoint(page, '16-focus-calm', run);
     await calm.click();
   }
 
-  await page.getByRole('button', { name: 'Complete' }).first().click();
-  await page.getByRole('heading', { name: 'How did the session go?' }).waitFor();
-  await page.getByRole('radio', { name: 'Partial' }).check();
-  await page.getByRole('checkbox', { name: 'Task was larger' }).check();
+  await page.getByRole('button', { name: '완료' }).first().click();
+  await page.getByRole('heading', { name: '이번 세션은 어땠나요?' }).waitFor();
+  await page.getByRole('radio', { name: '일부만' }).check();
+  await page.getByRole('checkbox', { name: '생각보다 컸어요' }).check();
   await checkpoint(page, '17-review', run);
 
   await go(page, '/today');
   await page.locator('.today-card').first().waitFor();
   if (isMobile(run)) {
-    const more = page.getByRole('button', { name: 'More', exact: true }).filter({ visible: true });
+    const more = page.getByRole('button', { name: '더 보기', exact: true }).filter({ visible: true });
     if ((await more.count()) > 0) {
       await more.first().click();
-      await page.getByRole('dialog', { name: 'More' }).waitFor();
+      await page.getByRole('dialog', { name: '더 보기' }).waitFor();
       await checkpoint(page, '21-more-sheet', run);
-      await page.getByRole('dialog', { name: 'More' }).getByRole('button', { name: 'Notifications' }).click();
+      await page.getByRole('dialog', { name: '더 보기' }).getByRole('button', { name: '알림' }).click();
     } else {
       // Pre-polish bottom nav overflows narrow screens, leaving the button off-screen.
-      await page.getByRole('button', { name: 'Notifications' }).filter({ visible: true }).first().dispatchEvent('click');
+      await page.getByRole('button', { name: '알림' }).filter({ visible: true }).first().dispatchEvent('click');
     }
   } else {
-    await page.locator('.nav-rail').getByRole('button', { name: 'Notifications' }).click();
+    await page.locator('.nav-rail').getByRole('button', { name: '알림' }).click();
   }
-  await page.getByRole('dialog', { name: 'Notifications' }).waitFor();
+  await page.getByRole('dialog', { name: '알림' }).waitFor();
   await checkpoint(page, '18-notifications', run);
   await context.close();
 }
@@ -301,9 +301,9 @@ async function flowAi(browser, run) {
   await go(page, '/settings/ai');
   await page.getByRole('dialog').waitFor();
   await checkpoint(page, '19-ai-consent', run);
-  await page.getByRole('button', { name: 'Use manual mode' }).click();
+  await page.getByRole('button', { name: '직접 작성 모드로 쓰기' }).click();
   await page.getByRole('dialog').waitFor({ state: 'detached' });
-  await page.getByRole('heading', { name: 'AI settings' }).waitFor();
+  await page.getByRole('heading', { name: 'AI 설정' }).waitFor();
   await checkpoint(page, '20-ai-settings', run);
   await context.close();
 }

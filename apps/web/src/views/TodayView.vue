@@ -23,7 +23,11 @@ import UiIcon from '../components/ui/UiIcon.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { addDaysToDate, zonedWallClockToInstant } from '../domain/time';
 import { rememberFocusBlocks } from '../composables/focusContext';
-import { durationMinutes, formatClock, formatDay, formatSlack, localDateIso } from '../format';
+import { localDateIso } from '../format';
+import { t, tp } from '../i18n';
+import { formatCivilDate, formatDuration, formatTimeRange, minutesBetween } from '../i18n/format';
+import { errorMessage } from '../i18n/problem';
+import { riskReasonText } from '../i18n/server';
 import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 import { useToastStore } from '../stores/toast';
@@ -156,8 +160,16 @@ const nextBlockId = computed(() => {
   return next?.id ?? null;
 });
 const plannedMinutes = computed(() =>
-  blocks.value.reduce((sum, block) => sum + durationMinutes(block.startAt, block.endAt), 0),
+  blocks.value.reduce((sum, block) => sum + minutesBetween(block.startAt, block.endAt), 0),
 );
+const riskLevel = computed(() => (today.value === null ? '' : t(`risk.level.${today.value.risk.level}`)));
+const riskReasons = computed(() => {
+  const titles = new Map(blocks.value.map((block) => [block.taskId, block.title]));
+  return (today.value?.risk.reasons ?? []).map((reason) => ({
+    key: reason,
+    ...riskReasonText(reason, (taskId) => titles.get(taskId)),
+  }));
+});
 const riskTone = computed(() => {
   switch (today.value?.risk.level) {
     case 'high':
@@ -225,9 +237,7 @@ function samePayload<T>(left: T, right: T): boolean {
 }
 
 function messageFor(cause: unknown): string {
-  if (cause instanceof ApiError) return cause.detail;
-  if (cause instanceof Error) return cause.message;
-  return 'Something went wrong. Please try again.';
+  return errorMessage(cause);
 }
 
 async function refresh(): Promise<void> {
@@ -252,7 +262,7 @@ async function acceptToday(blockIds?: string[]): Promise<void> {
     );
     actions.settle(`today:accept:${current.date}`, action);
     if (!isOwnerBindingCurrent(binding)) return;
-    toast.show('Today’s plan accepted.');
+    toast.show(t('today.accepted'));
     await refresh();
   } catch (cause) {
     if (!isOwnerBindingCurrent(binding)) return;
@@ -265,7 +275,7 @@ async function acceptToday(blockIds?: string[]): Promise<void> {
 function openShrink(block: TodayBlock): void {
   if (readOnly.value) return;
   shrinkingBlock.value = block;
-  shrinkTarget.value = Math.max(1, Math.min(durationMinutes(block.startAt, block.endAt), 30));
+  shrinkTarget.value = Math.max(1, Math.min(minutesBetween(block.startAt, block.endAt), 30));
   proposalError.value = null;
 }
 
@@ -346,13 +356,13 @@ async function approveProposal(): Promise<void> {
     );
     actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
-    toast.show('Proposal approved. Your plan is updated.');
+    toast.show(t('today.proposalApproved'));
     proposal.value = null;
     await refresh();
   } catch (cause) {
     if (!isOwnerBindingCurrent(binding)) return;
     if (cause instanceof ApiError && cause.status === 412) {
-      proposalError.value = 'This proposal is stale. Review the latest plan and propose again.';
+      proposalError.value = t('today.proposalStale');
       proposal.value = null;
       await refresh();
     } else {
@@ -399,7 +409,7 @@ async function startFocus(block: TodayBlock): Promise<void> {
       resumeOffer.value = true;
       await resumableQuery.refetch();
       if (activeSession.value === null) {
-        error.value = 'An active focus session already exists. Finish or resume it before starting another.';
+        error.value = t('today.activeExists');
       }
     } else {
       error.value = messageFor(cause);
@@ -419,31 +429,33 @@ function resumeActive(): void {
   <section class="page page--wide today-page">
     <header class="page-header">
       <div class="page-heading">
-        <h1>Today</h1>
+        <h1>{{ t('today.title') }}</h1>
         <p v-if="today" class="page-lede today-date">
-          {{ formatDay(today.date) }}
-          <span class="chip chip--slack badge--accent">Slack {{ formatSlack(today.slackMin) }}</span>
+          {{ formatCivilDate(today.date) }}
+          <span class="chip chip--slack badge--accent">
+            {{ t('today.slackChip', { duration: formatDuration(today.slackMin) }) }}
+          </span>
         </p>
       </div>
       <div class="page-actions">
         <UiBadge v-if="readOnly" tone="offline" dot class="chip--offline" role="status">
-          Read-only while offline
+          {{ t('common.readOnlyOffline') }}
         </UiBadge>
       </div>
     </header>
 
     <UiBanner v-if="activeSession" tone="accent" inline icon="clock" class="resume-banner" role="status">
-      <span>You have a focus session waiting to resume.</span>
+      <span>{{ t('today.resumeWaiting') }}</span>
       <template #actions>
-        <UiButton variant="primary" size="sm" icon="play" @click="resumeActive">Resume session</UiButton>
+        <UiButton variant="primary" size="sm" icon="play" @click="resumeActive">{{ t('today.resumeSession') }}</UiButton>
       </template>
     </UiBanner>
 
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
     <UiBanner v-if="resumeOffer && activeSession" tone="info" inline class="resume-banner">
-      <span>A session is already running.</span>
+      <span>{{ t('today.alreadyRunning') }}</span>
       <template #actions>
-        <UiButton size="sm" @click="resumeActive">Resume the active session</UiButton>
+        <UiButton size="sm" @click="resumeActive">{{ t('today.resumeActive') }}</UiButton>
       </template>
     </UiBanner>
 
@@ -451,19 +463,18 @@ function resumeActive(): void {
       v-if="quarantinedCount > 0"
       as="section"
       tone="warn"
-      title="Focus events need attention"
+      :title="t('quarantine.title')"
       class="error-panel quarantine-notice"
       role="status"
     >
-      <p class="error-text">
-        {{ quarantinedCount }} saved focus event{{ quarantinedCount === 1 ? '' : 's' }} could not
-        be replayed and {{ quarantinedCount === 1 ? 'was' : 'were' }} set aside on this device.
-      </p>
+      <p class="error-text">{{ tp('quarantine.body', quarantinedCount) }}</p>
       <template #actions>
         <UiButton size="sm" icon="sync" :disabled="retryBusy" :busy="retryBusy" @click="retryQuarantine">
-          Retry upload
+          {{ t('quarantine.retry') }}
         </UiButton>
-        <UiButton size="sm" variant="ghost" :disabled="retryBusy" @click="dismissQuarantine">Dismiss</UiButton>
+        <UiButton size="sm" variant="ghost" :disabled="retryBusy" @click="dismissQuarantine">
+          {{ t('common.dismiss') }}
+        </UiButton>
       </template>
     </UiBanner>
 
@@ -472,50 +483,55 @@ function resumeActive(): void {
       <div class="today-list"><UiSkeleton variant="card" :count="2" :lines="3" /></div>
     </div>
     <UiBanner v-else-if="isError" tone="error" class="error-panel">
-      <p class="error-text" role="alert">Could not load today’s plan.</p>
+      <p class="error-text" role="alert">{{ t('today.loadError') }}</p>
       <template #actions>
-        <UiButton size="sm" icon="sync" @click="refresh()">Retry</UiButton>
+        <UiButton size="sm" icon="sync" @click="refresh()">{{ t('common.retry') }}</UiButton>
       </template>
     </UiBanner>
 
     <div v-else-if="today" class="today-layout">
       <aside class="today-summary" aria-labelledby="today-summary-title">
         <UiCard class="today-meta">
-          <h2 id="today-summary-title" class="eyebrow">Day at a glance</h2>
+          <h2 id="today-summary-title" class="eyebrow">{{ t('today.summaryTitle') }}</h2>
           <dl class="stat-grid">
             <div class="stat">
-              <dt>Slack</dt>
-              <dd class="stat-value">{{ formatSlack(today.slackMin) }}</dd>
+              <dt>{{ t('today.slack') }}</dt>
+              <dd class="stat-value">{{ formatDuration(today.slackMin) }}</dd>
             </div>
             <div class="stat">
-              <dt>Planned</dt>
-              <dd class="stat-value">{{ formatSlack(plannedMinutes) }}</dd>
+              <dt>{{ t('today.planned') }}</dt>
+              <dd class="stat-value">{{ formatDuration(plannedMinutes) }}</dd>
             </div>
             <div class="stat">
-              <dt>Blocks</dt>
+              <dt>{{ t('today.blocks') }}</dt>
               <dd class="stat-value">{{ blocks.length }}</dd>
             </div>
           </dl>
           <div class="today-risk">
-            <ul class="chip-row" aria-label="Risk and slack">
+            <ul class="chip-row" :aria-label="t('today.riskList')">
               <li class="chip badge" :class="[`chip--risk-${today.risk.level}`, `badge--${riskTone}`]">
-                <span class="badge-dot" aria-hidden="true"></span>Risk: {{ today.risk.level }}
+                <span class="badge-dot" aria-hidden="true"></span>{{ t('risk.label', { level: riskLevel }) }}
               </li>
-              <li v-for="reason in today.risk.reasons" :key="reason" class="chip badge--wrap">
-                {{ reason }}
+              <li
+                v-for="reason in riskReasons"
+                :key="reason.key"
+                class="chip badge--wrap"
+                :lang="reason.translated ? undefined : 'en'"
+              >
+                {{ reason.text }}
               </li>
             </ul>
           </div>
           <div class="card-footer">
             <UiButton block icon="check" :disabled="readOnly || busy" @click="acceptToday()">
-              Accept plan
+              {{ t('today.acceptPlan') }}
             </UiButton>
           </div>
         </UiCard>
       </aside>
 
       <div class="today-list">
-        <ul v-if="blocks.length > 0" class="today-blocks" aria-label="Today’s blocks">
+        <ul v-if="blocks.length > 0" class="today-blocks" :aria-label="t('today.blockList')">
           <UiCard
             v-for="(block, index) in blocks"
             :key="block.id"
@@ -527,21 +543,19 @@ function resumeActive(): void {
             <div class="today-card-main">
               <span class="today-index" aria-hidden="true">{{ index + 1 }}</span>
               <div class="today-card-text">
-                <p v-if="block.id === nextBlockId" class="today-next-label eyebrow">Next up</p>
+                <p v-if="block.id === nextBlockId" class="today-next-label eyebrow">{{ t('today.nextUp') }}</p>
                 <h2 class="today-title">{{ block.title }}</h2>
                 <p class="today-time">
                   <UiIcon name="clock" :size="16" />
-                  <span class="tabular">
-                    {{ formatClock(block.startAt, today.timeZone) }}–{{ formatClock(block.endAt, today.timeZone) }}
-                  </span>
-                  · {{ durationMinutes(block.startAt, block.endAt) }}m
+                  <span class="tabular">{{ formatTimeRange(block.startAt, block.endAt, today.timeZone) }}</span>
+                  · {{ formatDuration(minutesBetween(block.startAt, block.endAt)) }}
                 </p>
               </div>
             </div>
-            <ul class="chip-row" aria-label="Block risk">
-              <li class="chip chip--slack">Slack {{ formatSlack(today.slackMin) }}</li>
+            <ul class="chip-row" :aria-label="t('today.blockRisk')">
+              <li class="chip chip--slack">{{ t('today.slackChip', { duration: formatDuration(today.slackMin) }) }}</li>
               <li class="chip" :class="[`chip--risk-${today.risk.level}`, `badge--${riskTone}`]">
-                {{ today.risk.level }} risk
+                {{ t('risk.chip', { level: riskLevel }) }}
               </li>
             </ul>
             <div class="today-card-actions">
@@ -552,20 +566,20 @@ function resumeActive(): void {
                 :busy="startingBlockId === block.id"
                 @click="startFocus(block)"
               >
-                {{ startingBlockId === block.id ? 'Starting…' : 'Start focus' }}
+                {{ startingBlockId === block.id ? t('today.starting') : t('today.startFocus') }}
               </UiButton>
               <UiButton icon="shrink" :disabled="readOnly || busy" @click="openShrink(block)">
-                Shrink
+                {{ t('today.shrink') }}
               </UiButton>
               <UiButton icon="reschedule" :disabled="readOnly || busy" @click="reschedule(block)">
-                Reschedule
+                {{ t('today.reschedule') }}
               </UiButton>
             </div>
           </UiCard>
         </ul>
-        <UiEmptyState v-else icon="today" title="Nothing scheduled today · pick something from the Inbox.">
+        <UiEmptyState v-else icon="today" :title="t('today.empty')">
           <template #actions>
-            <RouterLink class="btn btn--secondary" to="/inbox">Open Inbox</RouterLink>
+            <RouterLink class="btn btn--secondary" to="/inbox">{{ t('today.openInbox') }}</RouterLink>
           </template>
         </UiEmptyState>
       </div>
@@ -591,16 +605,16 @@ function resumeActive(): void {
       @close="shrinkingBlock = null"
     >
       <header class="dialog-heading">
-        <h2 id="shrink-title" class="dialog-title">Shrink “{{ shrinkingBlock.title }}”</h2>
-        <p class="muted">You will see a preview before anything changes.</p>
+        <h2 id="shrink-title" class="dialog-title">{{ t('today.shrinkTitle', { title: shrinkingBlock.title }) }}</h2>
+        <p class="muted">{{ t('today.shrinkLede') }}</p>
       </header>
-      <UiField id="shrink-minutes" label="New length in minutes">
+      <UiField id="shrink-minutes" :label="t('today.shrinkMinutes')">
         <input id="shrink-minutes" v-model.number="shrinkTarget" type="number" min="1" max="100000" data-autofocus />
       </UiField>
       <div class="dialog-actions">
-        <UiButton variant="ghost" :disabled="busy" @click="shrinkingBlock = null">Cancel</UiButton>
+        <UiButton variant="ghost" :disabled="busy" @click="shrinkingBlock = null">{{ t('common.cancel') }}</UiButton>
         <UiButton variant="primary" :disabled="busy || shrinkTarget < 1" :busy="busy" @click="previewShrink">
-          Preview shrink
+          {{ t('today.shrinkPreview') }}
         </UiButton>
       </div>
     </UiDialog>

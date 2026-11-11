@@ -13,15 +13,15 @@ import { readState } from '../helpers/state';
 const state = readState();
 
 async function quickAdd(page: Page, title: string): Promise<void> {
-  await page.getByLabel('Quick add task').fill(title);
-  await page.getByRole('button', { name: 'Add task' }).click();
+  await page.getByLabel('작업 빠르게 추가').fill(title);
+  await page.getByRole('button', { name: '작업 추가' }).click();
   await expect(page.getByText(title, { exact: true })).toBeVisible();
 }
 
 async function editTask(page: Page, currentTitle: string, nextTitle: string): Promise<void> {
-  await page.getByRole('button', { name: `Edit title of ${currentTitle}` }).click();
-  await page.getByLabel('Task title').fill(nextTitle);
-  await page.getByRole('button', { name: 'Save' }).click();
+  await page.getByRole('button', { name: `${currentTitle} 제목 수정` }).click();
+  await page.getByLabel('작업 제목').fill(nextTitle);
+  await page.getByRole('button', { name: '저장' }).click();
   await expect(page.getByText(nextTitle, { exact: true })).toBeVisible();
 }
 
@@ -55,31 +55,31 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     await editTask(pageB, firstEdit, secondEdit);
     await expectVikunjaTitle(state, externalId, secondEdit);
 
-    await pageA.getByRole('button', { name: `Edit title of ${firstEdit}` }).click();
-    await pageA.getByLabel('Task title').fill(conflictEdit);
+    await pageA.getByRole('button', { name: `${firstEdit} 제목 수정` }).click();
+    await pageA.getByLabel('작업 제목').fill(conflictEdit);
     const conflictResponsePromise = pageA.waitForResponse(
       (response) =>
         response.request().method() === 'PATCH' &&
         response.url().includes(`/api/v1/tasks/${created.id}`),
     );
-    await pageA.getByRole('button', { name: 'Save' }).click();
+    await pageA.getByRole('button', { name: '저장' }).click();
     const conflictResponse = await conflictResponsePromise;
     expect(conflictResponse.status()).toBe(412);
     expect(conflictResponse.headers()['content-type']).toContain('application/problem+json');
 
     const dialog = pageA.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText('This task changed elsewhere');
+    await expect(dialog).toContainText('다른 곳에서 이 작업이 바뀌었어요');
     await expect(dialog).toContainText(secondEdit);
 
-    await dialog.getByRole('button', { name: 'Overwrite with my edit' }).click();
+    await dialog.getByRole('button', { name: '내 수정으로 덮어쓰기' }).click();
     await expect(dialog).toBeHidden();
     await expect(pageA.getByText(conflictEdit, { exact: true })).toBeVisible();
     await expectVikunjaTitle(state, externalId, conflictEdit);
 
-    await pageA.getByRole('button', { name: `Mark ${conflictEdit} complete` }).click();
+    await pageA.getByRole('button', { name: `${conflictEdit} 완료로 표시` }).click();
     await expect(
-      pageA.locator('.task-item', { hasText: conflictEdit }).getByText('Done'),
+      pageA.locator('.task-item', { hasText: conflictEdit }).getByText('완료', { exact: true }),
     ).toBeVisible();
     await expectVikunjaDone(state, externalId);
 
@@ -94,15 +94,15 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
 
     await page.goto(`${state.webUrl}/login`);
     await page.keyboard.press('Tab');
-    await expect(page.getByLabel('Email')).toBeFocused();
+    await expect(page.getByLabel('이메일')).toBeFocused();
     await page.keyboard.type(state.email);
 
     await page.keyboard.press('Tab');
-    await expect(page.getByLabel('Password')).toBeFocused();
+    await expect(page.getByLabel('비밀번호')).toBeFocused();
     await page.keyboard.type(state.password);
 
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '인박스' })).toBeVisible();
 
     let focusedId = '';
     for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -145,20 +145,20 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     });
 
     await context.setOffline(true);
-    await expect(page.getByText(/You are offline\. Viewing cached data/)).toBeVisible();
-    await expect(page.getByLabel('Quick add task')).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Add task' })).toBeDisabled();
+    await expect(page.getByText(/오프라인이에요\. 저장해 둔 데이터를 보여 드리고 있어요/)).toBeVisible();
+    await expect(page.getByLabel('작업 빠르게 추가')).toBeDisabled();
+    await expect(page.getByRole('button', { name: '작업 추가' })).toBeDisabled();
     await expect(
-      page.getByRole('button', { name: `Edit title of ${title}` }),
+      page.getByRole('button', { name: `${title} 제목 수정` }),
     ).toBeDisabled();
     await expect(
-      page.getByRole('button', { name: `Mark ${title} complete` }),
+      page.getByRole('button', { name: `${title} 완료로 표시` }),
     ).toBeDisabled();
     await page.waitForTimeout(300);
     expect(mutationRequests).toBe(0);
 
     await context.setOffline(false);
-    await expect(page.getByText(/You are offline\. Viewing cached data/)).toBeHidden();
+    await expect(page.getByText(/오프라인이에요\. 저장해 둔 데이터를 보여 드리고 있어요/)).toBeHidden();
 
     await context.close();
   });
@@ -168,7 +168,7 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     const page = await context.newPage();
 
     await page.goto(`${state.webUrl}/login`);
-    await expect(page.getByRole('heading', { name: 'Sign in to OhMyDate' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'OhMyDate에 로그인' })).toBeVisible();
     const loginResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
       .analyze();

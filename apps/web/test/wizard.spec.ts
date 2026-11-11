@@ -123,6 +123,7 @@ describe('planning wizard scenario A (new type)', () => {
     });
 
     const questionText = wrapper.text();
+    expect(questionText).not.toContain('언제까지 끝내야 하나요?');
     expect(questionText).not.toContain('When is it due?');
     expect(wrapper.findAll('.question-card').length).toBeGreaterThan(0);
     expect(wrapper.findAll('.question-card').length).toBeLessThanOrEqual(5);
@@ -177,8 +178,10 @@ describe('planning wizard scenario B (similar type)', () => {
 
     await waitFor(() => {
       expect(wrapper.text()).toContain('2단계 · 유형 확인');
+      // The template name comes from its own query after the step renders
+      // (same no-timing rule as FU-60): wait for it instead of racing it.
+      expect(wrapper.text()).toContain('보고서 작성');
     });
-    expect(wrapper.text()).toContain('보고서 작성');
     expect(wrapper.text()).toContain('82%');
     expect(wrapper.text()).toContain('태그: 보고서');
     expect(wrapper.text()).toContain('과거 작업 3건');
@@ -249,7 +252,7 @@ describe('manual mode and draft validation', () => {
     const spy = vi.spyOn(plannerClient, 'updateIntakeDraft');
     await wrapper.get('#step-p50-s1').setValue('300');
     await settle();
-    expect(wrapper.text()).toContain('P50은 240분 이하여야 합니다');
+    expect(wrapper.text()).toContain('P50은 240분 이하여야 해요');
 
     await button(wrapper, '초안 저장').trigger('click');
     await settle();
@@ -277,7 +280,7 @@ describe('manual mode and draft validation', () => {
     if (checkbox === undefined) throw new Error('missing dependency checkbox');
     await checkbox.setValue(true);
     await settle();
-    expect(wrapper.text()).toContain('의존 관계에 순환이 있습니다');
+    expect(wrapper.text()).toContain('선행 관계에 순환이 있어요');
     wrapper.unmount();
   });
 
@@ -301,7 +304,7 @@ describe('manual mode and draft validation', () => {
     await wrapper.get('#step-title-s1').setValue('내가 고친 제목');
     await button(wrapper, '초안 저장').trigger('click');
     await waitFor(() => {
-      expect(wrapper.text()).toContain('다른 곳에서 초안이 먼저 변경되었습니다');
+      expect(wrapper.text()).toContain('다른 곳에서 초안이 먼저 바뀌었어요');
     });
     expect(wrapper.get('#step-title-s1').element).toHaveProperty('value', '내가 고친 제목');
 
@@ -340,7 +343,7 @@ describe('resume and server-reported LLM errors', () => {
 
     const { wrapper } = await mountWizard(session.id);
     await waitFor(() => {
-      expect(wrapper.text()).toContain('AI를 사용할 수 없습니다');
+      expect(wrapper.text()).toContain('AI를 쓸 수 없어요');
     });
     expect(wrapper.text()).toContain('budget_exceeded');
     await button(wrapper, '직접 작성으로 전환').trigger('click');
@@ -379,7 +382,7 @@ describe('LLM failure and recovery', () => {
     if (idk === undefined) throw new Error('missing idk button');
     await idk.trigger('click');
     await waitFor(() => {
-      expect(wrapper.text()).toContain('AI를 사용할 수 없습니다');
+      expect(wrapper.text()).toContain('AI를 쓸 수 없어요');
     });
     expect(wrapper.text()).toContain('llm_unavailable');
 
@@ -401,16 +404,16 @@ describe('pause, resume, cancel and illegal transitions', () => {
 
     await button(wrapper, '일시정지').trigger('click');
     await waitFor(() => {
-      expect(wrapper.text()).toContain('일시정지되었습니다');
+      expect(wrapper.text()).toContain('일시정지했어요');
     });
     await button(wrapper, '재개').trigger('click');
     await waitFor(() => {
-      expect(wrapper.text()).not.toContain('일시정지되었습니다');
+      expect(wrapper.text()).not.toContain('일시정지했어요');
     });
 
     await button(wrapper, '취소').trigger('click');
     await waitFor(() => {
-      expect(wrapper.text()).toContain('계획 세션이 종료되었습니다');
+      expect(wrapper.text()).toContain('계획 세션이 끝났어요');
     });
     wrapper.unmount();
   });
@@ -444,7 +447,7 @@ describe('pause, resume, cancel and illegal transitions', () => {
 
     await button(wrapper, '초안 승인').trigger('click');
     await waitFor(() => {
-      expect(wrapper.text()).toContain('cannot approve in this state');
+      expect(wrapper.text()).toContain('지금 상태에서는 할 수 없는 작업이에요. 화면을 새로 고쳤어요.');
     });
     expect(wrapper.text()).toContain('4단계 · 단계 초안');
     wrapper.unmount();
@@ -465,7 +468,7 @@ describe('offline and accessibility', () => {
     offline.setOnline(false);
     await settle();
 
-    expect(wrapper.text()).toContain('오프라인: 읽기 전용입니다');
+    expect(wrapper.text()).toContain('오프라인이라 읽기만 할 수 있어요');
     const idk = wrapper.findAll('button').find((item) => item.text().includes('모름'));
     if (idk === undefined) throw new Error('missing idk button');
     expect(idk.attributes('disabled')).toBeDefined();
@@ -592,7 +595,7 @@ describe('offline transitions during delayed approval', () => {
 
     await button(wrapper, '초안 승인').trigger('click');
     await waitFor(() => {
-      expect(wrapper.text()).toContain('연결이 끊겨 승인을 보류했습니다');
+      expect(wrapper.text()).toContain('연결이 끊겨서 승인을 미뤘어요');
     });
     expect(spy).toHaveBeenCalledTimes(1);
 

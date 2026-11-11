@@ -1,25 +1,17 @@
 import { computed, onUnmounted, ref } from 'vue';
 import {
-  ApiError,
   plannerClient,
   uuidV7Key,
   type Notification,
   type PlannerClient,
 } from '../api';
+import { t } from '../i18n';
+import { errorMessage } from '../i18n/problem';
 import { useOfflineStore } from '../stores/offline';
 import { useToastStore } from '../stores/toast';
 
-const LABELS: Record<Notification['kind'], string> = {
-  due_soon: 'A task is due soon',
-  deadline_risk: 'Deadline risk detected',
-  schedule_conflict: 'Schedule conflict detected',
-  session_reminder: 'Focus session reminder',
-  daily_summary: 'Daily summary is ready',
-  replan_proposal: 'A replan proposal is ready',
-};
-
-export function notificationLabel(item: Notification): string {
-  return LABELS[item.kind];
+export function notificationLabel(item: Pick<Notification, 'kind'>): string {
+  return t(`notifications.kind.${item.kind}`);
 }
 
 export interface NotificationsOptions {
@@ -75,7 +67,7 @@ export function useNotifications(options: NotificationsOptions = {}) {
       }
       delay = baseDelay;
     } catch (cause) {
-      error.value = cause instanceof ApiError ? cause.detail : 'Could not load notifications.';
+      error.value = errorMessage(cause, t('notifications.loadFailed'));
       delay = Math.min(delay * 2, maxDelay);
     } finally {
       loading.value = false;
@@ -93,7 +85,7 @@ export function useNotifications(options: NotificationsOptions = {}) {
 
   async function dismiss(item: Notification): Promise<boolean> {
     if (!offline.online) {
-      error.value = 'Dismissing a notification requires a connection.';
+      error.value = t('notifications.dismissOffline');
       return false;
     }
     try {
@@ -101,7 +93,7 @@ export function useNotifications(options: NotificationsOptions = {}) {
       items.value = items.value.map((current) => (current.id === updated.id ? updated : current));
       return true;
     } catch (cause) {
-      error.value = cause instanceof ApiError ? cause.detail : 'Could not dismiss the notification.';
+      error.value = errorMessage(cause, t('notifications.dismissFailed'));
       return false;
     }
   }

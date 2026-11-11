@@ -16,6 +16,7 @@ import ToastHost from './ToastHost.vue';
 import BrandMark from './BrandMark.vue';
 import UiSpinner from './ui/UiSpinner.vue';
 import { calmMode } from '../composables/useCalmMode';
+import { t } from '../i18n';
 
 const ui = useUiStore();
 const offline = useOfflineStore();
@@ -147,10 +148,10 @@ onUnmounted(() => {
 <template>
   <div v-if="!auth.confirmed" class="app-shell app-shell--loading" role="status" aria-live="polite">
     <BrandMark :size="40" />
-    <p class="app-loading-text"><UiSpinner /> <span>Loading OhMyDate…</span></p>
+    <p class="app-loading-text"><UiSpinner /> <span>{{ t('app.loading') }}</span></p>
   </div>
   <template v-else>
-    <a class="skip-link" href="#main-content">Skip to content</a>
+    <a class="skip-link" href="#main-content">{{ t('app.skipToContent') }}</a>
     <div class="app-shell" :class="{ 'app-shell--calm': calmMode }">
       <NavRail />
       <div class="app-main">

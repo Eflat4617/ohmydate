@@ -21,17 +21,17 @@ describe('Notifications panel', () => {
       attachTo: document.body,
     });
 
-    await vi.waitFor(() => expect(wrapper.text()).toContain('A task is due soon'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('곧 마감되는 작업이 있어요'));
     await vi.waitFor(() => {
-      expect(toast.toasts.some((item) => item.message === 'A task is due soon')).toBe(true);
+      expect(toast.toasts.some((item) => item.message === '곧 마감되는 작업이 있어요')).toBe(true);
     });
 
     const dismiss = vi.spyOn(plannerClient, 'dismissNotification');
     const item = wrapper
       .findAll('.notification-item')
-      .find((entry) => entry.text().includes('A task is due soon'));
+      .find((entry) => entry.text().includes('곧 마감되는 작업이 있어요'));
     if (item === undefined) throw new Error('missing due notification row');
-    const button = item.findAll('button').find((entry) => entry.text().includes('Dismiss'));
+    const button = item.findAll('button').find((entry) => entry.text().includes('지우기'));
     if (button === undefined) throw new Error('missing dismiss button');
     await button.trigger('click');
 
@@ -39,7 +39,7 @@ describe('Notifications panel', () => {
       expect(mockDb.notifications.get(SEED_NOTIFICATION_ID)?.state).toBe('dismissed');
     });
     expect(dismiss).toHaveBeenCalledWith(SEED_NOTIFICATION_ID, expect.any(String), 1);
-    expect(wrapper.text()).not.toContain('A task is due soon');
+    expect(wrapper.text()).not.toContain('곧 마감되는 작업이 있어요');
     wrapper.unmount();
     toast.clear();
   });
@@ -53,13 +53,13 @@ describe('Notifications panel', () => {
       attachTo: document.body,
     });
 
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Push notifications'));
-    const enable = wrapper.findAll('button').find((item) => item.text().includes('Enable push'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('푸시 알림'));
+    const enable = wrapper.findAll('button').find((item) => item.text().includes('푸시 알림 켜기'));
     if (enable === undefined) throw new Error('missing push button');
     expect(enable.attributes('disabled')).toBeDefined();
     await enable.trigger('click');
     expect(submit).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain('Push is not supported in this browser.');
+    expect(wrapper.text()).toContain('이 브라우저는 푸시를 지원하지 않아요.');
     wrapper.unmount();
   });
 
@@ -90,8 +90,8 @@ describe('Notifications panel', () => {
       global: { plugins: [pinia] },
       attachTo: document.body,
     });
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Push notifications'));
-    const enable = wrapper.findAll('button').find((item) => item.text().includes('Enable push'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('푸시 알림'));
+    const enable = wrapper.findAll('button').find((item) => item.text().includes('푸시 알림 켜기'));
     if (enable === undefined) throw new Error('missing push button');
     expect(enable.attributes('disabled')).toBeDefined();
     await enable.trigger('click');
@@ -142,8 +142,8 @@ describe('Notifications panel', () => {
       global: { plugins: [pinia] },
       attachTo: document.body,
     });
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Push notifications'));
-    const enable = wrapper.findAll('button').find((item) => item.text().includes('Enable push'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('푸시 알림'));
+    const enable = wrapper.findAll('button').find((item) => item.text().includes('푸시 알림 켜기'));
     if (enable === undefined) throw new Error('missing push button');
     expect(enable.attributes('disabled')).toBeUndefined();
     await enable.trigger('click');
@@ -153,7 +153,7 @@ describe('Notifications panel', () => {
     const grantPermission = pendingPermission.resolve;
     if (grantPermission === null) throw new Error('permission request was not made');
     grantPermission('granted');
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Connect to enable push notifications.'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('푸시 알림을 켜려면 인터넷에 연결해 주세요.'));
     expect(subscribe).not.toHaveBeenCalled();
     expect(createSubscription).not.toHaveBeenCalled();
 
@@ -173,7 +173,7 @@ describe('Notifications panel', () => {
       global: { plugins: [pinia] },
       attachTo: document.body,
     });
-    await vi.waitFor(() => expect(wrapper.text()).toContain('A task is due soon'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('곧 마감되는 작업이 있어요'));
 
     const dialog = wrapper.get('[role="dialog"]');
     expect(dialog.attributes('aria-modal')).toBe('true');

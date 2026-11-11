@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { Today, TodayProposal } from '../api';
-import { durationMinutes, formatClock, formatDay } from '../format';
+import { t } from '../i18n';
+import { formatCivilDate, formatDuration, formatTimeRange, minutesBetween } from '../i18n/format';
 import UiBadge from './ui/UiBadge.vue';
 import UiBanner from './ui/UiBanner.vue';
 import UiButton from './ui/UiButton.vue';
@@ -43,28 +44,31 @@ const availabilityVersion = computed<number | undefined>(() => {
         <UiIcon :name="proposal.kind === 'shrink' ? 'shrink' : 'reschedule'" :size="22" />
       </span>
       <div class="dialog-heading">
-        <h2 id="proposal-title" class="dialog-title">Proposal preview</h2>
+        <h2 id="proposal-title" class="dialog-title">{{ t('proposal.title') }}</h2>
         <p id="proposal-summary" class="muted">
-          {{ proposal.kind === 'shrink' ? 'Shrink' : 'Reschedule' }} proposal for
-          {{ formatDay(proposal.date) }}. Nothing changes until you approve it.
+          {{
+            t(proposal.kind === 'shrink' ? 'proposal.summaryShrink' : 'proposal.summaryReschedule', {
+              date: formatCivilDate(proposal.date),
+            })
+          }}
         </p>
       </div>
     </header>
-    <ul class="proposal-blocks" aria-label="Proposed block times">
+    <ul class="proposal-blocks" :aria-label="t('proposal.blocks')">
       <li v-for="block in proposal.blocks" :key="block.blockId">
-        <span class="proposal-title">{{ titleFor[block.taskId] ?? 'Scheduled block' }}</span>
+        <span class="proposal-title">{{ titleFor[block.taskId] ?? t('proposal.fallbackBlock') }}</span>
         <span class="proposal-time tabular">
-          {{ formatClock(block.startAt, proposal.timeZone) }}–{{ formatClock(block.endAt, proposal.timeZone) }}
-          <UiBadge>{{ durationMinutes(block.startAt, block.endAt) }}m</UiBadge>
+          {{ formatTimeRange(block.startAt, block.endAt, proposal.timeZone) }}
+          <UiBadge>{{ formatDuration(minutesBetween(block.startAt, block.endAt)) }}</UiBadge>
         </span>
       </li>
     </ul>
     <p v-if="availabilityVersion !== undefined" class="subtle proposal-meta">
-      Availability version {{ availabilityVersion }}
+      {{ t('proposal.availabilityVersion', { version: availabilityVersion }) }}
     </p>
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
     <div class="dialog-actions">
-      <UiButton :disabled="busy" variant="ghost" @click="emit('cancel')">Cancel</UiButton>
+      <UiButton :disabled="busy" variant="ghost" @click="emit('cancel')">{{ t('common.cancel') }}</UiButton>
       <UiButton
         variant="primary"
         :disabled="busy || disabled"
@@ -72,7 +76,7 @@ const availabilityVersion = computed<number | undefined>(() => {
         data-autofocus
         @click="emit('approve')"
       >
-        {{ busy ? 'Approving…' : 'Approve proposal' }}
+        {{ busy ? t('proposal.approving') : t('proposal.approve') }}
       </UiButton>
     </div>
   </UiDialog>

@@ -154,8 +154,8 @@ describe('owner-bound Focus and Today client operations', () => {
       attachTo: document.body,
     });
     await vi.waitFor(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
-    await vi.waitFor(() => expect(button(wrapper, 'Pause').attributes('disabled')).toBeUndefined());
-    await button(wrapper, 'Pause').trigger('click');
+    await vi.waitFor(() => expect(button(wrapper, '일시정지').attributes('disabled')).toBeUndefined());
+    await button(wrapper, '일시정지').trigger('click');
     await vi.waitFor(() => expect(plannerClient.pauseSession).toHaveBeenCalledTimes(1));
     wrapper.unmount();
 
@@ -272,7 +272,7 @@ describe('owner-bound Focus and Today client operations', () => {
     await vi.waitFor(() => expect(wrapper.findAll('.today-card').length).toBeGreaterThan(0));
     const card = wrapper.findAll('.today-card')[0];
     if (card === undefined) throw new Error('missing today card');
-    await button(card as unknown as VueWrapper, 'Start focus').trigger('click');
+    await button(card as unknown as VueWrapper, '집중 시작').trigger('click');
     await vi.waitFor(() => expect(plannerClient.createSession).toHaveBeenCalledTimes(1));
 
     await signIn(pinia, ownerB, login, getMe);
@@ -393,7 +393,7 @@ describe('owner-bound Focus and Today client operations', () => {
       attachTo: document.body,
     });
     await vi.waitFor(() =>
-      expect(wrapper.text()).toContain('Use AI planning assistance?'),
+      expect(wrapper.text()).toContain('AI 계획 도움을 쓸까요?'),
     );
     wrapper.unmount();
   });
@@ -454,8 +454,8 @@ describe('owner-bound Focus and Today client operations', () => {
       global: { plugins: [pinia, router] },
       attachTo: document.body,
     });
-    await vi.waitFor(() => expect(wrapper.text()).toContain('set aside'));
-    await button(wrapper, 'Retry upload').trigger('click');
+    await vi.waitFor(() => expect(wrapper.text()).toContain('따로 보관했어요'));
+    await button(wrapper, '다시 업로드').trigger('click');
     await vi.waitFor(() => expect(listQuarantine(ownerA.id)).toHaveLength(0));
     await vi.waitFor(async () =>
       expect(await sessionJournal.list(undefined, ownerA.id)).toHaveLength(0),
@@ -489,9 +489,9 @@ describe('owner-bound Focus and Today client operations', () => {
       attachTo: document.body,
     });
     await vi.waitFor(() => expect(wrapper.findAll('.today-card').length).toBeGreaterThan(0));
-    expect(wrapper.text()).toContain('set aside');
-    await button(wrapper, 'Dismiss').trigger('click');
-    await vi.waitFor(() => expect(wrapper.text()).not.toContain('set aside'));
+    expect(wrapper.text()).toContain('따로 보관했어요');
+    await button(wrapper, '닫기').trigger('click');
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('따로 보관했어요'));
     wrapper.unmount();
   });
 
@@ -537,8 +537,8 @@ describe('owner-bound Focus and Today client operations', () => {
     expect(result.remaining).toBe(1);
     expect(await sessionJournal.list(undefined, ownerA.id)).toHaveLength(1);
     expect(listQuarantine(ownerA.id)).toHaveLength(1);
-    expect(sessions.syncMessage).toMatch(/1 saved focus event.*set aside/i);
-    expect(sessions.syncMessage).toMatch(/still waiting|waiting to upload/i);
+    expect(sessions.syncMessage).toMatch(/집중 기록 1개를 이 기기에 따로 보관했어요/);
+    expect(sessions.syncMessage).toMatch(/집중 기록 1개가 아직 업로드를 기다리고 있어요/);
   });
 
   it('keeps the quarantined count when a later replay conflicts', async () => {
@@ -581,7 +581,7 @@ describe('owner-bound Focus and Today client operations', () => {
 
     expect(result.quarantined).toBe(1);
     expect(result.remaining).toBe(1);
-    expect(result.conflict).toMatch(/1 saved focus event.*set aside/i);
+    expect(result.conflict).toMatch(/집중 기록 1개를 이 기기에 따로 보관했어요/);
     expect(listQuarantine(ownerA.id)).toHaveLength(1);
   });
 
@@ -623,7 +623,7 @@ describe('owner-bound Focus and Today client operations', () => {
     expect(result.quarantined).toBe(0);
     expect(listQuarantine(ownerA.id)).toHaveLength(0);
     expect(await sessionJournal.list(undefined, ownerA.id)).toHaveLength(1);
-    expect(sessions.syncMessage).toMatch(/set aside/i);
+    expect(sessions.syncMessage).toMatch(/따로 보관할 공간을 만들지 못해서 집중 기록 1개를 대기열에 그대로 남겨 뒀어요/);
   });
 
   it('re-queues quarantined records when retried', async () => {
@@ -683,7 +683,7 @@ describe('owner-bound Focus and Today client operations', () => {
     expect(result.remaining).toBe(1);
     expect(listQuarantine(ownerA.id)).toHaveLength(0);
     expect(await sessionJournal.list(undefined, ownerA.id)).toHaveLength(1);
-    expect(sessions.syncMessage).toMatch(/owner changed/i);
+    expect(sessions.syncMessage).toMatch(/로그인한 사용자가 바뀌어서 집중 기록 1개가/);
   });
 
   it('merges a stale same-owner write into the in-memory sessions', async () => {
@@ -747,7 +747,7 @@ describe('owner-bound Focus and Today client operations', () => {
     expect(quarantined[0]?.record.kind).toBe('pause');
     expect(listQuarantine(ownerB.id)).toHaveLength(0);
     expect(sessions.syncState).toBe('conflict');
-    expect(sessions.syncMessage).toMatch(/set aside/);
+    expect(sessions.syncMessage).toMatch(/따로 보관했어요/);
 
     await sessionJournal.append(
       {

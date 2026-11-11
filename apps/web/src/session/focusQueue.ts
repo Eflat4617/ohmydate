@@ -17,6 +17,8 @@ import {
   removeQuarantinedEntries,
 } from './quarantine';
 import { withOwnerLock } from './ownerLock';
+import { t, tp } from '../i18n';
+import { apiErrorMessage } from '../i18n/problem';
 
 export interface FocusStoreLike {
   get(sessionId: string): WorkSession | null;
@@ -115,7 +117,7 @@ export async function enqueueFocusEvent(
   options.store.setPendingCount(remaining, binding);
   options.store.setSyncState(
     'offline',
-    `${remaining} focus event${remaining === 1 ? '' : 's'} saved on this device. Uploading automatically when you reconnect.`,
+    tp('sync.pendingOffline', remaining),
     binding,
   );
   return optimistic;
@@ -161,7 +163,7 @@ async function remainingFor(journal: SessionJournal, binding: OwnerBinding): Pro
 }
 
 function setAsideNote(count: number): string {
-  return `${count} saved focus event${count === 1 ? '' : 's'} ${count === 1 ? 'was' : 'were'} set aside on this device.`;
+  return tp('sync.setAside', count);
 }
 
 function withQuarantine(message: string, quarantined: number): string {
@@ -209,7 +211,7 @@ export async function retryQuarantinedFocusEvents(options: QueueOptions): Promis
     options.store.setPendingCount(remaining, binding);
     options.store.setSyncState(
       'offline',
-      `${remaining} focus event${remaining === 1 ? '' : 's'} re-queued from quarantine. Uploading automatically when you reconnect.`,
+      tp('sync.requeued', remaining),
       binding,
     );
     return requeued.size;
@@ -233,14 +235,14 @@ async function runFlush(
     options.store.setPendingCount(records.length, binding);
     options.store.setSyncState(
       'offline',
-      `${records.length} focus event${records.length === 1 ? '' : 's'} saved on this device. Uploading automatically when you reconnect.`,
+      tp('sync.pendingOffline', records.length),
       binding,
     );
     return { uploaded: 0, remaining: records.length, conflict: null, quarantined: 0 };
   }
 
   const client = options.client ?? plannerClient;
-  options.store.setSyncState('syncing', 'Uploading saved focus events…', binding);
+  options.store.setSyncState('syncing', t('sync.uploading'), binding);
   let uploaded = 0;
   let quarantined = 0;
   const stopForStaleOwner = async (): Promise<FlushResult> => ({
@@ -271,7 +273,7 @@ async function runFlush(
           const remaining = await remainingFor(options.journal, binding);
           options.store.setPendingCount(remaining, binding);
           const message = withQuarantine(
-            `${remaining} focus event${remaining === 1 ? '' : 's'} still waiting to upload because the signed-in owner changed.`,
+            tp('sync.ownerChanged', remaining),
             quarantined,
           );
           options.store.setSyncState('conflict', message, binding);
@@ -281,7 +283,7 @@ async function runFlush(
           const remaining = await remainingFor(options.journal, binding);
           options.store.setPendingCount(remaining, binding);
           const message = withQuarantine(
-            `${remaining} focus event${remaining === 1 ? '' : 's'} could not be set aside because this device could not store the quarantine. It remains in the queue.`,
+            tp('sync.quarantineStoreFailed', remaining),
             quarantined,
           );
           options.store.setSyncState('conflict', message, binding);
@@ -296,14 +298,14 @@ async function runFlush(
       options.store.setPendingCount(remaining, binding);
       if (cause instanceof ApiError && (cause.status === 409 || cause.status === 412 || cause.status === 422)) {
         const message = withQuarantine(
-          `${cause.detail} Saved focus events were kept on this device.`,
+          t('sync.keptOnDevice', { reason: apiErrorMessage(cause) }),
           quarantined,
         );
         options.store.setSyncState('conflict', message, binding);
         return { uploaded, remaining, conflict: message, quarantined };
       }
       const message = withQuarantine(
-        `${remaining} focus event${remaining === 1 ? '' : 's'} still waiting to upload.`,
+        tp('sync.stillWaiting', remaining),
         quarantined,
       );
       options.store.setSyncState('offline', message, binding);
@@ -316,7 +318,7 @@ async function runFlush(
     options.store.setSyncState('conflict', message, binding);
     return { uploaded, remaining: 0, conflict: null, quarantined };
   }
-  options.store.setSyncState('synced', 'Saved focus events uploaded.', binding);
+  options.store.setSyncState('synced', t('sync.uploaded'), binding);
   return { uploaded, remaining: 0, conflict: null, quarantined: 0 };
 }
 

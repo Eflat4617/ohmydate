@@ -147,19 +147,57 @@ calendar, candidate cards) scrolls inside its own labelled region.
 4. Never use colour alone to carry meaning. Pair it with an icon, text or a
    pattern.
 5. Keep touch targets at `--control-height` or larger on coarse pointers.
-6. Keep the UI copy as the product wrote it (Korean wizard copy, etc.).
-   Polishing changes the presentation, not the strings.
+6. Never hard-code copy. Every user-visible string, accessible name and
+   live-region message comes from the catalog (`t()` / `tp()`, see below);
+   dates, times, durations and money go through `src/i18n/format.ts`.
+
+## Language (UI-I18N)
+
+The UI is Korean (`<html lang="ko">`). All copy lives in one bundled catalog,
+`src/i18n/messages/ko.ts`; nothing is fetched at runtime.
+
+- **Keys are typed.** `t('today.slackChip', { duration })` only compiles when
+  the key exists and every `{placeholder}` gets a value; `tp(key, count)`
+  picks a plural form through `Intl.PluralRules` (Korean always resolves to
+  `other`, the API is ready for `one`/`few`/…). Another locale is a
+  `Messages` object (the same key tree) registered in `src/i18n/index.ts`,
+  so a locale that misses a key fails the typecheck.
+- **Markup inside a message** uses `<I18nT keypath>` with named slots
+  (e.g. a `<strong>` version number), never `v-html`.
+- **Glossary.** 오늘 · 인박스 · 작업 · 프로젝트 · 알림 · 약속 (commitment) · 가용 시간 ·
+  집중 / 집중 세션 · 몰입 모드 (calm mode) · 계획 세우기 / 계획 마법사 · 일정안 / 후보 ·
+  블록 · 여유 (slack) · 위험도 · 축소 / 재배치 · 제안 · 확정 (plan) / 승인 (draft,
+  proposal) · 회고 (session review) · 직접 작성 모드 (manual mode). Messages use
+  polite 해요체; buttons and labels stay short.
+- **Formatting** (`src/i18n/format.ts`, `Intl` in the user's or plan's IANA
+  zone): `11월 14일 (토)`, `오후 7:00`, `오후 7:00~8:30`, `오전 10:30~오후 1:30`,
+  `11월 16일 (월) ~ 11월 22일 (일)`; durations `1시간 30분`, `11일 10시간`,
+  `+11일 10시간`, `−35분`, `1분 미만`, `0분`; money `$0.20` / `$0.0035`.
+  No screen shows raw minutes.
+- **Server text.** Problem responses are shown by `code` (every code of the
+  exhaustive map has a Korean message); the English `detail` never reaches
+  the screen. Known server codes inside free-form fields (Today risk reasons,
+  type-detection reasons, conservative intake assumptions, plan block errors,
+  diversity notes) are translated in `src/i18n/server.ts`. Scheduler
+  diagnostics without a code stay available as original text, marked
+  `lang="en"` (plan cards: *계산 근거 (원문)*).
+- **Guards.** `test/i18n-catalog.spec.ts` checks the catalog (non-empty,
+  Hangul, placeholders, every contract enum and problem code) and scans every
+  `.vue` template and UI script for English copy; `test/i18n-format.spec.ts`
+  covers the formatters (0, negative, more than a day, DST days).
 
 ## Evidence
 
-`before/` was captured at the base commit and `after/` on this branch. Both
-use only synthetic MSW data (`VITE_MOCK=1`, `src/mocks`) with the clock pinned
+`before/` was captured at the base commit and `after/` on the UI-POLISH
+branch (English UI). `after-ko/` is the Korean UI (UI-I18N), captured the same
+way with the browser locale set to `ko-KR`. All of them use only synthetic MSW
+data (`VITE_MOCK=1`, `src/mocks`) with the clock pinned
 to 2026-11-14 Asia/Seoul. There are no real accounts or personal data.
 
 ```sh
 # from apps/web; starts vite in mock mode on :5199
-node scripts/ui-screenshots.mjs --label after
-node scripts/ui-screenshots.mjs --label after --only 14-today
+node scripts/ui-screenshots.mjs --label after-ko
+node scripts/ui-screenshots.mjs --label after-ko --only 14-today
 ```
 
 The script visits every screen at 390×844, 1440×900 and 360×780 (the last is
@@ -173,6 +211,7 @@ on any overflow. Results are in `<label>/sweep-report.json`:
 |---|---|---|---|
 | before | 120 | 14 | plan comparison: page overflow at 390/360 and `target-size` (serious); review: overflow at 390/360; availability: `aria-required-children` (critical) in all viewports |
 | after | 130 | 0 | none. The 10 extra visits are the Focus calm-mode screen |
+| after-ko | 130 | 0 | none (Korean copy, same screens; the 360px checks pass with the longer Korean labels) |
 
 The real API is covered too. `e2e/tests/e2e-a11y-screens.spec.ts` runs the
 same axe tags against PostgreSQL + Vikunja on the screens E2E-1..4 do not

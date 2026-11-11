@@ -323,6 +323,9 @@ export class PgTodayStore implements TodayStore {
             )
             .where('status', '<>', 'superseded')
             .where('start_at', '>=', now)
+            // M5-02R-1 H1: locked blocks are carried over unchanged (same row,
+            // locked=true); Today candidates never contain them.
+            .where('locked', '=', false)
             .execute();
         }
 

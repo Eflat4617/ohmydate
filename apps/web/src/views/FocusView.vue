@@ -17,9 +17,12 @@ import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
 import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiSpinner from '../components/ui/UiSpinner.vue';
+import I18nT from '../i18n/I18nT';
 import { focusContextFor } from '../composables/focusContext';
 import { calmMode, setCalmMode } from '../composables/useCalmMode';
-import { durationMinutes, formatClock, formatDuration } from '../format';
+import { t, tp } from '../i18n';
+import { formatDuration, formatTimeRange, formatTimer, minutesBetween } from '../i18n/format';
+import { errorMessage } from '../i18n/problem';
 import { focusClientId } from '../session/clientId';
 import {
   enqueueFocusEvent,
@@ -80,16 +83,16 @@ const displaySeconds = computed(() => {
     Date.parse(current.startedAt) + (current.focusedSec + current.pausedSec) * 1000;
   return current.focusedSec + Math.max(0, Math.floor((now.value - cursorMs) / 1000));
 });
-const displayTime = computed(() => formatDuration(displaySeconds.value));
+const displayTime = computed(() => formatTimer(displaySeconds.value));
 const stateLabel = computed(() => {
-  if (session.value === null) return 'Loading session';
+  if (session.value === null) return t('focus.stateLoading');
   switch (session.value.state) {
     case 'active':
-      return 'Focusing';
+      return t('focus.stateActive');
     case 'paused':
-      return 'Paused';
+      return t('focus.statePaused');
     default:
-      return 'Completed';
+      return t('focus.stateCompleted');
   }
 });
 const stateTone = computed(() => {
@@ -111,7 +114,7 @@ const context = computed(() => {
 });
 const plannedMinutes = computed(() => {
   const current = context.value;
-  return current === null ? null : durationMinutes(current.startAt, current.endAt);
+  return current === null ? null : minutesBetween(current.startAt, current.endAt);
 });
 const progressPercent = computed(() => {
   const planned = plannedMinutes.value;
@@ -247,7 +250,7 @@ watch(
   (minutes, previous) => {
     if (session.value?.state !== 'active') return;
     if (minutes > 0 && minutes !== previous) {
-      announcement.value = `${minutes} minute${minutes === 1 ? '' : 's'} focused`;
+      announcement.value = t('focus.announce', { duration: formatDuration(minutes) });
     }
   },
 );
@@ -262,11 +265,11 @@ async function startFromQuery(): Promise<void> {
   if (!isNew.value || startBusy.value) return;
   const taskId = typeof route.query.taskId === 'string' ? route.query.taskId : null;
   if (taskId === null) {
-    error.value = 'Choose a task or block before starting a focus session.';
+    error.value = t('focus.chooseTask');
     return;
   }
   if (!offline.online) {
-    error.value = 'Start focus while online. Offline session events are still recorded once a session is running.';
+    error.value = t('focus.startOffline');
     return;
   }
   startBusy.value = true;
@@ -301,9 +304,9 @@ async function startFromQuery(): Promise<void> {
     if (!isOwnerBindingCurrent(binding)) return;
     if (cause instanceof ApiError && cause.status === 409 && cause.code === 'active_session_exists') {
       resumeOffer.value = true;
-      error.value = 'An active focus session already exists.';
+      error.value = t('focus.activeExists');
     } else {
-      error.value = cause instanceof ApiError ? cause.detail : 'Could not start the focus session.';
+      error.value = errorMessage(cause, t('focus.startFailed'));
     }
   } finally {
     startBusy.value = false;
@@ -336,10 +339,10 @@ async function restoreSession(): Promise<void> {
         sessions.forget(local.id);
         remoteSession.value = null;
         loadState.value = 'missing';
-        error.value = 'This focus session is not available.';
+        error.value = t('focus.unavailable');
         return;
       }
-      error.value = cause instanceof ApiError ? cause.detail : 'Could not refresh the focus session.';
+      error.value = errorMessage(cause, t('focus.refreshFailed'));
     }
     return;
   }
@@ -365,10 +368,8 @@ async function restoreSession(): Promise<void> {
     loadState.value = 'missing';
     error.value =
       cause instanceof ApiError && (cause.status === 404 || cause.status === 403)
-        ? 'This focus session is not available.'
-        : cause instanceof ApiError
-          ? cause.detail
-          : 'Could not load this focus session. Check the link and try again.';
+        ? t('focus.unavailable')
+        : errorMessage(cause, t('focus.loadFailed'));
   }
 }
 
@@ -420,7 +421,7 @@ async function perform(kind: FocusEventKind): Promise<void> {
     } catch (cause) {
       if (cause instanceof ApiError) {
         if (!isOwnerBindingCurrent(binding)) return;
-        error.value = cause.detail;
+        error.value = errorMessage(cause);
         now.value = Date.now();
         return;
       }
@@ -437,7 +438,7 @@ async function submitReview(review: SessionReviewRequest): Promise<void> {
   const current = session.value;
   if (current === null || reviewBusy.value) return;
   if (!offline.online) {
-    reviewError.value = 'Connect to the network to upload your review.';
+    reviewError.value = t('focus.reviewOffline');
     return;
   }
   if (sessions.pendingCount > 0) {
@@ -452,9 +453,9 @@ async function submitReview(review: SessionReviewRequest): Promise<void> {
     const action = actions.begin(scope, review, (left, right) => JSON.stringify(left) === JSON.stringify(right), ready.version);
     feedback.value = await plannerClient.reviewSession(ready.id, action.payload, action.key, ready.version);
     actions.settle(scope, action);
-    toast.show('Review saved. Estimation feedback updated.');
+    toast.show(t('focus.reviewSaved'));
   } catch (cause) {
-    reviewError.value = cause instanceof ApiError ? cause.detail : 'Could not save the review.';
+    reviewError.value = errorMessage(cause, t('focus.reviewFailed'));
   } finally {
     reviewBusy.value = false;
   }
@@ -537,7 +538,7 @@ watch(
     if (count > 0 && !offline.online) {
       sessions.setSyncState(
         'offline',
-        `${count} focus event${count === 1 ? '' : 's'} saved on this device. Uploading automatically when you reconnect.`,
+        tp('sync.pendingOffline', count),
       );
     }
   },
@@ -552,7 +553,7 @@ watch(
   >
     <header class="page-header focus-header">
       <div class="page-heading">
-        <h1 id="focus-heading">Focus</h1>
+        <h1 id="focus-heading">{{ t('focus.title') }}</h1>
         <UiBadge as="p" :tone="stateTone" dot size="lg" class="focus-state">{{ stateLabel }}</UiBadge>
       </div>
       <div class="page-actions">
@@ -563,14 +564,16 @@ watch(
           :aria-pressed="calmMode ? 'true' : 'false'"
           @click="toggleCalm"
         >
-          Calm mode
+          {{ t('focus.calm') }}
         </UiButton>
-        <UiButton variant="ghost" icon="arrow-left" class="focus-back" @click="goToday">Back to Today</UiButton>
+        <UiButton variant="ghost" icon="arrow-left" class="focus-back" @click="goToday">
+          {{ t('focus.backToToday') }}
+        </UiButton>
       </div>
     </header>
 
     <UiBadge v-if="!offline.online" as="p" tone="offline" dot class="chip--offline focus-offline" role="status">
-      Offline · timer keeps running locally
+      {{ t('focus.offline') }}
     </UiBadge>
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
 
@@ -578,53 +581,58 @@ watch(
       v-if="quarantinedCount > 0"
       as="section"
       tone="warn"
-      title="Focus events need attention"
+      :title="t('quarantine.title')"
       class="error-panel quarantine-notice"
       role="status"
     >
-      <p class="error-text">
-        {{ quarantinedCount }} saved focus event{{ quarantinedCount === 1 ? '' : 's' }} could not
-        be replayed and {{ quarantinedCount === 1 ? 'was' : 'were' }} set aside on this device.
-      </p>
+      <p class="error-text">{{ tp('quarantine.body', quarantinedCount) }}</p>
       <template #actions>
         <UiButton size="sm" icon="sync" :disabled="retryBusy" :busy="retryBusy" @click="retryQuarantine">
-          Retry upload
+          {{ t('quarantine.retry') }}
         </UiButton>
-        <UiButton size="sm" variant="ghost" :disabled="retryBusy" @click="dismissQuarantine">Dismiss</UiButton>
+        <UiButton size="sm" variant="ghost" :disabled="retryBusy" @click="dismissQuarantine">
+          {{ t('common.dismiss') }}
+        </UiButton>
       </template>
     </UiBanner>
 
     <UiBanner v-if="resumeOffer && sessions.active" tone="accent" inline class="resume-banner">
-      <span>A session is already running.</span>
+      <span>{{ t('today.alreadyRunning') }}</span>
       <template #actions>
-        <UiButton variant="primary" size="sm" icon="play" @click="resumeActive">Resume the active session</UiButton>
+        <UiButton variant="primary" size="sm" icon="play" @click="resumeActive">{{ t('today.resumeActive') }}</UiButton>
       </template>
     </UiBanner>
 
-    <p v-if="loadState === 'loading'" class="loading-row"><UiSpinner /> Loading focus session…</p>
+    <p v-if="loadState === 'loading'" class="loading-row"><UiSpinner /> {{ t('focus.loading') }}</p>
     <UiBanner
       v-else-if="session === null && !isNew && loadState === 'missing'"
       tone="error"
       class="error-panel"
     >
-      <p class="error-text" role="alert">{{ error ?? 'This focus session is not available.' }}</p>
+      <p class="error-text" role="alert">{{ error ?? t('focus.unavailable') }}</p>
       <template #actions>
-        <UiButton size="sm" icon="arrow-left" @click="goToday">Back to Today</UiButton>
+        <UiButton size="sm" icon="arrow-left" @click="goToday">{{ t('focus.backToToday') }}</UiButton>
       </template>
     </UiBanner>
 
     <template v-if="session">
       <div class="focus-stage">
         <div class="focus-task">
-          <p class="focus-task-title">{{ context?.title ?? 'Focus session' }}</p>
+          <p class="focus-task-title">{{ context?.title ?? t('focus.fallbackTitle') }}</p>
           <p class="focus-task-meta">
             <template v-if="context">
-              Planned {{ formatClock(context.startAt, context.timeZone) }}–{{ formatClock(context.endAt, context.timeZone) }}
-              · {{ plannedMinutes }}m
+              {{
+                t('focus.planned', {
+                  range: formatTimeRange(context.startAt, context.endAt, context.timeZone),
+                  duration: formatDuration(plannedMinutes ?? 0),
+                })
+              }}
             </template>
             <template v-else>
-              Session for task <span class="mono">{{ session.taskId }}</span>
-              <span v-if="session.blockId"> · block {{ session.blockId }}</span>
+              <I18nT keypath="focus.sessionForTask">
+                <template #taskId><span class="mono">{{ session.taskId }}</span></template>
+              </I18nT>
+              <span v-if="session.blockId">{{ t('focus.sessionBlock', { blockId: session.blockId }) }}</span>
             </template>
           </p>
         </div>
@@ -633,7 +641,7 @@ watch(
           ref="timerEl"
           class="focus-timer"
           role="timer"
-          aria-label="Focus timer"
+          :aria-label="t('focus.timer')"
           aria-atomic="true"
           tabindex="-1"
         >
@@ -645,7 +653,14 @@ watch(
           <div class="focus-progress-track">
             <div class="focus-progress-fill" :style="{ width: `${progressPercent}%` }"></div>
           </div>
-          <p class="focus-progress-caption">{{ focusedMinutes }}m of {{ plannedMinutes }}m planned</p>
+          <p class="focus-progress-caption">
+            {{
+              t('focus.progress', {
+                planned: formatDuration(plannedMinutes ?? 0),
+                focused: formatDuration(focusedMinutes),
+              })
+            }}
+          </p>
         </div>
 
         <div v-if="session.state !== 'completed'" class="focus-actions">
@@ -657,7 +672,7 @@ watch(
             :disabled="!canPause || operationsPending > 0"
             @click="perform('pause')"
           >
-            Pause <kbd>space</kbd>
+            {{ t('focus.pause') }} <kbd>space</kbd>
           </UiButton>
           <UiButton
             v-if="canResume || !canPause"
@@ -667,7 +682,7 @@ watch(
             :disabled="!canResume || operationsPending > 0"
             @click="perform('resume')"
           >
-            Resume <kbd>space</kbd>
+            {{ t('focus.resume') }} <kbd>space</kbd>
           </UiButton>
           <UiButton
             size="lg"
@@ -675,7 +690,7 @@ watch(
             :disabled="!canComplete || operationsPending > 0"
             @click="perform('complete')"
           >
-            Complete <kbd>enter</kbd>
+            {{ t('focus.complete') }} <kbd>enter</kbd>
           </UiButton>
         </div>
         <UiButton
@@ -685,7 +700,7 @@ watch(
           class="focus-timer-shortcut"
           @click="timerEl?.focus()"
         >
-          Focus timer <kbd>f</kbd>
+          {{ t('focus.focusTimer') }} <kbd>f</kbd>
         </UiButton>
 
         <p
@@ -712,12 +727,12 @@ watch(
     <UiEmptyState
       v-if="isNew && session === null && !startBusy"
       icon="today"
-      title="Choose a block on Today to start a focus session."
+      :title="t('focus.empty')"
     >
       <template #actions>
-        <RouterLink class="btn btn--secondary" to="/today">Open Today</RouterLink>
+        <RouterLink class="btn btn--secondary" to="/today">{{ t('focus.openToday') }}</RouterLink>
       </template>
     </UiEmptyState>
-    <p v-if="startBusy" class="loading-row"><UiSpinner /> Starting focus session…</p>
+    <p v-if="startBusy" class="loading-row"><UiSpinner /> {{ t('focus.starting') }}</p>
   </section>
 </template>

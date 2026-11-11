@@ -37,7 +37,7 @@ async function mountPlan(planId: string, pinia = createPinia()) {
   const wrapper = mountWithPlugins(PlanComparisonView, { router, pinia });
   await settle();
   await vi.waitFor(() => {
-    expect(wrapper.text()).toContain('Plan comparison');
+    expect(wrapper.text()).toContain('일정안 비교');
     expect(wrapper.findAll('.candidate-card').length).toBeGreaterThan(0);
   });
   return wrapper;
@@ -72,10 +72,11 @@ describe('plan comparison rendering', () => {
 
     const wrapper = await mountPlan(created.id);
 
-    expect(wrapper.text()).toContain('−0.5 min');
-    expect(wrapper.text()).toContain('+0.5 min');
-    expect(wrapper.text()).toContain('Infeasible');
-    expect(wrapper.text()).toContain('Deficit: 120 min');
+    // A sub-minute slack keeps its sign instead of collapsing to "0분".
+    expect(wrapper.text()).toContain('−1분 미만');
+    expect(wrapper.text()).toContain('+1분 미만');
+    expect(wrapper.text()).toContain('배치 불가 · 2시간 부족');
+    expect(wrapper.text()).toContain('작업 2시간을 배치하지 못했어요.');
     expect(wrapper.text()).toContain('Front-loads work before the first deadline.');
     expect(wrapper.text()).toContain('Only two distinct plans are possible');
 
@@ -161,7 +162,7 @@ describe('plan editing preview', () => {
 
     await vi.waitFor(
       () => {
-        expect(wrapper.text()).toContain('Blocks overlap each other');
+        expect(wrapper.text()).toContain('블록이 다른 블록, 약속 또는 고정된 블록과 겹쳐요');
       },
       { timeout: 3_000 },
     );
@@ -196,7 +197,7 @@ describe('plan editing preview', () => {
 
     await vi.waitFor(
       () => {
-        expect(wrapper.text()).toContain('Block 1: block lies outside the plan horizon');
+        expect(wrapper.text()).toContain('블록 1: 일정안 기간을 벗어났어요');
       },
       { timeout: 3_000 },
     );
@@ -248,25 +249,25 @@ describe('plan approval', () => {
     const wrapper = await mountPlan(plan.id);
     const feasibleCard = wrapper
       .findAll('.candidate-card')
-      .find((card) => card.text().includes('Feasible'));
+      .find((card) => card.text().includes('배치 가능'));
     if (feasibleCard !== undefined) {
       await feasibleCard.get('button').trigger('click');
       await settle();
     }
 
-    const approve = buttonByText(wrapper, 'Approve this plan');
+    const approve = buttonByText(wrapper, '이 일정으로 확정');
     await approve.trigger('click');
     await approve.trigger('click');
 
     await vi.waitFor(
       () => {
-        expect(wrapper.text()).toContain('Plan approved');
+        expect(wrapper.text()).toContain('일정 확정 완료');
       },
       { timeout: 3_000 },
     );
     expect(calls).toBe(1);
-    expect(wrapper.text()).toContain('Open Today');
-    expect(wrapper.text()).toContain('Availability version');
+    expect(wrapper.text()).toContain('오늘 열기');
+    expect(wrapper.text()).toContain('가용 시간 버전');
 
     spy.mockRestore();
     wrapper.unmount();
@@ -281,14 +282,14 @@ describe('plan approval', () => {
     await select.trigger('keydown', { key: 'Enter' });
     await settle();
 
-    const approve = buttonByText(wrapper, 'Approve this plan');
+    const approve = buttonByText(wrapper, '이 일정으로 확정');
     (approve.element as HTMLElement).focus();
     expect(document.activeElement).toBe(approve.element);
     await approve.trigger('keydown', { key: 'Enter' });
 
     await vi.waitFor(
       () => {
-        expect(wrapper.text()).toContain('Plan approved');
+        expect(wrapper.text()).toContain('일정 확정 완료');
       },
       { timeout: 3_000 },
     );
@@ -312,18 +313,18 @@ describe('plan approval', () => {
     );
 
     const wrapper = await mountPlan(plan.id);
-    await buttonByText(wrapper, 'Approve this plan').trigger('click');
+    await buttonByText(wrapper, '이 일정으로 확정').trigger('click');
     await vi.waitFor(
       () => {
-        expect(wrapper.text()).toContain('Availability changed elsewhere');
+        expect(wrapper.text()).toContain('다른 곳에서 가용 시간이 바뀌었어요');
       },
       { timeout: 3_000 },
     );
 
-    await buttonByText(wrapper, 'Regenerate plan').trigger('click');
+    await buttonByText(wrapper, '일정안 다시 만들기').trigger('click');
     await vi.waitFor(
       () => {
-        expect(wrapper.text()).toContain('Plan regenerated against the latest availability');
+        expect(wrapper.text()).toContain('최신 가용 시간으로 일정안을 다시 만들었어요');
       },
       { timeout: 5_000 },
     );
@@ -331,7 +332,7 @@ describe('plan approval', () => {
     const regenerated = mockDb.plans.get(plan.id);
     expect(regenerated?.version).toBeGreaterThan(plan.version);
     expect(regenerated?.availabilityVersion).toBe(availability.version + 1);
-    expect(wrapper.text()).not.toContain('Availability changed elsewhere');
+    expect(wrapper.text()).not.toContain('다른 곳에서 가용 시간이 바뀌었어요');
 
     wrapper.unmount();
   });
@@ -357,16 +358,20 @@ describe('approval problem payloads from the real client', () => {
     );
 
     const wrapper = await mountPlan(plan.id);
-    await buttonByText(wrapper, 'Approve this plan').trigger('click');
+    await buttonByText(wrapper, '이 일정으로 확정').trigger('click');
 
     await vi.waitFor(
       () => {
-        expect(wrapper.text()).toContain('Blocks overlap each other.');
+        expect(wrapper.text()).toContain('블록이 다른 블록, 약속 또는 고정된 블록과 겹쳐요.');
       },
       { timeout: 3_000 },
     );
     expect(wrapper.text()).toContain('H1');
-    expect(wrapper.text()).toContain('Edited blocks overlap');
+    // The server's own finding text stays available (marked lang="en")…
+    expect(wrapper.get('.violation-list [lang="en"]').text()).toBe('Blocks overlap each other.');
+    // …while the problem `detail` is replaced by the Korean message for its code.
+    expect(wrapper.get('[role="alert"]').text()).toContain('일정 규칙에 맞지 않아요. 표시된 항목을 확인해 주세요.');
+    expect(wrapper.text()).not.toContain('Edited blocks overlap');
 
     wrapper.unmount();
   });
@@ -390,11 +395,11 @@ describe('approval problem payloads from the real client', () => {
     );
 
     const wrapper = await mountPlan(plan.id);
-    await buttonByText(wrapper, 'Approve this plan').trigger('click');
+    await buttonByText(wrapper, '이 일정으로 확정').trigger('click');
 
     await vi.waitFor(
       () => {
-        expect(wrapper.text()).toContain('Block 1: block lies outside the plan horizon');
+        expect(wrapper.text()).toContain('블록 1: 일정안 기간을 벗어났어요');
       },
       { timeout: 3_000 },
     );

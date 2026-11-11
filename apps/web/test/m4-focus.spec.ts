@@ -49,7 +49,7 @@ async function mountFocus(pinia: Pinia, router: Router, session: WorkSession): P
   });
   await vi.waitFor(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
   if (session.state === 'active' || session.state === 'paused') {
-    const label = session.state === 'active' ? 'Pause' : 'Resume';
+    const label = session.state === 'active' ? '일시정지' : '다시 시작';
     await vi.waitFor(() => expect(button(wrapper, label).attributes('disabled')).toBeUndefined());
   }
   return wrapper;
@@ -70,21 +70,21 @@ describe('Focus mode', () => {
     const wrapper = await mountFocus(pinia, router, session);
 
     expect(wrapper.get('.focus-timer').attributes('role')).toBe('timer');
-    expect(wrapper.text()).toContain('Focusing');
+    expect(wrapper.text()).toContain('집중하는 중');
 
-    await button(wrapper, 'Pause').trigger('click');
+    await button(wrapper, '일시정지').trigger('click');
     await vi.waitFor(() => expect(store.get(session.id)?.state).toBe('paused'));
     expect(mockDb.sessions.get(session.id)?.state).toBe('paused');
-    expect(wrapper.text()).toContain('Paused');
+    expect(wrapper.text()).toContain('일시정지됨');
 
-    await button(wrapper, 'Resume').trigger('click');
+    await button(wrapper, '다시 시작').trigger('click');
     await vi.waitFor(() => expect(store.get(session.id)?.state).toBe('active'));
     expect(mockDb.sessions.get(session.id)?.state).toBe('active');
 
-    await button(wrapper, 'Complete').trigger('click');
+    await button(wrapper, '완료').trigger('click');
     await vi.waitFor(() => expect(store.get(session.id)?.state).toBe('completed'));
     expect(mockDb.sessions.get(session.id)?.state).toBe('completed');
-    expect(wrapper.text()).toContain('How did the session go?');
+    expect(wrapper.text()).toContain('이번 세션은 어땠나요?');
     wrapper.unmount();
   });
 
@@ -114,9 +114,9 @@ describe('Focus mode', () => {
     const checkboxes = wrapper.findAll('input[type="checkbox"]');
     await checkboxes[2]?.setValue(true);
     await wrapper.get('#review-note').setValue('Interrupted by a delivery.');
-    await button(wrapper, 'Submit review').trigger('click');
+    await button(wrapper, '회고 저장').trigger('click');
 
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Estimation feedback'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('추정 피드백'));
     expect(review).toHaveBeenCalledTimes(1);
     expect(review).toHaveBeenCalledWith(
       completed.id,
@@ -128,7 +128,7 @@ describe('Focus mode', () => {
       expect.any(String),
       completed.version,
     );
-    expect(wrapper.text()).toContain('actual');
+    expect(wrapper.text()).toContain('실제');
     wrapper.unmount();
   });
 
@@ -142,14 +142,14 @@ describe('Focus mode', () => {
     offline.setOnline(false);
 
     const wrapper = await mountFocus(pinia, router, session);
-    await button(wrapper, 'Pause').trigger('click');
+    await button(wrapper, '일시정지').trigger('click');
     await vi.waitFor(() => expect(store.pendingCount).toBe(1));
     expect(store.get(session.id)?.state).toBe('paused');
     expect(mockDb.sessions.get(session.id)?.version).toBe(1);
-    expect(wrapper.text()).toContain('saved on this device');
+    expect(wrapper.text()).toContain('이 기기에 저장했어요');
 
-    await vi.waitFor(() => expect(button(wrapper, 'Complete').attributes('disabled')).toBeUndefined());
-    await button(wrapper, 'Complete').trigger('click');
+    await vi.waitFor(() => expect(button(wrapper, '완료').attributes('disabled')).toBeUndefined());
+    await button(wrapper, '완료').trigger('click');
     await vi.waitFor(() => expect(store.pendingCount).toBe(2));
     expect(store.get(session.id)?.state).toBe('completed');
     expect(mockDb.sessions.get(session.id)?.version).toBe(1);
@@ -199,7 +199,7 @@ describe('Focus mode', () => {
       return originalAppend(event);
     });
 
-    const pause = button(wrapper, 'Pause');
+    const pause = button(wrapper, '일시정지');
     await Promise.all([pause.trigger('click'), pause.trigger('click')]);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space' }));
     window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', code: 'Space' }));
@@ -210,8 +210,8 @@ describe('Focus mode', () => {
     expect(pausedEvents[0]?.expectedVersion).toBe(1);
     expect(store.get(session.id)?.version).toBe(2);
 
-    await vi.waitFor(() => expect(button(wrapper, 'Complete').attributes('disabled')).toBeUndefined());
-    await button(wrapper, 'Complete').trigger('click');
+    await vi.waitFor(() => expect(button(wrapper, '완료').attributes('disabled')).toBeUndefined());
+    await button(wrapper, '완료').trigger('click');
     await vi.waitFor(() => expect(store.pendingCount).toBe(2));
     const queued = await sessionJournal.list(session.id);
     expect(queued.map((event) => event.kind)).toEqual(['pause', 'complete']);
@@ -241,7 +241,7 @@ describe('Focus mode', () => {
       global: { plugins: [pinia, router] },
       attachTo: document.body,
     });
-    await vi.waitFor(() => expect(wrapper.text()).toContain('not available'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('이 집중 세션을 열 수 없어요'));
     expect(wrapper.find('.focus-timer').exists()).toBe(false);
     expect(store.get(session.id)).toBeNull();
     wrapper.unmount();
@@ -262,7 +262,7 @@ describe('Focus mode', () => {
       attachTo: document.body,
     });
     await vi.waitFor(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
-    expect(wrapper.text()).toContain('Focusing');
+    expect(wrapper.text()).toContain('집중하는 중');
     expect(store.get(session.id)?.id).toBe(session.id);
     wrapper.unmount();
   });
@@ -357,7 +357,7 @@ describe('Focus mode', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     await vi.waitFor(() => expect(store.get(session.id)?.state).toBe('completed'));
     expect(wrapper.find('fieldset').exists()).toBe(true);
-    expect(wrapper.text()).toContain('How did the session go?');
+    expect(wrapper.text()).toContain('이번 세션은 어땠나요?');
     wrapper.unmount();
   });
 
@@ -380,7 +380,7 @@ describe('Focus mode', () => {
 
       await vi.advanceTimersByTimeAsync(61_000);
       await nextTick();
-      expect(wrapper.get('.sr-only').text()).toContain('1 minute focused');
+      expect(wrapper.get('.sr-only').text()).toContain('1분 집중했어요');
       wrapper.unmount();
     } finally {
       vi.useRealTimers();
@@ -407,11 +407,11 @@ describe('Focus mode', () => {
     const wrapper = await mountFocus(pinia, testRouter(), completed);
 
     expect(wrapper.get('.focus-timer').attributes('role')).toBe('timer');
-    expect(wrapper.get('.focus-timer').attributes('aria-label')).toBe('Focus timer');
+    expect(wrapper.get('.focus-timer').attributes('aria-label')).toBe('집중 타이머');
     expect(wrapper.findAll('.sr-only[aria-live="polite"]').length).toBeGreaterThan(0);
     expect(wrapper.findAll('fieldset legend').map((legend) => legend.text())).toEqual([
-      'Outcome',
-      'What affected the session?',
+      '결과',
+      '무엇이 영향을 줬나요?',
     ]);
     for (const element of wrapper.findAll('button')) {
       const accessible = element.attributes('aria-label') ?? element.text().trim();

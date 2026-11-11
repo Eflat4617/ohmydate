@@ -18,8 +18,19 @@ import {
   blockIndexFromPath,
   metricsRows,
   policyLabel,
+  policySummary,
   violationText,
 } from '../domain/plan';
+import { t } from '../i18n';
+import I18nT from '../i18n/I18nT';
+import {
+  formatCivilDateRange,
+  formatDate,
+  formatDateTimeRange,
+  formatDuration,
+} from '../i18n/format';
+import { errorMessage } from '../i18n/problem';
+import { blockErrorText, diversityNoteText, type ServerText } from '../i18n/server';
 import {
   addDaysToDate,
   localParts,
@@ -149,7 +160,7 @@ const draftBlocks = ref<PlanBlock[]>([]);
 const dirty = ref(false);
 const previewResult = ref<PreviewEditResponse | null>(null);
 const previewError = ref<string | null>(null);
-const blockErrors = ref<Record<number, string>>({});
+const blockErrors = ref<Record<number, ServerText>>({});
 const previewing = ref(false);
 const approving = ref(false);
 const regenerating = ref(false);
@@ -222,11 +233,11 @@ watch(
   { deep: true },
 );
 
-function mapProblemErrors(errors: Array<{ path: string; message: string }> | undefined): Record<number, string> {
-  const mapped: Record<number, string> = {};
+function mapProblemErrors(errors: Array<{ path: string; message: string }> | undefined): Record<number, ServerText> {
+  const mapped: Record<number, ServerText> = {};
   for (const error of errors ?? []) {
     const index = blockIndexFromPath(error.path);
-    if (index !== null) mapped[index] = error.message;
+    if (index !== null) mapped[index] = blockErrorText(error.message);
   }
   return mapped;
 }
@@ -265,7 +276,7 @@ async function runPreview(): Promise<void> {
         blockErrors.value = mapProblemErrors(cause.problem?.errors);
         previewResult.value = null;
         previewError.value =
-          Object.keys(blockErrors.value).length === 0 ? cause.detail : null;
+          Object.keys(blockErrors.value).length === 0 ? errorMessage(cause) : null;
       } else if (cause.status === 422 && cause.code === 'constraint_violation') {
         previewResult.value = {
           feasible: false,
@@ -275,11 +286,11 @@ async function runPreview(): Promise<void> {
         blockErrors.value = {};
       } else {
         previewResult.value = null;
-        previewError.value = cause.detail;
+        previewError.value = errorMessage(cause);
       }
     } else {
       previewResult.value = null;
-      previewError.value = 'Could not validate the edited blocks.';
+      previewError.value = errorMessage(cause, t('plan.validateError'));
     }
   } finally {
     if (token === previewToken) previewing.value = false;
@@ -294,7 +305,7 @@ function onBlocksUpdated(next: PlanBlock[]): void {
 
 function resetEdits(): void {
   resetDraft();
-  message.value = 'Edits reset to the generated candidate.';
+  message.value = t('plan.editsReset');
 }
 
 function selectCandidate(candidate: PlanCandidate): void {
@@ -339,7 +350,7 @@ async function approve(): Promise<void> {
     approvedVersion.value = version;
     dirty.value = false;
     stale.value = false;
-    message.value = `Approved plan version ${version.seq}.`;
+    message.value = t('plan.approvedMessage', { seq: version.seq });
     await Promise.all([planQuery.refetch(), approvedBlocksQuery.refetch()]);
   } catch (cause) {
     if (cause instanceof ApiError) {
@@ -353,18 +364,18 @@ async function approve(): Promise<void> {
       }
       if (cause.status === 422 && cause.code === 'constraint_violation') {
         approveViolations.value = cause.problem?.violations ?? [];
-        actionError.value = cause.detail;
+        actionError.value = errorMessage(cause);
         return;
       }
       if (cause.status === 422 && cause.code === 'validation_failed') {
         blockErrors.value = mapProblemErrors(cause.problem?.errors);
         actionError.value =
-          Object.keys(blockErrors.value).length === 0 ? cause.detail : 'Some blocks are outside the plan.';
+          Object.keys(blockErrors.value).length === 0 ? errorMessage(cause) : t('plan.outsidePlan');
         return;
       }
-      actionError.value = cause.detail;
+      actionError.value = errorMessage(cause);
     } else {
-      actionError.value = 'Could not approve the selected candidate.';
+      actionError.value = errorMessage(cause, t('plan.approveError'));
     }
   } finally {
     approving.value = false;
@@ -384,10 +395,10 @@ async function regenerate(): Promise<void> {
     queryClient.setQueryData(['plan', activePlan.id], updated);
     stale.value = false;
     approvedVersion.value = null;
-    message.value = 'Plan regenerated against the latest availability.';
+    message.value = t('plan.regenerated');
     resetDraft();
   } catch (cause) {
-    actionError.value = cause instanceof ApiError ? cause.detail : 'Could not regenerate the plan.';
+    actionError.value = errorMessage(cause, t('plan.regenerateError'));
     if (cause instanceof ApiError && cause.status === 412) {
       await planQuery.refetch();
     }
@@ -401,9 +412,15 @@ function goToToday(): void {
 }
 
 const weekLabel = computed(() => {
-  if (weekDates.value.length === 0) return '';
-  return `${weekDates.value[0]} – ${weekDates.value[6]}`;
+  const first = weekDates.value[0];
+  const last = weekDates.value[6];
+  if (first === undefined || last === undefined) return '';
+  return formatCivilDateRange(first, last, { year: true });
 });
+
+function noteFor(note: string | undefined): ServerText | null {
+  return note === undefined || note.length === 0 ? null : diversityNoteText(note);
+}
 
 watch(
   () => offline.mutationsEnabled,
@@ -426,28 +443,30 @@ onUnmounted(() => {
   <section class="page page--wide plan-comparison">
     <header class="page-header">
       <div class="page-heading">
-        <h1>Plan comparison</h1>
-        <p v-if="plan" class="page-lede">Generated {{ plan.createdAt.slice(0, 10) }} · {{ plan.timeZone }}</p>
+        <h1>{{ t('plan.title') }}</h1>
+        <p v-if="plan" class="page-lede">
+          {{ t('plan.generated', { date: formatDate(plan.createdAt, plan.timeZone, { year: true }), timeZone: plan.timeZone }) }}
+        </p>
       </div>
       <div class="page-actions">
-        <UiButton variant="ghost" icon="today" @click="goToToday">Go to Today</UiButton>
+        <UiButton variant="ghost" icon="today" @click="goToToday">{{ t('plan.goToday') }}</UiButton>
       </div>
     </header>
 
     <UiBanner v-if="!offline.mutationsEnabled" tone="offline" class="offline-note" role="status">
-      Read-only while offline. Editing, regeneration and approval are disabled.
+      {{ t('plan.offline') }}
     </UiBanner>
     <p class="status-region status-note" role="status" aria-live="polite">{{ message }}</p>
     <UiBanner v-if="actionError" tone="error" role="alert">{{ actionError }}</UiBanner>
 
     <div v-if="planQuery.isLoading.value">
-      <p class="visually-hidden" role="status">Loading plan…</p>
+      <p class="visually-hidden" role="status">{{ t('plan.loading') }}</p>
       <div class="candidate-grid"><UiSkeleton variant="card" :count="3" :lines="4" /></div>
     </div>
     <UiBanner v-else-if="planQuery.isError.value || plan === null" tone="error" class="error-panel">
-      <p class="error-text" role="alert">Could not load this plan.</p>
+      <p class="error-text" role="alert">{{ t('plan.loadError') }}</p>
       <template #actions>
-        <UiButton size="sm" icon="sync" @click="planQuery.refetch()">Retry</UiButton>
+        <UiButton size="sm" icon="sync" @click="planQuery.refetch()">{{ t('common.retry') }}</UiButton>
       </template>
     </UiBanner>
 
@@ -466,21 +485,24 @@ onUnmounted(() => {
             type="button"
             class="candidate-button"
             :aria-pressed="selectedCandidateId === candidate.id"
-            :aria-label="`Select ${policyLabel(candidate.policy)} candidate`"
+            :aria-label="t('plan.selectCandidate', { policy: policyLabel(candidate.policy) })"
             @click="selectCandidate(candidate)"
             @keydown.enter.prevent="selectCandidate(candidate)"
           >
             <span class="candidate-heading">
               <span class="candidate-policy">{{ policyLabel(candidate.policy) }}</span>
               <span v-if="candidate.feasible" class="badge badge--ok">
-                <span class="badge-dot" aria-hidden="true"></span>Feasible
+                <span class="badge-dot" aria-hidden="true"></span>{{ t('plan.feasible') }}
               </span>
               <span v-else class="badge badge--danger">
-                Infeasible · deficit {{ candidate.deficitMin }} min
+                {{ t('plan.infeasible', { deficit: formatDuration(candidate.deficitMin) }) }}
               </span>
               <span class="candidate-check" aria-hidden="true">
                 <UiIcon name="check" :size="16" />
               </span>
+            </span>
+            <span v-if="policySummary(candidate.policy)" class="candidate-summary muted">
+              {{ policySummary(candidate.policy) }}
             </span>
             <dl class="metrics-grid">
               <template v-for="row in metricsRows(candidate.metrics)" :key="row.key">
@@ -489,13 +511,22 @@ onUnmounted(() => {
               </template>
             </dl>
             <p v-if="candidate.deficitMin > 0" class="error-text">
-              Deficit: {{ candidate.deficitMin }} min of work cannot be placed.
+              {{ t('plan.deficit', { deficit: formatDuration(candidate.deficitMin) }) }}
             </p>
-            <ul v-if="candidate.explanation.length > 0" class="explanation-list">
+            <p
+              v-if="noteFor(candidate.diversityNote)"
+              class="candidate-note"
+              :lang="noteFor(candidate.diversityNote)?.translated ? undefined : 'en'"
+            >
+              {{ noteFor(candidate.diversityNote)?.text }}
+            </p>
+          </button>
+          <details v-if="candidate.explanation.length > 0" class="candidate-explanation">
+            <summary>{{ t('plan.explanation') }}</summary>
+            <ul class="explanation-list" lang="en">
               <li v-for="line in candidate.explanation" :key="line">{{ line }}</li>
             </ul>
-            <p v-if="candidate.diversityNote" class="candidate-note">{{ candidate.diversityNote }}</p>
-          </button>
+          </details>
         </article>
       </div>
 
@@ -503,29 +534,29 @@ onUnmounted(() => {
         <div class="calendar-toolbar">
           <div>
             <h2 id="calendar-title" ref="calendarHeading" class="h2" tabindex="-1">
-              Week view · {{ weekLabel }}
+              {{ t('plan.weekView', { range: weekLabel }) }}
             </h2>
             <p class="muted">
               {{ policyLabel(selectedCandidate.policy) }} ·
-              {{ dirty ? 'Edited blocks' : 'Generated blocks' }} · {{ timeZone }}
+              {{ dirty ? t('plan.editedBlocks') : t('plan.generatedBlocks') }} · {{ timeZone }}
             </p>
           </div>
           <div class="calendar-nav">
             <UiButton size="sm" icon="chevron-left" :disabled="weekStart.length === 0" @click="shiftWeek(-7)">
-              Previous week
+              {{ t('plan.previousWeek') }}
             </UiButton>
             <UiButton size="sm" :disabled="weekStart.length === 0" @click="shiftWeek(7)">
-              Next week
+              {{ t('plan.nextWeek') }}
               <UiIcon name="chevron-right" :size="16" />
             </UiButton>
           </div>
         </div>
 
-        <ul class="calendar-legend" aria-label="Calendar legend">
-          <li><span class="legend-swatch legend-swatch--availability" aria-hidden="true"></span>Available</li>
-          <li><span class="legend-swatch legend-swatch--focus" aria-hidden="true"></span>Focus window</li>
-          <li><span class="legend-swatch legend-swatch--commitment" aria-hidden="true"></span>Commitment</li>
-          <li><span class="legend-swatch legend-swatch--block" aria-hidden="true"></span>Planned block</li>
+        <ul class="calendar-legend" :aria-label="t('plan.legend')">
+          <li><span class="legend-swatch legend-swatch--availability" aria-hidden="true"></span>{{ t('plan.legendAvailable') }}</li>
+          <li><span class="legend-swatch legend-swatch--focus" aria-hidden="true"></span>{{ t('plan.legendFocus') }}</li>
+          <li><span class="legend-swatch legend-swatch--commitment" aria-hidden="true"></span>{{ t('plan.legendCommitment') }}</li>
+          <li><span class="legend-swatch legend-swatch--block" aria-hidden="true"></span>{{ t('plan.legendBlock') }}</li>
         </ul>
 
         <WeekCalendar
@@ -544,10 +575,7 @@ onUnmounted(() => {
 
         <p class="calendar-hint">
           <UiIcon name="info" :size="16" />
-          <span>
-            Edit with drag/resize or with the keyboard: ArrowUp/ArrowDown moves a block by 5 minutes,
-            Shift+ArrowUp/Shift+ArrowDown resizes it.
-          </span>
+          <span>{{ t('plan.hint') }}</span>
         </p>
 
         <section
@@ -555,7 +583,7 @@ onUnmounted(() => {
           class="approved-schedule"
           aria-labelledby="approved-schedule-title"
         >
-          <h3 id="approved-schedule-title" class="h3">Approved schedule</h3>
+          <h3 id="approved-schedule-title" class="h3">{{ t('plan.approvedSchedule') }}</h3>
           <ul class="approved-schedule-list">
             <li
               v-for="block in approvedBlocks"
@@ -563,43 +591,42 @@ onUnmounted(() => {
               :data-approved-block-id="block.id"
             >
               <span class="approved-schedule-time">
-                {{ localParts(block.startAt, timeZone).date }}
-                {{ String(localParts(block.startAt, timeZone).hour).padStart(2, '0') }}:{{
-                  String(localParts(block.startAt, timeZone).minute).padStart(2, '0')
-                }}–{{ String(localParts(block.endAt, timeZone).hour).padStart(2, '0') }}:{{
-                  String(localParts(block.endAt, timeZone).minute).padStart(2, '0')
-                }}
+                {{ formatDateTimeRange(block.startAt, block.endAt, timeZone) }}
               </span>
               <span class="approved-schedule-title">{{ taskNames[block.taskId] ?? block.taskId }}</span>
-              <UiBadge class="chip" tone="success">{{ block.status }}</UiBadge>
+              <UiBadge class="chip" tone="success">{{ t(`plan.blockStatus.${block.status}`) }}</UiBadge>
             </li>
           </ul>
         </section>
 
         <div class="violation-region" aria-live="polite">
-          <p v-if="previewing" class="loading-row">Validating edits…</p>
+          <p v-if="previewing" class="loading-row">{{ t('plan.validating') }}</p>
           <UiBanner v-if="previewError" tone="error" role="alert">{{ previewError }}</UiBanner>
           <ul v-if="errorIndexes.length > 0" class="violation-list">
             <li v-for="index in errorIndexes" :key="`block-error-${index}`" class="error-text">
-              Block {{ index + 1 }}: {{ blockErrors[index] }}
+              <I18nT keypath="plan.blockError" :params="{ index: index + 1 }">
+                <template #message>
+                  <span :lang="blockErrors[index]?.translated ? undefined : 'en'">{{ blockErrors[index]?.text }}</span>
+                </template>
+              </I18nT>
             </li>
           </ul>
           <ul v-if="previewViolations.length > 0" class="violation-list">
             <li v-for="(violation, index) in previewViolations" :key="`preview-violation-${index}`">
               <strong>{{ violation.code }}</strong> — {{ violationText(violation) }}
-              <span class="muted">{{ violation.message }}</span>
+              <span class="muted" lang="en">{{ violation.message }}</span>
             </li>
           </ul>
           <ul v-if="approveViolations.length > 0" class="violation-list">
             <li v-for="(violation, index) in approveViolations" :key="`approve-violation-${index}`">
               <strong>{{ violation.code }}</strong> — {{ violationText(violation) }}
-              <span class="muted">{{ violation.message }}</span>
+              <span class="muted" lang="en">{{ violation.message }}</span>
             </li>
           </ul>
         </div>
 
         <UiBanner v-if="stale" tone="conflict" class="conflict-panel" role="alert">
-          <p><strong>Availability changed elsewhere.</strong> Regenerate candidates before approving.</p>
+          <p><strong>{{ t('plan.staleTitle') }}</strong> {{ t('plan.staleBody') }}</p>
           <template #actions>
             <UiButton
               variant="primary"
@@ -609,7 +636,7 @@ onUnmounted(() => {
               :disabled="!offline.mutationsEnabled || regenerating"
               @click="regenerate"
             >
-              {{ regenerating ? 'Regenerating…' : 'Regenerate plan' }}
+              {{ regenerating ? t('plan.regenerating') : t('plan.regeneratePlan') }}
             </UiButton>
           </template>
         </UiBanner>
@@ -623,9 +650,9 @@ onUnmounted(() => {
             @click="approve"
             @keydown.enter.prevent="approve"
           >
-            {{ approving ? 'Approving…' : 'Approve this plan' }}
+            {{ approving ? t('plan.approving') : t('plan.approve') }}
           </UiButton>
-          <UiButton variant="ghost" :disabled="!dirty || approving" @click="resetEdits">Reset edits</UiButton>
+          <UiButton variant="ghost" :disabled="!dirty || approving" @click="resetEdits">{{ t('plan.resetEdits') }}</UiButton>
           <UiButton
             v-if="!stale"
             variant="ghost"
@@ -634,25 +661,25 @@ onUnmounted(() => {
             :disabled="!offline.mutationsEnabled || regenerating"
             @click="regenerate"
           >
-            {{ regenerating ? 'Regenerating…' : 'Regenerate' }}
+            {{ regenerating ? t('plan.regenerating') : t('plan.regenerate') }}
           </UiButton>
         </div>
 
         <UiBanner v-if="approvedVersion" as="section" tone="success" class="approved-panel" aria-live="polite">
-          <h2 class="h2">Plan approved</h2>
+          <h2 class="h2">{{ t('plan.approvedTitle') }}</h2>
           <dl class="kv-list">
-            <dt>Version</dt>
+            <dt>{{ t('plan.approvedVersion') }}</dt>
             <dd>{{ approvedVersion.seq }}</dd>
-            <dt>Blocks</dt>
+            <dt>{{ t('plan.approvedBlocks') }}</dt>
             <dd>{{ approvedVersion.blocks.length }}</dd>
-            <dt>Availability version</dt>
+            <dt>{{ t('plan.approvedAvailability') }}</dt>
             <dd>{{ approvedVersion.availabilityVersion }}</dd>
-            <dt>Created by</dt>
-            <dd>{{ approvedVersion.createdBy }}</dd>
+            <dt>{{ t('plan.approvedBy') }}</dt>
+            <dd>{{ t(`plan.createdBy.${approvedVersion.createdBy}`) }}</dd>
           </dl>
           <template #actions>
             <RouterLink class="btn btn--primary" :to="{ name: 'today' }">
-              Open Today
+              {{ t('plan.openToday') }}
             </RouterLink>
           </template>
         </UiBanner>

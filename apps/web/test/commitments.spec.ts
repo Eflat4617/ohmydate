@@ -94,7 +94,7 @@ describe('commitment editor', () => {
     const wrapper = mountWithPlugins(CommitmentsView);
     await settle();
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('Team sync');
+      expect(wrapper.text()).toContain('팀 회의');
     });
 
     await wrapper.get('#commitment-from').setValue('2026-11-01');
@@ -107,8 +107,8 @@ describe('commitment editor', () => {
 
     await vi.waitFor(() => {
       const preview = wrapper.findAll('.occurrence-list li').map((item) => item.text());
-      expect(preview.some((line) => line.includes('2026-11-04 09:00'))).toBe(true);
-      expect(preview.some((line) => line.includes('2026-11-09 09:00'))).toBe(true);
+      expect(preview.some((line) => line.includes('11월 4일 (수) 오전 9:00~10:00'))).toBe(true);
+      expect(preview.some((line) => line.includes('11월 9일 (월) 오전 9:00~10:00'))).toBe(true);
     });
 
     wrapper.unmount();

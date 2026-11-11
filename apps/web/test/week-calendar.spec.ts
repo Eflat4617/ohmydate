@@ -44,14 +44,14 @@ describe('week calendar in a DST fall-back week', () => {
     expect(days[0]?.attributes('data-date')).toBe('2026-11-01');
     expect(days[1]?.attributes('data-date')).toBe('2026-11-02');
 
-    expect(topFor(wrapper, '2026-11-01', '00:30 to 01:30')).toBe('30px');
-    expect(topFor(wrapper, '2026-11-01', '01:30 to 02:30')).toBe('90px');
-    expect(topFor(wrapper, '2026-11-02', '00:30 to 01:30')).toBe('30px');
+    expect(topFor(wrapper, '2026-11-01', '오전 12:30~1:30')).toBe('30px');
+    expect(topFor(wrapper, '2026-11-01', '오전 1:30~2:30')).toBe('90px');
+    expect(topFor(wrapper, '2026-11-02', '오전 12:30~1:30')).toBe('30px');
 
     const secondDayBlock = wrapper
       .get('.calendar-day[data-date="2026-11-02"]')
       .findAll('.calendar-block')[0];
-    expect(secondDayBlock?.attributes('aria-label')).toContain('2026-11-02 00:30');
+    expect(secondDayBlock?.attributes('aria-label')).toContain('11월 2일 (월) 오전 12:30');
   });
 });
 
@@ -85,14 +85,14 @@ describe('week calendar across the repeated fall-back hour', () => {
     const blockElement = block.element as HTMLElement;
     expect(blockElement.style.top).toBe('90px');
     expect(blockElement.style.height).toBe('60px');
-    expect(block.attributes('aria-label')).toContain('01:30 to 01:30');
-    expect(block.attributes('aria-label')).toContain('[GMT-4→GMT-5]');
+    expect(block.attributes('aria-label')).toContain('오전 1:30~1:30');
+    expect(block.attributes('aria-label')).toContain('(GMT-4→GMT-5)');
 
     const commitment = day.get('.calendar-commitment');
     const commitmentElement = commitment.element as HTMLElement;
     expect(commitmentElement.style.top).toBe('90px');
     expect(commitmentElement.style.height).toBe('60px');
-    expect(commitment.attributes('aria-label')).toContain('[GMT-4→GMT-5]');
+    expect(commitment.attributes('aria-label')).toContain('(GMT-4→GMT-5)');
     expect(commitment.attributes('aria-label')).toContain('Crossing commitment');
   });
 });
@@ -107,7 +107,7 @@ describe('week calendar scroll region keyboard access', () => {
     expect(wrapper.findAll('.calendar-block')).toHaveLength(0);
     const region = wrapper.get('.week-calendar');
     expect(region.attributes('role')).toBe('region');
-    expect(region.attributes('aria-label')).toBe('Week calendar');
+    expect(region.attributes('aria-label')).toBe('주간 달력');
     expect(region.attributes('tabindex')).toBe('0');
     (region.element as HTMLElement).focus();
     expect(document.activeElement).toBe(region.element);

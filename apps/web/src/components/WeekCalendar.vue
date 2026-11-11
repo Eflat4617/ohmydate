@@ -12,6 +12,15 @@ import {
   weekDates,
   weekdayOfDate,
 } from '../domain/time';
+import { t } from '../i18n';
+import {
+  formatCivilDate,
+  formatCivilMonthDay,
+  formatCivilWeekday,
+  formatDateTimeRange,
+  formatHour,
+  formatTimeRange,
+} from '../i18n/format';
 
 const props = withDefaults(
   defineProps<{
@@ -45,12 +54,6 @@ const emit = defineEmits<{
 const MINUTE_PX = 1;
 const GRID_MINUTES = 5;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
-const DAY_FORMATTER = new Intl.DateTimeFormat('en-GB', {
-  weekday: 'short',
-  month: 'short',
-  day: 'numeric',
-  timeZone: 'UTC',
-});
 
 interface WindowBand {
   start: number;
@@ -65,6 +68,7 @@ interface PositionedBlock {
   top: number;
   height: number;
   label: string;
+  time: string;
   error: boolean;
 }
 
@@ -130,21 +134,27 @@ function windowsForDate(date: string): WindowBand[] {
 }
 
 function dateLabel(date: string): string {
-  return DAY_FORMATTER.format(new Date(`${date}T12:00:00Z`));
+  return formatCivilDate(date);
+}
+
+/**
+ * Accessible name of a block or commitment: `<title>, <local date> <time
+ * range> (<UTC offset>)`, e.g. `논문 요약, 11월 16일 (월) 오전 9:00~10:30 (GMT+9)`.
+ * The offset keeps repeated wall-clock times apart on DST fall-back days.
+ */
+function intervalLabel(title: string, startAt: string, endAt: string): string {
+  const startOffset = formatZoneOffset(startAt, props.timeZone);
+  const endOffset = formatZoneOffset(endAt, props.timeZone);
+  const offset = startOffset === endOffset ? startOffset : `${startOffset}→${endOffset}`;
+  return t('calendar.blockLabel', {
+    task: title,
+    when: formatDateTimeRange(startAt, endAt, props.timeZone),
+    offset,
+  });
 }
 
 function blockLabel(block: PlanBlock): string {
-  const start = localParts(block.startAt, props.timeZone);
-  const end = localParts(block.endAt, props.timeZone);
-  const task = props.taskNames[block.taskId] ?? block.taskId;
-  const startOffset = formatZoneOffset(block.startAt, props.timeZone);
-  const endOffset = formatZoneOffset(block.endAt, props.timeZone);
-  const offsetSuffix = startOffset === endOffset ? startOffset : `${startOffset}→${endOffset}`;
-  return `${task}, ${start.date} ${pad(start.hour)}:${pad(start.minute)} to ${end.date === start.date ? `${pad(end.hour)}:${pad(end.minute)}` : `${end.date} ${pad(end.hour)}:${pad(end.minute)}`} [${offsetSuffix}]`;
-}
-
-function pad(value: number): string {
-  return String(value).padStart(2, '0');
+  return intervalLabel(props.taskNames[block.taskId] ?? block.taskId, block.startAt, block.endAt);
 }
 
 function positionFor(startAt: string, endAt: string): { date: string; top: number; height: number } | null {
@@ -162,12 +172,7 @@ function positionFor(startAt: string, endAt: string): { date: string; top: numbe
 }
 
 function commitmentLabel(commitment: PositionedCommitment): string {
-  const start = localParts(commitment.startAt, props.timeZone);
-  const end = localParts(commitment.endAt, props.timeZone);
-  const startOffset = formatZoneOffset(commitment.startAt, props.timeZone);
-  const endOffset = formatZoneOffset(commitment.endAt, props.timeZone);
-  const offsetSuffix = startOffset === endOffset ? startOffset : `${startOffset}→${endOffset}`;
-  return `${commitment.title}, ${start.date} ${pad(start.hour)}:${pad(start.minute)} to ${end.date === start.date ? `${pad(end.hour)}:${pad(end.minute)}` : `${end.date} ${pad(end.hour)}:${pad(end.minute)}`} [${offsetSuffix}]`;
+  return intervalLabel(commitment.title, commitment.startAt, commitment.endAt);
 }
 
 const positionedBlocks = computed<PositionedBlock[]>(() => {
@@ -182,6 +187,7 @@ const positionedBlocks = computed<PositionedBlock[]>(() => {
       top: position.top,
       height: position.height,
       label: blockLabel(block),
+      time: formatTimeRange(block.startAt, block.endAt, props.timeZone),
       error: props.errorIndexes.includes(index),
     });
   });
@@ -199,7 +205,7 @@ const positionedCommitments = computed<PositionedCommitment[]>(() => {
       date: position.date,
       top: position.top,
       height: position.height,
-      title: props.commitmentNames[occurrence.commitmentId] ?? 'Commitment',
+      title: props.commitmentNames[occurrence.commitmentId] ?? t('calendar.commitmentFallback'),
     });
   }
   return list;
@@ -330,7 +336,7 @@ defineExpose({ dates, positionedBlocks });
 
 <template>
   <!-- The section is the horizontal scroller; keep it keyboard-reachable even for an empty week (axe scrollable-region-focusable). -->
-  <section ref="scroller" class="week-calendar" role="region" aria-label="Week calendar" tabindex="0">
+  <section ref="scroller" class="week-calendar" role="region" :aria-label="t('calendar.region')" tabindex="0">
     <div class="calendar-scroll">
       <div class="calendar-week">
         <div class="calendar-corner" aria-hidden="true"></div>
@@ -340,8 +346,8 @@ defineExpose({ dates, positionedBlocks });
           class="calendar-day-head"
           :data-date="date"
         >
-          <span class="calendar-weekday">{{ dateLabel(date).split(',')[0] }}</span>
-          <span class="calendar-date">{{ date }}</span>
+          <span class="calendar-weekday">{{ formatCivilWeekday(date) }}</span>
+          <span class="calendar-date">{{ formatCivilMonthDay(date) }}</span>
         </div>
 
         <div class="calendar-hour-rail" aria-hidden="true">
@@ -351,7 +357,7 @@ defineExpose({ dates, positionedBlocks });
             class="calendar-hour-label"
             :style="{ top: `${hour * 60}px` }"
           >
-            {{ String(hour).padStart(2, '0') }}:00
+            {{ formatHour(hour) }}
           </span>
         </div>
 
@@ -405,7 +411,7 @@ defineExpose({ dates, positionedBlocks });
             @keydown="onBlockKeydown($event, positioned.index)"
             @pointerdown="pointerDown($event, positioned.index, 'move')"
           >
-            <span class="calendar-block-time">{{ positioned.label.split(', ')[1] ?? '' }}</span>
+            <span class="calendar-block-time">{{ positioned.time }}</span>
             <span class="calendar-block-title">
               {{ taskNames[positioned.block.taskId] ?? positioned.block.taskId }}
             </span>

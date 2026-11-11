@@ -53,15 +53,15 @@ describe('keep editing recovery', () => {
     });
     await settle();
 
-    await button(wrapper, 'Edit').trigger('click');
+    await button(wrapper, '수정').trigger('click');
     await settle();
     await wrapper.get('input').setValue('Local input to preserve');
     await wrapper.get('form').trigger('submit');
-    await waitForText(wrapper, 'This task changed elsewhere');
+    await waitForText(wrapper, '다른 곳에서 이 작업이 바뀌었어요');
     expect(wrapper.get('input').element).toHaveProperty('value', 'Local input to preserve');
 
-    await button(wrapper, 'Keep editing').trigger('click');
-    await waitForMissingText(wrapper, 'This task changed elsewhere');
+    await button(wrapper, '계속 편집').trigger('click');
+    await waitForMissingText(wrapper, '다른 곳에서 이 작업이 바뀌었어요');
     await vi.waitFor(() => {
       expect(document.activeElement).toBe(wrapper.get('input').element);
     });
@@ -87,7 +87,7 @@ describe('offline mutation enforcement', () => {
     });
     await settle();
 
-    await button(wrapper, 'Edit').trigger('click');
+    await button(wrapper, '수정').trigger('click');
     await settle();
     await wrapper.get('input').setValue('Mutation sent offline');
 
@@ -121,16 +121,16 @@ describe('offline mutation enforcement', () => {
     });
     await settle();
 
-    await button(wrapper, 'Edit').trigger('click');
+    await button(wrapper, '수정').trigger('click');
     await settle();
     await wrapper.get('input').setValue('Local overwrite');
     await wrapper.get('form').trigger('submit');
-    await waitForText(wrapper, 'This task changed elsewhere');
+    await waitForText(wrapper, '다른 곳에서 이 작업이 바뀌었어요');
 
     offline.setOnline(false);
     await settle();
 
-    const overwrite = button(wrapper, 'Overwrite with my edit');
+    const overwrite = button(wrapper, '내 수정으로 덮어쓰기');
     await vi.waitFor(() => {
       expect(overwrite.attributes('disabled')).toBeDefined();
     });
@@ -158,7 +158,7 @@ describe('offline mutation enforcement', () => {
       });
       await settle();
 
-      await button(wrapper, 'Delete').trigger('click');
+      await button(wrapper, '삭제').trigger('click');
       await settle();
       expect(wrapper.findAll('li.task-item')).toHaveLength(0);
 
@@ -202,8 +202,8 @@ describe('pending UI', () => {
     });
 
     expect(wrapper.get('input').attributes('disabled')).toBeDefined();
-    expect(button(wrapper, 'Save').attributes('disabled')).toBeDefined();
-    expect(button(wrapper, 'Cancel').attributes('disabled')).toBeDefined();
+    expect(button(wrapper, '저장').attributes('disabled')).toBeDefined();
+    expect(button(wrapper, '취소').attributes('disabled')).toBeDefined();
   });
 
   it('keeps recoverable input and disables quick add while creating', async () => {
@@ -226,7 +226,7 @@ describe('pending UI', () => {
     await settle();
 
     expect(wrapper.get('#quick-add-title').attributes('disabled')).toBeDefined();
-    expect(button(wrapper, 'Add task').attributes('disabled')).toBeDefined();
+    expect(button(wrapper, '작업 추가').attributes('disabled')).toBeDefined();
 
     spy.mockRestore();
     resolveCreate?.({
@@ -263,7 +263,7 @@ describe('pending UI', () => {
     await settle();
 
     expect(wrapper.get('#quick-add-title').element).toHaveProperty('value', 'Recover me');
-    expect(wrapper.text()).toContain('network down');
+    expect(wrapper.text()).toContain('문제가 생겼어요. 다시 시도해 주세요.');
 
     wrapper.unmount();
   });
@@ -352,7 +352,7 @@ describe('inbox scoping', () => {
       expect(listTasks).toHaveBeenCalledWith({ projectId: INBOX_PROJECT_ID });
     });
     expect(cursors).toEqual([undefined, 'page-2']);
-    expect(wrapper.text()).not.toContain('Inbox project is missing');
+    expect(wrapper.text()).not.toContain('인박스 프로젝트가 없어요');
 
     listProjects.mockRestore();
     listTasks.mockRestore();
@@ -368,7 +368,7 @@ describe('inbox scoping', () => {
       global: { plugins: [createPinia(), VueQueryPlugin] },
       attachTo: document.body,
     });
-    await waitForText(wrapper, 'Inbox project is missing');
+    await waitForText(wrapper, '인박스 프로젝트가 없어요');
 
     expect(wrapper.text()).not.toContain('Unscoped-looking task');
     expect(wrapper.get('#quick-add-title').attributes('disabled')).toBeUndefined();
@@ -376,7 +376,7 @@ describe('inbox scoping', () => {
     await wrapper.get('#quick-add-title').setValue('Recovered capture');
     await wrapper.get('form.quick-add').trigger('submit');
     await waitForText(wrapper, 'Recovered capture');
-    expect(wrapper.text()).not.toContain('Inbox project is missing');
+    expect(wrapper.text()).not.toContain('인박스 프로젝트가 없어요');
 
     wrapper.unmount();
   });

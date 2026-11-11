@@ -151,7 +151,7 @@ describe('ADR-023 hard reset on owner change', () => {
     expect(sessions.ownerId).toBe(ownerB.id);
     expect(sessions.active).toBeNull();
 
-    await expect(auth.setLlmBudget(2, 10)).rejects.toThrow(/owner changed/i);
+    await expect(auth.setLlmBudget(2, 10)).rejects.toThrow(/로그인한 사용자가 바뀌어서/);
     expect(update).not.toHaveBeenCalled();
     expect(await sessionJournal.list(undefined, ownerA.id)).toHaveLength(1);
     expect(localStorage.getItem(`ohmydate.focus.sessions:${ownerA.id}`)).not.toBeNull();
@@ -267,7 +267,7 @@ describe('ADR-023 hard reset on owner change', () => {
       slots: { default: '<p class="protected-body">Journal</p>' },
       attachTo: document.body,
     });
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Loading OhMyDate'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('OhMyDate를 준비하고 있어요'));
     expect(wrapper.find('.protected-body').exists()).toBe(false);
 
     pending.resolve(ownerA);
@@ -409,8 +409,8 @@ describe('ADR-023 hard reset on owner change', () => {
       attachTo: document.body,
     });
     await vi.waitFor(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
-    await vi.waitFor(() => expect(button(wrapper, 'Pause').attributes('disabled')).toBeUndefined());
-    await button(wrapper, 'Pause').trigger('click');
+    await vi.waitFor(() => expect(button(wrapper, '일시정지').attributes('disabled')).toBeUndefined());
+    await button(wrapper, '일시정지').trigger('click');
     await vi.waitFor(() => expect(pause).toHaveBeenCalledTimes(1));
 
     const getSession = vi
@@ -445,9 +445,9 @@ describe('ADR-023 hard reset on owner change', () => {
       Promise.resolve({ ...sessionB, state: 'paused', version: sessionB.version + 1 }),
     );
     await vi.waitFor(() =>
-      expect(button(wrapperB, 'Pause').attributes('disabled')).toBeUndefined(),
+      expect(button(wrapperB, '일시정지').attributes('disabled')).toBeUndefined(),
     );
-    await button(wrapperB, 'Pause').trigger('click');
+    await button(wrapperB, '일시정지').trigger('click');
     await vi.waitFor(() => expect(pause).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(sessions.get(sessionB.id)?.state).toBe('paused'));
     wrapperB.unmount();

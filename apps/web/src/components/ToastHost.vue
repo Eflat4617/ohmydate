@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useToastStore, type Toast } from '../stores/toast';
 import UiIcon from './ui/UiIcon.vue';
+import { t } from '../i18n';
 
 const toast = useToastStore();
 
@@ -32,7 +33,7 @@ function runAction(item: Toast): void {
       <button
         type="button"
         class="btn btn--ghost btn--sm btn--icon toast-dismiss"
-        :aria-label="`Dismiss notification: ${item.message}`"
+        :aria-label="t('toast.dismiss', { message: item.message })"
         @click="toast.dismiss(item.id)"
       >
         <UiIcon name="close" :size="16" />
