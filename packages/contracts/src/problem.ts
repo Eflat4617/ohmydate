@@ -1,5 +1,6 @@
 import { Type, type Static, type TLiteral } from '@sinclair/typebox';
 import { IdSchema } from './common.js';
+import { ExplanationParamsSchema, ViolationMessageCodeSchema } from './explanation.js';
 
 export const PROBLEM_CODES = [
   'validation_failed',
@@ -50,7 +51,10 @@ export const ViolationCodeSchema = Type.Union(
 
 /**
  * Validator finding attached to a `constraint_violation` problem. Only H1-H8
- * are public contract codes. H0 preflight findings are a request-shape error,
+ * are public contract codes. `message` is English text for logs; the optional
+ * `messageCode` + `params` (FU-62, 06 §6.1) are the stable, renderable form of
+ * the same finding and are present on every finding the API produces after
+ * FU-62. H0 preflight findings are a request-shape error,
  * not a planning constraint: edited blocks outside the persisted plan horizon
  * or outside the plan's task scope are reported as 422 `validation_failed` with
  * errors[{path: "/blocks/<i>", message}] for preview-edit (body field `blocks`)
@@ -62,6 +66,8 @@ export const ViolationSchema = Type.Object(
     code: ViolationCodeSchema,
     taskId: Type.Optional(IdSchema),
     message: Type.String({ minLength: 1, maxLength: 500 }),
+    messageCode: Type.Optional(ViolationMessageCodeSchema),
+    params: Type.Optional(ExplanationParamsSchema),
   },
   { additionalProperties: false, $id: 'Violation' },
 );

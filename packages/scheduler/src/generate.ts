@@ -25,11 +25,60 @@ import {
 import { POLICIES, POLICY_NAMES } from './policies.js';
 import { createPrng, type Prng } from './prng.js';
 import { canonicalJson, sha256Hex } from './hash.js';
+import { itemFromMessage, type ExplanationItem } from './codes.js';
 
 export const GENERATOR_VERSION = 'm3-02.6';
 
 /** Explanation prefix used when a replan exceeds its 06 §7 change bound. */
 const REPLAN_BOUND_PREFIX = 'Replan change bound exceeded:';
+
+/** Generator heuristic reasons; each maps to a `heuristic_*` explanation code. */
+type HeuristicReason =
+  | 'insufficient_available_time'
+  | 'no_contiguous_window'
+  | 'estimate_not_grid_aligned'
+  | 'estimate_below_grid'
+  | 'session_bounds_infeasible';
+
+const HEURISTIC_CODES = {
+  insufficient_available_time: 'heuristic_insufficient_available_time',
+  no_contiguous_window: 'heuristic_no_contiguous_window',
+  estimate_not_grid_aligned: 'heuristic_estimate_not_grid_aligned',
+  estimate_below_grid: 'heuristic_estimate_below_grid',
+  session_bounds_infeasible: 'heuristic_session_bounds_infeasible',
+} as const satisfies Record<HeuristicReason, ExplanationItem['code']>;
+
+/**
+ * Explanation lines are only ever built through this type (FU-62): every
+ * English line travels with its coded item, so `explanation[i]` and
+ * `explanationItems[i]` cannot drift apart or exist without each other.
+ */
+interface ExplainedLine {
+  readonly item: ExplanationItem;
+  readonly text: string;
+}
+
+function explainedLine(item: ExplanationItem, text: string): ExplainedLine {
+  return { item, text };
+}
+
+function explanationFields(lines: readonly ExplainedLine[]): {
+  explanation: string[];
+  explanationItems: ExplanationItem[];
+} {
+  return {
+    explanation: lines.map((line) => line.text),
+    explanationItems: lines.map((line) => line.item),
+  };
+}
+
+function policyLine(policy: PolicyName): ExplainedLine {
+  const profile = POLICIES[policy];
+  return explainedLine(
+    { code: 'policy_summary', params: { policy, policyVersion: profile.version } },
+    `Policy ${policy} v${profile.version}: ${profile.summary}`,
+  );
+}
 
 interface Interval {
   startMs: number;
@@ -125,7 +174,7 @@ interface Position {
 
 interface ChunkSpec {
   chunks: number[];
-  reason: string | undefined;
+  reason: HeuristicReason | undefined;
 }
 
 /**
@@ -343,7 +392,18 @@ function invalidInputCandidate(
   issues: InputIssue[],
   requiredTotal: number,
 ): PlanCandidate {
-  const profile = POLICIES[policy];
+  const lines: ExplainedLine[] = [
+    policyLine(policy),
+    explainedLine(
+      { code: 'input_rejected', params: { issueCount: issues.length } },
+      `Input rejected before generation: ${issues.map((issue) => issue.code).join(', ')}.`,
+    ),
+    ...issues
+      .slice(0, 5)
+      .map((issue) =>
+        explainedLine(itemFromMessage(issue), `${issue.code}: ${issue.message}`),
+      ),
+  ];
   return {
     policy,
     blocks: [],
@@ -351,11 +411,7 @@ function invalidInputCandidate(
     feasible: false,
     deficitMin: requiredTotal,
     capacityDeficitMin: requiredTotal,
-    explanation: [
-      `Policy ${policy} v${profile.version}: ${profile.summary}`,
-      `Input rejected before generation: ${issues.map((issue) => issue.code).join(', ')}.`,
-      ...issues.slice(0, 5).map((issue) => `${issue.code}: ${issue.message}`),
-    ],
+    ...explanationFields(lines),
     inputHash,
     generatorVersion: GENERATOR_VERSION,
   };
@@ -1018,7 +1074,6 @@ function generateForPolicy(
   capacityDeficitMin: number,
   maxImprovement: number,
 ): PlanCandidate {
-  const profile = POLICIES[policy];
   let affected = new Set(replan.baseAffectedTasks);
   let best: ReplanLevelAttempt | undefined;
   const maxExpansion = context.input.tasks.length + 2;
@@ -1089,31 +1144,74 @@ function generateForPolicy(
   }
   const placedTotalMin = Math.max(0, requiredTotalMin - metrics.deficitMin);
 
-  const explanation: string[] = [
-    `Policy ${policy} v${profile.version}: ${profile.summary}`,
-    `Placed ${placedTotalMin} of ${requiredTotalMin} required minutes in ${blocks.length} movable block(s), retaining ${retainedSeeds} existing block(s).`,
+  const lines: ExplainedLine[] = [
+    policyLine(policy),
+    explainedLine(
+      {
+        code: 'placement_summary',
+        params: {
+          placedMin: placedTotalMin,
+          requiredMin: requiredTotalMin,
+          blockCount: blocks.length,
+          retainedCount: retainedSeeds,
+        },
+      },
+      `Placed ${placedTotalMin} of ${requiredTotalMin} required minutes in ${blocks.length} movable block(s), retaining ${retainedSeeds} existing block(s).`,
+    ),
     feasible
-      ? 'All hard constraints H1-H8 satisfied.'
-      : `Infeasible with ${result.violations.length} hard violation(s): ${uniqueCodes(result.violations)}.`,
+      ? explainedLine(
+          { code: 'constraints_satisfied', params: {} },
+          'All hard constraints H1-H8 satisfied.',
+        )
+      : explainedLine(
+          {
+            code: 'infeasible_summary',
+            params: { violationCount: result.violations.length },
+          },
+          `Infeasible with ${result.violations.length} hard violation(s): ${uniqueCodes(result.violations)}.`,
+        ),
   ];
   if (!feasible) {
     for (const violation of result.violations.slice(0, 4)) {
-      explanation.push(violation.message);
+      lines.push(explainedLine(itemFromMessage(violation), violation.message));
     }
   }
   for (const reason of [...result.reasons].sort()) {
-    explanation.push(`Heuristic reason: ${reason}.`);
+    lines.push(
+      explainedLine(
+        { code: HEURISTIC_CODES[reason], params: {} },
+        `Heuristic reason: ${reason}.`,
+      ),
+    );
   }
-  explanation.push(
-    `Unplaced minutes (H7 shortfall): ${metrics.deficitMin} min.`,
+  lines.push(
+    explainedLine(
+      { code: 'unplaced_minutes', params: { deficitMin: metrics.deficitMin } },
+      `Unplaced minutes (H7 shortfall): ${metrics.deficitMin} min.`,
+    ),
   );
-  explanation.push(`Capacity deficit: ${capacityDeficitMin} min.`);
+  lines.push(
+    explainedLine(
+      { code: 'capacity_deficit', params: { capacityDeficitMin } },
+      `Capacity deficit: ${capacityDeficitMin} min.`,
+    ),
+  );
 
   if (replan.movableExisting.length > 0) {
     const bound = chosen.scope.affectedExistingBlocks * 2 + 2;
     if (metrics.changedBlocks > bound) {
-      explanation.push(
-        `${REPLAN_BOUND_PREFIX} ${metrics.changedBlocks} changed block(s) > ${bound} (2 × ${chosen.scope.affectedExistingBlocks} affected existing block(s) + 2). Unaffected blocks were preserved; this candidate is the best available.`,
+      lines.push(
+        explainedLine(
+          {
+            code: 'replan_bound_exceeded',
+            params: {
+              changedBlocks: metrics.changedBlocks,
+              bound,
+              affectedExistingBlocks: chosen.scope.affectedExistingBlocks,
+            },
+          },
+          `${REPLAN_BOUND_PREFIX} ${metrics.changedBlocks} changed block(s) > ${bound} (2 × ${chosen.scope.affectedExistingBlocks} affected existing block(s) + 2). Unaffected blocks were preserved; this candidate is the best available.`,
+        ),
       );
     }
   }
@@ -1125,7 +1223,7 @@ function generateForPolicy(
     feasible,
     deficitMin: metrics.deficitMin,
     capacityDeficitMin,
-    explanation,
+    ...explanationFields(lines),
     inputHash,
     generatorVersion: GENERATOR_VERSION,
   };
@@ -1320,7 +1418,7 @@ function preservesFrozen(
 interface PlacementAttempt {
   placements: Placement[];
   violations: Violation[];
-  reasons: Set<string>;
+  reasons: Set<HeuristicReason>;
   /** H7 shortfall of this attempt, including locked minutes as placed. */
   deficitMin: number;
 }
@@ -1344,7 +1442,7 @@ function runPlacementAttempt(
     );
   }
 
-  const reasons = new Set<string>();
+  const reasons = new Set<HeuristicReason>();
   const completionByTask = new Map<string, number>();
   for (const interval of state.intervals) {
     completionByTask.set(

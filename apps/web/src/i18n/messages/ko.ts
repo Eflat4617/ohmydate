@@ -1,4 +1,5 @@
 import type { ApiErrorCode } from '../../api/errors';
+import type { components } from '../../api/schema';
 import { plural } from '../types';
 
 /**
@@ -443,6 +444,98 @@ export const ko = {
     H7: '모든 작업을 배치할 가용 시간이 모자라요.',
     H8: '시각이 5분 단위가 아니거나 시간대가 올바르지 않아요.',
   },
+
+  /**
+   * FU-62 coded scheduler explanations and violation findings. `{task}`,
+   * `{other}` and `{dependency}` always end in "작업" (`explanation.task*`),
+   * so 이/은/을/과 after them is safe; `{time}`/`{at}`/`{date}` are Intl dates.
+   */
+  explanation: {
+    title: '계산 근거',
+    task: '“{title}” 작업',
+    taskUnknown: '한 작업',
+    otherTaskUnknown: '다른 작업',
+    dependencyUnknown: '선행 작업',
+    field: {
+      maxDailyFocusMin: '하루 최대 집중',
+      breakAfterMin: '쉬기 전 최대 연속 집중',
+      breakMin: '휴식 길이',
+    },
+  },
+
+  explain: {
+    policy_summary: '‘{policy}’ 정책 (v{version}): {summary}',
+    placement_summary: '필요한 {required} 중 {placed}을 블록 {blocks}개에 배치했어요. 기존 블록 {retained}개는 그대로 뒀어요.',
+    constraints_satisfied: '하드 제약(H1~H8)을 모두 지켰어요.',
+    infeasible_summary: '하드 제약 위반이 {count}건 있어서 이 안은 그대로 확정할 수 없어요.',
+    heuristic_insufficient_available_time: '마감 전까지 쓸 수 있는 가용 시간이 모자라서 일부 작업을 배치하지 못했어요.',
+    heuristic_no_contiguous_window: '나눌 수 없는 작업을 한 번에 넣을 만큼 긴 빈 시간이 없어요.',
+    heuristic_estimate_not_grid_aligned: '예상 시간이 5분 단위가 아니어서 5분 단위로 맞추고 남는 시간은 배치하지 않았어요.',
+    heuristic_estimate_below_grid: '남은 시간이 5분보다 짧아서 블록을 만들지 않았어요.',
+    heuristic_session_bounds_infeasible: '세션 최소·최대 길이로는 남은 시간을 나눌 수 없어서 한 블록으로 배치했어요.',
+    unplaced_minutes: '배치하지 못한 시간은 {duration}이에요.',
+    capacity_deficit: '가용 시간 기준 부족분은 {duration}이에요.',
+    replan_bound_exceeded:
+      '바뀐 블록이 {changed}개로, 변경 상한 {bound}개(영향받은 기존 블록 {affected}개 × 2 + 2)를 넘어요. 영향받지 않은 블록은 그대로 두었고, 이 안이 그중 가장 나아요.',
+    input_rejected: '입력값에 문제가 {count}건 있어서 일정을 만들지 않았어요.',
+
+    input_invalid_time_zone: '시간대가 올바른 IANA 시간대가 아니에요.',
+    input_invalid_horizon_instant: '계획 기간에 올바르지 않은 시각이 있어요.',
+    input_horizon_not_increasing: '계획 기간의 끝이 시작보다 늦어야 해요.',
+    input_horizon_too_long: '계획 기간은 최대 {days}일까지만 잡을 수 있어요.',
+    input_invalid_now: '현재 시각이 올바르지 않아요.',
+    input_duplicate_task: '{task}이 두 번 들어 있어요.',
+    input_invalid_estimate: '{task}의 예상 시간은 0분부터 {max}분까지의 정수여야 해요.',
+    input_invalid_buffer: '{task}의 마감 전 여유는 0분부터 {max}분까지의 정수여야 해요.',
+    input_invalid_session_minutes: '{task}의 세션 길이는 0분부터 {max}분까지의 정수여야 해요.',
+    input_invalid_session_bounds: '{task}의 세션 최소·최대 길이가 올바르지 않아요.',
+    input_invalid_task_window_instant: '{task}의 시작 가능 시각이나 마감 시각이 올바르지 않아요.',
+    input_task_window_empty: '{task}의 시작 가능 시각이 마감(여유 포함)과 같거나 더 늦어요.',
+    input_invalid_preference: '‘{field}’ 설정은 0분부터 {max}분까지의 정수여야 해요.',
+    input_unknown_dependency: '{task}이 목록에 없는 작업에 의존해요.',
+    input_dependency_cycle: '작업 의존 관계에 순환이 있어요.',
+    input_invalid_weekday: '가용 시간 규칙의 요일 값이 올바르지 않아요.',
+    input_invalid_availability_window: '{weekday} 가용 시간 구간이 올바르지 않아요.',
+    input_invalid_exception_date: '예외 날짜가 올바르지 않아요.',
+    input_exception_partial_window: '예외의 시작과 끝 시각은 함께 넣거나 둘 다 비워 주세요.',
+    input_invalid_exception_window: '예외의 시간 구간이 올바르지 않아요.',
+    input_commitment_invalid_instant: '약속에 올바르지 않은 시각이 있어요.',
+    input_commitment_end_before_start: '약속이 시작하기 전에 끝나요.',
+    input_commitment_too_long: '약속은 최대 {days}일까지만 이어질 수 있어요.',
+    input_unknown_block_task: '블록이 목록에 없는 작업을 가리켜요.',
+    input_invalid_block_instant: '{task}의 블록에 올바르지 않은 시각이 있어요.',
+    input_block_sub_millisecond: '{task}의 블록 시각이 밀리초보다 더 정밀해요.',
+    input_block_off_grid: '{task}의 블록이 5분 단위에 맞지 않아요.',
+    input_block_end_before_start: '{task}의 블록이 시작하기 전에 끝나요.',
+    input_block_too_long: '{task}의 블록은 최대 {days}일까지만 이어질 수 있어요.',
+
+    h0_unknown_task: '블록이 계획에 없는 작업을 가리켜요.',
+    h0_outside_horizon: '{task}의 블록({time})이 계획 기간 밖에 있어요.',
+    h1_same_task_overlap: '{task}의 블록끼리 겹쳐요.',
+    h1_tasks_overlap: '{task}과 {other}의 블록이 겹쳐요.',
+    h1_commitment_overlap: '{task}의 블록({time})이 약속과 겹쳐요.',
+    h1_active_block_overlap: '확정하려는 블록이 이미 확정된 다른 블록과 겹쳐요. 새로 고친 뒤 다시 시도해 주세요.',
+    h2_outside_availability: '{task}의 블록({time})이 가용 시간 밖에 있어요.',
+    h3_dependency_order: '{task}이 {dependency}이 끝나기 전에 시작해요.',
+    h4_before_earliest_start: '{task}이 시작 가능 시각({at})보다 먼저 시작해요.',
+    h4_inside_due_buffer: '{task}이 마감({at}) 전 여유 {buffer} 안에서 끝나요.',
+    h4_after_due: '{task}이 마감({at}) 뒤에 끝나요.',
+    h5_unsplittable_no_remaining: '나눌 수 없는 {task}은 남은 시간이 없어서 블록이 없어야 해요.',
+    h5_unsplittable_required_out_of_bounds:
+      '나눌 수 없는 {task}에 필요한 {required}이 세션 길이 범위({min}~{max})를 벗어나요.',
+    h5_unsplittable_single_block: '나눌 수 없는 {task}은 {required}짜리 블록 하나로 배치해야 해요.',
+    h5_session_out_of_bounds: '{task}의 {duration} 세션({time})이 세션 길이 범위({min}~{max})를 벗어나요.',
+    h6_daily_focus_exceeded: '{date} 집중 시간({total})이 하루 한도({max})를 넘어요.',
+    h6_break_missing: '{date} 연속 집중이 {breakAfter}을 넘는데 그 사이에 {breakLength} 휴식이 없어요.',
+    h7_deficit: '{task}에 {duration}이 모자라요.',
+    h7_overallocated: '{task}에 {duration}이 더 배치됐어요.',
+    h8_invalid_time_zone: '시간대가 올바르지 않아요.',
+    h8_invalid_horizon: '계획 기간에 올바르지 않은 시각이 있어요.',
+    h8_invalid_instant: '{task}의 블록에 올바르지 않은 시각이 있어요.',
+    h8_sub_millisecond: '{task}의 블록 시각이 밀리초보다 더 정밀해요.',
+    h8_off_grid: '{task}의 블록이 5분 단위에 맞지 않아요.',
+    h8_end_before_start: '{task}의 블록이 시작하기 전에 끝나요.',
+  } as const satisfies Record<components['schemas']['ExplanationItem']['code'], string>,
 
   metrics: {
     totalFocusMin: '총 집중 시간',

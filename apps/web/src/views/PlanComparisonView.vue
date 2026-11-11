@@ -13,13 +13,13 @@ import {
   type PreviewEditResponse,
   type Violation,
 } from '../api';
+import ExplanationList from '../components/ExplanationList.vue';
 import WeekCalendar from '../components/WeekCalendar.vue';
 import {
   blockIndexFromPath,
   metricsRows,
   policyLabel,
   policySummary,
-  violationText,
 } from '../domain/plan';
 import { t } from '../i18n';
 import I18nT from '../i18n/I18nT';
@@ -521,12 +521,12 @@ onUnmounted(() => {
               {{ noteFor(candidate.diversityNote)?.text }}
             </p>
           </button>
-          <details v-if="candidate.explanation.length > 0" class="candidate-explanation">
-            <summary>{{ t('plan.explanation') }}</summary>
-            <ul class="explanation-list" lang="en">
-              <li v-for="line in candidate.explanation" :key="line">{{ line }}</li>
-            </ul>
-          </details>
+          <ExplanationList
+            :lines="candidate.explanation"
+            :items="candidate.explanationItems"
+            :time-zone="timeZone"
+            :task-names="taskNames"
+          />
         </article>
       </div>
 
@@ -611,18 +611,8 @@ onUnmounted(() => {
               </I18nT>
             </li>
           </ul>
-          <ul v-if="previewViolations.length > 0" class="violation-list">
-            <li v-for="(violation, index) in previewViolations" :key="`preview-violation-${index}`">
-              <strong>{{ violation.code }}</strong> — {{ violationText(violation) }}
-              <span class="muted" lang="en">{{ violation.message }}</span>
-            </li>
-          </ul>
-          <ul v-if="approveViolations.length > 0" class="violation-list">
-            <li v-for="(violation, index) in approveViolations" :key="`approve-violation-${index}`">
-              <strong>{{ violation.code }}</strong> — {{ violationText(violation) }}
-              <span class="muted" lang="en">{{ violation.message }}</span>
-            </li>
-          </ul>
+          <ExplanationList :violations="previewViolations" :time-zone="timeZone" :task-names="taskNames" />
+          <ExplanationList :violations="approveViolations" :time-zone="timeZone" :task-names="taskNames" />
         </div>
 
         <UiBanner v-if="stale" tone="conflict" class="conflict-panel" role="alert">

@@ -6,6 +6,13 @@
  * parser, but every interval returned by this package is emitted as UTC).
  */
 
+import type {
+  ExplanationItem,
+  InputIssueParamMap,
+  MessageCodeFields,
+  ViolationParamMap,
+} from './codes.js';
+
 export type Id = string;
 export type Instant = string;
 export type IanaTz = string;
@@ -160,12 +167,18 @@ export type ViolationCode =
   | 'H7'
   | 'H8';
 
-export interface Violation {
+/**
+ * A validator finding. `message` is English text for logs; `messageCode` and
+ * `params` are the stable, renderable form of the same finding (FU-62). Every
+ * message template has exactly one `messageCode`, and the type ties each code
+ * to its parameter shape.
+ */
+export type Violation = {
   code: ViolationCode;
   message: string;
   taskId?: Id;
   blocks?: Block[];
-}
+} & MessageCodeFields<ViolationParamMap>;
 
 export interface ValidateOptions {
   riskLevel: RiskLevel;
@@ -179,11 +192,12 @@ export interface ValidateOptions {
   historyBlocks?: Block[];
 }
 
-export interface InputIssue {
+/** Input issue; `messageCode` + `params` are its stable form (FU-62). */
+export type InputIssue = {
   code: string;
   message: string;
   taskId?: Id;
-}
+} & MessageCodeFields<InputIssueParamMap>;
 
 export interface TaskDeficit {
   taskId: Id;
@@ -270,6 +284,11 @@ export interface PlanCandidate {
   /** Capacity upper bound from `deficit()` before generation. */
   capacityDeficitMin: number;
   explanation: string[];
+  /**
+   * Stable form of `explanation` (FU-62): `explanationItems[i]` is the coded
+   * item for `explanation[i]`, so both arrays always have the same length.
+   */
+  explanationItems: ExplanationItem[];
   /**
    * SHA-256 of canonical JSON covering the effective seed and
    * `maxLocalImprovement`, with all instants canonicalised to UTC ISO strings.

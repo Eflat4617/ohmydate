@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { Today, TodayProposal } from '../api';
+import type { Today, TodayProposal, Violation } from '../api';
 import { t } from '../i18n';
 import { formatCivilDate, formatDuration, formatTimeRange, minutesBetween } from '../i18n/format';
 import UiBadge from './ui/UiBadge.vue';
@@ -8,6 +8,7 @@ import UiBanner from './ui/UiBanner.vue';
 import UiButton from './ui/UiButton.vue';
 import UiDialog from './ui/UiDialog.vue';
 import UiIcon from './ui/UiIcon.vue';
+import ExplanationList from './ExplanationList.vue';
 
 const props = defineProps<{
   proposal: TodayProposal;
@@ -15,6 +16,8 @@ const props = defineProps<{
   busy?: boolean;
   disabled?: boolean;
   error?: string | null;
+  /** Coded findings of a 422 `constraint_violation` approval (FU-62). */
+  violations?: readonly Violation[];
 }>();
 const emit = defineEmits<{ approve: []; cancel: [] }>();
 
@@ -67,6 +70,7 @@ const availabilityVersion = computed<number | undefined>(() => {
       {{ t('proposal.availabilityVersion', { version: availabilityVersion }) }}
     </p>
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
+    <ExplanationList :violations="violations ?? []" :time-zone="proposal.timeZone" :task-names="titleFor" />
     <div class="dialog-actions">
       <UiButton :disabled="busy" variant="ghost" @click="emit('cancel')">{{ t('common.cancel') }}</UiButton>
       <UiButton

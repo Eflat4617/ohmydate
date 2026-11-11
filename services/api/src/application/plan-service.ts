@@ -124,6 +124,9 @@ export function toContractViolations(
     code: violation.code as ContractViolation['code'],
     ...(violation.taskId === undefined ? {} : { taskId: violation.taskId as Id }),
     message: violation.message,
+    // FU-62: the stable, renderable form of the same finding.
+    messageCode: violation.messageCode,
+    params: { ...violation.params },
   }));
 }
 
@@ -136,6 +139,7 @@ function mapCandidate(candidate: SchedulerCandidate): NewCandidate {
     deficitMin: candidate.deficitMin,
     capacityDeficitMin: candidate.capacityDeficitMin,
     explanation: candidate.explanation,
+    explanationItems: candidate.explanationItems,
     generatorVersion: candidate.generatorVersion,
     inputHash: candidate.inputHash,
   };

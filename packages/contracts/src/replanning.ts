@@ -6,6 +6,7 @@ import {
   VersionSchema,
   pageSchema,
 } from './common.js';
+import { ExplanationItemsSchema } from './explanation.js';
 import { DecompositionStepKindSchema } from './intake.js';
 import {
   MinuteSchema,
@@ -112,6 +113,8 @@ export const ReplanCandidateSchema = Type.Object(
     bound: Type.Integer({ minimum: 0 }),
     flags: Type.Array(ReplanCandidateFlagSchema, { maxItems: 20, uniqueItems: true }),
     explanation: Type.Array(Type.String({ maxLength: 500 }), { maxItems: 50 }),
+    /** FU-62: `explanationItems[i]` codes `explanation[i]`; `[]` for legacy rows. */
+    explanationItems: Type.Optional(ExplanationItemsSchema),
   },
   { additionalProperties: false, $id: 'ReplanCandidate' },
 );

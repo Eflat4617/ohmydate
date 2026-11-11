@@ -10,6 +10,7 @@ import {
   type SessionCreate,
   type TodayBlock,
   type TodayProposal,
+  type Violation,
 } from '../api';
 import ProposalPreview from '../components/ProposalPreview.vue';
 import UiBadge from '../components/ui/UiBadge.vue';
@@ -195,6 +196,11 @@ const shrinkTarget = ref(25);
 const busy = ref(false);
 const proposal = ref<TodayProposal | null>(null);
 const proposalError = ref<string | null>(null);
+const proposalViolations = ref<Violation[]>([]);
+// Findings belong to one approval attempt of one proposal (FU-62).
+watch(proposal, () => {
+  proposalViolations.value = [];
+});
 const retryBusy = ref(false);
 
 const quarantinedCount = computed(() => {
@@ -345,6 +351,7 @@ async function approveProposal(): Promise<void> {
   const binding = captureOwnerBinding();
   busy.value = true;
   proposalError.value = null;
+  proposalViolations.value = [];
   const scope = `today:approve:${value.id}`;
   try {
     const action = actions.begin(scope, { proposalId: value.id }, samePayload);
@@ -367,6 +374,9 @@ async function approveProposal(): Promise<void> {
       await refresh();
     } else {
       proposalError.value = messageFor(cause);
+      if (cause instanceof ApiError && cause.code === 'constraint_violation') {
+        proposalViolations.value = cause.problem?.violations ?? [];
+      }
     }
   } finally {
     busy.value = false;
@@ -592,6 +602,7 @@ function resumeActive(): void {
       :busy="busy"
       :disabled="readOnly"
       :error="proposalError"
+      :violations="proposalViolations"
       @approve="approveProposal"
       @cancel="proposal = null"
     />

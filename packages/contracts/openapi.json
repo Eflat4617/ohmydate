@@ -1742,6 +1742,308 @@
         ],
         "type": "object"
       },
+      "ExplanationItem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "const": "policy_summary",
+                "type": "string"
+              },
+              {
+                "const": "placement_summary",
+                "type": "string"
+              },
+              {
+                "const": "constraints_satisfied",
+                "type": "string"
+              },
+              {
+                "const": "infeasible_summary",
+                "type": "string"
+              },
+              {
+                "const": "heuristic_insufficient_available_time",
+                "type": "string"
+              },
+              {
+                "const": "heuristic_no_contiguous_window",
+                "type": "string"
+              },
+              {
+                "const": "heuristic_estimate_not_grid_aligned",
+                "type": "string"
+              },
+              {
+                "const": "heuristic_estimate_below_grid",
+                "type": "string"
+              },
+              {
+                "const": "heuristic_session_bounds_infeasible",
+                "type": "string"
+              },
+              {
+                "const": "unplaced_minutes",
+                "type": "string"
+              },
+              {
+                "const": "capacity_deficit",
+                "type": "string"
+              },
+              {
+                "const": "replan_bound_exceeded",
+                "type": "string"
+              },
+              {
+                "const": "input_rejected",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_time_zone",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_horizon_instant",
+                "type": "string"
+              },
+              {
+                "const": "input_horizon_not_increasing",
+                "type": "string"
+              },
+              {
+                "const": "input_horizon_too_long",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_now",
+                "type": "string"
+              },
+              {
+                "const": "input_duplicate_task",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_estimate",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_buffer",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_session_minutes",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_session_bounds",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_task_window_instant",
+                "type": "string"
+              },
+              {
+                "const": "input_task_window_empty",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_preference",
+                "type": "string"
+              },
+              {
+                "const": "input_unknown_dependency",
+                "type": "string"
+              },
+              {
+                "const": "input_dependency_cycle",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_weekday",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_availability_window",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_exception_date",
+                "type": "string"
+              },
+              {
+                "const": "input_exception_partial_window",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_exception_window",
+                "type": "string"
+              },
+              {
+                "const": "input_commitment_invalid_instant",
+                "type": "string"
+              },
+              {
+                "const": "input_commitment_end_before_start",
+                "type": "string"
+              },
+              {
+                "const": "input_commitment_too_long",
+                "type": "string"
+              },
+              {
+                "const": "input_unknown_block_task",
+                "type": "string"
+              },
+              {
+                "const": "input_invalid_block_instant",
+                "type": "string"
+              },
+              {
+                "const": "input_block_sub_millisecond",
+                "type": "string"
+              },
+              {
+                "const": "input_block_off_grid",
+                "type": "string"
+              },
+              {
+                "const": "input_block_end_before_start",
+                "type": "string"
+              },
+              {
+                "const": "input_block_too_long",
+                "type": "string"
+              },
+              {
+                "const": "h0_unknown_task",
+                "type": "string"
+              },
+              {
+                "const": "h0_outside_horizon",
+                "type": "string"
+              },
+              {
+                "const": "h1_same_task_overlap",
+                "type": "string"
+              },
+              {
+                "const": "h1_tasks_overlap",
+                "type": "string"
+              },
+              {
+                "const": "h1_commitment_overlap",
+                "type": "string"
+              },
+              {
+                "const": "h1_active_block_overlap",
+                "type": "string"
+              },
+              {
+                "const": "h2_outside_availability",
+                "type": "string"
+              },
+              {
+                "const": "h3_dependency_order",
+                "type": "string"
+              },
+              {
+                "const": "h4_before_earliest_start",
+                "type": "string"
+              },
+              {
+                "const": "h4_inside_due_buffer",
+                "type": "string"
+              },
+              {
+                "const": "h4_after_due",
+                "type": "string"
+              },
+              {
+                "const": "h5_unsplittable_no_remaining",
+                "type": "string"
+              },
+              {
+                "const": "h5_unsplittable_required_out_of_bounds",
+                "type": "string"
+              },
+              {
+                "const": "h5_unsplittable_single_block",
+                "type": "string"
+              },
+              {
+                "const": "h5_session_out_of_bounds",
+                "type": "string"
+              },
+              {
+                "const": "h6_daily_focus_exceeded",
+                "type": "string"
+              },
+              {
+                "const": "h6_break_missing",
+                "type": "string"
+              },
+              {
+                "const": "h7_deficit",
+                "type": "string"
+              },
+              {
+                "const": "h7_overallocated",
+                "type": "string"
+              },
+              {
+                "const": "h8_invalid_time_zone",
+                "type": "string"
+              },
+              {
+                "const": "h8_invalid_horizon",
+                "type": "string"
+              },
+              {
+                "const": "h8_invalid_instant",
+                "type": "string"
+              },
+              {
+                "const": "h8_sub_millisecond",
+                "type": "string"
+              },
+              {
+                "const": "h8_off_grid",
+                "type": "string"
+              },
+              {
+                "const": "h8_end_before_start",
+                "type": "string"
+              }
+            ]
+          },
+          "params": {
+            "additionalProperties": false,
+            "maxProperties": 12,
+            "patternProperties": {
+              "^[a-z][A-Za-z0-9]{0,39}$": {
+                "anyOf": [
+                  {
+                    "maxLength": 100,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:+-]{1,100}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "code",
+          "params"
+        ],
+        "type": "object"
+      },
       "Export": {
         "additionalProperties": false,
         "properties": {
@@ -4129,6 +4431,312 @@
                   "maxItems": 50,
                   "type": "array"
                 },
+                "explanationItems": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "code": {
+                        "anyOf": [
+                          {
+                            "const": "policy_summary",
+                            "type": "string"
+                          },
+                          {
+                            "const": "placement_summary",
+                            "type": "string"
+                          },
+                          {
+                            "const": "constraints_satisfied",
+                            "type": "string"
+                          },
+                          {
+                            "const": "infeasible_summary",
+                            "type": "string"
+                          },
+                          {
+                            "const": "heuristic_insufficient_available_time",
+                            "type": "string"
+                          },
+                          {
+                            "const": "heuristic_no_contiguous_window",
+                            "type": "string"
+                          },
+                          {
+                            "const": "heuristic_estimate_not_grid_aligned",
+                            "type": "string"
+                          },
+                          {
+                            "const": "heuristic_estimate_below_grid",
+                            "type": "string"
+                          },
+                          {
+                            "const": "heuristic_session_bounds_infeasible",
+                            "type": "string"
+                          },
+                          {
+                            "const": "unplaced_minutes",
+                            "type": "string"
+                          },
+                          {
+                            "const": "capacity_deficit",
+                            "type": "string"
+                          },
+                          {
+                            "const": "replan_bound_exceeded",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_rejected",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_time_zone",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_horizon_instant",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_horizon_not_increasing",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_horizon_too_long",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_now",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_duplicate_task",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_estimate",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_buffer",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_session_minutes",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_session_bounds",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_task_window_instant",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_task_window_empty",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_preference",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_unknown_dependency",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_dependency_cycle",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_weekday",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_availability_window",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_exception_date",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_exception_partial_window",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_exception_window",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_commitment_invalid_instant",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_commitment_end_before_start",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_commitment_too_long",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_unknown_block_task",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_invalid_block_instant",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_block_sub_millisecond",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_block_off_grid",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_block_end_before_start",
+                            "type": "string"
+                          },
+                          {
+                            "const": "input_block_too_long",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h0_unknown_task",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h0_outside_horizon",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h1_same_task_overlap",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h1_tasks_overlap",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h1_commitment_overlap",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h1_active_block_overlap",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h2_outside_availability",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h3_dependency_order",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h4_before_earliest_start",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h4_inside_due_buffer",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h4_after_due",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h5_unsplittable_no_remaining",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h5_unsplittable_required_out_of_bounds",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h5_unsplittable_single_block",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h5_session_out_of_bounds",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h6_daily_focus_exceeded",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h6_break_missing",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h7_deficit",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h7_overallocated",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h8_invalid_time_zone",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h8_invalid_horizon",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h8_invalid_instant",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h8_sub_millisecond",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h8_off_grid",
+                            "type": "string"
+                          },
+                          {
+                            "const": "h8_end_before_start",
+                            "type": "string"
+                          }
+                        ]
+                      },
+                      "params": {
+                        "additionalProperties": false,
+                        "maxProperties": 12,
+                        "patternProperties": {
+                          "^[a-z][A-Za-z0-9]{0,39}$": {
+                            "anyOf": [
+                              {
+                                "maxLength": 100,
+                                "minLength": 1,
+                                "pattern": "^[A-Za-z0-9_.:+-]{1,100}$",
+                                "type": "string"
+                              },
+                              {
+                                "type": "number"
+                              }
+                            ]
+                          }
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "params"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 50,
+                  "type": "array"
+                },
                 "feasible": {
                   "type": "boolean"
                 },
@@ -4422,6 +5030,312 @@
             "items": {
               "maxLength": 500,
               "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "explanationItems": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "anyOf": [
+                    {
+                      "const": "policy_summary",
+                      "type": "string"
+                    },
+                    {
+                      "const": "placement_summary",
+                      "type": "string"
+                    },
+                    {
+                      "const": "constraints_satisfied",
+                      "type": "string"
+                    },
+                    {
+                      "const": "infeasible_summary",
+                      "type": "string"
+                    },
+                    {
+                      "const": "heuristic_insufficient_available_time",
+                      "type": "string"
+                    },
+                    {
+                      "const": "heuristic_no_contiguous_window",
+                      "type": "string"
+                    },
+                    {
+                      "const": "heuristic_estimate_not_grid_aligned",
+                      "type": "string"
+                    },
+                    {
+                      "const": "heuristic_estimate_below_grid",
+                      "type": "string"
+                    },
+                    {
+                      "const": "heuristic_session_bounds_infeasible",
+                      "type": "string"
+                    },
+                    {
+                      "const": "unplaced_minutes",
+                      "type": "string"
+                    },
+                    {
+                      "const": "capacity_deficit",
+                      "type": "string"
+                    },
+                    {
+                      "const": "replan_bound_exceeded",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_rejected",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_time_zone",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_horizon_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_horizon_not_increasing",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_horizon_too_long",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_now",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_duplicate_task",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_estimate",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_buffer",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_session_minutes",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_session_bounds",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_task_window_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_task_window_empty",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_preference",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_unknown_dependency",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_dependency_cycle",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_weekday",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_availability_window",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_exception_date",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_exception_partial_window",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_exception_window",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_commitment_invalid_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_commitment_end_before_start",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_commitment_too_long",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_unknown_block_task",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_block_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_block_sub_millisecond",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_block_off_grid",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_block_end_before_start",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_block_too_long",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h0_unknown_task",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h0_outside_horizon",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_same_task_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_tasks_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_commitment_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_active_block_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h2_outside_availability",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h3_dependency_order",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_before_earliest_start",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_inside_due_buffer",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_after_due",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_no_remaining",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_required_out_of_bounds",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_single_block",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_session_out_of_bounds",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h6_daily_focus_exceeded",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h6_break_missing",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h7_deficit",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h7_overallocated",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_time_zone",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_horizon",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_sub_millisecond",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_off_grid",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_end_before_start",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "params": {
+                  "additionalProperties": false,
+                  "maxProperties": 12,
+                  "patternProperties": {
+                    "^[a-z][A-Za-z0-9]{0,39}$": {
+                      "anyOf": [
+                        {
+                          "maxLength": 100,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:+-]{1,100}$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "code",
+                "params"
+              ],
+              "type": "object"
             },
             "maxItems": 50,
             "type": "array"
@@ -5064,6 +5978,130 @@
                   "minLength": 1,
                   "type": "string"
                 },
+                "messageCode": {
+                  "anyOf": [
+                    {
+                      "const": "h0_unknown_task",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h0_outside_horizon",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_same_task_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_tasks_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_commitment_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_active_block_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h2_outside_availability",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h3_dependency_order",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_before_earliest_start",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_inside_due_buffer",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_after_due",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_no_remaining",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_required_out_of_bounds",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_single_block",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_session_out_of_bounds",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h6_daily_focus_exceeded",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h6_break_missing",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h7_deficit",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h7_overallocated",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_time_zone",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_horizon",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_sub_millisecond",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_off_grid",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_end_before_start",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "params": {
+                  "additionalProperties": false,
+                  "maxProperties": 12,
+                  "patternProperties": {
+                    "^[a-z][A-Za-z0-9]{0,39}$": {
+                      "anyOf": [
+                        {
+                          "maxLength": 100,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:+-]{1,100}$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "type": "object"
+                },
                 "taskId": {
                   "format": "uuid",
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
@@ -5259,6 +6297,130 @@
                   "maxLength": 500,
                   "minLength": 1,
                   "type": "string"
+                },
+                "messageCode": {
+                  "anyOf": [
+                    {
+                      "const": "h0_unknown_task",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h0_outside_horizon",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_same_task_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_tasks_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_commitment_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_active_block_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h2_outside_availability",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h3_dependency_order",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_before_earliest_start",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_inside_due_buffer",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_after_due",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_no_remaining",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_required_out_of_bounds",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_single_block",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_session_out_of_bounds",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h6_daily_focus_exceeded",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h6_break_missing",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h7_deficit",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h7_overallocated",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_time_zone",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_horizon",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_sub_millisecond",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_off_grid",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_end_before_start",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "params": {
+                  "additionalProperties": false,
+                  "maxProperties": 12,
+                  "patternProperties": {
+                    "^[a-z][A-Za-z0-9]{0,39}$": {
+                      "anyOf": [
+                        {
+                          "maxLength": 100,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:+-]{1,100}$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "type": "object"
                 },
                 "taskId": {
                   "format": "uuid",
@@ -5566,6 +6728,312 @@
             "maxItems": 50,
             "type": "array"
           },
+          "explanationItems": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "anyOf": [
+                    {
+                      "const": "policy_summary",
+                      "type": "string"
+                    },
+                    {
+                      "const": "placement_summary",
+                      "type": "string"
+                    },
+                    {
+                      "const": "constraints_satisfied",
+                      "type": "string"
+                    },
+                    {
+                      "const": "infeasible_summary",
+                      "type": "string"
+                    },
+                    {
+                      "const": "heuristic_insufficient_available_time",
+                      "type": "string"
+                    },
+                    {
+                      "const": "heuristic_no_contiguous_window",
+                      "type": "string"
+                    },
+                    {
+                      "const": "heuristic_estimate_not_grid_aligned",
+                      "type": "string"
+                    },
+                    {
+                      "const": "heuristic_estimate_below_grid",
+                      "type": "string"
+                    },
+                    {
+                      "const": "heuristic_session_bounds_infeasible",
+                      "type": "string"
+                    },
+                    {
+                      "const": "unplaced_minutes",
+                      "type": "string"
+                    },
+                    {
+                      "const": "capacity_deficit",
+                      "type": "string"
+                    },
+                    {
+                      "const": "replan_bound_exceeded",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_rejected",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_time_zone",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_horizon_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_horizon_not_increasing",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_horizon_too_long",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_now",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_duplicate_task",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_estimate",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_buffer",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_session_minutes",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_session_bounds",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_task_window_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_task_window_empty",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_preference",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_unknown_dependency",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_dependency_cycle",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_weekday",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_availability_window",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_exception_date",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_exception_partial_window",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_exception_window",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_commitment_invalid_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_commitment_end_before_start",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_commitment_too_long",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_unknown_block_task",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_invalid_block_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_block_sub_millisecond",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_block_off_grid",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_block_end_before_start",
+                      "type": "string"
+                    },
+                    {
+                      "const": "input_block_too_long",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h0_unknown_task",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h0_outside_horizon",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_same_task_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_tasks_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_commitment_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h1_active_block_overlap",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h2_outside_availability",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h3_dependency_order",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_before_earliest_start",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_inside_due_buffer",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h4_after_due",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_no_remaining",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_required_out_of_bounds",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_unsplittable_single_block",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h5_session_out_of_bounds",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h6_daily_focus_exceeded",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h6_break_missing",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h7_deficit",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h7_overallocated",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_time_zone",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_horizon",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_invalid_instant",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_sub_millisecond",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_off_grid",
+                      "type": "string"
+                    },
+                    {
+                      "const": "h8_end_before_start",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "params": {
+                  "additionalProperties": false,
+                  "maxProperties": 12,
+                  "patternProperties": {
+                    "^[a-z][A-Za-z0-9]{0,39}$": {
+                      "anyOf": [
+                        {
+                          "maxLength": 100,
+                          "minLength": 1,
+                          "pattern": "^[A-Za-z0-9_.:+-]{1,100}$",
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "code",
+                "params"
+              ],
+              "type": "object"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
           "flags": {
             "items": {
               "anyOf": [
@@ -5709,6 +7177,312 @@
                 "items": {
                   "maxLength": 500,
                   "type": "string"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              "explanationItems": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "anyOf": [
+                        {
+                          "const": "policy_summary",
+                          "type": "string"
+                        },
+                        {
+                          "const": "placement_summary",
+                          "type": "string"
+                        },
+                        {
+                          "const": "constraints_satisfied",
+                          "type": "string"
+                        },
+                        {
+                          "const": "infeasible_summary",
+                          "type": "string"
+                        },
+                        {
+                          "const": "heuristic_insufficient_available_time",
+                          "type": "string"
+                        },
+                        {
+                          "const": "heuristic_no_contiguous_window",
+                          "type": "string"
+                        },
+                        {
+                          "const": "heuristic_estimate_not_grid_aligned",
+                          "type": "string"
+                        },
+                        {
+                          "const": "heuristic_estimate_below_grid",
+                          "type": "string"
+                        },
+                        {
+                          "const": "heuristic_session_bounds_infeasible",
+                          "type": "string"
+                        },
+                        {
+                          "const": "unplaced_minutes",
+                          "type": "string"
+                        },
+                        {
+                          "const": "capacity_deficit",
+                          "type": "string"
+                        },
+                        {
+                          "const": "replan_bound_exceeded",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_rejected",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_time_zone",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_horizon_instant",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_horizon_not_increasing",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_horizon_too_long",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_now",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_duplicate_task",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_estimate",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_buffer",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_session_minutes",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_session_bounds",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_task_window_instant",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_task_window_empty",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_preference",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_unknown_dependency",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_dependency_cycle",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_weekday",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_availability_window",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_exception_date",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_exception_partial_window",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_exception_window",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_commitment_invalid_instant",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_commitment_end_before_start",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_commitment_too_long",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_unknown_block_task",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_invalid_block_instant",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_block_sub_millisecond",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_block_off_grid",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_block_end_before_start",
+                          "type": "string"
+                        },
+                        {
+                          "const": "input_block_too_long",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h0_unknown_task",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h0_outside_horizon",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h1_same_task_overlap",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h1_tasks_overlap",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h1_commitment_overlap",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h1_active_block_overlap",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h2_outside_availability",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h3_dependency_order",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h4_before_earliest_start",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h4_inside_due_buffer",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h4_after_due",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h5_unsplittable_no_remaining",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h5_unsplittable_required_out_of_bounds",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h5_unsplittable_single_block",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h5_session_out_of_bounds",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h6_daily_focus_exceeded",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h6_break_missing",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h7_deficit",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h7_overallocated",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h8_invalid_time_zone",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h8_invalid_horizon",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h8_invalid_instant",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h8_sub_millisecond",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h8_off_grid",
+                          "type": "string"
+                        },
+                        {
+                          "const": "h8_end_before_start",
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "params": {
+                      "additionalProperties": false,
+                      "maxProperties": 12,
+                      "patternProperties": {
+                        "^[a-z][A-Za-z0-9]{0,39}$": {
+                          "anyOf": [
+                            {
+                              "maxLength": 100,
+                              "minLength": 1,
+                              "pattern": "^[A-Za-z0-9_.:+-]{1,100}$",
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ]
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "params"
+                  ],
+                  "type": "object"
                 },
                 "maxItems": 50,
                 "type": "array"
@@ -6038,6 +7812,312 @@
                       "items": {
                         "maxLength": 500,
                         "type": "string"
+                      },
+                      "maxItems": 50,
+                      "type": "array"
+                    },
+                    "explanationItems": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "code": {
+                            "anyOf": [
+                              {
+                                "const": "policy_summary",
+                                "type": "string"
+                              },
+                              {
+                                "const": "placement_summary",
+                                "type": "string"
+                              },
+                              {
+                                "const": "constraints_satisfied",
+                                "type": "string"
+                              },
+                              {
+                                "const": "infeasible_summary",
+                                "type": "string"
+                              },
+                              {
+                                "const": "heuristic_insufficient_available_time",
+                                "type": "string"
+                              },
+                              {
+                                "const": "heuristic_no_contiguous_window",
+                                "type": "string"
+                              },
+                              {
+                                "const": "heuristic_estimate_not_grid_aligned",
+                                "type": "string"
+                              },
+                              {
+                                "const": "heuristic_estimate_below_grid",
+                                "type": "string"
+                              },
+                              {
+                                "const": "heuristic_session_bounds_infeasible",
+                                "type": "string"
+                              },
+                              {
+                                "const": "unplaced_minutes",
+                                "type": "string"
+                              },
+                              {
+                                "const": "capacity_deficit",
+                                "type": "string"
+                              },
+                              {
+                                "const": "replan_bound_exceeded",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_rejected",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_time_zone",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_horizon_instant",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_horizon_not_increasing",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_horizon_too_long",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_now",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_duplicate_task",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_estimate",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_buffer",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_session_minutes",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_session_bounds",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_task_window_instant",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_task_window_empty",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_preference",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_unknown_dependency",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_dependency_cycle",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_weekday",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_availability_window",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_exception_date",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_exception_partial_window",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_exception_window",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_commitment_invalid_instant",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_commitment_end_before_start",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_commitment_too_long",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_unknown_block_task",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_invalid_block_instant",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_block_sub_millisecond",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_block_off_grid",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_block_end_before_start",
+                                "type": "string"
+                              },
+                              {
+                                "const": "input_block_too_long",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h0_unknown_task",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h0_outside_horizon",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h1_same_task_overlap",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h1_tasks_overlap",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h1_commitment_overlap",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h1_active_block_overlap",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h2_outside_availability",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h3_dependency_order",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h4_before_earliest_start",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h4_inside_due_buffer",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h4_after_due",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h5_unsplittable_no_remaining",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h5_unsplittable_required_out_of_bounds",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h5_unsplittable_single_block",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h5_session_out_of_bounds",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h6_daily_focus_exceeded",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h6_break_missing",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h7_deficit",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h7_overallocated",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h8_invalid_time_zone",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h8_invalid_horizon",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h8_invalid_instant",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h8_sub_millisecond",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h8_off_grid",
+                                "type": "string"
+                              },
+                              {
+                                "const": "h8_end_before_start",
+                                "type": "string"
+                              }
+                            ]
+                          },
+                          "params": {
+                            "additionalProperties": false,
+                            "maxProperties": 12,
+                            "patternProperties": {
+                              "^[a-z][A-Za-z0-9]{0,39}$": {
+                                "anyOf": [
+                                  {
+                                    "maxLength": 100,
+                                    "minLength": 1,
+                                    "pattern": "^[A-Za-z0-9_.:+-]{1,100}$",
+                                    "type": "string"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ]
+                              }
+                            },
+                            "type": "object"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "params"
+                        ],
+                        "type": "object"
                       },
                       "maxItems": 50,
                       "type": "array"
