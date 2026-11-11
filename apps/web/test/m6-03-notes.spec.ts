@@ -1,5 +1,12 @@
+import { QueryClient, VueQueryPlugin, useQuery } from '@tanstack/vue-query';
+import { mount, type VueWrapper } from '@vue/test-utils';
 import { HttpResponse, http } from 'msw';
+import { createPinia } from 'pinia';
+import { defineComponent, h } from 'vue';
+import { createMemoryHistory, createRouter } from 'vue-router';
 import { isUuidV7Key } from '../src/api';
+import NoteEditor from '../src/components/notes/NoteEditor.vue';
+import { noteKeys, ownerKeyOf } from '../src/composables/notes';
 import { mockDb } from '../src/mocks/db';
 import { NOTE_MEETING_ID, NOTE_PRIVATE_ID, NOTE_THESIS_ID } from '../src/mocks/notes-seed';
 import { server } from '../src/mocks/server';
@@ -48,6 +55,14 @@ async function openNote(id: string): Promise<MountedApp> {
   );
   await settle();
   return app;
+}
+
+const OTHER_OWNER = '01900000-0000-7000-8000-00000000beef';
+
+async function confirmDeleteIn(root: VueWrapper): Promise<void> {
+  await root.get('[data-note-delete]').trigger('click');
+  await settle();
+  buttonInElement(dialogByTitle('노트를 삭제할까요?'), '삭제').click();
 }
 
 function listTitles(app: MountedApp): string[] {
@@ -429,5 +444,120 @@ describe('Notes workspace — owner change (ADR-023)', () => {
     expect(document.body.querySelector('.note-conflict-dialog')).toBeNull();
     expect(document.body.textContent).not.toContain('저장했어요');
     adoptActiveOwner(mockDb.user.id, 'bootstrap');
+  });
+
+  it('in the workspace, a delete whose cache invalidation ends after an owner change shows no toast and does not navigate', async () => {
+    // M6-03R2 LOW (app level): hold forgetNote's list refetch, switch A -> B, then release it.
+    const held = gate();
+    let deleteSent = false;
+    let heldRefetches = 0;
+    server.use(
+      http.delete('*/api/v1/documents/:id', () => {
+        deleteSent = true;
+        return undefined;
+      }),
+      http.get('*/api/v1/documents', async () => {
+        if (!deleteSent) return undefined;
+        heldRefetches += 1;
+        await held.promise;
+        return undefined;
+      }),
+    );
+    const app = await openNote(NOTE_PRIVATE_ID);
+    await confirmDeleteIn(app.wrapper);
+    // The server deleted the note; forgetNote is now waiting on the held list refetch.
+    await vi.waitFor(() => expect(heldRefetches).toBe(1));
+    expect(noteById(NOTE_PRIVATE_ID).deletedAt).toBeDefined();
+    adoptActiveOwner(OTHER_OWNER, 'storage');
+    held.release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await settle();
+    expect(app.router.currentRoute.value.path).toBe(`/notes/${NOTE_PRIVATE_ID}`);
+    expect(document.body.textContent).not.toContain('노트를 삭제했어요');
+    adoptActiveOwner(mockDb.user.id, 'bootstrap');
+  });
+});
+
+/**
+ * M6-03R2 LOW: NoteEditor mounted on its own, so an owner change does not
+ * unmount it and its own owner fence decides whether `deleted` is emitted.
+ */
+describe('Notes editor — delete completion after a held cache invalidation (ADR-023)', () => {
+  /**
+   * NoteEditor beside an active notes list query, as in the workspace, but
+   * without NotesView/App: an owner change does not unmount it. The list
+   * refetch that forgetNote's invalidation waits on is held after the DELETE.
+   */
+  async function mountEditorWithHeldList(noteId: string) {
+    adoptActiveOwner(mockDb.user.id, 'bootstrap');
+    const held = gate();
+    let deleteSent = false;
+    let heldRefetches = 0;
+    server.use(
+      http.delete('*/api/v1/documents/:id', () => {
+        deleteSent = true;
+        return undefined;
+      }),
+    );
+    const ListQuery = defineComponent({
+      setup() {
+        useQuery({
+          queryKey: noteKeys.list(ownerKeyOf(mockDb.user.id), ''),
+          queryFn: async () => {
+            if (deleteSent) {
+              heldRefetches += 1;
+              await held.promise;
+            }
+            return null;
+          },
+        });
+        return () => null;
+      },
+    });
+    const Host = defineComponent({ setup: () => () => h('div', [h(ListQuery), h(NoteEditor, { noteId })]) });
+    const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/:p(.*)*', component: { render: () => null } }] });
+    await router.push('/');
+    const wrapper = mount(Host, {
+      global: { plugins: [createPinia(), router, [VueQueryPlugin, { queryClient: new QueryClient() }]] },
+      attachTo: document.body,
+    });
+    await vi.waitFor(() =>
+      expect((wrapper.get('[data-note-title]').element as HTMLInputElement).value).toBe(noteById(noteId).title),
+    );
+    await settle();
+    return { wrapper, editor: wrapper.findComponent(NoteEditor), release: held.release, heldRefetches: () => heldRefetches };
+  }
+
+  it('control: once the held invalidation ends for the same owner, it emits “deleted” with the title', async () => {
+    const view = await mountEditorWithHeldList(NOTE_PRIVATE_ID);
+    try {
+      await confirmDeleteIn(view.wrapper);
+      await vi.waitFor(() => expect(view.heldRefetches()).toBe(1));
+      // Still inside forgetNote: nothing is reported before the cache settles.
+      expect(view.editor.emitted('deleted')).toBeUndefined();
+      view.release();
+      await vi.waitFor(() => expect(view.editor.emitted('deleted')).toEqual([['개인 일정 메모']]));
+    } finally {
+      view.wrapper.unmount();
+    }
+  });
+
+  it('owner A -> B while forgetNote is held: no “deleted” for the stale owner (negative)', async () => {
+    const view = await mountEditorWithHeldList(NOTE_PRIVATE_ID);
+    try {
+      await confirmDeleteIn(view.wrapper);
+      await vi.waitFor(() => expect(view.heldRefetches()).toBe(1));
+      expect(noteById(NOTE_PRIVATE_ID).deletedAt).toBeDefined();
+      adoptActiveOwner(OTHER_OWNER, 'storage');
+      view.release();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await settle();
+      // Still mounted, so the editor's own fence (not an unmount) is what drops the event.
+      expect(view.editor.exists()).toBe(true);
+      expect(view.editor.emitted('deleted')).toBeUndefined();
+    } finally {
+      view.wrapper.unmount();
+      adoptActiveOwner(mockDb.user.id, 'bootstrap');
+    }
   });
 });

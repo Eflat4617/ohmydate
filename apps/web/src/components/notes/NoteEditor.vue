@@ -20,6 +20,7 @@ import {
   keyOwner,
   noteKeys,
   ownerFenced,
+  ownerKeyOf,
   publishNote,
   rebaseFields,
   retryFenced,
@@ -30,7 +31,7 @@ import { useMediaQuery } from '../../composables/useMediaQuery';
 import { t } from '../../i18n';
 import { browserTimeZone, formatDateTime, formatNumber } from '../../i18n/format';
 import { errorMessage } from '../../i18n/problem';
-import { captureOwnerBinding, isOwnerBindingCurrent, ownerState } from '../../session/ownerEpoch';
+import { captureOwnerBinding, isOwnerBindingCurrent, ownerState, type OwnerBinding } from '../../session/ownerEpoch';
 import { useAuthStore } from '../../stores/auth';
 import { useOfflineStore } from '../../stores/offline';
 import UiBadge from '../ui/UiBadge.vue';
@@ -497,12 +498,12 @@ async function confirmDelete(): Promise<void> {
     await plannerClient.deleteDocument(current.id, action.key, current.version, binding.signal);
     actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
-    await finishDelete(current);
+    await finishDelete(current, binding);
   } catch (cause) {
     if (isStoredFinalResult(cause)) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     if (isApiStatus(cause, 404)) {
-      await finishDelete(current);
+      await finishDelete(current, binding);
     } else if (isApiStatus(cause, 412)) {
       deleteError.value = t('notes.editor.deleteConflict');
       try {
@@ -519,11 +520,18 @@ async function confirmDelete(): Promise<void> {
   }
 }
 
-async function finishDelete(current: ContextDocument): Promise<void> {
+/**
+ * Clears the deleted note for the owner that deleted it. The cache
+ * invalidation can outlive that owner (M6-03R2): the binding is checked again
+ * after it, so a stale owner gets no `deleted` toast or navigation.
+ */
+async function finishDelete(current: ContextDocument, binding: OwnerBinding): Promise<void> {
+  if (!isOwnerBindingCurrent(binding)) return;
   deleteOpen.value = false;
   base.value = null;
   Object.assign(fields, DEFAULTS);
-  await forgetNote(queryClient, owner.value, current.id);
+  await forgetNote(queryClient, ownerKeyOf(binding.ownerId), current.id);
+  if (!isOwnerBindingCurrent(binding)) return;
   emit('deleted', current.title);
 }
 
