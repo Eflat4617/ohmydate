@@ -34,6 +34,7 @@ const MIGRATION_FILES = [
   '0005_intake_estimation_agent.sql',
   '0006_intake_approval.sql',
   '0007_planning_core.sql',
+  '0008_plan_api_persistence.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -411,6 +412,20 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
             [schema],
           );
           expect(constraint.rowCount).toBe(0);
+        } else if (migration === '0008_plan_api_persistence.sql') {
+          const availabilityColumns = await client.query<{ column_name: string }>(
+            `SELECT column_name
+               FROM information_schema.columns
+              WHERE table_schema = $1 AND table_name = 'user_availability_version'
+                AND column_name IN ('time_zone', 'prefs')
+              ORDER BY column_name`,
+            [schema],
+          );
+          expect(availabilityColumns.rows.map((row) => row.column_name)).toEqual([]);
+          const stillThere = await client.query<{ name: string | null }>(
+            `SELECT to_regclass('user_availability_version')::text AS name`,
+          );
+          expect(stillThere.rows[0]?.name).not.toBeNull();
         } else if (migration === '0007_planning_core.sql') {
           for (const table of PLANNING_TABLES) {
             const gone = await client.query<{ name: string | null }>(

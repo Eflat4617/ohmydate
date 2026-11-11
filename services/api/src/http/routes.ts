@@ -1,5 +1,11 @@
 import {
+  planningRoutes,
   routes,
+  type ApprovePlanRequest,
+  type AvailabilityPut,
+  type CommitmentCreate,
+  type CommitmentListQuery,
+  type CommitmentPatch,
   type DecompositionDraftDto,
   type DecompositionDraftPatch,
   type IntakeAnswersRequest,
@@ -22,6 +28,10 @@ import {
   type TaskTemplateListQuery,
   type User as UserDto,
   type UserSettingsPatch,
+  type PlanCandidateParams,
+  type PlanCreate,
+  type PlanIdParams,
+  type PreviewEditRequest,
   type RouteDefinition,
 } from '@ohmydate/contracts';
 import { timingSafeEqual } from 'node:crypto';
@@ -49,6 +59,8 @@ import type {
   UserRepository,
 } from '../application/ports.js';
 import { AuthService } from '../application/auth-service.js';
+import { PlanService } from '../application/plan-service.js';
+import type { PlanningStore } from '../application/planning-ports.js';
 import { IntakeError } from '../application/intake/intake-error.js';
 import { IntakeService } from '../application/intake/intake-service.js';
 import { InProcessIntakeApprovalLock } from '../application/intake/in-process-approval-lock.js';
@@ -67,12 +79,18 @@ import {
   etagForBody,
   etagForVersion,
   ifNoneMatch,
+  requireAvailabilityIfMatch,
   requireIdempotencyKey,
   requireIfMatch,
   requestHash,
   headerValue,
 } from './headers.js';
-import { ProblemError, domainErrorToProblem, problemBodyFor } from './problem.js';
+import {
+  ProblemError,
+  domainErrorToProblem,
+  planningErrorToProblem,
+  problemBodyFor,
+} from './problem.js';
 
 const SID_COOKIE = 'sid';
 const CSRF_COOKIE = 'csrf';
@@ -86,6 +104,7 @@ export interface RouteRuntime {
   readonly auth: AuthService;
   readonly projects: ProjectService;
   readonly tasks: TaskService;
+  readonly planning: PlanService;
   readonly intake: IntakeService;
 }
 
@@ -363,14 +382,15 @@ async function runIdempotent(
     const problem =
       error instanceof DomainError
         ? domainErrorToProblem(error)
-        : error instanceof IntakeError
-          ? {
-              status: error.status,
-              code: error.code,
-              title: error.title,
-              detail: error.detail,
-            }
-          : undefined;
+        : (planningErrorToProblem(error) ??
+          (error instanceof IntakeError
+            ? {
+                status: error.status,
+                code: error.code,
+                title: error.title,
+                detail: error.detail,
+              }
+            : undefined));
 
     // ADR-020 §11: a succession-wait 409 `approval_in_progress` is transient
     // contention, not a stored domain result. Release its reservation so the
@@ -532,6 +552,126 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       };
     });
 
+  const createPlan = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const plan = await runtime.planning.createPlan(auth.userId, request.body as PlanCreate);
+      return {
+        status: 201,
+        body: plan,
+        headers: { ETag: etagForVersion(plan.version) },
+      };
+    });
+
+  const previewPlanCandidateEdit = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as PlanCandidateParams;
+      const body = request.body as PreviewEditRequest;
+      const result = await runtime.planning.previewEdit(
+        auth.userId,
+        params.id as Id,
+        params.cid as Id,
+        body.blocks,
+        requireIfMatch(request),
+      );
+      return { status: 200, body: result };
+    });
+
+  const approvePlanCandidate = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as PlanCandidateParams;
+      const expected = requireAvailabilityIfMatch(request);
+      const body = (request.body ?? {}) as ApprovePlanRequest;
+      const version = await runtime.planning.approve(
+        auth.userId,
+        params.id as Id,
+        params.cid as Id,
+        body.editedBlocks,
+        expected,
+        requireIdempotencyKey(request),
+      );
+      return {
+        status: 201,
+        body: version,
+        headers: { ETag: etagForVersion(version.version) },
+      };
+    });
+
+  const regeneratePlan = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as PlanIdParams;
+      const expected = requireIfMatch(request);
+      const plan = await runtime.planning.regenerate(auth.userId, params.id as Id, expected);
+      return {
+        status: 201,
+        body: plan,
+        headers: { ETag: etagForVersion(plan.version) },
+      };
+    });
+
+  const putAvailability = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const expected = requireAvailabilityIfMatch(request);
+      const availability = await runtime.planning.putAvailability(
+        auth.userId,
+        request.body as AvailabilityPut,
+        expected,
+      );
+      return {
+        status: 200,
+        body: availability,
+        headers: { ETag: `W/"availability:${availability.version}"` },
+      };
+    });
+
+  const createCommitment = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const commitment = await runtime.planning.createCommitment(
+        auth.userId,
+        request.body as CommitmentCreate,
+      );
+      return {
+        status: 201,
+        body: commitment,
+        headers: { ETag: etagForVersion(commitment.version) },
+      };
+    });
+
+  const updateCommitment = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as PlanIdParams;
+      const expected = requireIfMatch(request);
+      const commitment = await runtime.planning.updateCommitment(
+        auth.userId,
+        params.id as Id,
+        request.body as CommitmentPatch,
+        expected,
+      );
+      return {
+        status: 200,
+        body: commitment,
+        headers: { ETag: etagForVersion(commitment.version) },
+      };
+    });
+
+  const deleteCommitment = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as PlanIdParams;
+      await runtime.planning.deleteCommitment(
+        auth.userId,
+        params.id as Id,
+        requireIfMatch(request),
+      );
+      return { status: 204 };
+    });
+
   return {
     login: async (request, reply) => {
       const body = request.body as LoginRequest;
@@ -598,6 +738,39 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
     completeTask,
     deleteTask,
     createTaskDependency,
+    createPlan,
+    getPlan: async (request, reply) => {
+      const auth = currentAuth(request);
+      const params = request.params as PlanIdParams;
+      const plan = await runtime.planning.getPlan(auth.userId, params.id as Id);
+      const etag = etagForVersion(plan.version);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(plan);
+    },
+    previewPlanCandidateEdit,
+    approvePlanCandidate,
+    regeneratePlan,
+    getAvailability: async (request, reply) => {
+      const auth = currentAuth(request);
+      const availability = await runtime.planning.getAvailability(auth.userId);
+      const etag = `W/"availability:${availability.version}"`;
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(availability);
+    },
+    putAvailability,
+    listCommitments: async (request, reply) => {
+      const auth = currentAuth(request);
+      const page = await runtime.planning.listCommitments(
+        auth.userId,
+        request.query as CommitmentListQuery,
+      );
+      const etag = etagForBody(page);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(page);
+    },
+    createCommitment,
+    updateCommitment,
+    deleteCommitment,
     createIntakeSession: async (request, reply) =>
       runIdempotent(runtime, request, reply, async () => {
         const auth = currentAuth(request);
@@ -792,11 +965,11 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
  */
 export function toFastifyPath(path: string): string {
   const withCollectionAction = path.replace(
-    /\/([^/{}]+):([A-Za-z][A-Za-z0-9]*)$/,
+    /\/([^/{}]+):([A-Za-z][A-Za-z0-9-]*)$/,
     '/$1::$2',
   );
   const withActions = withCollectionAction.replace(
-    /\{([^}]+)\}:([A-Za-z][A-Za-z0-9]*)$/,
+    /\{([^}]+)\}:([A-Za-z][A-Za-z0-9-]*)$/,
     ':$1([^:]+)::$2',
   );
   return withActions.replace(/\{([^}]+)\}/g, ':$1');
@@ -867,14 +1040,23 @@ function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
       };
     }
     if (meta.requiresCsrf) verifyCsrf(request);
-    if (meta.requireIfMatch) requireIfMatch(request);
+    if (meta.requireIfMatch) {
+      if (
+        meta.operationId === 'approvePlanCandidate' ||
+        meta.operationId === 'putAvailability'
+      ) {
+        requireAvailabilityIfMatch(request);
+      } else {
+        requireIfMatch(request);
+      }
+    }
     if (meta.requireIdempotency) requireIdempotencyKey(request);
   };
 }
 
 export function registerRoutes(app: FastifyInstance, runtime: RouteRuntime): void {
   const handlers = buildHandlers(runtime);
-  for (const route of routes) {
+  for (const route of [...routes, ...planningRoutes]) {
     const meta = routeMeta(route);
     const handler = handlers[meta.operationId];
     if (handler === undefined) {
@@ -905,6 +1087,7 @@ export function createRuntime(options: {
   idempotency: IdempotencyStore;
   auth: AuthService;
   repos: AppRepositories;
+  planningStore: PlanningStore;
   llm: LlmPort | null;
   budgetGuard: BudgetGuard;
 }): RouteRuntime {
@@ -935,6 +1118,11 @@ export function createRuntime(options: {
     auth: options.auth,
     projects: new ProjectService(options.repos.projects),
     tasks: new TaskService(options.repos.tasks),
+    planning: new PlanService({
+      tasks: options.repos.tasks,
+      store: options.planningStore,
+      clock: options.clock,
+    }),
     intake,
   };
 }

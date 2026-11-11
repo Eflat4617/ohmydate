@@ -195,6 +195,7 @@ export {
   type AvailabilityPreferencesDto,
   type AvailabilityPut,
   type AvailabilityRuleDto,
+  type ApprovePlanRequest,
   type Commitment,
   type CommitmentCreate,
   type CommitmentListQuery,

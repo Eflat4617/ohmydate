@@ -443,6 +443,8 @@ export interface AvailabilityExceptionTable {
 export interface UserAvailabilityVersionTable {
   owner_id: Col<'uuid', false, false>;
   version: Col<'integer', false, true>;
+  time_zone: Col<'text', false, true>;
+  prefs: Col<'jsonb', false, true>;
   updated_at: Col<'timestamptz', false, true>;
 }
 
@@ -934,6 +936,8 @@ export const databaseTables = {
   user_availability_version: {
     owner_id: col('uuid', false, false),
     version: col('integer', false, true),
+    time_zone: col('text', false, true),
+    prefs: col('jsonb', false, true),
     updated_at: col('timestamptz', false, true),
   },
   plan: {

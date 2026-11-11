@@ -33,7 +33,7 @@ import { PgMappingStore } from '../src/adapters/vikunja/pg-mapping-store.js';
 import { PgPlannerFieldStore } from '../src/adapters/vikunja/pg-planner-field-store.js';
 import type { Kysely } from 'kysely';
 import type { Database } from '../src/db/types.js';
-import type { IntakeSessionDto } from '@ohmydate/contracts';
+import type { IntakeSessionDto, Plan } from '@ohmydate/contracts';
 import {
   authHeaders,
   newIdempotencyKey,
@@ -931,6 +931,111 @@ describe.skipIf(!live)(`intake approval with live Vikunja (${baseUrl ?? 'unset'}
     } finally {
       releaseA?.();
       harness.faults.afterCreate = undefined;
+      await harness.close();
+    }
+  });
+
+  test('production composition plans and approves intake-created tasks end to end', async () => {
+    const harness = await createProductionLiveHarness(
+      'live-production-planning@example.com',
+      'correct-horse',
+    );
+    try {
+      const current = await createSixStepDecomposition(harness);
+      const approved = await approve(harness, current.id, current.version);
+      expect(approved.statusCode).toBe(200);
+
+      const steps = await harness.db
+        .selectFrom('intake_approval_step')
+        .select(['task_id'])
+        .where('session_id', '=', current.id)
+        .where('state', '=', 'created')
+        .execute();
+      expect(steps).toHaveLength(6);
+      const taskIds = steps.map((step) => step.task_id).filter((id): id is string => id !== null);
+      expect(taskIds).toHaveLength(6);
+
+      // No hand-inserted identity rows: FU-45 writes them during approval.
+      const plannerTasks = await harness.db
+        .selectFrom('task')
+        .select('id')
+        .where('owner_id', '=', harness.ownerId)
+        .execute();
+      expect(plannerTasks).toHaveLength(6);
+      const estimates = await harness.db
+        .selectFrom('estimate')
+        .select('task_id')
+        .where('owner_id', '=', harness.ownerId)
+        .where('is_current', '=', true)
+        .execute();
+      expect(estimates).toHaveLength(6);
+
+      const availability = await harness.app.inject({
+        method: 'PUT',
+        url: '/api/v1/availability',
+        headers: authHeaders(harness.session, {
+          'if-match': 'W/"availability:1"',
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: {
+          timeZone: 'UTC',
+          rules: [1, 2, 3, 4, 5, 6, 7].map((weekday) => ({
+            weekday,
+            startLocal: '09:00',
+            endLocal: '18:00',
+            kind: 'work',
+          })),
+          exceptions: [],
+          prefs: {
+            maxDailyFocusMin: 480,
+            breakAfterMin: 60,
+            breakMin: 15,
+            dayStartLocal: '08:00',
+            dayEndLocal: '18:00',
+            riskLevel: 'p50',
+          },
+        },
+      });
+      expect(availability.statusCode).toBe(200);
+      const availabilityVersion = (availability.json() as { version: number }).version;
+
+      const planResponse = await harness.app.inject({
+        method: 'POST',
+        url: '/api/v1/plans',
+        headers: authHeaders(harness.session, { 'idempotency-key': newIdempotencyKey() }),
+        payload: {
+          scope: { taskIds },
+          policies: ['balanced'],
+          horizon: {
+            start: '2026-11-11T00:00:00Z',
+            end: '2026-11-18T00:00:00Z',
+          },
+        },
+      });
+      expect(planResponse.statusCode).toBe(201);
+      const plan = planResponse.json() as Plan;
+      const candidate = plan.candidates.find((entry) => entry.feasible);
+      expect(candidate).toBeDefined();
+      if (candidate === undefined) throw new Error('no feasible candidate');
+
+      const planApprove = await harness.app.inject({
+        method: 'POST',
+        url: `/api/v1/plans/${plan.id}/candidates/${candidate.id}:approve`,
+        headers: authHeaders(harness.session, {
+          'if-match': `W/"availability:${availabilityVersion}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: {},
+      });
+      expect(planApprove.statusCode).toBe(201);
+      const blocks = await harness.db
+        .selectFrom('schedule_block')
+        .select('id')
+        .where('owner_id', '=', harness.ownerId)
+        .where('status', '<>', 'superseded')
+        .execute();
+      expect(blocks.length).toBeGreaterThan(0);
+    } finally {
       await harness.close();
     }
   });

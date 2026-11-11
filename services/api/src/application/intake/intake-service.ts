@@ -37,6 +37,7 @@ import {
   type IntakeField,
   type PlannedQuestion as DomainPlannedQuestion,
   type IntakeState,
+  type Task,
   type TaskCreate,
   type TaskPriority,
   type TaskRepository,
@@ -76,6 +77,10 @@ import {
   type IntakeSessionUpdate,
   type TaskTemplateRepository,
 } from './ports.js';
+
+function isPgForeignKeyViolation(error: unknown): boolean {
+  return error instanceof Error && (error as { code?: string }).code === '23503';
+}
 
 const TYPE_DETECTION_PROMPT = { promptId: 'type_detection', version: 'v1' } as const;
 const DECOMPOSITION_PROMPT = { promptId: 'decomposition', version: 'v1' } as const;
@@ -923,6 +928,7 @@ export class IntakeService {
         );
         const taskIds = new Map<string, Id>();
         const created: { id: Id; version: Version }[] = [];
+        const identityTasks: Task[] = [];
         // ADR-020 §3: the ledger's persisted planned_task_id is authoritative on
         // every retry; never substitute the freshly generated proposal above.
         const plannedIdByKey = new Map(
@@ -944,9 +950,31 @@ export class IntakeService {
             const plannedTaskId = plannedIdByKey.get(step.key);
             if (plannedTaskId === undefined) continue;
             const existingStep = approvalSteps.get(step.key);
+            const skipped =
+              existingStep?.state === 'unknown' &&
+              existingStep.dependencyState === 'skipped:vanished';
+            if (skipped) {
+              // M3-04c probe I: a created step whose provider task was deleted
+              // is skipped permanently instead of being recreated. Its
+              // dependency state records why; no estimate is written for it.
+              continue;
+            }
             if (existingStep?.state === 'created' && existingStep.taskId !== undefined) {
+              const identity = await this.#tasks.get(ownerId, existingStep.taskId);
+              assertOwned();
+              if (identity === null) {
+                await this.#approvals.markStep(
+                  ownerId,
+                  id,
+                  step.key,
+                  { state: 'unknown', dependencyState: 'skipped:vanished' },
+                  holder,
+                );
+                continue;
+              }
               taskIds.set(step.key, existingStep.taskId);
-              created.push({ id: existingStep.taskId, version: 1 as Version });
+              created.push({ id: existingStep.taskId, version: identity.version });
+              identityTasks.push(identity);
               continue;
             }
 
@@ -1005,6 +1033,7 @@ export class IntakeService {
               // Publish the post-update version so the outbox event does not
               // carry the pre-repair version (M2-03cR2 LOW).
               created.push({ id: repaired.id, version: repaired.version });
+              identityTasks.push(repaired);
               continue;
             }
 
@@ -1052,6 +1081,7 @@ export class IntakeService {
             );
             taskIds.set(step.key, task.id);
             created.push({ id: task.id, version: task.version });
+            identityTasks.push(task);
           }
         } catch (error) {
           // Ownership loss is not recoverable by this request: leave the
@@ -1084,13 +1114,54 @@ export class IntakeService {
         }
 
         assertOwned();
-        const updated = await this.#approvals.complete({
-          ownerId,
-          sessionId: id,
-          expectedSessionVersion: session.version,
-          outboxId: this.#ids.next(),
-          holderToken: holder,
+        const method = session.manual || this.#llm === null ? 'template' : 'llm';
+        const uniqueIdentityTasks = [
+          ...new Map(identityTasks.map((task) => [task.id, task])).values(),
+        ];
+        // M3-04c probe I: estimates may only reference tasks whose planner
+        // identity rows are actually written in the same TX. Vanished created
+        // steps stay skipped (see above) and contribute no estimate.
+        const identityIds = new Set(uniqueIdentityTasks.map((task) => task.id));
+        const estimates = ordered.flatMap((step) => {
+          const taskId = taskIds.get(step.key);
+          if (taskId === undefined || !identityIds.has(taskId)) return [];
+          return [
+            {
+              id: this.#ids.next(),
+              taskId,
+              p50Min: step.estimate.p50Minutes,
+              p90Min: step.estimate.p90Minutes,
+              method,
+              confidence: method === 'template' ? 0.6 : 0.5,
+            } as const,
+          ];
         });
+        let updated;
+        try {
+          updated = await this.#approvals.complete({
+            ownerId,
+            sessionId: id,
+            expectedSessionVersion: session.version,
+            outboxId: this.#ids.next(),
+            holderToken: holder,
+            identityTasks: uniqueIdentityTasks,
+            estimates,
+          });
+        } catch (error) {
+          // A cross-owner id collision surfaces as estimate_task_fk (23503)
+          // inside complete(). Persist a failed approval and a stored 409;
+          // never leak the raw 500 (probe J).
+          if (isPgForeignKeyViolation(error)) {
+            await this.#approvals.fail(ownerId, id, holder).catch(() => undefined);
+            throw new IntakeError(
+              409,
+              'illegal_transition',
+              'Approval cannot be completed',
+              'a task id conflicts with another owner; the approval was failed and can be retried',
+            );
+          }
+          throw error;
+        }
         return { session: await this.#toDto(updated), tasks: created };
       });
     } finally {

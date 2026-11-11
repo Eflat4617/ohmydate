@@ -1,4 +1,4 @@
-import type { Problem, ProblemCode } from '@ohmydate/contracts';
+import type { Problem, ProblemCode, Violation } from '@ohmydate/contracts';
 import {
   DependencyCycleError,
   DomainError,
@@ -10,6 +10,11 @@ import {
   type ValidationIssue,
 } from '@ohmydate/domain';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import {
+  AvailabilityChangedError,
+  ConstraintViolationError,
+  PlanConflictError,
+} from '../application/planning-errors.js';
 
 export interface ProblemInit {
   readonly status: number;
@@ -17,6 +22,7 @@ export interface ProblemInit {
   readonly title: string;
   readonly detail?: string;
   readonly errors?: readonly ValidationIssue[];
+  readonly violations?: readonly Violation[];
   readonly headers?: Readonly<Record<string, string>>;
 }
 
@@ -30,6 +36,7 @@ export class ProblemError extends Error {
   readonly title: string;
   readonly detail: string | undefined;
   readonly errors: readonly ValidationIssue[] | undefined;
+  readonly violations: readonly Violation[] | undefined;
   readonly headers: Readonly<Record<string, string>> | undefined;
 
   constructor(init: ProblemInit) {
@@ -40,6 +47,7 @@ export class ProblemError extends Error {
     this.title = init.title;
     this.detail = init.detail;
     this.errors = init.errors;
+    this.violations = init.violations;
     this.headers = init.headers;
   }
 }
@@ -50,6 +58,7 @@ function problemBody(
   title: string,
   detail: string | undefined,
   errors: readonly ValidationIssue[] | undefined,
+  violations: readonly Violation[] | undefined,
   traceId: string | undefined,
 ): Problem {
   return {
@@ -61,6 +70,7 @@ function problemBody(
     ...(errors === undefined || errors.length === 0
       ? {}
       : { errors: errors.map((issue) => ({ path: issue.path, message: issue.message })) }),
+    ...(violations === undefined || violations.length === 0 ? {} : { violations: [...violations] }),
     ...(traceId === undefined ? {} : { traceId }),
   };
 }
@@ -74,6 +84,7 @@ export function problemBodyFor(request: FastifyRequest, init: ProblemInit): Prob
     init.title,
     init.detail,
     init.errors,
+    init.violations,
     traceId,
   );
 }
@@ -86,11 +97,21 @@ export function sendProblem(
   title: string,
   detail?: string,
   errors?: readonly ValidationIssue[],
+  violations?: readonly Violation[],
 ): FastifyReply {
   return reply
     .code(status)
     .type('application/problem+json')
-    .send(problemBodyFor(request, { status, code, title, ...(detail === undefined ? {} : { detail }), ...(errors === undefined ? {} : { errors }) }));
+    .send(
+      problemBodyFor(request, {
+        status,
+        code,
+        title,
+        ...(detail === undefined ? {} : { detail }),
+        ...(errors === undefined ? {} : { errors }),
+        ...(violations === undefined ? {} : { violations }),
+      }),
+    );
 }
 
 interface ValidationErrorLike {
@@ -147,6 +168,36 @@ export function domainErrorToProblem(error: DomainError): ProblemInit {
     };
   }
   return { status: 500, code: 'internal_error', title: 'Internal error', detail: error.message };
+}
+
+/** Planning-domain results that are storable per 08 §1 (409/422; 412 is not). */
+export function planningErrorToProblem(error: unknown): ProblemInit | null {
+  if (error instanceof ConstraintViolationError) {
+    return {
+      status: 422,
+      code: 'constraint_violation',
+      title: 'Plan violates scheduling constraints',
+      detail: 'the candidate cannot be approved as-is',
+      violations: error.violations,
+    };
+  }
+  if (error instanceof PlanConflictError) {
+    return {
+      status: 409,
+      code: 'illegal_transition',
+      title: 'State conflict',
+      detail: error.message,
+    };
+  }
+  if (error instanceof AvailabilityChangedError) {
+    return {
+      status: 412,
+      code: 'availability_changed',
+      title: 'Availability changed',
+      detail: error.message,
+    };
+  }
+  return null;
 }
 
 export interface FastifyValidationError {

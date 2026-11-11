@@ -345,6 +345,9 @@ importers:
       '@ohmydate/provider-vikunja':
         specifier: workspace:*
         version: link:../../packages/provider-vikunja
+      '@ohmydate/scheduler':
+        specifier: workspace:*
+        version: link:../../packages/scheduler
       '@sinclair/typebox':
         specifier: 0.34.52
         version: 0.34.52
@@ -357,6 +360,9 @@ importers:
       pg:
         specifier: 8.23.1
         version: 8.23.1
+      temporal-polyfill:
+        specifier: 1.0.8
+        version: 1.0.8
     devDependencies:
       '@ohmydate/provider-native':
         specifier: workspace:*

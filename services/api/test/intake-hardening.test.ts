@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Writable } from 'node:stream';
 import { routes, type IntakeInput, type IntakeSessionDto } from '@ohmydate/contracts';
 import {
@@ -942,6 +943,134 @@ describe.skipIf(!hasDatabase)('M2-03 hardening', () => {
       });
       expect(response.statusCode).toBe(200);
       expect((response.json() as { steps: { kind: string }[] }).steps[0]?.kind).toBe('work');
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('probe I: retry after a created task was deleted skips it and never returns 500', async () => {
+    const { script, repos } = scriptedRepos();
+    const ctx = await createTestContext({ repos });
+    const ownerId = await ctx.seedUser({
+      email: 'probe-i@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'probe-i@example.com', 'correct-horse');
+    try {
+      const current = await createManualDecomposing(ctx, session, true);
+      script.beforeCreate = async (index) => {
+        if (index === 6) throw new ProviderUnavailableError('vikunja', 'injected');
+      };
+      const key = newIdempotencyKey();
+      const failed = await approve(ctx, session, current.id, current.version, key);
+      expect(failed.statusCode).toBe(503);
+      const rows = await ctx.db
+        .selectFrom('intake_approval_step')
+        .selectAll()
+        .where('session_id', '=', current.id)
+        .execute();
+      expect(rows.filter((row) => row.state === 'created')).toHaveLength(5);
+      const victimId = rows.find((row) => row.step_key === 's1')?.task_id;
+      expect(victimId).toBeDefined();
+      const victim = await ctx.repos.tasks.get(ownerId, victimId as Id);
+      if (victim === null) throw new Error('victim task missing');
+      await ctx.repos.tasks.softDelete(ownerId, victim.id, victim.version);
+
+      script.beforeCreate = undefined;
+      const retried = await approve(ctx, session, current.id, current.version, key);
+      expect(retried.statusCode).toBe(200);
+      expect((retried.json() as IntakeSessionDto).state).toBe('feasibility_check');
+      const skipped = await ctx.db
+        .selectFrom('intake_approval_step')
+        .select(['state', 'dependency_state'])
+        .where('session_id', '=', current.id)
+        .where('step_key', '=', 's1')
+        .executeTakeFirst();
+      expect(skipped?.state).toBe('unknown');
+      expect(skipped?.dependency_state).toBe('skipped:vanished');
+      const estimates = await ctx.db
+        .selectFrom('estimate')
+        .select(['task_id'])
+        .where('owner_id', '=', ownerId)
+        .where('is_current', '=', true)
+        .execute();
+      expect(estimates.map((row) => row.task_id)).not.toContain(victimId);
+      expect(estimates).toHaveLength(5);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('probe J: a cross-owner id collision in complete() is a stored 409, not a 500', async () => {
+    const clock = new FakeClock();
+    const ids = createSeededIdGenerator(20261201, clock);
+    const base = createInMemoryRepositories({ clock, ids });
+    const collision = { id: '' as Id };
+    let injected = false;
+    const originalCreate = base.tasks.create.bind(base.tasks);
+    const tasks: TaskRepository = {
+      capabilities: base.tasks.capabilities,
+      create: async (ownerId, input, idemKey, opts) => {
+        if (injected) return originalCreate(ownerId, input, idemKey, opts);
+        injected = true;
+        return originalCreate(ownerId, input, idemKey, {
+          ...opts,
+          plannedId: collision.id,
+        });
+      },
+      get: (ownerId, id) => base.tasks.get(ownerId, id),
+      list: (ownerId, query) => base.tasks.list(ownerId, query),
+      update: (ownerId, id, patch, version) => base.tasks.update(ownerId, id, patch, version),
+      complete: (ownerId, id, version) => base.tasks.complete(ownerId, id, version),
+      softDelete: (ownerId, id, version) => base.tasks.softDelete(ownerId, id, version),
+      listChangedSince: (ownerId, cursor) => base.tasks.listChangedSince(ownerId, cursor),
+    };
+    const ctx = await createTestContext({ repos: { tasks, projects: base.projects } });
+    collision.id = ctx.ids.next();
+    await ctx.seedUser({ email: 'probe-j@example.com', password: 'correct-horse' });
+    const bobId = await ctx.seedUser({
+      email: 'probe-j-bob@example.com',
+      password: 'correct-horse',
+    });
+    const bobProjectId = randomUUID();
+    await ctx.db
+      .insertInto('project')
+      .values({ id: bobProjectId, owner_id: bobId, title: 'Bob project', kind: 'normal' })
+      .execute();
+    await ctx.db
+      .insertInto('task')
+      .values({
+        id: collision.id,
+        owner_id: bobId,
+        project_id: bobProjectId,
+        title_cache: 'Bob task',
+        status_cache: 'todo',
+        splittable: true,
+        priority: 2,
+      })
+      .execute();
+    const session = await login(ctx, 'probe-j@example.com', 'correct-horse');
+    try {
+      const current = await createManualDecomposing(ctx, session, true);
+      const key = newIdempotencyKey();
+      const response = await approve(ctx, session, current.id, current.version, key);
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ code: 'illegal_transition' });
+      const replay = await approve(ctx, session, current.id, current.version, key);
+      expect(replay.statusCode).toBe(409);
+      expect(replay.json()).toMatchObject({ code: 'illegal_transition' });
+      const approval = await ctx.db
+        .selectFrom('intake_approval')
+        .select(['state'])
+        .where('session_id', '=', current.id)
+        .executeTakeFirst();
+      expect(approval?.state).toBe('failed');
+      const bobRow = await ctx.db
+        .selectFrom('task')
+        .select(['owner_id', 'title_cache'])
+        .where('id', '=', collision.id)
+        .executeTakeFirst();
+      expect(bobRow).toMatchObject({ owner_id: bobId, title_cache: 'Bob task' });
     } finally {
       await ctx.close();
     }

@@ -49,7 +49,9 @@ export const ViolationCodeSchema = Type.Union(
  * are public contract codes. H0 preflight findings are a request-shape error,
  * not a planning constraint: edited blocks outside the persisted plan horizon
  * or outside the plan's task scope are reported as 422 `validation_failed` with
- * errors[{path: "/editedBlocks/<i>", message}] before H1-H8 validation runs.
+ * errors[{path: "/blocks/<i>", message}] for preview-edit (body field `blocks`)
+ * and errors[{path: "/editedBlocks/<i>", message}] for approve (body field
+ * `editedBlocks`) before H1-H8 validation runs.
  */
 export const ViolationSchema = Type.Object(
   {

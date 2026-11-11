@@ -1,9 +1,10 @@
-import { IfMatchPattern } from '@ohmydate/contracts';
+import { IfMatchAvailabilityPattern, IfMatchPattern } from '@ohmydate/contracts';
 import type { FastifyRequest } from 'fastify';
 import { sha256Hex, canonicalJson } from '../application/canonical.js';
 import { ProblemError } from './problem.js';
 
 const IF_MATCH = new RegExp(IfMatchPattern);
+const IF_MATCH_AVAILABILITY = new RegExp(IfMatchAvailabilityPattern);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function headerValue(request: FastifyRequest, name: string): string | undefined {
@@ -60,6 +61,31 @@ export function requireIdempotencyKey(request: FastifyRequest): string {
     });
   }
   return value.trim();
+}
+
+/**
+ * Approve and PUT /availability use the user-wide availability tag instead of
+ * an entity version (08 §2.4/§2.4a). Missing -> 428; malformed -> 400.
+ */
+export function requireAvailabilityIfMatch(request: FastifyRequest): number {
+  const value = headerValue(request, 'if-match');
+  if (value === undefined || value.trim() === '') {
+    throw new ProblemError({
+      status: 428,
+      code: 'version_conflict',
+      title: 'If-Match header required',
+      detail: 'this mutation requires If-Match: W/"availability:<n>"',
+    });
+  }
+  if (!IF_MATCH_AVAILABILITY.test(value.trim())) {
+    throw new ProblemError({
+      status: 400,
+      code: 'validation_failed',
+      title: 'Malformed request',
+      detail: 'If-Match must be a weak availability tag, e.g. W/"availability:1"',
+    });
+  }
+  return Number.parseInt(value.trim().slice('W/"availability:'.length, -1), 10);
 }
 
 export function etagForVersion(version: number): string {

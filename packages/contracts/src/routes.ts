@@ -545,7 +545,7 @@ export const planningRoutes: readonly RouteDefinition[] = [
     operationId: 'previewPlanCandidateEdit',
     summary: 'Validate an edited candidate without side effects',
     description:
-      'Pre-flight validation maps edited blocks outside the persisted plan horizon or outside the plan task scope to 422 validation_failed with errors[{path: "/editedBlocks/<i>", message}] before H1-H8 validation. Validator findings use 422 constraint_violation with violations[].',
+      'Pre-flight validation maps edited blocks outside the persisted plan horizon or outside the plan task scope to 422 validation_failed with errors[{path: "/blocks/<i>", message}] before H1-H8 validation. If-Match is the plan resource version W/"<n>"; a stale version returns 412 version_conflict. Validator findings are returned in the 200 PreviewEditResponse, not as a 422.',
     params: PlanCandidateParamsSchema,
     headers: IfMatchAndIdempotencyHeadersSchema,
     body: PreviewEditRequestSchema,
