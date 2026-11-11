@@ -24,6 +24,8 @@ const EXPECTED_CODES = [
   'rate_limited',
   'unauthenticated',
   'idempotency_in_progress',
+  'active_session_exists',
+  'session_state_conflict',
   'internal_error',
 ];
 

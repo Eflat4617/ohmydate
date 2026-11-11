@@ -24,6 +24,7 @@ const KIND_TO_INFORMATION_SCHEMA: Record<ColumnKind, string> = {
   numeric: 'numeric',
   tsvector: 'tsvector',
   text_array: 'ARRAY',
+  bytea: 'bytea',
 };
 
 describe.skipIf(!hasDatabase)('Kysely types vs information_schema', () => {

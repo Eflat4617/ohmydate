@@ -75,6 +75,35 @@ import {
   TaskTemplateSchema,
   TemplateStatsSchema,
 } from './template.js';
+import {
+  EstimationFeedbackSchema,
+  ExportIdParamsSchema,
+  ExportSchema,
+  ExportStartResponseSchema,
+  NotificationIdParamsSchema,
+  NotificationPageSchema,
+  NotificationQuerySchema,
+  NotificationSchema,
+  PushSubscriptionCreateSchema,
+  PushSubscriptionIdParamsSchema,
+  PushSubscriptionKeysSchema,
+  PushSubscriptionSchema,
+  SessionCreateSchema,
+  SessionEventRequestSchema,
+  SessionIdParamsSchema,
+  SessionReviewRequestSchema,
+  TodayAcceptRequestSchema,
+  TodayBlockSchema,
+  TodayProposalBlockSchema,
+  TodayProposalParamsSchema,
+  TodayProposalSchema,
+  TodayQuerySchema,
+  TodayRescheduleRequestSchema,
+  TodayRiskSchema,
+  TodaySchema,
+  TodayShrinkRequestSchema,
+  WorkSessionSchema,
+} from './today.js';
 
 export type HttpMethod = 'get' | 'post' | 'patch' | 'put' | 'delete';
 
@@ -659,7 +688,233 @@ export const planningRoutes: readonly RouteDefinition[] = [
   },
 ];
 
-export const contractRoutes: readonly RouteDefinition[] = [...routes, ...planningRoutes];
+/**
+ * Today, focus session, notification, push and export routes (08 §2.5, §2.9,
+ * §2.10). Contract-only: M4-02 supplies the handlers. `POST /today:shrink`
+ * and `POST /today:reschedule` only create a proposal; approving it through
+ * `POST /today/proposals/{id}:approve` is the write that creates a plan
+ * version, mirroring the planning approval flow.
+ */
+export const dailyRoutes: readonly RouteDefinition[] = [
+  {
+    method: 'get',
+    path: '/today',
+    operationId: 'getToday',
+    summary: 'Read today blocks, slack and risk',
+    query: TodayQuerySchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Today view', schema: TodaySchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 422),
+    },
+  },
+  {
+    method: 'post',
+    path: '/today:accept',
+    operationId: 'acceptToday',
+    summary: "Accept today's recommended blocks",
+    description:
+      'If-Match pins the active plan revision echoed as Today.version. The request is idempotent and returns the accepted Today view.',
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: TodayAcceptRequestSchema,
+    responses: {
+      200: { description: 'Accepted today view', schema: TodaySchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/today:shrink',
+    operationId: 'shrinkToday',
+    summary: 'Propose a shorter block for today',
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: TodayShrinkRequestSchema,
+    responses: {
+      201: { description: 'Shrink proposal', schema: TodayProposalSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/today:reschedule',
+    operationId: 'rescheduleToday',
+    summary: 'Propose moving today blocks',
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: TodayRescheduleRequestSchema,
+    responses: {
+      201: { description: 'Reschedule proposal', schema: TodayProposalSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/today/proposals/{id}:approve',
+    operationId: 'approveTodayProposal',
+    summary: 'Apply a today shrink/reschedule proposal',
+    description:
+      'If-Match is the user-wide availability version W/"availability:<n>", the same lock as plan approval (08 §2.4). The proposal persists its base plan version and availability snapshot; in one transaction the server re-reads availability and locked blocks, re-runs validation, supersedes prior active blocks and creates a new plan version. A stale snapshot returns 412 availability_changed.',
+    params: TodayProposalParamsSchema,
+    headers: IfMatchAvailabilityAndIdempotencyHeadersSchema,
+    responses: {
+      201: { description: 'Approved plan version', schema: PlanVersionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/sessions',
+    operationId: 'createSession',
+    summary: 'Start a focus session',
+    description:
+      'Only one active session per owner exists. A second with the same owner returns 409 active_session_exists.',
+    headers: IdempotencyHeadersSchema,
+    body: SessionCreateSchema,
+    responses: {
+      201: { description: 'Started session', schema: WorkSessionSchema },
+      ...problems(400, 401, 403, 404, 409, 422),
+    },
+  },
+  {
+    method: 'post',
+    path: '/sessions/{id}:pause',
+    operationId: 'pauseSession',
+    summary: 'Pause a focus session',
+    params: SessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: SessionEventRequestSchema,
+    responses: {
+      200: { description: 'Paused session', schema: WorkSessionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/sessions/{id}:resume',
+    operationId: 'resumeSession',
+    summary: 'Resume a paused focus session',
+    params: SessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: SessionEventRequestSchema,
+    responses: {
+      200: { description: 'Resumed session', schema: WorkSessionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/sessions/{id}:complete',
+    operationId: 'completeSession',
+    summary: 'Complete a focus session',
+    params: SessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: SessionEventRequestSchema,
+    responses: {
+      200: { description: 'Completed session', schema: WorkSessionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/sessions/{id}/review',
+    operationId: 'reviewSession',
+    summary: 'Submit end-of-session feedback',
+    description:
+      'Creates a task completion review and estimation feedback. The optional note is personal text and is never logged.',
+    params: SessionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: SessionReviewRequestSchema,
+    responses: {
+      201: { description: 'Estimation feedback', schema: EstimationFeedbackSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'get',
+    path: '/notifications',
+    operationId: 'listNotifications',
+    summary: 'List notifications',
+    query: NotificationQuerySchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Notification page', schema: NotificationPageSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 422),
+    },
+  },
+  {
+    method: 'post',
+    path: '/notifications/{id}:dismiss',
+    operationId: 'dismissNotification',
+    summary: 'Dismiss a notification',
+    params: NotificationIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      200: { description: 'Dismissed notification', schema: NotificationSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/push-subscriptions',
+    operationId: 'createPushSubscription',
+    summary: 'Register a browser push subscription',
+    description:
+      'The endpoint must be HTTPS. Key material is encrypted at rest and never returned.',
+    headers: IdempotencyHeadersSchema,
+    body: PushSubscriptionCreateSchema,
+    responses: {
+      201: { description: 'Created push subscription', schema: PushSubscriptionSchema },
+      ...problems(400, 401, 403, 409, 422),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/push-subscriptions/{id}',
+    operationId: 'deletePushSubscription',
+    summary: 'Remove a push subscription',
+    params: PushSubscriptionIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      204: { description: 'Push subscription removed' },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/exports',
+    operationId: 'createExport',
+    summary: 'Request a data export',
+    description:
+      'Queues a zip export (JSON + Markdown + attachments) and returns 202 with the export id.',
+    headers: IdempotencyHeadersSchema,
+    responses: {
+      202: { description: 'Export queued', schema: ExportStartResponseSchema },
+      ...problems(400, 401, 403, 409, 422),
+    },
+  },
+  {
+    method: 'get',
+    path: '/exports/{id}',
+    operationId: 'getExport',
+    summary: 'Read export state and download URL',
+    description:
+      'Metadata is always readable. downloadUrl appears only when state is ready and expires at expiresAt.',
+    params: ExportIdParamsSchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Export job', schema: ExportSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 404),
+    },
+  },
+];
+
+export const contractRoutes: readonly RouteDefinition[] = [
+  ...routes,
+  ...planningRoutes,
+  ...dailyRoutes,
+];
 
 export const schemaRegistry = {
   Problem: ProblemSchema,
@@ -723,6 +978,33 @@ export const schemaRegistry = {
   ApprovePlanRequest: ApprovePlanRequestSchema,
   ScheduleBlock: ScheduleBlockSchema,
   PlanVersion: PlanVersionSchema,
+  TodayRisk: TodayRiskSchema,
+  TodayBlock: TodayBlockSchema,
+  Today: TodaySchema,
+  TodayQuery: TodayQuerySchema,
+  TodayAcceptRequest: TodayAcceptRequestSchema,
+  TodayShrinkRequest: TodayShrinkRequestSchema,
+  TodayRescheduleRequest: TodayRescheduleRequestSchema,
+  TodayProposalBlock: TodayProposalBlockSchema,
+  TodayProposal: TodayProposalSchema,
+  TodayProposalParams: TodayProposalParamsSchema,
+  WorkSession: WorkSessionSchema,
+  SessionCreate: SessionCreateSchema,
+  SessionIdParams: SessionIdParamsSchema,
+  SessionEventRequest: SessionEventRequestSchema,
+  SessionReviewRequest: SessionReviewRequestSchema,
+  EstimationFeedback: EstimationFeedbackSchema,
+  Notification: NotificationSchema,
+  NotificationQuery: NotificationQuerySchema,
+  NotificationPage: NotificationPageSchema,
+  NotificationIdParams: NotificationIdParamsSchema,
+  PushSubscriptionKeys: PushSubscriptionKeysSchema,
+  PushSubscriptionCreate: PushSubscriptionCreateSchema,
+  PushSubscription: PushSubscriptionSchema,
+  PushSubscriptionIdParams: PushSubscriptionIdParamsSchema,
+  Export: ExportSchema,
+  ExportStartResponse: ExportStartResponseSchema,
+  ExportIdParams: ExportIdParamsSchema,
 } as const;
 
 export type SchemaRegistry = typeof schemaRegistry;

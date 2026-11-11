@@ -40,7 +40,8 @@ export type ColumnKind =
   | 'real'
   | 'numeric'
   | 'tsvector'
-  | 'text_array';
+  | 'text_array'
+  | 'bytea';
 
 declare const jsonbParamBrand: unique symbol;
 
@@ -83,7 +84,9 @@ type Scalar<K extends ColumnKind> = K extends 'uuid'
                     ? string
                     : K extends 'text_array'
                       ? string[]
-                      : never;
+                      : K extends 'bytea'
+                        ? Buffer
+                        : never;
 
 // A NOT NULL jsonb column still needs a non-null, non-undefined insert type so
 // Kysely's Insertable keeps the key required (JSON null is not a SQL NULL).
@@ -574,6 +577,89 @@ export interface VikunjaOwnerAccountTable {
   updated_at: Col<'timestamptz', false, true>;
 }
 
+export interface WorkSessionTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  task_id: Col<'uuid', false, false>;
+  block_id: Col<'uuid', true, false>;
+  state: Col<'text', false, true>;
+  started_at: Col<'timestamptz', false, false>;
+  ended_at: Col<'timestamptz', true, false>;
+  focused_sec: Col<'integer', false, true>;
+  paused_sec: Col<'integer', false, true>;
+  client_id: Col<'text', false, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface TaskCompletionReviewTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  session_id: Col<'uuid', false, false>;
+  outcome: Col<'text', false, false>;
+  reason_chips: Col<'text_array', false, true>;
+  note: Col<'text', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface EstimationFeedbackTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  task_id: Col<'uuid', false, false>;
+  estimated_p50: Col<'integer', false, false>;
+  actual_focus_min: Col<'integer', false, false>;
+  quality: Col<'text', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface NotificationTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  kind: Col<'text', false, false>;
+  dedupe_key: Col<'text', false, false>;
+  scheduled_at: Col<'timestamptz', false, false>;
+  sent_at: Col<'timestamptz', true, false>;
+  channel: Col<'text', false, true>;
+  state: Col<'text', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface PushSubscriptionTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  endpoint: Col<'text', false, false>;
+  p256dh_ciphertext: Col<'bytea', false, false>;
+  auth_ciphertext: Col<'bytea', false, false>;
+  key_id: Col<'text', false, false>;
+  device_label: Col<'text', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface ExportJobTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  state: Col<'text', false, true>;
+  requested_at: Col<'timestamptz', false, true>;
+  started_at: Col<'timestamptz', true, false>;
+  completed_at: Col<'timestamptz', true, false>;
+  expires_at: Col<'timestamptz', true, false>;
+  artifact_key: Col<'text', true, false>;
+  size_bytes: Col<'integer', true, false>;
+  failure_code: Col<'text', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
 export interface Database {
   user: UserTable;
   project: ProjectTable;
@@ -605,6 +691,12 @@ export interface Database {
   plan_version: PlanVersionTable;
   schedule_block: ScheduleBlockTable;
   schedule_approval: ScheduleApprovalTable;
+  work_session: WorkSessionTable;
+  task_completion_review: TaskCompletionReviewTable;
+  estimation_feedback: EstimationFeedbackTable;
+  notification: NotificationTable;
+  push_subscription: PushSubscriptionTable;
+  export_job: ExportJobTable;
   vikunja_mapping: VikunjaMappingTable;
   vikunja_planner_fields: VikunjaPlannerFieldsTable;
   vikunja_change_journal: VikunjaChangeJournalTable;
@@ -1009,6 +1101,83 @@ export const databaseTables = {
     updated_at: col('timestamptz', false, true),
     version: col('integer', false, true),
   },
+  work_session: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    task_id: col('uuid', false, false),
+    block_id: col('uuid', true, false),
+    state: col('text', false, true),
+    started_at: col('timestamptz', false, false),
+    ended_at: col('timestamptz', true, false),
+    focused_sec: col('integer', false, true),
+    paused_sec: col('integer', false, true),
+    client_id: col('text', false, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  task_completion_review: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    session_id: col('uuid', false, false),
+    outcome: col('text', false, false),
+    reason_chips: col('text_array', false, true),
+    note: col('text', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  estimation_feedback: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    task_id: col('uuid', false, false),
+    estimated_p50: col('integer', false, false),
+    actual_focus_min: col('integer', false, false),
+    quality: col('text', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  notification: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    kind: col('text', false, false),
+    dedupe_key: col('text', false, false),
+    scheduled_at: col('timestamptz', false, false),
+    sent_at: col('timestamptz', true, false),
+    channel: col('text', false, true),
+    state: col('text', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  push_subscription: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    endpoint: col('text', false, false),
+    p256dh_ciphertext: col('bytea', false, false),
+    auth_ciphertext: col('bytea', false, false),
+    key_id: col('text', false, false),
+    device_label: col('text', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  export_job: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    state: col('text', false, true),
+    requested_at: col('timestamptz', false, true),
+    started_at: col('timestamptz', true, false),
+    completed_at: col('timestamptz', true, false),
+    expires_at: col('timestamptz', true, false),
+    artifact_key: col('text', true, false),
+    size_bytes: col('integer', true, false),
+    failure_code: col('text', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
   vikunja_mapping: {
     entity_type: col('text', false, false),
     entity_id: col('uuid', false, false),
@@ -1142,6 +1311,21 @@ type TableAssertions = {
     ScheduleApprovalTable,
     typeof databaseTables.schedule_approval
   >;
+  work_session: AssertTableColumns<WorkSessionTable, typeof databaseTables.work_session>;
+  task_completion_review: AssertTableColumns<
+    TaskCompletionReviewTable,
+    typeof databaseTables.task_completion_review
+  >;
+  estimation_feedback: AssertTableColumns<
+    EstimationFeedbackTable,
+    typeof databaseTables.estimation_feedback
+  >;
+  notification: AssertTableColumns<NotificationTable, typeof databaseTables.notification>;
+  push_subscription: AssertTableColumns<
+    PushSubscriptionTable,
+    typeof databaseTables.push_subscription
+  >;
+  export_job: AssertTableColumns<ExportJobTable, typeof databaseTables.export_job>;
   vikunja_mapping: AssertTableColumns<
     VikunjaMappingTable,
     typeof databaseTables.vikunja_mapping

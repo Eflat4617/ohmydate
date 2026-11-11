@@ -195,6 +195,86 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     optionalHeaders: [],
     statuses: [204, 400, 401, 403, 404, 409, 412, 422, 428],
   },
+  getToday: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 422],
+  },
+  acceptToday: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  shrinkToday: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  rescheduleToday: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  approveTodayProposal: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  createSession: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 404, 409, 422],
+  },
+  pauseSession: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  resumeSession: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  completeSession: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  reviewSession: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  listNotifications: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 422],
+  },
+  dismissNotification: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  createPushSubscription: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 409, 422],
+  },
+  deletePushSubscription: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [204, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  createExport: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [202, 400, 401, 403, 409, 422],
+  },
+  getExport: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 404],
+  },
 };
 
 const keyOf = (method: string, path: string): string => `${method.toUpperCase()} ${path}`;
@@ -213,7 +293,9 @@ function validHeaders(route: RouteDefinition): Record<string, string> {
   for (const name of Object.keys(headerShape(route).properties ?? {})) {
     if (name === 'If-Match') {
       headers[name] =
-        route.operationId === 'approvePlanCandidate' || route.operationId === 'putAvailability'
+        route.operationId === 'approvePlanCandidate' ||
+        route.operationId === 'putAvailability' ||
+        route.operationId === 'approveTodayProposal'
           ? 'W/"availability:3"'
           : 'W/"3"';
     }
@@ -298,8 +380,32 @@ test('route table covers availability, commitment and planning endpoints from 08
   }
 });
 
+test('route table covers today, session, notification and export endpoints from 08 §2.5/§2.9/§2.10', () => {
+  const keys = new Set(routes.map((route) => keyOf(route.method, route.path)));
+  for (const expected of [
+    'GET /today',
+    'POST /today:accept',
+    'POST /today:shrink',
+    'POST /today:reschedule',
+    'POST /today/proposals/{id}:approve',
+    'POST /sessions',
+    'POST /sessions/{id}:pause',
+    'POST /sessions/{id}:resume',
+    'POST /sessions/{id}:complete',
+    'POST /sessions/{id}/review',
+    'GET /notifications',
+    'POST /notifications/{id}:dismiss',
+    'POST /push-subscriptions',
+    'DELETE /push-subscriptions/{id}',
+    'POST /exports',
+    'GET /exports/{id}',
+  ]) {
+    expect({ expected, present: keys.has(expected) }).toEqual({ expected, present: true });
+  }
+});
+
 test('approval and availability replacement pin If-Match to availability versions', () => {
-  for (const operationId of ['approvePlanCandidate', 'putAvailability']) {
+  for (const operationId of ['approvePlanCandidate', 'putAvailability', 'approveTodayProposal']) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();
     if (route?.headers === undefined) throw new Error(`${operationId} headers missing`);
@@ -395,6 +501,16 @@ test('existing-resource mutations require both If-Match and Idempotency-Key', ()
     'putAvailability',
     'updateCommitment',
     'deleteCommitment',
+    'acceptToday',
+    'shrinkToday',
+    'rescheduleToday',
+    'approveTodayProposal',
+    'pauseSession',
+    'resumeSession',
+    'completeSession',
+    'reviewSession',
+    'dismissNotification',
+    'deletePushSubscription',
   ]) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();
@@ -412,6 +528,9 @@ test('creation POSTs require Idempotency-Key without If-Match', () => {
     'createIntakeSession',
     'createPlan',
     'createCommitment',
+    'createSession',
+    'createPushSubscription',
+    'createExport',
   ]) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();

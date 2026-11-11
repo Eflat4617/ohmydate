@@ -35,6 +35,7 @@ const MIGRATION_FILES = [
   '0006_intake_approval.sql',
   '0007_planning_core.sql',
   '0008_plan_api_persistence.sql',
+  '0009_today_sessions.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -87,6 +88,16 @@ const PLANNING_TABLES = [
   'user_availability_version',
 ];
 
+// 0009_today_sessions.sql.
+const M4_TABLES = [
+  'estimation_feedback',
+  'export_job',
+  'notification',
+  'push_subscription',
+  'task_completion_review',
+  'work_session',
+];
+
 describe.skipIf(!hasDatabase)('migration runner', () => {
   let schema: string;
 
@@ -123,7 +134,15 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
       );
       const names = tables.rows.map((row) => row.table_name).sort();
       expect(names).toEqual(
-        [...M1_TABLES, ...VIKUNJA_TABLES, ...M2_TABLES, ...APPROVAL_TABLES, ...PLANNING_TABLES, 'schema_migrations'].sort(),
+        [
+          ...M1_TABLES,
+          ...VIKUNJA_TABLES,
+          ...M2_TABLES,
+          ...APPROVAL_TABLES,
+          ...PLANNING_TABLES,
+          ...M4_TABLES,
+          'schema_migrations',
+        ].sort(),
       );
     } finally {
       await client.end();
@@ -424,6 +443,18 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           expect(availabilityColumns.rows.map((row) => row.column_name)).toEqual([]);
           const stillThere = await client.query<{ name: string | null }>(
             `SELECT to_regclass('user_availability_version')::text AS name`,
+          );
+          expect(stillThere.rows[0]?.name).not.toBeNull();
+        } else if (migration === '0009_today_sessions.sql') {
+          for (const table of M4_TABLES) {
+            const gone = await client.query<{ name: string | null }>(
+              `SELECT to_regclass($1)::text AS name`,
+              [table],
+            );
+            expect({ table, name: gone.rows[0]?.name }).toEqual({ table, name: null });
+          }
+          const stillThere = await client.query<{ name: string | null }>(
+            `SELECT to_regclass('schedule_block')::text AS name`,
           );
           expect(stillThere.rows[0]?.name).not.toBeNull();
         } else if (migration === '0007_planning_core.sql') {
