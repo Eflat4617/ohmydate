@@ -1,6 +1,7 @@
 import { ref } from 'vue';
 import { OWNER_STORAGE_KEY, readActiveOwnerId, writeActiveOwnerId } from './owner';
 import { sessionJournal } from './journal';
+import { bindOwnerAuthority, clearSlotsOnOwnerChange } from './ownerStorage';
 
 export interface OwnerBinding {
   readonly ownerId: string | null;
@@ -20,6 +21,30 @@ const ownerId = ref<string | null>(readActiveOwnerId());
 const epoch = ref(0);
 const resetPending = ref(false);
 let controller = new AbortController();
+
+// The page seal (ADR-023 guardrail, FU-77). ADR-023 makes a user switch a hard
+// reload, so one page instance serves one owner. With the seal installed
+// (main.ts), the moment a hard reset is decided this page stops being able to
+// act for anyone: storage will not open the new owner's namespace, the query
+// cache takes no more data, no toast appears and the router does not move. A
+// continuation that was written without a fence then has nothing left to
+// write to. Unit tests switch owners on one page on purpose, so the seal is
+// opt-in; it never engages for a single owner.
+let pageSealInstalled = false;
+const pageSealed = ref(false);
+
+export function installPageSeal(): void {
+  pageSealInstalled = true;
+}
+
+export function isPageSealed(): boolean {
+  return pageSealed.value;
+}
+
+export function resetPageSealForTests(): void {
+  pageSealInstalled = false;
+  pageSealed.value = false;
+}
 
 export const ownerState = { ownerId, epoch, resetPending };
 
@@ -118,7 +143,9 @@ export function ownerChanged(
     return false;
   }
   invalidateOwnerEpoch();
+  if (pageSealInstalled) pageSealed.value = true;
   ownerId.value = nextOwnerId;
+  clearSlotsOnOwnerChange();
   sessionJournal.setOwner(nextOwnerId);
   if (reason !== 'storage') writeActiveOwnerId(nextOwnerId);
   resetPending.value = true;
@@ -138,11 +165,20 @@ export function adoptActiveOwner(
   }
   invalidateOwnerEpoch();
   ownerId.value = nextOwnerId;
+  clearSlotsOnOwnerChange();
   sessionJournal.setOwner(nextOwnerId);
   writeActiveOwnerId(nextOwnerId);
   notifyOwnerChange(nextOwnerId, previous, reason);
   return true;
 }
+
+// ownerStorage decides staleness and the seal through this module, without
+// importing it (it sits below, so the active-owner pointer can be read here).
+bindOwnerAuthority({
+  isCurrent: isOwnerBindingCurrent,
+  currentOwnerId: () => ownerId.value,
+  isPageSealed: () => pageSealed.value,
+});
 
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {

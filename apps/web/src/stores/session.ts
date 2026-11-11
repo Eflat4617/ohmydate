@@ -1,11 +1,8 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type { WorkSession } from '../api';
-import {
-  ownerStorageSuffix,
-  readActiveOwnerId,
-  writeActiveOwnerId,
-} from '../session/owner';
+import { readActiveOwnerId, writeActiveOwnerId } from '../session/owner';
+import { ownerSlot } from '../session/ownerStorage';
 import {
   adoptActiveOwner,
   isOwnerBindingCurrent,
@@ -15,17 +12,13 @@ import {
   type OwnerBinding,
 } from '../session/ownerEpoch';
 
-const STORAGE_KEY_PREFIX = 'ohmydate.focus.sessions';
-
-function storageKey(ownerId: string | null): string {
-  return `${STORAGE_KEY_PREFIX}:${ownerStorageSuffix(ownerId)}`;
-}
+/** Durable, per owner: `ohmydate.focus.sessions:<owner>` (see ownerStorage). */
+const slot = ownerSlot('focusSessions');
 
 function readStorage(ownerId: string | null): Record<string, WorkSession> {
-  if (typeof localStorage === 'undefined') return {};
+  const raw = slot.read(ownerId);
+  if (raw === null) return {};
   try {
-    const raw = localStorage.getItem(storageKey(ownerId));
-    if (raw === null) return {};
     const parsed: unknown = JSON.parse(raw);
     if (parsed === null || typeof parsed !== 'object') return {};
     return parsed as Record<string, WorkSession>;
@@ -35,12 +28,8 @@ function readStorage(ownerId: string | null): Record<string, WorkSession> {
 }
 
 function writeStorage(ownerId: string | null, sessions: Record<string, WorkSession>): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    localStorage.setItem(storageKey(ownerId), JSON.stringify(sessions));
-  } catch {
-    // Storage can be unavailable in private modes; the in-memory store still works.
-  }
+  // Storage can be unavailable in private modes; the in-memory store still works.
+  slot.writeFor(ownerId, JSON.stringify(sessions));
 }
 
 export type SyncState = 'idle' | 'offline' | 'syncing' | 'synced' | 'conflict';
@@ -146,13 +135,7 @@ export const useSessionStore = defineStore('session', () => {
     pendingCount.value = 0;
     syncState.value = 'idle';
     syncMessage.value = null;
-    if (typeof localStorage !== 'undefined') {
-      try {
-        localStorage.removeItem(storageKey(ownerId.value));
-      } catch {
-        // ignore
-      }
-    }
+    slot.discard(ownerId.value);
   }
 
   return {

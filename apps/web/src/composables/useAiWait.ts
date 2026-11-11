@@ -1,7 +1,8 @@
 import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from 'vue';
 import { AI_REQUEST_CLIENT_BOUND_MS, type IntakeInput, type IntakeSession } from '../api';
 import { t } from '../i18n';
-import { isOwnerBindingCurrent, onActiveOwnerChange, type OwnerBinding } from '../session/ownerEpoch';
+import type { OwnerBinding } from '../session/ownerEpoch';
+import { deviceSlot, ownerSlot } from '../session/ownerStorage';
 
 /**
  * FU-76: client state for one wizard step that waits for the AI.
@@ -16,7 +17,8 @@ import { isOwnerBindingCurrent, onActiveOwnerChange, type OwnerBinding } from '.
  * input, so it lives under the VERIFIED owner's own key, is written only while
  * that owner's binding is current, is read back only for that same verified
  * owner (and only if it names that owner), and every record is removed on any
- * owner change or logout.
+ * owner change or logout. The slot (session/ownerStorage.ts) enforces the
+ * write rule and the removal; this module adds the "names that owner" check.
  */
 
 export type AiWaitKind = 'type_detection' | 'decomposition';
@@ -45,13 +47,16 @@ export interface PendingAiWait {
   };
 }
 
+const slot = ownerSlot('aiWait');
+const legacySlot = deviceSlot('legacyAiWait');
+
 /** Owner-scoped storage: `${AI_WAIT_STORAGE_PREFIX}:${ownerId}`. */
 export const AI_WAIT_STORAGE_PREFIX = 'ohmydate.intake.aiWait.v2';
 /** Pre-FU-76R-1 unscoped key: never read, removed on sight. */
-export const LEGACY_AI_WAIT_STORAGE_KEY = 'ohmydate.intake.aiWait.v1';
+export const LEGACY_AI_WAIT_STORAGE_KEY = legacySlot.key;
 
 export function aiWaitStorageKey(ownerId: string): string {
-  return `${AI_WAIT_STORAGE_PREFIX}:${ownerId}`;
+  return slot.keyFor(ownerId);
 }
 /** Copy says "보통 30초–1분": past one minute the panel says it is slower than usual. */
 export const AI_WAIT_SLOW_AFTER_MS = 60_000;
@@ -84,38 +89,24 @@ export function formatElapsed(ms: number): string {
   return t('aiWait.minutesSeconds', { minutes, seconds });
 }
 
-function storage(): Storage | null {
-  try {
-    return typeof sessionStorage === 'undefined' ? null : sessionStorage;
-  } catch {
-    return null;
-  }
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 /** Only the given verified owner's record, and only if it names that owner. */
 export function readStoredAiWait(ownerId: string, nowMs: number = Date.now()): PendingAiWait | null {
-  const store = storage();
-  if (store === null) return null;
-  const key = aiWaitStorageKey(ownerId);
+  if (!slot.available()) return null;
+  legacySlot.remove();
+  const raw = slot.read(ownerId);
+  if (raw === null) return null;
   let parsed: unknown;
   try {
-    store.removeItem(LEGACY_AI_WAIT_STORAGE_KEY);
-    const raw = store.getItem(key);
-    if (raw === null) return null;
     parsed = JSON.parse(raw);
   } catch {
     return null;
   }
   const drop = (): null => {
-    try {
-      store.removeItem(key);
-    } catch {
-      // nothing to clean up
-    }
+    slot.discard(ownerId);
     return null;
   };
   if (!isRecord(parsed)) return drop();
@@ -134,50 +125,27 @@ export function readStoredAiWait(ownerId: string, nowMs: number = Date.now()): P
 
 /** Into the record owner's own key, and only while that owner's binding is current. */
 function writeStoredAiWait(record: PendingAiWait, binding: OwnerBinding | undefined): void {
-  const store = storage();
   const ownerId = record.ownerId;
-  if (store === null || ownerId === undefined || binding === undefined) return;
-  if (!isOwnerBindingCurrent(binding) || binding.ownerId !== ownerId) return;
-  try {
-    store.setItem(aiWaitStorageKey(ownerId), JSON.stringify(record));
-  } catch {
-    // Storage full or blocked: the wait still works, it just cannot resume after a reload.
-  }
+  if (ownerId === undefined || binding === undefined || binding.ownerId !== ownerId) return;
+  // Storage full or blocked: the wait still works, it just cannot resume after a reload.
+  slot.write(binding, JSON.stringify(record));
 }
 
 function removeStoredAiWait(record: PendingAiWait, binding: OwnerBinding | undefined): void {
-  const store = storage();
   const ownerId = record.ownerId;
-  if (store === null || ownerId === undefined || binding === undefined) return;
-  if (!isOwnerBindingCurrent(binding) || binding.ownerId !== ownerId) return;
-  try {
-    store.removeItem(aiWaitStorageKey(ownerId));
-  } catch {
-    // nothing to clean up
-  }
+  if (ownerId === undefined || binding === undefined || binding.ownerId !== ownerId) return;
+  slot.remove(binding);
 }
 
-/** Every owner's AI-wait record (and the legacy unscoped one). */
+/**
+ * Every owner's AI-wait record (and the legacy unscoped one). ownerStorage
+ * runs the same removal on any owner change (login, logout, another tab, /me
+ * mismatch), synchronously, before a late continuation could read a record.
+ */
 export function clearStoredAiWaits(): void {
-  const store = storage();
-  if (store === null) return;
-  try {
-    const keys: string[] = [];
-    for (let index = 0; index < store.length; index += 1) {
-      const key = store.key(index);
-      if (key !== null && (key === LEGACY_AI_WAIT_STORAGE_KEY || key.startsWith(`${AI_WAIT_STORAGE_PREFIX}:`))) {
-        keys.push(key);
-      }
-    }
-    for (const key of keys) store.removeItem(key);
-  } catch {
-    // Storage blocked: nothing was persisted either.
-  }
+  slot.clearAllOwners();
+  legacySlot.remove();
 }
-
-// Any owner change (login, logout, another tab, /me mismatch) drops every
-// pending record synchronously, before a late continuation could read one.
-onActiveOwnerChange(() => clearStoredAiWaits());
 
 export interface AiWaitState {
   readonly pending: Ref<PendingAiWait | null>;

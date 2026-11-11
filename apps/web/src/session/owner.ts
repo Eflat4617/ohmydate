@@ -1,25 +1,21 @@
-export const OWNER_STORAGE_KEY = 'ohmydate.focus.owner';
+import { ANONYMOUS_OWNER, deviceSlot } from './ownerStorage';
 
-export const ANONYMOUS_OWNER = 'anonymous';
+const activeOwner = deviceSlot('activeOwner');
+
+/** The device-level pointer to the signed-in owner (see ownerStorage's device allowlist). */
+export const OWNER_STORAGE_KEY = activeOwner.key;
+
+export { ANONYMOUS_OWNER };
 
 export function readActiveOwnerId(): string | null {
-  if (typeof localStorage === 'undefined') return null;
-  try {
-    const value = localStorage.getItem(OWNER_STORAGE_KEY);
-    return value !== null && value.length > 0 ? value : null;
-  } catch {
-    return null;
-  }
+  const value = activeOwner.read();
+  return value !== null && value.length > 0 ? value : null;
 }
 
 export function writeActiveOwnerId(ownerId: string | null): void {
-  if (typeof localStorage === 'undefined') return;
-  try {
-    if (ownerId === null) localStorage.removeItem(OWNER_STORAGE_KEY);
-    else localStorage.setItem(OWNER_STORAGE_KEY, ownerId);
-  } catch {
-    // Private browsing can disable storage; the in-memory owner still applies.
-  }
+  // Private browsing can disable storage; the in-memory owner still applies.
+  if (ownerId === null) activeOwner.remove();
+  else activeOwner.write(ownerId);
 }
 
 export function ownerStorageSuffix(ownerId: string | null): string {

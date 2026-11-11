@@ -1,4 +1,5 @@
 import { ANONYMOUS_OWNER, readActiveOwnerId } from './owner';
+import { hasIndexedDb, openDeviceDatabase, ownerNamespaceClosed } from './ownerStorage';
 
 export type FocusEventKind = 'pause' | 'resume' | 'complete';
 
@@ -30,7 +31,7 @@ function resolveOwner(explicit: string | null | undefined, fallback: string): st
   return explicit ?? ANONYMOUS_OWNER;
 }
 
-const DB_NAME = 'ohmydate-focus';
+const DB_NAME = 'ohmydate-focus' as const;
 const DB_VERSION = 2;
 const STORE = 'events';
 
@@ -42,24 +43,26 @@ function requestResult<T>(request: IDBRequest<T>): Promise<T> {
 }
 
 function openDatabase(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const database = request.result;
-      if (!database.objectStoreNames.contains(STORE)) {
-        const store = database.createObjectStore(STORE, { keyPath: 'seq', autoIncrement: true });
-        store.createIndex('sessionId', 'sessionId', { unique: false });
+  return openDeviceDatabase(DB_NAME, DB_VERSION, (request) => {
+    const database = request.result;
+    if (!database.objectStoreNames.contains(STORE)) {
+      const store = database.createObjectStore(STORE, { keyPath: 'seq', autoIncrement: true });
+      store.createIndex('sessionId', 'sessionId', { unique: false });
+      store.createIndex('ownerId', 'ownerId', { unique: false });
+    } else {
+      const store = request.transaction?.objectStore(STORE);
+      if (store !== undefined && !store.indexNames.contains('ownerId')) {
         store.createIndex('ownerId', 'ownerId', { unique: false });
-      } else {
-        const store = request.transaction?.objectStore(STORE);
-        if (store !== undefined && !store.indexNames.contains('ownerId')) {
-          store.createIndex('ownerId', 'ownerId', { unique: false });
-        }
       }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('Could not open Focus journal'));
+    }
   });
+}
+
+/** A page being hard-reset never journals into the new owner's namespace (ADR-023 §2). */
+function assertNamespaceOpen(owner: string): void {
+  if (ownerNamespaceClosed(owner === ANONYMOUS_OWNER ? null : owner)) {
+    throw new Error('Focus journal is closed for this owner until the page reloads');
+  }
 }
 
 export class IndexedDbSessionJournal implements SessionJournal {
@@ -76,13 +79,14 @@ export class IndexedDbSessionJournal implements SessionJournal {
   }
 
   async append(event: QueuedSessionEvent, ownerId?: string | null): Promise<SessionEventRecord> {
-    const database = await this.db();
-    const transaction = database.transaction(STORE, 'readwrite');
-    const store = transaction.objectStore(STORE);
     const record: Omit<SessionEventRecord, 'seq'> = {
       ...event,
       ownerId: resolveOwner(ownerId, event.ownerId ?? this.ownerId),
     };
+    assertNamespaceOpen(record.ownerId);
+    const database = await this.db();
+    const transaction = database.transaction(STORE, 'readwrite');
+    const store = transaction.objectStore(STORE);
     const key = await requestResult(store.add(record));
     await new Promise<void>((resolve, reject) => {
       transaction.oncomplete = () => resolve();
@@ -169,7 +173,7 @@ export class MemorySessionJournal implements SessionJournal {
 }
 
 export function createSessionJournal(): SessionJournal {
-  if (typeof indexedDB === 'undefined') return new MemorySessionJournal();
+  if (!hasIndexedDb()) return new MemorySessionJournal();
   return new IndexedDbSessionJournal();
 }
 

@@ -16,6 +16,7 @@ import ReplanListView from './views/ReplanListView.vue';
 import ReplanProposalView from './views/ReplanProposalView.vue';
 import TaskDetailView from './views/TaskDetailView.vue';
 import TodayView from './views/TodayView.vue';
+import { isPageSealed } from './session/ownerEpoch';
 
 const NotesView = () => import('./views/NotesView.vue');
 
@@ -52,3 +53,8 @@ export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 });
+
+// ADR-023 guardrail: a page that is being hard-reset for another user does
+// not navigate any more. The reload itself picks the next location
+// (session/ownerEpoch.ts), so a late continuation cannot move the new user.
+router.beforeEach(() => !isPageSealed());
