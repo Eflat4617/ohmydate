@@ -38,6 +38,7 @@ const MIGRATION_FILES = [
   '0009_today_sessions.sql',
   '0010_daily_storage.sql',
   '0011_llm_spend.sql',
+  '0012_replanning.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -106,6 +107,9 @@ const M4_TABLES = [
 // 0010_daily_storage.sql.
 const DAILY_STORAGE_TABLES = ['today_proposal'];
 
+// 0012_replanning.sql.
+const REPLANNING_TABLES = ['replan_proposal', 'replan_suppression'];
+
 describe.skipIf(!hasDatabase)('migration runner', () => {
   let schema: string;
 
@@ -151,6 +155,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           ...M4_TABLES,
           ...DAILY_STORAGE_TABLES,
           ...LLM_SPEND_TABLES,
+          ...REPLANNING_TABLES,
           'schema_migrations',
         ].sort(),
       );
@@ -453,6 +458,26 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           expect(availabilityColumns.rows.map((row) => row.column_name)).toEqual([]);
           const stillThere = await client.query<{ name: string | null }>(
             `SELECT to_regclass('user_availability_version')::text AS name`,
+          );
+          expect(stillThere.rows[0]?.name).not.toBeNull();
+        } else if (migration === '0012_replanning.sql') {
+          for (const table of REPLANNING_TABLES) {
+            const gone = await client.query<{ name: string | null }>(
+              `SELECT to_regclass($1)::text AS name`,
+              [table],
+            );
+            expect({ table, name: gone.rows[0]?.name }).toEqual({ table, name: null });
+          }
+          const columns = await client.query<{ column_name: string }>(
+            `SELECT column_name
+               FROM information_schema.columns
+              WHERE table_schema = $1 AND table_name = 'estimation_feedback'
+                AND column_name = 'excluded'`,
+            [schema],
+          );
+          expect(columns.rows.map((row) => row.column_name)).toEqual([]);
+          const stillThere = await client.query<{ name: string | null }>(
+            `SELECT to_regclass('estimation_feedback')::text AS name`,
           );
           expect(stillThere.rows[0]?.name).not.toBeNull();
         } else if (migration === '0011_llm_spend.sql') {

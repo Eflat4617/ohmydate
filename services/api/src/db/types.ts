@@ -628,6 +628,34 @@ export interface EstimationFeedbackTable {
   estimated_p50: Col<'integer', false, false>;
   actual_focus_min: Col<'integer', false, false>;
   quality: Col<'text', false, true>;
+  excluded: Col<'boolean', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface ReplanProposalTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  plan_id: Col<'uuid', false, false>;
+  base_plan_version_id: Col<'uuid', false, false>;
+  result_plan_version_id: Col<'uuid', true, false>;
+  trigger_kind: Col<'text', false, false>;
+  reason_code: Col<'text', false, false>;
+  detected_at: Col<'timestamptz', false, false>;
+  availability_version: Col<'integer', false, false>;
+  payload: Col<'jsonb', false, false>;
+  state: Col<'text', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  expires_at: Col<'timestamptz', false, false>;
+  version: Col<'integer', false, true>;
+}
+
+export interface ReplanSuppressionTable {
+  owner_id: Col<'uuid', false, false>;
+  reason_code: Col<'text', false, false>;
+  until: Col<'timestamptz', false, false>;
   created_at: Col<'timestamptz', false, true>;
   updated_at: Col<'timestamptz', false, true>;
   version: Col<'integer', false, true>;
@@ -724,6 +752,8 @@ export interface Database {
   work_session: WorkSessionTable;
   task_completion_review: TaskCompletionReviewTable;
   estimation_feedback: EstimationFeedbackTable;
+  replan_proposal: ReplanProposalTable;
+  replan_suppression: ReplanSuppressionTable;
   notification: NotificationTable;
   push_subscription: PushSubscriptionTable;
   export_job: ExportJobTable;
@@ -1180,6 +1210,32 @@ export const databaseTables = {
     estimated_p50: col('integer', false, false),
     actual_focus_min: col('integer', false, false),
     quality: col('text', false, true),
+    excluded: col('boolean', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  replan_proposal: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    plan_id: col('uuid', false, false),
+    base_plan_version_id: col('uuid', false, false),
+    result_plan_version_id: col('uuid', true, false),
+    trigger_kind: col('text', false, false),
+    reason_code: col('text', false, false),
+    detected_at: col('timestamptz', false, false),
+    availability_version: col('integer', false, false),
+    payload: col('jsonb', false, false),
+    state: col('text', false, true),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    expires_at: col('timestamptz', false, false),
+    version: col('integer', false, true),
+  },
+  replan_suppression: {
+    owner_id: col('uuid', false, false),
+    reason_code: col('text', false, false),
+    until: col('timestamptz', false, false),
     created_at: col('timestamptz', false, true),
     updated_at: col('timestamptz', false, true),
     version: col('integer', false, true),
@@ -1378,6 +1434,14 @@ type TableAssertions = {
   estimation_feedback: AssertTableColumns<
     EstimationFeedbackTable,
     typeof databaseTables.estimation_feedback
+  >;
+  replan_proposal: AssertTableColumns<
+    ReplanProposalTable,
+    typeof databaseTables.replan_proposal
+  >;
+  replan_suppression: AssertTableColumns<
+    ReplanSuppressionTable,
+    typeof databaseTables.replan_suppression
   >;
   notification: AssertTableColumns<NotificationTable, typeof databaseTables.notification>;
   push_subscription: AssertTableColumns<

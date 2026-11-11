@@ -441,6 +441,13 @@ describe.skipIf(!hasDatabase)('0009 today/session schema', () => {
     await client.end();
     client = await connect(schema);
 
+    const rolledBack0012 = await rollbackLatest({
+      databaseUrl: requireDatabaseUrl(),
+      schema,
+      migrationsDir,
+    });
+    expect(rolledBack0012).toBe('0012_replanning.sql');
+
     const rolledBack0011 = await rollbackLatest({
       databaseUrl: requireDatabaseUrl(),
       schema,
@@ -487,6 +494,7 @@ describe.skipIf(!hasDatabase)('0009 today/session schema', () => {
       '0009_today_sessions.sql',
       '0010_daily_storage.sql',
       '0011_llm_spend.sql',
+      '0012_replanning.sql',
     ]);
   });
 });
