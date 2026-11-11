@@ -1,4 +1,6 @@
 import { cpus, loadavg } from 'node:os';
+import { vi } from 'vitest';
+import type * as SchedulerModule from '../src/index.js';
 import type {
   AvailabilityRule,
   ScheduleInput,
@@ -6,6 +8,21 @@ import type {
   Weekday,
 } from '../src/index.js';
 import { generate } from '../src/index.js';
+
+// FU-66d: replace the `generate` *binding* this file imports with a
+// pass-through vi.fn (vi.mock is hoisted above the imports). Every generate()
+// call written in this file -- the gate workload, the self-test workloads and
+// any generate() call a mistaken calibration would make -- now goes through
+// `generateMock`, so the tests below can count those calls and slow every one
+// of them. Scheduler-internal calls between src modules are not affected.
+vi.mock('../src/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof SchedulerModule>();
+  return { ...actual, generate: vi.fn(actual.generate) };
+});
+
+const generateMock = vi.mocked(generate);
+const { generate: actualGenerate } =
+  await vi.importActual<typeof SchedulerModule>('../src/index.js');
 
 function buildLargeInput(): ScheduleInput {
   const availability: AvailabilityRule[] = [];
@@ -83,11 +100,14 @@ function percentile(sorted: number[], fraction: number): number {
  *    asserted quantity is still "milliseconds of generator work on the
  *    reference machine" and the 500 ms threshold is unchanged. A uniformly
  *    slower/loaded host scales both the calibration and the workload, leaving
- *    the normalised value stable. Because the calibration never calls the
- *    generator, a real scheduler-wide regression still doubles the numerator
- *    without moving the denominator (see the negative self-test below); this
- *    is why the calibration must not be another `generate()` call, which
- *    would cancel exactly the slowdown the gate exists to catch.
+ *    the normalised value stable. The calibration must not call
+ *    `generate()`: a generator regression would then slow the denominator
+ *    too and cancel exactly the slowdown the gate exists to catch (the
+ *    c12ff8f bug). The gate and self-test A read the calibration from the
+ *    single PRODUCTION_GATE constant, and three checks below fail if it calls
+ *    the mocked `generate` binding: the per-sample call count inside the
+ *    gate, the spy test, and self-test A (every generate() call slowed +100%,
+ *    so a generate()-based calibration collapses the ratio towards 1x).
  *
  * CALIBRATION_REF_MS was measured on this host on 2026-11-12 under a quiet
  * run: 31 samples of `runCalibrationWorkload()` gave p50=10.543 ms,
@@ -118,6 +138,24 @@ function runCalibrationWorkload(): void {
   calibrationSink = (calibrationSink + hash) >>> 0;
 }
 
+/**
+ * The one place the production gate's calibration is chosen. The gate spreads
+ * this constant (it has no `calibration:` argument of its own), and the spy
+ * test and self-test A exercise `PRODUCTION_GATE.calibration`, so changing the
+ * gate's calibration changes what those tests check.
+ */
+const PRODUCTION_GATE = {
+  /** Scheduler-independent CPU workload; must never call generate(). */
+  calibration: runCalibrationWorkload,
+  refMs: CALIBRATION_REF_MS,
+} as const;
+
+/**
+ * Small input (1 task / 1 day, well under 1 ms per generate()) for the
+ * self-tests. Small calls allocate little per sample, which keeps concurrent
+ * GC helper-thread CPU (counted by process.cpuUsage(), but only partly doubled
+ * by the burn) from pulling the slowdown ratio far below 2x.
+ */
 function buildSelfTestInput(): ScheduleInput {
   const input = buildLargeInput();
   return {
@@ -146,7 +184,7 @@ interface BatchStats {
 interface MeasureP95Options {
   /** The scheduler work under test. Called once per sample. */
   workload: () => void;
-  /** Fixed CPU cost used to normalise the sample. Must not call the workload. */
+  /** Fixed CPU cost used to normalise the sample. Must not call generate(). */
   calibration: () => void;
   /** Number of batches to run. */
   batches: number;
@@ -165,10 +203,9 @@ interface MeasureP95Result {
 }
 
 /**
- * Pure calibrated p95 measurement shared by the production gate and the
- * negative self-tests. Both the workload and the calibration are injected, so
- * the self-tests can prove that a *scheduler-wide* slowdown is detected only
- * when the calibration is independent of the scheduler.
+ * Calibrated p95 measurement shared by the production gate and the negative
+ * self-tests, so the self-tests exercise the same normalisation the gate
+ * asserts on. Both the workload and the calibration are injected.
  */
 function measureP95(options: MeasureP95Options): MeasureP95Result {
   const batchSize = options.batchSize ?? 20;
@@ -207,12 +244,16 @@ function measureP95(options: MeasureP95Options): MeasureP95Result {
   return { batches, bestP95: Math.min(...batches.map((batch) => batch.p95)) };
 }
 
-/** Busy-wait on CPU for at least `targetMs`, independent of packages/scheduler. */
+/**
+ * Busy-wait on CPU for at least `targetMs`, independent of packages/scheduler.
+ * The CPU clock is re-read every 4096 iterations (a few microseconds), so the
+ * overshoot stays small even when the target is one small generate() call.
+ */
 function burnCpuMillis(targetMs: number): void {
   const start = process.cpuUsage();
   let hash = calibrationSink;
   while (cpuMillisSince(start) < targetMs) {
-    for (let index = 0; index < 65536; index += 1) {
+    for (let index = 0; index < 4096; index += 1) {
       hash ^= CALIBRATION_VALUES[index & (CALIBRATION_VALUES.length - 1)]!;
       hash = Math.imul(hash, 0x01000193) >>> 0;
     }
@@ -220,73 +261,125 @@ function burnCpuMillis(targetMs: number): void {
   calibrationSink = (calibrationSink + hash) >>> 0;
 }
 
-/**
- * Wraps a scheduler workload with a uniform +100% CPU burn applied to *every*
- * invocation, including any invocation made by a (mistaken) calibration.
- */
-function withUniformSlowdown(work: () => void): () => void {
-  return () => {
-    const start = process.cpuUsage();
-    work();
-    burnCpuMillis(cpuMillisSince(start));
-  };
-}
-
-interface GenerateSpy {
-  countedGenerate: (...args: Parameters<typeof generate>) => ReturnType<typeof generate>;
-  productionCalibration: () => void;
-  callsDuringCalibration: () => number;
+/** Real generate() followed by a CPU burn of the same length (+100%). */
+function slowedGenerate(
+  ...args: Parameters<typeof generate>
+): ReturnType<typeof generate> {
+  const start = process.cpuUsage();
+  const result = actualGenerate(...args);
+  burnCpuMillis(cpuMillisSince(start));
+  return result;
 }
 
 /**
- * Counts `generate()` calls made while the production calibration runs. The
- * production calibration is `runCalibrationWorkload`, which must never touch
- * the scheduler; this spy turns that expectation into an assertion.
+ * Runs `run` with *every* call to the mocked `generate` binding slowed by
+ * +100%: the workload's calls and any call a calibration makes alike.
  */
-function createGenerateSpy(): GenerateSpy {
-  let callsDuringCalibration = 0;
-  let inCalibration = false;
-  const countedGenerate = (
-    ...args: Parameters<typeof generate>
-  ): ReturnType<typeof generate> => {
-    const result = generate(...args);
-    if (inCalibration) {
-      callsDuringCalibration += 1;
-    }
-    return result;
-  };
-  return {
-    countedGenerate,
-    productionCalibration: () => {
-      inCalibration = true;
-      try {
-        runCalibrationWorkload();
-      } finally {
-        inCalibration = false;
-      }
-    },
-    callsDuringCalibration: () => callsDuringCalibration,
-  };
+function withEveryGenerateSlowed<T>(run: () => T): T {
+  generateMock.mockImplementation(slowedGenerate);
+  try {
+    return run();
+  } finally {
+    generateMock.mockImplementation(actualGenerate);
+  }
+}
+
+/**
+ * Per-sample slowdown ratios of `workload` as seen through `measureP95` with
+ * the given calibration: each sample measures the baseline and the +100%
+ * slowed variant back-to-back, so both see the same host load. Both paths are
+ * warmed up first so JIT compilation does not inflate the early baselines.
+ */
+function slowdownRatios(options: {
+  workload: () => void;
+  calibration: () => void;
+  samples: number;
+}): number[] {
+  const measureOnce = () =>
+    measureP95({
+      workload: options.workload,
+      calibration: options.calibration,
+      refMs: PRODUCTION_GATE.refMs,
+      batches: 1,
+      batchSize: 1,
+    }).bestP95;
+
+  for (let warmUp = 0; warmUp < 3; warmUp += 1) {
+    measureOnce();
+    withEveryGenerateSlowed(measureOnce);
+  }
+
+  const ratios: number[] = [];
+  for (let run = 0; run < options.samples; run += 1) {
+    generateMock.mockClear();
+    const baseline = measureOnce();
+    const slowed = withEveryGenerateSlowed(measureOnce);
+    ratios.push(slowed / baseline);
+  }
+  generateMock.mockClear();
+  return ratios;
+}
+
+function median(values: number[]): number {
+  return percentile([...values].sort((a, b) => a - b), 0.5);
+}
+
+function formatRatios(values: number[]): string {
+  return values.map((value) => value.toFixed(2)).join(',');
+}
+
+/** `count` real generate() calls on the self-test input (via the mock). */
+function repeatSelfTestGenerate(input: ScheduleInput, count: number): void {
+  for (let repeat = 0; repeat < count; repeat += 1) {
+    generate(input, { policies: ['balanced'], seed: input.seed });
+  }
+}
+
+/**
+ * Self-test scheduler workload: 100 small generate() calls per sample, so
+ * per-sample CPU noise cannot swamp the slowdown ratio.
+ */
+function selfTestWorkload(input: ScheduleInput): () => void {
+  return () => repeatSelfTestGenerate(input, 100);
+}
+
+/**
+ * Self-test B's calibration: the c12ff8f mistake of calibrating with
+ * generate() itself. It makes the same small calls as the workload (20 of
+ * them, about the cost of runCalibrationWorkload) so the +100% burn is applied
+ * at the same per-call granularity on both sides of B's ratio.
+ */
+function generateBasedCalibration(input: ScheduleInput): () => void {
+  return () => repeatSelfTestGenerate(input, 20);
 }
 
 describe('generator performance (06 §11)', () => {
+  beforeEach(() => {
+    generateMock.mockClear();
+    generateMock.mockImplementation(actualGenerate);
+  });
+
   it('50 tasks / 14 days / 3 policies p95 < 500 ms (calibrated CPU time)', () => {
     const input = buildLargeInput();
     const measured = measureP95({
+      ...PRODUCTION_GATE,
       workload: () => {
         const result = generate(input, {
           policies: ['front_loaded', 'balanced', 'focus_blocked'],
           seed: input.seed,
         });
+        // Only the calibration and this call have run since the previous
+        // sample, so exactly one generate() call means the calibration made
+        // none. (Clearing here also stops vi.fn from retaining every result.)
+        expect(generateMock).toHaveBeenCalledTimes(1);
+        generateMock.mockClear();
         expect(result.candidates.map((candidate) => candidate.feasible)).toEqual([
           true,
           true,
           true,
         ]);
       },
-      calibration: runCalibrationWorkload,
       batches: 5,
-      refMs: CALIBRATION_REF_MS,
       stopWhenP95Below: 500,
     });
 
@@ -308,81 +401,46 @@ describe('generator performance (06 §11)', () => {
     }
   }, 180000);
 
-  it('detects a uniform scheduler slowdown and rejects scheduler-based calibration (negative self-test)', () => {
-    const input = buildSelfTestInput();
-    const SELF_TEST_SAMPLES = 20;
-    const FAULTY_SAMPLES = 10;
-    // Average many real generate() calls per invocation (still +100% wrapped)
-    // so per-sample CPU noise cannot swamp the slowdown ratio.
-    const SELF_TEST_REPEATS = 100;
-    const schedulerWorkload = () => {
-      for (let repeat = 0; repeat < SELF_TEST_REPEATS; repeat += 1) {
-        generate(input, { policies: ['balanced'], seed: input.seed });
-      }
-    };
-    const slowedWorkload = withUniformSlowdown(schedulerWorkload);
-    const spy = createGenerateSpy();
+  it('the production calibration never calls generate() (spy on the generate binding)', () => {
+    generateMock.mockClear();
+    PRODUCTION_GATE.calibration();
+    expect(generateMock).not.toHaveBeenCalled();
 
-    // Self-test A (detection): the *scheduler* workload is slowed uniformly
-    // and the production (scheduler-independent) calibration is used. Measure
-    // baseline and slowed back-to-back so both see the same host load, record
-    // the per-sample slowdown ratio, and take its p95.
-    const productionRatios: number[] = [];
-    for (let run = 0; run < SELF_TEST_SAMPLES; run += 1) {
-      const baseline = measureP95({
-        workload: schedulerWorkload,
-        calibration: spy.productionCalibration,
-        batches: 1,
-        batchSize: 1,
-        refMs: CALIBRATION_REF_MS,
-      });
-      const slowed = measureP95({
-        workload: slowedWorkload,
-        calibration: spy.productionCalibration,
-        batches: 1,
-        batchSize: 1,
-        refMs: CALIBRATION_REF_MS,
-      });
-      productionRatios.push(slowed.bestP95 / baseline.bestP95);
-    }
-    const productionRatio = percentile(
-      [...productionRatios].sort((a, b) => a - b),
-      0.95,
-    );
+    // Negative control: the spy is live on the binding a calibration would
+    // use, so the assertion above is not vacuous.
+    repeatSelfTestGenerate(buildSelfTestInput(), 1);
+    expect(generateMock).toHaveBeenCalledTimes(1);
+  });
 
-    // Self-test B (known bug): use the scheduler workload itself as the
-    // calibration. The uniform slowdown then scales numerator and
-    // denominator together, so the ratio collapses to ~1x exactly as in the
-    // old generate()-based design.
-    const faultyRatios: number[] = [];
-    for (let run = 0; run < FAULTY_SAMPLES; run += 1) {
-      const baseline = measureP95({
-        workload: schedulerWorkload,
-        calibration: schedulerWorkload,
-        batches: 1,
-        batchSize: 1,
-        refMs: CALIBRATION_REF_MS,
-      });
-      const slowed = measureP95({
-        workload: slowedWorkload,
-        calibration: slowedWorkload,
-        batches: 1,
-        batchSize: 1,
-        refMs: CALIBRATION_REF_MS,
-      });
-      faultyRatios.push(slowed.bestP95 / baseline.bestP95);
-    }
-    const faultyRatio = percentile(
-      [...faultyRatios].sort((a, b) => a - b),
-      0.5,
-    );
-
+  it('self-test A: a +100% slowdown of every generate() call is detected with the production calibration', () => {
+    const ratios = slowdownRatios({
+      workload: selfTestWorkload(buildSelfTestInput()),
+      calibration: PRODUCTION_GATE.calibration,
+      samples: 20,
+    });
+    const ratio = median(ratios);
     console.log(
-      `slowdown self-test: production calibration slowdown ratio p95=${productionRatio.toFixed(2)}x; scheduler-as-calibration slowdown ratio p50=${faultyRatio.toFixed(2)}x; generate() calls during production calibration=${spy.callsDuringCalibration()}`,
+      `slowdown self-test A (PRODUCTION_GATE.calibration): median ratio=${ratio.toFixed(2)}x samples=[${formatRatios(ratios)}]`,
     );
+    // An independent calibration keeps the denominator fixed, so the
+    // calibrated time roughly doubles. A calibration that called generate()
+    // would be slowed by the same +100% and pull this towards 1x.
+    expect(ratio).toBeGreaterThanOrEqual(1.6);
+  }, 180000);
 
-    expect(productionRatio).toBeGreaterThanOrEqual(1.6);
-    expect(faultyRatio).toBeLessThanOrEqual(1.3);
-    expect(spy.callsDuringCalibration()).toBe(0);
+  it('self-test B: a generate()-based calibration (the c12ff8f bug) cancels the same slowdown', () => {
+    const input = buildSelfTestInput();
+    const ratios = slowdownRatios({
+      workload: selfTestWorkload(input),
+      calibration: generateBasedCalibration(input),
+      samples: 20,
+    });
+    const ratio = median(ratios);
+    console.log(
+      `slowdown self-test B (generate()-based calibration): median ratio=${ratio.toFixed(2)}x samples=[${formatRatios(ratios)}]`,
+    );
+    // Positive control for self-test A: the injected slowdown reaches a
+    // calibration that calls generate(), so such a calibration hides it.
+    expect(ratio).toBeLessThanOrEqual(1.3);
   }, 180000);
 });
