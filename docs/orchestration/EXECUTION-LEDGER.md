@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 06:58 | FU-66 worker_done(c12ff8f): fu41 property 113 s→17.6 s(가능한 형태만 생성, heavy 옵션 유지). **orchestrator 사전 지적**: perf gate 보정이 generate() 자체를 써서 균일한 성능 저하를 감출 수 있음 → 스케줄러와 무관한 고정 CPU 작업으로 보정 + 균일 저하 검출 self-test 요구 후 리뷰 | packets/FU-66.md | orchestrator |
 | 2026-11-12 06:55 | live contract smoke 재실행(FU-76 병합 후 통합 브랜치, 합성 입력): **12/12 schema-valid, 형식 재요청 0**(분해 v1 p50 20 s, v2 30 s) | evals/2026-11-12-contract-live-post-fu76.json | orchestrator |
 | 2026-11-12 06:45 | **FU-76 + FU-54 merged d3e7ed0** (FU-76R2 APPROVE, Sol). 통합 CI 2087 pass + web 376, boundaries 0. 병합 순서 변경: FU-76 먼저 → M6-03 수정 라운드에서 가짜 시나리오를 FU-76 공통 guard·ScriptedFakeLlm 기반에 결합하도록 지시. 메시지 생성 코드 변경으로 live contract smoke 재실행 | reviews/FU-76R2.md | orchestrator |
 | 2026-11-12 06:20 | **FU-53 + FU-72 merged cbd213c** (FU-53-72R2 APPROVE, Sol; 바뀐 단언 ['task']→[]는 리뷰어가 정당하다고 확인 — maxBytes=1이면 첫 조회 전에 거부, 별도 회귀가 task-only 검증). 통합 CI 2054 pass + web 354, boundaries 0 (load 23에서 첫 실행 통과). LOW → FU-78 | reviews/FU-53-72R2.md | orchestrator |
