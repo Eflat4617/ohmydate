@@ -5,7 +5,11 @@ import pg from 'pg';
 import { PgExportPayloadBuilder, PgExportStore } from '../src/adapters/pg-export-store.js';
 import type { Database } from '../src/db/types.js';
 import { PlanService } from '../src/application/plan-service.js';
-import { ExportService, type ExportStore } from '../src/application/export-service.js';
+import {
+  EXPORT_TOO_LARGE_MESSAGE,
+  ExportService,
+  type ExportStore,
+} from '../src/application/export-service.js';
 import type { PlanningStore } from '../src/application/planning-ports.js';
 import {
   authHeaders,
@@ -224,6 +228,29 @@ describe.skipIf(!hasDatabase)('FU-53 daily API hardening', () => {
     }
   });
 
+  test('(M2) malformed schedule-block cursor IDs return 422 validation_failed', async () => {
+    const fixture = await setupToday(ctx);
+    const page = async (cursor: string) => {
+      const query = new URLSearchParams({
+        from: '2026-11-12T00:00:00Z',
+        to: '2026-11-13T00:00:00Z',
+        cursor,
+      });
+      return ctx.app.inject({
+        method: 'GET',
+        url: `/api/v1/schedule-blocks?${query.toString()}`,
+        headers: authHeaders(fixture.alice),
+      });
+    };
+
+    const malformed = await page('2026-11-12T10:00:00.000Z|not-a-uuid');
+    expect(malformed.statusCode, malformed.body).toBe(422);
+    expect(malformed.json()).toMatchObject({ code: 'validation_failed' });
+
+    const control = await page(`2026-11-12T10:00:00.000Z|${fixture.blockId}`);
+    expect(control.statusCode, control.body).toBe(200);
+  });
+
   test('(f) schedule-block pagination pushes range and cursor into SQL with a stable order', async () => {
     const fixture = await setupToday(ctx);
     const extraStarts = [
@@ -301,6 +328,153 @@ describe.skipIf(!hasDatabase)('FU-53 daily API hardening', () => {
     ]);
   });
 
+  test('(f) schedule-block range is half-open and owner-scoped across pages', async () => {
+    const fixture = await setupToday(ctx);
+    // Same owner: end == from and start == to are both outside [from, to).
+    await ctx.db
+      .insertInto('schedule_block')
+      .values([
+        {
+          id: ctx.ids.next(),
+          owner_id: fixture.ownerId,
+          plan_version_id: fixture.planVersionId,
+          task_id: fixture.taskId,
+          start_at: new Date('2026-11-11T23:30:00Z'),
+          end_at: new Date('2026-11-12T00:00:00Z'),
+          locked: false,
+          status: 'planned',
+        },
+        {
+          id: ctx.ids.next(),
+          owner_id: fixture.ownerId,
+          plan_version_id: fixture.planVersionId,
+          task_id: fixture.taskId,
+          start_at: new Date('2026-11-13T00:00:00Z'),
+          end_at: new Date('2026-11-13T00:30:00Z'),
+          locked: false,
+          status: 'planned',
+        },
+      ])
+      .execute();
+
+    const otherOwner = await ctx.seedUser({
+      email: 'fu53-other@example.com',
+      password: 'correct-horse',
+    });
+    await seedAvailability(ctx, otherOwner);
+    const otherTask = await seedM4Task(ctx, otherOwner, { title: 'Foreign block' });
+    const otherPlan = await seedActivePlan(ctx, otherOwner, otherTask.task.id, {
+      ...HORIZON,
+      blockStart: '2026-11-12T10:00:00Z',
+      blockEnd: '2026-11-12T11:00:00Z',
+    });
+
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/schedule-blocks?from=2026-11-12T00:00:00Z&to=2026-11-13T00:00:00Z&limit=1',
+      headers: authHeaders(fixture.alice),
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    const page = response.json() as { items: Array<{ id: string }>; nextCursor: string | null };
+    expect(page.items.map((item) => item.id)).toEqual([fixture.blockId]);
+    expect(page.nextCursor).toBeNull();
+    expect(page.items.map((item) => item.id)).not.toContain(otherPlan.blockId);
+  });
+
+  test('(M1) export size guard counts rendered JSON before fetching the next section', async () => {
+    const fixture = await setupToday(ctx);
+    // Many small rows make the rendered, indented task section much larger
+    // than the compact database rows that the previous guard counted.
+    const project = await ctx.db
+      .selectFrom('project')
+      .select('id')
+      .where('owner_id', '=', fixture.ownerId)
+      .executeTakeFirstOrThrow();
+    const rows = Array.from({ length: 1_200 }, (_, index) => ({
+      id: ctx.ids.next(),
+      owner_id: fixture.ownerId,
+      project_id: project.id,
+      title_cache: `Rendered row ${String(index)}`,
+      status_cache: 'todo' as const,
+      due_at: null,
+      splittable: true,
+      min_session_min: 15,
+      max_session_min: 240,
+      priority: 2,
+      created_at: new Date('2026-11-12T08:00:00Z'),
+      updated_at: new Date('2026-11-12T08:00:00Z'),
+      version: 1,
+    }));
+    for (let index = 0; index < rows.length; index += 400) {
+      await ctx.db.insertInto('task').values(rows.slice(index, index + 400)).execute();
+    }
+
+    // Reference: the same compact raw columns the old guard counted.
+    const raw = await ctx.db
+      .selectFrom('task')
+      .select([
+        'id',
+        'project_id',
+        'title_cache',
+        'status_cache',
+        'due_at',
+        'splittable',
+        'min_session_min',
+        'max_session_min',
+        'priority',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+        'version',
+      ])
+      .where('owner_id', '=', fixture.ownerId)
+      .execute();
+    const maxBytes = Buffer.byteLength(JSON.stringify(raw), 'utf8') + 1;
+
+    const calls: string[] = [];
+    const proxy = new Proxy(ctx.db, {
+      get(target, property, receiver) {
+        if (property === 'selectFrom') {
+          return (table: string) => {
+            calls.push(table);
+            return target.selectFrom(table as never);
+          };
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === 'function'
+          ? (value as (...args: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    }) as Kysely<Database>;
+
+    const store = new PgExportStore({ db: ctx.db, clock: ctx.clock });
+    const service = new ExportService({
+      store,
+      clock: ctx.clock,
+      ids: ctx.ids,
+      builder: new PgExportPayloadBuilder({ db: proxy, maxBytes }),
+    });
+    const { exportId } = await service.start(fixture.ownerId);
+    expect(calls).toEqual(['task']);
+
+    const row = await ctx.db
+      .selectFrom('export_job')
+      .select(['state', 'artifact', 'failure_code'])
+      .where('id', '=', exportId)
+      .executeTakeFirstOrThrow();
+    expect(row.state).toBe('failed');
+    expect(row.artifact).toBeNull();
+    expect(row.failure_code).toBe(EXPORT_TOO_LARGE_MESSAGE);
+  });
+
+  test('(M1) the incremental artifact is byte-identical to JSON.stringify(..., null, 2)', async () => {
+    const fixture = await setupToday(ctx);
+    const builder = new PgExportPayloadBuilder({ db: ctx.db });
+    const buffer = await builder.build(fixture.ownerId, ctx.clock.now());
+    const text = buffer.toString('utf8');
+    expect(text).toBe(JSON.stringify(JSON.parse(text), null, 2));
+  });
+
   test('(e) oversize exports abort before reading the whole dataset', async () => {
     const fixture = await setupToday(ctx);
     const calls: string[] = [];
@@ -321,8 +495,8 @@ describe.skipIf(!hasDatabase)('FU-53 daily API hardening', () => {
 
     const builder = new PgExportPayloadBuilder({ db: proxy, maxBytes: 1 });
     await expect(builder.build(fixture.ownerId, ctx.clock.now())).rejects.toThrow(/50 MB/);
-    // Only the first table was read; the rest of the dataset was never fetched.
-    expect(calls).toEqual(['task']);
+    // Even the wrapper exceeds the one-byte ceiling, so no table is read.
+    expect(calls).toEqual([]);
     calls.length = 0;
 
     const fullBuilder = new PgExportPayloadBuilder({ db: proxy });

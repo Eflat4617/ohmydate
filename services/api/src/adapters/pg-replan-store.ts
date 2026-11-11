@@ -24,6 +24,7 @@ import {
   VersionConflictError,
   epochMsToInstant,
   instantToEpochMs,
+  isInstant,
   type Clock,
   type Id,
   type IdGenerator,
@@ -119,7 +120,6 @@ function parseBlocks(value: unknown): PlanBlock[] {
   return blocks;
 }
 
-const INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 const UUID_V7_REGEX = new RegExp(UUID_V7_PATTERN);
 
 /**
@@ -130,7 +130,9 @@ const UUID_V7_REGEX = new RegExp(UUID_V7_PATTERN);
  */
 function registerContractFormats(): void {
   try {
-    TypeSystem.Format('date-time', (value) => INSTANT_PATTERN.test(value) && !Number.isNaN(Date.parse(value)));
+    // Reuse the application's strict instant guard (RFC3339 UTC `Z`, real
+    // calendar date and time bounds) instead of Date.parse normalisation.
+    TypeSystem.Format('date-time', isInstant);
   } catch {
     // Already registered in this process.
   }

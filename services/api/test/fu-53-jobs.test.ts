@@ -274,6 +274,94 @@ describe.skipIf(!hasDatabase)('FU-53 leader-only jobs', () => {
     expect(row.artifact).toBeNull();
   });
 
+  test('ExportPurgeJob: lost leadership makes the run a no-op and the next leader takes over', async () => {
+    const fixture = await setup(ctx);
+    const real = new PgExportStore({ db: ctx.db, clock: ctx.clock });
+    const id = ctx.ids.next();
+    const now = ctx.clock.now();
+    await real.createQueued(fixture.ownerId, id, now);
+    await real.markRunning(fixture.ownerId, id, now);
+    await real.saveReady(
+      fixture.ownerId,
+      id,
+      Buffer.from('{"format":"ohmydate-export"}'),
+      now,
+      '2026-11-12T07:00:00Z' as Instant,
+    );
+
+    const runs: string[] = [];
+    const store = {
+      purgeExpired: async (at: Instant) => {
+        runs.push('purge');
+        return real.purgeExpired(at);
+      },
+    };
+    const applicationName = `fu53-purge-${randomUUID()}`;
+    const lockUrl = new URL(databaseUrl as string);
+    lockUrl.searchParams.set('application_name', applicationName);
+    const key = uniqueLockKey();
+    const realLock = createPgSessionLeaderLock({
+      connectionString: lockUrl.toString(),
+      key,
+    });
+    const probeEntered = deferred();
+    const releaseProbe = deferred();
+    let probes = 0;
+    const gatedLock: LeaderLock = (run) =>
+      realLock(async (lease) =>
+        run({
+          signal: lease.signal,
+          isLeader: async () => {
+            probes += 1;
+            if (probes === 1) {
+              probeEntered.resolve();
+              await releaseProbe.promise;
+            }
+            return lease.isLeader();
+          },
+        }),
+      );
+
+    const job = new ExportPurgeJob({
+      store,
+      clock: ctx.clock,
+      intervalMs: 60_000,
+      leaderLock: gatedLock,
+    });
+    const running = job.runOnce();
+    await probeEntered.promise;
+    // Gate is reached: the lock is held, so terminating its backend is a real
+    // leadership loss, not a timing race. The probe below then fails.
+    await terminateBackend(applicationName);
+    releaseProbe.resolve();
+    expect(await running).toBe(false);
+    expect(runs).toEqual([]);
+    const beforeTakeover = await ctx.db
+      .selectFrom('export_job')
+      .select('artifact')
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+    expect(beforeTakeover.artifact).not.toBeNull();
+
+    const replacement = new ExportPurgeJob({
+      store,
+      clock: ctx.clock,
+      intervalMs: 60_000,
+      leaderLock: createPgSessionLeaderLock({
+        connectionString: databaseUrl as string,
+        key,
+      }),
+    });
+    expect(await replacement.runOnce()).toBe(true);
+    expect(runs).toEqual(['purge']);
+    const afterTakeover = await ctx.db
+      .selectFrom('export_job')
+      .select('artifact')
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+    expect(afterTakeover.artifact).toBeNull();
+  });
+
   test('memory provider wires the notification and purge jobs (no leader lock)', async () => {
     const scheduled: Array<{ callback: () => void; milliseconds: number }> = [];
     const memoryCtx = await createTestContext({

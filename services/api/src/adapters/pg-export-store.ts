@@ -179,14 +179,29 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
   }
 
   async build(ownerId: Id, now: Instant): Promise<Buffer> {
-    // FU-53: measure each section as it is read. Oversize exports abort before
-    // the remaining tables are fetched (and long before the whole artifact is
-    // materialized), reusing the established failure reason.
-    let approximateBytes = 0;
-    const consume = (value: unknown): void => {
-      approximateBytes += Buffer.byteLength(JSON.stringify(value), 'utf8');
-      if (approximateBytes > this.#maxBytes) throw new Error(EXPORT_TOO_LARGE_MESSAGE);
+    // FU-53R: count the actual serialized artifact as sections are added. The
+    // previous guard counted compact raw rows, so an indented, mapped section
+    // could exceed the ceiling while still fetching every later table. This
+    // builds the same JSON.stringify(..., null, 2) text incrementally: each
+    // section is measured (key, indentation and wrapper included) before the
+    // next table is queried, and the final persistence guard still applies.
+    const parts: string[] = ['{'];
+    let bytes = 1;
+    let first = true;
+    const append = (key: string, value: unknown): void => {
+      const rendered = JSON.stringify(value, null, 2);
+      const piece = `${first ? '' : ','}\n  ${JSON.stringify(key)}: ${rendered.replace(/\n/g, '\n  ')}`;
+      bytes += Buffer.byteLength(piece, 'utf8');
+      if (bytes > this.#maxBytes) throw new Error(EXPORT_TOO_LARGE_MESSAGE);
+      parts.push(piece);
+      first = false;
     };
+
+    append('format', 'ohmydate-export');
+    append('formatVersion', 1);
+    append('exportedAt', now);
+    append('ownerId', ownerId);
+
     const tasks = await this.#db
       .selectFrom('task')
       .select([
@@ -207,14 +222,44 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
       .where('owner_id', '=', ownerId)
       .orderBy('created_at', 'asc')
       .execute();
-    consume(tasks);
+    append(
+      'tasks',
+      tasks.map((task) => ({
+        id: task.id,
+        projectId: task.project_id,
+        title: task.title_cache,
+        status: task.status_cache,
+        dueAt: task.due_at === null ? null : toInstant(task.due_at),
+        splittable: task.splittable,
+        minSessionMin: task.min_session_min,
+        maxSessionMin: task.max_session_min,
+        priority: task.priority,
+        createdAt: toInstant(task.created_at),
+        updatedAt: toInstant(task.updated_at),
+        deletedAt: task.deleted_at === null ? null : toInstant(task.deleted_at),
+        version: task.version,
+      })),
+    );
+
     const projects = await this.#db
       .selectFrom('project')
       .select(['id', 'title', 'kind', 'archived', 'version', 'created_at', 'updated_at'])
       .where('owner_id', '=', ownerId)
       .orderBy('created_at', 'asc')
       .execute();
-    consume(projects);
+    append(
+      'projects',
+      projects.map((project) => ({
+        id: project.id,
+        title: project.title,
+        kind: project.kind,
+        archived: project.archived,
+        version: project.version,
+        createdAt: toInstant(project.created_at),
+        updatedAt: toInstant(project.updated_at),
+      })),
+    );
+
     const plans = await this.#db
       .selectFrom('plan')
       .select([
@@ -234,7 +279,6 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
       .where('deleted_at', 'is', null)
       .orderBy('created_at', 'asc')
       .execute();
-    consume(plans);
     const planIds = plans.map((plan) => plan.id);
     const versions = planIds.length === 0
       ? []
@@ -246,7 +290,6 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
           .orderBy('plan_id', 'asc')
           .orderBy('seq', 'asc')
           .execute();
-    consume(versions);
     const versionIds = versions.map((version) => version.id);
     const blocks = versionIds.length === 0
       ? []
@@ -257,59 +300,9 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
           .where('plan_version_id', 'in', versionIds)
           .orderBy('start_at', 'asc')
           .execute();
-    consume(blocks);
-    const sessions = await this.#db
-      .selectFrom('work_session')
-      .selectAll()
-      .where('owner_id', '=', ownerId)
-      .orderBy('started_at', 'asc')
-      .execute();
-    consume(sessions);
-    const reviews = await this.#db
-      .selectFrom('task_completion_review')
-      .selectAll()
-      .where('owner_id', '=', ownerId)
-      .orderBy('created_at', 'asc')
-      .execute();
-    consume(reviews);
-    const feedback = await this.#db
-      .selectFrom('estimation_feedback')
-      .selectAll()
-      .where('owner_id', '=', ownerId)
-      .orderBy('created_at', 'asc')
-      .execute();
-    consume(feedback);
-
-    const payload = {
-      format: 'ohmydate-export',
-      formatVersion: 1,
-      exportedAt: now,
-      ownerId,
-      tasks: tasks.map((task) => ({
-        id: task.id,
-        projectId: task.project_id,
-        title: task.title_cache,
-        status: task.status_cache,
-        dueAt: task.due_at === null ? null : toInstant(task.due_at),
-        splittable: task.splittable,
-        minSessionMin: task.min_session_min,
-        maxSessionMin: task.max_session_min,
-        priority: task.priority,
-        createdAt: toInstant(task.created_at),
-        updatedAt: toInstant(task.updated_at),
-        deletedAt: task.deleted_at === null ? null : toInstant(task.deleted_at),
-        version: task.version,
-      })),
-      projects: projects.map((project) => ({
-        id: project.id,
-        title: project.title,
-        kind: project.kind,
-        archived: project.archived,
-        version: project.version,
-        createdAt: toInstant(project.created_at),
-        updatedAt: toInstant(project.updated_at),
-      })),
-      plans: plans.map((plan) => ({
+    append(
+      'plans',
+      plans.map((plan) => ({
         id: plan.id,
         scope: plan.scope,
         status: plan.status,
@@ -346,7 +339,17 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
               })),
           })),
       })),
-      sessions: sessions.map((session) => ({
+    );
+
+    const sessions = await this.#db
+      .selectFrom('work_session')
+      .selectAll()
+      .where('owner_id', '=', ownerId)
+      .orderBy('started_at', 'asc')
+      .execute();
+    append(
+      'sessions',
+      sessions.map((session) => ({
         id: session.id,
         taskId: session.task_id,
         blockId: session.block_id,
@@ -358,7 +361,17 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
         clientId: session.client_id,
         version: session.version,
       })),
-      reviews: reviews.map((review) => ({
+    );
+
+    const reviews = await this.#db
+      .selectFrom('task_completion_review')
+      .selectAll()
+      .where('owner_id', '=', ownerId)
+      .orderBy('created_at', 'asc')
+      .execute();
+    append(
+      'reviews',
+      reviews.map((review) => ({
         id: review.id,
         sessionId: review.session_id,
         outcome: review.outcome,
@@ -368,7 +381,17 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
         createdAt: toInstant(review.created_at),
         updatedAt: toInstant(review.updated_at),
       })),
-      estimationFeedback: feedback.map((entry) => ({
+    );
+
+    const feedback = await this.#db
+      .selectFrom('estimation_feedback')
+      .selectAll()
+      .where('owner_id', '=', ownerId)
+      .orderBy('created_at', 'asc')
+      .execute();
+    append(
+      'estimationFeedback',
+      feedback.map((entry) => ({
         id: entry.id,
         taskId: entry.task_id,
         estimatedP50: entry.estimated_p50,
@@ -377,7 +400,12 @@ export class PgExportPayloadBuilder implements ExportPayloadBuilder {
         version: entry.version,
         createdAt: toInstant(entry.created_at),
       })),
-    };
-    return Buffer.from(JSON.stringify(payload, null, 2), 'utf8');
+    );
+
+    const closing = '\n}';
+    bytes += Buffer.byteLength(closing, 'utf8');
+    if (bytes > this.#maxBytes) throw new Error(EXPORT_TOO_LARGE_MESSAGE);
+    parts.push(closing);
+    return Buffer.from(parts.join(''), 'utf8');
   }
 }

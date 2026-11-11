@@ -218,7 +218,10 @@ describe.skipIf(!hasDatabase)('replan proposal before snapshot (M5-03R-1 H1)', (
 
   test('FU-72: malformed persisted snapshots are dropped from GET and list (negative)', async () => {
     const { ownerId, session } = await owner('malformed');
-    const task = await seedPlanTask(ctx, ownerId, { title: 'Malformed' });
+    const task = await seedPlanTask(ctx, ownerId, {
+      title: 'Malformed',
+      dueAt: '2026-11-20T18:00:00Z',
+    });
     const { plan } = await longPlan(session, [
       { taskId: task.id, startAt: '2026-11-12T10:00:00Z', endAt: '2026-11-12T11:00:00Z' },
     ]);
@@ -260,6 +263,26 @@ describe.skipIf(!hasDatabase)('replan proposal before snapshot (M5-03R-1 H1)', (
         (before) => {
           ((before['blocks'] as Array<Record<string, unknown>>)[0] as Record<string, unknown>)['status'] =
             'weird';
+        },
+      ],
+      ['nonexistent calendar date', (before) => { before['capturedAt'] = '2026-02-30T00:00:00Z'; }],
+      ['hour 24', (before) => { before['capturedAt'] = '2026-11-12T24:00:00Z'; }],
+      ['minute 60', (before) => { before['capturedAt'] = '2026-11-12T23:60:00Z'; }],
+      ['missing offset', (before) => { before['capturedAt'] = '2026-11-12T10:00:00'; }],
+      [
+        'nested invalid block instant',
+        (before) => {
+          ((before['blocks'] as Array<Record<string, unknown>>)[0] as Record<string, unknown>)['startAt'] =
+            '2026-02-30T00:00:00Z';
+        },
+      ],
+      [
+        'nested invalid slack instant',
+        (before) => {
+          const taskSlack = (before['metrics'] as Record<string, unknown>)['taskSlack'] as Array<
+            Record<string, unknown>
+          >;
+          (taskSlack[0] as Record<string, unknown>)['dueAt'] = '2026-11-12T24:00:00Z';
         },
       ],
     ];

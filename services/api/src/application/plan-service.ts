@@ -23,6 +23,7 @@ import {
   VersionConflictError,
   type Clock,
   epochMsToInstant,
+  isUuidV7,
   type Id,
   type Instant,
   type Task,
@@ -518,7 +519,7 @@ export class PlanService {
       }
       const startMs = Date.parse(query.cursor.slice(0, split));
       const id = query.cursor.slice(split + 1);
-      if (!Number.isFinite(startMs) || id.length === 0) {
+      if (!Number.isFinite(startMs) || !isUuidV7(id)) {
         throw new ValidationFailedError([
           { path: '/cursor', message: 'invalid schedule-block cursor' },
         ]);
