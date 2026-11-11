@@ -26,9 +26,14 @@ const block = {
   endAt: '2026-11-11T10:00:00Z',
 };
 
+const PLAN_ID = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c59';
+
 const proposal = {
   id: ID,
   state: 'pending',
+  // FU-70 / M5-03R-1: required on every serialized proposal.
+  planId: PLAN_ID,
+  basePlanVersion: 3,
   trigger: {
     kind: 'deadline_risk',
     reason: 'deadline_slack_negative',
@@ -175,6 +180,38 @@ test('replan proposal accepts a bounded pending proposal', () => {
   expect(
     validate({ ...proposal, candidate: { ...proposal.candidate, blocks: [{ ...block, extra: true }] } }),
   ).toBe(false);
+});
+
+test('replan proposal carries planId, basePlanVersion and an optional authoritative before snapshot (FU-70)', () => {
+  const validate = compile(ReplanProposalSchema);
+  const before = {
+    capturedAt: INSTANT,
+    blocks: [
+      { id: OTHER_ID, planVersionId: VERSION_ID, taskId: ID, startAt: '2026-12-15T10:00:00Z', endAt: '2026-12-15T11:00:00Z', locked: false, status: 'planned', version: 1 },
+      { id: FEEDBACK_ID, planVersionId: VERSION_ID, taskId: OTHER_ID, startAt: '2027-01-05T10:00:00Z', endAt: '2027-01-05T11:00:00Z', locked: true, status: 'planned', version: 2 },
+    ],
+    metrics: {
+      totalFocusMin: 120,
+      minSlackMin: -45.5,
+      taskSlack: [{ taskId: ID, dueAt: '2026-12-15T10:15:00Z', slackMin: -45.5 }],
+    },
+  };
+  expect(validate({ ...proposal, before })).toBe(true);
+  // Legacy rows persisted before the snapshot existed stay valid without it.
+  expect(validate(proposal)).toBe(true);
+
+  const { planId: _planId, ...withoutPlan } = proposal;
+  void _planId;
+  expect(validate(withoutPlan)).toBe(false);
+  const { basePlanVersion: _base, ...withoutBase } = proposal;
+  void _base;
+  expect(validate(withoutBase)).toBe(false);
+  expect(validate({ ...proposal, basePlanVersion: 0 })).toBe(false);
+  expect(validate({ ...proposal, before: { ...before, blocks: [{ ...before.blocks[0], locked: 'yes' }] } })).toBe(false);
+  expect(validate({ ...proposal, before: { ...before, blocks: [{ taskId: ID, startAt: INSTANT, endAt: INSTANT }] } })).toBe(false);
+  expect(validate({ ...proposal, before: { ...before, metrics: { totalFocusMin: -1, minSlackMin: 0, taskSlack: [] } } })).toBe(false);
+  expect(validate({ ...proposal, before: { ...before, metrics: { ...before.metrics, taskSlack: [{ taskId: ID, slackMin: 1 }] } } })).toBe(false);
+  expect(validate({ ...proposal, before: { ...before, extra: true } })).toBe(false);
 });
 
 test('replan proposal page and reject/request bodies match the route contract', () => {
