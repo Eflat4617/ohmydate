@@ -163,3 +163,22 @@ export {
   type GroupCorrection,
   type LogNormalPrior,
 } from './estimation.js';
+
+export {
+  LINK_TARGET_KINDS,
+  MAX_LINKS_PER_NOTE,
+  MAX_NOTE_BODY_BYTES,
+  MAX_NOTE_BODY_LENGTH,
+  MAX_NOTE_TITLE_LENGTH,
+  NOTE_SENSITIVITIES,
+  NOTE_SOURCES,
+  isLinkTargetKind,
+  taskDescriptionToMarkdown,
+  truncateCodePoints,
+  validateNoteContent,
+  type ContextDocument,
+  type DocumentLink,
+  type LinkTargetKind,
+  type NoteSensitivity,
+  type NoteSource,
+} from './notes/document.js';
