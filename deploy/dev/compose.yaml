@@ -12,7 +12,7 @@ services:
     ports: ["127.0.0.1:55432:5432"]
     volumes: ["pgdata:/var/lib/postgresql"]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ohmydate -d planner"]
+      test: ["CMD-SHELL", "pg_isready -U ohmydate -d planner && psql -U ohmydate -d planner -Atc 'select 1' >/dev/null"]
       interval: 5s
       retries: 20
   vikunja-db-init:
@@ -24,7 +24,9 @@ services:
   vikunja:
     restart: unless-stopped
     image: vikunja/vikunja:2.8.0@sha256:35d937baf3b5d5803bed6b9e11d007448b7b536df9e4346dc35551e1072636c3
-    depends_on: { vikunja-db-init: { condition: service_completed_successfully } }
+    depends_on:
+      postgres: { condition: service_healthy }
+      vikunja-db-init: { condition: service_completed_successfully }
     environment:
       VIKUNJA_SERVICE_PUBLICURL: http://127.0.0.1:3456/
       VIKUNJA_SERVICE_SECRET: dev-only-secret-not-for-prod-0123456789

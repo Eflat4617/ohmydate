@@ -18,6 +18,10 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 20:20 | **FU-41R-1 REQUEST_CHANGES (Sol medium)**: 독립 감사 1,200 재계획 보존·상한 위반 0, 가능 후보 2,595건 H1–H8 위반 0. MEDIUM — 의존 관계 추가 시 선행 작업 영구 고정으로 기존 '의존 변경 가능성' 속성 깨짐(CI 실패). **06 §7 영향 범위 계약 확정**(트리거 작업 + 변경된 의존 간선 양 끝 + 후행, 부족 시 선행 단계 확장). 수정 1/2 | reviews/FU-41R-1.md | orchestrator |
+| 2026-11-11 20:17 | dev compose: PG healthcheck에 실제 쿼리(select 1) 추가(복구 중 pg_isready만으론 부족), Vikunja depends_on postgres healthy. 재부팅 시 데몬 재시작은 depends_on 미적용 → Vikunja는 restart 정책으로 재시도(수동 개입 불필요). UI-POLISH 질문 → 옵션 B(실 API axe E2E 신규 파일) 승인 | msg_16721bedc9e7 | orchestrator |
+| 2026-11-11 20:12 | **호스트 정지 후 재부팅**(uptime 1분). Orca ready. PG 비정상 종료 복구 대기 후 Vikunja 재시작(restart 정책으로 자동 기동, 복구 중 연결 실패 반복) → 정상. 중단 Task 3개 같은 worktree로 재개: UI-POLISH(Opus, ctx_6d31959509de, 86ebedb+미커밋 스크린샷 작업), FU-57 수정 1(DeepSeek, ctx_02b0cbb8da0b, 미커밋 작업), FU-41R(Sol, ctx_30d1efe4423f). 후속 지시 재전송 | uptime, docker, worktree status | orchestrator |
+| 2026-11-11 19:46 | **FU-57R-1 REQUEST_CHANGES (Sol medium)**: HIGH — mtime 스탬프가 빌드 설정·스크립트 변경을 못 잡아 오래된 dist로 통과 가능. MEDIUM — 죽은 보유자 잠금 동시 회수 시 임대 2개. 단순화 결정: 실행마다 무조건 1회 빌드 + 실행 ID 확인, 고유 토큰 잠금·원자적 rename 회수. 수정 1/2 | reviews/FU-57R-1.md | orchestrator |
 | 2026-11-11 19:09 | FU-55 질문: 빈 주(週)에서 WeekCalendar 스크롤 영역이 포커스 불가(axe serious) → 옵션 B 승인(WeekCalendar.vue 최소 수정 + 단위 테스트, 범위 확장), UI-POLISH에 유지 안내 | msg_6919cbcf6d9e | orchestrator |
 | 2026-11-11 19:05 | **M4 기능 완료**: M4-01/02/UI 병합, E2E-4·E2E-5 통과. 남은 E2E 실패 1 = FU-55(진행 중, Opus). 다음: UI-POLISH(Opus) 후 GU-1 준비, 병행해 M5 계약 착수 | e2e | orchestrator |
 | 2026-11-11 18:52 | M4-UId 수정 1 완료(5384216): /me no-store·서버 헤더·실제 두 탭 E2E-5 통과. E2E-3 실패는 통합 브랜치에서도 재현(09:50 UTC, 시각 의존) → FU-55(Opus 첫 구현 워커). DeepSeek 이번 라운드는 지시 이행 양호 → 리뷰 결과로 전환 판단 | worker report, e2e3 재현 | orchestrator |
