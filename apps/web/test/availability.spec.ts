@@ -50,7 +50,7 @@ describe('availability editor', () => {
     const wrapper = mountWithPlugins(AvailabilityView);
     await settle();
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('Weekly rules');
+      expect(wrapper.text()).toContain('주간 규칙');
     });
 
     const localFocus = wrapper.get('#pref-max-focus');
@@ -67,18 +67,18 @@ describe('availability editor', () => {
 
     await wrapper.get('form').trigger('submit');
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('Availability changed elsewhere');
+      expect(wrapper.text()).toContain('다른 곳에서 가용 시간이 바뀌었어요');
     });
 
     expect((wrapper.get('#pref-max-focus').element as HTMLInputElement).value).toBe('240');
-    await buttonByText(wrapper, 'Keep my changes and retry').trigger('click');
+    await buttonByText(wrapper, '내 변경 유지하고 다시 시도').trigger('click');
     await settle();
-    expect(wrapper.text()).toContain('Your edits were kept');
+    expect(wrapper.text()).toContain('내 변경을 남겨 뒀어요');
 
     const save = wrapper.get('#availability-save');
     await save.trigger('click');
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('Availability saved as version 3');
+      expect(wrapper.text()).toContain('가용 시간을 저장했어요 (버전 3)');
     });
 
     const reloaded = await plannerClient.getAvailability({ fresh: true });

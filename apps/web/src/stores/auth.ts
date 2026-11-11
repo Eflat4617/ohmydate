@@ -14,11 +14,23 @@ import {
   ownerState,
 } from '../session/ownerEpoch';
 import { sessionJournal } from '../session/journal';
+import { t } from '../i18n';
+import { apiErrorMessage, UserFacingError } from '../i18n/problem';
 
 export type AuthBootstrapState = 'pending' | 'ready' | 'anonymous' | 'error';
 
 function ownerChangedError(): Error {
-  return new Error('The signed-in owner changed. The request was not sent.');
+  return new UserFacingError(t('errors.ownerChanged'));
+}
+
+function loginErrorMessage(cause: unknown): string {
+  if (cause instanceof ApiError) {
+    if (cause.status === 401 || cause.code === 'unauthenticated') return t('login.invalidCredentials');
+    return apiErrorMessage(cause);
+  }
+  if (cause instanceof UserFacingError) return cause.message;
+  if (cause instanceof TypeError) return t('errors.network');
+  return t('login.failed');
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -99,8 +111,7 @@ export const useAuthStore = defineStore('auth', () => {
       confirmOwner(current);
       return current;
     } catch (cause) {
-      error.value =
-        cause instanceof ApiError ? cause.detail : 'Could not sign in. Please try again.';
+      error.value = loginErrorMessage(cause);
       throw cause;
     } finally {
       loading.value = false;

@@ -9,10 +9,11 @@ import ConflictDialog from './ConflictDialog.vue';
 import TaskItem from './TaskItem.vue';
 import UiBanner from './ui/UiBanner.vue';
 import UiEmptyState from './ui/UiEmptyState.vue';
+import { t } from '../i18n';
 
 const props = withDefaults(
   defineProps<{ tasks: Task[]; disabled?: boolean; emptyText?: string }>(),
-  { disabled: false, emptyText: 'Nothing here yet.' },
+  { disabled: false },
 );
 const emit = defineEmits<{ refresh: [] }>();
 
@@ -116,8 +117,8 @@ async function onComplete(task: Task): Promise<void> {
 function onRemove(task: Task): void {
   if (interactiveDisabled.value) return;
   hide(task.id);
-  toast.show(`Deleted "${task.title}"`, {
-    action: { label: 'Undo', handler: () => undoDelete(task.id) },
+  toast.show(t('taskList.deleted', { title: task.title }), {
+    action: { label: t('taskList.undo'), handler: () => undoDelete(task.id) },
     duration: UNDO_MS,
   });
   const timer = setTimeout(() => {
@@ -149,7 +150,7 @@ function cancelAllDeletes(reason: string): void {
 async function commitDelete(task: Task): Promise<void> {
   if (!offline.online || props.disabled) {
     unhide(task.id);
-    toast.show('Deletion cancelled because editing is disabled.');
+    toast.show(t('taskList.deleteCancelledDisabled'));
     return;
   }
   try {
@@ -158,14 +159,14 @@ async function commitDelete(task: Task): Promise<void> {
     else unhide(task.id);
   } catch {
     unhide(task.id);
-    toast.show('Could not delete the task. Please try again.', { tone: 'error' });
+    toast.show(t('taskList.deleteFailed'), { tone: 'error' });
   }
 }
 
 watch(
   () => offline.online,
   (online) => {
-    if (!online) cancelAllDeletes('Pending deletions were cancelled because you are offline.');
+    if (!online) cancelAllDeletes(t('taskList.deletesCancelledOffline'));
   },
 );
 
@@ -196,7 +197,7 @@ async function onReload(): Promise<void> {
       emit('refresh');
     }
   } catch {
-    toast.show('Could not reload the server version. Please try again.', { tone: 'error' });
+    toast.show(t('taskList.reloadFailed'), { tone: 'error' });
   }
 }
 
@@ -230,7 +231,7 @@ function onCancelConflict(): void {
         @remove="onRemove(task)"
       />
     </ul>
-    <UiEmptyState v-else icon="check-circle" :title="props.emptyText" />
+    <UiEmptyState v-else icon="check-circle" :title="props.emptyText ?? t('taskList.empty')" />
 
     <ConflictDialog
       v-if="conflict"

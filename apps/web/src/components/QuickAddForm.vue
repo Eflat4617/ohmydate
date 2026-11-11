@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import UiButton from './ui/UiButton.vue';
 import UiIcon from './ui/UiIcon.vue';
+import { t } from '../i18n';
 
 const props = defineProps<{ disabled?: boolean }>();
 const emit = defineEmits<{ submit: [title: string] }>();
@@ -29,7 +30,7 @@ defineExpose({ focus, clear });
 
 <template>
   <form class="quick-add" :class="{ 'quick-add--disabled': disabled }" @submit.prevent="submit">
-    <label for="quick-add-title" class="quick-add-label">Quick add task</label>
+    <label for="quick-add-title" class="quick-add-label">{{ t('quickAdd.label') }}</label>
     <div class="quick-add-row">
       <UiIcon name="plus" class="quick-add-icon" />
       <input
@@ -39,12 +40,12 @@ defineExpose({ focus, clear });
         class="quick-add-input"
         type="text"
         maxlength="200"
-        placeholder="What needs doing?"
+        :placeholder="t('quickAdd.placeholder')"
         autocomplete="off"
         :disabled="disabled"
       />
       <UiButton type="submit" variant="primary" :disabled="disabled || title.trim().length === 0">
-        Add task
+        {{ t('quickAdd.submit') }}
       </UiButton>
     </div>
   </form>

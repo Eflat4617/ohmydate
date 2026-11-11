@@ -28,6 +28,12 @@ import UiCard from '../components/ui/UiCard.vue';
 import UiField from '../components/ui/UiField.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 import UiSpinner from '../components/ui/UiSpinner.vue';
+import { t } from '../i18n';
+import I18nT from '../i18n/I18nT';
+import { formatPercent } from '../i18n/format';
+import { apiErrorMessage, errorMessage, problemMessage } from '../i18n/problem';
+import { assumptionValueText, detectionReasonText, type ServerText } from '../i18n/server';
+import { isProblemCode } from '../api/errors';
 
 const props = defineProps<{ sessionId?: string }>();
 
@@ -37,23 +43,15 @@ const queryClient = useQueryClient();
 const offline = useOfflineStore();
 const actions = new ActionStore();
 
-const STEP_LABELS = ['기본정보', '유형 확인', '질문', '단계 초안', '일정안'] as const;
-const FIELD_LABELS: Record<IntakeField, string> = {
-  deliverable: '산출물',
-  dueAt: '마감',
-  estimatedScope: '규모',
-  currentProgress: '진행률',
-  availabilityConfirmed: '가용 시간 확인',
-  prerequisites: '사전 준비',
-  priority: '우선순위',
-  maxFocusMinutes: '집중 한도',
-  reviewNeeded: '검토 필요',
-};
-const REASON_LABELS: Record<string, string> = {
-  skip: '건너뛰기',
-  idk: '모름',
-  unanswered: '미응답',
-};
+const STEPS = [1, 2, 3, 4, 5] as const;
+const SCOPE_OPTIONS = ['small', 'medium', 'large'] as const;
+const STEP_KINDS = ['prep', 'work', 'review', 'buffer'] as const;
+const ASSUMPTION_REASONS = ['skip', 'idk', 'unanswered'] as const;
+type AssumptionReason = (typeof ASSUMPTION_REASONS)[number];
+
+function stepLabel(step: number): string {
+  return (STEPS as readonly number[]).includes(step) ? t(`wizard.steps.${step as (typeof STEPS)[number]}`) : '';
+}
 
 const heading = ref<HTMLElement | null>(null);
 const liveMessage = ref('');
@@ -88,7 +86,7 @@ const templateQuery = useQuery({
   enabled: computed(() => templateId.value !== undefined),
 });
 const templateName = computed(
-  () => templateQuery.data.value?.name ?? session.value?.detectedType?.templateId ?? '이전 작업',
+  () => templateQuery.data.value?.name ?? session.value?.detectedType?.templateId ?? t('wizard.templateFallback'),
 );
 
 const currentStep = computed<number>(() => {
@@ -164,10 +162,15 @@ watch(
   { immediate: true },
 );
 
+function llmIssueText(code: string): string {
+  const reason = isProblemCode(code) ? problemMessage(code) : problemMessage('llm_unavailable');
+  return `${reason} ${t('wizard.llmCode', { code })}`;
+}
+
 watch(
   () => session.value?.error,
   (error) => {
-    if (error !== undefined) llmIssue.value = `${error.message} (${error.code})`;
+    if (error !== undefined) llmIssue.value = llmIssueText(error.code);
   },
   { immediate: true },
 );
@@ -175,10 +178,10 @@ watch(
 watch(currentStep, async (next, previous) => {
   if (next === previous) return;
   if (next === 0) {
-    liveMessage.value = '계획 세션이 종료되었습니다.';
+    liveMessage.value = t('wizard.endedLive');
     return;
   }
-  liveMessage.value = `${next}단계: ${STEP_LABELS[next - 1] ?? ''}`;
+  liveMessage.value = t('wizard.stepLive', { step: next, label: stepLabel(next) });
   await nextTick();
   heading.value?.focus();
 });
@@ -203,7 +206,7 @@ async function refreshSession(): Promise<IntakeSession | null> {
 function handleError(cause: unknown): void {
   if (cause instanceof ApiError) {
     if (cause.code === 'llm_unavailable' || cause.code === 'budget_exceeded') {
-      llmIssue.value = `${cause.detail} (${cause.code})`;
+      llmIssue.value = llmIssueText(cause.code);
       mutationError.value = null;
       return;
     }
@@ -214,19 +217,19 @@ function handleError(cause: unknown): void {
       return;
     }
     if (cause.status === 409) {
-      mutationError.value = `${cause.detail} 화면을 새로 고쳤습니다.`;
+      mutationError.value = t('wizard.refreshedAfterConflict', { message: apiErrorMessage(cause) });
       void refreshSession();
       return;
     }
-    mutationError.value = cause.detail;
+    mutationError.value = apiErrorMessage(cause);
     return;
   }
-  mutationError.value = cause instanceof Error ? cause.message : '요청을 처리하지 못했습니다.';
+  mutationError.value = errorMessage(cause, t('wizard.requestFailed'));
 }
 
 async function run<T>(operation: () => Promise<T>): Promise<T | undefined> {
   if (!offline.mutationsEnabled) {
-    mutationError.value = '오프라인에서는 변경할 수 없습니다. 연결이 돌아오면 다시 시도하세요.';
+    mutationError.value = t('wizard.offlineMutation');
     return undefined;
   }
   busyCount.value += 1;
@@ -270,7 +273,7 @@ const samePayload = (left: unknown, right: unknown): boolean =>
 
 async function createSession(): Promise<void> {
   if (form.title.trim().length === 0) {
-    mutationError.value = '제목을 입력하세요.';
+    mutationError.value = t('wizard.titleRequired');
     return;
   }
   creating.value = true;
@@ -333,11 +336,11 @@ async function answer(question: PlannedQuestion, action: 'answer' | 'skip' | 'id
   if (action === 'answer') {
     value = answerValue(question);
     if (value === undefined || (typeof value === 'string' && value.trim().length === 0)) {
-      mutationError.value = '답변을 입력하거나 [모름] 또는 [건너뛰기]를 선택하세요.';
+      mutationError.value = t('wizard.answerRequired');
       return;
     }
     if (typeof value === 'number' && !Number.isFinite(value)) {
-      mutationError.value = '숫자를 입력하세요.';
+      mutationError.value = t('wizard.numberRequired');
       return;
     }
     if (typeof value === 'string') value = value.trim();
@@ -422,7 +425,7 @@ function addStep(): void {
     ...draft.value.steps,
     {
       key,
-      title: '새 단계',
+      title: t('wizard.newStep'),
       deliverable: '',
       doneCriteria: '',
       kind: 'work',
@@ -449,7 +452,7 @@ async function persistDraft(): Promise<boolean> {
   const current = session.value;
   if (current === null || draft.value === null) return false;
   if (!draftValidation.value.valid) {
-    mutationError.value = '초안에 오류가 있습니다. 표시된 항목을 수정하세요.';
+    mutationError.value = t('wizard.draftInvalid');
     return false;
   }
   if (JSON.stringify(draft.value) === JSON.stringify(current.draft)) return true;
@@ -494,8 +497,7 @@ async function approve(): Promise<void> {
       // action unsettled preserves the same idempotency key for the next retry.
       if (disposed) return undefined;
       if (!offline.mutationsEnabled) {
-        mutationError.value =
-          '연결이 끊겨 승인을 보류했습니다. 다시 연결되면 같은 요청으로 재시도하세요.';
+        mutationError.value = t('wizard.approveOffline');
         return undefined;
       }
       try {
@@ -508,7 +510,7 @@ async function approve(): Promise<void> {
           attempt < 5
         ) {
           const seconds = Math.max(cause.retryAfterSeconds ?? 1, 0);
-          liveMessage.value = `승인 처리 중입니다. ${seconds}초 후 다시 시도합니다.`;
+          liveMessage.value = t('wizard.approveRetrying', { seconds });
           await delay(seconds * 1_000);
           continue;
         }
@@ -533,18 +535,39 @@ function retry(): void {
 }
 
 function reasonLabel(reason: string): string {
-  return REASON_LABELS[reason] ?? reason;
+  return (ASSUMPTION_REASONS as readonly string[]).includes(reason)
+    ? t(`wizard.assumptionReasons.${reason as AssumptionReason}`)
+    : reason;
 }
 
 function fieldLabel(field: IntakeField): string {
-  return FIELD_LABELS[field];
+  return t(`wizard.fields.${field}`);
+}
+
+function questionPrompt(question: PlannedQuestion): string {
+  return t(`wizard.questions.${question.field}`);
+}
+
+function assumptionValue(field: IntakeField, value: string): ServerText {
+  return assumptionValueText(field, value);
+}
+
+function stepKindLabel(kind: string): string {
+  return (STEP_KINDS as readonly string[]).includes(kind)
+    ? t(`wizard.kinds.${kind as (typeof STEP_KINDS)[number]}`)
+    : kind;
 }
 
 const confidencePercent = computed(() =>
   Math.round((session.value?.detectedType?.confidence ?? 0) * 100),
 );
-const detectedReasons = computed(() => session.value?.detectedType?.reasons ?? []);
-const nextMilestone = '다음 단계: 일정안(곧 지원)';
+const detectedReasons = computed(() =>
+  (session.value?.detectedType?.reasons ?? []).flatMap((reason) => {
+    const text = detectionReasonText(reason);
+    return text === null ? [] : [{ key: reason, ...text }];
+  }),
+);
+const confidenceLabel = computed(() => formatPercent(confidencePercent.value / 100, 0));
 </script>
 
 <template>
@@ -552,10 +575,10 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
     <header class="page-header">
       <div class="page-heading">
         <p class="breadcrumb">
-          <RouterLink to="/inbox"><UiIcon name="arrow-left" :size="16" />Inbox</RouterLink>
+          <RouterLink to="/inbox"><UiIcon name="arrow-left" :size="16" />{{ t('wizard.back') }}</RouterLink>
         </p>
-        <h1 id="wizard-heading" ref="heading" tabindex="-1">계획 마법사</h1>
-        <p class="page-lede">할 일을 단계로 나누고, 일정에 맞는 초안을 함께 만듭니다.</p>
+        <h1 id="wizard-heading" ref="heading" tabindex="-1">{{ t('wizard.title') }}</h1>
+        <p class="page-lede">{{ t('wizard.lede') }}</p>
       </div>
       <div v-if="session !== null && !terminal && currentStep < 5" class="page-actions wizard-controls">
         <UiButton
@@ -565,24 +588,24 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
           :disabled="!canMutate"
           @click="sessionAction('pause')"
         >
-          일시정지
+          {{ t('wizard.pause') }}
         </UiButton>
         <UiButton v-else-if="canResume" size="sm" icon="play" :disabled="!canMutate" @click="sessionAction('resume')">
-          재개
+          {{ t('wizard.resume') }}
         </UiButton>
         <UiButton size="sm" variant="danger-ghost" class="danger" :disabled="!canMutate" @click="sessionAction('cancel')">
-          취소
+          {{ t('wizard.cancel') }}
         </UiButton>
       </div>
     </header>
 
     <p class="visually-hidden" aria-live="polite">{{ liveMessage }}</p>
 
-    <nav aria-label="계획 단계" class="wizard-stepper">
+    <nav :aria-label="t('wizard.stepper')" class="wizard-stepper">
       <ol class="wizard-progress">
         <li
-          v-for="(label, index) in STEP_LABELS"
-          :key="label"
+          v-for="(step, index) in STEPS"
+          :key="step"
           :class="{
             'wizard-progress--current': currentStep === index + 1,
             'wizard-progress--done': currentStep > index + 1,
@@ -593,45 +616,53 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
             <UiIcon v-if="currentStep > index + 1" name="check" :size="14" />
             <template v-else>{{ index + 1 }}</template>
           </span>
-          <span class="wizard-progress-label">{{ label }}</span>
-          <span v-if="index === 4" class="wizard-progress-note">곧 지원</span>
+          <span class="wizard-progress-label">{{ stepLabel(step) }}</span>
+          <span v-if="index === 4" class="wizard-progress-note">{{ t('wizard.comingSoon') }}</span>
         </li>
       </ol>
     </nav>
 
-    <UiBanner v-if="llmIssue !== null" tone="error" class="llm-banner" role="alert" title="AI 도움 없이 계속할 수 있어요">
-      <p>AI를 사용할 수 없습니다: {{ llmIssue }}</p>
-      <p>다른 기능은 계속 사용할 수 있으며, 직접 작성으로 진행할 수 있습니다.</p>
+    <UiBanner
+      v-if="llmIssue !== null"
+      tone="error"
+      class="llm-banner"
+      role="alert"
+      :title="t('wizard.llmTitle')"
+    >
+      <p>{{ t('wizard.llmBody', { reason: llmIssue }) }}</p>
+      <p>{{ t('wizard.llmContinue') }}</p>
       <template #actions>
         <UiButton v-if="session !== null && !terminal" size="sm" :disabled="!canMutate" @click="enterManual">
-          직접 작성으로 전환
+          {{ t('wizard.toManual') }}
         </UiButton>
-        <UiButton v-else size="sm" icon="sync" :disabled="creating" @click="createSession">다시 시도</UiButton>
+        <UiButton v-else size="sm" icon="sync" :disabled="creating" @click="createSession">
+          {{ t('common.retry') }}
+        </UiButton>
       </template>
     </UiBanner>
 
     <UiBanner v-if="!offline.mutationsEnabled" tone="offline" class="offline-note" role="status">
-      오프라인: 읽기 전용입니다. 연결이 돌아오면 변경할 수 있습니다.
+      {{ t('wizard.offline') }}
     </UiBanner>
 
     <UiBanner v-if="mutationError !== null" tone="error" role="alert">{{ mutationError }}</UiBanner>
 
     <UiCard v-if="terminal" class="wizard-card wizard-card--center" role="status">
-      <h2>계획 세션이 종료되었습니다</h2>
-      <p class="muted">이 세션은 더 이상 변경할 수 없습니다.</p>
+      <h2>{{ t('wizard.endedTitle') }}</h2>
+      <p class="muted">{{ t('wizard.endedBody') }}</p>
       <div class="card-actions">
-        <RouterLink class="btn btn--primary" to="/plan/new">새 계획 시작</RouterLink>
+        <RouterLink class="btn btn--primary" to="/plan/new">{{ t('wizard.startNew') }}</RouterLink>
       </div>
     </UiCard>
 
     <UiCard v-else-if="!isNew && sessionQuery.isLoading.value" class="wizard-card">
-      <p class="loading-row"><UiSpinner /> 계획을 불러오는 중…</p>
+      <p class="loading-row"><UiSpinner /> {{ t('wizard.loading') }}</p>
     </UiCard>
 
     <UiBanner v-else-if="!isNew && sessionQuery.isError.value" tone="error" class="wizard-card error-panel">
-      <p class="error-text" role="alert">계획을 불러오지 못했습니다.</p>
+      <p class="error-text" role="alert">{{ t('wizard.loadError') }}</p>
       <template #actions>
-        <UiButton size="sm" icon="sync" @click="retry">다시 시도</UiButton>
+        <UiButton size="sm" icon="sync" @click="retry">{{ t('common.retry') }}</UiButton>
       </template>
     </UiBanner>
 
@@ -643,24 +674,24 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
       @submit.prevent="createSession"
     >
       <header class="wizard-card-header">
-        <h2 id="step1-heading">1단계 · 기본정보</h2>
-        <p class="muted">제목과 마감만 있으면 시작할 수 있습니다.</p>
+        <h2 id="step1-heading">{{ t('wizard.step1') }}</h2>
+        <p class="muted">{{ t('wizard.step1Lede') }}</p>
       </header>
 
-      <UiField id="wizard-title" label="제목">
+      <UiField id="wizard-title" :label="t('wizard.titleLabel')">
         <input
           id="wizard-title"
           v-model="form.title"
           type="text"
           maxlength="200"
           required
-          placeholder="예: 주간 보고서 작성"
+          :placeholder="t('wizard.titlePlaceholder')"
           :disabled="creating || !offline.mutationsEnabled"
         />
       </UiField>
 
       <div class="field-grid">
-        <UiField id="wizard-due" label="마감 (선택, 현지 시간)">
+        <UiField id="wizard-due" :label="t('wizard.due')">
           <input
             id="wizard-due"
             v-model="form.dueAt"
@@ -668,7 +699,7 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
             :disabled="creating || !offline.mutationsEnabled"
           />
         </UiField>
-        <UiField id="wizard-file" label="파일 이름 (선택, 업로드는 곧 지원)">
+        <UiField id="wizard-file" :label="t('wizard.file')">
           <input
             id="wizard-file"
             v-model="form.fileName"
@@ -679,7 +710,7 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
         </UiField>
       </div>
 
-      <UiField id="wizard-description" label="설명 (선택)">
+      <UiField id="wizard-description" :label="t('wizard.description')">
         <textarea
           id="wizard-description"
           v-model="form.description"
@@ -696,7 +727,7 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
           :busy="creating"
           :disabled="creating || !offline.mutationsEnabled || form.title.trim().length === 0"
         >
-          {{ creating ? '만드는 중…' : '다음' }}
+          {{ creating ? t('wizard.creating') : t('wizard.next') }}
         </UiButton>
       </div>
     </UiCard>
@@ -707,26 +738,35 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
       aria-labelledby="step2-heading"
     >
       <header class="wizard-card-header">
-        <h2 id="step2-heading">2단계 · 유형 확인</h2>
+        <h2 id="step2-heading">{{ t('wizard.step2') }}</h2>
       </header>
       <div class="similar-card" role="group" aria-labelledby="similar-heading">
         <div class="similar-card-head">
           <span class="dialog-icon"><UiIcon name="plan" :size="22" /></span>
           <div>
-            <h3 id="similar-heading">이전 작업과 비슷해요</h3>
+            <h3 id="similar-heading">{{ t('wizard.similarTitle') }}</h3>
             <p>
-              이전 <strong>{{ templateName }}</strong> 유형과 비슷합니다.
-              신뢰도 <strong>{{ confidencePercent }}%</strong>
+              <I18nT keypath="wizard.similarBody">
+                <template #template><strong>{{ templateName }}</strong></template>
+                <template #confidence><strong>{{ confidenceLabel }}</strong></template>
+              </I18nT>
             </p>
           </div>
         </div>
         <div class="confidence-meter" aria-hidden="true">
           <span class="confidence-meter-fill" :style="{ width: `${confidencePercent}%` }"></span>
         </div>
-        <ul class="reason-list" aria-label="판단 근거">
-          <li v-for="reason in detectedReasons" :key="reason" class="chip badge--accent">{{ reason }}</li>
+        <ul class="reason-list" :aria-label="t('wizard.reasons')">
+          <li
+            v-for="reason in detectedReasons"
+            :key="reason.key"
+            class="chip badge--accent"
+            :lang="reason.translated ? undefined : 'en'"
+          >
+            {{ reason.text }}
+          </li>
         </ul>
-        <p class="similar-question">이번에도 같은 유형인가요?</p>
+        <p class="similar-question">{{ t('wizard.similarQuestion') }}</p>
         <div class="dialog-actions">
           <UiButton
             variant="primary"
@@ -734,9 +774,9 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
             :disabled="!canMutate || paused || templateId === undefined"
             @click="confirmType(true)"
           >
-            예
+            {{ t('wizard.yes') }}
           </UiButton>
-          <UiButton :disabled="!canMutate || paused" @click="confirmType(false)">아니오</UiButton>
+          <UiButton :disabled="!canMutate || paused" @click="confirmType(false)">{{ t('wizard.no') }}</UiButton>
         </div>
       </div>
     </UiCard>
@@ -747,32 +787,32 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
       aria-labelledby="step3-heading"
     >
       <header class="wizard-card-header">
-        <h2 id="step3-heading">3단계 · 질문</h2>
-        <p class="muted">라운드당 최대 5개 질문입니다. 모르면 [모름], 나중에 답하려면 [건너뛰기]를 선택하세요.</p>
+        <h2 id="step3-heading">{{ t('wizard.step3') }}</h2>
+        <p class="muted">{{ t('wizard.step3Lede') }}</p>
       </header>
       <UiBanner v-if="paused" tone="info" class="offline-note" role="status">
-        일시정지되었습니다. 재개하면 이어서 답할 수 있습니다.
+        {{ t('wizard.paused') }}
       </UiBanner>
 
       <ul v-if="questions.length > 0" class="question-list">
         <li v-for="question in questions" :key="question.field" class="question-card">
           <fieldset :disabled="questionsLocked">
             <legend>
-              {{ question.prompt }}
-              <UiBadge v-if="question.required" tone="warn">필수</UiBadge>
+              {{ questionPrompt(question) }}
+              <UiBadge v-if="question.required" tone="warn">{{ t('wizard.required') }}</UiBadge>
             </legend>
 
             <div class="question-answer">
-              <label :for="`answer-${question.field}`" class="field-label">답변</label>
+              <label :for="`answer-${question.field}`" class="field-label">{{ t('wizard.answerLabel') }}</label>
               <select
                 v-if="isSelectField(question.field)"
                 :id="`answer-${question.field}`"
                 v-model="answerText[question.field]"
               >
-                <option value="">선택하세요</option>
-                <option value="small">small</option>
-                <option value="medium">medium</option>
-                <option value="large">large</option>
+                <option value="">{{ t('wizard.choose') }}</option>
+                <option v-for="scope in SCOPE_OPTIONS" :key="scope" :value="scope">
+                  {{ t(`wizard.scope.${scope}`) }}
+                </option>
               </select>
               <input
                 v-else-if="isBooleanField(question.field)"
@@ -802,27 +842,27 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
                 :disabled="questionsLocked"
                 @click="answer(question, 'answer')"
               >
-                답변
+                {{ t('wizard.answer') }}
               </UiButton>
               <UiButton size="sm" :disabled="questionsLocked" @click="answer(question, 'idk')">
-                모름
+                {{ t('wizard.idk') }}
               </UiButton>
               <UiButton size="sm" variant="ghost" :disabled="questionsLocked" @click="answer(question, 'skip')">
-                건너뛰기
+                {{ t('wizard.skip') }}
               </UiButton>
             </div>
           </fieldset>
         </li>
       </ul>
-      <p v-else class="muted">남은 질문이 없습니다.</p>
+      <p v-else class="muted">{{ t('wizard.noQuestions') }}</p>
 
       <section v-if="assumptions.length > 0" class="assumptions" aria-labelledby="assumptions-heading">
-        <h3 id="assumptions-heading">가정</h3>
+        <h3 id="assumptions-heading">{{ t('wizard.assumptions') }}</h3>
         <ul class="assumption-list">
           <li v-for="assumption in assumptions" :key="assumption.field" class="assumption-item">
             <span class="assumption-field">{{ fieldLabel(assumption.field) }}</span>
             <span class="chip">{{ reasonLabel(assumption.reason) }}</span>
-            <span class="muted">{{ assumption.value }}</span>
+            <span class="muted">{{ assumptionValue(assumption.field, assumption.value).text }}</span>
           </li>
         </ul>
       </section>
@@ -834,14 +874,14 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
       aria-labelledby="step4-heading"
     >
       <header class="wizard-card-header">
-        <h2 id="step4-heading">4단계 · 단계 초안</h2>
-        <p class="muted">단계 수 3–12, P50 ≤ 240분, P90 ≥ P50, 검토/버퍼 1개 이상, 순환 없는 의존 관계.</p>
+        <h2 id="step4-heading">{{ t('wizard.step4') }}</h2>
+        <p class="muted">{{ t('wizard.step4Lede') }}</p>
       </header>
 
       <UiBanner v-if="draftConflict" tone="conflict" role="alert" class="draft-conflict">
-        다른 곳에서 초안이 먼저 변경되었습니다. 작성 중인 내용은 유지됩니다.
+        {{ t('wizard.draftConflict') }}
         <template #actions>
-          <UiButton size="sm" icon="sync" @click="reloadDraft">최신 초안 불러오기</UiButton>
+          <UiButton size="sm" icon="sync" @click="reloadDraft">{{ t('wizard.reloadDraft') }}</UiButton>
         </template>
       </UiBanner>
 
@@ -851,11 +891,11 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
             <header class="draft-step-head">
               <h3><span class="draft-step-index" aria-hidden="true">{{ index + 1 }}</span>{{ step.key }}</h3>
               <UiBadge :tone="step.kind === 'review' || step.kind === 'buffer' ? 'info' : 'neutral'">
-                {{ step.kind }}
+                {{ stepKindLabel(step.kind) }}
               </UiBadge>
             </header>
 
-            <UiField :id="`step-title-${step.key}`" label="제목">
+            <UiField :id="`step-title-${step.key}`" :label="t('wizard.stepTitle')">
               <input
                 :id="`step-title-${step.key}`"
                 v-model="step.title"
@@ -866,7 +906,7 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
             </UiField>
 
             <div class="field-grid">
-              <UiField :id="`step-deliverable-${step.key}`" label="산출물">
+              <UiField :id="`step-deliverable-${step.key}`" :label="t('wizard.deliverable')">
                 <input
                   :id="`step-deliverable-${step.key}`"
                   v-model="step.deliverable"
@@ -875,7 +915,7 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
                   :disabled="!offline.mutationsEnabled || paused"
                 />
               </UiField>
-              <UiField :id="`step-done-${step.key}`" label="완료 기준">
+              <UiField :id="`step-done-${step.key}`" :label="t('wizard.doneCriteria')">
                 <input
                   :id="`step-done-${step.key}`"
                   v-model="step.doneCriteria"
@@ -887,19 +927,16 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
             </div>
 
             <div class="field-grid field-grid--3">
-              <UiField :id="`step-kind-${step.key}`" label="종류">
+              <UiField :id="`step-kind-${step.key}`" :label="t('wizard.kind')">
                 <select
                   :id="`step-kind-${step.key}`"
                   v-model="step.kind"
                   :disabled="!offline.mutationsEnabled || paused"
                 >
-                  <option value="prep">prep</option>
-                  <option value="work">work</option>
-                  <option value="review">review</option>
-                  <option value="buffer">buffer</option>
+                  <option v-for="kind in STEP_KINDS" :key="kind" :value="kind">{{ stepKindLabel(kind) }}</option>
                 </select>
               </UiField>
-              <UiField :id="`step-p50-${step.key}`" label="P50 (분)">
+              <UiField :id="`step-p50-${step.key}`" :label="t('wizard.p50')">
                 <input
                   :id="`step-p50-${step.key}`"
                   v-model.number="step.estimate.p50Minutes"
@@ -909,7 +946,7 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
                   :disabled="!offline.mutationsEnabled || paused"
                 />
               </UiField>
-              <UiField :id="`step-p90-${step.key}`" label="P90 (분)">
+              <UiField :id="`step-p90-${step.key}`" :label="t('wizard.p90')">
                 <input
                   :id="`step-p90-${step.key}`"
                   v-model.number="step.estimate.p90Minutes"
@@ -922,7 +959,7 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
             </div>
 
             <fieldset class="dependency-fieldset choice-group">
-              <legend>선행 단계</legend>
+              <legend>{{ t('wizard.dependencies') }}</legend>
               <label
                 v-for="candidate in draft.steps.filter((item) => item.key !== step.key)"
                 :key="candidate.key"
@@ -951,7 +988,7 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
                 :disabled="draftLocked || draft.steps.length <= 3"
                 @click="removeStep(index)"
               >
-                단계 삭제
+                {{ t('wizard.removeStep') }}
               </UiButton>
             </div>
           </li>
@@ -968,30 +1005,30 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
             :disabled="draftLocked || draft.steps.length >= 12"
             @click="addStep"
           >
-            단계 추가
+            {{ t('wizard.addStep') }}
           </UiButton>
           <div class="cluster">
-            <UiButton :disabled="draftLocked" @click="saveDraft">초안 저장</UiButton>
+            <UiButton :disabled="draftLocked" @click="saveDraft">{{ t('wizard.saveDraft') }}</UiButton>
             <UiButton
               variant="primary"
               icon="check"
               :disabled="draftLocked"
               @click="approve"
             >
-              초안 승인
+              {{ t('wizard.approveDraft') }}
             </UiButton>
           </div>
         </div>
       </template>
-      <p v-else class="loading-row"><UiSpinner /> 초안을 준비하는 중…</p>
+      <p v-else class="loading-row"><UiSpinner /> {{ t('wizard.preparing') }}</p>
 
       <section v-if="assumptions.length > 0" class="assumptions" aria-labelledby="draft-assumptions-heading">
-        <h3 id="draft-assumptions-heading">가정</h3>
+        <h3 id="draft-assumptions-heading">{{ t('wizard.assumptions') }}</h3>
         <ul class="assumption-list">
           <li v-for="assumption in assumptions" :key="assumption.field" class="assumption-item">
             <span class="assumption-field">{{ fieldLabel(assumption.field) }}</span>
             <span class="chip">{{ reasonLabel(assumption.reason) }}</span>
-            <span class="muted">{{ assumption.value }}</span>
+            <span class="muted">{{ assumptionValue(assumption.field, assumption.value).text }}</span>
           </li>
         </ul>
       </section>
@@ -1003,12 +1040,12 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
       aria-labelledby="step5-heading"
     >
       <span class="success-mark" aria-hidden="true"><UiIcon name="check" :size="28" /></span>
-      <h2 id="step5-heading">초안 승인 완료</h2>
-      <p>단계 초안이 승인되어 작업이 생성되었습니다.</p>
-      <p class="next-milestone">{{ nextMilestone }}</p>
+      <h2 id="step5-heading">{{ t('wizard.step5') }}</h2>
+      <p>{{ t('wizard.step5Body') }}</p>
+      <p class="next-milestone">{{ t('wizard.nextMilestone') }}</p>
       <div class="card-actions">
-        <RouterLink class="btn btn--primary" to="/inbox">인박스에서 생성된 작업 보기</RouterLink>
-        <RouterLink class="btn btn--secondary" to="/projects">프로젝트 보기</RouterLink>
+        <RouterLink class="btn btn--primary" to="/inbox">{{ t('wizard.viewInbox') }}</RouterLink>
+        <RouterLink class="btn btn--secondary" to="/projects">{{ t('wizard.viewProjects') }}</RouterLink>
       </div>
     </UiCard>
 
@@ -1017,7 +1054,7 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
       class="wizard-footer"
     >
       <UiButton variant="ghost" size="sm" :disabled="!canMutate || paused" @click="enterManual">
-        직접 작성으로 전환
+        {{ t('wizard.toManual') }}
       </UiButton>
     </footer>
   </section>

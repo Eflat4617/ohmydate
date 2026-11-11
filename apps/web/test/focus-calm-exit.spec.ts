@@ -59,13 +59,13 @@ async function mountInCalmMode(
   const wrapper = mount(FocusView, { global: { plugins: [pinia, router] }, attachTo: document.body });
   // Let the mount-time restore render (it disables the controls) before waiting for it to finish.
   await nextTick();
-  await vi.waitFor(() => expect(button(wrapper, 'Pause').attributes('disabled')).toBeUndefined());
+  await vi.waitFor(() => expect(button(wrapper, '일시정지').attributes('disabled')).toBeUndefined());
 
-  await button(wrapper, 'Calm mode').trigger('click');
+  await button(wrapper, '몰입 모드').trigger('click');
   await nextTick();
   expect(calmMode.value).toBe(true);
   expect(wrapper.get('.focus-page').classes()).toContain('focus-page--calm');
-  expect(button(wrapper, 'Calm mode').attributes('aria-pressed')).toBe('true');
+  expect(button(wrapper, '몰입 모드').attributes('aria-pressed')).toBe('true');
   return { wrapper, session };
 }
 
@@ -73,7 +73,7 @@ function expectVisibleExit(wrapper: VueWrapper): void {
   expect(calmMode.value).toBe(false);
   expect(wrapper.get('.focus-page').classes()).not.toContain('focus-page--calm');
   expect(wrapper.find('.focus-back').exists()).toBe(true);
-  expect(wrapper.get('.focus-back').text()).toContain('Back to Today');
+  expect(wrapper.get('.focus-back').text()).toContain('오늘로 돌아가기');
 }
 
 describe('Calm mode exit on completion (UI-POLISHR-1)', () => {
@@ -90,19 +90,19 @@ describe('Calm mode exit on completion (UI-POLISHR-1)', () => {
     const router = testRouter();
     const { wrapper } = await mountInCalmMode(pinia, router);
 
-    await button(wrapper, 'Complete').trigger('click');
-    await vi.waitFor(() => expect(wrapper.text()).toContain('How did the session go?'));
+    await button(wrapper, '완료').trigger('click');
+    await vi.waitFor(() => expect(wrapper.text()).toContain('이번 세션은 어땠나요?'));
     expectVisibleExit(wrapper);
     // The toggle is gone for completed sessions, which is why Calm mode must already be off.
-    expect(hasButton(wrapper, 'Calm mode')).toBe(false);
+    expect(hasButton(wrapper, '몰입 모드')).toBe(false);
 
     const radios = wrapper.findAll('input[type="radio"]');
     await radios[1]?.setValue(true);
-    await button(wrapper, 'Submit review').trigger('click');
-    await vi.waitFor(() => expect(wrapper.text()).toContain('Estimation feedback'));
+    await button(wrapper, '회고 저장').trigger('click');
+    await vi.waitFor(() => expect(wrapper.text()).toContain('추정 피드백'));
     expectVisibleExit(wrapper);
 
-    await button(wrapper, 'Back to Today').trigger('click');
+    await button(wrapper, '오늘로 돌아가기').trigger('click');
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/today'));
     wrapper.unmount();
   });
@@ -113,7 +113,7 @@ describe('Calm mode exit on completion (UI-POLISHR-1)', () => {
     const { wrapper } = await mountInCalmMode(pinia, testRouter());
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    await vi.waitFor(() => expect(wrapper.text()).toContain('How did the session go?'));
+    await vi.waitFor(() => expect(wrapper.text()).toContain('이번 세션은 어땠나요?'));
     expectVisibleExit(wrapper);
     wrapper.unmount();
   });
@@ -125,12 +125,12 @@ describe('Calm mode exit on completion (UI-POLISHR-1)', () => {
     const { wrapper, session } = await mountInCalmMode(pinia, testRouter());
     const id = session.id;
 
-    await button(wrapper, 'Pause').trigger('click');
+    await button(wrapper, '일시정지').trigger('click');
     await vi.waitFor(() => expect(store.get(id)?.state).toBe('paused'));
     expect(calmMode.value).toBe(true);
     expect(wrapper.get('.focus-page').classes()).toContain('focus-page--calm');
 
-    await button(wrapper, 'Resume').trigger('click');
+    await button(wrapper, '다시 시작').trigger('click');
     await vi.waitFor(() => expect(store.get(id)?.state).toBe('active'));
     expect(calmMode.value).toBe(true);
     wrapper.unmount();

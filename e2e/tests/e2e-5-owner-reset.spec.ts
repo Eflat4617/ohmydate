@@ -102,7 +102,7 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
       { ownerId: ownerA.id, id: sessionId, task: taskId },
     );
     await pageA.goto(`${state.webUrl}/settings/ai`);
-    await expect(pageA.getByRole('heading', { name: 'AI settings' })).toBeVisible();
+    await expect(pageA.getByRole('heading', { name: 'AI 설정' })).toBeVisible();
     await pageA.evaluate(() => {
       (window as unknown as { __ohmydateOwnerSentinel?: string }).__ohmydateOwnerSentinel = 'A';
     });
@@ -147,19 +147,19 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
     expect(ownerASessions).not.toBeNull();
 
     await pageA.goto(`${state.webUrl}/settings/ai`);
-    await expect(pageA.getByRole('heading', { name: 'AI settings' })).toBeVisible();
+    await expect(pageA.getByRole('heading', { name: 'AI 설정' })).toBeVisible();
     await expect(pageA.locator('body')).not.toContainText('9.00');
     await expect(pageA.locator('body')).not.toContainText('90.00');
 
     await pageB.bringToFront();
-    await pageB.getByRole('button', { name: 'Sign out' }).click();
+    await pageB.getByRole('button', { name: '로그아웃' }).click();
     await expect(pageB).toHaveURL(`${state.webUrl}/login`, { timeout: 20_000 });
     const afterLogout = await context.request.get(`${state.apiUrl}/api/v1/me`);
     expect(afterLogout.status()).toBe(401);
 
     await pageA.bringToFront();
     await expect(pageA).toHaveURL(`${state.webUrl}/login`, { timeout: 20_000 });
-    await expect(pageA.getByRole('heading', { name: 'Sign in to OhMyDate' })).toBeVisible();
+    await expect(pageA.getByRole('heading', { name: 'OhMyDate에 로그인' })).toBeVisible();
 
     await context.close();
   });

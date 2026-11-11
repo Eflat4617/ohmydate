@@ -23,14 +23,14 @@ export async function login(
 ): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await page.goto(`${state.webUrl}/login`);
-    await page.getByLabel('Email').fill(account.email);
-    await page.getByLabel('Password').fill(account.password);
+    await page.getByLabel('이메일').fill(account.email);
+    await page.getByLabel('비밀번호').fill(account.password);
     const responsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname.endsWith('/auth/login'),
     );
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.getByRole('button', { name: '로그인' }).click();
     const response = await responsePromise;
     if (response.status() === 429) {
       // The dev API allows five logins per minute per IP+email and exposes a
@@ -39,7 +39,7 @@ export async function login(
       await page.waitForTimeout(61_000);
       continue;
     }
-    await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '인박스' })).toBeVisible();
     return;
   }
   throw new Error('login was rate limited for three consecutive windows');

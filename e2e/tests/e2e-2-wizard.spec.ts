@@ -73,8 +73,10 @@ test.describe('E2E-2 — planning wizard against the real API', () => {
       page.getByRole('heading', { name: /3단계 · 질문|4단계 · 단계 초안/ }),
     ).toBeVisible();
     const bodyText = await page.locator('body').innerText();
+    // Questions render in Korean by field; the provided due date is never asked.
+    expect(bodyText).not.toContain('언제까지 끝내야 하나요?');
     expect(bodyText).not.toContain('When is it due?');
-    expect(bodyText).toContain('What exactly should be produced as the deliverable?');
+    expect(bodyText).toContain('무엇을 결과물로 만들어야 하나요?');
 
     await skipAllQuestions(page);
     await expect(page.getByRole('heading', { name: '4단계 · 단계 초안' })).toBeVisible();

@@ -4,6 +4,7 @@ import { login } from '../helpers/app';
 import { installBrowserClock, testClock } from '../helpers/clock';
 import {
   calendarBlockSelector,
+  dateFromKoreanLabel,
   daysBetween,
   describeCandidates,
   describeEdit,
@@ -11,6 +12,7 @@ import {
   findFeasibleNudge,
   findOverlapEdit,
   instantMs,
+  koreanDateLabel,
   localDate,
   sameBlock,
   weekStartOf,
@@ -101,13 +103,13 @@ async function selectCandidate(page: Page, candidateIndex: number): Promise<void
 async function showWeekOf(page: Page, date: string): Promise<void> {
   const heading = page.locator('#calendar-title');
   const text = (await heading.textContent()) ?? '';
-  const current = /Week view · (\d{4}-\d{2}-\d{2})/.exec(text)?.[1];
+  const current = text.includes('주간 보기 · ') ? dateFromKoreanLabel(text) : undefined;
   if (current === undefined) throw new Error(`week heading not found: ${text}`);
   const target = weekStartOf(date);
   const weeks = daysBetween(current, target) / 7;
-  const button = page.getByRole('button', { name: weeks > 0 ? 'Next week' : 'Previous week' });
+  const button = page.getByRole('button', { name: weeks > 0 ? '다음 주' : '이전 주' });
   for (let step = 0; step < Math.abs(weeks); step += 1) await button.click();
-  await expect(heading).toContainText(`Week view · ${target}`);
+  await expect(heading).toContainText(`주간 보기 · ${koreanDateLabel(target, true)}`);
 }
 
 /**
@@ -129,12 +131,12 @@ async function applyKeyboardEdit(
   for (let press = 0; press < edit.presses; press += 1) await page.keyboard.press(edit.key);
   const result = await preview;
   await expect(page.locator(calendarBlockSelector(edit.moved, timeZone))).toHaveCount(1);
-  await expect(page.locator('.violation-region').getByText('Validating edits…')).toBeHidden();
+  await expect(page.locator('.violation-region').getByText('편집 내용을 확인하는 중…')).toBeHidden();
   return result;
 }
 
 async function resetEdits(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Reset edits' }).click();
+  await page.getByRole('button', { name: '편집 되돌리기' }).click();
   await expect(page.locator('.violation-list li')).toHaveCount(0);
 }
 
@@ -173,12 +175,12 @@ test.describe('E2E-3 — plan comparison and stale-availability approval', () =>
 
     await pageA.goto(`${state.webUrl}/plans/new?goalId=${goal.goalId}`);
     const generatedAtMs = clock.nowMs();
-    await pageA.getByRole('button', { name: 'Generate candidates' }).click();
+    await pageA.getByRole('button', { name: '후보 만들기' }).click();
     await pageA.waitForURL(/\/plans\/[0-9a-f-]{36}$/);
     const planId = planIdFromUrl(pageA.url());
 
     await expect(pageA.locator('.candidate-card')).toHaveCount(3);
-    await expect(pageA.getByRole('heading', { name: /^Plan comparison$/ })).toBeVisible();
+    await expect(pageA.getByRole('heading', { name: /^일정안 비교$/ })).toBeVisible();
 
     expect(await blockingAxeViolations(pageA)).toEqual([]);
 
@@ -243,7 +245,7 @@ test.describe('E2E-3 — plan comparison and stale-availability approval', () =>
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname.endsWith(':approve'),
     );
-    await pageA.getByRole('button', { name: 'Approve this plan' }).click();
+    await pageA.getByRole('button', { name: '이 일정으로 확정' }).click();
     const editedRequest = (await approveRequest).postDataJSON() as {
       editedBlocks?: readonly { taskId: string; startAt: string; endAt: string }[];
     };
@@ -274,7 +276,7 @@ test.describe('E2E-3 — plan comparison and stale-availability approval', () =>
           block.endAt === changedBlock.endAt,
       ),
     ).toBe(true);
-    await expect(pageA.getByRole('heading', { name: 'Plan approved' })).toBeVisible();
+    await expect(pageA.getByRole('heading', { name: '일정 확정 완료' })).toBeVisible();
 
     const persisted = await loadPlan(pageA, planId);
     expect(persisted.currentVersionId).toBe(approvedVersion.id);
@@ -300,11 +302,11 @@ test.describe('E2E-3 — plan comparison and stale-availability approval', () =>
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname.endsWith(':approve'),
     );
-    await pageA.getByRole('button', { name: 'Approve this plan' }).click();
+    await pageA.getByRole('button', { name: '이 일정으로 확정' }).click();
     expect((await staleApproval).status()).toBe(412);
     const conflictPanel = pageA
       .getByRole('alert')
-      .filter({ hasText: 'Availability changed elsewhere' });
+      .filter({ hasText: '다른 곳에서 가용 시간이 바뀌었어요' });
     await expect(conflictPanel).toBeVisible();
 
     const regenerate = pageA.waitForResponse(
@@ -312,19 +314,19 @@ test.describe('E2E-3 — plan comparison and stale-availability approval', () =>
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname.endsWith(':regenerate'),
     );
-    await conflictPanel.getByRole('button', { name: 'Regenerate plan' }).click();
+    await conflictPanel.getByRole('button', { name: '일정안 다시 만들기' }).click();
     expect((await regenerate).status()).toBe(201);
-    await expect(pageA.getByText('Plan regenerated against the latest availability.')).toBeVisible();
-    await expect(pageA.getByRole('heading', { name: 'Plan approved' })).toBeHidden();
+    await expect(pageA.getByText('최신 가용 시간으로 일정안을 다시 만들었어요.')).toBeVisible();
+    await expect(pageA.getByRole('heading', { name: '일정 확정 완료' })).toBeHidden();
 
     const secondApproval = pageA.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname.endsWith(':approve'),
     );
-    await pageA.getByRole('button', { name: 'Approve this plan' }).click();
+    await pageA.getByRole('button', { name: '이 일정으로 확정' }).click();
     expect((await secondApproval).status()).toBe(201);
-    await expect(pageA.getByRole('heading', { name: 'Plan approved' })).toBeVisible();
+    await expect(pageA.getByRole('heading', { name: '일정 확정 완료' })).toBeVisible();
 
     await contextA.close();
   });

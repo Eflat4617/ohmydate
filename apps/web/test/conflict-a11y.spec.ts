@@ -56,23 +56,23 @@ describe('conflict dialog accessibility', () => {
     });
     await settle();
 
-    await button(wrapper, 'Edit').trigger('click');
+    await button(wrapper, '수정').trigger('click');
     await settle();
     await wrapper.get('input').setValue('My unsaved draft');
     await wrapper.get('form').trigger('submit');
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('This task changed elsewhere');
+      expect(wrapper.text()).toContain('다른 곳에서 이 작업이 바뀌었어요');
     });
 
     const input = wrapper.get('input');
     expect(input.attributes('disabled')).toBeDefined();
 
-    const reload = button(wrapper, 'Reload server version');
+    const reload = button(wrapper, '서버 버전 불러오기');
     reload.element.dispatchEvent(new KeyboardEvent('keydown', { key: 't', bubbles: true }));
     await settle();
 
     expect(router.currentRoute.value.name).toBe('inbox');
-    expect(wrapper.text()).toContain('This task changed elsewhere');
+    expect(wrapper.text()).toContain('다른 곳에서 이 작업이 바뀌었어요');
     expect(wrapper.get('input').element).toHaveProperty('value', 'My unsaved draft');
 
     wrapper.unmount();
@@ -89,28 +89,28 @@ describe('conflict dialog accessibility', () => {
     });
     await settle();
 
-    await button(wrapper, 'Edit').trigger('click');
+    await button(wrapper, '수정').trigger('click');
     await settle();
     await wrapper.get('input').setValue('Local input to preserve');
     await wrapper.get('form').trigger('submit');
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('This task changed elsewhere');
+      expect(wrapper.text()).toContain('다른 곳에서 이 작업이 바뀌었어요');
     });
 
-    await button(wrapper, 'Keep editing').trigger('click');
+    await button(wrapper, '계속 편집').trigger('click');
     await vi.waitFor(() => {
-      expect(wrapper.text()).not.toContain('This task changed elsewhere');
+      expect(wrapper.text()).not.toContain('다른 곳에서 이 작업이 바뀌었어요');
     });
 
     await wrapper.get('input').setValue('Newer draft typed after keep editing');
     await wrapper.get('form').trigger('submit');
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('This task changed elsewhere');
+      expect(wrapper.text()).toContain('다른 곳에서 이 작업이 바뀌었어요');
     });
 
-    await button(wrapper, 'Overwrite with my edit').trigger('click');
+    await button(wrapper, '내 수정으로 덮어쓰기').trigger('click');
     await vi.waitFor(() => {
-      expect(wrapper.text()).not.toContain('This task changed elsewhere');
+      expect(wrapper.text()).not.toContain('다른 곳에서 이 작업이 바뀌었어요');
     });
 
     const fresh = await plannerClient.getTask(task.id, { fresh: true });
@@ -137,17 +137,17 @@ describe('conflict dialog accessibility', () => {
     });
     await settle();
 
-    await button(wrapper, 'Edit').trigger('click');
+    await button(wrapper, '수정').trigger('click');
     await settle();
     await wrapper.get('input').setValue('Local input to preserve');
     await wrapper.get('form').trigger('submit');
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('This task changed elsewhere');
+      expect(wrapper.text()).toContain('다른 곳에서 이 작업이 바뀌었어요');
     });
 
-    await button(wrapper, 'Keep editing').trigger('click');
+    await button(wrapper, '계속 편집').trigger('click');
     await vi.waitFor(() => {
-      expect(wrapper.text()).not.toContain('This task changed elsewhere');
+      expect(wrapper.text()).not.toContain('다른 곳에서 이 작업이 바뀌었어요');
     });
 
     await wrapper.get('form').trigger('submit');
@@ -180,20 +180,20 @@ describe('conflict dialog accessibility', () => {
     });
     await settle();
 
-    await button(wrapper, 'Edit').trigger('click');
+    await button(wrapper, '수정').trigger('click');
     await settle();
     await wrapper.get('input').setValue('Local input to preserve');
     await wrapper.get('form').trigger('submit');
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('This task changed elsewhere');
+      expect(wrapper.text()).toContain('다른 곳에서 이 작업이 바뀌었어요');
     });
 
     patchCalls = 0;
-    const overwrite = button(wrapper, 'Overwrite with my edit');
+    const overwrite = button(wrapper, '내 수정으로 덮어쓰기');
     await overwrite.trigger('click');
     await overwrite.trigger('click');
     await vi.waitFor(() => {
-      expect(wrapper.text()).not.toContain('This task changed elsewhere');
+      expect(wrapper.text()).not.toContain('다른 곳에서 이 작업이 바뀌었어요');
     });
 
     expect(patchCalls).toBe(1);
@@ -213,19 +213,19 @@ describe('conflict dialog accessibility', () => {
     });
     await settle();
 
-    await button(wrapper, 'Edit').trigger('click');
+    await button(wrapper, '수정').trigger('click');
     await settle();
     await wrapper.get('input').setValue('Local draft');
     await wrapper.get('form').trigger('submit');
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('This task changed elsewhere');
+      expect(wrapper.text()).toContain('다른 곳에서 이 작업이 바뀌었어요');
     });
 
     vi.spyOn(plannerClient, 'getTask').mockRejectedValue(new Error('network down'));
-    await button(wrapper, 'Reload server version').trigger('click');
+    await button(wrapper, '서버 버전 불러오기').trigger('click');
     await vi.waitFor(() => {
       expect(toast.toasts.map((item) => item.message)).toContain(
-        'Could not reload the server version. Please try again.',
+        '서버 버전을 불러오지 못했어요. 다시 시도해 주세요.',
       );
     });
 

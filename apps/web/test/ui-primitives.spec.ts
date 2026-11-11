@@ -511,10 +511,10 @@ describe('shell axe-lite', () => {
     });
 
     const navs = wrapper.findAll('nav');
-    expect(navs.map((nav) => nav.attributes('aria-label'))).toEqual(['Primary', 'Primary']);
+    expect(navs.map((nav) => nav.attributes('aria-label'))).toEqual(['주 메뉴', '주 메뉴']);
     expect(wrapper.find('main#main-content').exists()).toBe(true);
 
-    const more = wrapper.findAll('button').find((item) => item.text() === 'More');
+    const more = wrapper.findAll('button').find((item) => item.text() === '더 보기');
     if (more === undefined) throw new Error('missing More button');
     expect(more.attributes('aria-expanded')).toBe('false');
     await more.trigger('click');

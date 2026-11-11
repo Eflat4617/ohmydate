@@ -42,6 +42,15 @@ async function waitForText(wrapper: VueWrapper, text: string): Promise<void> {
   });
 }
 
+/**
+ * Waits until the spied client method has been called `index + 1` times and
+ * that call's request has settled (FU-60: no timing assumptions).
+ */
+async function settledCall(spy: { mock: { calls: unknown[]; results: { value: unknown }[] } }, index: number): Promise<void> {
+  await vi.waitFor(() => expect(spy.mock.calls.length).toBeGreaterThan(index));
+  await spy.mock.results[index]?.value;
+}
+
 async function mountToday(pinia: Pinia, router: Router): Promise<VueWrapper> {
   await router.push('/today');
   const wrapper = mount(TodayView, {
@@ -68,10 +77,13 @@ describe('Today view', () => {
     expect(cards).toHaveLength(2);
     expect(cards[0]?.text()).toContain(TODAY_TASK_ONE_TITLE);
     expect(cards[1]?.text()).toContain(TODAY_TASK_TWO_TITLE);
-    expect(cards[0]?.text()).toMatch(/\d{2}:\d{2}–\d{2}:\d{2}/);
-    expect(wrapper.text()).toContain('Slack');
-    expect(wrapper.text()).toContain('Risk: medium');
-    expect(wrapper.text()).toContain('One block ends close to a task deadline');
+    expect(cards[0]?.text()).toMatch(/오[전후] \d{1,2}:\d{2}~(오[전후] )?\d{1,2}:\d{2}/);
+    expect(cards[0]?.text()).toContain('오후 7:00~8:30');
+    expect(cards[0]?.text()).toContain('1시간 30분');
+    expect(wrapper.text()).toContain('여유');
+    expect(wrapper.text()).toContain('위험도: 보통');
+    expect(wrapper.text()).toContain('남은 계획이 하루 집중 한도를 넘어요 (5시간 10분)');
+    expect(wrapper.text()).not.toContain('daily_focus_cap_exceeded');
     wrapper.unmount();
   });
 
@@ -80,9 +92,9 @@ describe('Today view', () => {
     useSessionStore(pinia).reset();
     const wrapper = await mountToday(pinia, testRouter());
 
-    await button(wrapper, 'Accept plan').trigger('click');
+    await button(wrapper, '오늘 계획 수락').trigger('click');
     await vi.waitFor(() => expect(mockDb.today.version).toBe(2));
-    expect(wrapper.text()).not.toContain('Could not load');
+    expect(wrapper.text()).not.toContain('불러오지 못했어요');
     wrapper.unmount();
   });
 
@@ -95,15 +107,15 @@ describe('Today view', () => {
 
     const card = wrapper.findAll('.today-card')[0];
     if (card === undefined) throw new Error('missing today card');
-    await button(card, 'Shrink').trigger('click');
+    await button(card, '축소').trigger('click');
     await nextTick();
     await wrapper.get('#shrink-minutes').setValue('20');
-    await button(wrapper, 'Preview shrink').trigger('click');
-    await waitForText(wrapper, 'Proposal preview');
-    expect(wrapper.text()).toContain('Nothing changes until you approve it');
+    await button(wrapper, '축소 미리보기').trigger('click');
+    await waitForText(wrapper, '제안 미리보기');
+    expect(wrapper.text()).toContain('승인하기 전에는 아무것도 바뀌지 않아요');
 
     const approve = vi.spyOn(plannerClient, 'approveTodayProposal');
-    await button(wrapper, 'Approve proposal').trigger('click');
+    await button(wrapper, '제안 승인').trigger('click');
     await vi.waitFor(() => {
       expect(mockDb.today.blocks[0]?.endAt).toBe(
         new Date(Date.parse(original.startAt) + 20 * 60_000).toISOString(),
@@ -128,9 +140,9 @@ describe('Today view', () => {
 
     const card = wrapper.findAll('.today-card')[1];
     if (card === undefined) throw new Error('missing today card');
-    await button(card, 'Reschedule').trigger('click');
-    await waitForText(wrapper, 'Proposal preview');
-    await button(wrapper, 'Approve proposal').trigger('click');
+    await button(card, '재배치').trigger('click');
+    await waitForText(wrapper, '제안 미리보기');
+    await button(wrapper, '제안 승인').trigger('click');
     await vi.waitFor(() => {
       expect(mockDb.today.blocks[1]?.startAt).toBe(
         new Date(Date.parse(original.startAt) + 30 * 60_000).toISOString(),
@@ -147,7 +159,7 @@ describe('Today view', () => {
     const card = wrapper.findAll('.today-card')[0];
     if (card === undefined) throw new Error('missing today card');
 
-    await button(card, 'Start focus').trigger('click');
+    await button(card, '집중 시작').trigger('click');
     await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('focus'));
     const sessions = useSessionStore(pinia);
     expect(sessions.active?.taskId).toBe(TODAY_TASK_ONE_ID);
@@ -174,10 +186,10 @@ describe('Today view', () => {
     const wrapper = await mountToday(pinia, router);
     const card = wrapper.findAll('.today-card')[0];
     if (card === undefined) throw new Error('missing today card');
-    await button(card, 'Start focus').trigger('click');
-    await waitForText(wrapper, 'Resume the active session');
+    await button(card, '집중 시작').trigger('click');
+    await waitForText(wrapper, '진행 중인 세션으로 가기');
 
-    await button(wrapper, 'Resume the active session').trigger('click');
+    await button(wrapper, '진행 중인 세션으로 가기').trigger('click');
     await vi.waitFor(() => {
       expect(router.currentRoute.value.path).toBe(`/focus/${session.id}`);
     });
@@ -205,24 +217,43 @@ describe('Today view', () => {
     expect(cards).toHaveLength(2);
     expect(cards[0]?.text()).toContain(TODAY_TASK_ONE_TITLE);
     expect(cards[1]?.text()).toContain(TODAY_TASK_TWO_TITLE);
-    expect(wrapper.text()).not.toContain('08:00–09:00');
+    expect(wrapper.text()).not.toContain('오후 5:00~6:00');
 
     const first = cards[0];
     if (first === undefined) throw new Error('missing first card');
-    await button(first, 'Shrink').trigger('click');
+    // FU-60: wait on the real requests and the settled UI, never on timing.
+    const shrink = vi.spyOn(plannerClient, 'shrinkToday');
+    const approve = vi.spyOn(plannerClient, 'approveTodayProposal');
+    const reschedule = vi.spyOn(plannerClient, 'rescheduleToday');
+    const reloadToday = vi.spyOn(plannerClient, 'getToday');
+
+    await button(first, '축소').trigger('click');
     await nextTick();
     await wrapper.get('#shrink-minutes').setValue('20');
-    await button(wrapper, 'Preview shrink').trigger('click');
-    await waitForText(wrapper, 'Proposal preview');
-    await button(wrapper, 'Approve proposal').trigger('click');
-    await vi.waitFor(() => expect(mockDb.today.blocks[0]?.endAt).not.toBe('2026-11-14T11:30:00.000Z'));
+    await button(wrapper, '축소 미리보기').trigger('click');
+    await settledCall(shrink, 0);
+    await waitForText(wrapper, '제안 미리보기');
+    const reloadsBeforeApprove = reloadToday.mock.calls.length;
+    await button(wrapper, '제안 승인').trigger('click');
+    await settledCall(approve, 0);
+    expect(mockDb.today.blocks[0]?.endAt).not.toBe('2026-11-14T11:30:00.000Z');
+    // approveProposal() refetches Today before it clears `busy`.
+    await settledCall(reloadToday, reloadsBeforeApprove);
+    await vi.waitFor(() => expect(wrapper.find('.proposal-preview').exists()).toBe(false));
+    await vi.waitFor(() => {
+      const second = wrapper.findAll('.today-card')[1];
+      if (second === undefined) throw new Error('missing second card');
+      expect(button(second, '재배치').attributes('disabled')).toBeUndefined();
+    });
 
     const second = wrapper.findAll('.today-card')[1];
     if (second === undefined) throw new Error('missing second card');
-    await button(second, 'Reschedule').trigger('click');
-    await waitForText(wrapper, 'Proposal preview');
-    await button(wrapper, 'Approve proposal').trigger('click');
-    await vi.waitFor(() => expect(mockDb.today.blocks[1]?.startAt).not.toBe('2026-11-14T12:00:00.000Z'));
+    await button(second, '재배치').trigger('click');
+    await settledCall(reschedule, 0);
+    await waitForText(wrapper, '제안 미리보기');
+    await button(wrapper, '제안 승인').trigger('click');
+    await settledCall(approve, 1);
+    expect(mockDb.today.blocks[1]?.startAt).not.toBe('2026-11-14T12:00:00.000Z');
     wrapper.unmount();
   });
 
@@ -242,9 +273,9 @@ describe('Today view', () => {
 
     const card = wrapper.findAll('.today-card')[0];
     if (card === undefined) throw new Error('missing today card');
-    await button(card, 'Start focus').trigger('click');
-    await waitForText(wrapper, 'response lost after commit');
-    await button(wrapper, 'Start focus').trigger('click');
+    await button(card, '집중 시작').trigger('click');
+    await waitForText(wrapper, '서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.');
+    await button(wrapper, '집중 시작').trigger('click');
     await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('focus'));
 
     expect(calls).toHaveLength(2);
@@ -270,8 +301,8 @@ describe('Today view', () => {
     expect(useSessionStore(pinia).get(session.id)).toBeNull();
     const router = testRouter();
     const wrapper = await mountToday(pinia, router);
-    await waitForText(wrapper, 'Resume session');
-    await button(wrapper, 'Resume session').trigger('click');
+    await waitForText(wrapper, '세션 이어가기');
+    await button(wrapper, '세션 이어가기').trigger('click');
     await vi.waitFor(() => {
       expect(router.currentRoute.value.path).toBe(`/focus/${session.id}`);
     });

@@ -4,6 +4,7 @@ import type { Task } from '../api';
 import UiBadge from './ui/UiBadge.vue';
 import UiButton from './ui/UiButton.vue';
 import UiIcon from './ui/UiIcon.vue';
+import { t } from '../i18n';
 
 const props = withDefaults(
   defineProps<{
@@ -32,11 +33,11 @@ const isDone = computed(() => props.task.status === 'done');
 const statusLabel = computed(() => {
   switch (props.task.status) {
     case 'done':
-      return 'Done';
+      return t('task.status.done');
     case 'in_progress':
-      return 'In progress';
+      return t('task.status.in_progress');
     default:
-      return 'To do';
+      return t('task.status.todo');
   }
 });
 
@@ -82,7 +83,7 @@ function onInput(event: Event): void {
   <li class="task-item" :class="{ 'task-item--done': isDone, 'task-item--editing': editing }">
     <template v-if="editing">
       <form class="inline-edit" @submit.prevent="emit('save')">
-        <label :for="`task-title-${task.id}`" class="field-label">Task title</label>
+        <label :for="`task-title-${task.id}`" class="field-label">{{ t('task.titleLabel') }}</label>
         <div class="inline-edit-row">
           <input
             :id="`task-title-${task.id}`"
@@ -101,9 +102,9 @@ function onInput(event: Event): void {
               size="sm"
               :disabled="locked || draft.trim().length === 0"
             >
-              Save
+              {{ t('common.save') }}
             </UiButton>
-            <UiButton variant="ghost" size="sm" :disabled="locked" @click="emit('cancel')">Cancel</UiButton>
+            <UiButton variant="ghost" size="sm" :disabled="locked" @click="emit('cancel')">{{ t('common.cancel') }}</UiButton>
           </div>
         </div>
       </form>
@@ -121,32 +122,32 @@ function onInput(event: Event): void {
           variant="ghost"
           size="sm"
           icon="edit"
-          :aria-label="`Edit title of ${task.title}`"
+          :aria-label="t('task.editAria', { title: task.title })"
           :disabled="locked"
           @click="emit('start-edit')"
         >
-          <span class="task-action-label">Edit</span>
+          <span class="task-action-label">{{ t('task.edit') }}</span>
         </UiButton>
         <UiButton
           variant="ghost"
           size="sm"
           icon="check"
-          :aria-label="`Mark ${task.title} complete`"
+          :aria-label="t('task.completeAria', { title: task.title })"
           :disabled="locked || isDone"
           @click="emit('complete')"
         >
-          <span class="task-action-label">{{ isDone ? 'Completed' : 'Complete' }}</span>
+          <span class="task-action-label">{{ isDone ? t('task.completed') : t('task.complete') }}</span>
         </UiButton>
         <UiButton
           variant="danger-ghost"
           size="sm"
           icon="trash"
           class="danger"
-          :aria-label="`Delete ${task.title}`"
+          :aria-label="t('task.deleteAria', { title: task.title })"
           :disabled="locked"
           @click="emit('remove')"
         >
-          <span class="task-action-label">Delete</span>
+          <span class="task-action-label">{{ t('task.delete') }}</span>
         </UiButton>
       </div>
     </template>

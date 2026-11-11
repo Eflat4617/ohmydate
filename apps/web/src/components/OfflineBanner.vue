@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useOfflineStore } from '../stores/offline';
 import UiBanner from './ui/UiBanner.vue';
+import { t } from '../i18n';
 
 const offline = useOfflineStore();
 </script>
@@ -13,6 +14,6 @@ const offline = useOfflineStore();
     role="status"
     aria-live="polite"
   >
-    You are offline. Viewing cached data; editing is disabled until the connection returns.
+    {{ t('offline.banner') }}
   </UiBanner>
 </template>

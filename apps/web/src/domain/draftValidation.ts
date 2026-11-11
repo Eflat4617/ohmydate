@@ -1,4 +1,5 @@
 import type { DecompositionDraft, DecompositionStep } from '../api';
+import { t } from '../i18n';
 
 export const MIN_STEPS = 3;
 export const MAX_STEPS = 12;
@@ -66,7 +67,7 @@ export function validateDraft(draft: DecompositionDraft): DraftValidationResult 
   if (steps.length < MIN_STEPS || steps.length > MAX_STEPS) {
     issues.push({
       code: 'step_count_out_of_range',
-      message: `${MIN_STEPS}-${MAX_STEPS}개의 단계가 필요합니다 (현재 ${steps.length}개)`,
+      message: t('draft.stepCount', { min: MIN_STEPS, max: MAX_STEPS, count: steps.length }),
     });
   }
 
@@ -77,7 +78,7 @@ export function validateDraft(draft: DecompositionDraft): DraftValidationResult 
     else keys.push(step.key);
   }
   for (const key of duplicates) {
-    issues.push({ code: 'duplicate_key', message: `단계 키가 중복되었습니다: ${key}`, stepKey: key });
+    issues.push({ code: 'duplicate_key', message: t('draft.duplicateKey', { key }), stepKey: key });
   }
 
   const known = new Set(keys);
@@ -85,14 +86,14 @@ export function validateDraft(draft: DecompositionDraft): DraftValidationResult 
     if (step.estimate.p50Minutes > MAX_STEP_P50_MINUTES) {
       issues.push({
         code: 'step_too_large',
-        message: `P50은 ${MAX_STEP_P50_MINUTES}분 이하여야 합니다`,
+        message: t('draft.stepTooLarge', { max: MAX_STEP_P50_MINUTES }),
         stepKey: step.key,
       });
     }
     if (step.estimate.p90Minutes < step.estimate.p50Minutes) {
       issues.push({
         code: 'p90_less_than_p50',
-        message: 'P90은 P50보다 크거나 같아야 합니다',
+        message: t('draft.p90LessThanP50'),
         stepKey: step.key,
       });
     }
@@ -100,7 +101,7 @@ export function validateDraft(draft: DecompositionDraft): DraftValidationResult 
       if (!known.has(ref)) {
         issues.push({
           code: 'unknown_ref',
-          message: `존재하지 않는 단계를 참조합니다: ${ref}`,
+          message: t('draft.unknownRef', { ref }),
           stepKey: step.key,
           ref,
         });
@@ -111,13 +112,13 @@ export function validateDraft(draft: DecompositionDraft): DraftValidationResult 
   if (!steps.some((step) => step.kind === 'review' || step.kind === 'buffer')) {
     issues.push({
       code: 'missing_review_or_buffer',
-      message: '검토 또는 버퍼 단계가 최소 1개 필요합니다',
+      message: t('draft.missingReviewOrBuffer'),
     });
   }
 
   const cycle = hasCycle(steps);
   if (cycle !== null) {
-    issues.push({ code: 'cycle', message: `의존 관계에 순환이 있습니다: ${cycle.join(' → ')}` });
+    issues.push({ code: 'cycle', message: t('draft.cycle', { cycle: cycle.join(' → ') }) });
   }
 
   return { valid: issues.length === 0, issues };
