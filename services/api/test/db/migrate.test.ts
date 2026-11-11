@@ -36,6 +36,7 @@ const MIGRATION_FILES = [
   '0007_planning_core.sql',
   '0008_plan_api_persistence.sql',
   '0009_today_sessions.sql',
+  '0011_llm_spend.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -87,6 +88,9 @@ const PLANNING_TABLES = [
   'schedule_block',
   'user_availability_version',
 ];
+
+// 0011_llm_spend.sql.
+const LLM_SPEND_TABLES = ['llm_spend'];
 
 // 0009_today_sessions.sql.
 const M4_TABLES = [
@@ -141,6 +145,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           ...APPROVAL_TABLES,
           ...PLANNING_TABLES,
           ...M4_TABLES,
+          ...LLM_SPEND_TABLES,
           'schema_migrations',
         ].sort(),
       );
@@ -443,6 +448,18 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           expect(availabilityColumns.rows.map((row) => row.column_name)).toEqual([]);
           const stillThere = await client.query<{ name: string | null }>(
             `SELECT to_regclass('user_availability_version')::text AS name`,
+          );
+          expect(stillThere.rows[0]?.name).not.toBeNull();
+        } else if (migration === '0011_llm_spend.sql') {
+          for (const table of LLM_SPEND_TABLES) {
+            const gone = await client.query<{ name: string | null }>(
+              `SELECT to_regclass($1)::text AS name`,
+              [table],
+            );
+            expect({ table, name: gone.rows[0]?.name }).toEqual({ table, name: null });
+          }
+          const stillThere = await client.query<{ name: string | null }>(
+            `SELECT to_regclass('agent_run')::text AS name`,
           );
           expect(stillThere.rows[0]?.name).not.toBeNull();
         } else if (migration === '0009_today_sessions.sql') {

@@ -77,6 +77,36 @@ function spawnApp(script: string, env: NodeJS.ProcessEnv): Spawned {
   return { child, output: () => output };
 }
 
+interface ShutdownEvent {
+  readonly seq: number;
+  readonly name: string;
+}
+
+function parseShutdownEvents(output: string): ShutdownEvent[] {
+  return output
+    .split('\n')
+    .map((line) => /^SEQ:(\d+):(.+)$/u.exec(line))
+    .filter((match): match is RegExpExecArray => match !== null)
+    .map((match) => ({ seq: Number(match[1]), name: match[2] ?? '' }));
+}
+
+/** Mutation-sensitive: DB destroy must follow the unsettled-log trace. */
+function assertShutdownOrder(events: readonly ShutdownEvent[]): void {
+  const seqOf = (name: string): number | undefined =>
+    events.find((event) => event.name === name)?.seq;
+  const unsettled = seqOf('unsettled');
+  const destroyStarted = seqOf('db_destroy_started');
+  const destroyed = seqOf('db_destroyed');
+  if (unsettled === undefined || destroyStarted === undefined || destroyed === undefined) {
+    throw new Error('missing shutdown order event');
+  }
+  if (!(unsettled < destroyStarted && destroyStarted < destroyed)) {
+    throw new Error(
+      `shutdown order violated: unsettled=${String(unsettled)} destroyStarted=${String(destroyStarted)} destroyed=${String(destroyed)}`,
+    );
+  }
+}
+
 function waitForExit(
   child: ChildProcess,
   timeoutMs: number,
@@ -390,6 +420,23 @@ describe.skipIf(!hasDatabase)('disconnected-client mutation survives real SIGTER
   );
 });
 
+test('shutdown order assertion rejects a swapped DB-destroy order', () => {
+  expect(() =>
+    assertShutdownOrder([
+      { seq: 1, name: 'db_destroy_started' },
+      { seq: 2, name: 'unsettled' },
+      { seq: 3, name: 'db_destroyed' },
+    ]),
+  ).toThrow(/shutdown order violated/);
+  expect(() =>
+    assertShutdownOrder([
+      { seq: 1, name: 'unsettled' },
+      { seq: 2, name: 'db_destroy_started' },
+      { seq: 3, name: 'db_destroyed' },
+    ]),
+  ).not.toThrow();
+});
+
 describe.skipIf(!hasDatabase)('never-settling handler fails shutdown explicitly', () => {
   test(
     'exit 1 with the unsettled log, database destroyed only after the cleanup budget',
@@ -437,6 +484,11 @@ describe.skipIf(!hasDatabase)('never-settling handler fails shutdown explicitly'
         const lines = output.split('\n');
         expect(lines).toContain('DB_DESTROYED');
         expect(output).toContain('unsettled operations after shutdown cleanup budget');
+        const events = parseShutdownEvents(output);
+        expect(events.map((event) => event.name)).toEqual(
+          expect.arrayContaining(['unsettled', 'db_destroy_started', 'db_destroyed']),
+        );
+        assertShutdownOrder(events);
 
         const unsettled = output
           .trim()

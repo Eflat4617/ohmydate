@@ -117,6 +117,24 @@ export async function runStructured(
   let attempts = 0;
   let unavailableRetries = 0;
   let repairs = 0;
+  const totalUsage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens?: number;
+    costUsd?: number;
+  } = { inputTokens: 0, outputTokens: 0, costUsd: 0 };
+
+  const addUsage = (usage: LlmUsage): void => {
+    totalUsage.inputTokens += usage.inputTokens;
+    totalUsage.outputTokens += usage.outputTokens;
+    if (usage.cachedInputTokens !== undefined) {
+      totalUsage.cachedInputTokens =
+        (totalUsage.cachedInputTokens ?? 0) + usage.cachedInputTokens;
+    }
+    if (usage.costUsd !== undefined) {
+      totalUsage.costUsd = (totalUsage.costUsd ?? 0) + usage.costUsd;
+    }
+  };
 
   const assertNotAborted = (): void => {
     if (options.signal?.aborted === true) {
@@ -164,12 +182,13 @@ export async function runStructured(
     }
 
     budgetGuard?.record(response.usage, { model: response.model });
+    addUsage(response.usage);
 
     const validation = validateOutput(request.schemaId, response.output);
     if (validation.valid) {
       return {
         output: response.output,
-        usage: response.usage,
+        usage: totalUsage as LlmUsage,
         model: response.model,
         ...(response.provider === undefined ? {} : { provider: response.provider }),
         latencyMs: response.latencyMs,
@@ -185,6 +204,6 @@ export async function runStructured(
       continue;
     }
 
-    throw new SchemaViolation(request.schemaId, validation.errors);
+    throw new SchemaViolation(request.schemaId, validation.errors, totalUsage as LlmUsage);
   }
 }

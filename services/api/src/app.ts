@@ -2,13 +2,22 @@ import cookie from '@fastify/cookie';
 import { createServer as createHttpServer } from 'node:http';
 import { registerIanaTimeZoneFormat } from '@ohmydate/contracts';
 import { DomainError, type Clock, type IdGenerator } from '@ohmydate/domain';
-import { BudgetGuard, FakeLlm, OpenAICompatibleLlm, PolicyLlm, type LlmPort, type ResolvedLlmAccess } from '@ohmydate/llm';
+import {
+  BudgetExceeded,
+  BudgetGuard,
+  FakeLlm,
+  OpenAICompatibleLlm,
+  PolicyLlm,
+  type LlmPort,
+  type LlmSpendLedger,
+  type ResolvedLlmAccess,
+} from '@ohmydate/llm';
 import { vikunjaCallBudgetMs } from '@ohmydate/provider-vikunja';
 import Fastify, {
   type FastifyInstance,
   type FastifyServerOptions,
 } from 'fastify';
-import type { Kysely } from 'kysely';
+import type { Kysely, Transaction } from 'kysely';
 import { sql } from 'kysely';
 import type { AppConfig } from './config.js';
 import type { AppRepositories, IdempotencyStore } from './application/ports.js';
@@ -268,8 +277,9 @@ async function createConfiguredLlm(input: {
   readonly config: AppConfig;
   readonly db: Kysely<Database>;
   readonly clock: Clock;
+  readonly ids: IdGenerator;
 }): Promise<LlmPort | null> {
-  const { options, config, db, clock } = input;
+  const { options, config, db, clock, ids } = input;
   if (options.llm !== undefined) return options.llm;
   if (config.llmProvider === 'fake') return new FakeLlm();
 
@@ -283,6 +293,7 @@ async function createConfiguredLlm(input: {
     model: config.llmModel,
     provider: config.llmProvider,
     reasoningEffort: config.llmReasoningEffort,
+    maxOutputTokens: config.llmMaxOutputTokens,
     sessionHeader: config.llmSessionHeader,
     ...(options.llmSessionSecret === undefined
       ? {}
@@ -301,29 +312,16 @@ async function createConfiguredLlm(input: {
       .where('id', '=', ownerId as Id)
       .executeTakeFirst();
     if (user === undefined) return null;
-    const now = clock.now();
-    const dayStart = `${now.slice(0, 10)}T00:00:00.000Z`;
-    const monthStart = `${now.slice(0, 7)}-01T00:00:00.000Z`;
-    const spend = await db
-      .selectFrom('agent_run')
-      .select([
-        sql<string>`coalesce(sum(case when created_at >= ${dayStart} then cost_usd else 0 end), 0)`.as(
-          'day',
-        ),
-        sql<string>`coalesce(sum(cost_usd), 0)`.as('month'),
-      ])
-      .where('owner_id', '=', ownerId as Id)
-      .where('created_at', '>=', new Date(monthStart))
-      .executeTakeFirst();
     const settings = parseUserSettings(user.settings);
+    const explicitBudget = hasExplicitBudget(user.settings);
     return {
       consent: settings.llm?.consent ?? null,
-      budget: settings.llm?.budget ?? null,
-      spentTodayUsd: Number(spend?.day ?? 0),
-      spentThisMonthUsd: Number(spend?.month ?? 0),
+      budget:
+        settings.llm?.budget ?? (explicitBudget ? ('invalid' as const) : null),
     };
   };
 
+  const ledger = createPgSpendLedger(db);
   return new PolicyLlm({
     inner,
     providerId: config.llmProvider,
@@ -332,8 +330,124 @@ async function createConfiguredLlm(input: {
       monthlyUsd: config.llmMonthlyBudgetUsd,
     },
     resolve,
+    ledger,
+    pricing: {
+      inputUsd: config.llmPriceInputPerM,
+      outputUsd: config.llmPriceOutputPerM,
+      cachedInputUsd: config.llmPriceCachedPerM,
+    },
+    maxOutputTokens: config.llmMaxOutputTokens,
+    newReservationId: () => ids.next(),
     now: () => new Date(clock.now()),
   });
+}
+
+function hasExplicitBudget(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const llm = (value as Record<string, unknown>)['llm'];
+  return llm !== null && typeof llm === 'object' && !Array.isArray(llm) && Object.hasOwn(llm, 'budget');
+}
+
+/**
+ * PostgreSQL spend ledger: one advisory-locked transaction reserves against
+ * settled actual + open reserved rows, and settlement returns fresh totals so
+ * an actual overrun blocks the next call while keeping the charge.
+ */
+function createPgSpendLedger(db: Kysely<Database>): LlmSpendLedger {
+  const totalsQuery = async (
+    trx: Transaction<Database>,
+    ownerId: string,
+    dayStart: string,
+    monthStart: string,
+  ): Promise<{ dayUsd: number; monthUsd: number }> => {
+    const row = await trx
+      .selectFrom('llm_spend')
+      .select([
+        sql<string>`coalesce(sum(
+          case when created_at >= ${dayStart}
+            then case when state = 'settled' then coalesce(actual_usd, reserved_usd) else reserved_usd end
+            else 0 end
+        ), 0)`.as('day'),
+        sql<string>`coalesce(sum(
+          case when state = 'settled' then coalesce(actual_usd, reserved_usd) else reserved_usd end
+        ), 0)`.as('month'),
+      ])
+      .where('owner_id', '=', ownerId as Id)
+      .where('state', '!=', 'released')
+      .where('created_at', '>=', new Date(monthStart))
+      .executeTakeFirst();
+    return { dayUsd: Number(row?.day ?? 0), monthUsd: Number(row?.month ?? 0) };
+  };
+
+  return {
+    async reserve(input) {
+      await db.transaction().execute(async (trx) => {
+        await sql`select pg_advisory_xact_lock(hashtextextended(${input.ownerId}, 0))`.execute(
+          trx,
+        );
+        const spent = await totalsQuery(trx, input.ownerId, input.dayStart, input.monthStart);
+        if (spent.dayUsd + input.estimateUsd > input.dailyLimitUsd) {
+          throw new BudgetExceeded(
+            'daily',
+            input.dailyLimitUsd,
+            spent.dayUsd,
+            'projected_limit',
+          );
+        }
+        if (spent.monthUsd + input.estimateUsd > input.monthlyLimitUsd) {
+          throw new BudgetExceeded(
+            'monthly',
+            input.monthlyLimitUsd,
+            spent.monthUsd,
+            'projected_limit',
+          );
+        }
+        await trx
+          .insertInto('llm_spend')
+          .values({
+            id: input.id as Id,
+            owner_id: input.ownerId as Id,
+            purpose: input.purpose,
+            state: 'reserved',
+            reserved_usd: input.estimateUsd.toFixed(6),
+            input_tokens: 0,
+            output_tokens: 0,
+            cached_tokens: 0,
+          })
+          .execute();
+      });
+    },
+    async settle(input) {
+      let totals = { dayUsd: 0, monthUsd: 0 };
+      await db.transaction().execute(async (trx) => {
+        const existing = await trx
+          .selectFrom('llm_spend')
+          .select('owner_id')
+          .where('id', '=', input.id as Id)
+          .executeTakeFirst();
+        const ownerId = existing?.owner_id;
+        if (ownerId === undefined) return;
+        await sql`select pg_advisory_xact_lock(hashtextextended(${ownerId}, 0))`.execute(
+          trx,
+        );
+        await trx
+          .updateTable('llm_spend')
+          .set({
+            state: 'settled',
+            actual_usd: input.actualUsd.toFixed(6),
+            input_tokens: input.inputTokens,
+            output_tokens: input.outputTokens,
+            cached_tokens: input.cachedTokens,
+            settled_at: input.settledAt,
+          })
+          .where('id', '=', input.id as Id)
+          .where('state', '=', 'reserved')
+          .execute();
+        totals = await totalsQuery(trx, ownerId, input.dayStart, input.monthStart);
+      });
+      return totals;
+    },
+  };
 }
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
@@ -562,7 +676,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   }
 
   const planningStore = new PgPlanningStore({ db, clock, ids });
-  const llm = await createConfiguredLlm({ options, config, db, clock });
+  const llm = await createConfiguredLlm({ options, config, db, clock, ids });
   // The owner gate enforces consent + the per-owner settings budget; keep the
   // legacy global guard permissive there so a user-raised budget is not
   // re-clamped by the config default. Injected guards (tests) still win.

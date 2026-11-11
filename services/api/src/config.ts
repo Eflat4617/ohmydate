@@ -96,6 +96,13 @@ export interface AppConfig {
    */
   readonly llmSessionHeader: 'auto' | 'off';
   /**
+   * Absolute path to the HMAC session-secret file (0600). Required when
+   * provider=deepseek and the session header is auto; never logged.
+   */
+  readonly llmSessionSecretFile: string | null;
+  /** Bound sent as `max_tokens`; also the spend-reservation output bound. */
+  readonly llmMaxOutputTokens: number;
+  /**
    * Absolute path to the product API key file. Read exactly once at boot;
    * never logged, stored in config snapshots, or sent in a request body.
    */
@@ -153,6 +160,8 @@ export const defaultConfig: AppConfig = {
   llmModel: DEFAULT_LLM_MODEL,
   llmReasoningEffort: DEFAULT_LLM_REASONING_EFFORT,
   llmSessionHeader: 'auto',
+  llmSessionSecretFile: null,
+  llmMaxOutputTokens: 2000,
   llmApiKeyFile: null,
   llmPriceInputPerM: DEFAULT_LLM_PRICE_INPUT_PER_M,
   llmPriceOutputPerM: DEFAULT_LLM_PRICE_OUTPUT_PER_M,
@@ -185,6 +194,12 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   const llmProvider = parseLlmProvider(env['LLM_PROVIDER']);
   const llmApiKeyFile = parseApiKeyFile(llmProvider, env['LLM_API_KEY_FILE']);
+  const llmSessionHeader = parseSessionHeader(env['LLM_SESSION_HEADER']);
+  const llmSessionSecretFile = parseSessionSecretFile(
+    llmProvider,
+    llmSessionHeader,
+    env['LLM_SESSION_SECRET_FILE'],
+  );
   return createConfig({
     provider: providerKind,
     vikunjaUrl: env['VIKUNJA_URL'] ?? null,
@@ -196,7 +211,13 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     llmBaseUrl: env['LLM_BASE_URL'] ?? DEFAULT_LLM_BASE_URL,
     llmModel: env['LLM_MODEL'] ?? DEFAULT_LLM_MODEL,
     llmReasoningEffort: env['LLM_REASONING_EFFORT'] ?? DEFAULT_LLM_REASONING_EFFORT,
-    llmSessionHeader: parseSessionHeader(env['LLM_SESSION_HEADER']),
+    llmSessionHeader,
+    llmSessionSecretFile,
+    llmMaxOutputTokens: parsePositiveInt(
+      'LLM_MAX_OUTPUT_TOKENS',
+      env['LLM_MAX_OUTPUT_TOKENS'],
+      2000,
+    ),
     llmApiKeyFile,
     llmPriceInputPerM: parseMoney(
       'LLM_PRICE_INPUT_PER_M',
@@ -249,6 +270,25 @@ function parseSessionHeader(raw: string | undefined): 'auto' | 'off' {
   return value;
 }
 
+function parseSessionSecretFile(
+  provider: LlmProviderKind,
+  sessionHeader: 'auto' | 'off',
+  raw: string | undefined,
+): string | null {
+  if (provider !== 'deepseek' || sessionHeader === 'off') {
+    return raw === undefined || raw.trim() === '' ? null : raw;
+  }
+  if (raw === undefined || raw.trim() === '') {
+    throw new Error(
+      'LLM_SESSION_SECRET_FILE is required when LLM_PROVIDER=deepseek and LLM_SESSION_HEADER=auto',
+    );
+  }
+  if (!isAbsolute(raw)) {
+    throw new Error('LLM_SESSION_SECRET_FILE must be an absolute path');
+  }
+  return raw;
+}
+
 function parseApiKeyFile(
   provider: LlmProviderKind,
   raw: string | undefined,
@@ -295,6 +335,40 @@ export function loadLlmApiKey(
   const key = raw.trim();
   if (key.length === 0) throw new Error('LLM_API_KEY_FILE is empty');
   return key;
+}
+
+/**
+ * Boot-time session-secret read for the OpenCode Go header HMAC. Fail closed on
+ * a missing/empty/world-readable file when it is required. Never logged.
+ */
+export function loadLlmSessionSecret(
+  config: Pick<AppConfig, 'llmProvider' | 'llmSessionHeader' | 'llmSessionSecretFile'>,
+  read: (path: string) => string = (path) => readFileSync(path, 'utf8'),
+  stat: (path: string) => { readonly mode: number } = (path) => statSync(path),
+): string {
+  if (config.llmProvider !== 'deepseek' || config.llmSessionHeader === 'off') return '';
+  const file = config.llmSessionSecretFile;
+  if (file === null) {
+    throw new Error('LLM_SESSION_SECRET_FILE is required when LLM_PROVIDER=deepseek and LLM_SESSION_HEADER=auto');
+  }
+  let mode: number;
+  try {
+    mode = stat(file).mode;
+  } catch {
+    throw new Error('LLM_SESSION_SECRET_FILE does not exist or is not readable');
+  }
+  if ((mode & 0o077) !== 0) {
+    throw new Error('LLM_SESSION_SECRET_FILE must not be group- or world-accessible (chmod 600)');
+  }
+  let raw: string;
+  try {
+    raw = read(file);
+  } catch {
+    throw new Error('LLM_SESSION_SECRET_FILE could not be read');
+  }
+  const secret = raw.trim();
+  if (secret.length === 0) throw new Error('LLM_SESSION_SECRET_FILE is empty');
+  return secret;
 }
 
 function isAbsolute(path: string): boolean {

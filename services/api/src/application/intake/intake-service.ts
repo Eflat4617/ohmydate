@@ -46,6 +46,7 @@ import {
 import {
   BudgetExceeded,
   GatewayError,
+  LlmError,
   LlmUnavailable,
   SchemaViolation,
   buildUntrustedBlock,
@@ -544,8 +545,8 @@ export class IntakeService {
           const message =
             caught instanceof SchemaViolation
               ? 'LLM type detection did not match the schema after one repair; manual mode'
-              : caught instanceof GatewayError && caught.gatewayErrorType !== undefined
-                ? `LLM unavailable (${caught.gatewayErrorType}); manual mode`
+              : caught instanceof GatewayError
+                ? `LLM unavailable (${caught.classification}); manual mode`
                 : 'LLM unavailable; manual mode';
           error = { code: 'llm_unavailable', message };
         } else {
@@ -1313,15 +1314,16 @@ export class IntakeService {
       });
       return result.output as DetectionLlmOutput;
     } catch (error) {
+      const usage = usageFromError(error);
       await this.#recordRun({
         ownerId,
         purpose: 'detect_type',
         promptIdVersion: `${TYPE_DETECTION_PROMPT.promptId}@${TYPE_DETECTION_PROMPT.version}`,
         model: 'unknown',
         provider: this.#llmProvider,
-        tokensIn: 0,
-        tokensOut: 0,
-        costUsd: 0,
+        tokensIn: usage.inputTokens,
+        tokensOut: usage.outputTokens,
+        costUsd: usage.costUsd ?? 0,
         latencyMs: 0,
         status: runStatus(error),
         redactionReport: bundle.redactionReport,
@@ -1413,15 +1415,16 @@ export class IntakeService {
       });
       return session;
     } catch (error) {
+      const usage = usageFromError(error);
       await this.#recordRun({
         ownerId: session.ownerId,
         purpose: 'decomposition',
         promptIdVersion: `${DECOMPOSITION_PROMPT.promptId}@${DECOMPOSITION_PROMPT.version}`,
         model: 'unknown',
         provider: this.#llmProvider,
-        tokensIn: 0,
-        tokensOut: 0,
-        costUsd: 0,
+        tokensIn: usage.inputTokens,
+        tokensOut: usage.outputTokens,
+        costUsd: usage.costUsd ?? 0,
         latencyMs: 0,
         status: runStatus(error),
         redactionReport: bundle.redactionReport,
@@ -1542,6 +1545,15 @@ export class IntakeService {
       updatedAt: session.updatedAt,
     };
   }
+}
+
+function usageFromError(error: unknown): {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly costUsd?: number;
+} {
+  if (error instanceof LlmError && error.usage !== undefined) return error.usage;
+  return { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 }
 
 function runStatus(error: unknown): AgentRunStatus {

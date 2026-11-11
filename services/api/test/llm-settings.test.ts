@@ -1,7 +1,9 @@
 import type { User } from '@ohmydate/contracts';
 import {
   BudgetGuard,
+  DEFAULT_DEEPSEEK_PRICING,
   FakeLlm,
+  InMemorySpendLedger,
   PolicyLlm,
   type LlmPort,
 } from '@ohmydate/llm';
@@ -109,11 +111,11 @@ describe.skipIf(!hasDatabaseEnv)('LLM settings and consent wiring', () => {
       inner,
       providerId: 'deepseek',
       defaultBudget: { dailyUsd: 0.2, monthlyUsd: 5 },
-      resolve: async () => ({
-        consent: null,
-        spentTodayUsd: 0,
-        spentThisMonthUsd: 0,
-      }),
+      resolve: async () => ({ consent: null }),
+      ledger: new InMemorySpendLedger(),
+      pricing: DEFAULT_DEEPSEEK_PRICING,
+      maxOutputTokens: 2000,
+      newReservationId: () => crypto.randomUUID(),
     });
     const guard = new BudgetGuard(
       { dailyUsd: 10, monthlyUsd: 100 },
@@ -276,14 +278,14 @@ describe.skipIf(!hasDatabaseEnv)('LLM settings and consent wiring', () => {
     }
   });
 
-  test('classifies a 400 gateway error.type in the manual detail without logging the raw body', async () => {
-    const bodyMarker = 'raw-gateway-body-marker';
+  test('H1 classifies gateway errors without leaking provider strings into response, logs or rows', async () => {
+    const bodyMarker = 'sk-synthetic-secret-marker-never-echo';
     const server = createServer((_request, response) => {
-      response.writeHead(400, { 'content-type': 'application/json' }).end(
+      response.writeHead(401, { 'content-type': 'application/json' }).end(
         JSON.stringify({
           error: {
-            type: 'MissingSessionID',
-            message: `${bodyMarker} Request is missing x-opencode-session`,
+            type: bodyMarker,
+            message: `${bodyMarker} provider says no`,
           },
         }),
       );
@@ -308,8 +310,11 @@ describe.skipIf(!hasDatabaseEnv)('LLM settings and consent wiring', () => {
       llmApiKey: 'sk-synthetic-classification-marker',
       loggerInstance,
     });
-    await ctx.seedUser({ email: 'llm-gateway-400@example.com', password: 'correct-horse' });
-    const session = await login(ctx, 'llm-gateway-400@example.com', 'correct-horse');
+    const ownerId = await ctx.seedUser({
+      email: 'llm-gateway-401@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'llm-gateway-401@example.com', 'correct-horse');
     try {
       const me = await ctx.app.inject({
         method: 'GET',
@@ -341,9 +346,315 @@ describe.skipIf(!hasDatabaseEnv)('LLM settings and consent wiring', () => {
       };
       expect(body.manual).toBe(true);
       expect(body.error?.code).toBe('llm_unavailable');
-      expect(body.error?.message).toContain('MissingSessionID');
-      expect(body.error?.message).not.toContain(bodyMarker);
+      expect(body.error?.message).toContain('auth');
+      expect(created.body).not.toContain(bodyMarker);
       expect(logLines.join('')).not.toContain(bodyMarker);
+
+      const run = await ctx.db
+        .selectFrom('agent_run')
+        .selectAll()
+        .where('owner_id', '=', ownerId)
+        .executeTakeFirstOrThrow();
+      expect(run.provider).toBe('deepseek');
+      expect(JSON.stringify(run)).not.toContain(bodyMarker);
+    } finally {
+      await ctx.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error === undefined ? resolve() : reject(error)));
+      });
+    }
+  });
+
+  test('H2 saved zero budget disables the provider before any network call', async () => {
+    let calls = 0;
+    const server = createServer((_request, response) => {
+      calls += 1;
+      response.writeHead(200).end('{}');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const ctx = await createTestContext({
+      config: {
+        llmProvider: 'deepseek',
+        llmBaseUrl: `http://127.0.0.1:${String(port)}`,
+      },
+      llmApiKey: 'sk-synthetic-zero-budget',
+    });
+    await ctx.seedUser({ email: 'llm-zero-budget@example.com', password: 'correct-horse' });
+    const session = await login(ctx, 'llm-zero-budget@example.com', 'correct-horse');
+    try {
+      const me = await ctx.app.inject({
+        method: 'GET',
+        url: '/api/v1/me',
+        headers: authHeaders(session),
+      });
+      const user = me.json() as User;
+      const saved = await ctx.app.inject({
+        method: 'PATCH',
+        url: '/api/v1/me/settings',
+        headers: authHeaders(session, {
+          'if-match': `W/"${user.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: {
+          llm: {
+            consent: { granted: true },
+            budget: { dailyUsd: 0, monthlyUsd: 5 },
+          },
+        },
+      });
+      expect(saved.statusCode).toBe(200);
+
+      const created = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/intake-sessions',
+        headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+        payload: { input },
+      });
+      expect(created.statusCode).toBe(201);
+      const body = created.json() as { manual: boolean; error?: { code: string } };
+      expect(body.manual).toBe(true);
+      expect(body.error?.code).toBe('budget_exceeded');
+      expect(calls).toBe(0);
+      const rows = await ctx.db.selectFrom('llm_spend').selectAll().execute();
+      expect(rows).toHaveLength(0);
+    } finally {
+      await ctx.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error === undefined ? resolve() : reject(error)));
+      });
+    }
+  });
+
+  test('H2 invalid saved budget fails closed instead of substituting defaults', async () => {
+    let calls = 0;
+    const server = createServer((_request, response) => {
+      calls += 1;
+      response.writeHead(200).end('{}');
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const ctx = await createTestContext({
+      config: {
+        llmProvider: 'deepseek',
+        llmBaseUrl: `http://127.0.0.1:${String(port)}`,
+      },
+      llmApiKey: 'sk-synthetic-invalid-budget',
+    });
+    const ownerId = await ctx.seedUser({
+      email: 'llm-invalid-budget@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'llm-invalid-budget@example.com', 'correct-horse');
+    try {
+      // Simulate a partially saved/corrupt budget (missing monthlyUsd).
+      await ctx.db
+        .updateTable('user')
+        .set({
+          settings: {
+            llm: {
+              consent: {
+                granted: true,
+                at: '2026-11-11T00:00:00.000Z',
+                provider: 'deepseek',
+              },
+              budget: { dailyUsd: 0.5 },
+            },
+          } as never,
+        })
+        .where('id', '=', ownerId)
+        .execute();
+
+      const created = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/intake-sessions',
+        headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+        payload: { input },
+      });
+      expect(created.statusCode).toBe(201);
+      const body = created.json() as { manual: boolean; error?: { code: string } };
+      expect(body.manual).toBe(true);
+      expect(body.error?.code).toBe('budget_exceeded');
+      expect(calls).toBe(0);
+    } finally {
+      await ctx.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error === undefined ? resolve() : reject(error)));
+      });
+    }
+  });
+
+  test('H5 missing gateway usage is settled at the reserved amount, not free', async () => {
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          model: 'deepseek-v4.1-flash',
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  classification: 'new',
+                  confidence: 0.9,
+                  reasons: ['no usage'],
+                }),
+              },
+            },
+          ],
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const ctx = await createTestContext({
+      config: {
+        llmProvider: 'deepseek',
+        llmBaseUrl: `http://127.0.0.1:${String(port)}`,
+      },
+      llmApiKey: 'sk-synthetic-missing-usage',
+    });
+    const ownerId = await ctx.seedUser({
+      email: 'llm-missing-usage@example.com',
+      password: 'correct-horse',
+    });
+    const session = await login(ctx, 'llm-missing-usage@example.com', 'correct-horse');
+    try {
+      const me = await ctx.app.inject({
+        method: 'GET',
+        url: '/api/v1/me',
+        headers: authHeaders(session),
+      });
+      const user = me.json() as User;
+      const saved = await ctx.app.inject({
+        method: 'PATCH',
+        url: '/api/v1/me/settings',
+        headers: authHeaders(session, {
+          'if-match': `W/"${user.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: {
+          llm: {
+            consent: { granted: true },
+            budget: { dailyUsd: 1, monthlyUsd: 5 },
+          },
+        },
+      });
+      expect(saved.statusCode).toBe(200);
+
+      const created = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/intake-sessions',
+        headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+        payload: { input },
+      });
+      expect(created.statusCode).toBe(201);
+      expect((created.json() as { manual: boolean }).manual).toBe(true);
+
+      const spend = await ctx.db
+        .selectFrom('llm_spend')
+        .selectAll()
+        .where('owner_id', '=', ownerId)
+        .executeTakeFirstOrThrow();
+      expect(spend.state).toBe('settled');
+      expect(spend.actual_usd).toBe(spend.reserved_usd);
+      expect(Number(spend.actual_usd)).toBeGreaterThan(0);
+      const run = await ctx.db
+        .selectFrom('agent_run')
+        .selectAll()
+        .where('owner_id', '=', ownerId)
+        .executeTakeFirstOrThrow();
+      expect(Number(run.cost_usd)).toBeGreaterThan(0);
+    } finally {
+      await ctx.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error === undefined ? resolve() : reject(error)));
+      });
+    }
+  });
+
+  test('H3 concurrent provider attempts reserve atomically against one owner cap', async () => {
+    let calls = 0;
+    const server = createServer((_request, response) => {
+      calls += 1;
+      setTimeout(() => {
+        response.writeHead(200, { 'content-type': 'application/json' }).end(
+          JSON.stringify({
+            model: 'deepseek-v4.1-flash',
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    classification: 'new',
+                    confidence: 0.9,
+                    reasons: ['concurrent reservation'],
+                  }),
+                },
+              },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+          }),
+        );
+      }, 200);
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const ctx = await createTestContext({
+      config: {
+        llmProvider: 'deepseek',
+        llmBaseUrl: `http://127.0.0.1:${String(port)}`,
+        llmPriceInputPerM: 0,
+        llmPriceOutputPerM: 1000,
+        llmPriceCachedPerM: 0,
+        llmMaxOutputTokens: 100,
+      },
+      llmApiKey: 'sk-synthetic-concurrent',
+    });
+    await ctx.seedUser({ email: 'llm-concurrent@example.com', password: 'correct-horse' });
+    const session = await login(ctx, 'llm-concurrent@example.com', 'correct-horse');
+    try {
+      const me = await ctx.app.inject({
+        method: 'GET',
+        url: '/api/v1/me',
+        headers: authHeaders(session),
+      });
+      const user = me.json() as User;
+      const saved = await ctx.app.inject({
+        method: 'PATCH',
+        url: '/api/v1/me/settings',
+        headers: authHeaders(session, {
+          'if-match': `W/"${user.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: {
+          llm: {
+            consent: { granted: true },
+            budget: { dailyUsd: 0.15, monthlyUsd: 5 },
+          },
+        },
+      });
+      expect(saved.statusCode).toBe(200);
+
+      const [first, second] = await Promise.all([
+        ctx.app.inject({
+          method: 'POST',
+          url: '/api/v1/intake-sessions',
+          headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+          payload: { input },
+        }),
+        ctx.app.inject({
+          method: 'POST',
+          url: '/api/v1/intake-sessions',
+          headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+          payload: { input },
+        }),
+      ]);
+      const bodies = [first, second].map(
+        (response) => response.json() as { manual: boolean; error?: { code: string } },
+      );
+      expect(bodies.filter((body) => body.manual === false)).toHaveLength(1);
+      expect(bodies.filter((body) => body.error?.code === 'budget_exceeded')).toHaveLength(1);
+      expect(calls).toBe(1);
+      const rows = await ctx.db.selectFrom('llm_spend').selectAll().execute();
+      expect(rows.filter((row) => row.state === 'settled')).toHaveLength(1);
     } finally {
       await ctx.close();
       await new Promise<void>((resolve, reject) => {

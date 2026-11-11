@@ -2,11 +2,21 @@
   "promptKey": "type_detection@v1",
   "model": "deepseek-v4.1-flash",
   "reasoning_effort": "medium",
-  "response_format": { "type": "json_object" },
+  "response_format": {
+    "type": "json_object"
+  },
   "messages": {
-    "roles": ["system", "user"],
+    "roles": [
+      "system",
+      "user"
+    ],
     "systemIncludes": "You are a planning assistant that classifies an intake request",
     "userIsJsonStringifiedInput": true
   },
-  "forbidden": ["authorization", "apiKey", "sk-"]
+  "forbidden": [
+    "authorization",
+    "apiKey",
+    "sk-"
+  ],
+  "max_tokens": 2000
 }

@@ -20,6 +20,7 @@ export {
   UnknownSchemaError,
   type BudgetBlockReason,
   type BudgetLimitKind,
+  type GatewayClassification,
   type LlmErrorCode,
 } from './errors.js';
 
@@ -45,6 +46,17 @@ export {
   type PolicyLlmOptions,
   type ResolvedLlmAccess,
 } from './policy-llm.js';
+
+export {
+  InMemorySpendLedger,
+  estimateInputTokensFromChars,
+  estimateReservationUsd,
+  type LlmSpendLedger,
+  type LlmSpendReserveInput,
+  type LlmSpendRow,
+  type LlmSpendSettleInput,
+  type LlmSpendTotals,
+} from './spend-ledger.js';
 
 export type {
   LlmBudget,

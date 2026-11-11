@@ -388,6 +388,21 @@ export interface AgentRunTable {
   version: Col<'integer', false, true>;
 }
 
+export interface LlmSpendTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  agent_run_id: Col<'uuid', true, false>;
+  purpose: Col<'text', false, false>;
+  state: Col<'text', false, true>;
+  reserved_usd: Col<'numeric', false, false>;
+  actual_usd: Col<'numeric', true, false>;
+  input_tokens: Col<'integer', false, true>;
+  output_tokens: Col<'integer', false, true>;
+  cached_tokens: Col<'integer', false, true>;
+  created_at: Col<'timestamptz', false, true>;
+  settled_at: Col<'timestamptz', true, false>;
+}
+
 export interface AgentProposalTable {
   id: Col<'uuid', false, false>;
   owner_id: Col<'uuid', false, false>;
@@ -681,6 +696,7 @@ export interface Database {
   estimate: EstimateTable;
   estimate_evidence: EstimateEvidenceTable;
   agent_run: AgentRunTable;
+  llm_spend: LlmSpendTable;
   agent_proposal: AgentProposalTable;
   commitment_event: CommitmentEventTable;
   availability_rule: AvailabilityRuleTable;
@@ -973,6 +989,20 @@ export const databaseTables = {
     created_at: col('timestamptz', false, true),
     updated_at: col('timestamptz', false, true),
     version: col('integer', false, true),
+  },
+  llm_spend: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    agent_run_id: col('uuid', true, false),
+    purpose: col('text', false, false),
+    state: col('text', false, true),
+    reserved_usd: col('numeric', false, false),
+    actual_usd: col('numeric', true, false),
+    input_tokens: col('integer', false, true),
+    output_tokens: col('integer', false, true),
+    cached_tokens: col('integer', false, true),
+    created_at: col('timestamptz', false, true),
+    settled_at: col('timestamptz', true, false),
   },
   agent_proposal: {
     id: col('uuid', false, false),
@@ -1286,6 +1316,7 @@ type TableAssertions = {
   estimate: AssertTableColumns<EstimateTable, typeof databaseTables.estimate>;
   estimate_evidence: AssertTableColumns<EstimateEvidenceTable, typeof databaseTables.estimate_evidence>;
   agent_run: AssertTableColumns<AgentRunTable, typeof databaseTables.agent_run>;
+  llm_spend: AssertTableColumns<LlmSpendTable, typeof databaseTables.llm_spend>;
   agent_proposal: AssertTableColumns<AgentProposalTable, typeof databaseTables.agent_proposal>;
   commitment_event: AssertTableColumns<
     CommitmentEventTable,

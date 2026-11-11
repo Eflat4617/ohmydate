@@ -5,6 +5,7 @@ import {
   LlmUnavailable,
   MissingSessionIdError,
   ResponseFormatUnsupportedError,
+  type GatewayClassification,
 } from './errors.js';
 import type { LlmCompleteRequest, LlmCompleteResponse, LlmPort, LlmUsage } from './port.js';
 import { assertRedactInputSize } from './privacy.js';
@@ -53,6 +54,8 @@ export interface OpenAICompatibleLlmOptions {
   readonly sessionHeader?: 'auto' | 'off';
   /** HMAC secret; when omitted a random per-adapter secret is used. Never the API key. */
   readonly sessionSecret?: string;
+  /** Bound used for spend reservations; sent as `max_tokens` on every request. */
+  readonly maxOutputTokens?: number;
 }
 
 interface ChatMessage {
@@ -65,6 +68,7 @@ interface ChatRequestBody {
   readonly messages: readonly ChatMessage[];
   readonly reasoning_effort?: string;
   readonly response_format?: { readonly type: 'json_object' };
+  readonly max_tokens: number;
 }
 
 interface ChatResponseBody {
@@ -89,24 +93,27 @@ const STRICT_JSON_INSTRUCTION =
   '\n\nReturn only a single valid JSON object that matches the requested schema. ' +
   'Do not wrap it in Markdown fences and do not add prose outside the JSON.';
 
-function finiteNonNegative(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+/**
+ * Internal classification only. The provider's `error.type` string is inspected
+ * solely to recognise the session-header rejection and is never propagated.
+ */
+function classifyGatewayError(status: number, body: string): GatewayClassification {
+  if (status === 429) return 'rate_limited';
+  if (status >= 500) return 'server';
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 404) return 'invalid_request';
+  try {
+    const parsed = JSON.parse(body) as { error?: { type?: unknown } };
+    const type = parsed.error?.type;
+    if (type === 'MissingSessionID') return 'missing_session';
+  } catch {
+    // A non-JSON body still classifies by HTTP status.
+  }
+  return status >= 400 ? 'invalid_request' : 'unknown';
 }
 
-const GATEWAY_TYPE = /^[A-Za-z0-9._:-]{1,64}$/u;
-
-/** Extract only a bounded `error.type`; raw gateway bodies never enter errors/logs. */
-function gatewayErrorType(body: string): string | undefined {
-  try {
-    const parsed = JSON.parse(body) as unknown;
-    if (parsed === null || typeof parsed !== 'object') return undefined;
-    const error = (parsed as { error?: unknown }).error;
-    if (error === null || typeof error !== 'object') return undefined;
-    const type = (error as { type?: unknown }).type;
-    return typeof type === 'string' && GATEWAY_TYPE.test(type) ? type : undefined;
-  } catch {
-    return undefined;
-  }
+function isTokenCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
 function isResponseFormatRejection(status: number, body: string): boolean {
@@ -139,6 +146,7 @@ export class OpenAICompatibleLlm implements LlmPort {
       | 'pricing'
       | 'sessionHeader'
       | 'sessionSecret'
+      | 'maxOutputTokens'
     >
   > &
     Pick<OpenAICompatibleLlmOptions, 'baseUrl' | 'apiKey' | 'reasoningEffort'>;
@@ -165,6 +173,7 @@ export class OpenAICompatibleLlm implements LlmPort {
       now: options.now ?? Date.now,
       sessionHeader: options.sessionHeader ?? 'auto',
       sessionSecret: options.sessionSecret ?? randomBytes(32).toString('hex'),
+      maxOutputTokens: Math.max(1, Math.floor(options.maxOutputTokens ?? 2000)),
     };
   }
 
@@ -199,7 +208,7 @@ export class OpenAICompatibleLlm implements LlmPort {
 
     const latencyMs = Math.max(0, this.#options.now() - startedAt);
     const content = responseBody.choices?.[0]?.message?.content;
-    const usage = this.#usage(responseBody.usage);
+    const usage = this.#usageOrThrow(responseBody.usage);
     const model =
       typeof responseBody.model === 'string' && responseBody.model.length > 0
         ? responseBody.model
@@ -235,6 +244,7 @@ export class OpenAICompatibleLlm implements LlmPort {
         ? {}
         : { reasoning_effort: this.#options.reasoningEffort }),
       ...(jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
+      max_tokens: this.#options.maxOutputTokens,
     };
   }
 
@@ -313,21 +323,17 @@ export class OpenAICompatibleLlm implements LlmPort {
           return {
             ok: false,
             retryable: true,
-            error: new LlmUnavailable(
-              `llm provider HTTP ${String(status)}`,
-              'provider',
-              false,
-            ),
+            error: new GatewayError(status, classifyGatewayError(status, text)),
           };
         }
-        const type = gatewayErrorType(text);
+        const classification = classifyGatewayError(status, text);
         return {
           ok: false,
           retryable: false,
           error:
-            type === 'MissingSessionID'
+            classification === 'missing_session'
               ? new MissingSessionIdError(status)
-              : new GatewayError(status, type),
+              : new GatewayError(status, classification),
         };
       }
 
@@ -363,11 +369,25 @@ export class OpenAICompatibleLlm implements LlmPort {
     }
   }
 
-  #usage(usage: ChatResponseBody['usage']): LlmUsage {
-    const inputTokens = finiteNonNegative(usage?.prompt_tokens);
-    const outputTokens = finiteNonNegative(usage?.completion_tokens);
-    const cachedInputTokens = finiteNonNegative(usage?.prompt_tokens_details?.cached_tokens);
-    const billedInput = Math.max(0, inputTokens - cachedInputTokens);
+  #usageOrThrow(usage: ChatResponseBody['usage']): LlmUsage {
+    const inputTokens = usage?.prompt_tokens;
+    const outputTokens = usage?.completion_tokens;
+    const cachedInputTokens = usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    if (!isTokenCount(inputTokens) || !isTokenCount(outputTokens) || !isTokenCount(cachedInputTokens)) {
+      throw new LlmUnavailable(
+        'llm provider response missing or invalid usage',
+        'provider',
+        false,
+      );
+    }
+    if (cachedInputTokens > inputTokens) {
+      throw new LlmUnavailable(
+        'llm provider response cached tokens exceed prompt tokens',
+        'provider',
+        false,
+      );
+    }
+    const billedInput = inputTokens - cachedInputTokens;
     const costUsd =
       (billedInput * this.#options.pricing.inputUsd +
         cachedInputTokens * this.#options.pricing.cachedInputUsd +

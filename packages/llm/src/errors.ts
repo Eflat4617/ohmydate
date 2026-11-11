@@ -1,3 +1,14 @@
+import type { LlmUsage } from './port.js';
+
+/** Internal gateway classification. Provider strings never leave the adapter. */
+export type GatewayClassification =
+  | 'missing_session'
+  | 'auth'
+  | 'rate_limited'
+  | 'invalid_request'
+  | 'server'
+  | 'unknown';
+
 export type LlmErrorCode =
   | 'llm_unavailable'
   | 'budget_exceeded'
@@ -7,6 +18,8 @@ export type LlmErrorCode =
 
 export abstract class LlmError extends Error {
   abstract readonly code: LlmErrorCode;
+  /** Billable usage when the failure happened after a paid provider attempt. */
+  usage?: LlmUsage;
 
   protected constructor(message: string, options?: { cause?: unknown }) {
     super(message, options);
@@ -41,20 +54,19 @@ export class ResponseFormatUnsupportedError extends LlmUnavailable {
 }
 
 /**
- * A typed 4xx gateway rejection. Only the bounded `error.type` classification
- * is carried; raw gateway response bodies are never stored in the error.
+ * A classified gateway rejection. Only the internal enum is carried; provider
+ * error strings, bodies and headers are never copied into the error.
  */
 export class GatewayError extends LlmUnavailable {
   constructor(
     readonly status: number,
-    readonly gatewayErrorType?: string,
+    readonly classification: GatewayClassification,
+    retryable = false,
   ) {
     super(
-      gatewayErrorType === undefined
-        ? `llm gateway rejected the request (HTTP ${status})`
-        : `llm gateway rejected the request (HTTP ${status}, type ${gatewayErrorType})`,
+      `llm gateway error (HTTP ${status}, ${classification})`,
       'provider',
-      false,
+      retryable,
     );
   }
 }
@@ -62,7 +74,7 @@ export class GatewayError extends LlmUnavailable {
 /** OpenCode Go requires `x-opencode-session`; a 400 for it is never retried. */
 export class MissingSessionIdError extends GatewayError {
   constructor(status = 400) {
-    super(status, 'MissingSessionID');
+    super(status, 'missing_session');
   }
 }
 
@@ -128,8 +140,10 @@ export class SchemaViolation extends LlmError {
   constructor(
     readonly schemaId: string,
     readonly errors: readonly string[],
+    usage?: LlmUsage,
   ) {
     super(`llm output does not match ${schemaId}: ${errors.join('; ')}`);
+    if (usage !== undefined) this.usage = usage;
   }
 }
 

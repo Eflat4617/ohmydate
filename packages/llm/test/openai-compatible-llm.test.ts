@@ -5,7 +5,10 @@ import type { AddressInfo } from 'node:net';
 import { vi } from 'vitest';
 import {
   BudgetExceeded,
+  DEFAULT_DEEPSEEK_PRICING,
+  FakeLlm,
   GatewayError,
+  InMemorySpendLedger,
   LlmTimeoutError,
   LlmUnavailable,
   MAX_REDACT_INPUT,
@@ -14,11 +17,14 @@ import {
   PolicyLlm,
   ResponseFormatUnsupportedError,
   SchemaViolation,
+  appendValidationErrors,
   getPrompt,
   runStructured,
+  validateOutput,
   type LlmCompleteResponse,
   type LlmPort,
   type OpenAICompatibleLlmOptions,
+  type PolicyLlmOptions,
 } from '../src/index.js';
 
 const KEY_MARKER = 'sk-test-synthetic-marker-never-log';
@@ -41,7 +47,10 @@ interface FakeServer {
   close(): Promise<void>;
 }
 
-function chatResponse(content: string, usage: Record<string, unknown> = {}): string {
+function chatResponse(
+  content: string,
+  usage: Record<string, unknown> = { prompt_tokens: 1, completion_tokens: 1 },
+): string {
   return JSON.stringify({
     id: 'chatcmpl-test',
     model: 'deepseek-v4.1-flash',
@@ -317,7 +326,7 @@ describe('OpenAICompatibleLlm', () => {
       const captured = server.requests[0]?.json;
       expect(captured).toBeDefined();
       expect(Object.keys(captured ?? {}).sort()).toEqual(
-        ['messages', 'model', 'reasoning_effort', 'response_format'].sort(),
+        ['max_tokens', 'messages', 'model', 'reasoning_effort', 'response_format'].sort(),
       );
       expect(captured?.['model']).toBe(fixture.model);
       expect(captured?.['reasoning_effort']).toBe(fixture.reasoning_effort);
@@ -453,9 +462,9 @@ describe('Gateway 4xx classification', () => {
       }
       expect(error).toBeInstanceOf(MissingSessionIdError);
       const typed = error as MissingSessionIdError;
-      expect(typed.gatewayErrorType).toBe('MissingSessionID');
+      expect(typed.classification).toBe('missing_session');
       expect(typed.retryable).toBe(false);
-      expect(typed.message).toContain('MissingSessionID');
+      expect(typed.message).toContain('missing_session');
       expect(typed.message).not.toContain('raw-body-marker');
       expect(server.requests).toHaveLength(1);
     } finally {
@@ -482,8 +491,8 @@ describe('Gateway 4xx classification', () => {
       expect(error).toBeInstanceOf(GatewayError);
       const typed = error as GatewayError;
       expect(typed.status).toBe(400);
-      expect(typed.gatewayErrorType).toBe('InvalidRequest');
-      expect(typed.message).toContain('InvalidRequest');
+      expect(typed.classification).toBe('invalid_request');
+      expect(typed.message).toContain('invalid_request');
       expect(typed.message).not.toContain('raw-body-marker');
       expect(server.requests).toHaveLength(1);
     } finally {
@@ -506,9 +515,136 @@ describe('Gateway 4xx classification', () => {
         error = cause as Error;
       }
       expect(error).toBeInstanceOf(GatewayError);
-      expect((error as GatewayError).gatewayErrorType).toBeUndefined();
+      expect((error as GatewayError).classification).toBe('auth');
       expect(error?.message).not.toContain('bad type');
       expect(server.requests).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('H1 gateway classification never echoes provider strings', () => {
+  test.each([
+    { status: 400, classification: 'invalid_request', attempts: 1 },
+    { status: 401, classification: 'auth', attempts: 1 },
+    { status: 403, classification: 'auth', attempts: 1 },
+    { status: 404, classification: 'invalid_request', attempts: 1 },
+    { status: 429, classification: 'rate_limited', attempts: 3 },
+    { status: 500, classification: 'server', attempts: 3 },
+  ] as const)(
+    'HTTP $status maps to $classification without the synthetic key marker',
+    async ({ status, classification, attempts }) => {
+      const server = await startServer((_request, response) =>
+        response.writeHead(status, { 'content-type': 'application/json' }).end(
+          JSON.stringify({
+            error: { type: KEY_MARKER, message: `provider-echo-${KEY_MARKER}` },
+          }),
+        ),
+      );
+      try {
+        const llm = adapter(server.url);
+        let error: Error | undefined;
+        try {
+          await llm.complete(request);
+        } catch (cause) {
+          error = cause as Error;
+        }
+        expect(error).toBeInstanceOf(LlmUnavailable);
+        expect((error as GatewayError).classification).toBe(classification);
+        expect(error?.message).not.toContain(KEY_MARKER);
+        expect(JSON.stringify(error)).not.toContain(KEY_MARKER);
+        expect(server.requests).toHaveLength(attempts);
+      } finally {
+        await server.close();
+      }
+    },
+  );
+
+  test('timeout and malformed success bodies never leak the marker', async () => {
+    const slow = await startServer((_request, response) => {
+      setTimeout(() => response.writeHead(200).end(chatResponse('{}')), 200);
+    });
+    try {
+      let error: Error | undefined;
+      try {
+        await adapter(slow.url, { timeoutMs: 20 }).complete(request);
+      } catch (cause) {
+        error = cause as Error;
+      }
+      expect(error).toBeInstanceOf(LlmTimeoutError);
+      expect(error?.message).not.toContain(KEY_MARKER);
+      expect(JSON.stringify(error)).not.toContain(KEY_MARKER);
+    } finally {
+      await slow.close();
+    }
+
+    const malformed = await startServer((_request, response) =>
+      response.writeHead(200).end(`not-json-${KEY_MARKER}`),
+    );
+    try {
+      let error: Error | undefined;
+      try {
+        await adapter(malformed.url).complete(request);
+      } catch (cause) {
+        error = cause as Error;
+      }
+      expect(error).toBeInstanceOf(LlmUnavailable);
+      expect(error?.message).not.toContain(KEY_MARKER);
+      expect(JSON.stringify(error)).not.toContain(KEY_MARKER);
+    } finally {
+      await malformed.close();
+    }
+  });
+});
+
+describe('H5 usage validation fails closed', () => {
+  test('missing usage is not a free paid response', async () => {
+    const server = await startServer((_request, response) =>
+      response.writeHead(200).end(
+        JSON.stringify({
+          model: 'deepseek-v4.1-flash',
+          choices: [{ message: { content: JSON.stringify(validTypeDetection) } }],
+        }),
+      ),
+    );
+    try {
+      await expect(adapter(server.url).complete(request)).rejects.toMatchObject({
+        code: 'llm_unavailable',
+        retryable: false,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('cached tokens above prompt tokens are rejected', async () => {
+    const server = await startServer((_request, response) =>
+      response.writeHead(200).end(
+        chatResponse(JSON.stringify(validTypeDetection), {
+          prompt_tokens: 10,
+          completion_tokens: 1,
+          prompt_tokens_details: { cached_tokens: 11 },
+        }),
+      ),
+    );
+    try {
+      await expect(adapter(server.url).complete(request)).rejects.toMatchObject({
+        code: 'llm_unavailable',
+        retryable: false,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('every request carries max_tokens as the reservation output bound', async () => {
+    const server = await startServer((_request, response) =>
+      response.writeHead(200).end(chatResponse(JSON.stringify(validTypeDetection))),
+    );
+    try {
+      await adapter(server.url, { maxOutputTokens: 1234 }).complete(request);
+      expect(server.requests[0]?.json['max_tokens']).toBe(1234);
     } finally {
       await server.close();
     }
@@ -524,118 +660,219 @@ function stubResponse(): LlmCompleteResponse {
   };
 }
 
-describe('PolicyLlm consent + per-owner budget', () => {
-  const base = {
-    providerId: 'deepseek',
-    defaultBudget: { dailyUsd: 0.2, monthlyUsd: 5 },
-  } as const;
+describe('PolicyLlm consent + ledger budget', () => {
+  const now = () => new Date('2026-11-11T12:00:00.000Z');
+  const consent = { granted: true, at: '2026-11-11T00:00:00.000Z', provider: 'deepseek' };
 
-  test('missing consent is unavailable and never calls the provider', async () => {
-    const inner: LlmPort = { complete: vi.fn(async () => stubResponse()) };
+  function makePolicy(
+    resolve: (ownerId: string) => Promise<{
+      consent?: typeof consent | null;
+      budget?: { dailyUsd: number; monthlyUsd: number } | 'invalid' | null;
+    } | null>,
+    inner: LlmPort,
+    overrides: Partial<PolicyLlmOptions> = {},
+  ): { llm: PolicyLlm; ledger: InMemorySpendLedger } {
+    const ledger = new InMemorySpendLedger();
+    let seq = 0;
     const llm = new PolicyLlm({
-      ...base,
       inner,
-      resolve: async () => ({
-        consent: null,
-        spentTodayUsd: 0,
-        spentThisMonthUsd: 0,
-      }),
+      providerId: 'deepseek',
+      defaultBudget: { dailyUsd: 0.2, monthlyUsd: 5 },
+      resolve,
+      ledger,
+      pricing: DEFAULT_DEEPSEEK_PRICING,
+      maxOutputTokens: 2000,
+      newReservationId: () => `res-${++seq}`,
+      now,
+      ...overrides,
     });
+    return { llm, ledger };
+  }
+
+  test('missing consent is unavailable and never calls the provider or ledger', async () => {
+    const inner: LlmPort = { complete: vi.fn(async () => stubResponse()) };
+    const { llm, ledger } = makePolicy(async () => ({ consent: null }), inner);
     await expect(llm.complete({ ...request, ownerId: 'owner-1' })).rejects.toMatchObject({
       code: 'llm_unavailable',
       retryable: false,
     });
     expect(inner.complete).not.toHaveBeenCalled();
+    expect(ledger.rows).toHaveLength(0);
   });
 
   test('consent for another provider does not unlock this provider', async () => {
     const inner: LlmPort = { complete: vi.fn(async () => stubResponse()) };
-    const llm = new PolicyLlm({
-      ...base,
+    const { llm } = makePolicy(
+      async () => ({ consent: { ...consent, provider: 'other' } }),
       inner,
-      resolve: async () => ({
-        consent: { granted: true, at: '2026-11-11T00:00:00.000Z', provider: 'other' },
-        spentTodayUsd: 0,
-        spentThisMonthUsd: 0,
-      }),
-    });
+    );
     await expect(llm.complete({ ...request, ownerId: 'owner-1' })).rejects.toBeInstanceOf(
       LlmUnavailable,
     );
     expect(inner.complete).not.toHaveBeenCalled();
   });
 
-  test('granted consent calls the provider and adds the provider id', async () => {
+  test('granted consent calls the provider, settles the ledger and adds the provider id', async () => {
     const inner: LlmPort = { complete: vi.fn(async () => stubResponse()) };
-    const llm = new PolicyLlm({
-      ...base,
-      inner,
-      resolve: async () => ({
-        consent: { granted: true, at: '2026-11-11T00:00:00.000Z', provider: 'deepseek' },
-        spentTodayUsd: 0,
-        spentThisMonthUsd: 0,
-      }),
-    });
+    const { llm, ledger } = makePolicy(async () => ({ consent }), inner);
     const result = await llm.complete({ ...request, ownerId: 'owner-1' });
     expect(result.provider).toBe('deepseek');
     expect(inner.complete).toHaveBeenCalledTimes(1);
+    expect(ledger.rows).toHaveLength(1);
+    expect(ledger.rows[0]).toMatchObject({
+      state: 'settled',
+      actualUsd: 0.001,
+      inputTokens: 10,
+      outputTokens: 5,
+    });
   });
 
-  test('default conservative budget blocks an owner already at the daily ceiling', async () => {
+  test('saved zero daily or monthly budget disables calls instead of restoring defaults', async () => {
     const inner: LlmPort = { complete: vi.fn(async () => stubResponse()) };
-    const llm = new PolicyLlm({
-      ...base,
-      inner,
-      resolve: async () => ({
-        consent: { granted: true, at: '2026-11-11T00:00:00.000Z', provider: 'deepseek' },
-        spentTodayUsd: 0.2,
-        spentThisMonthUsd: 0.2,
-      }),
-    });
-    await expect(llm.complete({ ...request, ownerId: 'owner-1' })).rejects.toBeInstanceOf(
-      BudgetExceeded,
-    );
+    for (const budget of [
+      { dailyUsd: 0, monthlyUsd: 5 },
+      { dailyUsd: 1, monthlyUsd: 0 },
+    ]) {
+      const { llm, ledger } = makePolicy(async () => ({ consent, budget }), inner);
+      await expect(llm.complete({ ...request, ownerId: 'owner-1' })).rejects.toBeInstanceOf(
+        BudgetExceeded,
+      );
+      expect(ledger.rows).toHaveLength(0);
+    }
     expect(inner.complete).not.toHaveBeenCalled();
   });
 
-  test('owner settings budget overrides the conservative default', async () => {
+  test('invalid explicit savings fail closed without substituting defaults', async () => {
     const inner: LlmPort = { complete: vi.fn(async () => stubResponse()) };
-    const llm = new PolicyLlm({
-      ...base,
+    const { llm, ledger } = makePolicy(
+      async () => ({ consent, budget: 'invalid' }),
       inner,
-      resolve: async () => ({
-        consent: { granted: true, at: '2026-11-11T00:00:00.000Z', provider: 'deepseek' },
-        budget: { dailyUsd: 10, monthlyUsd: 50 },
-        spentTodayUsd: 0.5,
-        spentThisMonthUsd: 0.5,
-      }),
+    );
+    await expect(llm.complete({ ...request, ownerId: 'owner-1' })).rejects.toMatchObject({
+      code: 'budget_exceeded',
     });
-    await expect(llm.complete({ ...request, ownerId: 'owner-1' })).resolves.toBeDefined();
-    expect(inner.complete).toHaveBeenCalledTimes(1);
+    expect(ledger.rows).toHaveLength(0);
+    expect(inner.complete).not.toHaveBeenCalled();
   });
 
-  test('unpriced provider usage fails closed as budget_exceeded', async () => {
-    const inner: LlmPort = {
-      complete: vi.fn(async () => ({ ...stubResponse(), usage: { inputTokens: 1, outputTokens: 1 } })),
+  test('defaults apply only when the owner never saved a budget', async () => {
+    const inner: LlmPort = { complete: vi.fn(async () => stubResponse()) };
+    const { llm, ledger } = makePolicy(async () => ({ consent }), inner);
+    await expect(llm.complete({ ...request, ownerId: 'owner-1' })).resolves.toBeDefined();
+    expect(ledger.rows).toHaveLength(1);
+  });
+
+  test('actual spend over the cap returns budget_exceeded, retains the charge and blocks the next call', async () => {
+    const expensive: LlmPort = {
+      complete: vi.fn(async () => ({
+        ...stubResponse(),
+        usage: { inputTokens: 10, outputTokens: 5, costUsd: 1 },
+      })),
     };
-    const llm = new PolicyLlm({
-      ...base,
-      inner,
-      resolve: async () => ({
-        consent: { granted: true, at: '2026-11-11T00:00:00.000Z', provider: 'deepseek' },
-        spentTodayUsd: 0,
-        spentThisMonthUsd: 0,
-      }),
-    });
+    const { llm, ledger } = makePolicy(
+      async () => ({ consent, budget: { dailyUsd: 0.5, monthlyUsd: 5 } }),
+      expensive,
+    );
     await expect(llm.complete({ ...request, ownerId: 'owner-1' })).rejects.toBeInstanceOf(
       BudgetExceeded,
     );
+    expect(ledger.rows[0]).toMatchObject({ state: 'settled', actualUsd: 1 });
+    await expect(llm.complete({ ...request, ownerId: 'owner-1' })).rejects.toBeInstanceOf(
+      BudgetExceeded,
+    );
+    expect(expensive.complete).toHaveBeenCalledTimes(1);
+  });
+
+  test('concurrent reservations against one cap allow exactly one paid call', async () => {
+    const inner: LlmPort = {
+      complete: vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return { ...stubResponse(), usage: { inputTokens: 1, outputTokens: 1, costUsd: 0.01 } };
+      }),
+    };
+    const { llm, ledger } = makePolicy(
+      async () => ({ consent, budget: { dailyUsd: 0.15, monthlyUsd: 5 } }),
+      inner,
+      {
+        pricing: { inputUsd: 0, outputUsd: 1_000, cachedInputUsd: 0 },
+        maxOutputTokens: 100,
+      },
+    );
+    const results = await Promise.allSettled([
+      llm.complete({ ...request, ownerId: 'owner-1' }),
+      llm.complete({ ...request, ownerId: 'owner-1' }),
+    ]);
+    expect(results.filter((entry) => entry.status === 'fulfilled')).toHaveLength(1);
+    const rejected = results.find((entry) => entry.status === 'rejected');
+    expect(rejected?.status === 'rejected' ? rejected.reason : undefined).toBeInstanceOf(
+      BudgetExceeded,
+    );
+    expect(ledger.rows.filter((row) => row.state === 'settled')).toHaveLength(1);
+  });
+
+  test('missing usage settles at the reservation and fails closed', async () => {
+    const inner: LlmPort = {
+      complete: vi.fn(async () => ({ ...stubResponse(), usage: { inputTokens: 1, outputTokens: 1 } })),
+    };
+    const { llm, ledger } = makePolicy(async () => ({ consent }), inner);
+    await expect(llm.complete({ ...request, ownerId: 'owner-1' })).rejects.toBeInstanceOf(
+      BudgetExceeded,
+    );
+    expect(ledger.rows[0]?.state).toBe('settled');
+    expect(ledger.rows[0]?.actualUsd).toBe(ledger.rows[0]?.reservedUsd);
+  });
+
+  test('timeout settles at the reservation and keeps the charge', async () => {
+    const inner: LlmPort = {
+      complete: vi.fn(async () => {
+        throw new LlmTimeoutError(30_000);
+      }),
+    };
+    const { llm, ledger } = makePolicy(async () => ({ consent }), inner);
+    await expect(llm.complete({ ...request, ownerId: 'owner-1' })).rejects.toBeInstanceOf(
+      LlmTimeoutError,
+    );
+    expect(ledger.rows[0]?.state).toBe('settled');
+    expect(ledger.rows[0]?.actualUsd).toBe(ledger.rows[0]?.reservedUsd);
+  });
+
+  test('owners are isolated for both consent and spend', async () => {
+    const inner: LlmPort = {
+      complete: vi.fn(async () => ({
+        ...stubResponse(),
+        usage: { inputTokens: 1, outputTokens: 1, costUsd: 0.1 },
+      })),
+    };
+    const { llm, ledger } = makePolicy(
+      async (ownerId) =>
+        ownerId === 'owner-1'
+          ? { consent, budget: { dailyUsd: 0.15, monthlyUsd: 5 } }
+          : { consent, budget: { dailyUsd: 1, monthlyUsd: 5 } },
+      inner,
+    );
+    await llm.complete({ ...request, ownerId: 'owner-1' });
+    await llm.complete({ ...request, ownerId: 'owner-2' });
+    expect(ledger.rows.map((row) => row.ownerId)).toEqual(['owner-1', 'owner-2']);
+  });
+
+  test('other owners inherit neither consent nor spend', async () => {
+    const inner: LlmPort = { complete: vi.fn(async () => stubResponse()) };
+    const { llm, ledger } = makePolicy(
+      async (ownerId) =>
+        ownerId === 'owner-1' ? { consent } : { consent: null },
+      inner,
+    );
+    await llm.complete({ ...request, ownerId: 'owner-1' });
+    await expect(llm.complete({ ...request, ownerId: 'owner-2' })).rejects.toMatchObject({
+      code: 'llm_unavailable',
+    });
+    expect(ledger.rows.map((row) => row.ownerId)).toEqual(['owner-1']);
   });
 
   test('missing owner id is rejected before resolving settings', async () => {
     const inner: LlmPort = { complete: vi.fn(async () => stubResponse()) };
     const resolve = vi.fn(async () => null);
-    const llm = new PolicyLlm({ ...base, inner, resolve });
+    const { llm } = makePolicy(resolve, inner);
     await expect(llm.complete(request)).rejects.toBeInstanceOf(LlmUnavailable);
     expect(resolve).not.toHaveBeenCalled();
   });
@@ -644,5 +881,91 @@ describe('PolicyLlm consent + per-owner budget', () => {
     const error = new ResponseFormatUnsupportedError();
     expect(error).toBeInstanceOf(LlmUnavailable);
     expect(error.retryable).toBe(false);
+  });
+});
+
+describe('PolicyLlm + runStructured attempt accounting', () => {
+  const now = () => new Date('2026-11-11T12:00:00.000Z');
+  const consent = { granted: true, at: '2026-11-11T00:00:00.000Z', provider: 'deepseek' };
+
+  function policyFor(inner: LlmPort, ledger = new InMemorySpendLedger()): PolicyLlm {
+    let seq = 0;
+    return new PolicyLlm({
+      inner,
+      providerId: 'deepseek',
+      defaultBudget: { dailyUsd: 5, monthlyUsd: 50 },
+      resolve: async () => ({ consent, budget: { dailyUsd: 5, monthlyUsd: 50 } }),
+      ledger,
+      pricing: DEFAULT_DEEPSEEK_PRICING,
+      maxOutputTokens: 2000,
+      newReservationId: () => `run-${++seq}`,
+      now,
+    });
+  }
+
+  test('a schema repair charges both attempts and aggregates run usage', async () => {
+    const invalid = { classification: 'maybe' };
+    const errors = validateOutput('llm.type_detection.v1', invalid).errors;
+    const repairedInput = appendValidationErrors(request.input, errors);
+    const inner = new FakeLlm([
+      {
+        promptId: 'type_detection',
+        input: request.input,
+        response: {
+          output: invalid,
+          usage: { inputTokens: 100, outputTokens: 10, costUsd: 0.1 },
+        },
+      },
+      {
+        promptId: 'type_detection',
+        input: repairedInput,
+        response: {
+          output: validTypeDetection,
+          usage: { inputTokens: 120, outputTokens: 20, costUsd: 0.1 },
+        },
+      },
+    ]);
+    const ledger = new InMemorySpendLedger();
+    const llm = policyFor(inner, ledger);
+    const result = await runStructured(llm, { ...request, ownerId: 'owner-1' }, { allowUnbudgeted: true });
+    expect(result.usage).toMatchObject({ inputTokens: 220, outputTokens: 30, costUsd: 0.2 });
+    expect(ledger.rows).toHaveLength(2);
+    expect(ledger.rows.every((row) => row.state === 'settled' && row.actualUsd === 0.1)).toBe(true);
+  });
+
+  test('two invalid outputs still charge both attempts and expose aggregate usage', async () => {
+    const invalid = { classification: 'maybe' };
+    const errors = validateOutput('llm.type_detection.v1', invalid).errors;
+    const repairedInput = appendValidationErrors(request.input, errors);
+    const inner = new FakeLlm([
+      {
+        promptId: 'type_detection',
+        input: request.input,
+        response: {
+          output: invalid,
+          usage: { inputTokens: 100, outputTokens: 10, costUsd: 0.1 },
+        },
+      },
+      {
+        promptId: 'type_detection',
+        input: repairedInput,
+        response: {
+          output: invalid,
+          usage: { inputTokens: 120, outputTokens: 20, costUsd: 0.1 },
+        },
+      },
+    ]);
+    const ledger = new InMemorySpendLedger();
+    const llm = policyFor(inner, ledger);
+    let error: SchemaViolation | undefined;
+    try {
+      await runStructured(llm, { ...request, ownerId: 'owner-1' }, { allowUnbudgeted: true });
+    } catch (cause) {
+      error = cause as SchemaViolation;
+    }
+    expect(error).toBeInstanceOf(SchemaViolation);
+    expect(error?.usage).toMatchObject({ inputTokens: 220, outputTokens: 30, costUsd: 0.2 });
+    expect(ledger.rows).toHaveLength(2);
+    expect(ledger.rows.every((row) => row.state === 'settled')).toBe(true);
   });
 });
