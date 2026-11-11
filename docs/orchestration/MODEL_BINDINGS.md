@@ -68,3 +68,9 @@
 - 이후 모든 Sol 리뷰는 `--agent codex --model gpt-6.1-sol --effort medium`. Sol 사용 불가 시 대체는 기존대로 Opus 5.5 xhigh(§6).
 - 첫 medium 리뷰 시작 시 Orca worker-start 영수증(model/effort)과 Codex 롤아웃 `turn_context.effort=medium`으로 확인 후 원장 기록.
 - 보완: medium에서는 리뷰 패킷의 'Focus asks'를 더 좁고 구체적으로 작성(재현 우선, 탐색 범위 축소).
+
+## 8. UI 구현 워커 = Opus 5.5 xhigh (2026-11-11 18:15, 사용자 지시)
+- 사용자: "이번 수정라운드 뒤로 ui 부분은 opus 5.5 xhigh로 변경해. 개인적으로 opus의 미감이 맘에 들더라".
+- 적용: M4-UId 현재 수정 라운드(DeepSeek)가 끝난 **뒤부터**, `apps/web/**`(화면·컴포넌트·스타일·UX)을 주로 다루는 **구현 Task**는 `--agent claude --model claude-opus-5-5 --effort xhigh` 워커로 실행(`scripts/orca/start-claude-worker.sh`). 백엔드·계약·스케줄러 등 비 UI 구현은 계속 DeepSeek v4.1 flash high.
+- 리뷰는 기존대로 Sol 6.1 medium(한도 시 Opus 5.5 xhigh 대체). UI Task를 Opus가 구현한 경우 리뷰는 **Sol**로 해서 구현자와 리뷰어 모델을 분리(Sol 한도 시에는 별도 Opus 세션이 리뷰하되 원장에 "같은 모델 계열" 표시).
+- 확인: worker-start 영수증의 model/effort를 원장에 기록.
