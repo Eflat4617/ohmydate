@@ -3,7 +3,7 @@ import { closeSync, openSync, promises as fs } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import net from 'node:net';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { STATE_PATH, type E2EState } from './helpers/state';
 
@@ -29,6 +29,30 @@ const VIKUNJA_TOKEN_PERMISSIONS = {
   tasks_relations: ['create', 'delete'],
   other: ['user'],
 };
+
+/**
+ * Optional simulated start time for the planner API (and for specs that opt
+ * in via helpers/clock.ts). Unset by default: the suite runs on real time.
+ */
+function clockOffsetFromEnv(): number {
+  const raw = process.env['E2E_FAKE_NOW'];
+  if (raw === undefined || raw.trim().length === 0) return 0;
+  const target = Date.parse(raw);
+  if (!Number.isFinite(target) || !/(Z|[+-]\d{2}:\d{2})$/.test(raw.trim())) {
+    throw new Error(`E2E_FAKE_NOW must be an ISO-8601 instant with a zone, got: ${raw}`);
+  }
+  return target - Date.now();
+}
+
+function shiftedClockEnv(offsetMs: number): NodeJS.ProcessEnv {
+  if (offsetMs === 0) return {};
+  const preload = pathToFileURL(path.join(repoRoot, 'e2e/helpers/shifted-clock.mjs')).href;
+  const inherited = process.env['NODE_OPTIONS'] ?? '';
+  return {
+    E2E_CLOCK_OFFSET_MS: String(offsetMs),
+    NODE_OPTIONS: `${inherited} --import=${preload}`.trim(),
+  };
+}
 
 function uniqueSuffix(): string {
   return `${Date.now().toString(36)}-${randomBytes(4).toString('hex')}`;
@@ -231,6 +255,7 @@ export default async function globalSetup(): Promise<void> {
   const vikunjaUrl = process.env['VIKUNJA_URL'] ?? DEFAULT_VIKUNJA_URL;
   const schema = `e2e_${Date.now().toString(36)}_${randomBytes(3).toString('hex')}`;
   const databaseUrl = scopedDatabaseUrl(baseDatabaseUrl, schema);
+  const clockOffsetMs = clockOffsetFromEnv();
 
   await fs.rm(stateDir, { recursive: true, force: true });
   await fs.mkdir(logsDir, { recursive: true });
@@ -325,6 +350,7 @@ export default async function globalSetup(): Promise<void> {
         LLM_PROVIDER: 'fake',
         LLM_DAILY_BUDGET_USD: '10',
         LLM_MONTHLY_BUDGET_USD: '100',
+        ...shiftedClockEnv(clockOffsetMs),
       },
     );
     apiPid = api.pid ?? 0;
@@ -365,6 +391,7 @@ export default async function globalSetup(): Promise<void> {
       inboxExternalId: String(inbox.id),
       apiPid,
       webPid,
+      ...(clockOffsetMs === 0 ? {} : { clockOffsetMs }),
     };
     await fs.writeFile(STATE_PATH, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
   } catch (error) {

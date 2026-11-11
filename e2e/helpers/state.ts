@@ -13,6 +13,11 @@ export interface E2EState {
   readonly inboxExternalId: string;
   readonly apiPid: number;
   readonly webPid: number;
+  /**
+   * Simulated-clock offset (ms) applied to the API process and to browser
+   * contexts that opt in. 0 / absent unless E2E_FAKE_NOW was set.
+   */
+  readonly clockOffsetMs?: number;
 }
 
 export const STATE_PATH = fileURLToPath(

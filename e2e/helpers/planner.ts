@@ -63,6 +63,23 @@ export interface PlanDto {
   }[];
 }
 
+export interface PreviewEditDto {
+  readonly feasible: boolean;
+  readonly violations: readonly { readonly code: string; readonly message?: string }[];
+  readonly deficitMin: number;
+}
+
+export interface TaskConstraintsDto {
+  readonly id: string;
+  readonly dueAt?: string;
+  readonly dependsOn: readonly string[];
+}
+
+export interface IntervalDto {
+  readonly startAt: string;
+  readonly endAt: string;
+}
+
 async function csrfToken(page: Page): Promise<string> {
   const cookies = await page.context().cookies();
   const cookie = cookies.find((candidate) => candidate.name === 'csrf');
@@ -284,9 +301,11 @@ export async function createApprovedGoal(
   options: {
     readonly estimatedScope?: 'small' | 'medium' | 'large';
     readonly independentDraft?: boolean;
+    /** "Now" for the due date; pass the simulated clock when E2E_FAKE_NOW is used. */
+    readonly nowMs?: number;
   } = {},
 ): Promise<IntakeSessionDto> {
-  const dueAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const dueAt = new Date((options.nowMs ?? Date.now()) + 7 * 24 * 60 * 60 * 1000).toISOString();
   const created = await createIntakeGoal(page, state, {
     title,
     description: 'E2E planning goal seeded for the comparison flow.',
@@ -336,4 +355,87 @@ export async function createOverlappingCommitment(
     body: { title, startAt, endAt, timeZone: 'UTC' },
   });
   await expectOk(response, 'POST /commitments');
+}
+
+export async function getTaskConstraints(
+  page: Page,
+  state: E2EState,
+  taskId: string,
+): Promise<TaskConstraintsDto> {
+  const response = await apiFetch(page, state, `/tasks/${taskId}`);
+  const task = (await expectOk(response, 'GET /tasks/{id}')) as {
+    readonly id: string;
+    readonly dueAt?: string | null;
+    readonly dependsOn?: readonly string[];
+  };
+  return {
+    id: task.id,
+    ...(typeof task.dueAt === 'string' ? { dueAt: task.dueAt } : {}),
+    dependsOn: task.dependsOn ?? [],
+  };
+}
+
+async function listPaged<T>(
+  page: Page,
+  state: E2EState,
+  path: string,
+  query: Record<string, string>,
+  describe: string,
+): Promise<T[]> {
+  const items: T[] = [];
+  let cursor: string | null = null;
+  for (let round = 0; round < 50; round += 1) {
+    const params = new URLSearchParams(query);
+    if (cursor !== null) params.set('cursor', cursor);
+    const response = await apiFetch(page, state, `${path}?${params.toString()}`);
+    const body = (await expectOk(response, describe)) as {
+      items: T[];
+      nextCursor: string | null;
+    };
+    items.push(...body.items);
+    cursor = body.nextCursor;
+    if (cursor === null) return items;
+  }
+  throw new Error(`${describe} did not finish paging`);
+}
+
+/** Commitment occurrences overlapping [from, to), expanded by the API. */
+export async function listCommitmentIntervals(
+  page: Page,
+  state: E2EState,
+  from: string,
+  to: string,
+): Promise<IntervalDto[]> {
+  const commitments = await listPaged<{
+    startAt: string;
+    endAt: string;
+    occurrences?: readonly IntervalDto[];
+  }>(page, state, '/commitments', { from, to, limit: '100' }, 'GET /commitments');
+  return commitments.flatMap((commitment) =>
+    commitment.occurrences !== undefined && commitment.occurrences.length > 0
+      ? commitment.occurrences.map((occurrence) => ({
+          startAt: occurrence.startAt,
+          endAt: occurrence.endAt,
+        }))
+      : [{ startAt: commitment.startAt, endAt: commitment.endAt }],
+  );
+}
+
+/** Approved schedule blocks overlapping [from, to) (superseded ones excluded). */
+export async function listScheduleBlockIntervals(
+  page: Page,
+  state: E2EState,
+  from: string,
+  to: string,
+): Promise<IntervalDto[]> {
+  const blocks = await listPaged<{ startAt: string; endAt: string; status: string }>(
+    page,
+    state,
+    '/schedule-blocks',
+    { from, to, limit: '500' },
+    'GET /schedule-blocks',
+  );
+  return blocks
+    .filter((block) => block.status !== 'superseded')
+    .map((block) => ({ startAt: block.startAt, endAt: block.endAt }));
 }
