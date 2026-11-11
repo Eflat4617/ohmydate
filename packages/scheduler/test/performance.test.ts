@@ -118,20 +118,93 @@ function runCalibrationWorkload(): void {
   calibrationSink = (calibrationSink + hash) >>> 0;
 }
 
+function buildSelfTestInput(): ScheduleInput {
+  const input = buildLargeInput();
+  return {
+    ...input,
+    horizon: { start: '2026-11-09T00:00:00Z', end: '2026-11-10T00:00:00Z' },
+    tasks: input.tasks.slice(0, 1).map((task) => ({
+      ...task,
+      dueAt: '2026-11-10T00:00:00Z',
+    })),
+  };
+}
+
 function cpuMillisSince(start: NodeJS.CpuUsage): number {
   const usage = process.cpuUsage(start);
   return (usage.user + usage.system) / 1000;
 }
 
-function measureCalibratedCpuMillis(work: () => void): number {
-  const calibrationStart = process.cpuUsage();
-  runCalibrationWorkload();
-  const calibrationMs = Math.max(0.001, cpuMillisSince(calibrationStart));
+interface BatchStats {
+  p50: number;
+  p95: number;
+  min: number;
+  max: number;
+  samples: number[];
+}
 
-  const start = process.cpuUsage();
-  work();
-  const cpuMs = cpuMillisSince(start);
-  return (cpuMs / calibrationMs) * CALIBRATION_REF_MS;
+interface MeasureP95Options {
+  /** The scheduler work under test. Called once per sample. */
+  workload: () => void;
+  /** Fixed CPU cost used to normalise the sample. Must not call the workload. */
+  calibration: () => void;
+  /** Number of batches to run. */
+  batches: number;
+  /** Calibration reference in milliseconds (see CALIBRATION_REF_MS). */
+  refMs: number;
+  /** Samples per batch (default 20; p95 is then the second-highest sample). */
+  batchSize?: number;
+  /** Stop early once a batch p95 is under this value (best-of-N). */
+  stopWhenP95Below?: number;
+}
+
+interface MeasureP95Result {
+  batches: BatchStats[];
+  /** Smallest batch p95; this is what the budget gate asserts on. */
+  bestP95: number;
+}
+
+/**
+ * Pure calibrated p95 measurement shared by the production gate and the
+ * negative self-tests. Both the workload and the calibration are injected, so
+ * the self-tests can prove that a *scheduler-wide* slowdown is detected only
+ * when the calibration is independent of the scheduler.
+ */
+function measureP95(options: MeasureP95Options): MeasureP95Result {
+  const batchSize = options.batchSize ?? 20;
+  const batches: BatchStats[] = [];
+
+  for (let batch = 0; batch < options.batches; batch += 1) {
+    const timings: number[] = [];
+    for (let run = 0; run < batchSize; run += 1) {
+      const calibrationStart = process.cpuUsage();
+      options.calibration();
+      const calibrationMs = Math.max(0.001, cpuMillisSince(calibrationStart));
+
+      const start = process.cpuUsage();
+      options.workload();
+      const cpuMs = cpuMillisSince(start);
+      timings.push((cpuMs / calibrationMs) * options.refMs);
+    }
+
+    const sorted = [...timings].sort((a, b) => a - b);
+    const stats: BatchStats = {
+      p50: percentile(sorted, 0.5),
+      p95: percentile(sorted, 0.95),
+      min: sorted[0] ?? 0,
+      max: sorted[sorted.length - 1] ?? 0,
+      samples: timings,
+    };
+    batches.push(stats);
+    if (
+      options.stopWhenP95Below !== undefined &&
+      stats.p95 < options.stopWhenP95Below
+    ) {
+      break;
+    }
+  }
+
+  return { batches, bestP95: Math.min(...batches.map((batch) => batch.p95)) };
 }
 
 /** Busy-wait on CPU for at least `targetMs`, independent of packages/scheduler. */
@@ -147,97 +220,169 @@ function burnCpuMillis(targetMs: number): void {
   calibrationSink = (calibrationSink + hash) >>> 0;
 }
 
+/**
+ * Wraps a scheduler workload with a uniform +100% CPU burn applied to *every*
+ * invocation, including any invocation made by a (mistaken) calibration.
+ */
+function withUniformSlowdown(work: () => void): () => void {
+  return () => {
+    const start = process.cpuUsage();
+    work();
+    burnCpuMillis(cpuMillisSince(start));
+  };
+}
+
+interface GenerateSpy {
+  countedGenerate: (...args: Parameters<typeof generate>) => ReturnType<typeof generate>;
+  productionCalibration: () => void;
+  callsDuringCalibration: () => number;
+}
+
+/**
+ * Counts `generate()` calls made while the production calibration runs. The
+ * production calibration is `runCalibrationWorkload`, which must never touch
+ * the scheduler; this spy turns that expectation into an assertion.
+ */
+function createGenerateSpy(): GenerateSpy {
+  let callsDuringCalibration = 0;
+  let inCalibration = false;
+  const countedGenerate = (
+    ...args: Parameters<typeof generate>
+  ): ReturnType<typeof generate> => {
+    const result = generate(...args);
+    if (inCalibration) {
+      callsDuringCalibration += 1;
+    }
+    return result;
+  };
+  return {
+    countedGenerate,
+    productionCalibration: () => {
+      inCalibration = true;
+      try {
+        runCalibrationWorkload();
+      } finally {
+        inCalibration = false;
+      }
+    },
+    callsDuringCalibration: () => callsDuringCalibration,
+  };
+}
+
 describe('generator performance (06 §11)', () => {
   it('50 tasks / 14 days / 3 policies p95 < 500 ms (calibrated CPU time)', () => {
     const input = buildLargeInput();
-    const batchSize = 20;
-    const maxBatches = 5;
-    const batchP95: number[] = [];
-
-    for (let batch = 1; batch <= maxBatches; batch += 1) {
-      const timings: number[] = [];
-
-      for (let run = 0; run < batchSize; run += 1) {
-        let result: ReturnType<typeof generate> | undefined;
-        timings.push(
-          measureCalibratedCpuMillis(() => {
-            result = generate(input, {
-              policies: ['front_loaded', 'balanced', 'focus_blocked'],
-              seed: input.seed,
-            });
-          }),
-        );
-        expect(result?.candidates.map((candidate) => candidate.feasible)).toEqual([
+    const measured = measureP95({
+      workload: () => {
+        const result = generate(input, {
+          policies: ['front_loaded', 'balanced', 'focus_blocked'],
+          seed: input.seed,
+        });
+        expect(result.candidates.map((candidate) => candidate.feasible)).toEqual([
           true,
           true,
           true,
         ]);
-      }
+      },
+      calibration: runCalibrationWorkload,
+      batches: 5,
+      refMs: CALIBRATION_REF_MS,
+      stopWhenP95Below: 500,
+    });
 
-      const sorted = [...timings].sort((a, b) => a - b);
-      const p50 = percentile(sorted, 0.5);
-      const p95 = percentile(sorted, 0.95);
-      batchP95.push(p95);
+    for (const [index, batch] of measured.batches.entries()) {
       const loadPerCore = (loadavg()[0] ?? 0) / Math.max(1, cpus().length);
       console.log(
-        `generator perf batch ${batch}/${maxBatches}: calibrated p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms min=${(sorted[0] ?? 0).toFixed(1)}ms max=${(sorted[sorted.length - 1] ?? 0).toFixed(1)}ms loadavg/core=${loadPerCore.toFixed(2)}`,
+        `generator perf batch ${index + 1}/${measured.batches.length}: calibrated p50=${batch.p50.toFixed(1)}ms p95=${batch.p95.toFixed(1)}ms min=${batch.min.toFixed(1)}ms max=${batch.max.toFixed(1)}ms loadavg/core=${loadPerCore.toFixed(2)}`,
       );
-
-      // Best-of-N: one quiet batch is enough evidence on a shared host. The
-      // load average is printed for diagnosis but never gates the assertion.
-      if (p95 < 500) {
-        break;
-      }
     }
 
     if (process.env.SCHED_PERF_ASSERT === '1') {
-      const bestP95 = Math.min(...batchP95);
-      expect(bestP95).toBeLessThan(500);
+      expect(measured.bestP95).toBeLessThan(500);
     } else {
       // Root `pnpm run ci` does not set SCHED_PERF_ASSERT; timings are still
       // printed there, but only the scheduler package script enforces them.
       console.log(
-        `generator perf assertion skipped (SCHED_PERF_ASSERT not set); best p95=${Math.min(...batchP95).toFixed(1)}ms.`,
+        `generator perf assertion skipped (SCHED_PERF_ASSERT not set); best p95=${measured.bestP95.toFixed(1)}ms.`,
       );
     }
   }, 180000);
 
-  it('calibrated p95 roughly doubles under a uniform +100% workload slowdown (negative self-test)', () => {
-    // Feed the same measurement function the gate uses a fixed CPU workload
-    // that cannot vary with GC/JIT in the scheduler, so this self-test is
-    // deterministic. If the calibration were another copy of the workload
-    // under test (the bug this guards against), both samples would scale
-    // together and the ratio below would stay at 1x.
-    const baseline: number[] = [];
-    const slowed: number[] = [];
+  it('detects a uniform scheduler slowdown and rejects scheduler-based calibration (negative self-test)', () => {
+    const input = buildSelfTestInput();
+    const SELF_TEST_SAMPLES = 20;
+    const FAULTY_SAMPLES = 10;
+    // Average many real generate() calls per invocation (still +100% wrapped)
+    // so per-sample CPU noise cannot swamp the slowdown ratio.
+    const SELF_TEST_REPEATS = 100;
+    const schedulerWorkload = () => {
+      for (let repeat = 0; repeat < SELF_TEST_REPEATS; repeat += 1) {
+        generate(input, { policies: ['balanced'], seed: input.seed });
+      }
+    };
+    const slowedWorkload = withUniformSlowdown(schedulerWorkload);
+    const spy = createGenerateSpy();
 
-    for (let run = 0; run < 12; run += 1) {
-      baseline.push(
-        measureCalibratedCpuMillis(() => {
-          burnCpuMillis(25);
-        }),
-      );
-      slowed.push(
-        measureCalibratedCpuMillis(() => {
-          // Exactly +100% of the measured workload.
-          burnCpuMillis(25);
-          burnCpuMillis(25);
-        }),
-      );
+    // Self-test A (detection): the *scheduler* workload is slowed uniformly
+    // and the production (scheduler-independent) calibration is used. Measure
+    // baseline and slowed back-to-back so both see the same host load, record
+    // the per-sample slowdown ratio, and take its p95.
+    const productionRatios: number[] = [];
+    for (let run = 0; run < SELF_TEST_SAMPLES; run += 1) {
+      const baseline = measureP95({
+        workload: schedulerWorkload,
+        calibration: spy.productionCalibration,
+        batches: 1,
+        batchSize: 1,
+        refMs: CALIBRATION_REF_MS,
+      });
+      const slowed = measureP95({
+        workload: slowedWorkload,
+        calibration: spy.productionCalibration,
+        batches: 1,
+        batchSize: 1,
+        refMs: CALIBRATION_REF_MS,
+      });
+      productionRatios.push(slowed.bestP95 / baseline.bestP95);
     }
+    const productionRatio = percentile(
+      [...productionRatios].sort((a, b) => a - b),
+      0.95,
+    );
 
-    const baselineP95 = percentile(
-      [...baseline].sort((a, b) => a - b),
-      0.95,
+    // Self-test B (known bug): use the scheduler workload itself as the
+    // calibration. The uniform slowdown then scales numerator and
+    // denominator together, so the ratio collapses to ~1x exactly as in the
+    // old generate()-based design.
+    const faultyRatios: number[] = [];
+    for (let run = 0; run < FAULTY_SAMPLES; run += 1) {
+      const baseline = measureP95({
+        workload: schedulerWorkload,
+        calibration: schedulerWorkload,
+        batches: 1,
+        batchSize: 1,
+        refMs: CALIBRATION_REF_MS,
+      });
+      const slowed = measureP95({
+        workload: slowedWorkload,
+        calibration: slowedWorkload,
+        batches: 1,
+        batchSize: 1,
+        refMs: CALIBRATION_REF_MS,
+      });
+      faultyRatios.push(slowed.bestP95 / baseline.bestP95);
+    }
+    const faultyRatio = percentile(
+      [...faultyRatios].sort((a, b) => a - b),
+      0.5,
     );
-    const slowedP95 = percentile(
-      [...slowed].sort((a, b) => a - b),
-      0.95,
-    );
+
     console.log(
-      `slowdown self-test: baseline p95=${baselineP95.toFixed(1)}ms doubled p95=${slowedP95.toFixed(1)}ms ratio=${(slowedP95 / baselineP95).toFixed(2)}x`,
+      `slowdown self-test: production calibration slowdown ratio p95=${productionRatio.toFixed(2)}x; scheduler-as-calibration slowdown ratio p50=${faultyRatio.toFixed(2)}x; generate() calls during production calibration=${spy.callsDuringCalibration()}`,
     );
-    expect(slowedP95).toBeGreaterThan(baselineP95 * 1.7);
-    expect(slowedP95).toBeLessThan(baselineP95 * 2.3);
+
+    expect(productionRatio).toBeGreaterThanOrEqual(1.6);
+    expect(faultyRatio).toBeLessThanOrEqual(1.3);
+    expect(spy.callsDuringCalibration()).toBe(0);
   }, 180000);
 });
