@@ -780,6 +780,9 @@ export class PgPlanningStore implements PlanningStore {
       if (isPgError(error, '23503')) {
         throw new PlanConflictError('approval failed because a referenced task or version vanished');
       }
+      if (isPgError(error, '23505')) {
+        throw new PlanConflictError('approval idempotency key is already in use');
+      }
       throw error;
     }
   }
