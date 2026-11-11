@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -103,6 +103,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-38c/d | ctx_56a43299d88f (Sol medium) | 8f2db58 | **APPROVE** — 독립 62k+60k A/B vs FU-32 회귀 0(예외 전 원수치), 성능 선형, **GB-1 스캐너 관문 통과** | FU-49 | **Accepted, merged 2fc56e8**; ci 1376 pass/29 skip + web 69 |
 | M3-04 (+c) | ctx_4651f7471f10 (Sol medium) | 225ca3f | **APPROVE** — RRULE 독립 기준 440규칙/2,967건 불일치 0 | FU-48 | **Accepted, merged 5da710f**; ci 1245 pass/27 skip + web 69; E2E 4/4 |
 | M2-03 (+c,+d) | ctx_9ed2dbe8d4d4 (opus-fallback) | 3bc0a0e | **APPROVE** — P0–P9 재현, 모든 HTTP 요청 직전 소유권 확인 | FU-47 | **Accepted, merged 87dad91**; ci 1175 pass |
 | M3-03 | ctx_31e02ba75606 (opus-fallback) | ec8513f | **APPROVE** (0006 뒤 병합) | — | **Accepted, merged 0462c19**; 충돌 해결(routes/migrate test) 후 ci 1203 pass/27 skip + web 69, OpenAPI 29 paths |
