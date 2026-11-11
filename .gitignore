@@ -10,3 +10,8 @@ deploy/secrets/
 playwright-report/
 test-results/
 .probe-tmp/
+
+# local secrets (never commit)
+*api_key*.txt
+*.key.txt
+deploy/secrets/
