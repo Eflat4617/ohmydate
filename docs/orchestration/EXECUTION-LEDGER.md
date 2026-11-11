@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 09:25 | **사용자 지시: Sol 리뷰 effort high → medium**(토큰 소모). MODEL_BINDINGS §7, RUN-AND-TASK-DAG 갱신. Sol은 12:03까지 한도 → 그 전 리뷰는 Opus 대체, 이후 Sol medium | 사용자 메시지 | orchestrator |
 | 2026-11-11 09:21 | **FU-38cR-1 REQUEST_CHANGES (Opus 대체)**: 숫자 계열 216k A/B 회귀 0·재현 43건 해결. HIGH — API 키 본문 상한 256이 긴 키/결합 키를 통째 노출(FU-32 대비 회귀). MEDIUM — 구분자 상한 32 회귀, 성능 게이트가 O(n²) 못 잡음, 인접 판정 과잉 마스킹, +82-2 기존 누출. ADR-019 보강(5)–(8). 수정 1/2 → ctx_c5ebf3fcfeb5 | reviews/FU-38cR-1.md | orchestrator |
 | 2026-11-11 09:13 | **FU-42cR-1 REQUEST_CHANGES (Opus 대체)**: HIGH 0. R2 끊긴 수정 요청 재현은 빌드 코드·실제 SIGTERM으로 해결 확인(needs_reconcile=true, 멱등 정리). MEDIUM(잠재) — 핸들러 시작 전 끊기면 추적 해제 후 핸들러가 추적 없이 실행. LOW 6. 수정 1/2 → ctx_bba02163ba2e(LOW 포함) | reviews/FU-42cR-1.md | orchestrator |
 | 2026-11-11 09:10 | **M3-03R2 APPROVE (Opus 대체)** — 병합은 보류: migrate 러너가 적용 번호보다 낮은 번호를 거부하므로 0006(M2-03c) 먼저. M3-04(Plan API)·M3-05(비교 UI)를 m3-03 브랜치 위에 쌓아 시작. 발견: Task에 추정 필드 없음·Intake 승인이 estimate 미기록 → M3-04가 EstimateRepository, Intake→estimate 기록은 M2-03 병합 후 연결(FU-45) | reviews/M3-03R2.md | orchestrator |

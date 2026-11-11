@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|---|
 | orchestrator | Claude Opus 5.5 · xhigh | Claude Code 2.1.322 | `claude-opus-5-5` | 세션 설정 | 모델 VERIFIED(세션 시스템 정보) / xhigh **UNVERIFIED** | 현재 세션 |
 | worker-* | DeepSeek 4.1 Flash · high | OpenCode 1.19.5 | `opencode-go/deepseek-v4.1-flash` | 저장소 `opencode.jsonc` (Orca `--effort` 미지원) | VERIFIED(`opencode models`: status active, variants low/high/max) | UNVERIFIED → P1 |
-| reviewer | GPT-6.1 Sol · high | Codex CLI 0.167.0 | `gpt-6.1-sol` | `worker-start --model gpt-6.1-sol --effort high` | VERIFIED(`~/.codex/models_cache.json`: effort low…ultra 포함 high) | UNVERIFIED → P2 |
+| reviewer | GPT-6.1 Sol · **medium** (2026-11-11 09:25 사용자 지시로 high→medium; 토큰 소모) | Codex CLI 0.167.0 | `gpt-6.1-sol` | `worker-start --model gpt-6.1-sol --effort medium` | VERIFIED(`~/.codex/models_cache.json`: effort low…ultra 포함 high) | UNVERIFIED → P2 |
 
 ## 1.1 직접 CLI 호출 프로브 (2026-11-11, 사용자 요청) — Orca 경유 아님
 | 역할 | 명령 | 결과 | 실효값 근거 |
@@ -62,3 +62,9 @@
 - **독립성:** 대체 리뷰어는 오케스트레이터와 같은 모델 계열이므로 리뷰 패킷·형식·실행 의무는 동일하게 유지하고, 코디네이터 컨텍스트를 공유하지 않는 별도 세션으로 실행. 판정 기록에 `reviewer=opus-fallback` 표기.
 - **검증:** 시작 영수증의 model/effort가 `claude-opus-5-5`/`xhigh`인지 확인, 불일치 시 BLOCKED_MODEL_UNAVAILABLE.
 - **복귀:** Sol 사용 가능해지면 다음 리뷰부터 Sol로 복귀. 대체 리뷰로 승인된 변경 중 HIGH 위험 영역(동시성·보안·마이그레이션)은 Sol 복귀 후 사후 리뷰 대상 목록에 추가.
+
+## 7. 리뷰 effort 변경 (2026-11-11 09:25, 사용자 지시)
+- 사용자: "6.1 sol 리뷰어 medium 으로 추론강도 내려서 진행해. 생각보다 토큰 소모가 빠르군".
+- 이후 모든 Sol 리뷰는 `--agent codex --model gpt-6.1-sol --effort medium`. Sol 사용 불가 시 대체는 기존대로 Opus 5.5 xhigh(§6).
+- 첫 medium 리뷰 시작 시 Orca worker-start 영수증(model/effort)과 Codex 롤아웃 `turn_context.effort=medium`으로 확인 후 원장 기록.
+- 보완: medium에서는 리뷰 패킷의 'Focus asks'를 더 좁고 구체적으로 작성(재현 우선, 탐색 범위 축소).
