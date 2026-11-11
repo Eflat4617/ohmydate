@@ -33,7 +33,19 @@ function newTask(): void {
         <RouterLink to="/projects">Projects</RouterLink>
       </li>
       <li>
+        <RouterLink to="/plan/new">Plan</RouterLink>
+      </li>
+      <li>
         <RouterLink to="/today">Today <kbd>t</kbd></RouterLink>
+      </li>
+      <li>
+        <RouterLink to="/plans/new">New plan</RouterLink>
+      </li>
+      <li>
+        <RouterLink to="/commitments">Commitments</RouterLink>
+      </li>
+      <li>
+        <RouterLink to="/settings/availability">Availability</RouterLink>
       </li>
       <li>
         <button type="button" class="link-button nav-link-button" @click="ui.openNotifications">

@@ -58,3 +58,29 @@ describe('problem+json parsing', () => {
     expect(error.detail).toBe('Request failed with status 500');
   });
 });
+
+describe('constraint_violation problem payloads', () => {
+  it('accepts the contract code and keeps violations and errors', async () => {
+    const error = await apiErrorFromResponse(
+      problemResponse(
+        {
+          type: 'about:blank',
+          title: 'Constraint violation',
+          status: 422,
+          code: 'constraint_violation',
+          detail: 'Edited blocks overlap',
+          violations: [{ code: 'H1', message: 'Blocks overlap' }],
+          errors: [{ path: '/editedBlocks/0', message: 'block lies outside the plan horizon' }],
+        },
+        422,
+      ),
+    );
+
+    expect(error.code).toBe('constraint_violation');
+    expect(error.detail).toBe('Edited blocks overlap');
+    expect(error.problem?.violations).toEqual([{ code: 'H1', message: 'Blocks overlap' }]);
+    expect(error.problem?.errors).toEqual([
+      { path: '/editedBlocks/0', message: 'block lies outside the plan horizon' },
+    ]);
+  });
+});

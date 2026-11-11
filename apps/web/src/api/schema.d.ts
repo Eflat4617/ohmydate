@@ -741,7 +741,7 @@ export interface paths {
         put?: never;
         /**
          * Apply a today shrink/reschedule proposal
-         * @description If-Match is the proposal version W/"<proposal.version>"; approval creates a new plan version.
+         * @description If-Match is the user-wide availability version W/"availability:<n>", the same lock as plan approval (08 §2.4). The proposal persists its base plan version and availability snapshot; in one transaction the server re-reads availability and locked blocks, re-runs validation, supersedes prior active blocks and creates a new plan version. A stale snapshot returns 412 availability_changed.
          */
         post: operations["approveTodayProposal"];
         delete?: never;
@@ -1655,17 +1655,25 @@ export interface components {
             taskId: string;
             version: number;
         };
+        /** @description Starts a focus session. clientStartedAt is clamped to [serverNow - 24 h, serverNow + 2 min]; the clamp is recorded so offline replay is exactly-once but observable. */
         SessionCreate: {
             /** Format: uuid */
             blockId?: string;
             clientId: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Device clock at session start. The server accepts it within [serverNow - 24 h, serverNow + 2 min] and clamps values outside that window, recording the clamp.
+             */
             clientStartedAt: string;
             /** Format: uuid */
             taskId: string;
         };
+        /** @description Session event with its client timestamp. Clamping rules are [session.startedAt, serverNow + 2 min] plus per-session monotonicity; clamped values are recorded. */
         SessionEventRequest: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Device clock at the event. Accepted within [session.startedAt, serverNow + 2 min] and monotonic per session; out-of-range or out-of-order values are clamped to the nearest bound and the clamp is recorded.
+             */
             clientAt: string;
         };
         SessionIdParams: {
@@ -1850,7 +1858,11 @@ export interface components {
             taskId: string;
             title: string;
         };
+        /** @description Persisted shrink/reschedule proposal with its base plan version and availability snapshot. Approval re-validates availability atomically (08 §2.4). */
         TodayProposal: {
+            availabilityVersion: number;
+            /** Format: uuid */
+            basePlanVersionId: string;
             blocks: {
                 /** Format: uuid */
                 blockId: string;

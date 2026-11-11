@@ -140,7 +140,8 @@ export function remember(
   body: unknown,
   headers: Record<string, string> = {},
 ): void {
-  db.idempotency.set(token.key, { hash: token.hash, status, body, headers });
+  const snapshot = body === null ? null : structuredClone(body);
+  db.idempotency.set(token.key, { hash: token.hash, status, body: snapshot, headers });
 }
 
 function ensureInboxProject(db: MockDb): void {

@@ -79,6 +79,45 @@ describe.skipIf(!hasDatabase)('0009 today/session schema', () => {
     return id;
   }
 
+  async function insertScheduleBlock(ownerId: string, taskId: string): Promise<string> {
+    const planId = randomUUID();
+    await client.query(
+      `INSERT INTO plan
+         (id, owner_id, scope, status, availability_version,
+          horizon_start, horizon_end, time_zone)
+       VALUES ($1, $2, $3, 'active', 1, $4, $5, 'UTC')`,
+      [
+        planId,
+        ownerId,
+        { taskIds: [taskId] },
+        '2026-11-11T00:00:00Z',
+        '2026-11-12T00:00:00Z',
+      ],
+    );
+    const versionId = randomUUID();
+    await client.query(
+      `INSERT INTO plan_version
+         (id, owner_id, plan_id, seq, created_by, availability_version)
+       VALUES ($1, $2, $3, 1, 'user', 1)`,
+      [versionId, ownerId, planId],
+    );
+    const blockId = randomUUID();
+    await client.query(
+      `INSERT INTO schedule_block
+         (id, owner_id, plan_version_id, task_id, start_at, end_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        blockId,
+        ownerId,
+        versionId,
+        taskId,
+        '2026-11-11T09:00:00Z',
+        '2026-11-11T10:00:00Z',
+      ],
+    );
+    return blockId;
+  }
+
   test('creates the M4 tables with their documented columns', async () => {
     const result = await client.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
@@ -211,6 +250,36 @@ describe.skipIf(!hasDatabase)('0009 today/session schema', () => {
     expect(duplicateReview.constraint).toBe('task_completion_review_session_unique');
   });
 
+  test('cross-owner session block and review session FKs are rejected', async () => {
+    const ownerA = await insertUser();
+    const ownerB = await insertUser();
+    const taskA = await insertTask(ownerA);
+    const taskB = await insertTask(ownerB);
+    const blockB = await insertScheduleBlock(ownerB, taskB);
+
+    const crossBlock = await queryFailure(
+      client.query(
+        `INSERT INTO work_session (id, owner_id, task_id, block_id, started_at, client_id)
+         VALUES ($1, $2, $3, $4, $5, 'web')`,
+        [randomUUID(), ownerA, taskA, blockB, '2026-11-11T09:00:00Z'],
+      ),
+    );
+    expect(crossBlock.code).toBe('23503');
+    expect(crossBlock.constraint).toBe('work_session_block_fk');
+
+    const sessionB = await insertSession(ownerB, taskB, 'completed', '2026-11-11T10:00:00Z');
+    const crossReview = await queryFailure(
+      client.query(
+        `INSERT INTO task_completion_review
+           (id, owner_id, session_id, outcome)
+         VALUES ($1, $2, $3, 'done')`,
+        [randomUUID(), ownerA, sessionB],
+      ),
+    );
+    expect(crossReview.code).toBe('23503');
+    expect(crossReview.constraint).toBe('task_completion_review_session_fk');
+  });
+
   test('notifications dedupe per owner and enforce sent/state consistency', async () => {
     const ownerId = await insertUser();
     const insert = (dedupeKey: string) =>
@@ -241,6 +310,47 @@ describe.skipIf(!hasDatabase)('0009 today/session schema', () => {
     );
     expect(inconsistentSent.code).toBe('23514');
     expect(inconsistentSent.constraint).toBe('notification_sent_consistent');
+  });
+
+  test('sent -> dismissed preserves sent_at; unsent states reject sent_at', async () => {
+    const ownerId = await insertUser();
+    const sentAt = '2026-11-11T09:05:00Z';
+    const notificationId = randomUUID();
+    await client.query(
+      `INSERT INTO notification
+         (id, owner_id, kind, dedupe_key, scheduled_at, sent_at, channel, state)
+       VALUES ($1, $2, 'deadline_risk', 'deadline:history', $3, $4, 'push', 'sent')`,
+      [notificationId, ownerId, '2026-11-11T09:00:00Z', sentAt],
+    );
+
+    await client.query(
+      'UPDATE notification SET state = $1, version = version + 1 WHERE id = $2',
+      ['dismissed', notificationId],
+    );
+    const dismissed = await client.query<{ state: string; sent_at: Date }>(
+      'SELECT state, sent_at FROM notification WHERE id = $1',
+      [notificationId],
+    );
+    expect(dismissed.rows[0]?.state).toBe('dismissed');
+    expect(dismissed.rows[0]?.sent_at.toISOString()).toBe(new Date(sentAt).toISOString());
+
+    // A notification that was never sent may be dismissed without a timestamp.
+    await client.query(
+      `INSERT INTO notification (id, owner_id, kind, dedupe_key, scheduled_at, state)
+       VALUES ($1, $2, 'daily_summary', 'daily:never-sent', $3, 'dismissed')`,
+      [randomUUID(), ownerId, '2026-11-11T09:00:00Z'],
+    );
+
+    const scheduledWithSentAt = await queryFailure(
+      client.query(
+        `INSERT INTO notification
+           (id, owner_id, kind, dedupe_key, scheduled_at, sent_at, state)
+         VALUES ($1, $2, 'daily_summary', 'daily:scheduled-sent', $3, $4, 'scheduled')`,
+        [randomUUID(), ownerId, '2026-11-11T09:00:00Z', sentAt],
+      ),
+    );
+    expect(scheduledWithSentAt.code).toBe('23514');
+    expect(scheduledWithSentAt.constraint).toBe('notification_sent_consistent');
   });
 
   test('push subscriptions are HTTPS-only, unique by endpoint and store ciphertext', async () => {

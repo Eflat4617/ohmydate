@@ -129,6 +129,8 @@ test('today proposals expose only shrink/reschedule kinds and a version', () => 
     kind: 'shrink',
     date: '2026-11-11',
     timeZone: 'Asia/Seoul',
+    basePlanVersionId: OTHER_ID,
+    availabilityVersion: 7,
     blocks: [
       {
         blockId: BLOCK_ID,
@@ -144,6 +146,8 @@ test('today proposals expose only shrink/reschedule kinds and a version', () => 
   expect(validate({ ...proposal, kind: 'reschedule' })).toBe(true);
   expect(validate({ ...proposal, kind: 'delete' })).toBe(false);
   expect(validate({ ...proposal, expiresAt: INSTANT })).toBe(true);
+  expect(validate({ ...proposal, availabilityVersion: 0 })).toBe(false);
+  expect(validate({ ...proposal, basePlanVersionId: undefined })).toBe(false);
   expect(validate({ ...proposal, extra: true })).toBe(false);
   expect(validate({ ...proposal, blocks: [{ ...proposal.blocks[0], extra: true }] })).toBe(false);
 });

@@ -17,11 +17,28 @@ export interface VikunjaTaskBody {
 }
 
 export async function login(page: Page, state: E2EState): Promise<void> {
-  await page.goto(`${state.webUrl}/login`);
-  await page.getByLabel('Email').fill(state.email);
-  await page.getByLabel('Password').fill(state.password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.goto(`${state.webUrl}/login`);
+    await page.getByLabel('Email').fill(state.email);
+    await page.getByLabel('Password').fill(state.password);
+    const responsePromise = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' &&
+        new URL(response.url()).pathname.endsWith('/auth/login'),
+    );
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    const response = await responsePromise;
+    if (response.status() === 429) {
+      // The dev API allows five logins per minute per IP+email and exposes a
+      // fixed 60s window. Earlier E2E-1 scenarios use the whole budget, so wait
+      // for the window to roll over instead of failing the later suites.
+      await page.waitForTimeout(61_000);
+      continue;
+    }
+    await expect(page.getByRole('heading', { name: 'Inbox' })).toBeVisible();
+    return;
+  }
+  throw new Error('login was rate limited for three consecutive windows');
 }
 
 export async function fetchPlannerTasks(

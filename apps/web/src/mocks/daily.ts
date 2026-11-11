@@ -578,7 +578,7 @@ function buildProposal(
   date: string,
   blocks: TodayProposal['blocks'],
 ): TodayProposal {
-  const proposal: TodayProposal & { availabilityVersion: number; basePlanVersion: number } = {
+  const proposal: TodayProposal = {
     id: createUuidV7(),
     kind,
     date,
@@ -587,7 +587,7 @@ function buildProposal(
     version: 1,
     createdAt: new Date().toISOString(),
     availabilityVersion: db.today.version + 100,
-    basePlanVersion: db.today.version,
+    basePlanVersionId: '01900000-0000-7000-8000-0000000000d1',
   };
   db.proposals.set(proposal.id, {
     proposal,

@@ -315,6 +315,9 @@ export default async function globalSetup(): Promise<void> {
         PORT: String(apiPort),
         HOST: '127.0.0.1',
         LOG_LEVEL: 'warn',
+        LLM_PROVIDER: 'fake',
+        LLM_DAILY_BUDGET_USD: '10',
+        LLM_MONTHLY_BUDGET_USD: '100',
       },
     );
     apiPid = api.pid ?? 0;
