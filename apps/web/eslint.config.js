@@ -35,6 +35,7 @@ export default tseslint.config(
     files: ['src/**/*.ts', `src/${VUE_SCRIPT}`],
     // The one module that may touch browser storage.
     ignores: ['src/session/ownerStorage.ts'],
+    plugins: { 'owner-isolation': ownerIsolationPlugin },
     rules: storageRules,
   },
   {

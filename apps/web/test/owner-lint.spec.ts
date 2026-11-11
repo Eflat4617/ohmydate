@@ -21,7 +21,7 @@ async function lintAs(path: string, source: string) {
   return result.messages.map((message) => ({ rule: message.ruleId, id: message.messageId, line: message.line, text: message.message }));
 }
 
-const STORAGE_RULES = ['no-restricted-globals', 'no-restricted-properties', 'no-restricted-syntax'];
+const STORAGE_RULES = ['no-restricted-globals', 'owner-isolation/no-raw-storage'];
 
 describe('lint: browser storage only through session/ownerStorage.ts', () => {
   it('a view that uses localStorage / sessionStorage directly fails (negative)', async () => {
@@ -58,6 +58,58 @@ describe('lint: browser storage only through session/ownerStorage.ts', () => {
     const results = await eslint.lintFiles(migrated.map((path) => join(webRoot, path)));
     expect(results).toHaveLength(migrated.length);
     expect(results.flatMap((result) => result.messages)).toEqual([]);
+  }, 30_000);
+});
+
+describe('lint: storage through an alias of the browser global (FU-77R-1 H2)', () => {
+  /** Lines of a fixture that carry a `// <n>` marker: each must be reported. */
+  function numberedLines(source: string): number[] {
+    return source
+      .split('\n')
+      .map((line, index) => (/\/\/ \d+( |$)/.test(line) ? index + 1 : 0))
+      .filter((line) => line > 0);
+  }
+
+  it('TypeScript: alias, destructuring, window.window, self chains, defaultView, computed and reflective keys all fail (negative)', async () => {
+    const source = fixture('aliasedStorage.ts');
+    const messages = await lintAs('src/session/aliasedStorage.ts', source);
+    const reported = new Set(messages.map((message) => message.line));
+    expect(numberedLines(source)).toHaveLength(14);
+    expect(numberedLines(source).filter((line) => !reported.has(line))).toEqual([]);
+    expect(messages.every((message) => message.text.includes('src/session/ownerStorage.ts'))).toBe(true);
+  }, 30_000);
+
+  it('Vue script setup: the same aliases fail, on the lines of the .vue file (negative)', async () => {
+    const source = fixture('AliasedStorageView.vue');
+    const messages = await lintAs('src/views/AliasedStorageView.vue', source);
+    const reported = new Set(messages.map((message) => message.line));
+    expect(numberedLines(source)).toHaveLength(7);
+    expect(numberedLines(source).filter((line) => !reported.has(line))).toEqual([]);
+  }, 30_000);
+
+  it('the reviewer’s three probes fail in both file kinds (negative)', async () => {
+    const probes = [
+      'const browser = window; browser.localStorage.setItem("unscoped", "A-private");',
+      'const browser = globalThis; const { sessionStorage: store } = browser; store.setItem("x", "private");',
+      'window.window.localStorage.setItem("unscoped", "A-private");',
+    ];
+    for (const probe of probes) {
+      expect((await lintAs('src/session/review-probe.ts', `${probe}\nexport {};\n`)).length, probe).toBeGreaterThan(0);
+      const vue = `<script setup lang="ts">\n${probe}\n</script>\n<template><p /></template>\n`;
+      expect((await lintAs('src/views/ReviewProbe.vue', vue)).length, `vue: ${probe}`).toBeGreaterThan(0);
+    }
+  }, 30_000);
+
+  it('the allowances are unchanged: ownerStorage.ts and tests may use the names; types and unrelated keys are not flagged', async () => {
+    const [module] = await eslint.lintFiles([join(webRoot, 'src/session/ownerStorage.ts')]);
+    expect(module?.messages).toEqual([]);
+    expect(await lintAs('test/some-check.spec.ts', fixture('aliasedStorage.ts'))).toEqual([]);
+    const harmless = [
+      'export type Kept = Storage | IDBDatabase;',
+      'export function open(database: IDBDatabase): IDBTransaction { return database.transaction("events"); }',
+      'export const label = { storage: "기기에 저장", session: "세션" };',
+    ].join('\n');
+    expect(await lintAs('src/session/harmless.ts', harmless)).toEqual([]);
   }, 30_000);
 });
 

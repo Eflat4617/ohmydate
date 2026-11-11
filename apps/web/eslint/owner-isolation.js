@@ -10,40 +10,66 @@ const storageMessage = (name) =>
   `Do not use ${name} directly. Browser storage goes through src/session/ownerStorage.ts, ` +
   'which namespaces every key by owner and drops writes from a stale owner (ADR-023).';
 
+const STORAGE_NAME = new RegExp(`^(${STORAGE_GLOBALS.join('|')})$`);
+
 /**
- * Rules that make direct browser storage a lint error: the bare global, the
- * same property on window/globalThis/self, bracket access and destructuring.
+ * Browser storage by any route other than the bare global (which
+ * no-restricted-globals reports). The rule does not try to follow aliases of
+ * `window`: it rejects the storage NAMES wherever they are used to reach a
+ * value, whatever object they are read from —
+ *
+ *   const b = window; b.localStorage          a property of any object
+ *   window.window.localStorage                any chain
+ *   self.self.indexedDB, document.defaultView?.sessionStorage, parent.localStorage
+ *   const { sessionStorage: s } = globalThis  any destructuring, parameters too
+ *   b['localStorage'], b[`localStorage`]      a constant computed key
+ *   Reflect.get(window, 'indexedDB')          the name as a string, in any position
+ *
+ * A key computed at run time (`'local' + 'Storage'`) is beyond a static rule;
+ * the owner-switch sweep checks the keys that actually get stored.
+ */
+const noRawStorage = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'browser storage only through session/ownerStorage.ts' },
+    schema: [],
+    messages: { raw: storageMessage('{{name}}') },
+  },
+  create(context) {
+    const report = (node, name) => context.report({ node, messageId: 'raw', data: { name } });
+    return {
+      MemberExpression(node) {
+        const property = node.property;
+        if (!node.computed && property.type === 'Identifier' && STORAGE_NAME.test(property.name)) {
+          report(property, property.name);
+        }
+      },
+      Property(node) {
+        if (node.parent.type !== 'ObjectPattern' || node.computed) return;
+        if (node.key.type === 'Identifier' && STORAGE_NAME.test(node.key.name)) report(node.key, node.key.name);
+      },
+      Literal(node) {
+        if (typeof node.value === 'string' && STORAGE_NAME.test(node.value)) report(node, node.value);
+      },
+      TemplateLiteral(node) {
+        const text = node.expressions.length === 0 ? node.quasis[0]?.value.cooked : undefined;
+        if (typeof text === 'string' && STORAGE_NAME.test(text)) report(node, text);
+      },
+    };
+  },
+};
+
+/**
+ * Rules that make direct browser storage a lint error: the bare global
+ * (scope-aware, so a shadowing local is not mistaken for it) and every other
+ * way of naming it (owner-isolation/no-raw-storage).
  */
 export const storageRules = {
   'no-restricted-globals': [
     'error',
-    {
-      globals: STORAGE_GLOBALS.map((name) => ({ name, message: storageMessage(name) })),
-      checkGlobalObject: true,
-      globalObjects: ['window', 'globalThis', 'self'],
-    },
+    ...STORAGE_GLOBALS.map((name) => ({ name, message: storageMessage(name) })),
   ],
-  // Spelled out per object: the scope analysis behind checkGlobalObject does
-  // not know `window` in TypeScript sources.
-  'no-restricted-properties': [
-    'error',
-    ...['window', 'globalThis', 'self'].flatMap((object) =>
-      STORAGE_GLOBALS.map((property) => ({ object, property, message: storageMessage(property) })),
-    ),
-  ],
-  'no-restricted-syntax': [
-    'error',
-    ...STORAGE_GLOBALS.flatMap((name) => [
-      {
-        selector: `MemberExpression[computed=true][property.value='${name}']`,
-        message: storageMessage(name),
-      },
-      {
-        selector: `VariableDeclarator[init.name=/^(window|globalThis|self)$/] > ObjectPattern > Property[key.name='${name}']`,
-        message: storageMessage(name),
-      },
-    ]),
-  ],
+  'owner-isolation/no-raw-storage': 'error',
 };
 
 /**
@@ -210,5 +236,5 @@ const boundAwait = {
 
 export const ownerIsolationPlugin = {
   meta: { name: 'ohmydate-owner-isolation', version: '1.0.0' },
-  rules: { 'bound-await': boundAwait },
+  rules: { 'bound-await': boundAwait, 'no-raw-storage': noRawStorage },
 };
