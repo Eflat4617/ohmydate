@@ -1,0 +1,17 @@
+# UI-I18NR (ctx_611719a7e619, sol gpt-6.1-sol medium) — APPROVE (implementer Opus 5.5 xhigh)
+
+REVIEW VERDICT: APPROVE
+Findings (most severe first):
+  none
+Contract / license / security / migration impact: none; reviewed git diff torgal/ohmydate...e46f0af and applied WORKER-AND-REVIEW-CONTRACT section 4. All 141 changed paths are within apps/web/** or e2e/**; E2E changes adapt Korean text/accessibility selectors and their date-label helpers without changing flows. No dependencies, API contracts, migrations, upstream imports, mutation concurrency semantics, authentication or owner boundaries changed; interpolation renders text/VNodes without v-html. Existing assertion coverage is retained (no deleted tests, new skips, widened catch-all assertions or relaxed outcomes); FU-60 now waits on actual requests and settled controls. Typed missing-key/parameter/partial-locale probes are included in vue-tsc, the English-copy scanner has a working negative probe, all 19 problem codes plus unknown are covered, and formatter tests cover signed/zero/negative/multi-day/sub-minute/DST/range/USD cases. Shared consent/settings disclosure names OpenCode Go and DeepSeek, states transmitted input/step information, best-effort masking limitations including names/addresses/account numbers, and revocation; user/plan time zones are passed to display formatters. Korean accessible names remain meaningful, calendar names retain DST offsets, and real-API axe checks pass at desktop/mobile sizes; inspected the committed 130-visit MSW report (0 overflow, 0 critical/serious) and representative screenshots without regenerating artifacts.
+Missing tests: none blocking.
+Verification actually executed: yes — exact commands + exit codes:
+  corepack pnpm --filter @ohmydate/web test — exit 0; 32 files, 240 tests passed.
+  corepack pnpm --filter @ohmydate/web build — exit 0; 291 modules transformed, built successfully.
+  DATABASE_URL=postgres://ohmydate:ohmydate-dev-only@127.0.0.1:55432/planner_test VIKUNJA_URL=http://127.0.0.1:3456 corepack pnpm run ci — first run exit 1; unchanged services/api/test/db/migrate.test.ts:384 timed out at 30000ms, 1520 passed / 1 failed / 29 skipped; exact-command retry exit 0, 1521 passed / 29 skipped, web 240 passed, typecheck/lint/API-client clean, 368 files / 0 boundary violations, build-smoke healthz 200 and SIGTERM exit 0.
+  DATABASE_URL=postgres://ohmydate:ohmydate-dev-only@127.0.0.1:55432/planner_test VIKUNJA_URL=http://127.0.0.1:3456 corepack pnpm exec vitest run services/api/test/db/migrate.test.ts -t 'rolls back the latest migration and can apply it again' — exit 0; 1 passed / 12 unselected tests skipped, before the successful full CI retry.
+  DATABASE_URL=postgres://ohmydate:ohmydate-dev-only@127.0.0.1:55432/planner_test VIKUNJA_URL=http://127.0.0.1:3456 corepack pnpm run e2e — exit 0; 23 passed (3.8m), including critical/serious axe checks and keyboard/offline/owner-reset flows.
+  git diff --check torgal/ohmydate...e46f0af — exit 0.
+  git status --porcelain — exit 0, empty output.
+git status --porcelain after review: empty
+Residual risks: initial unrelated migration-test timeout suggests shared-infrastructure timing sensitivity; isolated test and full CI retry passed without changes. Server free text remains the explicitly excluded FU-62 follow-up. MSW sweep evidence was inspected rather than regenerated during this read-only review. No files modified and no commit created; reviewed HEAD e46f0af9763266349dc1c48e6b3a4eb00ea5e99c.
