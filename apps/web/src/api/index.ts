@@ -64,11 +64,27 @@ export {
   type PushSubscriptionCreate,
   type Export,
   type ExportStartResponse,
+  type ReplanProposal,
+  type ReplanProposalPage,
+  type ReplanProposalState,
+  type ReplanTrigger,
+  type ReplanTriggerKind,
+  type ReplanReasonCode,
+  type ReplanCandidate,
+  type ReplanBefore,
+  type ReplanBeforeBlock,
+  type ReplanCandidateFlag,
+  type ReplanRequest,
+  type EstimationProfile,
+  type EstimationProfileGroup,
+  type EstimationProfileItem,
+  type EstimationReset,
 } from './client';
 export { ApiError, apiErrorFromPayload, apiErrorFromResponse, parseProblem, type ApiErrorCode, type Problem, type ProblemCode } from './errors';
 export { findInboxProject } from './inbox';
 export {
   ActionStore,
+  isStoredFinalResult,
   isUuidV7Key,
   newActionId,
   uuidV7Key,

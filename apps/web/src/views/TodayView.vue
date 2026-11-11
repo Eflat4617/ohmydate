@@ -13,6 +13,8 @@ import {
   type Violation,
 } from '../api';
 import ProposalPreview from '../components/ProposalPreview.vue';
+import ReplanBanner from '../components/ReplanBanner.vue';
+import ReplanRequestButton from '../components/ReplanRequestButton.vue';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -33,6 +35,7 @@ import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 import { useToastStore } from '../stores/toast';
 import { focusClientId } from '../session/clientId';
+import { useLatestReplanPlan } from '../composables/useLatestReplanPlan';
 import {
   captureOwnerBinding,
   isOwnerBindingCurrent,
@@ -181,6 +184,10 @@ const riskTone = computed(() => {
       return 'success' as const;
   }
 });
+
+// M5-03: "재계획 요청" targets the plan of the newest replan proposal (its
+// server-provided planId, FU-70); Today itself carries no plan id.
+const { planId: replanPlanId } = useLatestReplanPlan();
 
 const isLoading = computed(
   () => todayQuery.isLoading.value || (today.value !== null && scheduleQuery.isLoading.value),
@@ -462,6 +469,7 @@ function resumeActive(): void {
     </UiBanner>
 
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
+    <ReplanBanner />
     <UiBanner v-if="resumeOffer && activeSession" tone="info" inline class="resume-banner">
       <span>{{ t('today.alreadyRunning') }}</span>
       <template #actions>
@@ -536,6 +544,7 @@ function resumeActive(): void {
             <UiButton block icon="check" :disabled="readOnly || busy" @click="acceptToday()">
               {{ t('today.acceptPlan') }}
             </UiButton>
+            <ReplanRequestButton v-if="replanPlanId" :plan-id="replanPlanId" variant="ghost" block />
           </div>
         </UiCard>
       </aside>

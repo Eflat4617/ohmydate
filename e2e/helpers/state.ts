@@ -21,6 +21,11 @@ export interface E2EState {
   readonly plansVikunjaToken: string;
   readonly plansVikunjaUserId: number;
   readonly plansInboxExternalId: string;
+  /** M5-03 E2E-5R: own owner so the replan daily cap (≤ 2/day) is not shared. */
+  readonly replanEmail: string;
+  readonly replanPassword: string;
+  /** Base (unscoped) database URL; tests add `search_path` for `databaseSchema`. */
+  readonly baseDatabaseUrl: string;
   readonly apiPid: number;
   readonly webPid: number;
   /**

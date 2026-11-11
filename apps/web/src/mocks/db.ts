@@ -7,9 +7,11 @@ import type {
   IntakeField,
   IntakeSession,
   IntakeState,
+  EstimationProfile,
   Plan,
   PlanVersion,
   Project,
+  ReplanProposal,
   PushSubscription,
   Task,
   ScheduleBlock,
@@ -19,6 +21,7 @@ import type {
   User,
   WorkSession,
 } from '../api/client';
+import { seedEstimationProfile } from './replan-seed';
 
 export interface StoredResponse {
   readonly hash: string;
@@ -67,6 +70,12 @@ export interface MockDb {
   notifications: Map<string, Notification>;
   pushSubscriptions: Map<string, PushSubscription>;
   exports: Map<string, Export>;
+  /** M5-03: replan proposals (empty by default; see `seedReplanScenario`). */
+  replanProposals: Map<string, ReplanProposal>;
+  /** Suppression windows after a rejection: reason code → until (epoch ms). */
+  replanSuppressions: Map<string, number>;
+  /** "내 패턴" profile (learned by default). */
+  estimation: EstimationProfile;
   idempotency: Map<string, StoredResponse>;
   pendingIdempotency: Set<string>;
   authenticated: boolean;
@@ -356,6 +365,13 @@ export function createMockDb(): MockDb {
     ]),
     pushSubscriptions: new Map(),
     exports: new Map(),
+    replanProposals: new Map(),
+    replanSuppressions: new Map(),
+    estimation: seedEstimationProfile({
+      templateId: REPORT_TEMPLATE_ID,
+      taskOne: TODAY_TASK_ONE_ID,
+      taskTwo: TODAY_TASK_TWO_ID,
+    }),
     idempotency: new Map(),
     pendingIdempotency: new Set(),
     authenticated: true,
@@ -389,6 +405,9 @@ export function resetMockDb(): void {
   mockDb.notifications = fresh.notifications;
   mockDb.pushSubscriptions = fresh.pushSubscriptions;
   mockDb.exports = fresh.exports;
+  mockDb.replanProposals = fresh.replanProposals;
+  mockDb.replanSuppressions = fresh.replanSuppressions;
+  mockDb.estimation = fresh.estimation;
   mockDb.idempotency = fresh.idempotency;
   mockDb.pendingIdempotency = fresh.pendingIdempotency;
   mockDb.authenticated = fresh.authenticated;

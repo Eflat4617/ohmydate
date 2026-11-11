@@ -167,7 +167,9 @@ The UI is Korean (`<html lang="ko">`). All copy lives in one bundled catalog,
 - **Glossary.** 오늘 · 인박스 · 작업 · 프로젝트 · 알림 · 약속 (commitment) · 가용 시간 ·
   집중 / 집중 세션 · 몰입 모드 (calm mode) · 계획 세우기 / 계획 마법사 · 일정안 / 후보 ·
   블록 · 여유 (slack) · 위험도 · 축소 / 재배치 · 제안 · 확정 (plan) / 승인 (draft,
-  proposal) · 회고 (session review) · 직접 작성 모드 (manual mode). Messages use
+  proposal) · 회고 (session review) · 직접 작성 모드 (manual mode) · 재계획 (replan) ·
+  재계획 요청 (user-requested replan) · 고정된 블록 (locked block) · 내 패턴
+  (personal estimation profile) · 기록 (estimation feedback item). Messages use
   polite 해요체; buttons and labels stay short.
 - **Formatting** (`src/i18n/format.ts`, `Intl` in the user's or plan's IANA
   zone): `11월 14일 (토)`, `오후 7:00`, `오후 7:00~8:30`, `오전 10:30~오후 1:30`,
@@ -186,6 +188,55 @@ The UI is Korean (`<html lang="ko">`). All copy lives in one bundled catalog,
   `.vue` template and UI script for English copy; `test/i18n-format.spec.ts`
   covers the formatters (0, negative, more than a day, DST days).
 
+## Replanning and 내 패턴 (M5-03)
+
+- **Entry points.** Today shows a calm `UiBanner` when proposals are pending
+  (count, the reason in Korean, *제안 확인하기* / *모든 제안 보기*). It only
+  links; approving always happens on the detail screen. A detected proposal's
+  notification (`replan_proposal:<id>`) gets a *제안 보기* link. The nav rail
+  (Planning group) and the More sheet list *재계획 제안* and *내 패턴*.
+- **Detail (`/replan/:id`).** Why (trigger + reason chip + affected tasks +
+  candidate flags as warn banners), key metrics in a table (deadline slack and
+  planned focus now → proposed, changed blocks / bound, deficit), then *only the
+  changed blocks* (옮김 / 줄어듦 / 늘어남 / 추가 / 빠짐 with `<del>` before and
+  `<ins>` after times). Locked blocks are listed separately as unchanged with a
+  lock icon and *고정됨* text; untouched blocks are a count. The scheduler's
+  reasons and 422 findings render through `ExplanationList` (FU-62 coded
+  `explanationItems` / violation `messageCode` in Korean); rows persisted
+  before FU-62 keep the original lines under *계산 근거 (원문)* (`lang="en"`).
+  The diff and the metrics come only from the server (FU-70, M5-03R-1 H1):
+  `candidate.blocks` against `proposal.before.blocks` (every block of the base
+  plan that approval replaces or keeps, over the whole horizon, locked flag
+  included) and `candidate.metrics` against `before.metrics` (same rules).
+  The web never queries a calendar window to rebuild the before side. A
+  proposal persisted without a snapshot shows its candidate blocks only, with
+  a notice that the comparison is unavailable — never a guessed diff.
+- **Actions.** *승인* sends `If-Match: W/"availability:<n>"` (the proposal's
+  snapshot) plus a UUIDv7 `Idempotency-Key`; 412 opens an `alertdialog`
+  (*새로 고침* / *지금 상태로 다시 계산*), 409 `proposal_state_conflict` re-reads
+  and shows the read-only state. *거절* first explains the 24 h same-reason
+  suppression (with the end time) in a dialog whose focus starts on *취소*.
+  *재계획 요청* shows `409 replan_suppressed` as a wait (`1일 뒤(11월 15일 (일)
+  오후 6:40)`) from `Retry-After`. Every action keeps its Idempotency-Key across
+  network loss and transient answers (`idempotency_in_progress`,
+  `approval_in_progress`, 5xx) and only takes a fresh key after a stored final
+  result (2xx or a stored 409/422 such as `replan_suppressed`) —
+  `isStoredFinalResult` in `src/api/idempotency.ts` (M5-03R-1 M1). Approved / rejected / expired / superseded
+  proposals are read-only. Outcomes are announced in a polite live region and
+  focus moves to the state summary.
+- **Plan id.** Proposals carry `planId` and `basePlanVersion` (FU-70). The
+  request button uses the proposal's plan on its detail page, the plan's own id
+  on an active plan page, and the newest proposal's `planId` on Today and the
+  list; nothing is remembered on the device.
+- **내 패턴 (`/patterns`).** Summary (counted records, confidence as
+  낮음/보통/높음 + %), the cold-start rule (template, else AI ×1.3 with low
+  confidence) and the shrinkage/outlier rules in Korean, one card per task type
+  (prior 1배 · personal mean · applied P50/P90 correction · record count ·
+  confidence), and the feedback list with an *통계에 포함* switch per item
+  (`PATCH /estimation/feedback/{id}` with `If-Match`). Resets (all, or one
+  template) use an `alertdialog` that states how many records go and that it
+  cannot be undone. Only minutes and ratios are shown — never review notes.
+
 ## Evidence
 
 `before/` was captured at the base commit and `after/` on the UI-POLISH
@@ -198,7 +249,18 @@ to 2026-11-14 Asia/Seoul. There are no real accounts or personal data.
 # from apps/web; starts vite in mock mode on :5199
 node scripts/ui-screenshots.mjs --label after-ko
 node scripts/ui-screenshots.mjs --label after-ko --only 14-today
+# M5-03 screens (22–33) into m5-03/
+node scripts/ui-screenshots.mjs --label m5-03 --flows replan,patterns
 ```
+
+`m5-03/` holds the M5-03 screens: Today with a pending proposal (22), the
+notifications link (32), the proposal detail (23, light/dark, full page), the
+reject confirmation (24), the list with history (25), an expired proposal (26),
+the 412 conflict dialog (33), the approved state (27), a suppressed request
+(28, full page), 내 패턴 learned (29, light/
+dark, full page), its reset confirmation (30) and the cold start (31). The
+mock seeds them with `window.__OHMYDATE_MOCK__ = { replan: 'history' }` /
+`{ estimation: 'cold' }` (`src/mocks/replan.ts`).
 
 The script visits every screen at 390×844, 1440×900 and 360×780 (the last is
 checked but not captured), in light and dark. It keeps PNGs for all light
@@ -212,6 +274,7 @@ on any overflow. Results are in `<label>/sweep-report.json`:
 | before | 120 | 14 | plan comparison: page overflow at 390/360 and `target-size` (serious); review: overflow at 390/360; availability: `aria-required-children` (critical) in all viewports |
 | after | 130 | 0 | none. The 10 extra visits are the Focus calm-mode screen |
 | after-ko | 130 | 0 | none (Korean copy, same screens; the 360px checks pass with the longer Korean labels) |
+| m5-03 | 72 | 0 | none (M5-03 screens only: `--flows replan,patterns`) |
 
 The real API is covered too. `e2e/tests/e2e-a11y-screens.spec.ts` runs the
 same axe tags against PostgreSQL + Vikunja on the screens E2E-1..4 do not

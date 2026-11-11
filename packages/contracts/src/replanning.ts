@@ -12,6 +12,7 @@ import {
   MinuteSchema,
   PlanBlockSchema,
   PlanMetricsSchema,
+  ScheduleBlockSchema,
 } from './planning.js';
 import { EstimationQualitySchema } from './today.js';
 
@@ -119,6 +120,50 @@ export const ReplanCandidateSchema = Type.Object(
   { additionalProperties: false, $id: 'ReplanCandidate' },
 );
 
+/** Slack of one deadline task in the before snapshot (06 §6 `minSlackMin` rule). */
+export const ReplanTaskSlackSchema = Type.Object(
+  {
+    taskId: IdSchema,
+    dueAt: InstantSchema,
+    /** due − buffer − end of the task's last occupied interval; signed, unrounded. */
+    slackMin: Type.Number(),
+  },
+  { additionalProperties: false, $id: 'ReplanTaskSlack' },
+);
+
+/**
+ * Metrics of the before side, computed by the server with the same rules as
+ * `candidate.metrics` (06 §6): `totalFocusMin` sums every interval the
+ * scheduler would count (locked/other live blocks, history and the plan's
+ * movable blocks), `minSlackMin` is the smallest deadline slack (or horizon
+ * end − last end without deadlines).
+ */
+export const ReplanBeforeMetricsSchema = Type.Object(
+  {
+    totalFocusMin: Type.Number({ minimum: 0 }),
+    minSlackMin: Type.Number(),
+    taskSlack: Type.Array(ReplanTaskSlackSchema, { maxItems: 500 }),
+  },
+  { additionalProperties: false, $id: 'ReplanBeforeMetrics' },
+);
+
+/**
+ * FU-70 / M5-03R-1 H1: authoritative before side of a proposal, captured when
+ * the proposal was computed. `blocks` is every block of the base plan that the
+ * candidate replaces (unlocked, not done, starting at or after `capturedAt`)
+ * or keeps (locked future blocks, `locked = true`), across the whole plan
+ * horizon. Clients diff `candidate.blocks` against exactly this set and never
+ * query a calendar window to reconstruct it.
+ */
+export const ReplanBeforeSchema = Type.Object(
+  {
+    capturedAt: InstantSchema,
+    blocks: Type.Array(ScheduleBlockSchema, { maxItems: 5_000 }),
+    metrics: ReplanBeforeMetricsSchema,
+  },
+  { additionalProperties: false, $id: 'ReplanBefore' },
+);
+
 /**
  * Persisted replan proposal. Nothing is applied until
  * `POST /replan-proposals/{id}:approve`, which reuses the plan-approval
@@ -130,10 +175,16 @@ export const ReplanProposalSchema = Type.Object(
   {
     id: IdSchema,
     state: ReplanProposalStateSchema,
+    /** Plan the proposal replans (`POST /replan-proposals:request` takes it back). */
+    planId: IdSchema,
     trigger: ReplanTriggerSchema,
     basePlanVersionId: IdSchema,
+    /** Plan resource version (`W/"<n>"` of `GET /plans/{id}`) the proposal was computed from. */
+    basePlanVersion: Type.Integer({ minimum: 1 }),
     availabilityVersion: Type.Integer({ minimum: 1 }),
     candidate: ReplanCandidateSchema,
+    /** Absent only for proposals persisted before FU-70: clients must not guess a diff then. */
+    before: Type.Optional(ReplanBeforeSchema),
     createdAt: InstantSchema,
     expiresAt: InstantSchema,
     version: VersionSchema,
@@ -320,6 +371,9 @@ export type ReplanProposalState = Static<typeof ReplanProposalStateSchema>;
 export type ReplanCandidateFlag = Static<typeof ReplanCandidateFlagSchema>;
 export type ReplanTriggerDto = Static<typeof ReplanTriggerSchema>;
 export type ReplanCandidateDto = Static<typeof ReplanCandidateSchema>;
+export type ReplanTaskSlack = Static<typeof ReplanTaskSlackSchema>;
+export type ReplanBeforeMetrics = Static<typeof ReplanBeforeMetricsSchema>;
+export type ReplanBefore = Static<typeof ReplanBeforeSchema>;
 export type ReplanProposal = Static<typeof ReplanProposalSchema>;
 export type ReplanProposalPage = Static<typeof ReplanProposalPageSchema>;
 export type ReplanProposalListQuery = Static<typeof ReplanProposalListQuerySchema>;

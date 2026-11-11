@@ -4,6 +4,7 @@ import type {
   Plan,
   PlanBlock,
   PlanVersionDto,
+  ReplanBefore,
   ReplanCandidateDto,
   ReplanCandidateFlag,
   ReplanProposal,
@@ -53,6 +54,7 @@ import {
   type Assembled,
   type ResolvedExtras,
 } from './plan-service.js';
+import { buildBeforeSnapshot } from './replan-before.js';
 import { detectTriggers, type DetectedTrigger } from './replan-detection.js';
 import { ReplanSuppressedError, proposalStateConflict } from './replan-errors.js';
 
@@ -78,6 +80,8 @@ export interface ReplanProposalRecord {
   readonly state: ReplanProposalState;
   readonly trigger: ReplanTriggerDto;
   readonly candidate: ReplanCandidateDto;
+  /** FU-70: authoritative before side; absent for rows persisted before it. */
+  readonly before?: ReplanBefore | undefined;
   readonly policy: string;
   readonly availabilityVersion: number;
   readonly createdAt: Instant;
@@ -95,6 +99,7 @@ export interface NewReplanProposal {
   readonly availabilityVersion: number;
   readonly trigger: ReplanTriggerDto;
   readonly candidate: ReplanCandidateDto;
+  readonly before: ReplanBefore;
   readonly policy: string;
   readonly now: Instant;
   readonly expiresAt: Instant;
@@ -214,6 +219,7 @@ interface ReplanContext {
 
 interface BuiltCandidate {
   readonly candidate: ReplanCandidateDto;
+  readonly before: ReplanBefore;
   readonly policy: string;
   readonly noop: boolean;
 }
@@ -237,6 +243,7 @@ export function toReplanProposalDto(record: ReplanProposalRecord): ReplanProposa
   return {
     id: record.id,
     state: record.state,
+    planId: record.planId,
     trigger: {
       kind: record.trigger.kind,
       reason: record.trigger.reason,
@@ -244,8 +251,10 @@ export function toReplanProposalDto(record: ReplanProposalRecord): ReplanProposa
       affectedTaskIds: [...record.trigger.affectedTaskIds],
     },
     basePlanVersionId: record.basePlanVersionId,
+    basePlanVersion: record.basePlanRevision,
     availabilityVersion: record.availabilityVersion,
     candidate: record.candidate,
+    ...(record.before === undefined ? {} : { before: record.before }),
     createdAt: record.createdAt,
     expiresAt: record.expiresAt,
     version: record.version,
@@ -546,6 +555,7 @@ export class ReplanService {
       availabilityVersion: context.availability.version,
       trigger,
       candidate: built.candidate,
+      before: built.before,
       policy: built.policy,
       now,
       expiresAt: epochMsToInstant(instantToEpochMs(now) + REPLAN_PROPOSAL_TTL_MS),
@@ -712,6 +722,12 @@ export class ReplanService {
     };
     return {
       candidate,
+      before: buildBeforeSnapshot({
+        now: context.now,
+        planBlocks: context.planBlocks,
+        scheduleInput: input,
+        historyBlocks: assembled.historyBlocks,
+      }),
       policy: chosen.policy,
       noop: sameKeys(blockMultiset(blocks), blockMultiset(currentFuture)),
     };

@@ -370,10 +370,12 @@ export default async function globalSetup(): Promise<void> {
     const fixture = await createVikunjaFixture(vikunjaUrl, 'main');
     const todayFixture = await createVikunjaFixture(vikunjaUrl, 'today');
     const plansFixture = await createVikunjaFixture(vikunjaUrl, 'plans');
+    const replanFixture = await createVikunjaFixture(vikunjaUrl, 'replan');
 
     await createPlannerOwner(databaseUrl, fixture, 'VIKUNJA_TOKEN_OWNER_E2E');
     await createPlannerOwner(databaseUrl, todayFixture, 'VIKUNJA_TOKEN_OWNER_E2E_TODAY');
     await createPlannerOwner(databaseUrl, plansFixture, 'VIKUNJA_TOKEN_OWNER_E2E_PLANS');
+    await createPlannerOwner(databaseUrl, replanFixture, 'VIKUNJA_TOKEN_OWNER_E2E_REPLAN');
 
     const apiPort = await freePort();
     const apiUrl = `http://127.0.0.1:${apiPort}`;
@@ -388,6 +390,7 @@ export default async function globalSetup(): Promise<void> {
         VIKUNJA_TOKEN_OWNER_E2E: fixture.token,
         VIKUNJA_TOKEN_OWNER_E2E_TODAY: todayFixture.token,
         VIKUNJA_TOKEN_OWNER_E2E_PLANS: plansFixture.token,
+        VIKUNJA_TOKEN_OWNER_E2E_REPLAN: replanFixture.token,
         PORT: String(apiPort),
         HOST: '127.0.0.1',
         LOG_LEVEL: 'warn',
@@ -423,7 +426,7 @@ export default async function globalSetup(): Promise<void> {
     webPid = web.pid ?? 0;
     await waitForHttp(`${webUrl}/`, (response) => response.status === 200, 60_000);
 
-    const state: E2EState & { baseDatabaseUrl: string } = {
+    const state: E2EState = {
       webUrl,
       apiUrl,
       vikunjaUrl,
@@ -444,6 +447,8 @@ export default async function globalSetup(): Promise<void> {
       plansVikunjaToken: plansFixture.token,
       plansVikunjaUserId: plansFixture.vikunjaUserId,
       plansInboxExternalId: plansFixture.inboxExternalId,
+      replanEmail: replanFixture.email,
+      replanPassword: replanFixture.password,
       apiPid,
       webPid,
       ...(clockOffsetMs === 0 ? {} : { clockOffsetMs }),

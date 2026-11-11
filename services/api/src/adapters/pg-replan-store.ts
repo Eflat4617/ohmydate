@@ -1,4 +1,5 @@
 import type {
+  ReplanBefore,
   Availability,
   AvailabilityPreferencesDto,
   Commitment,
@@ -115,6 +116,66 @@ function parseBlocks(value: unknown): PlanBlock[] {
   return blocks;
 }
 
+const BLOCK_STATUSES = new Set(['planned', 'done', 'skipped', 'moved', 'superseded']);
+
+/**
+ * FU-70 before snapshot. Strict: a snapshot with any malformed entry is
+ * dropped (returned undefined) rather than repaired, so clients show "no
+ * comparison" instead of a partial — and therefore misleading — diff.
+ */
+function parseBefore(value: unknown): ReplanBefore | undefined {
+  if (!isRecord(value) || typeof value['capturedAt'] !== 'string') return undefined;
+  const rawBlocks = value['blocks'];
+  const rawMetrics = value['metrics'];
+  if (!Array.isArray(rawBlocks) || !isRecord(rawMetrics)) return undefined;
+  const blocks: ReplanBefore['blocks'] = [];
+  for (const entry of rawBlocks) {
+    if (
+      !isRecord(entry) ||
+      typeof entry['id'] !== 'string' ||
+      typeof entry['planVersionId'] !== 'string' ||
+      typeof entry['taskId'] !== 'string' ||
+      typeof entry['startAt'] !== 'string' ||
+      typeof entry['endAt'] !== 'string' ||
+      typeof entry['locked'] !== 'boolean' ||
+      typeof entry['status'] !== 'string' ||
+      !BLOCK_STATUSES.has(entry['status']) ||
+      typeof entry['version'] !== 'number'
+    ) {
+      return undefined;
+    }
+    blocks.push({
+      id: entry['id'],
+      planVersionId: entry['planVersionId'],
+      taskId: entry['taskId'],
+      startAt: entry['startAt'],
+      endAt: entry['endAt'],
+      locked: entry['locked'],
+      status: entry['status'] as ReplanBefore['blocks'][number]['status'],
+      version: entry['version'],
+    });
+  }
+  const totalFocusMin = rawMetrics['totalFocusMin'];
+  const minSlackMin = rawMetrics['minSlackMin'];
+  const rawSlack = rawMetrics['taskSlack'];
+  if (typeof totalFocusMin !== 'number' || typeof minSlackMin !== 'number' || !Array.isArray(rawSlack)) {
+    return undefined;
+  }
+  const taskSlack: ReplanBefore['metrics']['taskSlack'] = [];
+  for (const entry of rawSlack) {
+    if (
+      !isRecord(entry) ||
+      typeof entry['taskId'] !== 'string' ||
+      typeof entry['dueAt'] !== 'string' ||
+      typeof entry['slackMin'] !== 'number'
+    ) {
+      return undefined;
+    }
+    taskSlack.push({ taskId: entry['taskId'], dueAt: entry['dueAt'], slackMin: entry['slackMin'] });
+  }
+  return { capturedAt: value['capturedAt'], blocks, metrics: { totalFocusMin, minSlackMin, taskSlack } };
+}
+
 function parseMetrics(value: unknown): PlanMetricsDto {
   const record = isRecord(value) ? value : {};
   return {
@@ -137,6 +198,7 @@ function parseStrings(value: unknown): string[] {
 interface StoredPayload {
   readonly trigger: ReplanTriggerDto;
   readonly candidate: ReplanCandidateDto;
+  readonly before: ReplanBefore | undefined;
   readonly basePlanRevision: number;
   readonly policy: string;
 }
@@ -166,6 +228,7 @@ function parsePayload(
       explanation,
       explanationItems: parseExplanationItems(candidate['explanationItems'], explanation.length),
     },
+    before: parseBefore(record['before']),
     basePlanRevision: numberOr(record['basePlanRevision'], 1),
     policy: typeof record['policy'] === 'string' ? record['policy'] : 'balanced',
   };
@@ -203,6 +266,7 @@ function mapProposal(row: ProposalRow): ReplanProposalRecord {
     state: row.state as ReplanProposalState,
     trigger: payload.trigger,
     candidate: payload.candidate,
+    ...(payload.before === undefined ? {} : { before: payload.before }),
     policy: payload.policy,
     availabilityVersion: row.availability_version,
     createdAt: toInstant(row.created_at),
@@ -227,6 +291,15 @@ function payloadJson(input: NewReplanProposal): JsonValue {
       flags: [...input.candidate.flags],
       explanation: [...input.candidate.explanation],
       explanationItems: explanationItemsJson(input.candidate.explanationItems ?? []),
+    },
+    before: {
+      capturedAt: input.before.capturedAt,
+      blocks: input.before.blocks.map((block) => ({ ...block })),
+      metrics: {
+        totalFocusMin: input.before.metrics.totalFocusMin,
+        minSlackMin: input.before.metrics.minSlackMin,
+        taskSlack: input.before.metrics.taskSlack.map((entry) => ({ ...entry })),
+      },
     },
     basePlanRevision: input.basePlanRevision,
     policy: input.policy,
