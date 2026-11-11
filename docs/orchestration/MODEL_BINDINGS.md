@@ -91,3 +91,7 @@
 - 실행: `worker-start --agent claude --model claude-fable-5-2 --effort medium`(기존 worktree) 또는 `start-claude-worker.sh`에 MODEL/EFFORT 지정. 역할은 재설계/돌파 구현(또는 원인 분석 문서) — 리뷰는 계속 Sol 6.1 medium(구현자와 계열 분리; Sol 한도 시 Opus).
 - 원장에 "돌파구 워커 사용 사유"를 기록.
 - 2026-11-12 00:45 사용자: "페이블 사용할 경우가 생기면, midium 말고 xhigh로 쓰도록해." → 이후 모든 Fable 워커는 `--effort xhigh`. 확인: `claude -p --model claude-fable-5-2 --effort xhigh` → FABLE_OK. 진행 중이던 FU-69(medium, 초기 단계)는 xhigh로 재시작(ctx_8945147a5825).
+
+## 11. 오케스트레이터 effort = xhigh (2026-11-12 02:20, 사용자 변경)
+- 사용자가 `/effort xhigh` 실행 → 세션 env `CLAUDE_EFFORT=xhigh`, Orca 프로필 settings.json `modelSettings.claude-opus-5-5.effortLevel = "xhigh"`(새 세션 기본값). 이전 값 medium.
+- 재시작 시 Orca가 `CLAUDE_EFFORT`를 다른 값으로 넘기면 우선할 수 있음 → 재시작 직후 env 확인, 다르면 사용자에게 보고.

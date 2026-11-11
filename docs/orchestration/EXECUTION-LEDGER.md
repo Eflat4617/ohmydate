@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 02:20 | **사용자: 오케스트레이터 effort medium → xhigh** (/effort xhigh). 확인: env CLAUDE_EFFORT=xhigh, 프로필 settings modelSettings.claude-opus-5-5.effortLevel=xhigh (MODEL_BINDINGS §11). FU-69 worker_done(8950bd5, Fable xhigh) → FU-69R Sol medium 리뷰 ctx_9fa912b787a7 | 사용자 명령 | orchestrator |
 | 2026-11-12 02:00 | **M6 시작**: M6-01 노트 백엔드 + 노트 LLM 맥락·인젝션 방어 + 20종 평가(Opus xhigh, ctx_3a01e0205696, migration 0013), M6-02 적응형 레이아웃 ui-policy + 렌더러 + undo(Opus xhigh, ctx_08a68c1afce0) 병렬. 다음: M6-03 노트 UI + E2E-6 | packets/M6-01.md, M6-02.md | orchestrator |
 | 2026-11-12 01:45 | **M5-03 merged 1894e7f** (M5-03R2 APPROVE, Sol; LOW → FU-72). 통합 CI 1649 pass + web 307, **통합 E2E 24/24 pass**. **M5 DoD 충족**(estimator 회귀, G04/G08/G09, 억제 규칙, E2E-5R) — 단 FU-69(재계획 property 반례, Fable xhigh 진행 중)는 M5 잔여 HIGH로 추적 | reviews/M5-03R2.md, e2e-m5.log | orchestrator |
 | 2026-11-12 00:50 | **M5-03R-1 REQUEST_CHANGES**: HIGH 1 — 비교 기준 블록 조회가 후보 끝+14일로 잘려 원래 블록 누락 → '추가'로 오표시(긴 기간 이동). MEDIUM 1 — idempotency_in_progress에서 키 폐기. 수정 1/2: **FU-70을 이 라운드에 흡수**(서버가 권위 있는 before 스냅샷+planId+before 지표를 additive로 제공; 범위 확장: packages/contracts, services/api) → ctx_2e7c49bacb21 | reviews/M5-03R-1.md | orchestrator |
