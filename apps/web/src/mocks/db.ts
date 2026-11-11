@@ -1,4 +1,17 @@
-import type { Project, Task, User } from '../api/client';
+import type {
+  Availability,
+  Commitment,
+  DecompositionStep,
+  IntakeField,
+  IntakeSession,
+  IntakeState,
+  Plan,
+  PlanVersion,
+  Project,
+  Task,
+  TaskTemplate,
+  User,
+} from '../api/client';
 
 export interface StoredResponse {
   readonly hash: string;
@@ -7,11 +20,24 @@ export interface StoredResponse {
   readonly headers: Record<string, string>;
 }
 
+export interface MockIntakeSession extends IntakeSession {
+  askedFields: IntakeField[];
+  pausedFrom?: IntakeState;
+  createdTaskIds?: string[];
+}
+
 export interface MockDb {
   user: User;
   inboxProjectId: string;
   projects: Map<string, Project>;
   tasks: Map<string, Task>;
+  intakeSessions: Map<string, MockIntakeSession>;
+  templates: Map<string, TaskTemplate>;
+  availability: Availability;
+  availabilityVersion: number;
+  commitments: Map<string, Commitment>;
+  plans: Map<string, Plan>;
+  planVersions: Map<string, PlanVersion>;
   idempotency: Map<string, StoredResponse>;
   pendingIdempotency: Set<string>;
   authenticated: boolean;
@@ -19,9 +45,13 @@ export interface MockDb {
   projectRevision: number;
 }
 
+export const SEED_COMMITMENT_ID = '01900000-0000-7000-8000-000000000010';
+export const SEED_ONE_OFF_COMMITMENT_ID = '01900000-0000-7000-8000-000000000011';
+
 export const USER_ID = '01900000-0000-7000-8000-000000000002';
 export const INBOX_PROJECT_ID = '01900000-0000-7000-8000-000000000001';
 export const SAMPLE_PROJECT_ID = '01900000-0000-7000-8000-000000000003';
+export const REPORT_TEMPLATE_ID = '01900000-0000-7000-8000-0000000000b1';
 export const SEED_TASK_TITLE = 'Review weekly plan';
 
 export function createUuidV7(): string {
@@ -58,6 +88,63 @@ function seedTask(title: string, version: number): Task {
   };
 }
 
+function seedReportTemplate(createdAt: string): TaskTemplate {
+  const steps: DecompositionStep[] = [
+    {
+      key: 's1',
+      title: '자료 조사',
+      deliverable: '참고 자료 목록',
+      doneCriteria: '핵심 출처 3개 이상 정리',
+      kind: 'prep',
+      estimate: { p50Minutes: 45, p90Minutes: 75 },
+      dependsOn: [],
+      splittable: true,
+    },
+    {
+      key: 's2',
+      title: '초안 작성',
+      deliverable: '보고서 초안',
+      doneCriteria: '요구된 목차를 모두 채움',
+      kind: 'work',
+      estimate: { p50Minutes: 120, p90Minutes: 180 },
+      dependsOn: ['s1'],
+      splittable: true,
+    },
+    {
+      key: 's3',
+      title: '검토 및 수정',
+      deliverable: '수정된 보고서',
+      doneCriteria: '검토 의견을 모두 반영',
+      kind: 'review',
+      estimate: { p50Minutes: 30, p90Minutes: 45 },
+      dependsOn: ['s2'],
+      splittable: false,
+    },
+    {
+      key: 's4',
+      title: '제출 준비',
+      deliverable: '제출본',
+      doneCriteria: '형식과 파일명 확인',
+      kind: 'buffer',
+      estimate: { p50Minutes: 15, p90Minutes: 30 },
+      dependsOn: ['s3'],
+      splittable: false,
+    },
+  ];
+  return {
+    id: REPORT_TEMPLATE_ID,
+    ownerId: USER_ID,
+    name: '보고서 작성',
+    steps,
+    stats: { sampleCount: 3, meanRatio: 1.08, p90Ratio: 1.32 },
+    source: 'system',
+    confidence: 0.82,
+    version: 1,
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
 export function createMockDb(): MockDb {
   const createdAt = '2026-11-01T08:00:00.000Z';
   const user: User = {
@@ -90,6 +177,52 @@ export function createMockDb(): MockDb {
     updatedAt: createdAt,
   };
   const seededTask = seedTask(SEED_TASK_TITLE, 1);
+  const reportTemplate = seedReportTemplate(createdAt);
+  const availability: Availability = {
+    version: 1,
+    timeZone: 'Asia/Seoul',
+    rules: [
+      { weekday: 1, startLocal: '09:00', endLocal: '18:00', kind: 'work' },
+      { weekday: 2, startLocal: '09:00', endLocal: '18:00', kind: 'work' },
+      { weekday: 3, startLocal: '09:00', endLocal: '18:00', kind: 'work' },
+      { weekday: 4, startLocal: '09:00', endLocal: '18:00', kind: 'work' },
+      { weekday: 5, startLocal: '09:00', endLocal: '18:00', kind: 'work' },
+    ],
+    exceptions: [],
+    prefs: {
+      maxDailyFocusMin: 300,
+      breakAfterMin: 60,
+      breakMin: 15,
+      dayStartLocal: '08:00',
+      dayEndLocal: '22:00',
+      riskLevel: 'p50',
+    },
+  };
+  const teamSync: Commitment = {
+    id: SEED_COMMITMENT_ID,
+    ownerId: USER_ID,
+    title: 'Team sync',
+    startAt: '2026-11-09T00:00:00.000Z',
+    endAt: '2026-11-09T01:00:00.000Z',
+    timeZone: 'Asia/Seoul',
+    rrule: 'FREQ=WEEKLY;BYDAY=MO',
+    source: 'manual',
+    version: 1,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  const thesisReview: Commitment = {
+    id: SEED_ONE_OFF_COMMITMENT_ID,
+    ownerId: USER_ID,
+    title: 'Thesis review',
+    startAt: '2026-11-11T10:00:00.000Z',
+    endAt: '2026-11-11T11:00:00.000Z',
+    timeZone: 'Asia/Seoul',
+    source: 'manual',
+    version: 1,
+    createdAt,
+    updatedAt: createdAt,
+  };
   return {
     user,
     inboxProjectId: INBOX_PROJECT_ID,
@@ -98,6 +231,16 @@ export function createMockDb(): MockDb {
       [sample.id, sample],
     ]),
     tasks: new Map([[seededTask.id, seededTask]]),
+    intakeSessions: new Map(),
+    templates: new Map([[reportTemplate.id, reportTemplate]]),
+    availability,
+    availabilityVersion: 1,
+    commitments: new Map([
+      [teamSync.id, teamSync],
+      [thesisReview.id, thesisReview],
+    ]),
+    plans: new Map(),
+    planVersions: new Map(),
     idempotency: new Map(),
     pendingIdempotency: new Set(),
     authenticated: true,
@@ -114,6 +257,13 @@ export function resetMockDb(): void {
   mockDb.inboxProjectId = fresh.inboxProjectId;
   mockDb.projects = fresh.projects;
   mockDb.tasks = fresh.tasks;
+  mockDb.intakeSessions = fresh.intakeSessions;
+  mockDb.templates = fresh.templates;
+  mockDb.availability = fresh.availability;
+  mockDb.availabilityVersion = fresh.availabilityVersion;
+  mockDb.commitments = fresh.commitments;
+  mockDb.plans = fresh.plans;
+  mockDb.planVersions = fresh.planVersions;
   mockDb.idempotency = fresh.idempotency;
   mockDb.pendingIdempotency = fresh.pendingIdempotency;
   mockDb.authenticated = fresh.authenticated;

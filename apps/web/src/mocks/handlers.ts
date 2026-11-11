@@ -5,7 +5,7 @@ import { createUuidV7, type MockDb, type StoredResponse } from './db';
 
 const TASK_STATUSES: readonly TaskStatus[] = ['todo', 'in_progress', 'done'];
 
-function problem(
+export function problem(
   status: number,
   code: ProblemCode,
   detail: string,
@@ -31,15 +31,15 @@ function unauthenticated(): Response {
   return problem(401, 'unauthenticated', 'Authentication is required');
 }
 
-function etag(version: number): string {
+export function etag(version: number): string {
   return `W/"${version}"`;
 }
 
-function json(body: JsonBodyType, status = 200, headers: Record<string, string> = {}): Response {
+export function json(body: JsonBodyType, status = 200, headers: Record<string, string> = {}): Response {
   return HttpResponse.json(body, { status, headers });
 }
 
-function parseIfMatch(request: Request): { version: number } | Response {
+export function parseIfMatch(request: Request): { version: number } | Response {
   const header = request.headers.get('If-Match');
   if (header === null) {
     return problem(428, 'version_conflict', 'If-Match header is required');
@@ -51,7 +51,7 @@ function parseIfMatch(request: Request): { version: number } | Response {
   return { version: Number(match[1]) };
 }
 
-interface IdempotencyToken {
+export interface IdempotencyToken {
   key: string;
   hash: string;
 }
@@ -81,7 +81,7 @@ function requestHash(request: Request, raw: string): string {
   return `${request.method.toUpperCase()} ${url.pathname} ${body}`;
 }
 
-function parseIdempotency(db: MockDb, request: Request, raw: string): IdempotencyToken | Response {
+export function parseIdempotency(db: MockDb, request: Request, raw: string): IdempotencyToken | Response {
   const key = request.headers.get('Idempotency-Key');
   if (key === null || key.length === 0) {
     return problem(400, 'validation_failed', 'Idempotency-Key header is required');
@@ -106,7 +106,7 @@ function parseIdempotency(db: MockDb, request: Request, raw: string): Idempotenc
   return { key, hash };
 }
 
-function rememberDomainResult(
+export function rememberDomainResult(
   db: MockDb,
   token: IdempotencyToken,
   status: number,
@@ -132,14 +132,15 @@ function replay(stored: StoredResponse): Response {
   });
 }
 
-function remember(
+export function remember(
   db: MockDb,
   token: IdempotencyToken,
   status: number,
   body: unknown,
   headers: Record<string, string> = {},
 ): void {
-  db.idempotency.set(token.key, { hash: token.hash, status, body, headers });
+  const snapshot = body === null ? null : structuredClone(body);
+  db.idempotency.set(token.key, { hash: token.hash, status, body: snapshot, headers });
 }
 
 function ensureInboxProject(db: MockDb): void {
@@ -189,7 +190,7 @@ function collectionEtag(
   return `W/"${kind}-${revision}-${hashString(canonical)}"`;
 }
 
-function parseBody<T>(raw: string): T | undefined {
+export function parseBody<T>(raw: string): T | undefined {
   try {
     return JSON.parse(raw) as T;
   } catch {
