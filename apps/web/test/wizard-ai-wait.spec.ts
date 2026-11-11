@@ -21,7 +21,8 @@ import {
   type IntakeSession,
 } from '../src/api';
 import PlanningWizardView from '../src/views/PlanningWizardView.vue';
-import { AI_WAIT_STORAGE_KEY } from '../src/composables/useAiWait';
+import { aiWaitStorageKey } from '../src/composables/useAiWait';
+import { useAuthStore } from '../src/stores/auth';
 import { mockDb, type MockIntakeSession } from '../src/mocks/db';
 import { server } from '../src/mocks/server';
 
@@ -91,13 +92,16 @@ async function advance(ms: number): Promise<void> {
   await settle();
 }
 
+/** Like the app (AppShell confirms /me on mount), the owner is verified before the view runs. */
 async function mountAt(path: string, sessionId?: string) {
+  const pinia = createPinia();
+  await useAuthStore(pinia).ensureOwnerConfirmed();
   const router = testRouter();
   await router.push(path);
   await router.isReady();
   const wrapper = mount(PlanningWizardView, {
     ...(sessionId === undefined ? {} : { props: { sessionId } }),
-    global: { plugins: [createPinia(), router, VueQueryPlugin] },
+    global: { plugins: [pinia, router, VueQueryPlugin] },
     attachTo: document.body,
   });
   await settle();
@@ -267,7 +271,7 @@ describe('AI wait: progress', () => {
     expect(liveText(wrapper)).toBe('AI 작업이 끝났어요.');
     expect(document.activeElement?.id).toBe('wizard-heading');
     expect(hold.posts).toBe(1);
-    expect(sessionStorage.getItem(AI_WAIT_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(aiWaitStorageKey(mockDb.user.id))).toBeNull();
     wrapper.unmount();
   });
 });
@@ -333,8 +337,8 @@ describe('AI wait: resume after reload or lost connection (no re-submit)', () =>
     );
     const startedAt = Date.now() - 20_000;
     sessionStorage.setItem(
-      AI_WAIT_STORAGE_KEY,
-      JSON.stringify({ kind: 'decomposition', startedAt, sessionId: session.id }),
+      aiWaitStorageKey(mockDb.user.id),
+      JSON.stringify({ kind: 'decomposition', startedAt, sessionId: session.id, ownerId: mockDb.user.id }),
     );
 
     const { wrapper } = await mountAt(`/plan/${session.id}`, session.id);
@@ -405,10 +409,11 @@ describe('AI wait: resume after reload or lost connection (no re-submit)', () =>
     );
     const input = { title: '복원 과제', description: '설명 그대로' };
     sessionStorage.setItem(
-      AI_WAIT_STORAGE_KEY,
+      aiWaitStorageKey(mockDb.user.id),
       JSON.stringify({
         kind: 'type_detection',
         startedAt: Date.now() - 4_000,
+        ownerId: mockDb.user.id,
         create: {
           key: '01936d2e-7c4a-7b2e-8f00-000000000001',
           input,
@@ -428,7 +433,7 @@ describe('AI wait: resume after reload or lost connection (no re-submit)', () =>
       '01936d2e-7c4a-7b2e-8f00-000000000001',
     ]);
     expect(bodies.every((body) => JSON.parse(body).input.title === '복원 과제')).toBe(true);
-    expect(sessionStorage.getItem(AI_WAIT_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem(aiWaitStorageKey(mockDb.user.id))).toBeNull();
     wrapper.unmount();
   });
 });

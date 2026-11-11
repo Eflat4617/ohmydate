@@ -24,6 +24,14 @@ import {
   type DraftIssue,
 } from '../domain/draftValidation';
 import { useOfflineStore } from '../stores/offline';
+import { useAuthStore } from '../stores/auth';
+import {
+  captureOwnerBinding,
+  isOwnerBindingCurrent,
+  isOwnerResetPending,
+  onActiveOwnerChange,
+  type OwnerBinding,
+} from '../session/ownerEpoch';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -53,6 +61,7 @@ const route = useRoute();
 const router = useRouter();
 const queryClient = useQueryClient();
 const offline = useOfflineStore();
+const auth = useAuthStore();
 const actions = new ActionStore();
 
 const STEPS = [1, 2, 3, 4, 5] as const;
@@ -239,17 +248,62 @@ async function refreshSession(): Promise<IntakeSession | null> {
 
 // ---------------------------------------------------------------------------
 // FU-76: waiting for long AI calls.
+//
+// Owner isolation (ADR-023, FU-76R-1 H2): every flow below captures the
+// OwnerBinding before its first await and drops itself (no cache, storage,
+// navigation or further request) once the binding is stale; an owner change
+// stops polling/replay at once. Stopping on the client never cancels the
+// server's AI call.
 // ---------------------------------------------------------------------------
 
 let aiController: AbortController | null = null;
 let aiCancelRequested = false;
 let pollToken = 0;
 
-function freshAiSignal(): AbortSignal {
-  aiController = new AbortController();
-  aiCancelRequested = false;
-  return aiController.signal;
+/** The verified owner (confirmed by /me) and its binding, or null before verification. */
+function verifiedOwner(): { readonly binding: OwnerBinding; readonly ownerId: string } | null {
+  const binding = captureOwnerBinding();
+  const user = auth.user;
+  if (!auth.confirmed || user === null || isOwnerResetPending()) return null;
+  if (binding.ownerId !== user.id) return null;
+  return { binding, ownerId: user.id };
 }
+
+/** The record names its owner only when verified; otherwise it is never persisted. */
+function ownedRecord(record: Omit<PendingAiWait, 'ownerId'>): {
+  readonly record: PendingAiWait;
+  readonly binding: OwnerBinding;
+} {
+  const owner = verifiedOwner();
+  return owner === null
+    ? { record, binding: captureOwnerBinding() }
+    : { record: { ...record, ownerId: owner.ownerId }, binding: owner.binding };
+}
+
+function stale(binding: OwnerBinding): boolean {
+  return disposed || !isOwnerBindingCurrent(binding);
+}
+
+/** User cancel and owner invalidation both stop the request on the client only. */
+function freshAiSignal(binding: OwnerBinding): AbortSignal {
+  const controller = new AbortController();
+  aiController = controller;
+  aiCancelRequested = false;
+  if (binding.signal.aborted) controller.abort();
+  else binding.signal.addEventListener('abort', () => controller.abort(), { once: true });
+  return controller.signal;
+}
+
+const offOwnerChange = onActiveOwnerChange(() => {
+  // The store already dropped every stored record; drop the in-memory wait
+  // and stop every loop. The previous owner's server call keeps running.
+  pollToken += 1;
+  aiController?.abort();
+  aiController = null;
+  aiWait.reset();
+  creating.value = false;
+});
+onUnmounted(offOwnerChange);
 
 /**
  * The response did not arrive but the request may have run: a network error,
@@ -276,7 +330,8 @@ async function focusAfterWait(wasShown: boolean): Promise<void> {
   heading.value?.focus();
 }
 
-function finishWithSession(updated: IntakeSession, outcome: 'done' | 'cancelled'): void {
+function finishWithSession(binding: OwnerBinding, updated: IntakeSession, outcome: 'done' | 'cancelled'): void {
+  if (stale(binding)) return;
   const wasShown = aiWait.revealed.value;
   aiController = null;
   applySession(updated);
@@ -293,25 +348,31 @@ watch(
   },
 );
 
+/** Owner-bound pause between polls; false once the owner or the loop changed. */
+async function pause(binding: OwnerBinding, token: number, ms: number): Promise<boolean> {
+  await delay(ms);
+  return !stale(binding) && token === pollToken;
+}
+
 /** Reloaded or reconnected: follow the session state, never re-submit. */
-async function pollSession(id: string): Promise<void> {
+async function pollSession(binding: OwnerBinding, id: string): Promise<void> {
   const token = ++pollToken;
   for (;;) {
-    if (disposed || token !== pollToken || aiWait.pending.value === null) return;
+    if (stale(binding) || token !== pollToken || aiWait.pending.value === null) return;
     if (!offline.online) {
       aiWait.connectionLost.value = true;
     } else {
       try {
         const fresh = await plannerClient.getIntakeSession(id, { fresh: true });
-        if (disposed || token !== pollToken) return;
+        if (stale(binding) || token !== pollToken) return;
         aiWait.connectionLost.value = false;
         if (sessionAwaitsAi(fresh) === null) {
-          finishWithSession(fresh, 'done');
+          finishWithSession(binding, fresh, 'done');
           return;
         }
         queryClient.setQueryData(['intake', fresh.id], fresh);
       } catch (cause) {
-        if (token !== pollToken) return;
+        if (stale(binding) || token !== pollToken) return;
         if (isConnectionLoss(cause)) {
           aiWait.connectionLost.value = true;
         } else {
@@ -321,35 +382,40 @@ async function pollSession(id: string): Promise<void> {
         }
       }
     }
-    await delay(AI_WAIT_POLL_MS);
+    if (!(await pause(binding, token, AI_WAIT_POLL_MS))) return;
   }
 }
 
 /** A create replay (same Idempotency-Key) until the stored outcome exists. */
-async function replayCreate(input: IntakeInput, key: string): Promise<IntakeSession | null> {
+async function replayCreate(
+  binding: OwnerBinding,
+  input: IntakeInput,
+  key: string,
+): Promise<IntakeSession | null> {
   const token = ++pollToken;
   for (;;) {
-    if (disposed || token !== pollToken) return null;
+    if (stale(binding) || token !== pollToken) return null;
     const started = aiWait.pending.value?.startedAt ?? Date.now();
     if (aiWait.cancelling.value && Date.now() - started > AI_REQUEST_CLIENT_BOUND_MS) return null;
     if (!offline.online) {
       aiWait.connectionLost.value = true;
-      await delay(AI_WAIT_POLL_MS);
+      if (!(await pause(binding, token, AI_WAIT_POLL_MS))) return null;
       continue;
     }
     try {
-      const created = await plannerClient.createIntakeSession(input, key);
+      const created = await plannerClient.createIntakeSession(input, key, { signal: binding.signal });
+      if (stale(binding) || token !== pollToken) return null;
       aiWait.connectionLost.value = false;
-      return token === pollToken ? created : null;
+      return created;
     } catch (cause) {
-      if (token !== pollToken) return null;
+      if (stale(binding) || token !== pollToken) return null;
       if (isInProgress(cause)) {
-        await delay(Math.max(1, cause.retryAfterSeconds ?? 1) * 1_000);
+        if (!(await pause(binding, token, Math.max(1, cause.retryAfterSeconds ?? 1) * 1_000))) return null;
         continue;
       }
       if (isConnectionLoss(cause)) {
         aiWait.connectionLost.value = true;
-        await delay(AI_WAIT_POLL_MS);
+        if (!(await pause(binding, token, AI_WAIT_POLL_MS))) return null;
         continue;
       }
       throw cause;
@@ -357,14 +423,20 @@ async function replayCreate(input: IntakeInput, key: string): Promise<IntakeSess
   }
 }
 
-function finishCreateWithError(cause: unknown): void {
+function finishCreateWithError(binding: OwnerBinding, cause: unknown): void {
+  if (stale(binding)) return;
   aiController = null;
   aiWait.finish('silent');
   creating.value = false;
   handleError(cause);
 }
 
-async function onCreated(created: IntakeSession, outcome: 'done' | 'cancelled' = 'done'): Promise<void> {
+async function onCreated(
+  binding: OwnerBinding,
+  created: IntakeSession,
+  outcome: 'done' | 'cancelled' = 'done',
+): Promise<void> {
+  if (stale(binding)) return;
   const action = actions.peek<IntakeInput>('intake:create');
   if (action !== undefined) actions.settle('intake:create', action);
   queryClient.setQueryData(['intake', created.id], created);
@@ -374,22 +446,22 @@ async function onCreated(created: IntakeSession, outcome: 'done' | 'cancelled' =
   await router.push({ name: 'plan-session', params: { sessionId: created.id } });
 }
 
-async function sendCreate(input: IntakeInput, key: string): Promise<void> {
-  const signal = freshAiSignal();
+async function sendCreate(binding: OwnerBinding, input: IntakeInput, key: string): Promise<void> {
+  const signal = freshAiSignal(binding);
   try {
     const created = await plannerClient.createIntakeSession(input, key, { signal });
-    await onCreated(created);
+    await onCreated(binding, created);
   } catch (cause) {
-    if (aiCancelRequested || disposed) return;
+    if (aiCancelRequested || stale(binding)) return;
     if (!isConnectionLoss(cause) && !isInProgress(cause)) {
-      finishCreateWithError(cause);
+      finishCreateWithError(binding, cause);
       return;
     }
     try {
-      const created = await replayCreate(input, key);
-      if (created !== null) await onCreated(created);
+      const created = await replayCreate(binding, input, key);
+      if (created !== null) await onCreated(binding, created);
     } catch (replayCause) {
-      finishCreateWithError(replayCause);
+      finishCreateWithError(binding, replayCause);
     }
   }
 }
@@ -412,18 +484,21 @@ async function sendAiMutation(
     return undefined;
   }
   mutationError.value = null;
-  aiWait.start({ kind, startedAt: Date.now(), sessionId: current.id }, { reveal });
-  const signal = freshAiSignal();
+  const owned = ownedRecord({ kind, startedAt: Date.now(), sessionId: current.id });
+  const binding = owned.binding;
+  aiWait.start(owned.record, { reveal, binding });
+  const signal = freshAiSignal(binding);
   try {
     const updated = await send(signal);
+    if (stale(binding)) return undefined;
     actions.settle(scope, token);
-    finishWithSession(updated, 'done');
+    finishWithSession(binding, updated, 'done');
     return updated;
   } catch (cause) {
-    if (aiCancelRequested || disposed) return undefined;
+    if (aiCancelRequested || stale(binding)) return undefined;
     if (isConnectionLoss(cause)) {
       aiWait.connectionLost.value = !offline.online;
-      void pollSession(current.id);
+      void pollSession(binding, current.id);
       return undefined;
     }
     aiController = null;
@@ -437,6 +512,7 @@ async function sendAiMutation(
 async function stopAiWait(): Promise<void> {
   const pending = aiWait.pending.value;
   if (pending === null || aiWait.cancelling.value) return;
+  const binding = captureOwnerBinding();
   aiWait.cancelling.value = true;
   aiCancelRequested = true;
   aiController?.abort();
@@ -447,10 +523,11 @@ async function stopAiWait(): Promise<void> {
     // (short) type detection is stored, then the session goes manual.
     let created: IntakeSession | null = null;
     try {
-      created = await replayCreate(pending.create.input, pending.create.key);
+      created = await replayCreate(binding, pending.create.input, pending.create.key);
     } catch {
       created = null;
     }
+    if (stale(binding)) return;
     if (created === null) {
       // Could not reach it within the bound: keep the inputs on step 1.
       aiWait.finish('silent');
@@ -468,13 +545,16 @@ async function stopAiWait(): Promise<void> {
   }
   try {
     const fresh = await plannerClient.getIntakeSession(id, { fresh: true });
+    if (stale(binding)) return;
     const scope = `intake:${id}:manual`;
     const token = actions.begin(scope, { manual: true }, samePayload, fresh.version);
     const manual = await plannerClient.enterManualIntakeMode(id, token.key, fresh.version);
+    if (stale(binding)) return;
     actions.settle(scope, token);
-    if (pending.create !== undefined) await onCreated(manual, 'cancelled');
-    else finishWithSession(manual, 'cancelled');
+    if (pending.create !== undefined) await onCreated(binding, manual, 'cancelled');
+    else finishWithSession(binding, manual, 'cancelled');
   } catch (cause) {
+    if (stale(binding)) return;
     aiController = null;
     aiWait.finish('silent');
     creating.value = false;
@@ -489,16 +569,17 @@ async function stopAiWait(): Promise<void> {
 async function checkAiNow(): Promise<void> {
   const pending = aiWait.pending.value;
   if (pending === null) return;
+  const binding = captureOwnerBinding();
   if (pending.sessionId !== undefined) {
-    void pollSession(pending.sessionId);
+    void pollSession(binding, pending.sessionId);
     return;
   }
   if (pending.create !== undefined) {
     try {
-      const created = await replayCreate(pending.create.input, pending.create.key);
-      if (created !== null) await onCreated(created);
+      const created = await replayCreate(binding, pending.create.input, pending.create.key);
+      if (created !== null) await onCreated(binding, created);
     } catch (cause) {
-      finishCreateWithError(cause);
+      finishCreateWithError(binding, cause);
     }
   }
 }
@@ -523,13 +604,15 @@ async function retryAi(): Promise<void> {
 }
 
 // A reload (or another device) finds the session still waiting for the AI.
+// The stored start time is used only for the same verified owner.
 watch(
   session,
   (value) => {
     if (value === null || aiWait.pending.value !== null) return;
     const kind = sessionAwaitsAi(value);
     if (kind === null) return;
-    const stored = readStoredAiWait();
+    const owner = verifiedOwner();
+    const stored = owner === null ? null : readStoredAiWait(owner.ownerId);
     const updatedAt = Date.parse(value.updatedAt);
     const startedAt =
       stored?.sessionId === value.id
@@ -537,32 +620,41 @@ watch(
         : Number.isFinite(updatedAt)
           ? Math.min(Date.now(), updatedAt)
           : Date.now();
-    aiWait.start({ kind, startedAt, sessionId: value.id }, { reveal: 'now' });
-    void pollSession(value.id);
+    const owned = ownedRecord({ kind, startedAt, sessionId: value.id });
+    aiWait.start(owned.record, { reveal: 'now', binding: owned.binding });
+    void pollSession(owned.binding, value.id);
   },
   { immediate: true },
 );
 
-// A reload during the create (type detection) replays the same request key.
-onMounted(() => {
-  if (!isNew.value) return;
-  const stored: PendingAiWait | null = readStoredAiWait();
+// A reload during the create (type detection) replays the same request key,
+// but only for the same verified owner that stored it.
+onMounted(async () => {
+  if (!isNew.value) {
+    void auth.ensureOwnerConfirmed();
+    return;
+  }
+  const bootstrap = captureOwnerBinding();
+  await auth.ensureOwnerConfirmed();
+  if (stale(bootstrap) || !isNew.value || aiWait.pending.value !== null) return;
+  const owner = verifiedOwner();
+  if (owner === null) return;
+  const stored: PendingAiWait | null = readStoredAiWait(owner.ownerId);
   if (stored?.create === undefined || stored.sessionId !== undefined) return;
+  const binding = owner.binding;
   form.title = stored.create.form.title;
   form.dueAt = stored.create.form.dueAt;
   form.description = stored.create.form.description;
   form.fileName = stored.create.form.fileName;
   creating.value = true;
-  aiWait.start(stored, { reveal: 'now' });
+  aiWait.start(stored, { reveal: 'now', binding });
   const { input, key } = stored.create;
-  void (async () => {
-    try {
-      const created = await replayCreate(input, key);
-      if (created !== null) await onCreated(created);
-    } catch (cause) {
-      finishCreateWithError(cause);
-    }
-  })();
+  try {
+    const created = await replayCreate(binding, input, key);
+    if (created !== null) await onCreated(binding, created);
+  } catch (cause) {
+    finishCreateWithError(binding, cause);
+  }
 });
 
 function handleError(cause: unknown): void {
@@ -648,16 +740,15 @@ async function createSession(): Promise<void> {
   const input = buildInput();
   const action = actions.begin('intake:create', input, samePayload);
   // FU-76: type detection waits for the AI; the record lets a reload replay
-  // the same key (and restore these inputs) instead of creating twice.
-  aiWait.start(
-    {
-      kind: 'type_detection',
-      startedAt: Date.now(),
-      create: { key: action.key, input, form: { ...form } },
-    },
-    { reveal: 'delayed' },
-  );
-  await sendCreate(input, action.key);
+  // the same key (and restore these inputs) instead of creating twice. It is
+  // persisted only for the verified owner (FU-76R-1 H2).
+  const owned = ownedRecord({
+    kind: 'type_detection',
+    startedAt: Date.now(),
+    create: { key: action.key, input, form: { ...form } },
+  });
+  aiWait.start(owned.record, { reveal: 'delayed', binding: owned.binding });
+  await sendCreate(owned.binding, input, action.key);
 }
 
 async function confirmType(similar: boolean): Promise<void> {

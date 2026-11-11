@@ -1,6 +1,7 @@
 import { computed, onScopeDispose, ref, watch, type ComputedRef, type Ref } from 'vue';
 import { AI_REQUEST_CLIENT_BOUND_MS, type IntakeInput, type IntakeSession } from '../api';
 import { t } from '../i18n';
+import { isOwnerBindingCurrent, onActiveOwnerChange, type OwnerBinding } from '../session/ownerEpoch';
 
 /**
  * FU-76: client state for one wizard step that waits for the AI.
@@ -10,6 +11,12 @@ import { t } from '../i18n';
  * resumed by polling GET /intake-sessions/{id}; type detection (whose session
  * id is unknown until the create returns) by replaying the same
  * Idempotency-Key. Both are idempotent and never start a second, charged run.
+ *
+ * Owner isolation (ADR-023, FU-76R-1 H2): a record holds the user's private
+ * input, so it lives under the VERIFIED owner's own key, is written only while
+ * that owner's binding is current, is read back only for that same verified
+ * owner (and only if it names that owner), and every record is removed on any
+ * owner change or logout.
  */
 
 export type AiWaitKind = 'type_detection' | 'decomposition';
@@ -24,6 +31,8 @@ export interface PendingCreateForm {
 
 export interface PendingAiWait {
   readonly kind: AiWaitKind;
+  /** Verified owner the wait belongs to; a wait without one is never persisted. */
+  readonly ownerId?: string;
   /** Client epoch ms when the wait began (kept across reloads). */
   readonly startedAt: number;
   /** Known for decomposition waits (and for create once it returned). */
@@ -36,7 +45,14 @@ export interface PendingAiWait {
   };
 }
 
-export const AI_WAIT_STORAGE_KEY = 'ohmydate.intake.aiWait.v1';
+/** Owner-scoped storage: `${AI_WAIT_STORAGE_PREFIX}:${ownerId}`. */
+export const AI_WAIT_STORAGE_PREFIX = 'ohmydate.intake.aiWait.v2';
+/** Pre-FU-76R-1 unscoped key: never read, removed on sight. */
+export const LEGACY_AI_WAIT_STORAGE_KEY = 'ohmydate.intake.aiWait.v1';
+
+export function aiWaitStorageKey(ownerId: string): string {
+  return `${AI_WAIT_STORAGE_PREFIX}:${ownerId}`;
+}
 /** Copy says "보통 30초–1분": past one minute the panel says it is slower than usual. */
 export const AI_WAIT_SLOW_AFTER_MS = 60_000;
 /** Screen-reader updates: at 30 s, then once a minute (never every second). */
@@ -80,44 +96,88 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-export function readStoredAiWait(nowMs: number = Date.now()): PendingAiWait | null {
+/** Only the given verified owner's record, and only if it names that owner. */
+export function readStoredAiWait(ownerId: string, nowMs: number = Date.now()): PendingAiWait | null {
   const store = storage();
   if (store === null) return null;
+  const key = aiWaitStorageKey(ownerId);
   let parsed: unknown;
   try {
-    const raw = store.getItem(AI_WAIT_STORAGE_KEY);
+    store.removeItem(LEGACY_AI_WAIT_STORAGE_KEY);
+    const raw = store.getItem(key);
     if (raw === null) return null;
     parsed = JSON.parse(raw);
   } catch {
     return null;
   }
-  if (!isRecord(parsed)) return null;
-  const { kind, startedAt, sessionId, create } = parsed;
-  if (kind !== 'type_detection' && kind !== 'decomposition') return null;
-  if (typeof startedAt !== 'number' || !Number.isFinite(startedAt)) return null;
-  if (nowMs - startedAt > AI_WAIT_STORAGE_MAX_AGE_MS) {
-    store.removeItem(AI_WAIT_STORAGE_KEY);
+  const drop = (): null => {
+    try {
+      store.removeItem(key);
+    } catch {
+      // nothing to clean up
+    }
     return null;
-  }
-  if (sessionId !== undefined && typeof sessionId !== 'string') return null;
+  };
+  if (!isRecord(parsed)) return drop();
+  const { kind, startedAt, sessionId, create } = parsed;
+  if (parsed['ownerId'] !== ownerId) return drop();
+  if (kind !== 'type_detection' && kind !== 'decomposition') return drop();
+  if (typeof startedAt !== 'number' || !Number.isFinite(startedAt)) return drop();
+  if (nowMs - startedAt > AI_WAIT_STORAGE_MAX_AGE_MS) return drop();
+  if (sessionId !== undefined && typeof sessionId !== 'string') return drop();
   if (create !== undefined) {
-    if (!isRecord(create) || typeof create['key'] !== 'string' || !isRecord(create['input'])) return null;
-    const form = create['form'];
-    if (!isRecord(form)) return null;
+    if (!isRecord(create) || typeof create['key'] !== 'string' || !isRecord(create['input'])) return drop();
+    if (!isRecord(create['form'])) return drop();
   }
   return parsed as unknown as PendingAiWait;
 }
 
-function writeStoredAiWait(record: PendingAiWait | null): void {
+/** Into the record owner's own key, and only while that owner's binding is current. */
+function writeStoredAiWait(record: PendingAiWait, binding: OwnerBinding | undefined): void {
   const store = storage();
-  if (store === null) return;
+  const ownerId = record.ownerId;
+  if (store === null || ownerId === undefined || binding === undefined) return;
+  if (!isOwnerBindingCurrent(binding) || binding.ownerId !== ownerId) return;
   try {
-    if (record === null) store.removeItem(AI_WAIT_STORAGE_KEY);
-    else store.setItem(AI_WAIT_STORAGE_KEY, JSON.stringify(record));
+    store.setItem(aiWaitStorageKey(ownerId), JSON.stringify(record));
   } catch {
     // Storage full or blocked: the wait still works, it just cannot resume after a reload.
   }
 }
+
+function removeStoredAiWait(record: PendingAiWait, binding: OwnerBinding | undefined): void {
+  const store = storage();
+  const ownerId = record.ownerId;
+  if (store === null || ownerId === undefined || binding === undefined) return;
+  if (!isOwnerBindingCurrent(binding) || binding.ownerId !== ownerId) return;
+  try {
+    store.removeItem(aiWaitStorageKey(ownerId));
+  } catch {
+    // nothing to clean up
+  }
+}
+
+/** Every owner's AI-wait record (and the legacy unscoped one). */
+export function clearStoredAiWaits(): void {
+  const store = storage();
+  if (store === null) return;
+  try {
+    const keys: string[] = [];
+    for (let index = 0; index < store.length; index += 1) {
+      const key = store.key(index);
+      if (key !== null && (key === LEGACY_AI_WAIT_STORAGE_KEY || key.startsWith(`${AI_WAIT_STORAGE_PREFIX}:`))) {
+        keys.push(key);
+      }
+    }
+    for (const key of keys) store.removeItem(key);
+  } catch {
+    // Storage blocked: nothing was persisted either.
+  }
+}
+
+// Any owner change (login, logout, another tab, /me mismatch) drops every
+// pending record synchronously, before a late continuation could read one.
+onActiveOwnerChange(() => clearStoredAiWaits());
 
 export interface AiWaitState {
   readonly pending: Ref<PendingAiWait | null>;
@@ -129,9 +189,18 @@ export interface AiWaitState {
   readonly announcement: Ref<string>;
   readonly cancelling: Ref<boolean>;
   readonly connectionLost: Ref<boolean>;
-  start(record: PendingAiWait, options?: { readonly reveal?: 'now' | 'delayed' }): void;
+  /**
+   * `binding` is the owner binding the wait runs under; the record is
+   * persisted only when it names a verified `ownerId` equal to that binding's.
+   */
+  start(
+    record: PendingAiWait,
+    options?: { readonly reveal?: 'now' | 'delayed'; readonly binding?: OwnerBinding },
+  ): void;
   update(patch: Partial<PendingAiWait>): void;
   finish(outcome?: 'done' | 'cancelled' | 'silent'): void;
+  /** Owner change: drop the in-memory wait without touching storage. */
+  reset(): void;
 }
 
 export function useAiWait(clock: () => number = Date.now): AiWaitState {
@@ -141,6 +210,7 @@ export function useAiWait(clock: () => number = Date.now): AiWaitState {
   const cancelling = ref(false);
   const connectionLost = ref(false);
   const revealNow = ref(false);
+  let binding: OwnerBinding | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   let lastMilestone = 0;
 
@@ -186,9 +256,13 @@ export function useAiWait(clock: () => number = Date.now): AiWaitState {
     }
   }
 
-  function start(record: PendingAiWait, options: { readonly reveal?: 'now' | 'delayed' } = {}): void {
+  function start(
+    record: PendingAiWait,
+    options: { readonly reveal?: 'now' | 'delayed'; readonly binding?: OwnerBinding } = {},
+  ): void {
     pending.value = record;
-    writeStoredAiWait(record);
+    binding = options.binding;
+    writeStoredAiWait(record, binding);
     cancelling.value = false;
     connectionLost.value = false;
     revealNow.value = options.reveal !== 'delayed';
@@ -208,21 +282,33 @@ export function useAiWait(clock: () => number = Date.now): AiWaitState {
 
   function update(patch: Partial<PendingAiWait>): void {
     if (pending.value === null) return;
-    const next = { ...pending.value, ...patch } as PendingAiWait;
+    const next = { ...pending.value, ...patch, ownerId: pending.value.ownerId } as PendingAiWait;
     pending.value = next;
-    writeStoredAiWait(next);
+    writeStoredAiWait(next, binding);
+  }
+
+  function clearState(): void {
+    stopTimer();
+    pending.value = null;
+    binding = undefined;
+    cancelling.value = false;
+    connectionLost.value = false;
+    revealNow.value = false;
   }
 
   function finish(outcome: 'done' | 'cancelled' | 'silent' = 'done'): void {
     const wasShown = revealed.value;
-    stopTimer();
-    pending.value = null;
-    cancelling.value = false;
-    connectionLost.value = false;
-    revealNow.value = false;
-    writeStoredAiWait(null);
+    const current = pending.value;
+    const owner = binding;
+    clearState();
+    if (current !== null) removeStoredAiWait(current, owner);
     if (outcome === 'cancelled') announcement.value = t('aiWait.live.cancelled');
     else if (outcome === 'done' && wasShown) announcement.value = t('aiWait.live.done');
+  }
+
+  function reset(): void {
+    clearState();
+    announcement.value = '';
   }
 
   onScopeDispose(stopTimer);
@@ -238,5 +324,6 @@ export function useAiWait(clock: () => number = Date.now): AiWaitState {
     start,
     update,
     finish,
+    reset,
   };
 }
