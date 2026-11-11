@@ -90,3 +90,9 @@ export {
   uuidV7Key,
   type IdempotentAction,
 } from './idempotency';
+export {
+  AI_REQUEST_CLIENT_BOUND_MS,
+  AiRequestTimeoutError,
+  aiRequestSignal,
+  type AiRequestOptions,
+} from './ai-request';

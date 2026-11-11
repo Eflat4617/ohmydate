@@ -1,5 +1,6 @@
 import createClient, { type Middleware } from 'openapi-fetch';
 import { ApiError, apiErrorFromPayload } from './errors';
+import { aiRequestSignal, type AiRequestOptions } from './ai-request';
 import type { components, paths } from './schema';
 
 export type Task = components['schemas']['Task'];
@@ -551,14 +552,24 @@ export class PlannerClient {
     return (await this.getPlan(planId, { fresh: true })).version;
   }
 
+  /**
+   * FU-76: waits for AI type detection. Replaying the same key is how a
+   * reloaded client resumes (the server answers 409 idempotency_in_progress
+   * until the stored result exists); see ai-request.ts for the bound.
+   */
   async createIntakeSession(
     input: IntakeInput,
     idempotencyKey: string,
+    options: AiRequestOptions = {},
   ): Promise<IntakeSession> {
-    const { data, error, response } = await this.client.POST('/intake-sessions', {
-      body: { input },
-      params: { header: { 'Idempotency-Key': idempotencyKey } },
-    });
+    const ai = aiRequestSignal(options);
+    const { data, error, response } = await this.client
+      .POST('/intake-sessions', {
+        body: { input },
+        params: { header: { 'Idempotency-Key': idempotencyKey } },
+        signal: ai.signal,
+      })
+      .finally(() => ai.dispose());
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(
@@ -592,15 +603,20 @@ export class PlannerClient {
     answers: readonly IntakeAnswerInput[],
     idempotencyKey: string,
     expectedVersion?: number,
+    options: AiRequestOptions = {},
   ): Promise<IntakeSession> {
     const version = expectedVersion ?? (await this.resolveIntakeVersion(sessionId));
-    const { data, error, response } = await this.client.POST('/intake-sessions/{id}/answers', {
-      params: {
-        path: { id: sessionId },
-        header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
-      },
-      body: { answers: [...answers] },
-    });
+    const ai = aiRequestSignal(options);
+    const { data, error, response } = await this.client
+      .POST('/intake-sessions/{id}/answers', {
+        params: {
+          path: { id: sessionId },
+          header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
+        },
+        body: { answers: [...answers] },
+        signal: ai.signal,
+      })
+      .finally(() => ai.dispose());
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(response.status, 'unknown', 'Empty intake session response');
@@ -614,18 +630,20 @@ export class PlannerClient {
     confirmation: IntakeTypeConfirmation,
     idempotencyKey: string,
     expectedVersion?: number,
+    options: AiRequestOptions = {},
   ): Promise<IntakeSession> {
     const version = expectedVersion ?? (await this.resolveIntakeVersion(sessionId));
-    const { data, error, response } = await this.client.POST(
-      '/intake-sessions/{id}/type-confirmation',
-      {
+    const ai = aiRequestSignal(options);
+    const { data, error, response } = await this.client
+      .POST('/intake-sessions/{id}/type-confirmation', {
         params: {
           path: { id: sessionId },
           header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
         },
         body: confirmation,
-      },
-    );
+        signal: ai.signal,
+      })
+      .finally(() => ai.dispose());
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(response.status, 'unknown', 'Empty intake session response');
@@ -700,12 +718,14 @@ export class PlannerClient {
     return this.intakeAction(sessionId, 'pause', idempotencyKey, expectedVersion);
   }
 
+  /** FU-76: also "다시 시도" for an interrupted decomposition (waits for the AI). */
   async resumeIntakeSession(
     sessionId: string,
     idempotencyKey: string,
     expectedVersion?: number,
+    options: AiRequestOptions = {},
   ): Promise<IntakeSession> {
-    return this.intakeAction(sessionId, 'resume', idempotencyKey, expectedVersion);
+    return this.intakeAction(sessionId, 'resume', idempotencyKey, expectedVersion, options);
   }
 
   async cancelIntakeSession(
@@ -757,20 +777,24 @@ export class PlannerClient {
     action: 'pause' | 'resume' | 'cancel' | 'manual',
     idempotencyKey: string,
     expectedVersion?: number,
+    options?: AiRequestOptions,
   ): Promise<IntakeSession> {
     const version = expectedVersion ?? (await this.resolveIntakeVersion(sessionId));
     const params = {
       path: { id: sessionId },
       header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
     };
-    const result =
+    const ai = options === undefined ? undefined : aiRequestSignal(options);
+    const init = ai === undefined ? { params } : { params, signal: ai.signal };
+    const result = await (
       action === 'pause'
-        ? await this.client.POST('/intake-sessions/{id}:pause', { params })
+        ? this.client.POST('/intake-sessions/{id}:pause', init)
         : action === 'resume'
-          ? await this.client.POST('/intake-sessions/{id}:resume', { params })
+          ? this.client.POST('/intake-sessions/{id}:resume', init)
           : action === 'cancel'
-            ? await this.client.POST('/intake-sessions/{id}:cancel', { params })
-            : await this.client.POST('/intake-sessions/{id}:manual', { params });
+            ? this.client.POST('/intake-sessions/{id}:cancel', init)
+            : this.client.POST('/intake-sessions/{id}:manual', init)
+    ).finally(() => ai?.dispose());
     const { data, error, response } = result;
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
