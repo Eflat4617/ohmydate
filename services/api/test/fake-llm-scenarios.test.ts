@@ -16,7 +16,7 @@ import {
   type GroundedDecompositionOutput,
   type LlmCompleteRequest,
 } from '@ohmydate/llm';
-import { configFromEnv, createConfig, parseLlmFakeScenario } from '../src/config.js';
+import { configFromEnv, createConfig, parseLlmFakeScenario, parseLlmFakeScenarioOwners } from '../src/config.js';
 import {
   E2eGroundedFakeLlm,
   FORGED_DOC_ID,
@@ -99,6 +99,15 @@ describe('LLM_FAKE_SCENARIO config (boot refusal)', () => {
     expect(() => configFromEnv({ LLM_FAKE_SCENARIO: 'record-everything' })).toThrow(/LLM_FAKE_SCENARIO must be/);
     expect(() => parseLlmFakeScenario('deepseek', 'e2e-grounded', undefined)).toThrow(/LLM_PROVIDER=fake/);
   });
+
+  test('scopes the scenario to listed owners; owners without a scenario or malformed ids are refused (negative)', () => {
+    expect(configFromEnv({ LLM_FAKE_SCENARIO: 'e2e-grounded' }).llmFakeScenarioOwners).toEqual([]);
+    expect(
+      configFromEnv({ LLM_FAKE_SCENARIO: 'e2e-grounded', LLM_FAKE_SCENARIO_OWNERS: ` ${OWNER} , ${DOC} ` }).llmFakeScenarioOwners,
+    ).toEqual([OWNER, DOC]);
+    expect(() => configFromEnv({ LLM_FAKE_SCENARIO_OWNERS: OWNER })).toThrow('LLM_FAKE_SCENARIO_OWNERS requires LLM_FAKE_SCENARIO');
+    expect(() => parseLlmFakeScenarioOwners('e2e-grounded', 'alice,bob')).toThrow(/owner ids/);
+  });
 });
 
 describe('e2e-grounded responder', () => {
@@ -150,6 +159,16 @@ describe('e2e-grounded responder', () => {
     expect(JSON.stringify(sanitized.output)).not.toContain(PLANTED_LINK);
     expect(sanitized.output.evidence[1]?.statement).toContain('[link removed]');
     expect(JSON.stringify(sanitized.output)).not.toContain(FORGED_SECTION_HASH);
+  });
+
+  test('answers only in-scope owners; everyone else gets the plain fake (negative)', async () => {
+    const llm = createFakeScenarioLlm('e2e-grounded', { owners: [OWNER] });
+    const own = await llm.complete({ ...request('type_detection', 'v1', {}), ownerId: OWNER });
+    expect(validateOutput('llm.type_detection.v1', own.output).valid).toBe(true);
+    await expect(llm.complete({ ...request('type_detection', 'v1', {}), ownerId: DOC })).rejects.toBeInstanceOf(LlmUnavailable);
+    await expect(llm.complete(request('type_detection', 'v1', {}))).rejects.toBeInstanceOf(LlmUnavailable);
+    const { input: body } = groundedInput();
+    await expect(llm.complete({ ...request('decomposition', 'v2', body), ownerId: DOC })).rejects.toBeInstanceOf(LlmUnavailable);
   });
 
   test('keeps the plain FakeLlm behaviour for every other prompt (negative)', async () => {

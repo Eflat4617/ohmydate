@@ -312,7 +312,9 @@ async function createConfiguredLlm(input: {
   const { options, config, db, clock, ids } = input;
   if (options.llm !== undefined) return options.llm;
   if (config.llmProvider === 'fake') {
-    return config.llmFakeScenario === null ? new FakeLlm() : createFakeScenarioLlm(config.llmFakeScenario);
+    return config.llmFakeScenario === null
+      ? new FakeLlm()
+      : createFakeScenarioLlm(config.llmFakeScenario, { owners: config.llmFakeScenarioOwners });
   }
   if (config.llmFakeScenario !== null) throw new Error('LLM_FAKE_SCENARIO requires LLM_PROVIDER=fake');
 

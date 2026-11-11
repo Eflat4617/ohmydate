@@ -99,6 +99,11 @@ export interface AppConfig {
    * `null` (default) keeps the plain fixture-less FakeLlm.
    */
   readonly llmFakeScenario: LlmFakeScenario | null;
+  /**
+   * Owners the fake scenario answers (env `LLM_FAKE_SCENARIO_OWNERS`, comma-
+   * separated ids); empty = every owner. Other owners get the plain fake.
+   */
+  readonly llmFakeScenarioOwners: readonly string[];
   /** ADR-022 OpenCode Go gateway (OpenAI-compatible). */
   readonly llmBaseUrl: string;
   readonly llmModel: string;
@@ -191,6 +196,7 @@ export const defaultConfig: AppConfig = {
   logLevel: 'info',
   llmProvider: 'fake',
   llmFakeScenario: null,
+  llmFakeScenarioOwners: [],
   llmBaseUrl: DEFAULT_LLM_BASE_URL,
   llmModel: DEFAULT_LLM_MODEL,
   llmReasoningEffort: DEFAULT_LLM_REASONING_EFFORT,
@@ -240,6 +246,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   const llmProvider = parseLlmProvider(env['LLM_PROVIDER']);
   const llmFakeScenario = parseLlmFakeScenario(llmProvider, env['LLM_FAKE_SCENARIO'], env['NODE_ENV']);
+  const llmFakeScenarioOwners = parseLlmFakeScenarioOwners(llmFakeScenario, env['LLM_FAKE_SCENARIO_OWNERS']);
   const llmApiKeyFile = parseApiKeyFile(llmProvider, env['LLM_API_KEY_FILE']);
   const llmSessionHeader = parseSessionHeader(env['LLM_SESSION_HEADER']);
   const llmSessionSecretFile = parseSessionSecretFile(
@@ -256,6 +263,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     vikunjaSecretsDir: env['VIKUNJA_SECRETS_DIR'] ?? null,
     llmProvider,
     llmFakeScenario,
+    llmFakeScenarioOwners,
     llmBaseUrl: env['LLM_BASE_URL'] ?? DEFAULT_LLM_BASE_URL,
     llmModel: env['LLM_MODEL'] ?? DEFAULT_LLM_MODEL,
     llmReasoningEffort: env['LLM_REASONING_EFFORT'] ?? DEFAULT_LLM_REASONING_EFFORT,
@@ -343,6 +351,21 @@ export function parseLlmFakeScenario(
     throw new Error('LLM_FAKE_SCENARIO is refused when NODE_ENV=production');
   }
   return value;
+}
+
+const OWNER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function parseLlmFakeScenarioOwners(
+  scenario: LlmFakeScenario | null,
+  raw: string | undefined,
+): readonly string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  if (scenario === null) throw new Error('LLM_FAKE_SCENARIO_OWNERS requires LLM_FAKE_SCENARIO');
+  const owners = raw.split(',').map((value) => value.trim()).filter((value) => value.length > 0);
+  if (owners.some((owner) => !OWNER_ID.test(owner))) {
+    throw new Error('LLM_FAKE_SCENARIO_OWNERS must be comma-separated owner ids');
+  }
+  return owners;
 }
 
 function parseSessionHeader(raw: string | undefined): 'auto' | 'off' {

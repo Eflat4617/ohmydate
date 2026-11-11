@@ -26,7 +26,9 @@ import {
  *
  * Every other prompt (including the ungrounded `decomposition@v1`) keeps the
  * default `FakeLlm` behaviour: no fixture, `LlmUnavailable`, manual draft.
- * Nothing here retains prompt input.
+ * With `LLM_FAKE_SCENARIO_OWNERS` the scenario answers only those owners, so
+ * every other E2E suite keeps exactly the plain fake. Nothing here retains
+ * prompt input.
  */
 
 export const LLM_FAKE_SCENARIOS = ['e2e-grounded'] as const;
@@ -180,11 +182,26 @@ function respond(output: unknown): LlmCompleteResponse {
   };
 }
 
+export interface FakeScenarioOptions {
+  /** Owners the scenario answers; empty = every owner. Others get the plain fake. */
+  readonly owners?: readonly string[];
+}
+
 /** Deterministic responder for `LLM_FAKE_SCENARIO=e2e-grounded`. */
 export class E2eGroundedFakeLlm implements LlmPort {
   readonly #fallback = new FakeLlm();
+  readonly #owners: ReadonlySet<string>;
+
+  constructor(options: FakeScenarioOptions = {}) {
+    this.#owners = new Set(options.owners ?? []);
+  }
+
+  #inScope(request: LlmCompleteRequest): boolean {
+    return this.#owners.size === 0 || (request.ownerId !== undefined && this.#owners.has(request.ownerId));
+  }
 
   async complete(request: LlmCompleteRequest): Promise<LlmCompleteResponse> {
+    if (!this.#inScope(request)) return this.#fallback.complete(request);
     if (request.promptId === 'type_detection' && request.version === 'v1') {
       request.onDispatch?.();
       return respond({ ...TYPE_DETECTION_OUTPUT, reasons: [] });
@@ -198,9 +215,9 @@ export class E2eGroundedFakeLlm implements LlmPort {
   }
 }
 
-export function createFakeScenarioLlm(scenario: LlmFakeScenario): LlmPort {
+export function createFakeScenarioLlm(scenario: LlmFakeScenario, options: FakeScenarioOptions = {}): LlmPort {
   switch (scenario) {
     case 'e2e-grounded':
-      return new E2eGroundedFakeLlm();
+      return new E2eGroundedFakeLlm(options);
   }
 }
