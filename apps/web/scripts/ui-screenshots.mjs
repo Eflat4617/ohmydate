@@ -6,6 +6,7 @@
 //   node scripts/ui-screenshots.mjs --label before --url http://127.0.0.1:5199
 //   node scripts/ui-screenshots.mjs --label after --only 14-today
 //   node scripts/ui-screenshots.mjs --label m5-03 --flows replan,patterns   # M5-03 screens only
+//   node scripts/ui-screenshots.mjs --label m6-02 --flows adaptive          # M6-02 layout modes
 //
 // Output: docs/ui-polish/<label>/<screen>-<viewport>[-dark][-full].png and
 //         docs/ui-polish/<label>/sweep-report.json
@@ -33,7 +34,7 @@ function arg(name, fallback) {
 
 const label = arg('label', 'after');
 const only = arg('only', '');
-// Comma-separated subset of flows (main, daily, ai, replan, patterns); default: all.
+// Comma-separated subset of flows (main, daily, ai, replan, patterns, adaptive); default: all.
 const flowFilter = arg('flows', '')
   .split(',')
   .map((name) => name.trim())
@@ -49,8 +50,8 @@ const VIEWPORTS = [
   { name: 'narrow', width: 360, height: 780, capture: false },
 ];
 const SCHEMES = ['light', 'dark'];
-const DARK_CAPTURES = /^(14-today|16-focus|22-today-replan|23-replan-detail|29-patterns)/;
-const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns)/;
+const DARK_CAPTURES = /^(14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus)/;
+const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns|34-layout-overview|38-layout-deadline-risk|39-layout-review)/;
 // Synthetic ids from src/mocks/replan.ts (M5-03 scenario).
 const REPLAN_PENDING_ID = '01900000-0000-7000-8000-0000000002a1';
 const REPLAN_EXPIRED_ID = '01900000-0000-7000-8000-0000000002a4';
@@ -424,6 +425,96 @@ async function flowPatterns(browser, run) {
   await cold.context.close();
 }
 
+// M6-02: one capture per adaptive layout mode (07 §2.2) plus the undo toast,
+// the undone layout and the settings screen. In-app navigation after the
+// first load keeps the in-page mock database (and the local session store).
+function layoutMode(page, mode) {
+  return page.locator(`.adaptive-frame[data-layout-mode="${mode}"]`).waitFor();
+}
+
+async function dismissOtherToasts(page, keep) {
+  for (let round = 0; round < 6; round += 1) {
+    const close = page
+      .locator('.toast')
+      .filter({ hasNotText: keep })
+      .locator('button[aria-label^="메시지 닫기"]')
+      .first();
+    if ((await close.count()) === 0) return;
+    await close.click();
+  }
+}
+
+async function navToToday(page, run) {
+  const nav = page.locator(isMobile(run) ? '.bottom-nav' : '.nav-rail');
+  await nav.getByRole('link', { name: '오늘' }).click();
+  await page.waitForURL(/\/today$/);
+}
+
+async function flowAdaptive(browser, run) {
+  {
+    const { context, page } = await newPage(browser, run);
+    await go(page, '/today');
+    await page.locator('.today-card').first().waitFor();
+    await layoutMode(page, 'overview');
+    await dismissToasts(page);
+    await checkpoint(page, '34-layout-overview', run);
+
+    await page.getByRole('button', { name: '집중 시작' }).first().click();
+    await layoutMode(page, 'focus');
+    await page.locator('.focus-timer').waitFor();
+    await page.getByRole('button', { name: '되돌리기' }).waitFor();
+    await dismissOtherToasts(page, '레이아웃이 바뀌었어요');
+    await checkpoint(page, '35-layout-focus', run);
+
+    await page.getByRole('button', { name: '되돌리기' }).click();
+    await page.waitForURL(/\/today$/);
+    await layoutMode(page, 'overview');
+    await dismissToasts(page);
+    await checkpoint(page, '36-layout-undone', run);
+
+    // Finish the running session without a review, then go past 20:00.
+    await page.getByRole('button', { name: '세션 이어가기' }).click();
+    await layoutMode(page, 'focus');
+    await page.getByRole('button', { name: '완료' }).first().click();
+    await page.getByRole('heading', { name: '이번 세션은 어땠나요?' }).waitFor();
+    await page.clock.setFixedTime(new Date('2026-11-14T11:30:00.000Z'));
+    await navToToday(page, run);
+    await layoutMode(page, 'review');
+    await dismissToasts(page);
+    await checkpoint(page, '39-layout-review', run);
+    await context.close();
+  }
+  {
+    const { context, page } = await newPage(browser, run, { today: 'risk' });
+    await go(page, '/today');
+    await layoutMode(page, 'deadline_risk');
+    await page.locator('[data-panel="deadline-risk"]').waitFor();
+    await dismissToasts(page);
+    await checkpoint(page, '38-layout-deadline-risk', run);
+    await context.close();
+  }
+  {
+    // No risk here: a deadline risk outranks the notes layout (07 §2.2 rule 4 > 6).
+    const { context, page } = await newPage(browser, run);
+    await go(page, '/plan/new');
+    await layoutMode(page, 'planning');
+    await page.getByRole('heading', { name: '1단계 · 기본정보' }).waitFor();
+    await dismissToasts(page);
+    await checkpoint(page, '37-layout-planning', run);
+
+    await go(page, '/notes');
+    await layoutMode(page, 'notes');
+    await dismissToasts(page);
+    await checkpoint(page, '40-layout-notes', run);
+
+    await go(page, '/settings/layout');
+    await page.getByRole('heading', { name: '레이아웃', level: 1 }).waitFor();
+    await dismissToasts(page);
+    await checkpoint(page, '41-layout-settings', run);
+    await context.close();
+  }
+}
+
 // The dev server can reload a page while it optimises deps; retry a flow once
 // (findings from the failed attempt are discarded).
 async function withRetry(flow, browser, run) {
@@ -455,7 +546,14 @@ async function main() {
       for (const scheme of SCHEMES) {
         const run = { viewport, scheme };
         console.log(`${label} · ${viewport.name} ${viewport.width}x${viewport.height} · ${scheme}`);
-        const flows = { main: flowMain, daily: flowDaily, ai: flowAi, replan: flowReplan, patterns: flowPatterns };
+        const flows = {
+          main: flowMain,
+          daily: flowDaily,
+          ai: flowAi,
+          replan: flowReplan,
+          patterns: flowPatterns,
+          adaptive: flowAdaptive,
+        };
         for (const [name, flow] of Object.entries(flows)) {
           if (flowFilter.length > 0 && !flowFilter.includes(name)) continue;
           await withRetry(flow, browser, run);

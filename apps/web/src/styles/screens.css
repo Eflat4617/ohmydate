@@ -2525,3 +2525,141 @@
   gap: var(--space-1);
   font-size: var(--text-sm);
 }
+
+/* ── Adaptive layout panels (M6-02) ────────────────────────────────── */
+.layout-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-1);
+}
+
+.layout-panel--accent {
+  border-color: var(--color-accent-soft);
+  border-top: 3px solid var(--color-accent);
+}
+
+.layout-panel--warn {
+  border-color: var(--color-warn-border);
+  background: var(--color-warn-soft);
+}
+
+.layout-panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+}
+
+.layout-panel-title .icon,
+.layout-panel-title svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.layout-panel--warn .layout-panel-title svg {
+  color: var(--color-warn);
+}
+
+.layout-panel-lede,
+.layout-panel-empty {
+  font-size: var(--text-sm);
+}
+
+.layout-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.layout-panel-link {
+  align-self: flex-start;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.layout-panel-action {
+  align-self: flex-start;
+}
+
+.layout-panel .empty-state {
+  padding: var(--space-3);
+}
+
+.layout-next-list,
+.layout-review-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.layout-next-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+}
+
+.layout-next-title,
+.layout-current-title,
+.layout-review-title {
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.layout-next-time,
+.layout-current-meta {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.layout-review-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.layout-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-height);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.layout-switch input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.settings-group-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+}
+
+.layout-order {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  margin: 0;
+  padding-left: var(--space-5);
+}

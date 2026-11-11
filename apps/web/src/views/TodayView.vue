@@ -26,11 +26,12 @@ import UiIcon from '../components/ui/UiIcon.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { addDaysToDate, zonedWallClockToInstant } from '../domain/time';
 import { rememberFocusBlocks } from '../composables/focusContext';
-import { localDateIso } from '../format';
 import { t, tp } from '../i18n';
 import { formatCivilDate, formatDuration, formatTimeRange, minutesBetween } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
 import { riskReasonText } from '../i18n/server';
+import { localDateAt, useLayoutNow } from '../layout/now';
+import { useLayoutStore } from '../stores/layout';
 import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 import { useToastStore } from '../stores/toast';
@@ -54,15 +55,19 @@ const router = useRouter();
 const offline = useOfflineStore();
 const sessionStore = useSessionStore();
 const toast = useToastStore();
+const layout = useLayoutStore();
 const actions = new ActionStore();
 
-const date = localDateIso();
+// The current day follows the shared clock (M6-02R-1 L1): left open past
+// midnight, Today asks for the new day. Same key as the layout's snapshot.
+const now = useLayoutNow();
+const date = computed(() => localDateAt(now.value));
 const ownerId = computed(() => sessionStore.ownerId);
 const todayQuery = useQuery({
-  queryKey: computed(() => ['today', date, ownerId.value ?? 'anonymous']),
+  queryKey: computed(() => ['today', date.value, ownerId.value ?? 'anonymous']),
   queryFn: () => {
     const binding = captureOwnerBinding();
-    return plannerClient.getToday(date, binding.signal);
+    return plannerClient.getToday(date.value, binding.signal);
   },
 });
 
@@ -71,7 +76,7 @@ const today = computed(() => todayQuery.data.value ?? null);
 const scheduleQuery = useQuery({
   queryKey: computed(() => [
     'today-schedule-blocks',
-    today.value?.date ?? date,
+    today.value?.date ?? date.value,
     today.value?.timeZone ?? 'UTC',
     ownerId.value ?? 'anonymous',
   ]),
@@ -117,6 +122,11 @@ watch(
   (result) => {
     if (result === undefined || result.session === null) return;
     if (result.ownerId !== sessionStore.ownerId) return;
+    // A cached answer from before a pause/complete must not overwrite the
+    // newer copy this device already has (it would resurrect a finished
+    // session as active, M6-02).
+    const known = sessionStore.get(result.session.id);
+    if (known !== null && known.version > result.session.version) return;
     sessionStore.remember(result.session);
   },
   { immediate: true },
@@ -418,7 +428,9 @@ async function startFocus(block: TodayBlock): Promise<void> {
       return;
     }
     sessionStore.remember(session);
-    await router.push(`/focus/${session.id}`);
+    // M6-02: with automatic layout switching the layout itself moves to this
+    // session's focus page (and offers undo); otherwise open it directly.
+    if (!layout.sessionStarted(session.id)) await router.push(`/focus/${session.id}`);
   } catch (cause) {
     if (action !== undefined && cause instanceof ApiError) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;

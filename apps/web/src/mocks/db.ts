@@ -382,6 +382,19 @@ export function createMockDb(): MockDb {
 
 export const mockDb = createMockDb();
 
+/** M6-02 screenshots: Today with a deadline risk (same reason codes as the API). */
+export function seedTodayRisk(db: MockDb): void {
+  db.today = {
+    ...db.today,
+    slackMin: -45,
+    risk: {
+      level: 'high',
+      reasons: ['negative_slack:-45', `task_overdue:${TODAY_TASK_TWO_ID}`, 'daily_focus_cap_exceeded:310'],
+    },
+  };
+  db.todayRevision += 1;
+}
+
 export function resetMockDb(): void {
   const fresh = createMockDb();
   mockDb.user = fresh.user;

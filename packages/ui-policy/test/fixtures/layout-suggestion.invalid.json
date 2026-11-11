@@ -1,0 +1,14 @@
+{
+  "kind": "llm.layout_suggestion.v1",
+  "spec": {
+    "mode": "overview",
+    "regions": {
+      "primary": [{ "component": "TodayPlan" }],
+      "secondary": [{ "component": "RelatedNotes", "props": { "limit": 2, "html": "<script>steal()</script>" } }],
+      "tertiary": [{ "component": "WebView", "props": { "url": "https://example.invalid" } }]
+    },
+    "pinned": ["NavRail"],
+    "reason": "ai_suggestion",
+    "policyVersion": "ui-policy@0.1.0"
+  }
+}

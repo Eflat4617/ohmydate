@@ -1075,10 +1075,41 @@
   font-weight: var(--weight-semibold);
 }
 
+.toast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.toast-action--link {
+  font-weight: var(--weight-medium);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;
     transform: translateY(8px);
+  }
+}
+
+/* Narrow screens: the actions get their own row so the message never wraps
+   one word per line. */
+@media (max-width: 639px) {
+  .toast {
+    flex-wrap: wrap;
+  }
+
+  .toast-message {
+    flex: 1 1 0;
+  }
+
+  .toast-actions {
+    order: 3;
+    flex-basis: 100%;
+    padding-inline-start: calc(18px + var(--space-3));
   }
 }
 

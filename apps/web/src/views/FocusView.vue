@@ -19,6 +19,7 @@ import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiSpinner from '../components/ui/UiSpinner.vue';
 import I18nT from '../i18n/I18nT';
 import { focusContextFor } from '../composables/focusContext';
+import { markSessionReviewed } from '../layout/localSignals';
 import { calmMode, setCalmMode } from '../composables/useCalmMode';
 import { t, tp } from '../i18n';
 import { formatDuration, formatTimeRange, formatTimer, minutesBetween } from '../i18n/format';
@@ -441,8 +442,14 @@ async function submitReview(review: SessionReviewRequest): Promise<void> {
     reviewError.value = t('focus.reviewOffline');
     return;
   }
+  // ADR-023: bind to the owner before the first await. A continuation that
+  // resumes after a user switch writes nothing — not to the screen, not to
+  // either owner's storage. reviewSession takes no AbortSignal, so the owner
+  // signal cancels the wait instead (the request itself still completes).
+  const binding = captureOwnerBinding();
   if (sessions.pendingCount > 0) {
     await syncPending();
+    if (!isOwnerBindingCurrent(binding)) return;
   }
   const ready = session.value;
   if (ready === null) return;
@@ -451,13 +458,22 @@ async function submitReview(review: SessionReviewRequest): Promise<void> {
   const scope = `focus:review:${ready.id}`;
   try {
     const action = actions.begin(scope, review, (left, right) => JSON.stringify(left) === JSON.stringify(right), ready.version);
-    feedback.value = await plannerClient.reviewSession(ready.id, action.payload, action.key, ready.version);
+    const result = await abortable(
+      plannerClient.reviewSession(ready.id, action.payload, action.key, ready.version),
+      binding.signal,
+    );
+    if (result === undefined || !isOwnerBindingCurrent(binding)) return;
     actions.settle(scope, action);
+    feedback.value = result;
+    // The layout's review prompt only counts sessions without a review; the
+    // id goes into the namespace of the owner who submitted it.
+    markSessionReviewed(binding, ready.id);
     toast.show(t('focus.reviewSaved'));
   } catch (cause) {
+    if (!isOwnerBindingCurrent(binding)) return;
     reviewError.value = errorMessage(cause, t('focus.reviewFailed'));
   } finally {
-    reviewBusy.value = false;
+    if (isOwnerBindingCurrent(binding)) reviewBusy.value = false;
   }
 }
 

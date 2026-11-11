@@ -9,6 +9,11 @@ function runAction(item: Toast): void {
   item.action?.handler();
   toast.dismiss(item.id);
 }
+
+function runSecondary(item: Toast): void {
+  item.secondaryAction?.handler();
+  toast.dismiss(item.id);
+}
 </script>
 
 <template>
@@ -22,14 +27,24 @@ function runAction(item: Toast): void {
     >
       <UiIcon :name="item.tone === 'error' ? 'error' : 'check-circle'" :size="18" class="toast-icon" />
       <span class="toast-message">{{ item.message }}</span>
-      <button
-        v-if="item.action"
-        type="button"
-        class="btn btn--ghost btn--sm toast-action"
-        @click="runAction(item)"
-      >
-        {{ item.action.label }}
-      </button>
+      <div v-if="item.action || item.secondaryAction" class="toast-actions">
+        <button
+          v-if="item.action"
+          type="button"
+          class="btn btn--ghost btn--sm toast-action"
+          @click="runAction(item)"
+        >
+          {{ item.action.label }}
+        </button>
+        <button
+          v-if="item.secondaryAction"
+          type="button"
+          class="btn btn--ghost btn--sm toast-action toast-action--link"
+          @click="runSecondary(item)"
+        >
+          {{ item.secondaryAction.label }}
+        </button>
+      </div>
       <button
         type="button"
         class="btn btn--ghost btn--sm btn--icon toast-dismiss"

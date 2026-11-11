@@ -1,0 +1,14 @@
+{
+  "kind": "llm.layout_suggestion.v1",
+  "spec": {
+    "mode": "overview",
+    "regions": {
+      "primary": [{ "component": "TodayPlan" }],
+      "secondary": [{ "component": "RelatedNotes", "props": { "limit": 2 } }],
+      "tertiary": [{ "component": "NextUp", "props": { "count": 4 } }]
+    },
+    "pinned": ["NavRail", "BottomNav"],
+    "reason": "ai_suggestion",
+    "policyVersion": "ui-policy@0.1.0"
+  }
+}

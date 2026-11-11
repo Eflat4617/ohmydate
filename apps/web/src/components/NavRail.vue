@@ -123,6 +123,12 @@ function newTask(): void {
               <span class="nav-link-label">{{ t('nav.aiSettings') }}</span>
             </RouterLink>
           </li>
+          <li>
+            <RouterLink to="/settings/layout" class="nav-link">
+              <UiIcon name="layout" class="nav-link-icon" />
+              <span class="nav-link-label">{{ t('nav.layoutSettings') }}</span>
+            </RouterLink>
+          </li>
         </ul>
       </div>
     </div>
