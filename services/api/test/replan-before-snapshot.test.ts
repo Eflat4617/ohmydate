@@ -216,6 +216,115 @@ describe.skipIf(!hasDatabase)('replan proposal before snapshot (M5-03R-1 H1)', (
     expect(foreign.statusCode).toBe(404);
   });
 
+  test('FU-72: malformed persisted snapshots are dropped from GET and list (negative)', async () => {
+    const { ownerId, session } = await owner('malformed');
+    const task = await seedPlanTask(ctx, ownerId, {
+      title: 'Malformed',
+      dueAt: '2026-11-20T18:00:00Z',
+    });
+    const { plan } = await longPlan(session, [
+      { taskId: task.id, startAt: '2026-11-12T10:00:00Z', endAt: '2026-11-12T11:00:00Z' },
+    ]);
+    const created = await request(session, { planId: plan.id });
+    expect(created.statusCode, created.body).toBe(201);
+    const proposal = created.json() as ReplanProposal;
+    expect(proposal.before).toBeDefined();
+
+    const stored = await ctx.db
+      .selectFrom('replan_proposal')
+      .select('payload')
+      .where('id', '=', proposal.id as Id)
+      .executeTakeFirstOrThrow();
+    const original = stored.payload as { before: Record<string, unknown> } & Record<string, unknown>;
+
+    const variants: Array<[string, (before: Record<string, unknown>) => void]> = [
+      ['bad instant', (before) => { before['capturedAt'] = 'not-an-instant'; }],
+      [
+        'negative focus',
+        (before) => {
+          (before['metrics'] as Record<string, unknown>)['totalFocusMin'] = -1;
+        },
+      ],
+      [
+        'wrong id format',
+        (before) => {
+          ((before['blocks'] as Array<Record<string, unknown>>)[0] as Record<string, unknown>)['id'] =
+            'not-a-uuid';
+        },
+      ],
+      [
+        'version bounds',
+        (before) => {
+          ((before['blocks'] as Array<Record<string, unknown>>)[0] as Record<string, unknown>)['version'] = 0;
+        },
+      ],
+      [
+        'unknown status',
+        (before) => {
+          ((before['blocks'] as Array<Record<string, unknown>>)[0] as Record<string, unknown>)['status'] =
+            'weird';
+        },
+      ],
+      ['nonexistent calendar date', (before) => { before['capturedAt'] = '2026-02-30T00:00:00Z'; }],
+      ['hour 24', (before) => { before['capturedAt'] = '2026-11-12T24:00:00Z'; }],
+      ['minute 60', (before) => { before['capturedAt'] = '2026-11-12T23:60:00Z'; }],
+      ['missing offset', (before) => { before['capturedAt'] = '2026-11-12T10:00:00'; }],
+      [
+        'nested invalid block instant',
+        (before) => {
+          ((before['blocks'] as Array<Record<string, unknown>>)[0] as Record<string, unknown>)['startAt'] =
+            '2026-02-30T00:00:00Z';
+        },
+      ],
+      [
+        'nested invalid slack instant',
+        (before) => {
+          const taskSlack = (before['metrics'] as Record<string, unknown>)['taskSlack'] as Array<
+            Record<string, unknown>
+          >;
+          (taskSlack[0] as Record<string, unknown>)['dueAt'] = '2026-11-12T24:00:00Z';
+        },
+      ],
+    ];
+
+    try {
+      for (const [label, mutate] of variants) {
+        const payload = structuredClone(original);
+        mutate(payload.before);
+        await ctx.db
+          .updateTable('replan_proposal')
+          .set({ payload: sql`${JSON.stringify(payload)}::jsonb` as never })
+          .where('id', '=', proposal.id as Id)
+          .execute();
+
+        const read = await ctx.app.inject({
+          method: 'GET',
+          url: `/api/v1/replan-proposals/${proposal.id}`,
+          headers: authHeaders(session),
+        });
+        expect(read.statusCode, label).toBe(200);
+        expect('before' in (read.json() as ReplanProposal), label).toBe(false);
+
+        const list = await ctx.app.inject({
+          method: 'GET',
+          url: '/api/v1/replan-proposals',
+          headers: authHeaders(session),
+        });
+        const item = (list.json() as { items: ReplanProposal[] }).items.find(
+          (entry) => entry.id === proposal.id,
+        );
+        expect(item, label).toBeDefined();
+        expect(item !== undefined && 'before' in item, label).toBe(false);
+      }
+    } finally {
+      await ctx.db
+        .updateTable('replan_proposal')
+        .set({ payload: sql`${JSON.stringify(original)}::jsonb` as never })
+        .where('id', '=', proposal.id as Id)
+        .execute();
+    }
+  });
+
   test('a legacy row without a snapshot serializes planId and basePlanVersion but no before (negative)', async () => {
     const { ownerId, session } = await owner('legacy');
     const task = await seedPlanTask(ctx, ownerId, { title: 'Legacy' });

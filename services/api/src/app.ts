@@ -53,6 +53,34 @@ export const REPLAN_DETECTION_ADVISORY_LOCK_KEY = 5_196_104;
 export const DEFAULT_REPLAN_DETECTION_JOB_INTERVAL_MS = 300_000;
 export const DEFAULT_NOTIFICATION_JOB_INTERVAL_MS = 60_000;
 export const DEFAULT_EXPORT_PURGE_JOB_INTERVAL_MS = 300_000;
+
+/**
+ * Single-process (memory provider) maintenance scheduler. The leader-only path
+ * uses the shared `setInterval` scheduler; this recursive timer keeps the
+ * in-process sweeps independent of the leader-lock lifecycle and unref'd so a
+ * background timer never delays shutdown.
+ */
+function maintenanceTimeoutScheduler(
+  callback: () => void,
+  milliseconds: number,
+): { stop(): void } {
+  let handle: NodeJS.Timeout | undefined;
+  let stopped = false;
+  const tick = (): void => {
+    if (stopped) return;
+    callback();
+    handle = setTimeout(tick, milliseconds);
+    handle.unref?.();
+  };
+  handle = setTimeout(tick, milliseconds);
+  handle.unref?.();
+  return {
+    stop: () => {
+      stopped = true;
+      if (handle !== undefined) clearTimeout(handle);
+    },
+  };
+}
 import type { Database } from './db/types.js';
 import {
   ProblemError,
@@ -116,6 +144,18 @@ export interface BuildAppOptions {
    * test workers avoid contending on the shared planner database.
    */
   readonly reconcileLockKey?: number;
+  /**
+   * Test-only overrides for the leader-only maintenance jobs. Production uses
+   * the built-in intervals and real timers; disabling an interval (0) keeps
+   * background sweeps out of isolated test processes.
+   */
+  readonly jobOverrides?: MaintenanceJobOverrides;
+}
+
+export interface MaintenanceJobOverrides {
+  readonly notificationIntervalMs?: number;
+  readonly exportPurgeIntervalMs?: number;
+  readonly scheduler?: (callback: () => void, milliseconds: number) => { stop(): void };
 }
 
 /**
@@ -807,45 +847,58 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   );
 
   const leaderConnection = config.databaseUrl;
-  if (
+  const useLeaderLock =
     config.provider === 'vikunja' &&
     leaderConnection !== null &&
-    leaderConnection.length > 0
-  ) {
-    const notificationJob = new NotificationJob({
-      store: new PgNotificationStore({ db, ids }),
-      clock,
-      intervalMs: DEFAULT_NOTIFICATION_JOB_INTERVAL_MS,
-      leaderLock: createPgSessionLeaderLock({
-        connectionString: leaderConnection,
-        key: NOTIFICATION_ADVISORY_LOCK_KEY,
-        logger: {
-          warn: (message, details) => app.log.warn(details ?? {}, message),
-          error: (message, details) => app.log.error(details ?? {}, message),
-        },
-      }),
-      logger: {
-        warn: (message, details) => app.log.warn(details ?? {}, message),
-        error: (message, details) => app.log.error(details ?? {}, message),
-      },
-    });
-    const exportPurgeJob = new ExportPurgeJob({
-      store: new PgExportStore({ db, clock }),
-      clock,
-      intervalMs: DEFAULT_EXPORT_PURGE_JOB_INTERVAL_MS,
-      leaderLock: createPgSessionLeaderLock({
-        connectionString: leaderConnection,
-        key: EXPORT_PURGE_ADVISORY_LOCK_KEY,
-        logger: {
-          warn: (message, details) => app.log.warn(details ?? {}, message),
-          error: (message, details) => app.log.error(details ?? {}, message),
-        },
-      }),
-      logger: {
-        warn: (message, details) => app.log.warn(details ?? {}, message),
-        error: (message, details) => app.log.error(details ?? {}, message),
-      },
-    });
+    leaderConnection.length > 0;
+  const jobLogger = {
+    warn: (message: string, details?: Readonly<Record<string, unknown>>) =>
+      app.log.warn(details ?? {}, message),
+    error: (message: string, details?: Readonly<Record<string, unknown>>) =>
+      app.log.error(details ?? {}, message),
+  };
+  const lockFor = (key: number): ReturnType<typeof createPgSessionLeaderLock> | undefined =>
+    useLeaderLock && leaderConnection !== null
+      ? createPgSessionLeaderLock({
+          connectionString: leaderConnection,
+          key,
+          logger: jobLogger,
+        })
+      : undefined;
+  const scheduler =
+    options.jobOverrides?.scheduler ??
+    (useLeaderLock ? undefined : maintenanceTimeoutScheduler);
+  const startMaintenance = useLeaderLock || config.provider === 'memory';
+  const notificationLock = lockFor(NOTIFICATION_ADVISORY_LOCK_KEY);
+  const notificationJob = new NotificationJob({
+    store: new PgNotificationStore({ db, ids }),
+    clock,
+    intervalMs:
+      options.jobOverrides?.notificationIntervalMs ?? DEFAULT_NOTIFICATION_JOB_INTERVAL_MS,
+    ...(notificationLock === undefined ? {} : { leaderLock: notificationLock }),
+    logger: jobLogger,
+    ...(scheduler === undefined ? {} : { scheduler }),
+  });
+  const exportPurgeLock = lockFor(EXPORT_PURGE_ADVISORY_LOCK_KEY);
+  const exportPurgeJob = new ExportPurgeJob({
+    store: new PgExportStore({ db, clock }),
+    clock,
+    intervalMs:
+      options.jobOverrides?.exportPurgeIntervalMs ?? DEFAULT_EXPORT_PURGE_JOB_INTERVAL_MS,
+    ...(exportPurgeLock === undefined ? {} : { leaderLock: exportPurgeLock }),
+    logger: jobLogger,
+    ...(scheduler === undefined ? {} : { scheduler }),
+  });
+  app.addHook('onClose', async () => {
+    await notificationJob.stop();
+    await exportPurgeJob.stop();
+  });
+  if (startMaintenance) {
+    notificationJob.start();
+    exportPurgeJob.start();
+  }
+
+  if (useLeaderLock && leaderConnection !== null) {
     const replanDetectionJob = new ReplanDetectionJob({
       runner: runtime.replan,
       clock,
@@ -853,23 +906,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       leaderLock: createPgSessionLeaderLock({
         connectionString: leaderConnection,
         key: REPLAN_DETECTION_ADVISORY_LOCK_KEY,
-        logger: {
-          warn: (message, details) => app.log.warn(details ?? {}, message),
-          error: (message, details) => app.log.error(details ?? {}, message),
-        },
+        logger: jobLogger,
       }),
-      logger: {
-        warn: (message, details) => app.log.warn(details ?? {}, message),
-        error: (message, details) => app.log.error(details ?? {}, message),
-      },
+      logger: jobLogger,
     });
     app.addHook('onClose', async () => {
-      await notificationJob.stop();
-      await exportPurgeJob.stop();
       await replanDetectionJob.stop();
     });
-    notificationJob.start();
-    exportPurgeJob.start();
     replanDetectionJob.start();
   }
 

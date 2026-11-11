@@ -19,7 +19,11 @@ import type { BudgetGuard, LlmPort } from '@ohmydate/llm';
 import type { FastifyInstance } from 'fastify';
 import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
-import { buildApp, type LoggerInstanceOption } from '../../src/app.js';
+import {
+  buildApp,
+  type LoggerInstanceOption,
+  type MaintenanceJobOverrides,
+} from '../../src/app.js';
 import type { AppRepositories, IdempotencyStore } from '../../src/application/ports.js';
 import { migrate } from '../../src/db/migrate.js';
 import type { Database } from '../../src/db/types.js';
@@ -98,6 +102,8 @@ export interface TestContextOptions {
   readonly llm?: LlmPort;
   readonly llmApiKey?: string;
   readonly budgetGuard?: BudgetGuard;
+  /** Leader-only maintenance jobs are disabled unless a test opts in. */
+  readonly jobOverrides?: MaintenanceJobOverrides;
 }
 
 export async function createTestContext(
@@ -136,6 +142,10 @@ export async function createTestContext(
     ...(options.llm === undefined ? {} : { llm: options.llm }),
     ...(options.llmApiKey === undefined ? {} : { llmApiKey: options.llmApiKey }),
     ...(options.budgetGuard === undefined ? {} : { budgetGuard: options.budgetGuard }),
+    jobOverrides: options.jobOverrides ?? {
+      notificationIntervalMs: 0,
+      exportPurgeIntervalMs: 0,
+    },
   });
   await app.ready();
 

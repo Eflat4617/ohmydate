@@ -12,6 +12,10 @@ import {
 const EXPORT_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_FAILURE_LENGTH = 100;
 
+/** 50 MB artifact ceiling shared by the builder and the persistence guard. */
+export const MAX_EXPORT_BYTES = 52_428_800;
+export const EXPORT_TOO_LARGE_MESSAGE = 'export artifact exceeds the 50 MB limit';
+
 export interface ExportRecord {
   readonly id: Id;
   readonly ownerId: Id;
