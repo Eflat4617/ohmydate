@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { vi } from 'vitest';
 import {
@@ -286,6 +287,24 @@ describe('OpenAICompatibleLlm', () => {
   });
 
   test('matches the recorded request-shape fixture', async () => {
+    const fixture = JSON.parse(
+      readFileSync(
+        new URL('./fixtures/openai-compatible-request-shape.json', import.meta.url),
+        'utf8',
+      ),
+    ) as {
+      readonly promptKey: string;
+      readonly model: string;
+      readonly reasoning_effort: string;
+      readonly response_format: { readonly type: string };
+      readonly messages: {
+        readonly roles: readonly string[];
+        readonly systemIncludes: string;
+        readonly userIsJsonStringifiedInput: boolean;
+      };
+      readonly forbidden: readonly string[];
+    };
+    expect(fixture.promptKey).toBe('type_detection@v1');
     const server = await startServer((_request, response) =>
       response.writeHead(200).end(chatResponse(JSON.stringify(validTypeDetection))),
     );
@@ -297,15 +316,22 @@ describe('OpenAICompatibleLlm', () => {
       expect(Object.keys(captured ?? {}).sort()).toEqual(
         ['messages', 'model', 'reasoning_effort', 'response_format'].sort(),
       );
-      expect(captured?.['model']).toBe('deepseek-v4.1-flash');
-      expect(captured?.['reasoning_effort']).toBe('medium');
-      expect(captured?.['response_format']).toEqual({ type: 'json_object' });
+      expect(captured?.['model']).toBe(fixture.model);
+      expect(captured?.['reasoning_effort']).toBe(fixture.reasoning_effort);
+      expect(captured?.['response_format']).toEqual(fixture.response_format);
       const messages = captured?.['messages'] as Array<{ role: string; content: string }>;
+      expect(messages.map((message) => message.role)).toEqual(fixture.messages.roles);
+      expect(messages[0]?.content).toContain(fixture.messages.systemIncludes);
+      if (fixture.messages.userIsJsonStringifiedInput) {
+        expect(messages[1]).toEqual({
+          role: 'user',
+          content: JSON.stringify(request.input),
+        });
+      }
       expect(messages[0]).toEqual({ role: 'system', content: getPrompt('type_detection', 'v1') });
-      expect(messages[1]).toEqual({
-        role: 'user',
-        content: JSON.stringify(request.input),
-      });
+      for (const forbidden of fixture.forbidden) {
+        expect(JSON.stringify(captured)).not.toContain(forbidden);
+      }
       expect(JSON.stringify(captured)).not.toContain(KEY_MARKER);
     } finally {
       await server.close();
