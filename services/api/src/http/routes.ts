@@ -1,8 +1,18 @@
 import {
   dailyRoutes,
+  notesRoutes,
   planningRoutes,
   replanningRoutes,
   routes,
+  type ContextDocumentCreate,
+  type ContextDocumentDto,
+  type ContextDocumentIdParams,
+  type ContextDocumentListQuery,
+  type ContextDocumentPatch,
+  type DocumentLinkCreate,
+  type DocumentLinkParams,
+  type NoteAiUsageDto,
+  type NoteAiUsageListQuery,
   type EstimationFeedbackIdParams,
   type EstimationFeedbackPatch,
   type EstimationReset,
@@ -114,6 +124,9 @@ import { EstimationService } from '../application/estimation-service.js';
 import { ReplanService } from '../application/replan-service.js';
 import { PgEstimationStore } from '../adapters/pg-estimation-store.js';
 import { PgReplanStore } from '../adapters/pg-replan-store.js';
+import { PgNoteStore } from '../adapters/pg-note-store.js';
+import { NotesService } from '../application/notes/notes-service.js';
+import type { NoteRecord, NoteUsageRecord } from '../application/notes/ports.js';
 import { resolvePushKey } from '../application/push-crypto.js';
 import type { Database } from '../db/types.js';
 import type { BudgetGuard, LlmPort } from '@ohmydate/llm';
@@ -157,6 +170,7 @@ export interface RouteRuntime {
   readonly exports: ExportService;
   readonly replan: ReplanService;
   readonly estimation: EstimationService;
+  readonly notes: NotesService;
 }
 
 interface RouteMeta {
@@ -260,6 +274,49 @@ function toTaskPageDto(page: Page<Task>): { items: TaskDto[]; nextCursor: string
 
 function toProjectPageDto(page: Page<Project>): { items: ProjectDto[]; nextCursor: string | null } {
   return { items: page.items.map((project) => toProjectDto(project)), nextCursor: page.nextCursor };
+}
+
+/** Raw Markdown only: the API never renders or returns HTML for notes. */
+function toDocumentDto(note: NoteRecord): ContextDocumentDto {
+  return {
+    id: note.id,
+    ownerId: note.ownerId,
+    title: note.title,
+    bodyMd: note.bodyMd,
+    sensitivity: note.sensitivity,
+    llmAllowed: note.llmAllowed,
+    source: note.source,
+    ...(note.sourceTaskId === undefined ? {} : { sourceTaskId: note.sourceTaskId }),
+    links: note.links.map((link) => ({
+      id: link.id,
+      documentId: link.documentId,
+      targetKind: link.targetKind,
+      targetId: link.targetId,
+      createdAt: link.createdAt,
+    })),
+    version: note.version,
+    createdAt: note.createdAt,
+    updatedAt: note.updatedAt,
+  };
+}
+
+function toNoteUsageDto(usage: NoteUsageRecord): NoteAiUsageDto {
+  return {
+    id: usage.id,
+    documentId: usage.documentId,
+    agentRunId: usage.agentRunId,
+    purpose: usage.purpose,
+    promptIdVersion: usage.promptIdVersion,
+    status: usage.status,
+    provider: usage.provider,
+    model: usage.model,
+    documentVersion: usage.documentVersion,
+    bodyHash: usage.bodyHash,
+    sectionHashes: [...usage.sectionHashes],
+    sentBytes: usage.sentBytes,
+    stale: usage.documentVersion < usage.currentVersion,
+    createdAt: usage.createdAt,
+  };
 }
 
 function toDomainTaskCreate(input: TaskCreate): DomainTaskCreate {
@@ -1392,6 +1449,143 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
           headers: { ETag: etagForVersion(session.version) },
         };
       }),
+    listDocuments: async (request, reply) => {
+      const auth = currentAuth(request);
+      const query = request.query as ContextDocumentListQuery;
+      const page = await runtime.notes.list(auth.userId, {
+        ...(query.q === undefined ? {} : { q: query.q }),
+        ...(query.targetKind === undefined ? {} : { targetKind: query.targetKind }),
+        ...(query.targetId === undefined ? {} : { targetId: query.targetId as Id }),
+        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+        ...(query.limit === undefined ? {} : { limit: query.limit }),
+      });
+      const body = { items: page.items.map((note) => toDocumentDto(note)), nextCursor: page.nextCursor };
+      const etag = etagForBody(body);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(body);
+    },
+    createDocument: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const input = request.body as ContextDocumentCreate;
+        const note = await runtime.notes.create(auth.userId, {
+          title: input.title,
+          ...(input.bodyMd === undefined ? {} : { bodyMd: input.bodyMd }),
+          ...(input.sensitivity === undefined ? {} : { sensitivity: input.sensitivity }),
+          ...(input.llmAllowed === undefined ? {} : { llmAllowed: input.llmAllowed }),
+          ...(input.links === undefined
+            ? {}
+            : {
+                links: input.links.map((link) => ({
+                  targetKind: link.targetKind,
+                  targetId: link.targetId as Id,
+                })),
+              }),
+        });
+        return {
+          status: 201,
+          body: toDocumentDto(note),
+          headers: { ETag: etagForVersion(note.version) },
+        };
+      }),
+    getDocument: async (request, reply) => {
+      const auth = currentAuth(request);
+      const id = (request.params as ContextDocumentIdParams).id as Id;
+      const note = await runtime.notes.get(auth.userId, id);
+      const etag = etagForVersion(note.version);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(toDocumentDto(note));
+    },
+    updateDocument: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as ContextDocumentIdParams).id as Id;
+        const patch = request.body as ContextDocumentPatch;
+        const note = await runtime.notes.update(
+          auth.userId,
+          id,
+          {
+            ...(patch.title === undefined ? {} : { title: patch.title }),
+            ...(patch.bodyMd === undefined ? {} : { bodyMd: patch.bodyMd }),
+            ...(patch.sensitivity === undefined ? {} : { sensitivity: patch.sensitivity }),
+            ...(patch.llmAllowed === undefined ? {} : { llmAllowed: patch.llmAllowed }),
+          },
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: toDocumentDto(note),
+          headers: { ETag: etagForVersion(note.version) },
+        };
+      }),
+    deleteDocument: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as ContextDocumentIdParams).id as Id;
+        await runtime.notes.remove(auth.userId, id, requireIfMatch(request));
+        return { status: 204 };
+      }),
+    addDocumentLink: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as ContextDocumentIdParams).id as Id;
+        const input = request.body as DocumentLinkCreate;
+        const note = await runtime.notes.addLink(
+          auth.userId,
+          id,
+          { kind: input.targetKind, id: input.targetId as Id },
+          requireIfMatch(request),
+        );
+        return {
+          status: 201,
+          body: toDocumentDto(note),
+          headers: { ETag: etagForVersion(note.version) },
+        };
+      }),
+    removeDocumentLink: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const params = request.params as DocumentLinkParams;
+        const note = await runtime.notes.removeLink(
+          auth.userId,
+          params.id as Id,
+          params.linkId as Id,
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: toDocumentDto(note),
+          headers: { ETag: etagForVersion(note.version) },
+        };
+      }),
+    listDocumentAiUsage: async (request, reply) => {
+      const auth = currentAuth(request);
+      const id = (request.params as ContextDocumentIdParams).id as Id;
+      const query = request.query as NoteAiUsageListQuery;
+      const page = await runtime.notes.listAiUsage(auth.userId, id, {
+        ...(query.cursor === undefined ? {} : { cursor: query.cursor }),
+        ...(query.limit === undefined ? {} : { limit: query.limit }),
+      });
+      const body = { items: page.items.map((usage) => toNoteUsageDto(usage)), nextCursor: page.nextCursor };
+      const etag = etagForBody(body);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(body);
+    },
+    promoteTaskDescription: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const id = (request.params as TaskIdParams).id as Id;
+        const note = await runtime.notes.promoteTaskDescription(
+          auth.userId,
+          id,
+          requireIfMatch(request),
+        );
+        return {
+          status: 201,
+          body: toDocumentDto(note),
+          headers: { ETag: etagForVersion(note.version) },
+        };
+      }),
     listTaskTemplates: async (request, reply) => {
       const auth = currentAuth(request);
       const page = await runtime.intake.listTemplates(
@@ -1514,7 +1708,13 @@ function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
 
 export function registerRoutes(app: FastifyInstance, runtime: RouteRuntime): void {
   const handlers = buildHandlers(runtime);
-  for (const route of [...routes, ...planningRoutes, ...dailyRoutes, ...replanningRoutes]) {
+  for (const route of [
+    ...routes,
+    ...planningRoutes,
+    ...dailyRoutes,
+    ...replanningRoutes,
+    ...notesRoutes,
+  ]) {
     const meta = routeMeta(route);
     const handler = handlers[meta.operationId];
     if (handler === undefined) {
@@ -1556,9 +1756,11 @@ export function createRuntime(options: {
     databaseUrl !== null && databaseUrl.length > 0
       ? new PgIntakeApprovalLock({ connectionString: databaseUrl })
       : new InProcessIntakeApprovalLock();
+  const noteStore = new PgNoteStore({ db: options.db, clock: options.clock });
   const intake = new IntakeService({
     clock: options.clock,
     ids: options.ids,
+    notes: noteStore,
     sessions: new PgIntakeSessionRepository(options.db, options.clock, options.ids),
     templates: new PgTaskTemplateRepository(options.db),
     agentRuns: new PgAgentRunRepository(options.db),
@@ -1639,6 +1841,11 @@ export function createRuntime(options: {
     exports,
     replan,
     estimation,
+    notes: new NotesService({
+      store: noteStore,
+      tasks: options.repos.tasks,
+      projects: options.repos.projects,
+      ids: options.ids,
+    }),
   };
 }
-

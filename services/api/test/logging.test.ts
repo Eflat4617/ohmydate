@@ -1,7 +1,7 @@
 import { Writable } from 'node:stream';
 import pino from 'pino';
 import { createConfig } from '../src/config.js';
-import { defaultLoggerOptions } from '../src/app.js';
+import { defaultLoggerOptions, redactLoggedUrl } from '../src/app.js';
 
 function captureStream(): { stream: Writable; output: () => string } {
   const chunks: string[] = [];
@@ -62,4 +62,37 @@ test('logger options list every sensitive pino redact path', () => {
   ]) {
     expect(paths).toContain(expected);
   }
+});
+
+test('M6-01: note search strings are redacted from logged request URLs', () => {
+  const { stream, output } = captureStream();
+  const logger = pino(
+    defaultLoggerOptions(createConfig()) as unknown as pino.LoggerOptions,
+    stream,
+  );
+  logger.info(
+    {
+      req: {
+        method: 'GET',
+        url: '/api/v1/documents?targetKind=goal&q=%EB%85%BC%EB%AC%B8%20private-note-text&limit=5',
+        id: 'req-2',
+        body: { title: 'note title', bodyMd: 'private note body' },
+      },
+    },
+    'incoming request',
+  );
+  const text = output();
+  expect(text).not.toContain('private-note-text');
+  expect(text).not.toContain('%EB%85%BC');
+  expect(text).not.toContain('private note body');
+  expect(text).toContain('/api/v1/documents?targetKind=goal&q=[REDACTED]&limit=5');
+});
+
+test('redactLoggedUrl only touches the q parameter', () => {
+  expect(redactLoggedUrl('/api/v1/documents?q=secret')).toBe('/api/v1/documents?q=[REDACTED]');
+  expect(redactLoggedUrl('/api/v1/documents?cursor=abc&q=a&q=b')).toBe(
+    '/api/v1/documents?cursor=abc&q=[REDACTED]&q=[REDACTED]',
+  );
+  expect(redactLoggedUrl('/api/v1/today?date=2026-11-12')).toBe('/api/v1/today?date=2026-11-12');
+  expect(redactLoggedUrl('/api/v1/templates?query=x')).toBe('/api/v1/templates?query=x');
 });

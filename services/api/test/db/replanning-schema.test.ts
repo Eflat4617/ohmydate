@@ -397,6 +397,13 @@ describe.skipIf(!hasDatabase)('0012 replanning schema', () => {
     await client.end();
     client = await connect(schema);
 
+    const rolledBack0013 = await rollbackLatest({
+      databaseUrl: requireDatabaseUrl(),
+      schema,
+      migrationsDir,
+    });
+    expect(rolledBack0013).toBe('0013_context_documents.sql');
+
     const rolledBack = await rollbackLatest({
       databaseUrl: requireDatabaseUrl(),
       schema,
@@ -428,6 +435,6 @@ describe.skipIf(!hasDatabase)('0012 replanning schema', () => {
       schema,
       migrationsDir,
     });
-    expect(reapplied.applied).toEqual(['0012_replanning.sql']);
+    expect(reapplied.applied).toEqual(['0012_replanning.sql', '0013_context_documents.sql']);
   });
 });

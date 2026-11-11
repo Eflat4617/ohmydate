@@ -116,6 +116,14 @@ export interface BuildAppOptions {
 }
 
 /**
+ * M6-01: a note search string (`GET /documents?q=`) is user note text; logs keep
+ * the path and the other (id-only) query parameters but never its value.
+ */
+export function redactLoggedUrl(url: string): string {
+  return url.replace(/([?&]q=)[^&#]*/g, '$1[REDACTED]');
+}
+
+/**
  * 09 §7: structured JSON logs with request IDs. Bodies, cookies and auth
  * headers are never logged; /auth/* bodies are redacted by path as a belt and
  * braces measure on top of the request serializer.
@@ -140,7 +148,11 @@ export function defaultLoggerOptions(config: AppConfig): LoggerOption {
     },
     serializers: {
       req(request: { method?: string; url?: string; id?: string }) {
-        return { method: request.method ?? '', url: request.url ?? '', id: request.id ?? '' };
+        return {
+          method: request.method ?? '',
+          url: redactLoggedUrl(request.url ?? ''),
+          id: request.id ?? '',
+        };
       },
       res(reply: { statusCode?: number }) {
         return { statusCode: reply.statusCode ?? 0 };
