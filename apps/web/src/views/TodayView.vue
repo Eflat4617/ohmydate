@@ -31,6 +31,7 @@ import { t, tp } from '../i18n';
 import { formatCivilDate, formatDuration, formatTimeRange, minutesBetween } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
 import { riskReasonText } from '../i18n/server';
+import { useLayoutStore } from '../stores/layout';
 import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 import { useToastStore } from '../stores/toast';
@@ -54,6 +55,7 @@ const router = useRouter();
 const offline = useOfflineStore();
 const sessionStore = useSessionStore();
 const toast = useToastStore();
+const layout = useLayoutStore();
 const actions = new ActionStore();
 
 const date = localDateIso();
@@ -418,7 +420,9 @@ async function startFocus(block: TodayBlock): Promise<void> {
       return;
     }
     sessionStore.remember(session);
-    await router.push(`/focus/${session.id}`);
+    // M6-02: with automatic layout switching the layout itself moves to this
+    // session's focus page (and offers undo); otherwise open it directly.
+    if (!layout.sessionStarted(session.id)) await router.push(`/focus/${session.id}`);
   } catch (cause) {
     if (action !== undefined && cause instanceof ApiError) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;

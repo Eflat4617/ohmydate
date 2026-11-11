@@ -405,3 +405,143 @@
     padding: var(--space-10) var(--space-12) var(--space-16);
   }
 }
+
+/* ── Adaptive layout frame (M6-02, 07 §2) ──────────────────────────────
+   One grid, three regions, stable keys. Below 1280px the regions stack
+   (primary first); from 1280px the workspace shows primary · secondary ·
+   tertiary side by side next to the rail. Planning pages own wide grids
+   of their own, so their context regions sit below the page. Only opacity
+   animates (a transform would trap Focus calm mode's fixed overlay), and
+   reduced motion turns it off. */
+.adaptive-frame {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    'primary'
+    'secondary'
+    'tertiary';
+  gap: var(--space-5);
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+
+.adaptive-region {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.adaptive-region:focus {
+  outline: none;
+}
+
+.adaptive-region--primary {
+  grid-area: primary;
+}
+
+.adaptive-region--secondary {
+  grid-area: secondary;
+}
+
+.adaptive-region--tertiary {
+  grid-area: tertiary;
+}
+
+.adaptive-item {
+  min-width: 0;
+  animation: adaptive-item-in var(--duration-base) var(--ease-out);
+}
+
+@keyframes adaptive-item-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adaptive-item {
+    animation: none;
+  }
+}
+
+/* Calm mode (Focus): only the timer stays on screen. */
+.app-shell--calm .adaptive-region:not(.adaptive-region--primary),
+.app-shell--calm .adaptive-item:not(.adaptive-item--FocusTimer) {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .adaptive-frame--columns,
+  .adaptive-frame--stacked {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      'primary primary'
+      'secondary tertiary';
+  }
+
+  .adaptive-frame--no-secondary {
+    grid-template-areas:
+      'primary primary'
+      'tertiary tertiary';
+  }
+
+  .adaptive-frame--no-tertiary {
+    grid-template-areas:
+      'primary primary'
+      'secondary secondary';
+  }
+}
+
+@media (min-width: 1280px) {
+  .app-main:has(.adaptive-frame--columns) {
+    padding-inline: var(--space-8);
+  }
+
+  .adaptive-frame--columns {
+    grid-template-columns: minmax(0, 1fr) 13rem 13rem;
+    grid-template-areas: 'primary secondary tertiary';
+    gap: var(--space-6);
+  }
+
+  .adaptive-frame--columns.adaptive-frame--no-secondary {
+    grid-template-columns: minmax(0, 1fr) 16rem;
+    grid-template-areas: 'primary tertiary';
+  }
+
+  .adaptive-frame--columns.adaptive-frame--no-tertiary {
+    grid-template-columns: minmax(0, 1fr) 16rem;
+    grid-template-areas: 'primary secondary';
+  }
+
+  .adaptive-frame--columns .adaptive-region--secondary,
+  .adaptive-frame--columns .adaptive-region--tertiary {
+    position: sticky;
+    top: var(--space-8);
+  }
+
+  /* The frame provides the columns now; Today's own aside stacks. */
+  .adaptive-frame--columns .today-layout {
+    grid-template-areas:
+      'summary'
+      'list';
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+  }
+
+  .adaptive-frame--columns .today-summary {
+    position: static;
+  }
+
+  /* The timer shares the row with two panels; calm mode still goes big. */
+  .adaptive-frame--columns .focus-timer {
+    font-size: clamp(3.5rem, 1rem + 4.5vw, 6rem);
+  }
+}
+
+@media (min-width: 1440px) {
+  .adaptive-frame--columns {
+    grid-template-columns: minmax(0, 1fr) 16rem 16rem;
+  }
+}

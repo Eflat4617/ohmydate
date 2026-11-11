@@ -141,6 +141,7 @@ export const ICONS = {
   },
   pattern: { paths: ['M4.5 19.5h15', 'M7.5 16.5V12', 'M12 16.5V7.5', 'M16.5 16.5v-6'] },
   leaf: { paths: ['M5 19c0-8 5-13 14-14-1 9-6 14-14 14z', 'M5 19l7-7'] },
+  layout: { paths: ['M5.5 4.5h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1z', 'M11 4.5v15', 'M11 12h8.5'] },
   shield: { paths: ['M12 3.75l7 2.75v5.25c0 4.3-3 7.6-7 8.5-4-.9-7-4.2-7-8.5V6.5z', 'M9 12l2.25 2.25L15.5 10'] },
 } as const satisfies Record<string, IconShape>;
 

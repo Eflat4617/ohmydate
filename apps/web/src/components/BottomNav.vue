@@ -28,6 +28,7 @@ const moreLinks: readonly MoreLink[] = [
   { to: '/commitments', label: 'nav.commitments', icon: 'commitment' },
   { to: '/settings/availability', label: 'nav.availability', icon: 'availability' },
   { to: '/settings/ai', label: 'nav.aiSettings', icon: 'ai' },
+  { to: '/settings/layout', label: 'nav.layoutSettings', icon: 'layout' },
 ];
 
 const MORE_ROUTES = new Set([
@@ -41,6 +42,8 @@ const MORE_ROUTES = new Set([
   'commitments',
   'availability',
   'ai-settings',
+  'layout-settings',
+  'notes',
 ]);
 const moreActive = computed(() => typeof route.name === 'string' && MORE_ROUTES.has(route.name));
 

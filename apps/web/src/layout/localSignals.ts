@@ -1,0 +1,78 @@
+import { ref } from 'vue';
+import { ownerStorageSuffix } from '../session/owner';
+
+/**
+ * Small per-owner, per-device facts the layout needs and the API does not
+ * expose: "I saw today's deadline risk", "I already reviewed this session",
+ * "skip today's review prompt". Only ids and dates are stored, never content.
+ */
+const RISK_ACK = 'ohmydate.layout.riskAck';
+const REVIEWED = 'ohmydate.layout.reviewed';
+const REVIEW_SKIP = 'ohmydate.layout.reviewSkip';
+const MAX_REVIEWED = 200;
+
+/** Bumped on every write so computed signals re-read storage. */
+export const layoutSignalRevision = ref(0);
+
+function key(prefix: string, ownerId: string | null): string {
+  return `${prefix}:${ownerStorageSuffix(ownerId)}`;
+}
+
+function read(name: string): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  try {
+    return localStorage.getItem(name);
+  } catch {
+    return null;
+  }
+}
+
+function write(name: string, value: string): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(name, value);
+  } catch {
+    // ignore: the layout simply asks again.
+  }
+  layoutSignalRevision.value += 1;
+}
+
+export function acknowledgeRisk(ownerId: string | null, day: string): void {
+  write(key(RISK_ACK, ownerId), day);
+}
+
+export function isRiskAcknowledged(ownerId: string | null, day: string): boolean {
+  void layoutSignalRevision.value;
+  return read(key(RISK_ACK, ownerId)) === day;
+}
+
+export function skipReviewToday(ownerId: string | null, day: string): void {
+  write(key(REVIEW_SKIP, ownerId), day);
+}
+
+export function isReviewSkipped(ownerId: string | null, day: string): boolean {
+  void layoutSignalRevision.value;
+  return read(key(REVIEW_SKIP, ownerId)) === day;
+}
+
+function reviewedIds(ownerId: string | null): string[] {
+  const raw = read(key(REVIEWED, ownerId));
+  if (raw === null) return [];
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function markSessionReviewed(ownerId: string | null, sessionId: string): void {
+  const ids = reviewedIds(ownerId).filter((id) => id !== sessionId);
+  ids.push(sessionId);
+  write(key(REVIEWED, ownerId), JSON.stringify(ids.slice(-MAX_REVIEWED)));
+}
+
+export function isSessionReviewed(ownerId: string | null, sessionId: string): boolean {
+  void layoutSignalRevision.value;
+  return reviewedIds(ownerId).includes(sessionId);
+}

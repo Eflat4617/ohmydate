@@ -11,11 +11,14 @@ export interface Toast {
   readonly message: string;
   readonly tone: 'info' | 'error';
   readonly action: ToastAction | null;
+  /** Optional link-style second action (e.g. the layout toast's "자동 전환 끄기"). */
+  readonly secondaryAction: ToastAction | null;
 }
 
 export interface ToastOptions {
   readonly tone?: 'info' | 'error';
   readonly action?: ToastAction;
+  readonly secondaryAction?: ToastAction;
   readonly duration?: number;
 }
 
@@ -33,6 +36,7 @@ export const useToastStore = defineStore('toast', () => {
       message,
       tone: options.tone ?? 'info',
       action: options.action ?? null,
+      secondaryAction: options.secondaryAction ?? null,
     };
     toasts.value = [...toasts.value, toast];
     const duration = options.duration ?? 6000;

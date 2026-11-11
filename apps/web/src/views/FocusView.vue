@@ -19,6 +19,7 @@ import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiSpinner from '../components/ui/UiSpinner.vue';
 import I18nT from '../i18n/I18nT';
 import { focusContextFor } from '../composables/focusContext';
+import { markSessionReviewed } from '../layout/localSignals';
 import { calmMode, setCalmMode } from '../composables/useCalmMode';
 import { t, tp } from '../i18n';
 import { formatDuration, formatTimeRange, formatTimer, minutesBetween } from '../i18n/format';
@@ -453,6 +454,8 @@ async function submitReview(review: SessionReviewRequest): Promise<void> {
     const action = actions.begin(scope, review, (left, right) => JSON.stringify(left) === JSON.stringify(right), ready.version);
     feedback.value = await plannerClient.reviewSession(ready.id, action.payload, action.key, ready.version);
     actions.settle(scope, action);
+    // The layout's review prompt only counts sessions without a review.
+    markSessionReviewed(sessions.ownerId, ready.id);
     toast.show(t('focus.reviewSaved'));
   } catch (cause) {
     reviewError.value = errorMessage(cause, t('focus.reviewFailed'));
