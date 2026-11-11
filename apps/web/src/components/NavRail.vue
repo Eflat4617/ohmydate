@@ -35,6 +35,15 @@ function newTask(): void {
       <li>
         <RouterLink to="/today">Today <kbd>t</kbd></RouterLink>
       </li>
+      <li>
+        <RouterLink to="/plans/new">New plan</RouterLink>
+      </li>
+      <li>
+        <RouterLink to="/commitments">Commitments</RouterLink>
+      </li>
+      <li>
+        <RouterLink to="/settings/availability">Availability</RouterLink>
+      </li>
     </ul>
     <div class="nav-secondary">
       <button type="button" class="link-button" @click="ui.openSearch">

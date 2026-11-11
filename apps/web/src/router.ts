@@ -1,6 +1,10 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import AvailabilityView from './views/AvailabilityView.vue';
+import CommitmentsView from './views/CommitmentsView.vue';
 import InboxView from './views/InboxView.vue';
 import LoginView from './views/LoginView.vue';
+import PlanComparisonView from './views/PlanComparisonView.vue';
+import PlanNewView from './views/PlanNewView.vue';
 import ProjectDetailView from './views/ProjectDetailView.vue';
 import ProjectListView from './views/ProjectListView.vue';
 import TodayView from './views/TodayView.vue';
@@ -14,6 +18,10 @@ export const router = createRouter({
     { path: '/projects', name: 'projects', component: ProjectListView },
     { path: '/projects/:id', name: 'project', component: ProjectDetailView, props: true },
     { path: '/today', name: 'today', component: TodayView },
+    { path: '/commitments', name: 'commitments', component: CommitmentsView },
+    { path: '/settings/availability', name: 'availability', component: AvailabilityView },
+    { path: '/plans/new', name: 'plan-new', component: PlanNewView },
+    { path: '/plans/:id', name: 'plan', component: PlanComparisonView, props: true },
     { path: '/:pathMatch(.*)*', redirect: '/inbox' },
   ],
 });
