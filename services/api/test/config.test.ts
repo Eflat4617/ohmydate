@@ -43,6 +43,7 @@ test('LLM provider defaults to fake and deepseek opts in with ADR-022 defaults',
   expect(fake.llmBaseUrl).toBe(DEFAULT_LLM_BASE_URL);
   expect(fake.llmModel).toBe(DEFAULT_LLM_MODEL);
   expect(fake.llmReasoningEffort).toBe(DEFAULT_LLM_REASONING_EFFORT);
+  expect(fake.llmSessionHeader).toBe('auto');
   expect(fake.llmPriceInputPerM).toBe(DEFAULT_LLM_PRICE_INPUT_PER_M);
   expect(fake.llmPriceOutputPerM).toBe(DEFAULT_LLM_PRICE_OUTPUT_PER_M);
   expect(fake.llmPriceCachedPerM).toBe(DEFAULT_LLM_PRICE_CACHED_PER_M);
@@ -50,6 +51,11 @@ test('LLM provider defaults to fake and deepseek opts in with ADR-022 defaults',
   expect(fake.llmMonthlyBudgetUsd).toBe(DEFAULT_LLM_MONTHLY_BUDGET_USD);
 
   expect(() => configFromEnv({ LLM_PROVIDER: 'openai' })).toThrow(/LLM_PROVIDER/);
+  expect(configFromEnv({ LLM_SESSION_HEADER: 'off' }).llmSessionHeader).toBe('off');
+  expect(configFromEnv({ LLM_SESSION_HEADER: 'auto' }).llmSessionHeader).toBe('auto');
+  expect(() => configFromEnv({ LLM_SESSION_HEADER: 'always' })).toThrow(
+    /LLM_SESSION_HEADER/,
+  );
   expect(() => configFromEnv({ LLM_PROVIDER: 'deepseek' })).toThrow(/LLM_API_KEY_FILE/);
   expect(() =>
     configFromEnv({ LLM_PROVIDER: 'deepseek', LLM_API_KEY_FILE: 'relative/key.txt' }),

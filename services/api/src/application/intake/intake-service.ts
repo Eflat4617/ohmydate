@@ -45,6 +45,7 @@ import {
 } from '@ohmydate/domain';
 import {
   BudgetExceeded,
+  GatewayError,
   LlmUnavailable,
   SchemaViolation,
   buildUntrustedBlock,
@@ -519,7 +520,12 @@ export class IntakeService {
       error = { code: 'llm_unavailable', message: 'no LLM provider configured; manual mode' };
     } else {
       try {
-        const output = await this.#runDetectionLlm(ownerId, body.input, templates.items);
+        const output = await this.#runDetectionLlm(
+          ownerId,
+          session.id,
+          body.input,
+          templates.items,
+        );
         detection = {
           ...detection,
           detected: {
@@ -538,7 +544,9 @@ export class IntakeService {
           const message =
             caught instanceof SchemaViolation
               ? 'LLM type detection did not match the schema after one repair; manual mode'
-              : 'LLM unavailable; manual mode';
+              : caught instanceof GatewayError && caught.gatewayErrorType !== undefined
+                ? `LLM unavailable (${caught.gatewayErrorType}); manual mode`
+                : 'LLM unavailable; manual mode';
           error = { code: 'llm_unavailable', message };
         } else {
           throw caught;
@@ -1271,6 +1279,7 @@ export class IntakeService {
 
   async #runDetectionLlm(
     ownerId: Id,
+    sessionId: Id,
     input: IntakeInput,
     templates: readonly TaskTemplate[],
   ): Promise<DetectionLlmOutput> {
@@ -1285,6 +1294,7 @@ export class IntakeService {
           input: bundle.input,
           schemaId: TYPE_DETECTION_SCHEMA,
           ownerId,
+          sessionKey: sessionId,
         },
         { budgetGuard: this.#budgetGuard, estimatedCostUsd: 0 },
       );
@@ -1364,6 +1374,7 @@ export class IntakeService {
           input: bundle.input,
           schemaId: DECOMPOSITION_SCHEMA,
           ownerId: session.ownerId,
+          sessionKey: session.id,
         },
         { budgetGuard: this.#budgetGuard, estimatedCostUsd: 0 },
       );

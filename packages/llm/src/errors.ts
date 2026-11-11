@@ -40,6 +40,32 @@ export class ResponseFormatUnsupportedError extends LlmUnavailable {
   }
 }
 
+/**
+ * A typed 4xx gateway rejection. Only the bounded `error.type` classification
+ * is carried; raw gateway response bodies are never stored in the error.
+ */
+export class GatewayError extends LlmUnavailable {
+  constructor(
+    readonly status: number,
+    readonly gatewayErrorType?: string,
+  ) {
+    super(
+      gatewayErrorType === undefined
+        ? `llm gateway rejected the request (HTTP ${status})`
+        : `llm gateway rejected the request (HTTP ${status}, type ${gatewayErrorType})`,
+      'provider',
+      false,
+    );
+  }
+}
+
+/** OpenCode Go requires `x-opencode-session`; a 400 for it is never retried. */
+export class MissingSessionIdError extends GatewayError {
+  constructor(status = 400) {
+    super(status, 'MissingSessionID');
+  }
+}
+
 /** Timeout is reported as unavailability but `runStructured` does not retry it. */
 export class LlmTimeoutError extends LlmUnavailable {
   constructor(readonly timeoutMs: number) {

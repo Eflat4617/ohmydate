@@ -275,4 +275,80 @@ describe.skipIf(!hasDatabaseEnv)('LLM settings and consent wiring', () => {
       });
     }
   });
+
+  test('classifies a 400 gateway error.type in the manual detail without logging the raw body', async () => {
+    const bodyMarker = 'raw-gateway-body-marker';
+    const server = createServer((_request, response) => {
+      response.writeHead(400, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          error: {
+            type: 'MissingSessionID',
+            message: `${bodyMarker} Request is missing x-opencode-session`,
+          },
+        }),
+      );
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const logLines: string[] = [];
+    const loggerInstance = pino(
+      { level: 'info' },
+      {
+        write(line: string) {
+          logLines.push(line);
+          return true;
+        },
+      },
+    ) as unknown as LoggerInstanceOption;
+    const ctx = await createTestContext({
+      config: {
+        llmProvider: 'deepseek',
+        llmBaseUrl: `http://127.0.0.1:${String(port)}`,
+      },
+      llmApiKey: 'sk-synthetic-classification-marker',
+      loggerInstance,
+    });
+    await ctx.seedUser({ email: 'llm-gateway-400@example.com', password: 'correct-horse' });
+    const session = await login(ctx, 'llm-gateway-400@example.com', 'correct-horse');
+    try {
+      const me = await ctx.app.inject({
+        method: 'GET',
+        url: '/api/v1/me',
+        headers: authHeaders(session),
+      });
+      const user = me.json() as User;
+      const granted = await ctx.app.inject({
+        method: 'PATCH',
+        url: '/api/v1/me/settings',
+        headers: authHeaders(session, {
+          'if-match': `W/"${user.version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: { llm: { consent: { granted: true } } },
+      });
+      expect(granted.statusCode).toBe(200);
+
+      const created = await ctx.app.inject({
+        method: 'POST',
+        url: '/api/v1/intake-sessions',
+        headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+        payload: { input },
+      });
+      expect(created.statusCode).toBe(201);
+      const body = created.json() as {
+        manual: boolean;
+        error?: { code: string; message: string };
+      };
+      expect(body.manual).toBe(true);
+      expect(body.error?.code).toBe('llm_unavailable');
+      expect(body.error?.message).toContain('MissingSessionID');
+      expect(body.error?.message).not.toContain(bodyMarker);
+      expect(logLines.join('')).not.toContain(bodyMarker);
+    } finally {
+      await ctx.close();
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error === undefined ? resolve() : reject(error)));
+      });
+    }
+  });
 });

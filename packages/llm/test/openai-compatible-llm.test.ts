@@ -1,12 +1,15 @@
+import { createHmac } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { vi } from 'vitest';
 import {
   BudgetExceeded,
+  GatewayError,
   LlmTimeoutError,
   LlmUnavailable,
   MAX_REDACT_INPUT,
+  MissingSessionIdError,
   OpenAICompatibleLlm,
   PolicyLlm,
   ResponseFormatUnsupportedError,
@@ -333,6 +336,179 @@ describe('OpenAICompatibleLlm', () => {
         expect(JSON.stringify(captured)).not.toContain(forbidden);
       }
       expect(JSON.stringify(captured)).not.toContain(KEY_MARKER);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('OpenCode Go session header', () => {
+  const opencodeBase = 'https://opencode.ai/inference/go/openai/v1';
+  const sessionSecret = 'synthetic-session-secret';
+
+  function rewriteFetch(serverUrl: string): typeof globalThis.fetch {
+    return (async (input: string | URL | Request, init?: RequestInit) => {
+      const original = new URL(typeof input === 'string' ? input : input.toString());
+      return globalThis.fetch(`${serverUrl}${original.pathname}`, init);
+    }) as typeof globalThis.fetch;
+  }
+
+  async function opencodeServer(): Promise<FakeServer> {
+    return startServer((_request, response) =>
+      response
+        .writeHead(200, { 'content-type': 'application/json' })
+        .end(chatResponse(JSON.stringify(validTypeDetection))),
+    );
+  }
+
+  function gatewayLlm(server: FakeServer, overrides: Partial<OpenAICompatibleLlmOptions> = {}) {
+    return new OpenAICompatibleLlm({
+      baseUrl: opencodeBase,
+      apiKey: KEY_MARKER,
+      model: 'deepseek-v4.1-flash',
+      provider: 'deepseek',
+      sessionSecret,
+      fetch: rewriteFetch(server.url),
+      sleep: async () => undefined,
+      random: () => 0.5,
+      ...overrides,
+    });
+  }
+
+  test('sends a stable non-identifying HMAC session header for one intake session', async () => {
+    const server = await opencodeServer();
+    try {
+      const llm = gatewayLlm(server);
+      const first = { ...request, ownerId: 'owner-1', sessionKey: 'session-1' };
+      const second = { ...first, sessionKey: 'session-2' };
+      await llm.complete(first);
+      await llm.complete(first);
+      await llm.complete(second);
+
+      const headers = server.requests.map((entry) => entry.headers['x-opencode-session']);
+      expect(headers[0]).toMatch(/^[0-9a-f]{32}$/u);
+      expect(headers[0]).toBe(headers[1]);
+      expect(headers[2]).not.toBe(headers[0]);
+      expect(headers[0]).not.toContain('owner-1');
+      expect(headers[0]).not.toContain('session-1');
+      expect(headers[0]).not.toContain(KEY_MARKER);
+      // The API key is not the HMAC secret.
+      const keyDerived = createHmac('sha256', KEY_MARKER)
+        .update('owner-1:session-1')
+        .digest('hex')
+        .slice(0, 32);
+      expect(headers[0]).not.toBe(keyDerived);
+      expect(server.requests[0]?.body).not.toContain(KEY_MARKER);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('omits the session header when off or on a non-opencode host', async () => {
+    const server = await opencodeServer();
+    try {
+      const off = gatewayLlm(server, { sessionHeader: 'off' });
+      await off.complete({ ...request, ownerId: 'owner-1', sessionKey: 'session-1' });
+
+      const otherHost = new OpenAICompatibleLlm({
+        baseUrl: server.url,
+        apiKey: KEY_MARKER,
+        model: 'deepseek-v4.1-flash',
+        provider: 'deepseek',
+        sessionSecret,
+      });
+      await otherHost.complete({ ...request, ownerId: 'owner-1', sessionKey: 'session-1' });
+
+      const missingKey = gatewayLlm(server);
+      await missingKey.complete({ ...request, ownerId: 'owner-1' });
+
+      expect(server.requests[0]?.headers['x-opencode-session']).toBeUndefined();
+      expect(server.requests[1]?.headers['x-opencode-session']).toBeUndefined();
+      expect(server.requests[2]?.headers['x-opencode-session']).toBeUndefined();
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe('Gateway 4xx classification', () => {
+  test('maps MissingSessionID to a typed non-retryable error without the raw body', async () => {
+    const server = await startServer((_request, response) =>
+      response.writeHead(400, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          error: {
+            type: 'MissingSessionID',
+            message: 'raw-body-marker Request is missing x-opencode-session',
+          },
+        }),
+      ),
+    );
+    try {
+      const llm = adapter(server.url);
+      let error: Error | undefined;
+      try {
+        await llm.complete(request);
+      } catch (cause) {
+        error = cause as Error;
+      }
+      expect(error).toBeInstanceOf(MissingSessionIdError);
+      const typed = error as MissingSessionIdError;
+      expect(typed.gatewayErrorType).toBe('MissingSessionID');
+      expect(typed.retryable).toBe(false);
+      expect(typed.message).toContain('MissingSessionID');
+      expect(typed.message).not.toContain('raw-body-marker');
+      expect(server.requests).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('classifies other 4xx error.type values without echoing the body', async () => {
+    const server = await startServer((_request, response) =>
+      response.writeHead(400, { 'content-type': 'application/json' }).end(
+        JSON.stringify({
+          error: { type: 'InvalidRequest', message: 'raw-body-marker' },
+        }),
+      ),
+    );
+    try {
+      const llm = adapter(server.url);
+      let error: Error | undefined;
+      try {
+        await llm.complete(request);
+      } catch (cause) {
+        error = cause as Error;
+      }
+      expect(error).toBeInstanceOf(GatewayError);
+      const typed = error as GatewayError;
+      expect(typed.status).toBe(400);
+      expect(typed.gatewayErrorType).toBe('InvalidRequest');
+      expect(typed.message).toContain('InvalidRequest');
+      expect(typed.message).not.toContain('raw-body-marker');
+      expect(server.requests).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test('drops an unbounded or malformed error.type instead of echoing it', async () => {
+    const server = await startServer((_request, response) =>
+      response.writeHead(403, { 'content-type': 'application/json' }).end(
+        JSON.stringify({ error: { type: 'bad type with spaces'.repeat(20) } }),
+      ),
+    );
+    try {
+      const llm = adapter(server.url);
+      let error: Error | undefined;
+      try {
+        await llm.complete(request);
+      } catch (cause) {
+        error = cause as Error;
+      }
+      expect(error).toBeInstanceOf(GatewayError);
+      expect((error as GatewayError).gatewayErrorType).toBeUndefined();
+      expect(error?.message).not.toContain('bad type');
+      expect(server.requests).toHaveLength(1);
     } finally {
       await server.close();
     }

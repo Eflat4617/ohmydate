@@ -30,6 +30,11 @@ export interface LlmCompleteRequest {
   readonly schemaId: string;
   /** Owner whose settings provide consent + budget limits (05 §12, ADR-022). */
   readonly ownerId?: string;
+  /**
+   * Logical conversation key (the intake session id). Adapters may derive a
+   * non-identifying provider session header from `ownerId + sessionKey`.
+   */
+  readonly sessionKey?: string;
   readonly budget?: LlmBudget;
   /** Aborted by the caller timeout; adapters must stop work when this fires. */
   readonly signal?: AbortSignal;

@@ -9,9 +9,11 @@ export {
 
 export {
   BudgetExceeded,
+  GatewayError,
   LlmError,
   LlmTimeoutError,
   LlmUnavailable,
+  MissingSessionIdError,
   PromptNotFoundError,
   ResponseFormatUnsupportedError,
   SchemaViolation,

@@ -10,6 +10,8 @@ export interface StructuredLlmRequest {
   readonly schemaId: string;
   /** Propagated to the provider so consent/budget are resolved per owner. */
   readonly ownerId?: string;
+  /** Intake session id; adapters may derive a non-identifying session header. */
+  readonly sessionKey?: string;
   readonly budget?: import('./port.js').LlmBudget;
 }
 
@@ -137,6 +139,7 @@ export async function runStructured(
           input,
           schemaId: request.schemaId,
           ...(request.ownerId === undefined ? {} : { ownerId: request.ownerId }),
+          ...(request.sessionKey === undefined ? {} : { sessionKey: request.sessionKey }),
           ...(request.budget === undefined ? {} : { budget: request.budget }),
         },
         timeoutMs,

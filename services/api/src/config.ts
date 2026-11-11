@@ -91,6 +91,11 @@ export interface AppConfig {
   readonly llmModel: string;
   readonly llmReasoningEffort: string;
   /**
+   * OpenCode Go requires an `x-opencode-session` header. `auto` sends a
+   * non-identifying HMAC id only for opencode.ai hosts; `off` disables it.
+   */
+  readonly llmSessionHeader: 'auto' | 'off';
+  /**
    * Absolute path to the product API key file. Read exactly once at boot;
    * never logged, stored in config snapshots, or sent in a request body.
    */
@@ -147,6 +152,7 @@ export const defaultConfig: AppConfig = {
   llmBaseUrl: DEFAULT_LLM_BASE_URL,
   llmModel: DEFAULT_LLM_MODEL,
   llmReasoningEffort: DEFAULT_LLM_REASONING_EFFORT,
+  llmSessionHeader: 'auto',
   llmApiKeyFile: null,
   llmPriceInputPerM: DEFAULT_LLM_PRICE_INPUT_PER_M,
   llmPriceOutputPerM: DEFAULT_LLM_PRICE_OUTPUT_PER_M,
@@ -190,6 +196,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     llmBaseUrl: env['LLM_BASE_URL'] ?? DEFAULT_LLM_BASE_URL,
     llmModel: env['LLM_MODEL'] ?? DEFAULT_LLM_MODEL,
     llmReasoningEffort: env['LLM_REASONING_EFFORT'] ?? DEFAULT_LLM_REASONING_EFFORT,
+    llmSessionHeader: parseSessionHeader(env['LLM_SESSION_HEADER']),
     llmApiKeyFile,
     llmPriceInputPerM: parseMoney(
       'LLM_PRICE_INPUT_PER_M',
@@ -229,6 +236,15 @@ function parseLlmProvider(raw: string | undefined): LlmProviderKind {
   const value = raw.trim();
   if (value !== 'fake' && value !== 'deepseek') {
     throw new Error(`LLM_PROVIDER must be "fake" or "deepseek", got "${value}"`);
+  }
+  return value;
+}
+
+function parseSessionHeader(raw: string | undefined): 'auto' | 'off' {
+  if (raw === undefined || raw.trim() === '') return 'auto';
+  const value = raw.trim();
+  if (value !== 'auto' && value !== 'off') {
+    throw new Error(`LLM_SESSION_HEADER must be "auto" or "off", got "${value}"`);
   }
   return value;
 }

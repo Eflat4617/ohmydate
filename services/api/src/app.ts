@@ -79,6 +79,8 @@ export interface BuildAppOptions {
   readonly llm?: LlmPort;
   /** Boot-time key read by main; never part of AppConfig or logs. */
   readonly llmApiKey?: string;
+  /** HMAC secret for the non-identifying opencode.ai session header. */
+  readonly llmSessionSecret?: string;
   /** Test override for the fail-closed budget guard. */
   readonly budgetGuard?: BudgetGuard;
   /**
@@ -281,6 +283,10 @@ async function createConfiguredLlm(input: {
     model: config.llmModel,
     provider: config.llmProvider,
     reasoningEffort: config.llmReasoningEffort,
+    sessionHeader: config.llmSessionHeader,
+    ...(options.llmSessionSecret === undefined
+      ? {}
+      : { sessionSecret: options.llmSessionSecret }),
     pricing: {
       inputUsd: config.llmPriceInputPerM,
       outputUsd: config.llmPriceOutputPerM,

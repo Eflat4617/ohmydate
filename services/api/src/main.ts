@@ -572,6 +572,9 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
   const cleanupBudgetMs = shutdownCleanupBudgetMs(env);
   // ADR-022: read the product key exactly once; never log or store it in config.
   const llmApiKey = loadLlmApiKey(baseConfig);
+  // Optional stable HMAC secret for the gateway session header; the adapter
+  // falls back to a random per-process secret when it is absent.
+  const llmSessionSecret = env['LLM_SESSION_SECRET']?.trim();
 
   const config: AppConfig = {
     ...baseConfig,
@@ -602,6 +605,9 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
     ids,
     db,
     ...(llmApiKey.length === 0 ? {} : { llmApiKey }),
+    ...(llmSessionSecret === undefined || llmSessionSecret.length === 0
+      ? {}
+      : { llmSessionSecret }),
   });
   poolErrorReport.report = (error) =>
     app.log.warn(pgClientErrorDetails(error), 'pg client error');

@@ -1,4 +1,11 @@
-import { LlmTimeoutError, LlmUnavailable, ResponseFormatUnsupportedError } from './errors.js';
+import { createHmac, randomBytes } from 'node:crypto';
+import {
+  GatewayError,
+  LlmTimeoutError,
+  LlmUnavailable,
+  MissingSessionIdError,
+  ResponseFormatUnsupportedError,
+} from './errors.js';
 import type { LlmCompleteRequest, LlmCompleteResponse, LlmPort, LlmUsage } from './port.js';
 import { assertRedactInputSize } from './privacy.js';
 import { getPrompt } from './prompt-registry.js';
@@ -42,6 +49,10 @@ export interface OpenAICompatibleLlmOptions {
   /** Jitter source in [0, 1); tests inject a deterministic value. */
   readonly random?: () => number;
   readonly now?: () => number;
+  /** `auto` (default) sends the gateway session header only for opencode.ai hosts. */
+  readonly sessionHeader?: 'auto' | 'off';
+  /** HMAC secret; when omitted a random per-adapter secret is used. Never the API key. */
+  readonly sessionSecret?: string;
 }
 
 interface ChatMessage {
@@ -82,14 +93,34 @@ function finiteNonNegative(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
-function errorDetail(body: string): string {
-  const trimmed = body.trim();
-  return trimmed.length > 0 ? trimmed.slice(0, 500) : 'no response body';
+const GATEWAY_TYPE = /^[A-Za-z0-9._:-]{1,64}$/u;
+
+/** Extract only a bounded `error.type`; raw gateway bodies never enter errors/logs. */
+function gatewayErrorType(body: string): string | undefined {
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    if (parsed === null || typeof parsed !== 'object') return undefined;
+    const error = (parsed as { error?: unknown }).error;
+    if (error === null || typeof error !== 'object') return undefined;
+    const type = (error as { type?: unknown }).type;
+    return typeof type === 'string' && GATEWAY_TYPE.test(type) ? type : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isResponseFormatRejection(status: number, body: string): boolean {
   if (status !== 400 && status !== 422) return false;
   return /response_format|json_object|json mode/iu.test(body);
+}
+
+function isOpencodeHost(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    return host === 'opencode.ai' || host.endsWith('.opencode.ai');
+  } catch {
+    return false;
+  }
 }
 
 export class OpenAICompatibleLlm implements LlmPort {
@@ -106,6 +137,8 @@ export class OpenAICompatibleLlm implements LlmPort {
       | 'random'
       | 'now'
       | 'pricing'
+      | 'sessionHeader'
+      | 'sessionSecret'
     >
   > &
     Pick<OpenAICompatibleLlmOptions, 'baseUrl' | 'apiKey' | 'reasoningEffort'>;
@@ -130,6 +163,8 @@ export class OpenAICompatibleLlm implements LlmPort {
       sleep: options.sleep ?? defaultSleep,
       random: options.random ?? Math.random,
       now: options.now ?? Date.now,
+      sessionHeader: options.sessionHeader ?? 'auto',
+      sessionSecret: options.sessionSecret ?? randomBytes(32).toString('hex'),
     };
   }
 
@@ -142,10 +177,11 @@ export class OpenAICompatibleLlm implements LlmPort {
     const startedAt = this.#options.now();
     const messages = this.#messages(request);
     const body = this.#body(messages, true);
+    const sessionId = this.#sessionId(request);
 
     let responseBody: ChatResponseBody;
     try {
-      responseBody = await this.#send(body, request.signal);
+      responseBody = await this.#send(body, request.signal, sessionId);
     } catch (error) {
       if (!(error instanceof ResponseFormatUnsupportedError)) throw error;
       // Exactly one fallback, never part of the outage retry loop.
@@ -154,7 +190,11 @@ export class OpenAICompatibleLlm implements LlmPort {
           ? { ...message, content: `${message.content}${STRICT_JSON_INSTRUCTION}` }
           : message,
       );
-      responseBody = await this.#send(this.#body(fallbackMessages, false), request.signal);
+      responseBody = await this.#send(
+        this.#body(fallbackMessages, false),
+        request.signal,
+        sessionId,
+      );
     }
 
     const latencyMs = Math.max(0, this.#options.now() - startedAt);
@@ -198,10 +238,25 @@ export class OpenAICompatibleLlm implements LlmPort {
     };
   }
 
-  async #send(body: ChatRequestBody, outerSignal: AbortSignal | undefined): Promise<ChatResponseBody> {
+  /** Stable, truncated HMAC of owner + intake session; never raw ids or the key. */
+  #sessionId(request: LlmCompleteRequest): string | undefined {
+    if (this.#options.sessionHeader === 'off') return undefined;
+    if (!isOpencodeHost(this.#options.baseUrl)) return undefined;
+    if (request.ownerId === undefined || request.sessionKey === undefined) return undefined;
+    return createHmac('sha256', this.#options.sessionSecret)
+      .update(`${request.ownerId}:${request.sessionKey}`)
+      .digest('hex')
+      .slice(0, 32);
+  }
+
+  async #send(
+    body: ChatRequestBody,
+    outerSignal: AbortSignal | undefined,
+    sessionId: string | undefined,
+  ): Promise<ChatResponseBody> {
     let attempt = 0;
     for (;;) {
-      const result = await this.#once(body, outerSignal);
+      const result = await this.#once(body, outerSignal, sessionId);
       if (result.ok) return result.body;
       if (result.retryable && attempt < this.#options.maxRetries) {
         attempt += 1;
@@ -217,6 +272,7 @@ export class OpenAICompatibleLlm implements LlmPort {
   async #once(
     body: ChatRequestBody,
     outerSignal: AbortSignal | undefined,
+    sessionId: string | undefined,
   ): Promise<
     | { readonly ok: true; readonly body: ChatResponseBody }
     | { readonly ok: false; readonly retryable: boolean; readonly error: LlmUnavailable }
@@ -235,6 +291,7 @@ export class OpenAICompatibleLlm implements LlmPort {
           accept: 'application/json',
           // The key stays in this header only; it is never in the body or an error.
           authorization: `Bearer ${this.#options.apiKey}`,
+          ...(sessionId === undefined ? {} : { 'x-opencode-session': sessionId }),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -252,15 +309,25 @@ export class OpenAICompatibleLlm implements LlmPort {
             ),
           };
         }
-        const retryable = status === 429 || status >= 500;
+        if (status === 429 || status >= 500) {
+          return {
+            ok: false,
+            retryable: true,
+            error: new LlmUnavailable(
+              `llm provider HTTP ${String(status)}`,
+              'provider',
+              false,
+            ),
+          };
+        }
+        const type = gatewayErrorType(text);
         return {
           ok: false,
-          retryable,
-          error: new LlmUnavailable(
-            `llm provider HTTP ${String(status)}: ${errorDetail(text)}`,
-            'provider',
-            !retryable,
-          ),
+          retryable: false,
+          error:
+            type === 'MissingSessionID'
+              ? new MissingSessionIdError(status)
+              : new GatewayError(status, type),
         };
       }
 
