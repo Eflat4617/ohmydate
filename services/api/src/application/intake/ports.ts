@@ -71,6 +71,14 @@ export interface IntakeSessionRepository {
     patch: IntakeSessionUpdate,
     expectedVersion: number,
   ): Promise<IntakeSessionRecord>;
+  /**
+   * FU-76 startup sweep: sessions whose AI call can no longer be running
+   * (`updated_at` older than `cutoff`) but still look in flight — decomposition
+   * without a draft, error or manual mode, or type detection without a result —
+   * get `error` set (type detection also falls back to manual mode). Returns
+   * the number of sessions marked.
+   */
+  markStaleAiRuns(cutoff: Instant, error: IntakeError): Promise<number>;
   /** H2: draft proposal write + session version bump in one transaction. */
   patchDraftAndUpdate(
     ownerId: Id,
@@ -104,7 +112,8 @@ export interface TaskTemplateRepository {
   falsePositiveCounts(ownerId: Id): Promise<ReadonlyMap<string, number>>;
 }
 
-export type AgentRunStatus = 'pending' | 'succeeded' | 'failed' | 'budget_exceeded';
+/** FU-76 (0014): `cancelled` = aborted by the user (:manual) or by shutdown, or swept as orphaned. */
+export type AgentRunStatus = 'pending' | 'succeeded' | 'failed' | 'budget_exceeded' | 'cancelled';
 
 export interface AgentRunInput {
   readonly id: Id;
@@ -149,8 +158,30 @@ export interface StoredDraft {
   readonly editedEstimateKeys: readonly string[];
 }
 
+/** Final values written when a `pending` run settles (FU-76). */
+export interface AgentRunCompletion {
+  readonly model: string;
+  readonly provider: string;
+  readonly tokensIn: number;
+  readonly tokensOut: number;
+  readonly costUsd: number;
+  readonly latencyMs: number;
+  readonly status: Exclude<AgentRunStatus, 'pending'>;
+}
+
 export interface AgentRunRepository {
   recordRun(input: AgentRunInput): Promise<void>;
+  /**
+   * FU-76: settle a run recorded as `pending` before its LLM call. Only a
+   * still-pending row of this owner is updated (a swept row keeps `cancelled`).
+   */
+  completeRun(ownerId: Id, id: Id, completion: AgentRunCompletion): Promise<void>;
+  /**
+   * FU-76 startup sweep: runs still `pending` whose creation is older than
+   * `olderThanMs` (database clock) are orphans of a crashed process and become
+   * `cancelled`. Returns the number of rows swept.
+   */
+  cancelStalePending(olderThanMs: number): Promise<number>;
   saveDraft(input: AgentProposalInput): Promise<void>;
   updateDraft(
     ownerId: Id,

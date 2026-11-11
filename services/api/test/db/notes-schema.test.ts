@@ -309,6 +309,14 @@ describe.skipIf(!hasDatabase)('0013 context documents schema', () => {
     await client.end();
     client = await connect(schema);
 
+    // 0014 (FU-76) is newer and is unwound first.
+    const rolledBack0014 = await rollbackLatest({
+      databaseUrl: requireDatabaseUrl(),
+      schema,
+      migrationsDir,
+    });
+    expect(rolledBack0014).toBe('0014_agent_run_cancelled.sql');
+
     const rolledBack = await rollbackLatest({
       databaseUrl: requireDatabaseUrl(),
       schema,
@@ -332,7 +340,10 @@ describe.skipIf(!hasDatabase)('0013 context documents schema', () => {
       schema,
       migrationsDir,
     });
-    expect(reapplied.applied).toEqual(['0013_context_documents.sql']);
+    expect(reapplied.applied).toEqual([
+      '0013_context_documents.sql',
+      '0014_agent_run_cancelled.sql',
+    ]);
     const restored = await client.query<{ name: string | null }>(
       `SELECT to_regclass('context_document')::text AS name`,
     );

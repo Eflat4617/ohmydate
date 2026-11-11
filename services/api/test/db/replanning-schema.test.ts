@@ -397,6 +397,14 @@ describe.skipIf(!hasDatabase)('0012 replanning schema', () => {
     await client.end();
     client = await connect(schema);
 
+    // 0014 (FU-76) is newer and is unwound first.
+    const rolledBack0014 = await rollbackLatest({
+      databaseUrl: requireDatabaseUrl(),
+      schema,
+      migrationsDir,
+    });
+    expect(rolledBack0014).toBe('0014_agent_run_cancelled.sql');
+
     const rolledBack0013 = await rollbackLatest({
       databaseUrl: requireDatabaseUrl(),
       schema,
@@ -435,6 +443,10 @@ describe.skipIf(!hasDatabase)('0012 replanning schema', () => {
       schema,
       migrationsDir,
     });
-    expect(reapplied.applied).toEqual(['0012_replanning.sql', '0013_context_documents.sql']);
+    expect(reapplied.applied).toEqual([
+      '0012_replanning.sql',
+      '0013_context_documents.sql',
+      '0014_agent_run_cancelled.sql',
+    ]);
   });
 });

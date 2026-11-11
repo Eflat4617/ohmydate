@@ -5,6 +5,7 @@ import { jsonb } from '../db/types.js';
 import {
   draftKind,
   type AgentProposalInput,
+  type AgentRunCompletion,
   type AgentRunInput,
   type AgentRunRepository,
   type StoredDraft,
@@ -45,6 +46,41 @@ export class PgAgentRunRepository implements AgentRunRepository {
         redaction_report: jsonb(input.redactionReport as unknown as JsonValue),
       })
       .execute();
+  }
+
+  async completeRun(ownerId: Id, id: Id, completion: AgentRunCompletion): Promise<void> {
+    await this.#db
+      .updateTable('agent_run')
+      .set({
+        model: completion.model,
+        provider: completion.provider,
+        tokens_in: completion.tokensIn,
+        tokens_out: completion.tokensOut,
+        cost_usd: completion.costUsd.toFixed(6),
+        latency_ms: completion.latencyMs,
+        status: completion.status,
+        updated_at: sql`now()`,
+        version: sql<number>`version + 1`,
+      } as never)
+      .where('id', '=', id)
+      .where('owner_id', '=', ownerId)
+      .where('status', '=', 'pending')
+      .execute();
+  }
+
+  async cancelStalePending(olderThanMs: number): Promise<number> {
+    const seconds = Math.max(0, olderThanMs) / 1_000;
+    const result = await this.#db
+      .updateTable('agent_run')
+      .set({
+        status: 'cancelled',
+        updated_at: sql`now()`,
+        version: sql<number>`version + 1`,
+      } as never)
+      .where('status', '=', 'pending')
+      .where('created_at', '<', sql<Date>`now() - make_interval(secs => ${seconds})`)
+      .executeTakeFirst();
+    return Number(result.numUpdatedRows);
   }
 
   async saveDraft(input: AgentProposalInput): Promise<void> {

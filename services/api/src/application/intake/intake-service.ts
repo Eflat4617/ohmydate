@@ -66,7 +66,7 @@ import {
   type PromptLimitOverrides,
   type RedactionKind,
 } from '@ohmydate/llm';
-import { NotFoundError, coldStartEstimate, isInstant } from '@ohmydate/domain';
+import { NotFoundError, coldStartEstimate, epochMsToInstant, isInstant } from '@ohmydate/domain';
 import {
   currentAbortSignal,
   runWithAbortSignal,
@@ -75,11 +75,21 @@ import {
 import { Value } from '@sinclair/typebox/value';
 import type { TSchema } from '@sinclair/typebox';
 import { INTAKE_AGENT_CONFIG, type IntakeAgentConfig } from './config.js';
+import {
+  AI_CANCELLED_ERROR,
+  AI_INTERRUPTED_CODE,
+  AI_INTERRUPTED_ERROR,
+  IntakeAiRunRegistry,
+  aiCallTotalTimeoutMs,
+  intakeAiRequestBoundMs,
+  type AiRunHandle,
+} from './ai-runs.js';
 import { detectTypeDeterministic } from './detection.js';
 import { IntakeApprovalOwnershipLostError, IntakeError } from './intake-error.js';
 import type { NoteContextSource } from '../notes/ports.js';
 import {
   draftKind,
+  type AgentRunCompletion,
   type AgentRunRepository,
   type AgentRunStatus,
   type IntakeAnswerRecord,
@@ -137,6 +147,15 @@ export interface IntakeServiceOptions {
   readonly noteLimits?: Partial<NoteContextLimits>;
   /** Per-prompt token/timeout limits (config); default: llm DEFAULT_PROMPT_LIMIT_OVERRIDES. */
   readonly promptLimits?: PromptLimitOverrides;
+  /** FU-76: in-process registry of in-flight AI runs (tests may share one). */
+  readonly aiRuns?: IntakeAiRunRegistry;
+}
+
+/** FU-76: the in-flight AI run of one intake request. */
+interface AiRunContext {
+  readonly handle: AiRunHandle;
+  /** Set once the run's LLM call ended because of an abort (agent_run `cancelled`). */
+  cancelled: boolean;
 }
 
 export interface LlmInputBundle {
@@ -533,6 +552,8 @@ export class IntakeService {
   readonly #notes: NoteContextSource | undefined;
   readonly #noteLimits: NoteContextLimits;
   readonly #promptLimits: PromptLimitOverrides | undefined;
+  readonly #aiRuns: IntakeAiRunRegistry;
+  readonly #aiRequestBoundMs: number;
 
   constructor(options: IntakeServiceOptions) {
     this.#clock = options.clock;
@@ -551,14 +572,55 @@ export class IntakeService {
     this.#notes = options.notes;
     this.#noteLimits = { ...DEFAULT_NOTE_CONTEXT_LIMITS, ...(options.noteLimits ?? {}) };
     this.#promptLimits = options.promptLimits;
+    this.#aiRuns = options.aiRuns ?? new IntakeAiRunRegistry();
+    this.#aiRequestBoundMs = intakeAiRequestBoundMs(this.#promptLimits);
   }
 
-  #runOptions(): { budgetGuard: BudgetGuard; estimatedCostUsd: number; promptLimits?: PromptLimitOverrides } {
+  /** FU-76: effective server bound of one intake AI request (orphan threshold). */
+  get aiRequestBoundMs(): number {
+    return this.#aiRequestBoundMs;
+  }
+
+  #runOptions(
+    promptId: string,
+    signal: AbortSignal,
+  ): {
+    budgetGuard: BudgetGuard;
+    estimatedCostUsd: number;
+    promptLimits?: PromptLimitOverrides;
+    signal: AbortSignal;
+    totalTimeoutMs: number;
+  } {
     return {
       budgetGuard: this.#budgetGuard,
       estimatedCostUsd: 0,
       ...(this.#promptLimits === undefined ? {} : { promptLimits: this.#promptLimits }),
+      // FU-76: explicit cancel (:manual) and graceful shutdown abort the call;
+      // a client disconnect does not.
+      signal,
+      totalTimeoutMs: aiCallTotalTimeoutMs(promptId, this.#promptLimits),
     };
+  }
+
+  /**
+   * FU-76: register the request's AI run before its first state change so a
+   * concurrent POST :manual always finds it, and release it however the
+   * request ends.
+   */
+  async #withAiRun<T>(
+    ownerId: Id,
+    sessionId: Id,
+    body: (run: AiRunContext) => Promise<T>,
+  ): Promise<T> {
+    const run: AiRunContext = {
+      handle: this.#aiRuns.start(ownerId, sessionId, currentAbortSignal()),
+      cancelled: false,
+    };
+    try {
+      return await body(run);
+    } finally {
+      run.handle.finish(run.cancelled ? 'cancelled' : 'completed');
+    }
   }
 
   async listTemplates(
@@ -620,12 +682,17 @@ export class IntakeService {
       manual = true;
       error = { code: 'llm_unavailable', message: 'no LLM provider configured; manual mode' };
     } else {
+      const run: AiRunContext = {
+        handle: this.#aiRuns.start(ownerId, session.id, currentAbortSignal()),
+        cancelled: false,
+      };
       try {
         const output = await this.#runDetectionLlm(
           ownerId,
           session.id,
           body.input,
           templates.items,
+          run,
         );
         detection = {
           ...detection,
@@ -639,7 +706,11 @@ export class IntakeService {
         };
       } catch (caught) {
         manual = true;
-        if (caught instanceof BudgetExceeded) {
+        if (run.cancelled) {
+          // FU-76: shutdown (or a cancel) aborted the detection call. The
+          // deterministic detection still stands; continue in manual mode.
+          error = { ...AI_INTERRUPTED_ERROR };
+        } else if (caught instanceof BudgetExceeded) {
           error = { code: 'budget_exceeded', message: truncate(caught.message, 500) };
         } else if (caught instanceof SchemaViolation || caught instanceof LlmUnavailable) {
           const message =
@@ -652,6 +723,8 @@ export class IntakeService {
         } else {
           throw caught;
         }
+      } finally {
+        run.handle.finish(run.cancelled ? 'cancelled' : 'completed');
       }
     }
 
@@ -680,7 +753,53 @@ export class IntakeService {
   }
 
   async get(ownerId: Id, id: Id): Promise<IntakeSessionDto> {
-    return this.#toDto(await this.#requireSession(ownerId, id));
+    let session = await this.#requireSession(ownerId, id);
+    if (await this.#isOrphanedAiRun(session)) {
+      // FU-76: no run in this process and older than the request bound: the
+      // run died with a previous process (crash). Make it recoverable now
+      // instead of leaving the client polling until the next restart.
+      try {
+        session = await this.#sessions.update(
+          ownerId,
+          id,
+          {
+            error: { ...AI_INTERRUPTED_ERROR },
+            ...(session.state === 'type_detection' ? { manual: true } : {}),
+          },
+          session.version,
+        );
+      } catch (error) {
+        if (!(error instanceof VersionConflictError)) throw error;
+        session = await this.#requireSession(ownerId, id);
+      }
+    }
+    return this.#toDto(session);
+  }
+
+  /** FU-76 in-progress rule (08 §2.7): the session waits for an AI result. */
+  async #looksInFlight(session: IntakeSessionRecord): Promise<boolean> {
+    if (session.error !== undefined) return false;
+    if (session.state === 'type_detection') return session.detectedType === undefined;
+    if (session.state !== 'decomposition' || session.manual) return false;
+    return (await this.#agentRuns.loadDraft(session.ownerId, session.id)) === null;
+  }
+
+  async #isOrphanedAiRun(session: IntakeSessionRecord): Promise<boolean> {
+    if (this.#aiRuns.isRunning(session.ownerId, session.id)) return false;
+    const age = Date.parse(this.#clock.now()) - Date.parse(session.updatedAt);
+    if (!(age > this.#aiRequestBoundMs)) return false;
+    return this.#looksInFlight(session);
+  }
+
+  /**
+   * FU-76 startup sweep: pending agent runs and in-flight-looking sessions older
+   * than the AI request bound belong to a process that no longer exists.
+   */
+  async sweepOrphanedAiRuns(): Promise<{ readonly runs: number; readonly sessions: number }> {
+    const cutoff = epochMsToInstant(Date.parse(this.#clock.now()) - this.#aiRequestBoundMs);
+    const runs = await this.#agentRuns.cancelStalePending(this.#aiRequestBoundMs);
+    const sessions = await this.#sessions.markStaleAiRuns(cutoff, { ...AI_INTERRUPTED_ERROR });
+    return { runs, sessions };
   }
 
   async submitAnswers(
@@ -688,6 +807,18 @@ export class IntakeService {
     id: Id,
     request: IntakeAnswersRequest,
     expectedVersion: number,
+  ): Promise<IntakeSessionDto> {
+    return this.#withAiRun(ownerId, id, (run) =>
+      this.#submitAnswers(ownerId, id, request, expectedVersion, run),
+    );
+  }
+
+  async #submitAnswers(
+    ownerId: Id,
+    id: Id,
+    request: IntakeAnswersRequest,
+    expectedVersion: number,
+    run: AiRunContext,
   ): Promise<IntakeSessionDto> {
     const session = await this.#requireSession(ownerId, id);
     this.#assertVersion(session, expectedVersion);
@@ -794,7 +925,7 @@ export class IntakeService {
       session.version,
     );
     if (updated.state === 'decomposition') {
-      updated = await this.#generateDraft(updated, previous);
+      updated = await this.#generateDraft(updated, previous, run);
     }
     return this.#toDto(updated);
   }
@@ -804,6 +935,18 @@ export class IntakeService {
     id: Id,
     confirmation: IntakeTypeConfirmation,
     expectedVersion: number,
+  ): Promise<IntakeSessionDto> {
+    return this.#withAiRun(ownerId, id, (run) =>
+      this.#confirmType(ownerId, id, confirmation, expectedVersion, run),
+    );
+  }
+
+  async #confirmType(
+    ownerId: Id,
+    id: Id,
+    confirmation: IntakeTypeConfirmation,
+    expectedVersion: number,
+    run: AiRunContext,
   ): Promise<IntakeSessionDto> {
     const session = await this.#requireSession(ownerId, id);
     this.#assertVersion(session, expectedVersion);
@@ -829,7 +972,7 @@ export class IntakeService {
         session.version,
       );
       if (updated.state === 'decomposition') {
-        updated = await this.#generateDraft(updated, answers);
+        updated = await this.#generateDraft(updated, answers, run);
       }
       return this.#toDto(updated);
     }
@@ -1334,6 +1477,9 @@ export class IntakeService {
   async resume(ownerId: Id, id: Id, expectedVersion: number): Promise<IntakeSessionDto> {
     const session = await this.#requireSession(ownerId, id);
     this.#assertVersion(session, expectedVersion);
+    if (await this.#isInterruptedDecomposition(session)) {
+      return this.#withAiRun(ownerId, id, (run) => this.#retryDecomposition(session, run));
+    }
     if (session.state !== 'needs_input') {
       throw IntakeError.illegalTransition(session.state, 'user_answered');
     }
@@ -1348,8 +1494,12 @@ export class IntakeService {
   }
 
   async cancel(ownerId: Id, id: Id, expectedVersion: number): Promise<IntakeSessionDto> {
-    const session = await this.#requireSession(ownerId, id);
+    let session = await this.#requireSession(ownerId, id);
     this.#assertVersion(session, expectedVersion);
+    // FU-76: cancelling the session also stops its in-flight AI run.
+    if ((await this.#aiRuns.cancel(ownerId, id)) !== 'none') {
+      session = await this.#requireSession(ownerId, id);
+    }
     let state: IntakeState;
     try {
       state = transition(session.state, { type: 'user_cancelled' }).state;
@@ -1361,15 +1511,25 @@ export class IntakeService {
   }
 
   async enterManual(ownerId: Id, id: Id, expectedVersion: number): Promise<IntakeSessionDto> {
-    const session = await this.#requireSession(ownerId, id);
+    let session = await this.#requireSession(ownerId, id);
     this.#assertVersion(session, expectedVersion);
     if (session.state === 'cancelled' || session.state === 'failed') {
       throw IntakeError.illegalTransition(session.state, 'enter_manual_mode');
     }
+    // FU-76: 취소 / 직접 작성으로 계속 while the AI works. Abort the session's
+    // in-flight run and wait (bounded) until it has settled its spend and
+    // recorded agent_run `cancelled`; then continue from its final state.
+    const cancelled = await this.#aiRuns.cancel(ownerId, id);
+    if (cancelled !== 'none') {
+      session = await this.#requireSession(ownerId, id);
+      if (session.state === 'cancelled' || session.state === 'failed') {
+        throw IntakeError.illegalTransition(session.state, 'enter_manual_mode');
+      }
+    }
     let updated = await this.#sessions.update(
       ownerId,
       id,
-      { manual: true, error: null },
+      { manual: true, error: cancelled === 'cancelled' ? { ...AI_CANCELLED_ERROR } : null },
       session.version,
     );
     if (updated.state === 'type_detection') {
@@ -1399,6 +1559,29 @@ export class IntakeService {
     return this.#toDto(updated);
   }
 
+  /** FU-76: a decomposition that shutdown/crash interrupted and nothing is running. */
+  async #isInterruptedDecomposition(session: IntakeSessionRecord): Promise<boolean> {
+    if (session.state !== 'decomposition' || session.manual) return false;
+    if (session.error?.code !== AI_INTERRUPTED_CODE) return false;
+    if (this.#aiRuns.isRunning(session.ownerId, session.id)) return false;
+    return (await this.#agentRuns.loadDraft(session.ownerId, session.id)) === null;
+  }
+
+  /** FU-76 "다시 시도": POST :resume re-runs an interrupted decomposition (one new charge). */
+  async #retryDecomposition(
+    session: IntakeSessionRecord,
+    run: AiRunContext,
+  ): Promise<IntakeSessionDto> {
+    const cleared = await this.#sessions.update(
+      session.ownerId,
+      session.id,
+      { error: null },
+      session.version,
+    );
+    const answers = await this.#sessions.listAnswers(session.ownerId, session.id);
+    return this.#toDto(await this.#generateDraft(cleared, answers, run));
+  }
+
   async #requireSession(ownerId: Id, id: Id): Promise<IntakeSessionRecord> {
     const session = await this.#sessions.get(ownerId, id);
     if (session === null) throw new NotFoundError('intake session', id);
@@ -1416,10 +1599,20 @@ export class IntakeService {
     sessionId: Id,
     input: IntakeInput,
     templates: readonly TaskTemplate[],
+    run: AiRunContext,
   ): Promise<DetectionLlmOutput> {
     const llm = this.#llm;
     if (llm === null) throw new LlmUnavailable('no LLM provider configured');
     const bundle = buildDetectionLlmInput(input, templates);
+    const promptIdVersion = `${TYPE_DETECTION_PROMPT.promptId}@${TYPE_DETECTION_PROMPT.version}`;
+    // FU-76: the run exists (pending) before the call, so a crash leaves a row
+    // the startup sweep can cancel instead of an unaccounted call.
+    const runId = await this.#startRun({
+      ownerId,
+      purpose: 'detect_type',
+      promptIdVersion,
+      redactionReport: bundle.redactionReport,
+    });
     try {
       const result = await runStructured(
         llm,
@@ -1430,12 +1623,9 @@ export class IntakeService {
           ownerId,
           sessionKey: sessionId,
         },
-        this.#runOptions(),
+        this.#runOptions(TYPE_DETECTION_PROMPT.promptId, run.handle.signal),
       );
-      await this.#recordRun({
-        ownerId,
-        purpose: 'detect_type',
-        promptIdVersion: `${TYPE_DETECTION_PROMPT.promptId}@${TYPE_DETECTION_PROMPT.version}`,
+      await this.#completeRun(ownerId, runId, {
         model: result.model,
         provider: result.provider ?? this.#llmProvider,
         tokensIn: result.usage.inputTokens,
@@ -1443,23 +1633,19 @@ export class IntakeService {
         costUsd: result.usage.costUsd ?? 0,
         latencyMs: result.latencyMs,
         status: 'succeeded',
-        redactionReport: bundle.redactionReport,
       });
       return result.output as DetectionLlmOutput;
     } catch (error) {
+      if (run.handle.abortCause() !== undefined) run.cancelled = true;
       const usage = usageFromError(error);
-      await this.#recordRun({
-        ownerId,
-        purpose: 'detect_type',
-        promptIdVersion: `${TYPE_DETECTION_PROMPT.promptId}@${TYPE_DETECTION_PROMPT.version}`,
+      await this.#completeRun(ownerId, runId, {
         model: 'unknown',
         provider: this.#llmProvider,
         tokensIn: usage.inputTokens,
         tokensOut: usage.outputTokens,
         costUsd: usage.costUsd ?? 0,
         latencyMs: 0,
-        status: runStatus(error),
-        redactionReport: bundle.redactionReport,
+        status: run.cancelled ? 'cancelled' : runStatus(error),
       });
       throw error;
     }
@@ -1468,6 +1654,7 @@ export class IntakeService {
   async #generateDraft(
     session: IntakeSessionRecord,
     answers: readonly IntakeAnswerRecord[],
+    run?: AiRunContext,
   ): Promise<IntakeSessionRecord> {
     const plan = planQuestions({
       known: session.input,
@@ -1493,6 +1680,11 @@ export class IntakeService {
       }
       return session;
     }
+    if (run === undefined) {
+      return this.#withAiRun(session.ownerId, session.id, (inner) =>
+        this.#generateDraft(session, answers, inner),
+      );
+    }
 
     const template =
       session.templateId === undefined
@@ -1510,6 +1702,13 @@ export class IntakeService {
     // process (never for a call refused by the consent/budget gate).
     let dispatched = false;
     let result: RunStructuredResult;
+    // FU-76: pending before the call; settled below whatever the outcome.
+    const runId = await this.#startRun({
+      ownerId: session.ownerId,
+      purpose: 'decomposition',
+      promptIdVersion,
+      redactionReport: bundle.redactionReport,
+    });
     try {
       result = await runStructured(
         llm,
@@ -1523,26 +1722,39 @@ export class IntakeService {
             dispatched = true;
           },
         },
-        this.#runOptions(),
+        this.#runOptions(prompt.promptId, run.handle.signal),
       );
     } catch (error) {
+      const cause = run.handle.abortCause();
+      if (cause !== undefined) run.cancelled = true;
       const usage = usageFromError(error);
-      const runId = await this.#recordRun({
-        ownerId: session.ownerId,
-        purpose: 'decomposition',
-        promptIdVersion,
+      await this.#completeRun(session.ownerId, runId, {
         model: 'unknown',
         provider: this.#llmProvider,
         tokensIn: usage.inputTokens,
         tokensOut: usage.outputTokens,
         costUsd: usage.costUsd ?? 0,
         latencyMs: 0,
-        status: runStatus(error),
-        redactionReport: bundle.redactionReport,
+        status: cause === undefined ? runStatus(error) : 'cancelled',
       });
       // A failed call can still have sent the note sections (timeout, 5xx,
-      // schema violation); record them so the history stays complete.
+      // schema violation, abort); record them so the history stays complete.
       await this.#recordNoteUsage(session.ownerId, runId, noteContext, dispatched);
+      if (cause === 'user_cancelled') {
+        // POST :manual aborted the run and takes over (manual draft +
+        // ai_cancelled) as soon as this request has settled.
+        return session;
+      }
+      if (cause === 'shutdown') {
+        // Recoverable after restart: no draft, error ai_interrupted, and
+        // POST :resume ("다시 시도") re-runs the decomposition.
+        return this.#sessions.update(
+          session.ownerId,
+          session.id,
+          { error: { ...AI_INTERRUPTED_ERROR } },
+          session.version,
+        );
+      }
       const draft = manualDraft(session.input, assumptionText);
       const updated = await this.#saveManualDraft(session.ownerId, session.id, draft, session);
       if (error instanceof BudgetExceeded) throw IntakeError.budgetExceeded(error.message);
@@ -1551,10 +1763,7 @@ export class IntakeService {
 
     // Success path: persistence failures here surface as errors instead of
     // being mistaken for an LLM failure (no second agent_run, no manual draft).
-    const runId = await this.#recordRun({
-      ownerId: session.ownerId,
-      purpose: 'decomposition',
-      promptIdVersion,
+    await this.#completeRun(session.ownerId, runId, {
       model: result.model,
       provider: result.provider ?? this.#llmProvider,
       tokensIn: result.usage.inputTokens,
@@ -1562,7 +1771,6 @@ export class IntakeService {
       costUsd: result.usage.costUsd ?? 0,
       latencyMs: result.latencyMs,
       status: 'succeeded',
-      redactionReport: bundle.redactionReport,
     });
     await this.#recordNoteUsage(session.ownerId, runId, noteContext, dispatched);
 
@@ -1732,6 +1940,29 @@ export class IntakeService {
     return runId;
   }
 
+  /** FU-76: an AI run starts `pending` (zero usage) and is settled by #completeRun. */
+  async #startRun(input: {
+    ownerId: Id;
+    purpose: string;
+    promptIdVersion: string;
+    redactionReport: Readonly<Record<string, number>>;
+  }): Promise<Id> {
+    return this.#recordRun({
+      ...input,
+      model: 'unknown',
+      provider: this.#llmProvider,
+      tokensIn: 0,
+      tokensOut: 0,
+      costUsd: 0,
+      latencyMs: 0,
+      status: 'pending',
+    });
+  }
+
+  async #completeRun(ownerId: Id, runId: Id, completion: AgentRunCompletion): Promise<void> {
+    await this.#agentRuns.completeRun(ownerId, runId, completion);
+  }
+
   async #recordRun(input: {
     ownerId: Id;
     purpose: string;
@@ -1799,7 +2030,7 @@ function usageFromError(error: unknown): {
   return { inputTokens: 0, outputTokens: 0, costUsd: 0 };
 }
 
-function runStatus(error: unknown): AgentRunStatus {
+function runStatus(error: unknown): Exclude<AgentRunStatus, 'pending' | 'succeeded' | 'cancelled'> {
   if (error instanceof BudgetExceeded) return 'budget_exceeded';
   return 'failed';
 }

@@ -160,6 +160,45 @@ export class PgIntakeSessionRepository implements IntakeSessionRepository {
     });
   }
 
+  async markStaleAiRuns(cutoff: Instant, error: IntakeErrorDto): Promise<number> {
+    const result = await this.#db
+      .updateTable('intake_session')
+      .set({
+        error: jsonb(error as unknown as JsonValue),
+        // An interrupted type detection keeps its deterministic result path in
+        // manual mode; a decomposition stays AI-recoverable (POST :resume).
+        manual: sql<boolean>`case when state = 'type_detection' then true else manual end`,
+        updated_at: new Date(this.#clock.now()),
+        version: sql<number>`version + 1`,
+      } as never)
+      .where('updated_at', '<', new Date(cutoff))
+      .where('error', 'is', null)
+      .where((eb) =>
+        eb.or([
+          eb.and([
+            eb('state', '=', 'decomposition'),
+            eb('manual', '=', false),
+            eb.not(
+              eb.exists(
+                eb
+                  .selectFrom('agent_proposal')
+                  .select(sql`1`.as('one'))
+                  .whereRef('agent_proposal.owner_id', '=', 'intake_session.owner_id')
+                  .where(
+                    'agent_proposal.kind',
+                    '=',
+                    sql<string>`${draftKind('' as Id)} || intake_session.id::text`,
+                  ),
+              ),
+            ),
+          ]),
+          eb.and([eb('state', '=', 'type_detection'), eb('detected_type', 'is', null)]),
+        ]),
+      )
+      .executeTakeFirst();
+    return Number(result.numUpdatedRows);
+  }
+
   async createGoal(ownerId: Id, goalId: Id, title: string): Promise<void> {
     await this.#db
       .insertInto('goal')
