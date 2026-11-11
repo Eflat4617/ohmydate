@@ -12,6 +12,22 @@ export {
   type TaskPatch,
   type TaskStatus,
   type User,
+  type IntakeInput,
+  type IntakeSession,
+  type IntakeSessionCreate,
+  type IntakeState,
+  type IntakeDetectedType,
+  type PlannedQuestion,
+  type IntakeAssumption,
+  type IntakeAnswer,
+  type IntakeAnswerInput,
+  type IntakeTypeConfirmation,
+  type DecompositionEstimate,
+  type DecompositionStep,
+  type DecompositionDraft,
+  type DecompositionDraftPatch,
+  type TaskTemplate,
+  type IntakeField,
 } from './client';
 export { ApiError, apiErrorFromPayload, apiErrorFromResponse, parseProblem, type ApiErrorCode, type Problem, type ProblemCode } from './errors';
 export { findInboxProject } from './inbox';
