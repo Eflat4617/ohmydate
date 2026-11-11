@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 09:00 | **Sol 사용량 한도 재도달**(Codex: 12:03 재시도). FU-42cR(ctx_4d588c88de02) errored → stop, retry-of Opus 5.5 xhigh 대체(MODEL_BINDINGS §6, 사용자 지시). Codex의 gpt-6-luna 전환 제안은 거부(무단 대체 금지). FU-38cR·M3-03R2는 아직 진행 중, 오류 시 같은 처리 | worker-read | orchestrator |
 | 2026-11-11 08:58 | **M2-03cR-1 REQUEST_CHANGES (Sol)**: HIGH — 프로세스 생존 중 잠금 연결 손실 시 두 승인자 동시 진행(11개 작업), MEDIUM — 이미 매핑된 결과 불명 단계의 의존 관계 누락. 그 외 M2-03R/R2 재현 전부 해결 확인, 0006/0007 순서 호환 확인. ADR-020 보강(§6–8: 잠금 손실 즉시 중단, 승계 대기 PROVIDER_MAX_CALL_MS, 의존 복구). 수정 1/2 → ctx_6fbe8ff52dac | reviews/M2-03cR-1.md | orchestrator |
 | 2026-11-11 08:45 | **FU-42R2 REQUEST_CHANGES (Sol) → FU-42 BLOCKED**(수정 2회 소진): HIGH — 클라이언트가 끊긴 수정 요청은 소켓 기반 추적에서 빠져, 종료가 exit 0으로 보고되지만 원격 적용·needs_reconcile=false·멱등 pending으로 남음. 쿼리 비밀 로그·파이프라이닝은 해결 확인. → 좁은 재설계 **FU-42c**(핸들러 작업 Promise 기반 추적, 미정리 시 exit 1, DB는 마지막에 종료), 기존 브랜치 위 | reviews/FU-42R2.md | orchestrator |
 | 2026-11-11 08:35 | **M3-03R-1 REQUEST_CHANGES (Sol)**: HIGH 2(minSlackMin 정수/≥0 정의가 스케줄러의 부호·소수 출력과 불일치, plan에 horizon 미저장), MEDIUM 3(H0 편집 위반 공개 매핑 없음, current_version_id가 같은 소유자의 다른 plan 참조 가능, lockfile 범위), LOW(scheduler devDep). 헤더 규칙 11개 경로 전부 일치·EXCLUDE·롤백 확인. 수정 1/2 → M3-03 워커. 결정: H0는 서버 사전 검증 422 validation_failed(/editedBlocks/i), lockfile 범위 확장 승인 | reviews/M3-03R-1.md | orchestrator |
