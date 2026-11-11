@@ -12,6 +12,7 @@ import { InMemoryPlannerFieldStore } from '../src/planner-field-store.js';
 import { VikunjaProjectRepository } from '../src/project-repository.js';
 import { VikunjaTaskRepository } from '../src/task-repository.js';
 import { normalizeRemoteInstant } from '../src/time.js';
+import { appendMarker } from '../src/marker.js';
 import { createSyntheticUser, purgeUserData, type LiveUser } from './live-support.js';
 
 const baseUrl = process.env.VIKUNJA_URL;
@@ -506,4 +507,63 @@ if (baseUrl === undefined || baseUrl.length === 0) {
       }
     });
   });
+  describe('Vikunja planned-id orphan recovery (live)', () => {
+    test('adopts a marker-only task instead of creating a duplicate', async () => {
+      const [user] = await users();
+      const clock = new FakeClock(epochMsToInstant(Date.UTC(2026, 0, 1)));
+      const ids = createSeededIdGenerator(20261201, clock);
+      const ownerId = ids.next();
+      const projectId = ids.next();
+      const plannedId = ids.next();
+      const mappings = new InMemoryMappingStore();
+      const remoteProject = await user.client.createProject('M2-03 planned orphan');
+      let remoteTaskId: string | undefined;
+      try {
+        await mappings.put({
+          provider: 'vikunja',
+          entityType: 'project',
+          entityId: projectId,
+          externalId: String(remoteProject.id),
+          ownerId,
+          localVersion: 1 as Version,
+          createdAt: clock.now(),
+          updatedAt: clock.now(),
+        });
+        const orphan = await user.client.createTask(String(remoteProject.id), {
+          title: 'Planned orphan',
+          description: appendMarker('created before crash', plannedId),
+        });
+        remoteTaskId = String(orphan.id);
+
+        // Fresh mapping store: the local mapping was lost in the crash.
+        const repo = new VikunjaTaskRepository({
+          clients: new Map<Id, VikunjaClient>([[ownerId, user.client]]),
+          mappings,
+          plannerFields: new InMemoryPlannerFieldStore(),
+          clock,
+          ids,
+        });
+        const adopted = await repo.create(
+          ownerId,
+          { projectId, title: 'Planned orphan' },
+          'planned-orphan-retry',
+          { plannedId },
+        );
+        expect(adopted.id).toBe(plannedId);
+        const remoteTasks = await user.client.listAllProjectTasks(String(remoteProject.id));
+        expect(remoteTasks.filter((task) => String(task.id) === remoteTaskId)).toHaveLength(1);
+        expect(remoteTasks).toHaveLength(1);
+      } finally {
+        if (remoteTaskId !== undefined) {
+          await user.client.deleteTask(remoteTaskId).catch(() => undefined);
+          await user.client.permanentDeleteTask(remoteTaskId).catch(() => undefined);
+        }
+        await user.client.deleteProject(String(remoteProject.id)).catch(() => undefined);
+        await user.client
+          .permanentDeleteProject(String(remoteProject.id))
+          .catch(() => undefined);
+      }
+    });
+  });
+
 }

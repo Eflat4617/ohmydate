@@ -47,7 +47,7 @@ import {
   type ChangeJournalStore,
   type JournalAppend,
 } from './change-journal-store.js';
-import { appendMarker, stripMarker } from './marker.js';
+import { appendMarker, extractMarker, stripMarker } from './marker.js';
 import { normalizeRemoteInstant } from './time.js';
 import {
   defaultPlannerTaskFields,
@@ -55,7 +55,7 @@ import {
   type PlannerFieldStore,
   type PlannerTaskFields,
 } from './planner-field-store.js';
-import { validateTaskCreate, validateTaskPatch } from './validation.js';
+import { type NormalizedTaskCreate, validateTaskCreate, validateTaskPatch } from './validation.js';
 import { VikunjaProjectRepository } from './project-repository.js';
 
 /**
@@ -208,7 +208,12 @@ export class VikunjaTaskRepository implements TaskRepository {
       });
   }
 
-  async create(ownerId: Id, input: TaskCreate, _idemKey: string): Promise<Task> {
+  async create(
+    ownerId: Id,
+    input: TaskCreate,
+    _idemKey: string,
+    opts?: { readonly plannedId?: Id },
+  ): Promise<Task> {
     void _idemKey;
     await this.#ensureSnapshot(ownerId);
     const client = this.#requireClient(ownerId);
@@ -220,7 +225,31 @@ export class VikunjaTaskRepository implements TaskRepository {
     );
     await this.#assertDependencies(ownerId, normalized.dependsOn);
 
-    const id = this.#ids.next();
+    if (opts?.plannedId !== undefined) {
+      const plannedId = opts.plannedId;
+      const mapping = await this.#mappings.get('task', plannedId);
+      if (mapping !== null && mapping.ownerId === ownerId && mapping.deletedAt === undefined) {
+        const existing = await this.get(ownerId, plannedId);
+        if (existing !== null) return existing;
+      }
+      // ADR-016 §2: recover an upstream task whose marker already carries the
+      // planned planner id before attempting a re-create.
+      //
+      // knownLimitation (ADR-020 §3): if a user edits the orphan's description
+      // and removes/alters the marker before the retry, the orphan cannot be
+      // found and the retry creates a duplicate. Single-user intake tasks are
+      // not exposed before an approval completes, so this is accepted; the
+      // behaviour is pinned by a live regression test.
+      const candidates = await client.listAllProjectTasks(projectMapping.externalId);
+      const orphan = candidates.find(
+        (candidate) => extractMarker(candidate.description) === plannedId,
+      );
+      if (orphan !== undefined) {
+        return this.#adoptOrphan(ownerId, client, plannedId, normalized, orphan);
+      }
+    }
+
+    const id = opts?.plannedId ?? this.#ids.next();
     await this.#assertAcyclic(client, ownerId, id, normalized.dependsOn);
 
     const created = await client.createTask(projectMapping.externalId, {
@@ -335,6 +364,81 @@ export class VikunjaTaskRepository implements TaskRepository {
 
     await this.#appendJournal(ownerId, mapping, mapping.externalUpdatedAt ?? now);
     return this.#toTask(ownerId, mapping, remote, fields, normalized.dependsOn);
+  }
+
+  async #adoptOrphan(
+    ownerId: Id,
+    client: VikunjaClient,
+    id: Id,
+    normalized: NormalizedTaskCreate,
+    remote: VikunjaTask,
+  ): Promise<Task> {
+    let full = remote;
+    let etag: string | null = null;
+    try {
+      const fetched = await client.getTask(String(remote.id));
+      full = fetched.data;
+      etag = fetched.etag;
+    } catch {
+      // Keep the list payload; a later get/list refreshes the ETag.
+    }
+
+    // ADR-020 §4: an adopted orphan must actually have its intended dependency
+    // relations upstream before the step is reported as created. Resolve the
+    // current relation set first so a retry after a partial write only adds
+    // what is still missing.
+    const dependencyExternalIds: string[] = [];
+    for (const dependencyId of normalized.dependsOn) {
+      const dependency = await this.#requireMapping(ownerId, 'task', dependencyId);
+      dependencyExternalIds.push(dependency.externalId);
+    }
+    const present = new Set(
+      (full.related_tasks?.[DEPENDENCY_RELATION_KIND] ?? []).map((task) =>
+        String(task.id),
+      ),
+    );
+    for (const externalId of dependencyExternalIds) {
+      if (present.has(externalId)) continue;
+      await client.createRelation(String(full.id), externalId, DEPENDENCY_RELATION_KIND);
+    }
+    if (dependencyExternalIds.length > 0) {
+      // Refresh so the persisted fingerprint reflects the relations just
+      // written (including ones added by an earlier partial attempt).
+      try {
+        const refreshed = await client.getTask(String(full.id));
+        full = refreshed.data;
+        etag = refreshed.etag;
+      } catch {
+        // Keep the payload; the fingerprint below records the intended ids.
+      }
+    }
+
+    const now = this.#clock.now();
+    const remoteUpdatedAt = normalizeRemoteInstant(full.updated);
+    const mapping: ExternalMapping = {
+      provider: 'vikunja',
+      entityType: 'task',
+      entityId: id,
+      externalId: String(full.id),
+      ownerId,
+      ...(etag === null ? {} : { externalEtag: etag }),
+      ...(remoteUpdatedAt === undefined ? {} : { externalUpdatedAt: remoteUpdatedAt }),
+      contentFingerprint: contentFingerprint(full, dependencyExternalIds),
+      localVersion: 1 as Version,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.#mappings.put(mapping);
+    const fields: PlannerTaskFields = {
+      splittable: normalized.splittable,
+      ...(normalized.session === undefined ? {} : { session: normalized.session }),
+      priority: normalized.priority,
+      status: normalized.status,
+      dependsOn: [...normalized.dependsOn],
+    };
+    await this.#plannerFields.putTask(id, fields);
+    await this.#appendJournal(ownerId, mapping, mapping.externalUpdatedAt ?? now);
+    return this.#toTask(ownerId, mapping, full, fields, normalized.dependsOn);
   }
 
   async get(ownerId: Id, id: Id): Promise<Task | null> {

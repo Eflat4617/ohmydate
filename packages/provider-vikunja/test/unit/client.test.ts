@@ -8,6 +8,7 @@ import {
   VikunjaClient,
   mapVikunjaError,
   runWithAbortSignal,
+  runWithProviderRequestGuard,
   toValidationIssues,
 } from '../../src/client.js';
 import { FakeHttp } from './fake-http.js';
@@ -331,5 +332,75 @@ describe('abort context isolation', () => {
     const result = await client.getTask('1');
     expect(result.data.title).toBe('ok');
     expect(http.calls).toHaveLength(1);
+  });
+});
+
+describe('approval request guard (ADR-020 §9-10)', () => {
+  test('beforeRequest runs before every attempt, including the first', async () => {
+    let attempts = 0;
+    let touches = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      retries: 1,
+      fetch: async () => {
+        attempts += 1;
+        return new Response('{"error":"boom"}', { status: 500 });
+      },
+      sleep: async () => {},
+    });
+
+    await expect(
+      runWithProviderRequestGuard(
+        { beforeRequest: () => { touches += 1; } },
+        () => client.getTask('1'),
+      ),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(attempts).toBe(2);
+    expect(touches).toBe(2);
+  });
+
+  test('an abort raised by the touch stops the request before fetch', async () => {
+    const controller = new AbortController();
+    let attempts = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      fetch: async () => {
+        attempts += 1;
+        return new Response('{"id":1,"title":"ok"}', { status: 200 });
+      },
+      sleep: async () => {},
+    });
+
+    await expect(
+      runWithProviderRequestGuard(
+        {
+          signal: controller.signal,
+          beforeRequest: () => controller.abort(),
+        },
+        () => client.getTask('1'),
+      ),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(attempts).toBe(0);
+  });
+
+  test('a touch failure (lost holder CAS) propagates and starts no request', async () => {
+    const lost = new Error('ownership lost');
+    let attempts = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      fetch: async () => {
+        attempts += 1;
+        return new Response('{"id":1,"title":"ok"}', { status: 200 });
+      },
+      sleep: async () => {},
+    });
+
+    await expect(
+      runWithProviderRequestGuard(
+        { beforeRequest: () => { throw lost; } },
+        () => client.getTask('1'),
+      ),
+    ).rejects.toBe(lost);
+    expect(attempts).toBe(0);
   });
 });

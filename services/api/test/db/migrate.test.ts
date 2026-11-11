@@ -32,6 +32,7 @@ const MIGRATION_FILES = [
   '0003_vikunja_durable_stores.sql',
   '0004_inbox_mapping_column.sql',
   '0005_intake_estimation_agent.sql',
+  '0006_intake_approval.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -57,6 +58,8 @@ const VIKUNJA_TABLES = [
 ];
 
 // 0005_intake_estimation_agent.sql.
+const APPROVAL_TABLES = ['intake_approval', 'intake_approval_step'];
+
 const M2_TABLES = [
   'agent_proposal',
   'agent_run',
@@ -105,7 +108,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
       );
       const names = tables.rows.map((row) => row.table_name).sort();
       expect(names).toEqual(
-        [...M1_TABLES, ...VIKUNJA_TABLES, ...M2_TABLES, 'schema_migrations'].sort(),
+        [...M1_TABLES, ...VIKUNJA_TABLES, ...M2_TABLES, ...APPROVAL_TABLES, 'schema_migrations'].sort(),
       );
     } finally {
       await client.end();
@@ -405,6 +408,18 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           // Rolling back only the latest keeps M1 tables applied.
           const stillThere = await client.query<{ name: string | null }>(
             `SELECT to_regclass('"user"')::text AS name`,
+          );
+          expect(stillThere.rows[0]?.name).not.toBeNull();
+        } else if (migration === '0006_intake_approval.sql') {
+          for (const table of APPROVAL_TABLES) {
+            const gone = await client.query<{ name: string | null }>(
+              `SELECT to_regclass($1)::text AS name`,
+              [table],
+            );
+            expect({ table, name: gone.rows[0]?.name }).toEqual({ table, name: null });
+          }
+          const stillThere = await client.query<{ name: string | null }>(
+            `SELECT to_regclass('intake_session')::text AS name`,
           );
           expect(stillThere.rows[0]?.name).not.toBeNull();
         } else if (migration === '0003_vikunja_durable_stores.sql') {

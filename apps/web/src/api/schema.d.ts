@@ -181,7 +181,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Pause an intake interview */
+        /** Pause an intake interview (state becomes needs_input; other states return 409) */
         post: operations["pauseIntakeSession"];
         delete?: never;
         options?: never;
@@ -198,7 +198,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Resume a paused intake interview */
+        /** Resume a paused intake interview (needs_input restores the previous state) */
         post: operations["resumeIntakeSession"];
         delete?: never;
         options?: never;
@@ -426,11 +426,20 @@ export interface components {
             value?: string | number | boolean | string[] | null;
         };
         IntakeAnswersRequest: {
-            answers: {
-                action: "answer" | "skip" | "idk";
+            answers: ({
+                /** @constant */
+                action: "answer";
                 questionKey: "deliverable" | "dueAt" | "estimatedScope" | "currentProgress" | "availabilityConfirmed" | "prerequisites" | "priority" | "maxFocusMinutes" | "reviewNeeded";
-                value?: string | number | boolean | string[] | null;
-            }[];
+                value: string | number | boolean | string[] | null;
+            } | {
+                /** @constant */
+                action: "skip";
+                questionKey: "deliverable" | "dueAt" | "estimatedScope" | "currentProgress" | "availabilityConfirmed" | "prerequisites" | "priority" | "maxFocusMinutes" | "reviewNeeded";
+            } | {
+                /** @constant */
+                action: "idk";
+                questionKey: "deliverable" | "dueAt" | "estimatedScope" | "currentProgress" | "availabilityConfirmed" | "prerequisites" | "priority" | "maxFocusMinutes" | "reviewNeeded";
+            })[];
         };
         IntakeAssumption: {
             field: "deliverable" | "dueAt" | "estimatedScope" | "currentProgress" | "availabilityConfirmed" | "prerequisites" | "priority" | "maxFocusMinutes" | "reviewNeeded";
@@ -453,6 +462,7 @@ export interface components {
             availabilityConfirmed?: boolean;
             currentProgress?: number | string;
             deliverable?: string;
+            description?: string;
             /** Format: date-time */
             dueAt?: string;
             estimatedScope?: "small" | "medium" | "large";
@@ -460,6 +470,7 @@ export interface components {
             prerequisites?: string | number | boolean | string[] | null;
             priority?: number;
             reviewNeeded?: boolean;
+            title: string;
         };
         IntakeSession: {
             answers?: {
@@ -513,6 +524,7 @@ export interface components {
                 availabilityConfirmed?: boolean;
                 currentProgress?: number | string;
                 deliverable?: string;
+                description?: string;
                 /** Format: date-time */
                 dueAt?: string;
                 estimatedScope?: "small" | "medium" | "large";
@@ -520,6 +532,7 @@ export interface components {
                 prerequisites?: string | number | boolean | string[] | null;
                 priority?: number;
                 reviewNeeded?: boolean;
+                title: string;
             };
             manual: boolean;
             /** Format: uuid */
@@ -549,6 +562,7 @@ export interface components {
                 availabilityConfirmed?: boolean;
                 currentProgress?: number | string;
                 deliverable?: string;
+                description?: string;
                 /** Format: date-time */
                 dueAt?: string;
                 estimatedScope?: "small" | "medium" | "large";
@@ -556,6 +570,7 @@ export interface components {
                 prerequisites?: string | number | boolean | string[] | null;
                 priority?: number;
                 reviewNeeded?: boolean;
+                title: string;
             };
         };
         IntakeSessionIdParams: {
@@ -676,7 +691,7 @@ export interface components {
             required: boolean;
         };
         Problem: {
-            code: "validation_failed" | "version_conflict" | "availability_changed" | "idempotency_mismatch" | "provider_unavailable" | "llm_unavailable" | "budget_exceeded" | "dependency_cycle" | "illegal_transition" | "not_found" | "forbidden" | "rate_limited" | "unauthenticated" | "idempotency_in_progress" | "internal_error";
+            code: "validation_failed" | "version_conflict" | "availability_changed" | "idempotency_mismatch" | "provider_unavailable" | "llm_unavailable" | "budget_exceeded" | "dependency_cycle" | "illegal_transition" | "approval_in_progress" | "not_found" | "forbidden" | "rate_limited" | "unauthenticated" | "idempotency_in_progress" | "internal_error";
             detail?: string;
             errors?: {
                 message: string;
@@ -978,13 +993,6 @@ export interface operations {
                     "application/json": components["schemas"]["IntakeSession"];
                 };
             };
-            /** @description Intake session accepted; type detection is running */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
             /** @description Malformed request */
             400: {
                 headers: {
@@ -1023,15 +1031,6 @@ export interface operations {
             };
             /** @description Domain validation failed */
             422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["Problem"];
-                };
-            };
-            /** @description Provider unavailable */
-            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1191,6 +1190,15 @@ export interface operations {
             };
             /** @description If-Match header required */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Provider unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1564,6 +1572,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Provider unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     cancelIntakeSession: {
@@ -1636,6 +1653,15 @@ export interface operations {
             };
             /** @description Version precondition failed */
             412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1731,6 +1757,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description If-Match header required */
             428: {
                 headers: {
@@ -1819,6 +1854,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
             /** @description If-Match header required */
             428: {
                 headers: {
@@ -1900,6 +1944,15 @@ export interface operations {
             };
             /** @description Version precondition failed */
             412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
