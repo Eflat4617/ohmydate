@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 16:21 | **Sol 한도 재도달**(17:12 재시도 안내). M4-UIR2(ctx_52e0d001e37b) errored — 중단 직전 'account-switch race remains the blocking finding' 언급 → 패킷에 메모 추가 후 Opus 5.5 xhigh 대체로 retry-of. gpt-6-luna 전환 제안 거부 | worker-read | orchestrator |
 | 2026-11-11 16:13 | FU-52c 질문 → 범위 확장 승인: llm_spend.settle_reason(CHECK) + db/types.ts 최소 2줄 | msg_3e93b822108f | orchestrator |
 | 2026-11-11 16:10 | **FU-52R2 REQUEST_CHANGES (Sol medium) → FU-52 BLOCKED**: 1차 HIGH 6 해결 확인(키 표식 안전, 예산 0 호출 0, 소액 상한 호출 0, 재시도·누락 사용량 과금, 종료 순서 복원+변이 거부). 남은 HIGH — 입력 토큰 예약이 chars/3 평균이라 동시 다국어 호출이 상한 초과. MEDIUM 2(잔존 예약 복구 없음, 실패 재시도 사용량 누락). → 좁은 Task **FU-52c**(UTF-8 바이트 상한 예약, 잔존 예약 정산 복구, 사용량 누적) | reviews/FU-52R2.md | orchestrator |
 | 2026-11-11 15:38 | **FU-52R-1 REQUEST_CHANGES (Sol medium)**: HIGH 6 — gateway error.type로 키 노출 가능, 예산 0이 기본 예산으로 대체, 호출 전 예상·호출 후 상한 확인 없음(동시 호출 초과), 재시도·실패 호출 비용 누락, 사용량 누락 응답이 무료 처리, 종료 순서 검증 약화. 결정: 내부 오류 분류 상수, 0=비활성, 0011 llm_spend 예약·정산 원장(소유자별 advisory lock, max_tokens 상한), 순서 검증 복원(변이 증명), 세션 비밀값 파일. 수정 1/2 | reviews/FU-52R-1.md | orchestrator |

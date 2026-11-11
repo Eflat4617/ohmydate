@@ -20,3 +20,6 @@ Fixed all six M4-UIR-1 findings in commit 6936345 on branch torgal/m4-ui-integra
 Narrow focus (medium effort): re-run your round-1 component probes (two-plan Today cards; concurrent pause with delayed IndexedDB; logout/login owner switch with cached session + queued events; lost-response start retry same key/body; restored timer after 600 s; offline push opt-in) on this head; confirm the new two-approved-plan E2E really exercises shrink/reschedule on every shown card; run pnpm run e2e once.
 Round 2 of 2: HIGH only for data corruption, cross-owner leakage, security, or E2E not testing the real flow; else APPROVE with follow-ups.
 
+
+
+COORDINATOR NOTE (Sol reviewer hit its usage limit mid-review; this review continues on the Opus fallback): the interrupted Sol reviewer's last words were "The two-plan E2E test calls the real shrink and reschedule APIs for all three displayed cards. One follow-up: it submits a 15-minute shrink for fixtures estimated at 15 minutes, so it should also assert an actual duration change. The account-switch race remains the blocking finding." Investigate the account-switch race first (e.g. owner change while a journal replay/flush or session restore is in flight, events of owner A sent under owner B's session, or a stale owner namespace used after login) and report it with a reproduction.
