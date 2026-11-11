@@ -210,8 +210,30 @@ function joinTokens(parts: readonly Built[], separator: string): Built {
 }
 
 const JOIN_SEPARATORS = ['', ' ', '\u200B', '\u200C', '\u00AD'] as const;
-/** Same-kind numeric windows inside one glued digit run are ambiguous (ADR-019 (7)). */
-const NUMERIC_RUN_SEPARATORS = [' ', '\u200B', '\u200C', '\u00AD'] as const;
+
+/**
+ * ADR-019 (10): same-kind glued numeric windows and 3+ glued chains are out of scope
+ * (FU-32 leaks them too). The corpus still generates them; only these named cases are
+ * excluded from the "must mask" and "no regression" assertions, and each is pinned with
+ * its exact current output in privacy.test.ts.
+ */
+const KNOWN_OUT_OF_SCOPE: ReadonlySet<string> = new Set([
+  'pair rrn ascii join=""',
+  'pair rrn super join=""',
+  'pair rrn sub join=""',
+  'pair rrn mixed join=""',
+  'pair phone ascii join=""',
+  'pair phone super join=""',
+  'pair phone sub join=""',
+  'pair phone mixed join=""',
+  'triple rrn/phone/rrn join=""',
+  'triple phone join=""',
+  'key pair ghp_aaaaaaaa join=""',
+]);
+
+function isOutOfScopeCase(name: string): boolean {
+  return KNOWN_OUT_OF_SCOPE.has(name);
+}
 
 const RRN_SPEC = NUMERIC_TOKENS[0] as TokenSpec;
 const MOBILE_SPEC = NUMERIC_TOKENS[2] as TokenSpec;
@@ -240,9 +262,9 @@ function buildCases(): Case[] {
     cases.push({ name: `single ${spec.literal}`, ...built });
   }
 
-  // Same-kind 2- and 3-token runs.
+  // Same-kind 2- and 3-token runs, including fully glued ones (ADR-019 (10)).
   for (const spec of NUMERIC_TOKENS) {
-    for (const separator of NUMERIC_RUN_SEPARATORS) {
+    for (const separator of JOIN_SEPARATORS) {
       for (const style of ['ascii', 'super', 'sub', 'mixed'] as const) {
         const rate = mulberry32(0x51 + cases.length);
         const first = buildToken(spec, style, '-', rate);
@@ -252,7 +274,7 @@ function buildCases(): Case[] {
       }
     }
   }
-  for (const separator of NUMERIC_RUN_SEPARATORS) {
+  for (const separator of JOIN_SEPARATORS) {
     const parts = [
       buildToken(RRN_SPEC, 'super', '-', next),
       buildToken(MOBILE_SPEC, 'ascii', '-', next),
@@ -333,6 +355,7 @@ test('gate corpus is non-trivial and deterministic', () => {
 test('scanner masks every core glyph the independent oracle finds', () => {
   const failures: string[] = [];
   for (const entry of CASES) {
+    if (isOutOfScopeCase(entry.name)) continue;
     const result = redactWithSpans(entry.text);
     const coverage = coverageFromSpans(entry.text.length, result.spans);
     const oracle = oracleCoverage(entry.text);
@@ -367,6 +390,97 @@ test('scanner masks every core glyph the independent oracle finds', () => {
 test('no per-glyph recall regressions against the frozen FU-32 snapshot', () => {
   const failures: string[] = [];
   for (const entry of CASES) {
+    if (isOutOfScopeCase(entry.name)) continue;
+    const current = coverageFromSpans(entry.text.length, redactWithSpans(entry.text).spans);
+    const snapshot = coverageFromSpans(
+      entry.text.length,
+      snapshotRedactWithSpans(entry.text).spans,
+    );
+    for (let index = 0; index < entry.text.length; index += 1) {
+      if (snapshot[index] === 1 && current[index] === 0) {
+        failures.push(
+          `${entry.name} regressed glyph ${index}:${JSON.stringify(entry.text[index])} text=${JSON.stringify(entry.text)}`,
+        );
+        break;
+      }
+    }
+    if (failures.length > 10) break;
+  }
+  expect(failures).toEqual([]);
+});
+
+type AbCategory = 'single' | 'mixdigit' | 'same2' | 'same3' | 'pairs' | 'perms';
+
+/**
+ * Reduced seeded reproduction of the reviewer's 216k A/B classes: single, per-digit mixed
+ * styles, same-kind 2/3-token runs, and cross-kind pairs/permutations. Glued same-kind and
+ * 3+ glued cases are generated but excluded from the assertion (ADR-019 (10)).
+ */
+function generatedAbCorpus(): readonly Case[] {
+  const random = mulberry32(0x38d0a1b);
+  const pick = <T>(values: readonly T[]): T =>
+    values[Math.floor(random() * values.length)] as T;
+  const cases: Case[] = [];
+  const add = (category: AbCategory, name: string, built: Built): void => {
+    cases.push({ name: `216k ${category} ${name}`, ...built });
+  };
+  const separator = (): string => pick(['-', '', '\u200B', '.'] as const);
+  const style = (): DigitStyle => pick(DIGIT_STYLES);
+  const spec = (): TokenSpec => pick(NUMERIC_TOKENS);
+
+  for (let index = 0; index < 500; index += 1) {
+    add('single', `${index}`, buildToken(spec(), style(), separator(), random));
+  }
+  for (let index = 0; index < 500; index += 1) {
+    add('mixdigit', `${index}`, buildToken(spec(), 'mixed', separator(), random));
+  }
+  for (const [category, tokens] of [
+    ['same2', 2],
+    ['same3', 3],
+  ] as const) {
+    for (let index = 0; index < 400; index += 1) {
+      const chosen = spec();
+      const chosenStyle = style();
+      const join = pick(JOIN_SEPARATORS);
+      const parts = Array.from({ length: tokens }, () =>
+        buildToken(chosen, chosenStyle, '-', random),
+      );
+      add(category, `${index} join=${JSON.stringify(join)}`, joinTokens(parts, join));
+    }
+  }
+  for (let index = 0; index < 400; index += 1) {
+    const join = pick(JOIN_SEPARATORS);
+    const first = buildToken(pick([RRN_SPEC, MOBILE_SPEC]), style(), '-', random);
+    const second = buildToken(pick([EMAIL_SPEC, API_KEY_SPEC]), 'ascii', '-', random);
+    add('pairs', `${index} join=${JSON.stringify(join)}`, joinTokens([first, second], join));
+  }
+  for (let index = 0; index < 400; index += 1) {
+    const join = pick(JOIN_SEPARATORS);
+    const parts = [
+      buildToken(RRN_SPEC, 'super', '-', random),
+      buildToken(MOBILE_SPEC, style(), '-', random),
+      buildToken(API_KEY_SPEC, 'ascii', '-', random),
+    ];
+    add('perms', `${index} join=${JSON.stringify(join)}`, joinTokens(parts, join));
+  }
+  return cases;
+}
+
+function isOutOfScopeGenerated(name: string): boolean {
+  return (
+    (name.startsWith('216k same2 ') ||
+      name.startsWith('216k same3 ') ||
+      name.startsWith('216k perms ')) &&
+    name.endsWith('join=""')
+  );
+}
+
+test('seeded 216k-style A/B classes have zero per-glyph regressions vs FU-32', () => {
+  const corpus = generatedAbCorpus();
+  expect(corpus.length).toBeGreaterThan(2_000);
+  const failures: string[] = [];
+  for (const entry of corpus) {
+    if (isOutOfScopeGenerated(entry.name)) continue;
     const current = coverageFromSpans(entry.text.length, redactWithSpans(entry.text).spans);
     const snapshot = coverageFromSpans(
       entry.text.length,
@@ -589,6 +703,73 @@ test.each(SINGLE_DIGIT_AREA_PHONES)(
   },
 );
 
+/**
+ * FU-38cR2 HIGH: FU-32 kept its optional-separator `+cc` groups; every string below was
+ * masked by FU-32 and leaked by the area-first rewrite. The corpus also includes a
+ * separator after `cc` with glued/stripped-joined groups, and the FU-32 A/B comparison.
+ */
+const CC_REGRESSION_CORPUS = [
+  '+82 1012345678',
+  '+82-1012345678',
+  '+82 10 12345678',
+  '+82-10-12345678',
+  '+82 31-12345678',
+  '+82-3112345678',
+  '+1 4155552671',
+  '+1 415-5552671',
+  '+44 2071838750',
+  '+44 20 71838750',
+  '+49 30 12345678',
+  '+81-90-12345678',
+  '+86 13812345678',
+  '+33 612345678',
+  '+61 412345678',
+  '+65 91234567',
+  '+852 91234567',
+  'tel +82 1012345678.',
+  '전화: +82-1012345678',
+  '+82-2\u00AD9007\u00AD2208',
+  '+82 2\u200B1386\u200B3726',
+  '+82-31\u200B020\u200B6052',
+  '+82 10\u200C1234..5678',
+  '+82 10\u20601234..5678',
+  '+82-10-1234\u200B5678',
+] as const;
+
+test.each(CC_REGRESSION_CORPUS)(
+  '+cc glued/stripped-joined groups keep FU-32 recall and mask every digit: %s',
+  (input) => {
+    const result = redactWithSpans(input);
+    expect(uncoveredText(input, result.spans)).toEqual([]);
+    expect(result.report.length).toBeGreaterThan(0);
+    const snapshot = coverageFromSpans(
+      input.length,
+      snapshotRedactWithSpans(input).spans,
+    );
+    const current = coverageFromSpans(input.length, result.spans);
+    for (let index = 0; index < input.length; index += 1) {
+      if (snapshot[index] === 1) expect(current[index]).toBe(1);
+    }
+  },
+);
+
+/** FU-38cR2 LOW: the 1-digit-area pattern must not over-mask short `+` numerics. */
+const SHORT_PLUS_NUMERICS = [
+  '+1 2 2026',
+  '+1 2 2026-11-11',
+  '+1 2-12-2026',
+  '+5 1 23 45',
+  '+1 2 34 56',
+  '+1 2 3456',
+  '+12 3 4567',
+  '+44 1 234',
+  '+9 9 99 99',
+] as const;
+
+test.each(SHORT_PLUS_NUMERICS)('short + numeric stays unmasked: %s', (input) => {
+  expect(redact(input)).toEqual({ text: input, report: [] });
+});
+
 test('MAX_REDACT_INPUT guard documents and enforces the input cap', () => {
   expect(MAX_REDACT_INPUT).toBe(1024 * 1024);
   expect(() => assertRedactInputSize('x'.repeat(MAX_REDACT_INPUT))).not.toThrow();
@@ -662,5 +843,35 @@ perfTest(
     }
     expect(failures).toEqual([]);
   },
-  HEAVY_ENABLED ? 600_000 : 60_000,
+  // Heavy mode scans 2+4+8 MiB per shape; 405 s was observed under load, so scale the
+  // timeout with the heavy size set instead of leaving almost no margin.
+  HEAVY_ENABLED ? 1_200_000 : 60_000,
+);
+
+/**
+ * FU-38cR2 LOW: plain ASCII prose with multi-character whitespace runs must not fall off
+ * the ASCII fast path. The lazy compact map means no per-character objects are built when
+ * there is nothing to redact, keeping this within 3x of FU-32.
+ */
+perfTest(
+  '1 MiB ASCII prose with paragraphs stays within 3x of FU-32',
+  () => {
+    const unit = `${'The quick brown fox jumps over the lazy dog. '.repeat(40)}\n\n`;
+    const prose = repeatToSize(unit, 1024 * 1024);
+    redact(prose.slice(0, 2_000));
+    snapshotRedactWithSpans(prose.slice(0, 2_000));
+    const measure = (run: () => unknown): number => {
+      let best = Number.POSITIVE_INFINITY;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const started = performance.now();
+        run();
+        best = Math.min(best, performance.now() - started);
+      }
+      return best;
+    };
+    const current = measure(() => redact(prose));
+    const base = measure(() => snapshotRedactWithSpans(prose));
+    expect(current).toBeLessThanOrEqual(Math.max(base * 3, 20));
+  },
+  60_000,
 );

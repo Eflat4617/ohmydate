@@ -19,8 +19,10 @@
  *   end of its `[A-Za-z0-9_-]` run here, via a precomputed run-end array (ADR-019 (5)).
  *   Superscript/subscript suffix extension is deliberately not applied: FU-32 pins attached
  *   markers as visible (see the precision note below).
- * - ADR-019 (6): a whitespace-class run normalises to one separator unit, so separator
- *   length never limits recall.
+ * - ADR-019 (6): a whitespace-class run (space, tab, newline, U+3000, NBSP and other `Zs`)
+ *   normalises to one separator unit, so *whitespace* run length never limits recall.
+ *   Non-whitespace separator runs (`-`, `.`, ...) stay capped at `MAX_SEPARATOR`; runs
+ *   longer than that are out of scope (ADR-019 (11)) and pinned as known limitations.
  * - A token glued directly to an accepted token (no separator) is discovered by an
  *   adjacency pass from the accepted end. ADR-019 (7): the continuation counts as a right
  *   boundary only when it resolves itself and is a different kind, so long benign digit
@@ -75,6 +77,8 @@ const DIGIT = '[0-9０-９]';
 /**
  * Separator runs are bounded so `L_max` is a real constant: an unbounded `*` would let a
  * rejected attempt scan a multi-megabyte run for every candidate start (FU-24R-2 HIGH).
+ * Only whitespace-class runs are folded during normalisation (ADR-019 (6)); non-whitespace
+ * runs (`-`, `.`, ...) longer than this cap are out of scope per ADR-019 (11).
  */
 const MAX_SEPARATOR = 32;
 const SEPARATOR = `[.\\s\\-_/\\u2010-\\u2015\\u2212\\u00B7]{0,${MAX_SEPARATOR}}`;
@@ -140,6 +144,8 @@ interface Pattern {
   /**
    * ADR-019 (5): a capped word-body pattern is accepted at `L_max` when the original
    * `[A-Za-z0-9_-]` run continues; the union stage extends the span to the run end.
+   * The extension only applies when the raw match reached `maxLength`, so a shorter token
+   * that merely fails the trailing word boundary stays rejected.
    */
   readonly extendWordRun?: boolean;
   /** Minimum number of digit glyphs a phone match must contain (precision guard). */
@@ -155,11 +161,19 @@ interface OriginalChar {
 
 interface IndexMap {
   readonly normalized: string;
+  /** True only when the normalised text is byte-for-byte the original string. */
   readonly ascii: boolean;
-  /** Normalised code-unit index -> index in `chars`. */
-  readonly source: readonly number[];
+  /**
+   * ASCII text that only needed whitespace-run folding. Keeps a compact original-string
+   * reference and a normalised-index -> original-index table instead of building one
+   * object per character, which keeps 1 MiB of ASCII prose fast.
+   */
+  readonly compact?: boolean;
+  readonly original?: string;
+  /** Normalised code-unit index -> original char index. Built lazily for `compact`. */
+  source: ArrayLike<number>;
   /** Original char index -> first normalised code-unit index (or -1 when stripped). */
-  readonly firstNorm: readonly number[];
+  readonly firstNorm: ArrayLike<number>;
   readonly chars: readonly OriginalChar[];
 }
 
@@ -221,7 +235,7 @@ function isSuperSubDigit(value: string): boolean {
 }
 
 function startsOnSuperSubDigit(map: IndexMap, start: number): boolean {
-  if (map.ascii) return false;
+  if (map.ascii || map.compact === true) return false;
   const current = sourceAt(map, start);
   const char = current === undefined ? undefined : map.chars[current];
   return char !== undefined && !char.stripped && isSuperSubDigit(char.value);
@@ -234,7 +248,9 @@ function startsOnDigit(map: IndexMap, start: number): boolean {
 
 /** True when that digit comes from an original digit, not a folded footnote marker. */
 function startsOnOriginalDigit(map: IndexMap, start: number): boolean {
-  if (map.ascii) return isDigitCode(map.normalized.charCodeAt(start));
+  if (map.ascii || map.compact === true) {
+    return isDigitCode(map.normalized.charCodeAt(start));
+  }
   const current = sourceAt(map, start);
   return isOriginalDigitChar(current === undefined ? undefined : map.chars[current]);
 }
@@ -250,7 +266,7 @@ function firstOriginalDigitInRun(
   start: number,
   limit: number,
 ): number | undefined {
-  if (map.ascii) return start;
+  if (map.ascii || map.compact === true) return start;
   const stop = Math.min(limit, sourceLength(map));
   let index = start;
   while (index < stop && isDigitCode(map.normalized.charCodeAt(index))) {
@@ -260,15 +276,63 @@ function firstOriginalDigitInRun(
   return undefined;
 }
 
+/**
+ * Fast path for ASCII text whose only normalisation is whitespace folding (ADR-019 (6)).
+ * It avoids per-character objects: the normalised string is built natively and only a
+ * `Uint32Array` map back to original offsets is materialised. `firstNorm` stays empty and
+ * `toNormalized` binary-searches `source` for the rare adjacency lookup.
+ */
+function normalizeAsciiFolded(text: string): IndexMap {
+  return {
+    normalized: text.replace(/\s+/g, ' '),
+    ascii: false,
+    compact: true,
+    original: text,
+    source: EMPTY_NUMBERS,
+    firstNorm: EMPTY_NUMBERS,
+    chars: EMPTY_CHARS,
+  };
+}
+
+/**
+ * Build the compact original-offset table on first use. Plain prose with no secrets never
+ * needs it, so the 1 MiB ASCII path only pays for the native whitespace fold.
+ */
+function compactSource(map: IndexMap): ArrayLike<number> {
+  if (map.source !== EMPTY_NUMBERS) return map.source;
+  const original = map.original as string;
+  const source = new Uint32Array(map.normalized.length);
+  const ws = /\s+/g;
+  let previous = 0;
+  let unit = 0;
+  let match = ws.exec(original);
+  while (match !== null) {
+    const identity = match.index - previous;
+    for (let step = 0; step < identity; step += 1) source[unit + step] = previous + step;
+    unit += identity;
+    source[unit] = match.index;
+    unit += 1;
+    previous = match.index + match[0].length;
+    match = ws.exec(original);
+  }
+  const tail = map.normalized.length - unit;
+  for (let step = 0; step < tail; step += 1) source[unit + step] = previous + step;
+  map.source = source;
+  return source;
+}
+
 function normalizeWithMap(text: string): IndexMap {
-  if (!NON_ASCII.test(text) && !MULTI_WHITESPACE.test(text)) {
-    return {
-      normalized: text,
-      ascii: true,
-      source: EMPTY_NUMBERS,
-      firstNorm: EMPTY_NUMBERS,
-      chars: EMPTY_CHARS,
-    };
+  if (!NON_ASCII.test(text)) {
+    if (!MULTI_WHITESPACE.test(text)) {
+      return {
+        normalized: text,
+        ascii: true,
+        source: EMPTY_NUMBERS,
+        firstNorm: EMPTY_NUMBERS,
+        chars: EMPTY_CHARS,
+      };
+    }
+    return normalizeAsciiFolded(text);
   }
 
   const chars: OriginalChar[] = [];
@@ -355,15 +419,15 @@ function couldContainMatch(text: string): boolean {
 }
 
 function sourceAt(map: IndexMap, index: number): number | undefined {
-  return map.ascii
-    ? index >= 0 && index < map.normalized.length
-      ? index
-      : undefined
-    : map.source[index];
+  if (map.ascii) {
+    return index >= 0 && index < map.normalized.length ? index : undefined;
+  }
+  if (map.compact === true) return compactSource(map)[index];
+  return map.source[index];
 }
 
 function sourceLength(map: IndexMap): number {
-  return map.ascii ? map.normalized.length : map.source.length;
+  return map.ascii || map.compact === true ? map.normalized.length : map.source.length;
 }
 
 /**
@@ -381,16 +445,39 @@ function nextStart(map: IndexMap, index: number): number {
 }
 
 function charStart(map: IndexMap, index: number): number {
-  return map.ascii ? index : (map.chars[index]?.start ?? index);
+  if (map.ascii) return index;
+  if (map.compact === true) return compactSource(map)[index] ?? index;
+  return map.chars[index]?.start ?? index;
 }
 
 function charEnd(map: IndexMap, index: number): number {
-  return map.ascii ? index + 1 : (map.chars[index]?.end ?? index + 1);
+  if (map.ascii) return index + 1;
+  if (map.compact === true) return (compactSource(map)[index] ?? index) + 1;
+  return map.chars[index]?.end ?? index + 1;
 }
 
 /** Original coordinate -> normalised position of the char that starts there. */
 function toNormalized(map: IndexMap, originalStart: number): number | undefined {
   if (map.ascii) return originalStart;
+  if (map.compact === true) {
+    // `source` is strictly increasing, so an exact original offset can be found by binary
+    // search. Whitespace characters folded away have no normalised position.
+    const source = compactSource(map);
+    let low = 0;
+    let high = source.length - 1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      const position = source[middle] as number;
+      if (position < originalStart) {
+        low = middle + 1;
+      } else if (position > originalStart) {
+        high = middle - 1;
+      } else {
+        return middle;
+      }
+    }
+    return undefined;
+  }
   let low = 0;
   let high = map.chars.length - 1;
   while (low <= high) {
@@ -409,9 +496,10 @@ function toNormalized(map: IndexMap, originalStart: number): number | undefined 
 }
 
 function charBoundary(map: IndexMap, index: number): boolean {
-  if (map.ascii) {
-    if (index < 0 || index >= map.normalized.length) return true;
-    const code = map.normalized.charCodeAt(index);
+  if (map.ascii || map.compact === true) {
+    const original = map.compact === true ? (map.original as string) : map.normalized;
+    if (index < 0 || index >= original.length) return true;
+    const code = original.charCodeAt(index);
     return !(
       (code >= 0x30 && code <= 0x39) ||
       (code >= FULLWIDTH_DIGIT_FIRST && code <= FULLWIDTH_DIGIT_LAST)
@@ -476,6 +564,16 @@ function wordBoundaryBefore(map: IndexMap, start: number): boolean {
         : false;
     return before !== here;
   }
+  if (map.compact === true) {
+    const original = map.original as string;
+    const hereIndex = sourceAt(map, start);
+    if (hereIndex === undefined) return false;
+    const before =
+      hereIndex > 0 ? isAsciiWordCode(original.charCodeAt(hereIndex - 1)) : false;
+    const here =
+      hereIndex < original.length ? isAsciiWordCode(original.charCodeAt(hereIndex)) : false;
+    return before !== here;
+  }
   const current = sourceAt(map, start);
   if (current === undefined) {
     if (map.chars.length === 0) return false;
@@ -499,6 +597,17 @@ function wordBoundaryAfter(map: IndexMap, end: number): boolean {
         : false;
     return here !== next;
   }
+  if (map.compact === true) {
+    const original = map.original as string;
+    const endIndex = sourceAt(map, end - 1);
+    if (endIndex === undefined) return false;
+    const here = isAsciiWordCode(original.charCodeAt(endIndex));
+    const next =
+      endIndex + 1 < original.length
+        ? isAsciiWordCode(original.charCodeAt(endIndex + 1))
+        : false;
+    return here !== next;
+  }
   if (end <= 0) {
     return map.chars.length === 0 ? false : isOriginalWordChar(map.chars[0]);
   }
@@ -515,6 +624,14 @@ function notWordPlusBefore(map: IndexMap, start: number): boolean {
   if (map.ascii) {
     if (start <= 0) return true;
     const code = map.normalized.charCodeAt(start - 1);
+    return !(isAsciiWordCode(code) || code === 0x2b);
+  }
+  if (map.compact === true) {
+    const original = map.original as string;
+    const current = sourceAt(map, start);
+    if (current === undefined) return true;
+    if (current <= 0) return true;
+    const code = original.charCodeAt(current - 1);
     return !(isAsciiWordCode(code) || code === 0x2b);
   }
   const current = sourceAt(map, start);
@@ -536,8 +653,20 @@ function notWordPlusBefore(map: IndexMap, start: number): boolean {
   return !isOriginalWordChar(previous);
 }
 
-const CC_PHONE_SOURCE = `\\+${DIGIT}{1,3}${SEPARATOR}(?:\\(\\s?${DIGIT}{1,5}\\s?\\)|${DIGIT}{1,4})(?:${REQUIRED_SEPARATOR}(?:\\(\\s?${DIGIT}{1,5}\\s?\\)|${DIGIT}{2,4})){1,4}`;
+/**
+ * FU-32's international pattern, kept byte-for-byte (ADR-019 (9)). Its groups are joined
+ * by optionally-empty separators, so glued and stripped-joined groups still match.
+ */
+const CC_PHONE_SOURCE = `\\+${DIGIT}{1,3}(?:${SEPARATOR}(?:\\(\\s?${DIGIT}{1,5}\\s?\\)|${DIGIT}{2,4})){2,4}`;
 const CC_PHONE_EXACT = new RegExp(`^(?:${CC_PHONE_SOURCE})$`, 'u');
+/**
+ * Separate 1-digit-area international form (+82-2-…, +81 3-…, +33 1 …). ADR-019 (9): a
+ * recall-widening change adds a pattern instead of editing FU-32's. The country code needs
+ * at least two digits and every group after the area needs a separator, which keeps short
+ * arithmetic-like `+1 2 …` runs out; `minDigits` is a second guard.
+ */
+const SINGLE_AREA_PHONE_SOURCE = `\\+${DIGIT}{2,3}${REQUIRED_SEPARATOR}${DIGIT}(?:${REQUIRED_SEPARATOR}(?:\\(\\s?${DIGIT}{1,5}\\s?\\)|${DIGIT}{2,4})){1,4}`;
+const SINGLE_AREA_PHONE_EXACT = new RegExp(`^(?:${SINGLE_AREA_PHONE_SOURCE})$`, 'u');
 const INTL_82_PHONE_SOURCE = `(?:00(?:82|[1-9]${DIGIT}{0,2}${SEPARATOR}82)|82)${SEPARATOR}(?:\\(0\\)${SEPARATOR})?0?${DIGIT}{1,2}${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`;
 const KR_PAREN_PREFIX_SOURCE = `\\(\\s?0(?:1[016789]|2|[3-6][1-5]|50${DIGIT}?|70|80)\\s?\\)${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`;
 const KR_MOBILE_SOURCE = `(?:01[016789]|070|080)${SEPARATOR}${DIGIT}{3,4}${SEPARATOR}${DIGIT}{4}`;
@@ -573,9 +702,19 @@ const PATTERNS: readonly Pattern[] = [
   },
   {
     kind: 'api_key',
+    // `ghp_` + 256 body characters (the `gh*` alternative's cap).
+    maxLength: 260,
+    prefix: /gh[pousr]_/g,
+    regex: /gh[pousr]_[A-Za-z0-9]{20,256}/y,
+    wordBoundary: 'both',
+    extendWordRun: true,
+  },
+  {
+    kind: 'api_key',
+    // `github_pat_` + 256 body characters.
     maxLength: 267,
-    prefix: /(?:gh[pousr]_|github_pat_)/g,
-    regex: /(?:gh[pousr]_[A-Za-z0-9]{20,256}|github_pat_[A-Za-z0-9_]{20,256})/y,
+    prefix: /github_pat_/g,
+    regex: /github_pat_[A-Za-z0-9_]{20,256}/y,
     wordBoundary: 'both',
     extendWordRun: true,
   },
@@ -589,7 +728,8 @@ const PATTERNS: readonly Pattern[] = [
   },
   {
     kind: 'api_key',
-    maxLength: 262,
+    // `xox?-` (5 characters) + 256 body characters.
+    maxLength: 261,
     prefix: /xox[baprs]-/g,
     regex: /xox[baprs]-[A-Za-z0-9-]{10,256}/y,
     wordBoundary: 'both',
@@ -605,7 +745,8 @@ const PATTERNS: readonly Pattern[] = [
   },
   {
     kind: 'api_key',
-    maxLength: 258,
+    // `glpat-` (6 characters) + 256 body characters.
+    maxLength: 262,
     prefix: /glpat-/g,
     regex: /glpat-[A-Za-z0-9_-]{20,256}/y,
     wordBoundary: 'both',
@@ -660,15 +801,24 @@ const PATTERNS: readonly Pattern[] = [
   },
   {
     kind: 'phone',
-    // +<cc> followed by 2-5 groups; a group may be parenthesised or a single-digit area
-    // (+82-2-..., +81 3-..., +33 1 ...). `minDigits` keeps short arithmetic-like runs out.
-    maxLength: 230,
+    // FU-32 +<cc> followed by 2-4 groups; groups may be glued or stripped-joined.
+    maxLength: 167,
     regex: new RegExp(CC_PHONE_SOURCE, 'gu'),
     digitBoundary: 'end',
     notWordPlusBefore: true,
     shorterEnd: new RegExp(`${CC_PHONE_SOURCE}(?![0-9０-９])`, 'yu'),
     exact: CC_PHONE_EXACT,
-    minDigits: 5,
+  },
+  {
+    kind: 'phone',
+    // Separate 1-digit-area form (+82-2-..., +81 3-..., +33 1 ...); ADR-019 (9)-(10).
+    maxLength: 200,
+    regex: new RegExp(SINGLE_AREA_PHONE_SOURCE, 'gu'),
+    digitBoundary: 'end',
+    notWordPlusBefore: true,
+    shorterEnd: new RegExp(`${SINGLE_AREA_PHONE_SOURCE}(?![0-9０-９])`, 'yu'),
+    exact: SINGLE_AREA_PHONE_EXACT,
+    minDigits: 8,
   },
   // Glued E.164 without separators: +821012345678, +14155552671.
   {
@@ -798,21 +948,71 @@ function unionSpans(spans: readonly RedactionSpan[]): RedactionSpan[] {
   return merged;
 }
 
+function originalWordAt(map: IndexMap, index: number | undefined): boolean {
+  if (index === undefined) return false;
+  if (map.ascii) return isAsciiWordCode(map.normalized.charCodeAt(index));
+  if (map.compact === true) {
+    return isAsciiWordCode((map.original as string).charCodeAt(index));
+  }
+  return isOriginalWordChar(map.chars[index]);
+}
+
+/**
+ * True when a stripped format character sits directly after the matched end. That char is
+ * a real original word boundary even though the normalised match continues across it, so
+ * `ghp_<key><ZWSP>ghp_<key>` can end the first key before the joiner.
+ */
+function strippedBoundaryAfter(map: IndexMap, end: number): boolean {
+  if (map.ascii || map.compact === true) return false;
+  const current = sourceAt(map, end - 1);
+  if (current === undefined) return false;
+  return map.chars[current + 1]?.stripped === true;
+}
+
+/** Does `[start, end)` still match the pattern body exactly? */
+function matchesPatternShape(
+  map: IndexMap,
+  pattern: Pattern,
+  start: number,
+  end: number,
+): boolean {
+  const source = pattern.exact?.source ?? pattern.regex.source;
+  return new RegExp(`^(?:${source})$`, 'u').test(map.normalized.slice(start, end));
+}
+
 /**
  * A word-boundary match may greedily end on a non-word separator (`sk-key-`); JavaScript
  * `\b` would backtrack it. Trim only trailing non-word original characters to reach the
- * same boundary, never dropping part of the token itself.
+ * same boundary, never dropping part of the token itself. A match may also run across a
+ * stripped format character; in that case the longest earlier end whose immediate next
+ * original char is stripped (and whose slice still matches the pattern shape) wins.
  */
-function trimmedWordEnd(map: IndexMap, start: number, rawEnd: number): number | undefined {
+function trimmedWordEnd(
+  map: IndexMap,
+  pattern: Pattern,
+  start: number,
+  rawEnd: number,
+): number | undefined {
+  // A raw match that reached `L_max` is extended to the run end by ADR-019 (5); do not
+  // split it at an earlier stripped-character boundary.
+  const atCap = rawEnd - start >= pattern.maxLength;
   let end = rawEnd;
+  let crossedWord = false;
   while (end > start) {
-    if (wordBoundaryAfter(map, end)) return end;
-    if (map.ascii) {
-      if (isAsciiWordCode(map.normalized.charCodeAt(end - 1))) return undefined;
-    } else {
-      const current = sourceAt(map, end - 1);
-      if (current === undefined) return undefined;
-      if (isOriginalWordChar(map.chars[current])) return undefined;
+    const boundary = wordBoundaryAfter(map, end);
+    if (boundary) {
+      if (!crossedWord) return end;
+      if (
+        !atCap &&
+        strippedBoundaryAfter(map, end) &&
+        matchesPatternShape(map, pattern, start, end)
+      ) {
+        return end;
+      }
+    }
+    if (originalWordAt(map, sourceAt(map, end - 1))) {
+      crossedWord = true;
+      if (atCap) return undefined;
     }
     end -= 1;
   }
@@ -941,7 +1141,7 @@ function probeAt(map: IndexMap, pattern: Pattern, start: number): number | undef
   if (match === null || match.index !== start || match[0].length === 0) return undefined;
   let end = start + match[0].length;
   if (pattern.wordBoundary === 'end' || pattern.wordBoundary === 'both') {
-    const trimmed = trimmedWordEnd(map, start, end);
+    const trimmed = trimmedWordEnd(map, pattern, start, end);
     if (trimmed === undefined) return undefined;
     end = trimmed;
   }
@@ -977,7 +1177,7 @@ function resolveEnd(
 
   let end = rawEnd;
   if (wordBoundary === 'end' || wordBoundary === 'both') {
-    let trimmed = trimmedWordEnd(map, start, end);
+    let trimmed = trimmedWordEnd(map, pattern, start, end);
     if (trimmed === undefined) {
       const fallback = pattern.shorterWordEnd;
       if (fallback !== undefined) {
@@ -997,12 +1197,15 @@ function resolveEnd(
       }
     }
     if (trimmed === undefined) {
-      // ADR-019 (5): `L_max` is a search bound, not a rejection reason. When a capped
-      // body stops mid word run, accept it and let the union stage extend to the run end.
+      // ADR-019 (5): `L_max` is a search bound, not a rejection reason. When the regex
+      // body actually reached `maxLength` and stops mid word run, accept it and let the
+      // union stage extend to the run end. A shorter match that merely fails `\b` (for
+      // example `ghp_` + 30 letters + `_tail`) is still rejected, as in FU-32.
       if (
         pattern.extendWordRun === true &&
         extensions !== undefined &&
         rawEnd < sourceLength(map) &&
+        rawEnd - start >= pattern.maxLength &&
         isWordRunCode(map.normalized.charCodeAt(rawEnd))
       ) {
         extensions.push({ start, end: rawEnd, kind: pattern.kind });
