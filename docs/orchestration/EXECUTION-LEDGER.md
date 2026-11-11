@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 12:44 | **FU-08cR APPROVE (Sol medium)**: Opus 승인분 사후 확인 — 초안 승인 정확히 한 번(크래시 후 재시도·잠금 손실·P2/P6/P7 실환경) 및 종료 처리(빌드 코드·실제 SIGTERM 후 PG 확인) 모두 유지. 새 HIGH 없음 | reviews/FU-08cR.md | orchestrator |
 | 2026-11-11 12:23 | **FU-38dR-1 REQUEST_CHANGES (Sol medium)**: 독립 62k A/B(공백 문맥 제외) 회귀 0, CC_PHONE FU-32 동일 확인. HIGH — ASCII 공백 접기 빠른 경로가 원문 좌표를 두 번 변환해 앞글자/번호 전체 노출(공백 문맥 60k에서 17,336 토큰 회귀). MEDIUM — A/B 예외가 ADR 명시 목록보다 넓음. GB-1 미준비. 수정 1/2 → ctx_0bf7dea8733b | reviews/FU-38dR-1.md | orchestrator |
 | 2026-11-11 12:19 | **M3-04cR-1 REQUEST_CHANGES (Sol medium)**: HIGH — RRULE 건너뛰기에서 YEARLY COUNT 오계산·2월 29일 보정으로 실제 약속과 겹치는 일정이 승인됨(API 재현). R2 프로브 H/H2/I/J/K/R·Vikunja 구성 통과 확인. 수정 1/2 → ctx_dde69e5eb547 | reviews/M3-04cR-1.md | orchestrator |
 | 2026-11-11 12:13 | **Sol 복귀(medium)**: codex exec 헤더 model gpt-6.1-sol / reasoning effort medium, SOL_OK. M3-04c worker_done(7a0920e, api 317 pass, ci 1241). Sol medium 리뷰 시작: M3-04cR ctx_e693d5cf187e, FU-38dR ctx_265a8ecf4129(GB-1 관문, 첫 Sol 확인) — worker-start 영수증 effort=medium, Codex 롤아웃 turn_context로 재확인 | codex probe, worker-start, rollout | orchestrator |
