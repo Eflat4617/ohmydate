@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 23:20 | **FU-61-58R-1 REQUEST_CHANGES**: HIGH 1 — dist lock 3자 경합에서 두 lease 동시 보유(FU-57R2와 같은 결함 계열 2회째). readyz(FU-61)는 통과. **돌파구 워커 Fable 5.2 medium 투입**(MODEL_BINDINGS §10 조건②: 같은 계열 결함 반복) — 공유 dist 제거(호출별 고유 빌드 디렉터리) 우선 검토 | reviews/FU-61-58R-1.md, packets/FU-58F.md | orchestrator |
 | 2026-11-11 23:15 | FU-61+58 worker_done(f550340+0251dc8) → Sol medium 리뷰 시작. **M5-03 시작**(Opus xhigh: 재계획 제안 UI + 내 패턴 + E2E-5R + FU-63). **FU-62 시작**(Opus xhigh: 설명·위반 코드 additive 계약 + 한국어 렌더) | packets/M5-03.md, FU-62.md, FU-61-58R.md | orchestrator |
 | 2026-11-11 22:58 | **UI-I18N merged 413f14b** (UI-I18NR APPROVE, Sol). 병합 후 M5-01 신규 코드 2개 한국어 문구 + 고정 코드 수 19→21 보정 cb505fa. **M5-02 merged e2d1eec** (M5-02R2 APPROVE, Sol; LOW → FU-63). 통합 CI 1601 pass + web 240(1차는 공유 DB 마이그레이션 rollback 30s 타임아웃 2건, 재실행 통과 → FU-58 범위) | reviews/UI-I18NR.md, M5-02R2.md | orchestrator |
 | 2026-11-11 22:32 | UI-I18NR Sol 리뷰가 사용량 한도(22:29 해제)로 중단 → 구현자(Opus)와 계열 분리를 위해 Opus 대체 대신 해제 대기, SOL_OK 확인 후 retry-of로 Sol medium 재시작 | codex probe | orchestrator |
