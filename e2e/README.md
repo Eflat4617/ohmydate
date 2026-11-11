@@ -68,3 +68,27 @@ and installs the same start time in its browser context (`helpers/clock.ts`).
 Without the variable nothing is shifted. Only E2E-3 opts in, so run E2E-1/E2E-2
 on real time. PostgreSQL `now()` and Vikunja keep real time, which is fine for
 E2E-3's flow but is why this stays opt-in.
+
+## E2E-5R replan (M5-03)
+
+`tests/e2e-5r-replan.spec.ts` uses its own planner/Vikunja owner (`replan`
+fixture) because replan proposals are capped at two a day per owner. It
+approves a four-task plan whose steps have P50 = P90 (so no deadline-risk
+trigger), locks the first block, keeps the next hours busy with a commitment
+(so a moved block can never start while the proposal is open) and adds a
+commitment over the second block. It then waits for the API's leader-only
+detection sweep, which runs every 300 s from API start (up to 11 minutes, so a
+tick skipped by a contended advisory lock is tolerated), and checks:
+
+- exactly one `commitment_conflict` proposal and one `replan_proposal`
+  notification; Today shows one banner and the notification links to it;
+- the detail lists only the overlapped block as moved and the locked block as
+  unchanged; approval sends `If-Match: W/"availability:<n>"` + a UUIDv7 key,
+  moves only that block, and the locked block keeps its row and times;
+- *재계획 요청* → reject (24 h explanation) → asking again is
+  `409 replan_suppressed` with `Retry-After` ≈ 24 h, shown as a wait.
+
+Locking uses `helpers/db.ts` (an `UPDATE` in the throwaway schema) because M5
+has no lock endpoint; every assertion still goes through the API or the UI.
+The spec, the a11y additions (`/replan`, `/patterns`) and the axe scans of the
+detail, reject dialog and suppressed state all require 0 critical/serious.

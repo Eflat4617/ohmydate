@@ -60,6 +60,19 @@ export type PlanMetrics = components['schemas']['PlanMetrics'];
 export type PreviewEditResponse = components['schemas']['PreviewEditResponse'];
 export type ScheduleBlock = components['schemas']['ScheduleBlock'];
 export type Violation = PreviewEditResponse['violations'][number];
+export type ReplanProposal = components['schemas']['ReplanProposal'];
+export type ReplanProposalPage = components['schemas']['ReplanProposalPage'];
+export type ReplanProposalState = ReplanProposal['state'];
+export type ReplanTrigger = components['schemas']['ReplanTrigger'];
+export type ReplanTriggerKind = ReplanTrigger['kind'];
+export type ReplanReasonCode = ReplanTrigger['reason'];
+export type ReplanCandidate = components['schemas']['ReplanCandidate'];
+export type ReplanCandidateFlag = ReplanCandidate['flags'][number];
+export type ReplanRequest = components['schemas']['ReplanRequest'];
+export type EstimationProfile = components['schemas']['EstimationProfile'];
+export type EstimationProfileGroup = components['schemas']['EstimationProfileGroup'];
+export type EstimationProfileItem = components['schemas']['EstimationProfileItem'];
+export type EstimationReset = components['schemas']['EstimationReset'];
 
 export interface PlannerClientOptions {
   readonly baseUrl?: string;
@@ -1121,6 +1134,160 @@ export class PlannerClient {
       },
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error);
+  }
+
+  cachedReplanProposalVersion(proposalId: string): number | undefined {
+    return this.versions.get(`replan:${proposalId}`);
+  }
+
+  async listReplanProposals(
+    options: {
+      state?: ReplanProposalState;
+      cursor?: string;
+      limit?: number;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<ReplanProposalPage> {
+    const query: { state?: ReplanProposalState; cursor?: string; limit?: number } = {};
+    if (options.state !== undefined) query.state = options.state;
+    if (options.cursor !== undefined) query.cursor = options.cursor;
+    if (options.limit !== undefined) query.limit = options.limit;
+    const { data, error, response } = await this.client.GET('/replan-proposals', {
+      params: { query },
+      cache: 'no-store',
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty replan proposal page');
+    for (const item of data.items) this.remember(`replan:${item.id}`, item.version);
+    return data;
+  }
+
+  async getReplanProposal(
+    proposalId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ReplanProposal> {
+    const { data, error, response } = await this.client.GET('/replan-proposals/{id}', {
+      params: { path: { id: proposalId } },
+      cache: 'no-store',
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty replan proposal response');
+    this.remember(`replan:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  /**
+   * 08 §2.6 / §2.4: approval pins `If-Match` to the user-wide availability
+   * version the proposal was computed against (`W/"availability:<n>"`).
+   */
+  async approveReplanProposal(
+    proposalId: string,
+    idempotencyKey: string,
+    availabilityVersion: number,
+    signal?: AbortSignal,
+  ): Promise<PlanVersion> {
+    const { data, error, response } = await this.client.POST('/replan-proposals/{id}:approve', {
+      params: {
+        path: { id: proposalId },
+        header: {
+          'If-Match': availabilityEtagForVersion(availabilityVersion),
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+      body: {},
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty plan version response');
+    return data;
+  }
+
+  /** Rejection pins `If-Match` to the proposal's own version (`W/"<n>"`). */
+  async rejectReplanProposal(
+    proposalId: string,
+    idempotencyKey: string,
+    expectedVersion: number,
+    reason?: string,
+    signal?: AbortSignal,
+  ): Promise<ReplanProposal> {
+    const { data, error, response } = await this.client.POST('/replan-proposals/{id}:reject', {
+      params: {
+        path: { id: proposalId },
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      body: reason === undefined ? {} : { reason },
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty replan proposal response');
+    this.remember(`replan:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  /** `409 replan_suppressed` carries `Retry-After` (seconds) on `ApiError.retryAfterSeconds`. */
+  async requestReplanProposal(
+    input: ReplanRequest,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<ReplanProposal> {
+    const { data, error, response } = await this.client.POST('/replan-proposals:request', {
+      params: { header: { 'Idempotency-Key': idempotencyKey } },
+      body: input,
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty replan proposal response');
+    this.remember(`replan:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async getEstimationProfile(signal?: AbortSignal): Promise<EstimationProfile> {
+    const { data, error, response } = await this.client.GET('/estimation/profile', {
+      cache: 'no-store',
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty estimation profile');
+    for (const item of data.items) this.remember(`feedback:${item.feedbackId}`, item.version);
+    return data;
+  }
+
+  async patchEstimationFeedback(
+    feedbackId: string,
+    excluded: boolean,
+    idempotencyKey: string,
+    expectedVersion: number,
+    signal?: AbortSignal,
+  ): Promise<EstimationProfileItem> {
+    const { data, error, response } = await this.client.PATCH('/estimation/feedback/{id}', {
+      params: {
+        path: { id: feedbackId },
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      body: { excluded },
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty feedback response');
+    this.remember(`feedback:${data.feedbackId}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async resetEstimation(
+    input: EstimationReset,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<EstimationProfile> {
+    const { data, error, response } = await this.client.POST('/estimation:reset', {
+      params: { header: { 'Idempotency-Key': idempotencyKey } },
+      body: input,
+      ...(signal === undefined ? {} : { signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty estimation profile');
+    return data;
   }
 
   private async resolveTaskVersion(taskId: string): Promise<number> {

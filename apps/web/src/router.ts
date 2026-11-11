@@ -10,6 +10,9 @@ import PlanNewView from './views/PlanNewView.vue';
 import ProjectDetailView from './views/ProjectDetailView.vue';
 import ProjectListView from './views/ProjectListView.vue';
 import PlanningWizardView from './views/PlanningWizardView.vue';
+import PatternsView from './views/PatternsView.vue';
+import ReplanListView from './views/ReplanListView.vue';
+import ReplanProposalView from './views/ReplanProposalView.vue';
 import TodayView from './views/TodayView.vue';
 
 export const router = createRouter({
@@ -29,6 +32,9 @@ export const router = createRouter({
     { path: '/settings/ai', name: 'ai-settings', component: LlmSettingsView },
     { path: '/plans/new', name: 'plans-new', component: PlanNewView },
     { path: '/plans/:id', name: 'plan', component: PlanComparisonView, props: true },
+    { path: '/replan', name: 'replan', component: ReplanListView },
+    { path: '/replan/:id', name: 'replan-proposal', component: ReplanProposalView, props: true },
+    { path: '/patterns', name: 'patterns', component: PatternsView },
     { path: '/:pathMatch(.*)*', redirect: '/inbox' },
   ],
 });

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { inject, onMounted, ref } from 'vue';
+import { routerKey } from 'vue-router';
 import { plannerClient, uuidV7Key, type Notification as PlannerNotification } from '../api';
 import { notificationLabel, useNotifications } from '../notifications/useNotifications';
 import { useOfflineStore } from '../stores/offline';
@@ -19,6 +20,7 @@ const emit = defineEmits<{ close: [] }>();
 
 const offline = useOfflineStore();
 const auth = useAuthStore();
+const router = inject(routerKey, null);
 const { items, visibleItems, loading, error, start, dismiss } = useNotifications();
 const busyId = ref<string | null>(null);
 const pushSupported = ref(false);
@@ -44,6 +46,22 @@ function meta(item: PlannerNotification): string {
     time: clock(item),
     channel: t(`notifications.channel.${item.channel}`),
   });
+}
+
+const PROPOSAL_KEY = /^replan_proposal:([0-9a-f-]{36})$/i;
+
+/** M5-03: a detected replan proposal links to its detail (dedupe key `replan_proposal:<id>`). */
+function proposalPath(item: PlannerNotification): string | null {
+  if (item.kind !== 'replan_proposal') return null;
+  const match = PROPOSAL_KEY.exec(item.dedupeKey);
+  return match?.[1] === undefined ? '/replan' : `/replan/${match[1]}`;
+}
+
+function openProposal(event: MouseEvent, path: string): void {
+  if (router === null) return;
+  event.preventDefault();
+  emit('close');
+  void router.push(path);
 }
 
 async function onDismiss(item: PlannerNotification): Promise<void> {
@@ -156,6 +174,16 @@ async function enablePush(): Promise<void> {
           <p class="notification-kind">{{ notificationLabel(item) }}</p>
           <p class="notification-meta">{{ meta(item) }}</p>
         </div>
+        <a
+          v-if="proposalPath(item)"
+          class="btn btn--secondary btn--sm"
+          :href="proposalPath(item) ?? '/replan'"
+          :aria-label="t('notifications.openProposalAria', { label: notificationLabel(item) })"
+          data-open-proposal
+          @click="openProposal($event, proposalPath(item) ?? '/replan')"
+        >
+          {{ t('notifications.openProposal') }}
+        </a>
         <UiButton
           size="sm"
           variant="ghost"

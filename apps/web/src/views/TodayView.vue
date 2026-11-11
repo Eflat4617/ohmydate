@@ -12,6 +12,8 @@ import {
   type TodayProposal,
 } from '../api';
 import ProposalPreview from '../components/ProposalPreview.vue';
+import ReplanBanner from '../components/ReplanBanner.vue';
+import ReplanRequestButton from '../components/ReplanRequestButton.vue';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -32,6 +34,7 @@ import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 import { useToastStore } from '../stores/toast';
 import { focusClientId } from '../session/clientId';
+import { activePlanRevision, rememberActivePlan, rememberedActivePlan } from '../session/activePlan';
 import {
   captureOwnerBinding,
   isOwnerBindingCurrent,
@@ -179,6 +182,13 @@ const riskTone = computed(() => {
     default:
       return 'success' as const;
   }
+});
+
+// M5-03: "재계획 요청" needs the plan id, which Today does not carry; use the
+// plan this owner last approved or opened (see session/activePlan.ts).
+const replanPlanId = computed(() => {
+  void activePlanRevision.value;
+  return rememberedActivePlan(sessionStore.ownerId);
 });
 
 const isLoading = computed(
@@ -348,7 +358,7 @@ async function approveProposal(): Promise<void> {
   const scope = `today:approve:${value.id}`;
   try {
     const action = actions.begin(scope, { proposalId: value.id }, samePayload);
-    await plannerClient.approveTodayProposal(
+    const version = await plannerClient.approveTodayProposal(
       value.id,
       action.key,
       proposalIfMatch(value),
@@ -356,6 +366,7 @@ async function approveProposal(): Promise<void> {
     );
     actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
+    rememberActivePlan(binding.ownerId, version.planId);
     toast.show(t('today.proposalApproved'));
     proposal.value = null;
     await refresh();
@@ -452,6 +463,7 @@ function resumeActive(): void {
     </UiBanner>
 
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
+    <ReplanBanner />
     <UiBanner v-if="resumeOffer && activeSession" tone="info" inline class="resume-banner">
       <span>{{ t('today.alreadyRunning') }}</span>
       <template #actions>
@@ -526,6 +538,7 @@ function resumeActive(): void {
             <UiButton block icon="check" :disabled="readOnly || busy" @click="acceptToday()">
               {{ t('today.acceptPlan') }}
             </UiButton>
+            <ReplanRequestButton v-if="replanPlanId" :plan-id="replanPlanId" variant="ghost" block />
           </div>
         </UiCard>
       </aside>

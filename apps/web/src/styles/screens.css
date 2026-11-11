@@ -2055,3 +2055,459 @@
 .candidate-explanation[open] summary {
   margin-bottom: var(--space-1);
 }
+
+/* ── Replan proposals & 내 패턴 (M5-03) ────────────────────────────────── */
+.replan-page,
+.patterns-page {
+  gap: var(--space-5);
+}
+
+.replan-page .section-head,
+.patterns-page .section-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.replan-banner .banner-body p {
+  margin: 0;
+}
+
+.replan-request > * + * {
+  margin-top: var(--space-2);
+}
+
+.replan-request-status:empty {
+  margin: 0;
+}
+
+.replan-meta {
+  display: flex;
+  flex-direction: column;
+}
+
+.replan-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border-radius: var(--radius-lg);
+}
+
+.replan-state:empty {
+  display: none;
+}
+
+.replan-layout {
+  display: grid;
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.replan-why p,
+.replan-readonly p,
+.replan-suppressed p {
+  margin: 0;
+}
+
+.replan-affected {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.replan-affected .plain-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-weight: var(--weight-medium);
+}
+
+.replan-metrics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.replan-metrics-table th,
+.replan-metrics-table td {
+  padding: var(--space-2) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.replan-metrics-table thead th {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+}
+
+.replan-metrics-table tbody th {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.replan-metrics-table td {
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.replan-changes,
+.replan-locked-list,
+.replan-items,
+.patterns-items,
+.patterns-group-list,
+.patterns-method-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.replan-changes,
+.replan-locked-list,
+.patterns-items {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.replan-change,
+.replan-locked-list li,
+.patterns-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+
+.replan-change + .replan-change,
+.replan-locked-list li + li,
+.patterns-item + .patterns-item {
+  border-top: 1px solid var(--color-border);
+}
+
+.replan-change-head {
+  display: flex;
+  flex: 1 1 14rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.replan-change-title {
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.replan-change-times {
+  display: grid;
+  flex: 1 1 18rem;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.replan-change-time {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.replan-change-time dt {
+  color: var(--color-text-muted);
+  font-weight: var(--weight-medium);
+}
+
+.replan-change-time dd {
+  margin: 0;
+}
+
+.replan-change-time del {
+  color: var(--color-text-muted);
+  text-decoration-thickness: 1px;
+}
+
+.replan-change-time ins {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+
+.replan-locked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+.replan-locked-list {
+  background: var(--color-surface-sunken);
+  font-size: var(--text-sm);
+}
+
+.replan-unchanged,
+.replan-diff-empty {
+  margin-top: var(--space-3);
+}
+
+.replan-explanation {
+  margin-top: var(--space-4);
+  padding: 0;
+}
+
+.replan-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.replan-action-buttons .btn {
+  flex: 1 1 8rem;
+}
+
+.replan-policy {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.replan-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.replan-items {
+  gap: var(--space-2);
+}
+
+.replan-item-link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
+  min-height: var(--control-height-lg);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-1);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.replan-item-link:hover {
+  border-color: var(--color-border-strong);
+}
+
+.replan-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  grid-column: 1;
+}
+
+.replan-item-title {
+  font-weight: var(--weight-semibold);
+}
+
+.replan-item-body,
+.replan-item-meta {
+  grid-column: 1;
+  font-size: var(--text-sm);
+}
+
+.replan-item-chevron {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: center;
+  color: var(--color-text-subtle);
+}
+
+.replan-item--past .replan-item-link {
+  box-shadow: none;
+  background: var(--color-surface-sunken);
+}
+
+.patterns-layout {
+  display: grid;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.patterns-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.patterns-cold p,
+.patterns-cold h2 {
+  margin: 0;
+}
+
+.patterns-cold .card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.patterns-method-list {
+  gap: var(--space-2);
+  padding-left: var(--space-4);
+  list-style: disc;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.patterns-groups,
+.patterns-feedback {
+  display: flex;
+  flex-direction: column;
+}
+
+.patterns-group-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+  gap: var(--space-3);
+}
+
+.patterns-group-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.patterns-ratios {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.patterns-ratios .stat-value {
+  font-size: var(--text-lg);
+}
+
+.patterns-item-main {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.patterns-item-title {
+  margin: 0;
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.patterns-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.patterns-item-ratio {
+  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+}
+
+.patterns-item--off .patterns-item-title {
+  color: var(--color-text-muted);
+}
+
+.patterns-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.patterns-switch input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.patterns-switch input:disabled,
+.patterns-switch input:disabled + .patterns-switch-label {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.patterns-feedback-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.patterns-reset-dialog p {
+  margin: 0;
+}
+
+.patterns-reset-dialog #patterns-reset-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+@media (min-width: 1024px) {
+  .replan-layout {
+    grid-template-columns: minmax(0, 1fr) var(--aside-width);
+  }
+
+  /* Why spans the page; the diff then runs beside metrics + actions. */
+  .replan-why {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .replan-metrics {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .replan-diff {
+    grid-column: 1;
+    grid-row: 2 / span 2;
+  }
+
+  .replan-actions {
+    position: sticky;
+    top: var(--space-4);
+    grid-column: 2;
+    grid-row: 3;
+  }
+
+  .patterns-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .patterns-summary {
+    grid-row: span 2;
+  }
+
+  .patterns-ratios {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .patterns-group-list .patterns-ratios {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

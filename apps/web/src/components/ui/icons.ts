@@ -132,6 +132,14 @@ export const ICONS = {
   'chevron-left': { paths: ['M14.5 6.5L9 12l5.5 5.5'] },
   'chevron-right': { paths: ['M9.5 6.5L15 12l-5.5 5.5'] },
   clock: { paths: ['M12 7.5V12l3 2'], circles: [[12, 12, 8.25]] },
+  lock: {
+    paths: [
+      'M8 10.5V8a4 4 0 0 1 8 0v2.5',
+      'M6.75 10.5h10.5a1.5 1.5 0 0 1 1.5 1.5v6.25a1.5 1.5 0 0 1-1.5 1.5H6.75a1.5 1.5 0 0 1-1.5-1.5V12a1.5 1.5 0 0 1 1.5-1.5z',
+    ],
+    dots: [[12, 15.1]],
+  },
+  pattern: { paths: ['M4.5 19.5h15', 'M7.5 16.5V12', 'M12 16.5V7.5', 'M16.5 16.5v-6'] },
   leaf: { paths: ['M5 19c0-8 5-13 14-14-1 9-6 14-14 14z', 'M5 19l7-7'] },
   shield: { paths: ['M12 3.75l7 2.75v5.25c0 4.3-3 7.6-7 8.5-4-.9-7-4.2-7-8.5V6.5z', 'M9 12l2.25 2.25L15.5 10'] },
 } as const satisfies Record<string, IconShape>;
