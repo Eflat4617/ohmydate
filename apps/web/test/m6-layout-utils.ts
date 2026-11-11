@@ -83,10 +83,9 @@ export function regionsOf(wrapper: VueWrapper): Record<string, string[]> {
   return result;
 }
 
-export function button(
-  root: { findAll(selector: string): Pick<DOMWrapper<Element>, 'text' | 'trigger'>[] },
-  label: string,
-): Pick<DOMWrapper<Element>, 'text' | 'trigger'> {
+type ButtonLike = Pick<DOMWrapper<Element>, 'text' | 'trigger' | 'attributes'>;
+
+export function button(root: { findAll(selector: string): ButtonLike[] }, label: string): ButtonLike {
   const found = root.findAll('button').find((item) => item.text().includes(label));
   if (found === undefined) throw new Error(`button not found: ${label}`);
   return found;
