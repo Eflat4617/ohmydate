@@ -130,7 +130,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
-| M4-UI (+M4-03,UIc,UId) | ctx_7555c320974c (Sol medium) | 5384216 | **APPROVE** — 실제 Chromium 자동 리셋·교차 탭 로그아웃 확인 | FU-56 | **Accepted, merged 2f14c0f**; ci 1497 pass/29 skip + web 166; E2E 11/12 (실패 1 = FU-55 기존 시각 의존) |
+| M4-UI (+M4-03,UIc,UId) | ctx_7555c320974c (Sol medium) | 5384216 | **APPROVE** — 실제 Chromium 자동 리셋·교차 탭 로그아웃 확인 | FU-56 | **Accepted, merged 2f14c0f**; ci 1497 pass/29 skip + web 166; E2E 12/12(병합 후 재실행; E2E-3은 시각 의존이라 FU-55 계속) |
 | FU-52 (+52c) | ctx_e76ac2289629 (opus-fallback) | 6cf7806 | **APPROVE** — 한국어 동시 20건 최악 지출 $0.0304 ≤ $0.035, 키 표식 안전 | FU-54 | **Accepted, merged d0e2c79**; 충돌(마이그레이션 픽스처) 해결, ci 1496 pass/29 skip + web 112 |
 | M4-02 | ctx_0ecb8620f811 (Sol medium) | f154993 | **APPROVE** | FU-53; 부속 범위: e2e/global-setup.ts·build-smoke.mjs(합성 푸시 키), schema.d.ts | **Accepted, merged 9c62fb6**; ci 1424 pass/29 skip + web 112; E2E 8/8 |
 | M23-UI (M2-04+M3-05) | ctx_222e15ba47b3 (Sol medium) | fcaa451 | **APPROVE** | FU-51 | **Accepted, merged ac17b02**; E2E 8/8 (E2E-1/2/3) |
