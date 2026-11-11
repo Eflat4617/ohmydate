@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-12 00:50 | **M5-03R-1 REQUEST_CHANGES**: HIGH 1 — 비교 기준 블록 조회가 후보 끝+14일로 잘려 원래 블록 누락 → '추가'로 오표시(긴 기간 이동). MEDIUM 1 — idempotency_in_progress에서 키 폐기. 수정 1/2: **FU-70을 이 라운드에 흡수**(서버가 권위 있는 before 스냅샷+planId+before 지표를 additive로 제공; 범위 확장: packages/contracts, services/api) → ctx_2e7c49bacb21 | reviews/M5-03R-1.md | orchestrator |
 | 2026-11-12 00:45 | **사용자 지시: Fable 워커 effort medium → xhigh**(MODEL_BINDINGS §10). probe FABLE_OK. FU-69 medium 워커(커밋 없음, 임시 폴더만) 중단 → retry-of로 Fable xhigh 재시작 ctx_8945147a5825 | 사용자 메시지 | orchestrator |
 | 2026-11-12 00:32 | M5-03 worker_done(4f7c701). 워커 보고의 스케줄러 속성 테스트 반례를 orchestrator가 통합 브랜치에서 seed 고정으로 **결정적으로 재현** → FU-69(HIGH) **Fable 5.2 medium 투입**(§10 조건③ 원인 분석 선행). FU-70(planId/before 지표 계약), FU-71(잠금 API) 기록 | packets/FU-69.md | orchestrator |
 | 2026-11-12 00:40 | **FU-62 merged d227f4e** (FU-62R APPROVE, Sol). 통합 CI 1638 pass + web 256. M5-03 워커에 병합·ExplanationList 연결 지시 | reviews/FU-62R.md | orchestrator |
