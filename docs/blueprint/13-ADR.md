@@ -140,7 +140,7 @@
   11. 승계 대기로 인한 409 `approval_in_progress`(Retry-After)는 **일시적 경합**이므로 멱등 기록에 저장하지 않는다(`idempotency_in_progress`와 동일 취급, 08 §1 저장 규칙 예외로 명시).
 - **ADR-019 보강 2(2026-11-11, FU-38cR2 → FU-38d):** (9) **FU-32 패턴 보존 원칙:** 기존 패턴의 재현율을 넓히는 변경은 기존 패턴을 바꾸지 않고 **별도 패턴을 추가**하는 방식으로만 한다(합집합이 둘 다 덮음). CC_PHONE은 FU-32 원문 그대로, 1자리 지역번호 국제형(+82-2, +81 3, +33 1)은 별도 패턴(minDigits ≥ 8). (10) (7)의 적용 범위 명확화: 같은 종류끼리 붙은 숫자 창(예: `900101-1234567900101-1234567`, 붙은 010/02/070 쌍)과 3개 이상 붙은 ASCII 교차 종류 사슬은 **범위 밖**(FU-32도 노출) — knownLimitations 테스트로 고정한다. 관문 코퍼스에서 사례를 빼는 대신 한계로 고정한다. (11) (6)의 접기는 **공백류에만** 적용된다. 공백이 아닌 구분자(`-`, `.` 등) 33개 이상 연속은 범위 밖으로 knownLimitations에 고정한다(인위적 입력).
 
-## ADR-021 제품 LLM 공급자: 사용자 ChatGPT 계정(OAuth 로그인)을 쓰는 로컬 Codex CLI 어댑터 (GB-1, 2026-11-11 사용자 결정)
+## ADR-021 [Superseded by ADR-022] 제품 LLM 공급자: 사용자 ChatGPT 계정(OAuth 로그인)을 쓰는 로컬 Codex CLI 어댑터 (GB-1, 2026-11-11 사용자 결정)
 - **사용자 결정:** "llm은 우선 api요금제로 사용하기 보다는, gpt 계정로그인 oauth로 연결해서 사용을 생각중". 홈서버 배포는 보류, 당분간 이 노트북 로컬 사용.
 - **결정(구현 방식):** planner가 OAuth 토큰을 직접 발급·저장·갱신하지 **않는다**. 사용자가 이미 로그인한 로컬 Codex CLI(`codex login` → "Logged in using ChatGPT")를 `LlmPort` 어댑터(`CodexCliLlm`)가 하위 프로세스로 호출한다:
   `codex exec --ephemeral --sandbox read-only --skip-git-repo-check -C <빈 임시 디렉터리> -m <model> -c model_reasoning_effort=<low|medium> --output-schema <스키마 파일>` + 프롬프트는 stdin. 출력은 기존 스키마 검증 → proposal 저장 경로 그대로.
@@ -152,3 +152,10 @@
 ## 운영·일정 결정 (2026-11-11 사용자)
 - **GD-3 보류:** 홈서버 배포 없음. 배포 대상은 당분간 이 노트북 로컬(127.0.0.1)만. 홈서버 마련 시 재검토.
 - **GU-1 사용자 확인 관문(신규):** M6까지 기존 코어(Vikunja 기반) 위에서 동작이 확인되면, **M7 Native 교체 전에** 사용자가 직접 써볼 수 있도록 로컬 실행 패키지·사용 안내를 제공하고 사용자 확인을 받는다. 사용자 확인 전 Native 교체(M7) 착수 금지.
+
+## ADR-022 제품 LLM 공급자: DeepSeek API (GB-1 최종, 2026-11-11 사용자 결정 — ADR-021 대체)
+- **사용자 결정:** "api는 딥시크로 쓰는거로 할게". ADR-021(ChatGPT 계정 + Codex CLI)은 **폐기**(Superseded).
+- **결정:** `LlmPort` 어댑터 `DeepSeekLlm` — DeepSeek 공식 API(OpenAI 호환 Chat Completions, base URL은 구현 시점에 공식 문서로 재확인)를 HTTPS로 직접 호출. JSON 출력 모드 + 기존 스키마 검증 → proposal 저장 경로 그대로. 모델명·가격·JSON 모드 지원 여부는 **구현 시점에 공식 문서로 재확인**(본 문서에 단정하지 않음).
+- **키·과금(사용자 승인 대상):** 제품용 DeepSeek API 키는 사용자가 직접 발급해 `deploy/secrets/llm.env`(git 제외, 권한 600) 또는 `LLM_API_KEY_FILE`로만 주입. 개발 워커용 OpenCode(opencode-go) 자격증명은 **제품에 재사용하지 않음**. 키는 로그·DB·응답에 절대 기록하지 않음(09 §6–§7). 예산은 `user.settings.llm.budget`(일/월 금액 상한, 토큰 사용량×단가로 계산) — 초과 시 `budget_exceeded` → 수동 모드. 기본 상한은 사용자 확정 전까지 보수적 값으로 두고 설정에서 변경.
+- **안전 장치:** 마스킹(ADR-019, Sol 승인) + 입력 크기 제한(FU-49) 통과 후에만 전송; 타임아웃 30s·재시도 2회(429/5xx만, 05 §8); 동의 고지(05 §12)에 "DeepSeek(중국 소재 사업자)의 서버로 전송", 전송 범위, 마스킹은 최선 노력(이름·주소·계좌번호 등 미보장) 명시, 철회 시 수동 모드. CI는 계속 FakeLlm(실제 호출 금지); 실제 호출 스모크는 키가 있을 때만 수동 실행.
+- **ADR-021에서 유지:** GD-3 보류(노트북 로컬), GU-1(M6 후 M7 전 사용자 직접 사용 확인)은 그대로 유효.
