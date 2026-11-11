@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 09:10 | **M3-03R2 APPROVE (Opus 대체)** — 병합은 보류: migrate 러너가 적용 번호보다 낮은 번호를 거부하므로 0006(M2-03c) 먼저. M3-04(Plan API)·M3-05(비교 UI)를 m3-03 브랜치 위에 쌓아 시작. 발견: Task에 추정 필드 없음·Intake 승인이 estimate 미기록 → M3-04가 EstimateRepository, Intake→estimate 기록은 M2-03 병합 후 연결(FU-45) | reviews/M3-03R2.md | orchestrator |
 | 2026-11-11 09:01 | M3-03R2(ctx_12d919bbc892)·FU-38cR(ctx_aa198fb13baa)도 Sol 한도로 errored → stop, retry-of Opus 5.5 xhigh 대체. FU-08c: Sol 복귀 후 FU-38c(GB-1 관문 필수)·FU-42c·M3-03 사후 리뷰 | worker-read | orchestrator |
 | 2026-11-11 09:00 | **Sol 사용량 한도 재도달**(Codex: 12:03 재시도). FU-42cR(ctx_4d588c88de02) errored → stop, retry-of Opus 5.5 xhigh 대체(MODEL_BINDINGS §6, 사용자 지시). Codex의 gpt-6-luna 전환 제안은 거부(무단 대체 금지). FU-38cR·M3-03R2는 아직 진행 중, 오류 시 같은 처리 | worker-read | orchestrator |
 | 2026-11-11 08:58 | **M2-03cR-1 REQUEST_CHANGES (Sol)**: HIGH — 프로세스 생존 중 잠금 연결 손실 시 두 승인자 동시 진행(11개 작업), MEDIUM — 이미 매핑된 결과 불명 단계의 의존 관계 누락. 그 외 M2-03R/R2 재현 전부 해결 확인, 0006/0007 순서 호환 확인. ADR-020 보강(§6–8: 잠금 손실 즉시 중단, 승계 대기 PROVIDER_MAX_CALL_MS, 의존 복구). 수정 1/2 → ctx_6fbe8ff52dac | reviews/M2-03cR-1.md | orchestrator |
