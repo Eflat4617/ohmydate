@@ -2,7 +2,7 @@ import cookie from '@fastify/cookie';
 import { createServer as createHttpServer } from 'node:http';
 import { registerIanaTimeZoneFormat } from '@ohmydate/contracts';
 import { DomainError, type Clock, type IdGenerator } from '@ohmydate/domain';
-import { BudgetGuard, FakeLlm, type LlmPort } from '@ohmydate/llm';
+import { BudgetGuard, FakeLlm, OpenAICompatibleLlm, PolicyLlm, type LlmPort, type ResolvedLlmAccess } from '@ohmydate/llm';
 import { vikunjaCallBudgetMs } from '@ohmydate/provider-vikunja';
 import Fastify, {
   type FastifyInstance,
@@ -12,13 +12,14 @@ import type { Kysely } from 'kysely';
 import { sql } from 'kysely';
 import type { AppConfig } from './config.js';
 import type { AppRepositories, IdempotencyStore } from './application/ports.js';
+import type { Id } from '@ohmydate/domain';
 import { AuthService } from './application/auth-service.js';
 import { Argon2PasswordHasher } from './adapters/argon2-password-hasher.js';
 import { InMemoryLoginRateLimiter } from './adapters/in-memory-login-rate-limiter.js';
 import { InMemorySessionStore } from './adapters/in-memory-session-store.js';
 import { PgIdempotencyStore } from './adapters/pg-idempotency-store.js';
 import { PgPlanningStore } from './adapters/pg-planning-store.js';
-import { PgUserRepository } from './adapters/pg-user-repository.js';
+import { PgUserRepository, parseUserSettings } from './adapters/pg-user-repository.js';
 import { IntakeError } from './application/intake/intake-error.js';
 import { createVikunjaRepositories } from './adapters/vikunja/composition.js';
 import { listReconcilerOwnerIds } from './adapters/vikunja/owner-accounts.js';
@@ -71,10 +72,13 @@ export interface BuildAppOptions {
   /** Test override for forcing idempotency-store failures. */
   readonly idempotency?: IdempotencyStore;
   /**
-   * Injected LLM adapter. Default composition uses FakeLlm only when
-   * `LLM_PROVIDER=fake`; otherwise no provider is wired (GB-1 pending).
+   * Injected LLM adapter. Default composition uses FakeLlm for
+   * `LLM_PROVIDER=fake` and the OpenAI-compatible DeepSeek adapter (wrapped in
+   * the owner consent/budget gate) for `LLM_PROVIDER=deepseek`.
    */
   readonly llm?: LlmPort;
+  /** Boot-time key read by main; never part of AppConfig or logs. */
+  readonly llmApiKey?: string;
   /** Test override for the fail-closed budget guard. */
   readonly budgetGuard?: BudgetGuard;
   /**
@@ -248,6 +252,81 @@ function registerHealthRoutes(
         vikunja,
       },
     });
+  });
+}
+
+/**
+ * ADR-022 composition: `fake` stays the deterministic CI provider; `deepseek`
+ * is opt-in and always wrapped by the owner consent/budget gate. The key is
+ * supplied by main after a single fail-closed boot read and is never stored on
+ * AppConfig.
+ */
+async function createConfiguredLlm(input: {
+  readonly options: BuildAppOptions;
+  readonly config: AppConfig;
+  readonly db: Kysely<Database>;
+  readonly clock: Clock;
+}): Promise<LlmPort | null> {
+  const { options, config, db, clock } = input;
+  if (options.llm !== undefined) return options.llm;
+  if (config.llmProvider === 'fake') return new FakeLlm();
+
+  const apiKey = options.llmApiKey;
+  if (apiKey === undefined || apiKey.length === 0) {
+    throw new Error('LLM API key is required when LLM_PROVIDER=deepseek');
+  }
+  const inner = new OpenAICompatibleLlm({
+    baseUrl: config.llmBaseUrl,
+    apiKey,
+    model: config.llmModel,
+    provider: config.llmProvider,
+    reasoningEffort: config.llmReasoningEffort,
+    pricing: {
+      inputUsd: config.llmPriceInputPerM,
+      outputUsd: config.llmPriceOutputPerM,
+      cachedInputUsd: config.llmPriceCachedPerM,
+    },
+  });
+
+  const resolve = async (ownerId: string): Promise<ResolvedLlmAccess | null> => {
+    const user = await db
+      .selectFrom('user')
+      .select('settings')
+      .where('id', '=', ownerId as Id)
+      .executeTakeFirst();
+    if (user === undefined) return null;
+    const now = clock.now();
+    const dayStart = `${now.slice(0, 10)}T00:00:00.000Z`;
+    const monthStart = `${now.slice(0, 7)}-01T00:00:00.000Z`;
+    const spend = await db
+      .selectFrom('agent_run')
+      .select([
+        sql<string>`coalesce(sum(case when created_at >= ${dayStart} then cost_usd else 0 end), 0)`.as(
+          'day',
+        ),
+        sql<string>`coalesce(sum(cost_usd), 0)`.as('month'),
+      ])
+      .where('owner_id', '=', ownerId as Id)
+      .where('created_at', '>=', new Date(monthStart))
+      .executeTakeFirst();
+    const settings = parseUserSettings(user.settings);
+    return {
+      consent: settings.llm?.consent ?? null,
+      budget: settings.llm?.budget ?? null,
+      spentTodayUsd: Number(spend?.day ?? 0),
+      spentThisMonthUsd: Number(spend?.month ?? 0),
+    };
+  };
+
+  return new PolicyLlm({
+    inner,
+    providerId: config.llmProvider,
+    defaultBudget: {
+      dailyUsd: config.llmDailyBudgetUsd,
+      monthlyUsd: config.llmMonthlyBudgetUsd,
+    },
+    resolve,
+    now: () => new Date(clock.now()),
   });
 }
 
@@ -477,14 +556,22 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   }
 
   const planningStore = new PgPlanningStore({ db, clock, ids });
-  const llm =
-    options.llm ?? (config.llmProvider === 'fake' ? new FakeLlm() : null);
+  const llm = await createConfiguredLlm({ options, config, db, clock });
+  // The owner gate enforces consent + the per-owner settings budget; keep the
+  // legacy global guard permissive there so a user-raised budget is not
+  // re-clamped by the config default. Injected guards (tests) still win.
+  const gateEnforcesBudget =
+    options.llm === undefined && config.llmProvider === 'deepseek';
   const budgetGuard =
     options.budgetGuard ??
     new BudgetGuard(
       {
-        dailyUsd: config.llmDailyBudgetUsd,
-        monthlyUsd: config.llmMonthlyBudgetUsd,
+        dailyUsd: gateEnforcesBudget
+          ? Number.MAX_SAFE_INTEGER
+          : config.llmDailyBudgetUsd,
+        monthlyUsd: gateEnforcesBudget
+          ? Number.MAX_SAFE_INTEGER
+          : config.llmMonthlyBudgetUsd,
       },
       { allowUnpricedModels: ['fake-llm'] },
     );

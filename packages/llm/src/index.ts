@@ -13,6 +13,7 @@ export {
   LlmTimeoutError,
   LlmUnavailable,
   PromptNotFoundError,
+  ResponseFormatUnsupportedError,
   SchemaViolation,
   UnknownSchemaError,
   type BudgetBlockReason,
@@ -29,6 +30,20 @@ export {
   type FakeLlmResponse,
 } from './fake-llm.js';
 
+export {
+  DEFAULT_DEEPSEEK_PRICING,
+  OpenAICompatibleLlm,
+  type LlmPricingPerMillion,
+  type OpenAICompatibleLlmOptions,
+} from './openai-compatible-llm.js';
+
+export {
+  PolicyLlm,
+  type LlmConsentRecord,
+  type PolicyLlmOptions,
+  type ResolvedLlmAccess,
+} from './policy-llm.js';
+
 export type {
   LlmBudget,
   LlmCompleteRequest,
@@ -38,6 +53,8 @@ export type {
 } from './port.js';
 
 export {
+  MAX_REDACT_INPUT,
+  assertRedactInputSize,
   buildUntrustedBlock,
   redact,
   type RedactionCount,

@@ -1234,6 +1234,28 @@ export interface components {
             /** @constant */
             similar: false;
         };
+        LlmBudget: {
+            dailyUsd: number;
+            monthlyUsd: number;
+        };
+        LlmConsent: {
+            /** Format: date-time */
+            at: string;
+            granted: boolean;
+            provider: string;
+        };
+        LlmSettings: {
+            budget?: {
+                dailyUsd: number;
+                monthlyUsd: number;
+            };
+            consent?: {
+                /** Format: date-time */
+                at: string;
+                granted: boolean;
+                provider: string;
+            };
+        };
         LoginRequest: {
             /** Format: email */
             email: string;
@@ -1929,6 +1951,19 @@ export interface components {
             email: string;
             /** Format: uuid */
             id: string;
+            llm?: {
+                budget?: {
+                    dailyUsd: number;
+                    monthlyUsd: number;
+                };
+                consent?: {
+                    /** Format: date-time */
+                    at: string;
+                    granted: boolean;
+                    provider: string;
+                };
+            };
+            llmProvider?: "fake" | "deepseek";
             locale: string;
             /** Format: iana-time-zone */
             timeZone: string;
@@ -1937,6 +1972,15 @@ export interface components {
             version: number;
         };
         UserSettingsPatch: {
+            llm?: {
+                budget?: {
+                    dailyUsd?: number;
+                    monthlyUsd?: number;
+                };
+                consent?: {
+                    granted: boolean;
+                };
+            };
             locale?: string;
             /** Format: iana-time-zone */
             timeZone?: string;

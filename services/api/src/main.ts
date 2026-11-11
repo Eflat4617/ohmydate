@@ -16,7 +16,7 @@ import {
   shutdownRequestMeta,
   waitForOperationSettlement,
 } from './http/shutdown-context.js';
-import { configFromEnv, type AppConfig } from './config.js';
+import { configFromEnv, loadLlmApiKey, type AppConfig } from './config.js';
 import type { Database } from './db/types.js';
 
 const { Pool } = pg;
@@ -570,6 +570,8 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
   }
   // Validate before opening a pool so a misconfigured budget is a boot error.
   const cleanupBudgetMs = shutdownCleanupBudgetMs(env);
+  // ADR-022: read the product key exactly once; never log or store it in config.
+  const llmApiKey = loadLlmApiKey(baseConfig);
 
   const config: AppConfig = {
     ...baseConfig,
@@ -594,7 +596,13 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
   };
   attachPoolErrorHandler(pool, (error) => poolErrorReport.report(error));
 
-  const app: FastifyInstance = await buildApp({ config, clock, ids, db });
+  const app: FastifyInstance = await buildApp({
+    config,
+    clock,
+    ids,
+    db,
+    ...(llmApiKey.length === 0 ? {} : { llmApiKey }),
+  });
   poolErrorReport.report = (error) =>
     app.log.warn(pgClientErrorDetails(error), 'pg client error');
 

@@ -109,6 +109,8 @@ export interface IntakeServiceOptions {
   readonly providerMaxCallMs: number;
   /** `null` means no provider is configured: LLM-dependent steps notify manual mode. */
   readonly llm: LlmPort | null;
+  /** Configured provider id for agent_run metadata when a call fails. */
+  readonly llmProvider?: string;
   readonly budgetGuard: BudgetGuard;
   readonly config?: IntakeAgentConfig;
 }
@@ -437,6 +439,7 @@ export class IntakeService {
   readonly #approvalLock: IntakeApprovalLock;
   readonly #providerMaxCallMs: number;
   readonly #llm: LlmPort | null;
+  readonly #llmProvider: string;
   readonly #budgetGuard: BudgetGuard;
   readonly #config: IntakeAgentConfig;
 
@@ -451,6 +454,7 @@ export class IntakeService {
     this.#approvalLock = options.approvalLock;
     this.#providerMaxCallMs = options.providerMaxCallMs;
     this.#llm = options.llm;
+    this.#llmProvider = options.llmProvider ?? 'fake';
     this.#budgetGuard = options.budgetGuard;
     this.#config = options.config ?? INTAKE_AGENT_CONFIG;
   }
@@ -1280,6 +1284,7 @@ export class IntakeService {
           ...TYPE_DETECTION_PROMPT,
           input: bundle.input,
           schemaId: TYPE_DETECTION_SCHEMA,
+          ownerId,
         },
         { budgetGuard: this.#budgetGuard, estimatedCostUsd: 0 },
       );
@@ -1288,7 +1293,7 @@ export class IntakeService {
         purpose: 'detect_type',
         promptIdVersion: `${TYPE_DETECTION_PROMPT.promptId}@${TYPE_DETECTION_PROMPT.version}`,
         model: result.model,
-        provider: 'fake',
+        provider: result.provider ?? this.#llmProvider,
         tokensIn: result.usage.inputTokens,
         tokensOut: result.usage.outputTokens,
         costUsd: result.usage.costUsd ?? 0,
@@ -1303,7 +1308,7 @@ export class IntakeService {
         purpose: 'detect_type',
         promptIdVersion: `${TYPE_DETECTION_PROMPT.promptId}@${TYPE_DETECTION_PROMPT.version}`,
         model: 'unknown',
-        provider: 'fake',
+        provider: this.#llmProvider,
         tokensIn: 0,
         tokensOut: 0,
         costUsd: 0,
@@ -1358,6 +1363,7 @@ export class IntakeService {
           ...DECOMPOSITION_PROMPT,
           input: bundle.input,
           schemaId: DECOMPOSITION_SCHEMA,
+          ownerId: session.ownerId,
         },
         { budgetGuard: this.#budgetGuard, estimatedCostUsd: 0 },
       );
@@ -1366,7 +1372,7 @@ export class IntakeService {
         purpose: 'decomposition',
         promptIdVersion: `${DECOMPOSITION_PROMPT.promptId}@${DECOMPOSITION_PROMPT.version}`,
         model: result.model,
-        provider: 'fake',
+        provider: result.provider ?? this.#llmProvider,
         tokensIn: result.usage.inputTokens,
         tokensOut: result.usage.outputTokens,
         costUsd: result.usage.costUsd ?? 0,
@@ -1401,7 +1407,7 @@ export class IntakeService {
         purpose: 'decomposition',
         promptIdVersion: `${DECOMPOSITION_PROMPT.promptId}@${DECOMPOSITION_PROMPT.version}`,
         model: 'unknown',
-        provider: 'fake',
+        provider: this.#llmProvider,
         tokensIn: 0,
         tokensOut: 0,
         costUsd: 0,

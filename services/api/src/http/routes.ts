@@ -53,6 +53,7 @@ import type { Clock } from '@ohmydate/domain';
 import type {
   AppRepositories,
   IdempotencyStore,
+  LlmUserSettings,
   OutboxEventInput,
   SessionStore,
   UserRecord,
@@ -152,12 +153,15 @@ function routeMeta(route: RouteDefinition): RouteMeta {
   };
 }
 
-function toUserDto(user: UserRecord): UserDto {
+function toUserDto(user: UserRecord, llmProvider: AppConfig['llmProvider']): UserDto {
+  const llm = user.settings.llm;
   return {
     id: user.id,
     email: user.email,
     timeZone: user.timeZone,
     locale: user.locale,
+    ...(llm === undefined ? {} : { llm }),
+    llmProvider,
     version: user.version,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
@@ -431,17 +435,53 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       const auth = currentAuth(request);
       const expected = requireIfMatch(request);
       const patch = request.body as UserSettingsPatch;
+      let llm: LlmUserSettings | undefined;
+      if (patch.llm !== undefined) {
+        const current = await runtime.auth.me(auth.userId);
+        const existing = current.settings.llm;
+        const consent = patch.llm.consent;
+        const budget = patch.llm.budget;
+        llm = {
+          ...(consent === undefined
+            ? {}
+            : {
+                consent: {
+                  granted: consent.granted,
+                  at: runtime.clock.now(),
+                  provider: runtime.config.llmProvider,
+                },
+              }),
+          ...(budget === undefined
+            ? {}
+            : {
+                budget: {
+                  dailyUsd:
+                    budget.dailyUsd ??
+                    existing?.budget?.dailyUsd ??
+                    runtime.config.llmDailyBudgetUsd,
+                  monthlyUsd:
+                    budget.monthlyUsd ??
+                    existing?.budget?.monthlyUsd ??
+                    runtime.config.llmMonthlyBudgetUsd,
+                },
+              }),
+          ...(existing?.consent !== undefined && consent === undefined
+            ? { consent: existing.consent }
+            : {}),
+        };
+      }
       const user = await runtime.auth.updateSettings(
         auth.userId,
         {
           ...(patch.timeZone === undefined ? {} : { timeZone: patch.timeZone }),
           ...(patch.locale === undefined ? {} : { locale: patch.locale }),
+          ...(llm === undefined ? {} : { llm }),
         },
         expected,
       );
       return {
         status: 200,
-        body: toUserDto(user),
+        body: toUserDto(user, runtime.config.llmProvider),
         headers: { ETag: etagForVersion(user.version) },
       };
     });
@@ -690,7 +730,7 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       const user = await runtime.auth.me(auth.userId);
       const etag = etagForVersion(user.version);
       if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
-      return reply.code(200).header('ETag', etag).send(toUserDto(user));
+      return reply.code(200).header('ETag', etag).send(toUserDto(user, runtime.config.llmProvider));
     },
     updateMySettings: userSettings,
     listProjects: async (request, reply) => {
@@ -1107,6 +1147,7 @@ export function createRuntime(options: {
     providerMaxCallMs: options.config.providerMaxCallMs,
     tasks: options.repos.tasks,
     llm: options.llm,
+    llmProvider: options.config.llmProvider,
     budgetGuard: options.budgetGuard,
   });
   return {

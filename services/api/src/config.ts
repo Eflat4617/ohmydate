@@ -1,9 +1,14 @@
+import { readFileSync, statSync } from 'node:fs';
+
 export interface LoginRateLimitConfig {
   readonly limit: number;
   readonly windowMs: number;
 }
 
 export type ProviderKind = 'memory' | 'vikunja';
+
+/** ADR-022: `fake` is the CI/test provider; `deepseek` is opt-in. */
+export type LlmProviderKind = 'fake' | 'deepseek';
 
 /**
  * Background reconciliation is ON by default for `PROVIDER=vikunja` with a
@@ -77,14 +82,28 @@ export interface AppConfig {
   readonly loginRateLimit: LoginRateLimitConfig;
   readonly logLevel: string;
   /**
-   * LLM provider selection. Only `fake` is wired in M2-03 (GB-1 pending);
-   * missing/other values leave the provider unconfigured, so intake steps fail
-   * to manual mode instead of calling a paid API.
+   * LLM provider selection (ADR-022). Defaults to `fake` so production never
+   * falls through to a paid provider; `deepseek` must be explicit.
    */
-  readonly llmProvider: string | null;
-  /** Daily USD ceiling for the BudgetGuard. Zero/absent fails closed (ADR-008). */
+  readonly llmProvider: LlmProviderKind;
+  /** ADR-022 OpenCode Go gateway (OpenAI-compatible). */
+  readonly llmBaseUrl: string;
+  readonly llmModel: string;
+  readonly llmReasoningEffort: string;
+  /**
+   * Absolute path to the product API key file. Read exactly once at boot;
+   * never logged, stored in config snapshots, or sent in a request body.
+   */
+  readonly llmApiKeyFile: string | null;
+  /** Token unit prices per 1M tokens (ADR-022 metadata defaults). */
+  readonly llmPriceInputPerM: number;
+  readonly llmPriceOutputPerM: number;
+  readonly llmPriceCachedPerM: number;
+  /**
+   * Conservative per-owner default ceilings; `user.settings.llm.budget`
+   * overrides them (ADR-022 says the user may change these).
+   */
   readonly llmDailyBudgetUsd: number;
-  /** Monthly USD ceiling for the BudgetGuard. Zero/absent fails closed (ADR-008). */
   readonly llmMonthlyBudgetUsd: number;
   /**
    * ADR-020 §7: succession wait for an approval whose previous holder lost its
@@ -102,6 +121,15 @@ export interface AppConfig {
 export const DEFAULT_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 export const DEFAULT_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_PROVIDER_MAX_CALL_MS = 40_000;
+export const DEFAULT_LLM_BASE_URL = 'https://opencode.ai/inference/go/openai/v1';
+export const DEFAULT_LLM_MODEL = 'deepseek-v4.1-flash';
+export const DEFAULT_LLM_REASONING_EFFORT = 'medium';
+export const DEFAULT_LLM_PRICE_INPUT_PER_M = 0.15;
+export const DEFAULT_LLM_PRICE_OUTPUT_PER_M = 0.6;
+export const DEFAULT_LLM_PRICE_CACHED_PER_M = 0.003;
+/** Conservative ADR-022 defaults; users can raise them in settings. */
+export const DEFAULT_LLM_DAILY_BUDGET_USD = 0.2;
+export const DEFAULT_LLM_MONTHLY_BUDGET_USD = 5;
 
 export const defaultConfig: AppConfig = {
   provider: 'memory',
@@ -115,9 +143,16 @@ export const defaultConfig: AppConfig = {
   idempotencyTtlMs: DEFAULT_IDEMPOTENCY_TTL_MS,
   loginRateLimit: { limit: 5, windowMs: 60_000 },
   logLevel: 'info',
-  llmProvider: null,
-  llmDailyBudgetUsd: 0,
-  llmMonthlyBudgetUsd: 0,
+  llmProvider: 'fake',
+  llmBaseUrl: DEFAULT_LLM_BASE_URL,
+  llmModel: DEFAULT_LLM_MODEL,
+  llmReasoningEffort: DEFAULT_LLM_REASONING_EFFORT,
+  llmApiKeyFile: null,
+  llmPriceInputPerM: DEFAULT_LLM_PRICE_INPUT_PER_M,
+  llmPriceOutputPerM: DEFAULT_LLM_PRICE_OUTPUT_PER_M,
+  llmPriceCachedPerM: DEFAULT_LLM_PRICE_CACHED_PER_M,
+  llmDailyBudgetUsd: DEFAULT_LLM_DAILY_BUDGET_USD,
+  llmMonthlyBudgetUsd: DEFAULT_LLM_MONTHLY_BUDGET_USD,
   providerMaxCallMs: DEFAULT_PROVIDER_MAX_CALL_MS,
   trustProxy: false,
 };
@@ -142,6 +177,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (!Number.isInteger(reconcileIntervalMs) || reconcileIntervalMs < 0) {
     throw new Error('VIKUNJA_RECONCILE_INTERVAL_MS must be a non-negative integer');
   }
+  const llmProvider = parseLlmProvider(env['LLM_PROVIDER']);
+  const llmApiKeyFile = parseApiKeyFile(llmProvider, env['LLM_API_KEY_FILE']);
   return createConfig({
     provider: providerKind,
     vikunjaUrl: env['VIKUNJA_URL'] ?? null,
@@ -149,15 +186,103 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     reconcileIntervalMs,
     databaseUrl,
     vikunjaSecretsDir: env['VIKUNJA_SECRETS_DIR'] ?? null,
-    llmProvider: env['LLM_PROVIDER'] ?? null,
-    llmDailyBudgetUsd: parseBudget('LLM_DAILY_BUDGET_USD', env['LLM_DAILY_BUDGET_USD']),
-    llmMonthlyBudgetUsd: parseBudget('LLM_MONTHLY_BUDGET_USD', env['LLM_MONTHLY_BUDGET_USD']),
+    llmProvider,
+    llmBaseUrl: env['LLM_BASE_URL'] ?? DEFAULT_LLM_BASE_URL,
+    llmModel: env['LLM_MODEL'] ?? DEFAULT_LLM_MODEL,
+    llmReasoningEffort: env['LLM_REASONING_EFFORT'] ?? DEFAULT_LLM_REASONING_EFFORT,
+    llmApiKeyFile,
+    llmPriceInputPerM: parseMoney(
+      'LLM_PRICE_INPUT_PER_M',
+      env['LLM_PRICE_INPUT_PER_M'],
+      DEFAULT_LLM_PRICE_INPUT_PER_M,
+    ),
+    llmPriceOutputPerM: parseMoney(
+      'LLM_PRICE_OUTPUT_PER_M',
+      env['LLM_PRICE_OUTPUT_PER_M'],
+      DEFAULT_LLM_PRICE_OUTPUT_PER_M,
+    ),
+    llmPriceCachedPerM: parseMoney(
+      'LLM_PRICE_CACHED_PER_M',
+      env['LLM_PRICE_CACHED_PER_M'],
+      DEFAULT_LLM_PRICE_CACHED_PER_M,
+    ),
+    llmDailyBudgetUsd: parseMoney(
+      'LLM_DAILY_BUDGET_USD',
+      env['LLM_DAILY_BUDGET_USD'],
+      DEFAULT_LLM_DAILY_BUDGET_USD,
+    ),
+    llmMonthlyBudgetUsd: parseMoney(
+      'LLM_MONTHLY_BUDGET_USD',
+      env['LLM_MONTHLY_BUDGET_USD'],
+      DEFAULT_LLM_MONTHLY_BUDGET_USD,
+    ),
     providerMaxCallMs: parsePositiveInt(
       'PROVIDER_MAX_CALL_MS',
       env['PROVIDER_MAX_CALL_MS'],
       DEFAULT_PROVIDER_MAX_CALL_MS,
     ),
   });
+}
+
+function parseLlmProvider(raw: string | undefined): LlmProviderKind {
+  if (raw === undefined || raw.trim() === '') return 'fake';
+  const value = raw.trim();
+  if (value !== 'fake' && value !== 'deepseek') {
+    throw new Error(`LLM_PROVIDER must be "fake" or "deepseek", got "${value}"`);
+  }
+  return value;
+}
+
+function parseApiKeyFile(
+  provider: LlmProviderKind,
+  raw: string | undefined,
+): string | null {
+  if (provider !== 'deepseek') return raw === undefined || raw.trim() === '' ? null : raw;
+  if (raw === undefined || raw.trim() === '') {
+    throw new Error('LLM_API_KEY_FILE is required when LLM_PROVIDER=deepseek');
+  }
+  if (!isAbsolute(raw)) {
+    throw new Error('LLM_API_KEY_FILE must be an absolute path');
+  }
+  return raw;
+}
+
+/**
+ * Boot-time key read. Fail closed on a missing/empty/world-readable file.
+ * Returns only the trimmed key; the caller must never log it or echo it.
+ */
+export function loadLlmApiKey(
+  config: Pick<AppConfig, 'llmProvider' | 'llmApiKeyFile'>,
+  read: (path: string) => string = (path) => readFileSync(path, 'utf8'),
+  stat: (path: string) => { readonly mode: number } = (path) => statSync(path),
+): string {
+  if (config.llmProvider !== 'deepseek') return '';
+  const file = config.llmApiKeyFile;
+  if (file === null) {
+    throw new Error('LLM_API_KEY_FILE is required when LLM_PROVIDER=deepseek');
+  }
+  let mode: number;
+  try {
+    mode = stat(file).mode;
+  } catch {
+    throw new Error('LLM_API_KEY_FILE does not exist or is not readable');
+  }
+  if ((mode & 0o077) !== 0) {
+    throw new Error('LLM_API_KEY_FILE must not be group- or world-accessible (chmod 600)');
+  }
+  let raw: string;
+  try {
+    raw = read(file);
+  } catch {
+    throw new Error('LLM_API_KEY_FILE could not be read');
+  }
+  const key = raw.trim();
+  if (key.length === 0) throw new Error('LLM_API_KEY_FILE is empty');
+  return key;
+}
+
+function isAbsolute(path: string): boolean {
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/u.test(path);
 }
 
 function parsePositiveInt(name: string, raw: string | undefined, fallback: number): number {
@@ -169,8 +294,8 @@ function parsePositiveInt(name: string, raw: string | undefined, fallback: numbe
   return value;
 }
 
-function parseBudget(name: string, raw: string | undefined): number {
-  if (raw === undefined || raw.trim() === '') return 0;
+function parseMoney(name: string, raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
   const value = Number.parseFloat(raw);
   if (!Number.isFinite(value) || value < 0) {
     throw new Error(`${name} must be a non-negative number`);

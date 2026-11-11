@@ -17,6 +17,7 @@ function userRecord(): UserRecord {
     passwordHash: 'hash',
     timeZone: 'UTC',
     locale: 'en',
+    settings: {},
     version: 1,
     createdAt: '2026-11-11T00:00:00.000Z' as Instant,
     updatedAt: '2026-11-11T00:00:00.000Z' as Instant,

@@ -1,5 +1,5 @@
 import { Type, type TSchema } from '@sinclair/typebox';
-import { LoginRequestSchema, UserSchema, UserSettingsPatchSchema } from './auth.js';
+import { LoginRequestSchema, LlmBudgetSchema, LlmConsentSchema, LlmSettingsSchema, UserSchema, UserSettingsPatchSchema } from './auth.js';
 import {
   CursorSchema,
   IdempotencyKeyHeaderSchema,
@@ -933,6 +933,9 @@ export const schemaRegistry = {
   LoginRequest: LoginRequestSchema,
   User: UserSchema,
   UserSettingsPatch: UserSettingsPatchSchema,
+  LlmConsent: LlmConsentSchema,
+  LlmBudget: LlmBudgetSchema,
+  LlmSettings: LlmSettingsSchema,
   IntakeInput: IntakeInputSchema,
   IntakeSessionCreate: IntakeSessionCreateSchema,
   IntakeSession: IntakeSessionSchema,

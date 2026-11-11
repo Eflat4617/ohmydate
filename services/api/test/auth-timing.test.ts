@@ -14,6 +14,7 @@ const USER: UserRecord = {
   passwordHash: 'real-argon2id-hash',
   timeZone: 'UTC',
   locale: 'en',
+  settings: {},
   version: 1,
   createdAt: '2026-01-01T00:00:00.000Z' as Instant,
   updatedAt: '2026-01-01T00:00:00.000Z' as Instant,

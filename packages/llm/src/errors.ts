@@ -20,8 +20,23 @@ export class LlmUnavailable extends LlmError {
   constructor(
     message = 'llm provider unavailable',
     readonly reason: 'provider' | 'timeout' | 'aborted' = 'provider',
+    /**
+     * False once the adapter has exhausted its own 429/5xx retries or hit a
+     * non-retryable 4xx, so `runStructured` does not start a second retry loop.
+     */
+    readonly retryable = true,
   ) {
     super(message);
+  }
+}
+
+/**
+ * The gateway rejected `response_format: json_object`. The adapter turns this
+ * into exactly one strict-instruction retry; it is never retried as an outage.
+ */
+export class ResponseFormatUnsupportedError extends LlmUnavailable {
+  constructor(message = 'provider rejected response_format json_object') {
+    super(message, 'provider', false);
   }
 }
 

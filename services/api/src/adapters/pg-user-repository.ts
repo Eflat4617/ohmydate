@@ -1,13 +1,64 @@
 import type { Clock, Id, Instant, Version } from '@ohmydate/domain';
 import { NotFoundError, VersionConflictError } from '@ohmydate/domain';
 import { sql, type Kysely, type Selectable } from 'kysely';
-import type { Database, UserTable } from '../db/types.js';
-import type { UserRecord, UserRepository, UserSettingsPatch } from '../application/ports.js';
+import type { Database, JsonValue, JsonbParam, UserTable } from '../db/types.js';
+import type {
+  LlmBudgetSettings,
+  LlmConsentSettings,
+  LlmUserSettings,
+  UserRecord,
+  UserRepository,
+  UserSettings,
+  UserSettingsPatch,
+} from '../application/ports.js';
 
 type UserRow = Selectable<UserTable>;
 
 function toInstant(value: Date | string): Instant {
   return (value instanceof Date ? value.toISOString() : value) as Instant;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function parseConsent(value: unknown): LlmConsentSettings | undefined {
+  if (!isRecord(value)) return undefined;
+  return typeof value['granted'] === 'boolean' &&
+    typeof value['at'] === 'string' &&
+    typeof value['provider'] === 'string'
+    ? {
+        granted: value['granted'],
+        at: value['at'] as Instant,
+        provider: value['provider'],
+      }
+    : undefined;
+}
+
+function parseBudget(value: unknown): LlmBudgetSettings | undefined {
+  if (!isRecord(value)) return undefined;
+  const dailyUsd = value['dailyUsd'];
+  const monthlyUsd = value['monthlyUsd'];
+  return typeof dailyUsd === 'number' &&
+    Number.isFinite(dailyUsd) &&
+    typeof monthlyUsd === 'number' &&
+    Number.isFinite(monthlyUsd)
+    ? { dailyUsd, monthlyUsd }
+    : undefined;
+}
+
+/** Parses the owner-scoped `user.settings` JSONB; unknown keys are ignored. */
+export function parseUserSettings(value: JsonValue | undefined): UserSettings {
+  if (!isRecord(value)) return {};
+  const llm = value['llm'];
+  if (!isRecord(llm)) return {};
+  const consent = parseConsent(llm['consent']);
+  const budget = parseBudget(llm['budget']);
+  const parsed: LlmUserSettings = {
+    ...(consent === undefined ? {} : { consent }),
+    ...(budget === undefined ? {} : { budget }),
+  };
+  return Object.keys(parsed).length === 0 ? {} : { llm: parsed };
 }
 
 function mapUser(row: UserRow): UserRecord {
@@ -17,6 +68,7 @@ function mapUser(row: UserRow): UserRecord {
     passwordHash: row.password_hash,
     timeZone: row.time_zone,
     locale: row.locale,
+    settings: parseUserSettings(row.settings),
     version: row.version,
     createdAt: toInstant(row.created_at),
     updatedAt: toInstant(row.updated_at),
@@ -80,11 +132,16 @@ export class PgUserRepository implements UserRepository {
     patch: UserSettingsPatch,
     expectedVersion: number,
   ): Promise<UserRecord> {
+    const settings =
+      patch.llm === undefined
+        ? undefined
+        : (sql`jsonb_set(coalesce(settings, '{}'::jsonb), '{llm}', coalesce(settings->'llm', '{}'::jsonb) || ${JSON.stringify(patch.llm)}::jsonb, true)` as unknown as JsonbParam);
     const updated = await this.#db
       .updateTable('user')
       .set({
         ...(patch.timeZone === undefined ? {} : { time_zone: patch.timeZone }),
         ...(patch.locale === undefined ? {} : { locale: patch.locale }),
+        ...(settings === undefined ? {} : { settings }),
         updated_at: new Date(this.#clock.now()),
         version: sql<number>`version + 1`,
       })

@@ -8,6 +8,8 @@ export interface StructuredLlmRequest {
   readonly version: string;
   readonly input: unknown;
   readonly schemaId: string;
+  /** Propagated to the provider so consent/budget are resolved per owner. */
+  readonly ownerId?: string;
   readonly budget?: import('./port.js').LlmBudget;
 }
 
@@ -28,6 +30,8 @@ export interface RunStructuredResult {
   readonly output: unknown;
   readonly usage: LlmUsage;
   readonly model: string;
+  /** Provider id for agent_run metadata (defaults to the adapter's response). */
+  readonly provider?: string;
   readonly latencyMs: number;
   readonly attempts: number;
   readonly repairs: number;
@@ -132,6 +136,7 @@ export async function runStructured(
           version: request.version,
           input,
           schemaId: request.schemaId,
+          ...(request.ownerId === undefined ? {} : { ownerId: request.ownerId }),
           ...(request.budget === undefined ? {} : { budget: request.budget }),
         },
         timeoutMs,
@@ -142,6 +147,9 @@ export async function runStructured(
       // Caller aborts and timeouts are never retried (05 §8: only 429/5xx outages).
       if (error.reason === 'aborted') throw error;
       if (error instanceof LlmTimeoutError) throw error;
+      // The adapter already exhausted its own 429/5xx retries, or the failure
+      // was a non-retryable 4xx. Never start a second retry loop.
+      if (!error.retryable) throw error;
       assertNotAborted();
       if (unavailableRetries < maxUnavailableRetries) {
         unavailableRetries += 1;
@@ -160,6 +168,7 @@ export async function runStructured(
         output: response.output,
         usage: response.usage,
         model: response.model,
+        ...(response.provider === undefined ? {} : { provider: response.provider }),
         latencyMs: response.latencyMs,
         attempts,
         repairs,

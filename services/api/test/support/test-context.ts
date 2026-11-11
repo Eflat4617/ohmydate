@@ -92,6 +92,7 @@ export interface TestContextOptions {
   readonly idempotency?: IdempotencyStore;
   readonly repos?: AppRepositories;
   readonly llm?: LlmPort;
+  readonly llmApiKey?: string;
   readonly budgetGuard?: BudgetGuard;
 }
 
@@ -129,6 +130,7 @@ export async function createTestContext(
     ...(options.loggerInstance === undefined ? {} : { loggerInstance: options.loggerInstance }),
     ...(options.idempotency === undefined ? {} : { idempotency: options.idempotency }),
     ...(options.llm === undefined ? {} : { llm: options.llm }),
+    ...(options.llmApiKey === undefined ? {} : { llmApiKey: options.llmApiKey }),
     ...(options.budgetGuard === undefined ? {} : { budgetGuard: options.budgetGuard }),
   });
   await app.ready();
