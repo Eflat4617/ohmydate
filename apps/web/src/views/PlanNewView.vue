@@ -11,6 +11,11 @@ import {
 } from '../api';
 import { addDaysToDate, todayInZone, zonedWallClockToInstant } from '../domain/time';
 import { useOfflineStore } from '../stores/offline';
+import UiBanner from '../components/ui/UiBanner.vue';
+import UiButton from '../components/ui/UiButton.vue';
+import UiEmptyState from '../components/ui/UiEmptyState.vue';
+import UiField from '../components/ui/UiField.vue';
+import UiSkeleton from '../components/ui/UiSkeleton.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -145,36 +150,42 @@ async function generate(): Promise<void> {
 </script>
 
 <template>
-  <section class="page">
+  <section class="page page--wide">
     <header class="page-header">
-      <div>
+      <div class="page-heading">
         <h1>New plan</h1>
-        <p class="muted">Generate up to three candidate schedules, then compare and approve one.</p>
+        <p class="page-lede">Generate up to three candidate schedules, then compare and approve one.</p>
       </div>
     </header>
 
-    <p v-if="!offline.mutationsEnabled" class="offline-note" role="status">
+    <UiBanner v-if="!offline.mutationsEnabled" tone="offline" class="offline-note" role="status">
       Read-only while offline. Plan generation is disabled.
-    </p>
-    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    </UiBanner>
+    <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
 
-    <form class="settings-form" @submit.prevent="generate">
-      <fieldset class="settings-group">
+    <form class="plan-new-form" @submit.prevent="generate">
+      <fieldset class="settings-group plan-new-scope">
         <legend>Scope</legend>
         <p class="muted">{{ scopeSummary }}</p>
         <template v-if="!usingQueryScope">
-          <p v-if="tasksQuery.isLoading.value" class="muted">Loading tasks…</p>
-          <p v-else-if="tasks.length === 0" class="muted">No tasks are available to plan.</p>
+          <UiSkeleton v-if="tasksQuery.isLoading.value" variant="lines" :count="4" />
+          <p v-if="tasksQuery.isLoading.value" class="visually-hidden" role="status">Loading tasks…</p>
+          <UiEmptyState
+            v-else-if="tasks.length === 0"
+            compact
+            icon="inbox"
+            title="No tasks are available to plan."
+          />
           <ul v-else class="task-picker">
             <li v-for="task in tasks" :key="task.id">
-              <label class="checkbox-label">
+              <label class="task-picker-row">
                 <input
                   type="checkbox"
                   :checked="selectedTaskIds.includes(task.id)"
                   :disabled="!offline.mutationsEnabled"
                   @change="toggleTask(task.id)"
                 />
-                {{ task.title }}
+                <span>{{ task.title }}</span>
               </label>
             </li>
           </ul>
@@ -186,66 +197,71 @@ async function generate(): Promise<void> {
         </ul>
       </fieldset>
 
-      <fieldset class="settings-group">
-        <legend>Horizon</legend>
-        <div class="range-row">
-          <label for="plan-start">Start</label>
-          <input
-            id="plan-start"
-            v-model="startDate"
-            type="date"
-            :disabled="!offline.mutationsEnabled"
-            @change="dateTouched = true"
-          />
-          <label for="plan-end">End</label>
-          <input
-            id="plan-end"
-            v-model="endDate"
-            type="date"
-            :disabled="!offline.mutationsEnabled"
-            @change="dateTouched = true"
-          />
-        </div>
-        <p class="muted">Time zone: {{ timeZone }} (at most 366 days).</p>
-      </fieldset>
+      <div class="plan-new-side">
+        <fieldset class="settings-group">
+          <legend>Horizon</legend>
+          <div class="field-grid">
+            <UiField id="plan-start" label="Start">
+              <input
+                id="plan-start"
+                v-model="startDate"
+                type="date"
+                :disabled="!offline.mutationsEnabled"
+                @change="dateTouched = true"
+              />
+            </UiField>
+            <UiField id="plan-end" label="End">
+              <input
+                id="plan-end"
+                v-model="endDate"
+                type="date"
+                :disabled="!offline.mutationsEnabled"
+                @change="dateTouched = true"
+              />
+            </UiField>
+          </div>
+          <p class="field-help">Time zone: {{ timeZone }} (at most 366 days).</p>
+        </fieldset>
 
-      <fieldset class="settings-group">
-        <legend>Policies</legend>
-        <div class="preset-row">
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              :checked="policies?.includes('front_loaded')"
-              :disabled="!offline.mutationsEnabled"
-              @change="togglePolicy('front_loaded')"
-            />
-            Front-loaded
-          </label>
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              :checked="policies?.includes('balanced')"
-              :disabled="!offline.mutationsEnabled"
-              @change="togglePolicy('balanced')"
-            />
-            Balanced
-          </label>
-          <label class="checkbox-label">
-            <input
-              type="checkbox"
-              :checked="policies?.includes('focus_blocked')"
-              :disabled="!offline.mutationsEnabled"
-              @change="togglePolicy('focus_blocked')"
-            />
-            Focus-blocked
-          </label>
-        </div>
-      </fieldset>
+        <fieldset class="settings-group">
+          <legend>Policies</legend>
+          <div class="choice-group policy-choices">
+            <label class="choice-chip">
+              <input
+                type="checkbox"
+                :checked="policies?.includes('front_loaded')"
+                :disabled="!offline.mutationsEnabled"
+                @change="togglePolicy('front_loaded')"
+              />
+              Front-loaded
+            </label>
+            <label class="choice-chip">
+              <input
+                type="checkbox"
+                :checked="policies?.includes('balanced')"
+                :disabled="!offline.mutationsEnabled"
+                @change="togglePolicy('balanced')"
+              />
+              Balanced
+            </label>
+            <label class="choice-chip">
+              <input
+                type="checkbox"
+                :checked="policies?.includes('focus_blocked')"
+                :disabled="!offline.mutationsEnabled"
+                @change="togglePolicy('focus_blocked')"
+              />
+              Focus-blocked
+            </label>
+          </div>
+          <p class="field-help">Pick at least one policy; each becomes a candidate to compare.</p>
+        </fieldset>
 
-      <div class="form-actions">
-        <button type="submit" class="primary-action" :disabled="!canGenerate">
-          {{ busy ? 'Generating…' : 'Generate candidates' }}
-        </button>
+        <div class="form-actions">
+          <UiButton type="submit" variant="primary" size="lg" block icon="compare" :busy="busy" :disabled="!canGenerate">
+            {{ busy ? 'Generating…' : 'Generate candidates' }}
+          </UiButton>
+        </div>
       </div>
     </form>
   </section>

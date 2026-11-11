@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { Today, TodayProposal } from '../api';
-import { formatClock, formatDay } from '../format';
+import { durationMinutes, formatClock, formatDay } from '../format';
+import UiBadge from './ui/UiBadge.vue';
+import UiBanner from './ui/UiBanner.vue';
+import UiButton from './ui/UiButton.vue';
+import UiDialog from './ui/UiDialog.vue';
+import UiIcon from './ui/UiIcon.vue';
 
 const props = defineProps<{
   proposal: TodayProposal;
@@ -25,39 +30,50 @@ const availabilityVersion = computed<number | undefined>(() => {
 </script>
 
 <template>
-  <div class="dialog-backdrop" role="presentation">
-    <section
-      class="dialog proposal-preview"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="proposal-title"
-    >
-      <h2 id="proposal-title">Proposal preview</h2>
-      <p class="muted">
-        {{ proposal.kind === 'shrink' ? 'Shrink' : 'Reschedule' }} proposal for
-        {{ formatDay(proposal.date) }}. Nothing changes until you approve it.
-      </p>
-      <ul class="proposal-blocks" aria-label="Proposed block times">
-        <li v-for="block in proposal.blocks" :key="block.blockId">
-          <span class="proposal-title">{{ titleFor[block.taskId] ?? 'Scheduled block' }}</span>
-          <span>{{ formatClock(block.startAt, proposal.timeZone) }}–{{ formatClock(block.endAt, proposal.timeZone) }}</span>
-        </li>
-      </ul>
-      <p v-if="availabilityVersion !== undefined" class="muted">
-        Availability version {{ availabilityVersion }}
-      </p>
-      <p v-if="error" class="error-text" role="alert">{{ error }}</p>
-      <div class="dialog-actions">
-        <button
-          type="button"
-          class="primary-action"
-          :disabled="busy || disabled"
-          @click="emit('approve')"
-        >
-          {{ busy ? 'Approving…' : 'Approve proposal' }}
-        </button>
-        <button type="button" :disabled="busy" @click="emit('cancel')">Cancel</button>
+  <UiDialog
+    labelledby="proposal-title"
+    describedby="proposal-summary"
+    class="proposal-preview"
+    as="section"
+    :dismissible="!busy"
+    @close="emit('cancel')"
+  >
+    <header class="dialog-header dialog-header--start">
+      <span class="dialog-icon">
+        <UiIcon :name="proposal.kind === 'shrink' ? 'shrink' : 'reschedule'" :size="22" />
+      </span>
+      <div class="dialog-heading">
+        <h2 id="proposal-title" class="dialog-title">Proposal preview</h2>
+        <p id="proposal-summary" class="muted">
+          {{ proposal.kind === 'shrink' ? 'Shrink' : 'Reschedule' }} proposal for
+          {{ formatDay(proposal.date) }}. Nothing changes until you approve it.
+        </p>
       </div>
-    </section>
-  </div>
+    </header>
+    <ul class="proposal-blocks" aria-label="Proposed block times">
+      <li v-for="block in proposal.blocks" :key="block.blockId">
+        <span class="proposal-title">{{ titleFor[block.taskId] ?? 'Scheduled block' }}</span>
+        <span class="proposal-time tabular">
+          {{ formatClock(block.startAt, proposal.timeZone) }}–{{ formatClock(block.endAt, proposal.timeZone) }}
+          <UiBadge>{{ durationMinutes(block.startAt, block.endAt) }}m</UiBadge>
+        </span>
+      </li>
+    </ul>
+    <p v-if="availabilityVersion !== undefined" class="subtle proposal-meta">
+      Availability version {{ availabilityVersion }}
+    </p>
+    <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
+    <div class="dialog-actions">
+      <UiButton :disabled="busy" variant="ghost" @click="emit('cancel')">Cancel</UiButton>
+      <UiButton
+        variant="primary"
+        :disabled="busy || disabled"
+        :busy="busy"
+        data-autofocus
+        @click="emit('approve')"
+      >
+        {{ busy ? 'Approving…' : 'Approve proposal' }}
+      </UiButton>
+    </div>
+  </UiDialog>
 </template>

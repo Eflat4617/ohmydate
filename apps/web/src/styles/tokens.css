@@ -1,0 +1,204 @@
+/*
+ * OhMyDate design tokens — the only place raw colour / size values live.
+ * Every screen and primitive reads these variables. Contrast of each
+ * text/background pair is checked against WCAG 2.2 AA in light and dark
+ * (see docs/ui-polish/README.md).
+ */
+:root {
+  color-scheme: light dark;
+
+  /* ── Colour: neutrals (warm paper + green-grey ink) ─────────────── */
+  --color-bg: #f6f5f1;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunken: #efede6;
+  --color-surface-hover: #f2f0ea;
+  --color-border: #e2dfd6;
+  --color-border-strong: #cfcbc0;
+  --color-border-control: #8a8f87; /* ≥3:1 on surface — form control edges */
+  --color-text: #1d2420;
+  --color-text-muted: #555c56;
+  --color-text-subtle: #666d66;
+  --color-overlay: rgb(22 27 24 / 44%);
+
+  /* ── Colour: brand accent (deep forest) ─────────────────────────── */
+  --color-accent: #1d5c48;
+  --color-accent-hover: #164a3a;
+  --color-accent-soft: #e2efe8;
+  --color-accent-text: #1b5542;
+  --color-on-accent: #ffffff;
+
+  /* ── Colour: semantic ───────────────────────────────────────────── */
+  --color-success: #256638;
+  --color-success-soft: #e3f1e6;
+  --color-success-border: #9cc9a6;
+  --color-warn: #7f4f00;
+  --color-warn-soft: #fbefd9;
+  --color-warn-border: #e0b867;
+  --color-danger: #a1261f;
+  --color-danger-hover: #861d17;
+  --color-danger-soft: #fbe8e5;
+  --color-danger-border: #e6a49d;
+  --color-info: #1f5687;
+  --color-info-soft: #e4eef8;
+  --color-info-border: #9fc0e0;
+  --color-offline: #454c5a;
+  --color-offline-soft: #eceef2;
+  --color-offline-border: #b9bfcb;
+
+  /* ── Colour: calendar marks (colour + pattern, never colour alone) ─ */
+  --color-cal-availability: color-mix(in srgb, var(--color-accent) 9%, transparent);
+  --color-cal-focus-window: color-mix(in srgb, var(--color-accent) 17%, transparent);
+  --color-cal-commitment: var(--color-surface-sunken);
+  --color-cal-commitment-stripe: color-mix(in srgb, var(--color-text-muted) 16%, transparent);
+  --color-cal-block: var(--color-accent);
+  --color-on-cal-block: var(--color-on-accent);
+  --color-cal-grid: color-mix(in srgb, var(--color-border) 75%, transparent);
+
+  /* ── Focus ring ─────────────────────────────────────────────────── */
+  --color-focus: #2563d4;
+  --focus-width: 3px;
+  --focus-offset: 2px;
+  --focus-ring: var(--focus-width) solid var(--color-focus);
+
+  /* ── Spacing scale (4px base) ───────────────────────────────────── */
+  --space-0-5: 0.125rem;
+  --space-1: 0.25rem;
+  --space-1-5: 0.375rem;
+  --space-2: 0.5rem;
+  --space-2-5: 0.625rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* ── Typography (Korean-first system stack, no network fonts) ───── */
+  --font-sans:
+    'Pretendard Variable', Pretendard, 'SUIT Variable', -apple-system, BlinkMacSystemFont,
+    'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Segoe UI', system-ui, Roboto,
+    'Helvetica Neue', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, 'D2Coding', monospace;
+  --font-numeric: var(--font-sans);
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: clamp(1.5rem, 1.2rem + 1.2vw, 1.875rem);
+  --text-3xl: clamp(1.875rem, 1.5rem + 1.6vw, 2.375rem);
+  --text-display: clamp(4.25rem, 2.5rem + 9vw, 8.5rem);
+
+  --leading-tight: 1.25;
+  --leading-snug: 1.4;
+  --leading-normal: 1.6; /* comfortable for Hangul */
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --tracking-tight: -0.015em;
+  --tracking-wide: 0.04em;
+
+  /* ── Radius ─────────────────────────────────────────────────────── */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  /* ── Elevation ──────────────────────────────────────────────────── */
+  --shadow-1: 0 1px 2px rgb(29 36 32 / 6%), 0 1px 1px rgb(29 36 32 / 3%);
+  --shadow-2: 0 6px 16px -6px rgb(29 36 32 / 14%), 0 2px 4px -2px rgb(29 36 32 / 6%);
+  --shadow-3: 0 28px 56px -16px rgb(20 26 22 / 32%), 0 10px 20px -10px rgb(20 26 22 / 14%);
+  --shadow-inset: inset 0 1px 2px rgb(29 36 32 / 6%);
+  --shadow-bar: 0 -10px 24px -18px rgb(29 36 32 / 35%);
+
+  /* ── Motion ─────────────────────────────────────────────────────── */
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+  --duration-slow: 280ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* ── Sizing & layout ────────────────────────────────────────────── */
+  --control-height: 2.75rem; /* 44px touch target (07 §4) */
+  --control-height-sm: 2.25rem;
+  --control-height-lg: 3.25rem;
+  --nav-width: 15.5rem;
+  --bottom-nav-height: 4rem;
+  --content-max: 48rem;
+  --content-wide: 76rem;
+  --aside-width: 20rem;
+  --z-nav: 10;
+  --z-sticky: 5;
+  --z-calm: 25;
+  --z-dialog: 30;
+  --z-toast: 40;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #111412;
+    --color-surface: #191d1a;
+    --color-surface-raised: #1f2420;
+    --color-surface-sunken: #0c0f0d;
+    --color-surface-hover: #222823;
+    --color-border: #2b312c;
+    --color-border-strong: #3b423c;
+    --color-border-control: #6c756d;
+    --color-text: #e8ece7;
+    --color-text-muted: #a6aea6;
+    --color-text-subtle: #959d95;
+    --color-overlay: rgb(0 0 0 / 62%);
+
+    --color-accent: #7dcfae;
+    --color-accent-hover: #97dcbf;
+    --color-accent-soft: #1b3a2e;
+    --color-accent-text: #8ddbbb;
+    --color-on-accent: #0b2118;
+
+    --color-success: #8dd49c;
+    --color-success-soft: #1b3423;
+    --color-success-border: #3c6b48;
+    --color-warn: #efc36b;
+    --color-warn-soft: #362b13;
+    --color-warn-border: #7a6026;
+    --color-danger: #ff9d94;
+    --color-danger-hover: #ffb8b1;
+    --color-danger-soft: #3b1d1a;
+    --color-danger-border: #7c3a33;
+    --color-info: #91c4f3;
+    --color-info-soft: #172b3d;
+    --color-info-border: #34577a;
+    --color-offline: #c2c8d4;
+    --color-offline-soft: #262b33;
+    --color-offline-border: #4a5261;
+
+    --color-cal-availability: color-mix(in srgb, var(--color-accent) 8%, transparent);
+    --color-cal-focus-window: color-mix(in srgb, var(--color-accent) 15%, transparent);
+    --color-cal-commitment-stripe: color-mix(in srgb, var(--color-text-muted) 14%, transparent);
+
+    --color-focus: #8db8ff;
+
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-2: 0 8px 20px -8px rgb(0 0 0 / 60%), 0 2px 4px -2px rgb(0 0 0 / 40%);
+    --shadow-3: 0 32px 64px -16px rgb(0 0 0 / 70%), 0 12px 24px -12px rgb(0 0 0 / 50%);
+    --shadow-inset: inset 0 1px 2px rgb(0 0 0 / 35%);
+    --shadow-bar: 0 -10px 24px -18px rgb(0 0 0 / 70%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+  }
+}

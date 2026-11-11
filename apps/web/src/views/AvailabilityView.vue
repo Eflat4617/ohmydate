@@ -11,6 +11,14 @@ import {
   type AvailabilityRule,
 } from '../api';
 import { useOfflineStore } from '../stores/offline';
+import UiBadge from '../components/ui/UiBadge.vue';
+import UiBanner from '../components/ui/UiBanner.vue';
+import UiButton from '../components/ui/UiButton.vue';
+import UiDialog from '../components/ui/UiDialog.vue';
+import UiEmptyState from '../components/ui/UiEmptyState.vue';
+import UiField from '../components/ui/UiField.vue';
+import UiIcon from '../components/ui/UiIcon.vue';
+import UiSkeleton from '../components/ui/UiSkeleton.vue';
 
 const offline = useOfflineStore();
 const queryClient = useQueryClient();
@@ -230,38 +238,44 @@ function retry(): void {
 </script>
 
 <template>
-  <section class="page">
+  <section class="page page--wide availability-page">
     <header class="page-header">
-      <div>
+      <div class="page-heading">
         <h1>Availability</h1>
-        <p class="muted">Weekly rules, exceptions and focus preferences used to generate plans.</p>
+        <p class="page-lede">Weekly rules, exceptions and focus preferences used to generate plans.</p>
       </div>
     </header>
 
-    <p v-if="!offline.mutationsEnabled" class="offline-note" role="status">
+    <UiBanner v-if="!offline.mutationsEnabled" tone="offline" class="offline-note" role="status">
       Read-only while offline. Availability edits are disabled.
-    </p>
-    <p class="status-region" role="status" aria-live="polite">{{ message }}</p>
-    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    </UiBanner>
+    <p class="status-region status-note" role="status" aria-live="polite">{{ message }}</p>
+    <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
 
-    <div v-if="availabilityQuery.isLoading.value" class="muted">Loading availability…</div>
-    <div v-else-if="availabilityQuery.isError.value" class="error-panel">
-      <p class="error-text" role="alert">Could not load availability.</p>
-      <button type="button" @click="retry">Retry</button>
+    <div v-if="availabilityQuery.isLoading.value">
+      <p class="visually-hidden" role="status">Loading availability…</p>
+      <UiSkeleton variant="card" :count="3" :lines="3" />
     </div>
+    <UiBanner v-else-if="availabilityQuery.isError.value" tone="error" class="error-panel">
+      <p class="error-text" role="alert">Could not load availability.</p>
+      <template #actions>
+        <UiButton size="sm" icon="sync" @click="retry">Retry</UiButton>
+      </template>
+    </UiBanner>
 
     <form v-else-if="draft" class="settings-form" @submit.prevent="save">
       <fieldset class="settings-group">
         <legend>Time zone</legend>
-        <label for="availability-timezone">IANA time zone</label>
-        <select
-          id="availability-timezone"
-          v-model="draft.timeZone"
-          :disabled="!offline.mutationsEnabled"
-          @change="markDirty"
-        >
-          <option v-for="zone in timeZones" :key="zone" :value="zone">{{ zone }}</option>
-        </select>
+        <UiField id="availability-timezone" label="IANA time zone" class="field--narrow">
+          <select
+            id="availability-timezone"
+            v-model="draft.timeZone"
+            :disabled="!offline.mutationsEnabled"
+            @change="markDirty"
+          >
+            <option v-for="zone in timeZones" :key="zone" :value="zone">{{ zone }}</option>
+          </select>
+        </UiField>
       </fieldset>
 
       <fieldset class="settings-group">
@@ -273,7 +287,7 @@ function retry(): void {
             <span role="columnheader">Start</span>
             <span role="columnheader">End</span>
             <span role="columnheader">Kind</span>
-            <span role="columnheader">Actions</span>
+            <span role="columnheader"><span class="visually-hidden">Actions</span></span>
           </div>
           <div
             v-for="(rule, index) in draft.rules"
@@ -281,219 +295,261 @@ function retry(): void {
             class="rule-row"
             role="row"
           >
-            <label class="sr-only" :for="`rule-weekday-${index}`">Weekday for rule {{ index + 1 }}</label>
-            <select
-              :id="`rule-weekday-${index}`"
-              v-model.number="rule.weekday"
-              :disabled="!offline.mutationsEnabled"
-              @change="markDirty"
-            >
-              <option v-for="day in WEEKDAYS" :key="day.value" :value="day.value">{{ day.label }}</option>
-            </select>
-            <label class="sr-only" :for="`rule-start-${index}`">Start for rule {{ index + 1 }}</label>
-            <input
-              :id="`rule-start-${index}`"
-              v-model="rule.startLocal"
-              type="time"
-              :disabled="!offline.mutationsEnabled"
-              @input="markDirty"
-            />
-            <label class="sr-only" :for="`rule-end-${index}`">End for rule {{ index + 1 }}</label>
-            <input
-              :id="`rule-end-${index}`"
-              v-model="rule.endLocal"
-              type="time"
-              :disabled="!offline.mutationsEnabled"
-              @input="markDirty"
-            />
-            <label class="sr-only" :for="`rule-kind-${index}`">Kind for rule {{ index + 1 }}</label>
-            <select
-              :id="`rule-kind-${index}`"
-              v-model="rule.kind"
-              :disabled="!offline.mutationsEnabled"
-              @change="markDirty"
-            >
-              <option value="work">Work</option>
-              <option value="focus">Focus</option>
-            </select>
-            <button
-              type="button"
-              class="link-button danger"
-              :disabled="!offline.mutationsEnabled"
-              @click="removeRule(index)"
-            >
-              Remove rule {{ index + 1 }}
-            </button>
+            <div role="cell" class="rule-cell rule-cell--weekday">
+              <label class="sr-only" :for="`rule-weekday-${index}`">Weekday for rule {{ index + 1 }}</label>
+              <select
+                :id="`rule-weekday-${index}`"
+                v-model.number="rule.weekday"
+                :disabled="!offline.mutationsEnabled"
+                @change="markDirty"
+              >
+                <option v-for="day in WEEKDAYS" :key="day.value" :value="day.value">{{ day.label }}</option>
+              </select>
+            </div>
+            <div role="cell" class="rule-cell">
+              <label class="sr-only" :for="`rule-start-${index}`">Start for rule {{ index + 1 }}</label>
+              <input
+                :id="`rule-start-${index}`"
+                v-model="rule.startLocal"
+                type="time"
+                :disabled="!offline.mutationsEnabled"
+                @input="markDirty"
+              />
+            </div>
+            <div role="cell" class="rule-cell">
+              <label class="sr-only" :for="`rule-end-${index}`">End for rule {{ index + 1 }}</label>
+              <input
+                :id="`rule-end-${index}`"
+                v-model="rule.endLocal"
+                type="time"
+                :disabled="!offline.mutationsEnabled"
+                @input="markDirty"
+              />
+            </div>
+            <div role="cell" class="rule-cell">
+              <label class="sr-only" :for="`rule-kind-${index}`">Kind for rule {{ index + 1 }}</label>
+              <select
+                :id="`rule-kind-${index}`"
+                v-model="rule.kind"
+                :disabled="!offline.mutationsEnabled"
+                @change="markDirty"
+              >
+                <option value="work">Work</option>
+                <option value="focus">Focus</option>
+              </select>
+            </div>
+            <div role="cell" class="rule-cell rule-cell--action">
+              <UiButton
+                variant="danger-ghost"
+                size="sm"
+                icon="trash"
+                class="link-button danger"
+                :disabled="!offline.mutationsEnabled"
+                @click="removeRule(index)"
+              >
+                Remove<span class="visually-hidden"> rule {{ index + 1 }}</span>
+              </UiButton>
+            </div>
           </div>
         </div>
-        <button type="button" :disabled="!offline.mutationsEnabled" @click="addRule">
-          Add weekly rule
-        </button>
+        <div>
+          <UiButton icon="plus" size="sm" :disabled="!offline.mutationsEnabled" @click="addRule">
+            Add weekly rule
+          </UiButton>
+        </div>
       </fieldset>
 
       <fieldset class="settings-group">
         <legend>Exceptions</legend>
         <p class="muted">A dated exception either removes availability (off) or adds a window (extra).</p>
-        <div v-if="draft.exceptions.length === 0" class="muted">No exceptions.</div>
+        <UiEmptyState v-if="draft.exceptions.length === 0" compact icon="today" title="No exceptions." />
         <div
           v-for="(exception, index) in draft.exceptions"
           :key="`exception-${index}`"
           class="rule-row exception-row"
         >
-          <label class="sr-only" :for="`exception-date-${index}`">Date for exception {{ index + 1 }}</label>
-          <input
-            :id="`exception-date-${index}`"
-            v-model="exception.date"
-            type="date"
-            :disabled="!offline.mutationsEnabled"
-            @input="markDirty"
-          />
-          <label class="sr-only" :for="`exception-kind-${index}`">Kind for exception {{ index + 1 }}</label>
-          <select
-            :id="`exception-kind-${index}`"
-            v-model="exception.kind"
-            :disabled="!offline.mutationsEnabled"
-            @change="markDirty"
-          >
-            <option value="off">Off</option>
-            <option value="extra">Extra</option>
-          </select>
-          <label class="sr-only" :for="`exception-start-${index}`">Start for exception {{ index + 1 }}</label>
-          <input
-            :id="`exception-start-${index}`"
-            v-model="exception.startLocal"
-            type="time"
-            :disabled="!offline.mutationsEnabled"
-            @input="markDirty"
-          />
-          <label class="sr-only" :for="`exception-end-${index}`">End for exception {{ index + 1 }}</label>
-          <input
-            :id="`exception-end-${index}`"
-            v-model="exception.endLocal"
-            type="time"
-            :disabled="!offline.mutationsEnabled"
-            @input="markDirty"
-          />
-          <button
-            type="button"
-            class="link-button danger"
-            :disabled="!offline.mutationsEnabled"
-            @click="removeException(index)"
-          >
-            Remove exception {{ index + 1 }}
-          </button>
+          <div class="rule-cell rule-cell--weekday">
+            <label class="sr-only" :for="`exception-date-${index}`">Date for exception {{ index + 1 }}</label>
+            <input
+              :id="`exception-date-${index}`"
+              v-model="exception.date"
+              type="date"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </div>
+          <div class="rule-cell">
+            <label class="sr-only" :for="`exception-kind-${index}`">Kind for exception {{ index + 1 }}</label>
+            <select
+              :id="`exception-kind-${index}`"
+              v-model="exception.kind"
+              :disabled="!offline.mutationsEnabled"
+              @change="markDirty"
+            >
+              <option value="off">Off</option>
+              <option value="extra">Extra</option>
+            </select>
+          </div>
+          <div class="rule-cell">
+            <label class="sr-only" :for="`exception-start-${index}`">Start for exception {{ index + 1 }}</label>
+            <input
+              :id="`exception-start-${index}`"
+              v-model="exception.startLocal"
+              type="time"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </div>
+          <div class="rule-cell">
+            <label class="sr-only" :for="`exception-end-${index}`">End for exception {{ index + 1 }}</label>
+            <input
+              :id="`exception-end-${index}`"
+              v-model="exception.endLocal"
+              type="time"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </div>
+          <div class="rule-cell rule-cell--action">
+            <UiButton
+              variant="danger-ghost"
+              size="sm"
+              icon="trash"
+              class="link-button danger"
+              :disabled="!offline.mutationsEnabled"
+              @click="removeException(index)"
+            >
+              Remove<span class="visually-hidden"> exception {{ index + 1 }}</span>
+            </UiButton>
+          </div>
         </div>
-        <button type="button" :disabled="!offline.mutationsEnabled" @click="addException">
-          Add exception
-        </button>
+        <div>
+          <UiButton icon="plus" size="sm" :disabled="!offline.mutationsEnabled" @click="addException">
+            Add exception
+          </UiButton>
+        </div>
       </fieldset>
 
       <fieldset class="settings-group">
         <legend>Focus preferences</legend>
         <div class="prefs-grid">
-          <label for="pref-max-focus">Max daily focus (minutes)</label>
-          <input
-            id="pref-max-focus"
-            v-model.number="draft.prefs.maxDailyFocusMin"
-            type="number"
-            min="0"
-            step="5"
-            :disabled="!offline.mutationsEnabled"
-            @input="markDirty"
-          />
-          <label for="pref-break-after">Break after (minutes)</label>
-          <input
-            id="pref-break-after"
-            v-model.number="draft.prefs.breakAfterMin"
-            type="number"
-            min="0"
-            step="5"
-            :disabled="!offline.mutationsEnabled"
-            @input="markDirty"
-          />
-          <label for="pref-break">Break length (minutes)</label>
-          <input
-            id="pref-break"
-            v-model.number="draft.prefs.breakMin"
-            type="number"
-            min="0"
-            step="5"
-            :disabled="!offline.mutationsEnabled"
-            @input="markDirty"
-          />
-          <label for="pref-day-start">Day start</label>
-          <input
-            id="pref-day-start"
-            v-model="draft.prefs.dayStartLocal"
-            type="time"
-            :disabled="!offline.mutationsEnabled"
-            @input="markDirty"
-          />
-          <label for="pref-day-end">Day end</label>
-          <input
-            id="pref-day-end"
-            v-model="draft.prefs.dayEndLocal"
-            type="time"
-            :disabled="!offline.mutationsEnabled"
-            @input="markDirty"
-          />
-          <label for="pref-risk">Risk level</label>
-          <select
-            id="pref-risk"
-            v-model="draft.prefs.riskLevel"
-            :disabled="!offline.mutationsEnabled"
-            @change="markDirty"
-          >
-            <option value="p50">P50 (typical)</option>
-            <option value="p90">P90 (safe)</option>
-          </select>
+          <UiField id="pref-max-focus" label="Max daily focus (minutes)">
+            <input
+              id="pref-max-focus"
+              v-model.number="draft.prefs.maxDailyFocusMin"
+              type="number"
+              min="0"
+              step="5"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </UiField>
+          <UiField id="pref-break-after" label="Break after (minutes)">
+            <input
+              id="pref-break-after"
+              v-model.number="draft.prefs.breakAfterMin"
+              type="number"
+              min="0"
+              step="5"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </UiField>
+          <UiField id="pref-break" label="Break length (minutes)">
+            <input
+              id="pref-break"
+              v-model.number="draft.prefs.breakMin"
+              type="number"
+              min="0"
+              step="5"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </UiField>
+          <UiField id="pref-day-start" label="Day start">
+            <input
+              id="pref-day-start"
+              v-model="draft.prefs.dayStartLocal"
+              type="time"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </UiField>
+          <UiField id="pref-day-end" label="Day end">
+            <input
+              id="pref-day-end"
+              v-model="draft.prefs.dayEndLocal"
+              type="time"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </UiField>
+          <UiField id="pref-risk" label="Risk level">
+            <select
+              id="pref-risk"
+              v-model="draft.prefs.riskLevel"
+              :disabled="!offline.mutationsEnabled"
+              @change="markDirty"
+            >
+              <option value="p50">P50 (typical)</option>
+              <option value="p90">P90 (safe)</option>
+            </select>
+          </UiField>
         </div>
       </fieldset>
 
       <ul v-if="validationErrors.length > 0" class="violation-list" aria-live="polite">
-        <li v-for="failure in validationErrors" :key="failure" class="error-text">{{ failure }}</li>
+        <li v-for="failure in validationErrors" :key="failure" class="error-text">
+          <UiIcon name="error" :size="16" /> {{ failure }}
+        </li>
       </ul>
 
-      <div class="form-actions">
-        <button id="availability-save" type="submit" class="primary-action" :disabled="!canSave">
+      <div class="form-actions form-actions--sticky">
+        <UiButton id="availability-save" type="submit" variant="primary" :busy="saving" :disabled="!canSave">
           {{ saving ? 'Saving…' : 'Save availability' }}
-        </button>
-        <span class="muted">Version {{ draft.version }} · {{ dirty ? 'Unsaved changes' : 'Saved' }}</span>
+        </UiButton>
+        <UiBadge :tone="dirty ? 'warn' : 'success'" dot>
+          Version {{ draft.version }} · {{ dirty ? 'Unsaved changes' : 'Saved' }}
+        </UiBadge>
       </div>
     </form>
 
-    <div
+    <UiDialog
       v-if="conflict"
-      class="dialog-backdrop"
-      role="presentation"
-      @click.self="conflict = null"
+      role="alertdialog"
+      labelledby="availability-conflict-title"
+      close-on-backdrop
+      @close="conflict = null"
     >
-      <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="availability-conflict-title">
-        <h2 id="availability-conflict-title" ref="conflictHeading" tabindex="-1">
-          Availability changed elsewhere
-        </h2>
-        <p>
-          The server is at version {{ conflict.server.version }}. Your local edits are preserved
-          until you choose. Review the server rules before merging.
-        </p>
-        <dl class="conflict-summary">
-          <dt>Local rules</dt>
-          <dd>{{ conflict.local.rules.length }}</dd>
-          <dt>Server rules</dt>
-          <dd>{{ conflict.server.rules.length }}</dd>
-          <dt>Local time zone</dt>
-          <dd>{{ conflict.local.timeZone }}</dd>
-          <dt>Server time zone</dt>
-          <dd>{{ conflict.server.timeZone }}</dd>
-        </dl>
-        <div class="dialog-actions">
-          <button type="button" class="primary-action" :disabled="!offline.mutationsEnabled" @click="keepLocal">
-            Keep my changes and retry
-          </button>
-          <button type="button" @click="useServer">Use server version</button>
-          <button type="button" class="link-button" @click="conflict = null">Keep editing</button>
+      <header class="dialog-header dialog-header--start">
+        <span class="dialog-icon dialog-icon--warn"><UiIcon name="sync" :size="22" /></span>
+        <div class="dialog-heading">
+          <h2 id="availability-conflict-title" ref="conflictHeading" class="dialog-title" tabindex="-1">
+            Availability changed elsewhere
+          </h2>
+          <p class="muted">
+            The server is at version {{ conflict.server.version }}. Your local edits are preserved
+            until you choose. Review the server rules before merging.
+          </p>
         </div>
+      </header>
+      <dl class="conflict-summary">
+        <dt>Local rules</dt>
+        <dd>{{ conflict.local.rules.length }}</dd>
+        <dt>Server rules</dt>
+        <dd>{{ conflict.server.rules.length }}</dd>
+        <dt>Local time zone</dt>
+        <dd>{{ conflict.local.timeZone }}</dd>
+        <dt>Server time zone</dt>
+        <dd>{{ conflict.server.timeZone }}</dd>
+      </dl>
+      <div class="dialog-actions dialog-actions--start">
+        <UiButton variant="primary" :disabled="!offline.mutationsEnabled" @click="keepLocal">
+          Keep my changes and retry
+        </UiButton>
+        <UiButton @click="useServer">Use server version</UiButton>
+        <UiButton variant="ghost" @click="conflict = null">Keep editing</UiButton>
       </div>
-    </div>
+    </UiDialog>
   </section>
 </template>

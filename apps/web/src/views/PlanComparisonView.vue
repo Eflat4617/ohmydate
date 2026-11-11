@@ -27,6 +27,11 @@ import {
   zonedWallClockToInstant,
 } from '../domain/time';
 import { useOfflineStore } from '../stores/offline';
+import UiBadge from '../components/ui/UiBadge.vue';
+import UiBanner from '../components/ui/UiBanner.vue';
+import UiButton from '../components/ui/UiButton.vue';
+import UiIcon from '../components/ui/UiIcon.vue';
+import UiSkeleton from '../components/ui/UiSkeleton.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -418,26 +423,33 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="page">
+  <section class="page page--wide plan-comparison">
     <header class="page-header">
-      <div>
+      <div class="page-heading">
         <h1>Plan comparison</h1>
-        <p class="muted" v-if="plan">Generated {{ plan.createdAt.slice(0, 10) }} · {{ plan.timeZone }}</p>
+        <p v-if="plan" class="page-lede">Generated {{ plan.createdAt.slice(0, 10) }} · {{ plan.timeZone }}</p>
       </div>
-      <button type="button" class="link-button" @click="goToToday">Go to Today</button>
+      <div class="page-actions">
+        <UiButton variant="ghost" icon="today" @click="goToToday">Go to Today</UiButton>
+      </div>
     </header>
 
-    <p v-if="!offline.mutationsEnabled" class="offline-note" role="status">
+    <UiBanner v-if="!offline.mutationsEnabled" tone="offline" class="offline-note" role="status">
       Read-only while offline. Editing, regeneration and approval are disabled.
-    </p>
-    <p class="status-region" role="status" aria-live="polite">{{ message }}</p>
-    <p v-if="actionError" class="error-text" role="alert">{{ actionError }}</p>
+    </UiBanner>
+    <p class="status-region status-note" role="status" aria-live="polite">{{ message }}</p>
+    <UiBanner v-if="actionError" tone="error" role="alert">{{ actionError }}</UiBanner>
 
-    <div v-if="planQuery.isLoading.value" class="muted">Loading plan…</div>
-    <div v-else-if="planQuery.isError.value || plan === null" class="error-panel">
-      <p class="error-text" role="alert">Could not load this plan.</p>
-      <button type="button" @click="planQuery.refetch()">Retry</button>
+    <div v-if="planQuery.isLoading.value">
+      <p class="visually-hidden" role="status">Loading plan…</p>
+      <div class="candidate-grid"><UiSkeleton variant="card" :count="3" :lines="4" /></div>
     </div>
+    <UiBanner v-else-if="planQuery.isError.value || plan === null" tone="error" class="error-panel">
+      <p class="error-text" role="alert">Could not load this plan.</p>
+      <template #actions>
+        <UiButton size="sm" icon="sync" @click="planQuery.refetch()">Retry</UiButton>
+      </template>
+    </UiBanner>
 
     <template v-else>
       <div class="candidate-grid">
@@ -460,9 +472,14 @@ onUnmounted(() => {
           >
             <span class="candidate-heading">
               <span class="candidate-policy">{{ policyLabel(candidate.policy) }}</span>
-              <span v-if="candidate.feasible" class="badge badge--ok">Feasible</span>
+              <span v-if="candidate.feasible" class="badge badge--ok">
+                <span class="badge-dot" aria-hidden="true"></span>Feasible
+              </span>
               <span v-else class="badge badge--danger">
                 Infeasible · deficit {{ candidate.deficitMin }} min
+              </span>
+              <span class="candidate-check" aria-hidden="true">
+                <UiIcon name="check" :size="16" />
               </span>
             </span>
             <dl class="metrics-grid">
@@ -477,7 +494,7 @@ onUnmounted(() => {
             <ul v-if="candidate.explanation.length > 0" class="explanation-list">
               <li v-for="line in candidate.explanation" :key="line">{{ line }}</li>
             </ul>
-            <p v-if="candidate.diversityNote" class="muted">{{ candidate.diversityNote }}</p>
+            <p v-if="candidate.diversityNote" class="candidate-note">{{ candidate.diversityNote }}</p>
           </button>
         </article>
       </div>
@@ -494,14 +511,22 @@ onUnmounted(() => {
             </p>
           </div>
           <div class="calendar-nav">
-            <button type="button" :disabled="weekStart.length === 0" @click="shiftWeek(-7)">
+            <UiButton size="sm" icon="chevron-left" :disabled="weekStart.length === 0" @click="shiftWeek(-7)">
               Previous week
-            </button>
-            <button type="button" :disabled="weekStart.length === 0" @click="shiftWeek(7)">
+            </UiButton>
+            <UiButton size="sm" :disabled="weekStart.length === 0" @click="shiftWeek(7)">
               Next week
-            </button>
+              <UiIcon name="chevron-right" :size="16" />
+            </UiButton>
           </div>
         </div>
+
+        <ul class="calendar-legend" aria-label="Calendar legend">
+          <li><span class="legend-swatch legend-swatch--availability" aria-hidden="true"></span>Available</li>
+          <li><span class="legend-swatch legend-swatch--focus" aria-hidden="true"></span>Focus window</li>
+          <li><span class="legend-swatch legend-swatch--commitment" aria-hidden="true"></span>Commitment</li>
+          <li><span class="legend-swatch legend-swatch--block" aria-hidden="true"></span>Planned block</li>
+        </ul>
 
         <WeekCalendar
           :blocks="draftBlocks"
@@ -516,6 +541,14 @@ onUnmounted(() => {
           :error-indexes="errorIndexes"
           @update:blocks="onBlocksUpdated"
         />
+
+        <p class="calendar-hint">
+          <UiIcon name="info" :size="16" />
+          <span>
+            Edit with drag/resize or with the keyboard: ArrowUp/ArrowDown moves a block by 5 minutes,
+            Shift+ArrowUp/Shift+ArrowDown resizes it.
+          </span>
+        </p>
 
         <section
           v-if="approvedBlocks.length > 0"
@@ -537,20 +570,15 @@ onUnmounted(() => {
                   String(localParts(block.endAt, timeZone).minute).padStart(2, '0')
                 }}
               </span>
-              <span>{{ taskNames[block.taskId] ?? block.taskId }}</span>
-              <span class="chip">{{ block.status }}</span>
+              <span class="approved-schedule-title">{{ taskNames[block.taskId] ?? block.taskId }}</span>
+              <UiBadge class="chip" tone="success">{{ block.status }}</UiBadge>
             </li>
           </ul>
         </section>
 
-        <p class="muted">
-          Edit with drag/resize or with the keyboard: ArrowUp/ArrowDown moves a block by 5 minutes,
-          Shift+ArrowUp/Shift+ArrowDown resizes it.
-        </p>
-
         <div class="violation-region" aria-live="polite">
-          <p v-if="previewing" class="muted">Validating edits…</p>
-          <p v-if="previewError" class="error-text" role="alert">{{ previewError }}</p>
+          <p v-if="previewing" class="loading-row">Validating edits…</p>
+          <UiBanner v-if="previewError" tone="error" role="alert">{{ previewError }}</UiBanner>
           <ul v-if="errorIndexes.length > 0" class="violation-list">
             <li v-for="index in errorIndexes" :key="`block-error-${index}`" class="error-text">
               Block {{ index + 1 }}: {{ blockErrors[index] }}
@@ -570,37 +598,49 @@ onUnmounted(() => {
           </ul>
         </div>
 
-        <div v-if="stale" class="conflict-panel" role="alert">
+        <UiBanner v-if="stale" tone="conflict" class="conflict-panel" role="alert">
           <p><strong>Availability changed elsewhere.</strong> Regenerate candidates before approving.</p>
-          <button type="button" class="primary-action" :disabled="!offline.mutationsEnabled || regenerating" @click="regenerate">
-            {{ regenerating ? 'Regenerating…' : 'Regenerate plan' }}
-          </button>
-        </div>
+          <template #actions>
+            <UiButton
+              variant="primary"
+              size="sm"
+              icon="sync"
+              :busy="regenerating"
+              :disabled="!offline.mutationsEnabled || regenerating"
+              @click="regenerate"
+            >
+              {{ regenerating ? 'Regenerating…' : 'Regenerate plan' }}
+            </UiButton>
+          </template>
+        </UiBanner>
 
-        <div class="form-actions">
-          <button
-            type="button"
-            class="primary-action"
+        <div class="form-actions calendar-actions">
+          <UiButton
+            variant="primary"
+            icon="check"
+            :busy="approving"
             :disabled="!offline.mutationsEnabled || approving || previewing"
             @click="approve"
             @keydown.enter.prevent="approve"
           >
             {{ approving ? 'Approving…' : 'Approve this plan' }}
-          </button>
-          <button type="button" :disabled="!dirty || approving" @click="resetEdits">Reset edits</button>
-          <button
+          </UiButton>
+          <UiButton variant="ghost" :disabled="!dirty || approving" @click="resetEdits">Reset edits</UiButton>
+          <UiButton
             v-if="!stale"
-            type="button"
+            variant="ghost"
+            icon="sync"
+            :busy="regenerating"
             :disabled="!offline.mutationsEnabled || regenerating"
             @click="regenerate"
           >
             {{ regenerating ? 'Regenerating…' : 'Regenerate' }}
-          </button>
+          </UiButton>
         </div>
 
-        <section v-if="approvedVersion" class="approved-panel" aria-live="polite">
+        <UiBanner v-if="approvedVersion" as="section" tone="success" class="approved-panel" aria-live="polite">
           <h2 class="h2">Plan approved</h2>
-          <dl class="metrics-grid">
+          <dl class="kv-list">
             <dt>Version</dt>
             <dd>{{ approvedVersion.seq }}</dd>
             <dt>Blocks</dt>
@@ -610,10 +650,12 @@ onUnmounted(() => {
             <dt>Created by</dt>
             <dd>{{ approvedVersion.createdBy }}</dd>
           </dl>
-          <RouterLink class="primary-action link-action" :to="{ name: 'today' }">
-            Open Today
-          </RouterLink>
-        </section>
+          <template #actions>
+            <RouterLink class="btn btn--primary" :to="{ name: 'today' }">
+              Open Today
+            </RouterLink>
+          </template>
+        </UiBanner>
       </section>
     </template>
   </section>

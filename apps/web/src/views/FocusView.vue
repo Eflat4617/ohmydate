@@ -12,7 +12,14 @@ import {
   type WorkSession,
 } from '../api';
 import ReviewSheet from '../components/ReviewSheet.vue';
-import { formatDuration } from '../format';
+import UiBadge from '../components/ui/UiBadge.vue';
+import UiBanner from '../components/ui/UiBanner.vue';
+import UiButton from '../components/ui/UiButton.vue';
+import UiEmptyState from '../components/ui/UiEmptyState.vue';
+import UiSpinner from '../components/ui/UiSpinner.vue';
+import { focusContextFor } from '../composables/focusContext';
+import { calmMode, setCalmMode } from '../composables/useCalmMode';
+import { durationMinutes, formatClock, formatDuration } from '../format';
 import { focusClientId } from '../session/clientId';
 import {
   enqueueFocusEvent,
@@ -85,6 +92,38 @@ const stateLabel = computed(() => {
       return 'Completed';
   }
 });
+const stateTone = computed(() => {
+  switch (session.value?.state) {
+    case 'active':
+      return 'accent' as const;
+    case 'paused':
+      return 'warn' as const;
+    case 'completed':
+      return 'success' as const;
+    default:
+      return 'neutral' as const;
+  }
+});
+const context = computed(() => {
+  const current = session.value;
+  if (current === null) return null;
+  return focusContextFor(sessions.ownerId, current.blockId, current.taskId);
+});
+const plannedMinutes = computed(() => {
+  const current = context.value;
+  return current === null ? null : durationMinutes(current.startAt, current.endAt);
+});
+const progressPercent = computed(() => {
+  const planned = plannedMinutes.value;
+  if (planned === null || planned <= 0) return null;
+  return Math.min(100, Math.round((displaySeconds.value / (planned * 60)) * 100));
+});
+const focusedMinutes = computed(() => Math.floor(displaySeconds.value / 60));
+
+function toggleCalm(): void {
+  setCalmMode(!calmMode.value);
+}
+
 const canPause = computed(() => session.value?.state === 'active');
 const canResume = computed(() => session.value?.state === 'paused');
 const canComplete = computed(
@@ -426,6 +465,9 @@ function onKeydown(event: KeyboardEvent): void {
   } else if (event.key === 'f') {
     event.preventDefault();
     timerEl.value?.focus();
+  } else if (event.key === 'Escape' && calmMode.value) {
+    event.preventDefault();
+    setCalmMode(false);
   }
 }
 
@@ -451,6 +493,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  setCalmMode(false);
   if (timer !== null) clearInterval(timer);
   window.removeEventListener('keydown', onKeydown);
 });
@@ -491,85 +534,159 @@ watch(
 </script>
 
 <template>
-  <section class="page focus-page" aria-labelledby="focus-heading">
-    <header class="page-header">
-      <div>
+  <section
+    class="page focus-page"
+    :class="{ 'focus-page--calm': calmMode, [`focus-page--${session?.state ?? 'idle'}`]: true }"
+    aria-labelledby="focus-heading"
+  >
+    <header class="page-header focus-header">
+      <div class="page-heading">
         <h1 id="focus-heading">Focus</h1>
-        <p class="muted">{{ stateLabel }}</p>
+        <UiBadge as="p" :tone="stateTone" dot size="lg" class="focus-state">{{ stateLabel }}</UiBadge>
       </div>
-      <button type="button" class="link-button" @click="goToday">Back to Today</button>
+      <div class="page-actions">
+        <UiButton
+          v-if="session && session.state !== 'completed'"
+          variant="ghost"
+          :icon="calmMode ? 'collapse' : 'expand'"
+          :aria-pressed="calmMode ? 'true' : 'false'"
+          @click="toggleCalm"
+        >
+          Calm mode
+        </UiButton>
+        <UiButton variant="ghost" icon="arrow-left" class="focus-back" @click="goToday">Back to Today</UiButton>
+      </div>
     </header>
 
-    <p v-if="!offline.online" class="chip chip--offline" role="status">Offline · timer keeps running locally</p>
-    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    <UiBadge v-if="!offline.online" as="p" tone="offline" dot class="chip--offline focus-offline" role="status">
+      Offline · timer keeps running locally
+    </UiBadge>
+    <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
 
-    <section v-if="quarantinedCount > 0" class="error-panel quarantine-notice" role="status">
+    <UiBanner
+      v-if="quarantinedCount > 0"
+      as="section"
+      tone="warn"
+      title="Focus events need attention"
+      class="error-panel quarantine-notice"
+      role="status"
+    >
       <p class="error-text">
         {{ quarantinedCount }} saved focus event{{ quarantinedCount === 1 ? '' : 's' }} could not
         be replayed and {{ quarantinedCount === 1 ? 'was' : 'were' }} set aside on this device.
       </p>
-      <div class="dialog-actions">
-        <button type="button" :disabled="retryBusy" @click="retryQuarantine">Retry upload</button>
-        <button type="button" :disabled="retryBusy" @click="dismissQuarantine">Dismiss</button>
-      </div>
-    </section>
+      <template #actions>
+        <UiButton size="sm" icon="sync" :disabled="retryBusy" :busy="retryBusy" @click="retryQuarantine">
+          Retry upload
+        </UiButton>
+        <UiButton size="sm" variant="ghost" :disabled="retryBusy" @click="dismissQuarantine">Dismiss</UiButton>
+      </template>
+    </UiBanner>
 
-    <div v-if="resumeOffer && sessions.active" class="resume-banner">
+    <UiBanner v-if="resumeOffer && sessions.active" tone="accent" inline class="resume-banner">
       <span>A session is already running.</span>
-      <button type="button" class="primary-action" @click="resumeActive">Resume the active session</button>
-    </div>
+      <template #actions>
+        <UiButton variant="primary" size="sm" icon="play" @click="resumeActive">Resume the active session</UiButton>
+      </template>
+    </UiBanner>
 
-    <p v-if="loadState === 'loading'" class="muted">Loading focus session…</p>
-    <div v-else-if="session === null && !isNew && loadState === 'missing'" class="error-panel">
+    <p v-if="loadState === 'loading'" class="loading-row"><UiSpinner /> Loading focus session…</p>
+    <UiBanner
+      v-else-if="session === null && !isNew && loadState === 'missing'"
+      tone="error"
+      class="error-panel"
+    >
       <p class="error-text" role="alert">{{ error ?? 'This focus session is not available.' }}</p>
-      <button type="button" @click="goToday">Back to Today</button>
-    </div>
+      <template #actions>
+        <UiButton size="sm" icon="arrow-left" @click="goToday">Back to Today</UiButton>
+      </template>
+    </UiBanner>
 
     <template v-if="session">
-      <div
-        ref="timerEl"
-        class="focus-timer"
-        role="timer"
-        aria-label="Focus timer"
-        aria-atomic="true"
-        tabindex="-1"
-      >
-        {{ displayTime }}
-      </div>
-      <p class="sr-only" aria-live="polite">{{ announcement }}</p>
+      <div class="focus-stage">
+        <div class="focus-task">
+          <p class="focus-task-title">{{ context?.title ?? 'Focus session' }}</p>
+          <p class="focus-task-meta">
+            <template v-if="context">
+              Planned {{ formatClock(context.startAt, context.timeZone) }}–{{ formatClock(context.endAt, context.timeZone) }}
+              · {{ plannedMinutes }}m
+            </template>
+            <template v-else>
+              Session for task <span class="mono">{{ session.taskId }}</span>
+              <span v-if="session.blockId"> · block {{ session.blockId }}</span>
+            </template>
+          </p>
+        </div>
 
-      <p class="muted focus-task">
-        Session for task <span class="mono">{{ session.taskId }}</span>
-        <span v-if="session.blockId"> · block {{ session.blockId }}</span>
-      </p>
-
-      <div class="focus-actions">
-        <button
-          type="button"
-          class="primary-action"
-          :disabled="!canPause || operationsPending > 0"
-          @click="perform('pause')"
+        <div
+          ref="timerEl"
+          class="focus-timer"
+          role="timer"
+          aria-label="Focus timer"
+          aria-atomic="true"
+          tabindex="-1"
         >
-          Pause <kbd>space</kbd>
-        </button>
-        <button type="button" :disabled="!canResume || operationsPending > 0" @click="perform('resume')">
-          Resume <kbd>space</kbd>
-        </button>
-        <button type="button" :disabled="!canComplete || operationsPending > 0" @click="perform('complete')">
-          Complete <kbd>enter</kbd>
-        </button>
-        <button type="button" class="link-button" @click="timerEl?.focus()">Focus timer <kbd>f</kbd></button>
-      </div>
+          {{ displayTime }}
+        </div>
+        <p class="sr-only" aria-live="polite">{{ announcement }}</p>
 
-      <p
-        v-if="syncMessage"
-        class="focus-sync-status"
-        :class="`focus-sync-status--${syncTone}`"
-        role="status"
-        aria-live="polite"
-      >
-        {{ syncMessage }}
-      </p>
+        <div v-if="progressPercent !== null" class="focus-progress" aria-hidden="true">
+          <div class="focus-progress-track">
+            <div class="focus-progress-fill" :style="{ width: `${progressPercent}%` }"></div>
+          </div>
+          <p class="focus-progress-caption">{{ focusedMinutes }}m of {{ plannedMinutes }}m planned</p>
+        </div>
+
+        <div v-if="session.state !== 'completed'" class="focus-actions">
+          <UiButton
+            v-if="canPause || !canResume"
+            variant="primary"
+            size="lg"
+            icon="pause"
+            :disabled="!canPause || operationsPending > 0"
+            @click="perform('pause')"
+          >
+            Pause <kbd>space</kbd>
+          </UiButton>
+          <UiButton
+            v-if="canResume || !canPause"
+            :variant="canResume ? 'primary' : 'secondary'"
+            size="lg"
+            icon="play"
+            :disabled="!canResume || operationsPending > 0"
+            @click="perform('resume')"
+          >
+            Resume <kbd>space</kbd>
+          </UiButton>
+          <UiButton
+            size="lg"
+            icon="flag"
+            :disabled="!canComplete || operationsPending > 0"
+            @click="perform('complete')"
+          >
+            Complete <kbd>enter</kbd>
+          </UiButton>
+        </div>
+        <UiButton
+          v-if="session.state !== 'completed'"
+          variant="ghost"
+          size="sm"
+          class="focus-timer-shortcut"
+          @click="timerEl?.focus()"
+        >
+          Focus timer <kbd>f</kbd>
+        </UiButton>
+
+        <p
+          v-if="syncMessage"
+          class="focus-sync-status"
+          :class="`focus-sync-status--${syncTone}`"
+          role="status"
+          aria-live="polite"
+        >
+          {{ syncMessage }}
+        </p>
+      </div>
 
       <ReviewSheet
         v-if="showReview"
@@ -581,9 +698,15 @@ watch(
       />
     </template>
 
-    <p v-if="isNew && session === null && !startBusy" class="muted empty-state">
-      Choose a block on Today to start a focus session.
-    </p>
-    <p v-if="startBusy" class="muted">Starting focus session…</p>
+    <UiEmptyState
+      v-if="isNew && session === null && !startBusy"
+      icon="today"
+      title="Choose a block on Today to start a focus session."
+    >
+      <template #actions>
+        <RouterLink class="btn btn--secondary" to="/today">Open Today</RouterLink>
+      </template>
+    </UiEmptyState>
+    <p v-if="startBusy" class="loading-row"><UiSpinner /> Starting focus session…</p>
   </section>
 </template>

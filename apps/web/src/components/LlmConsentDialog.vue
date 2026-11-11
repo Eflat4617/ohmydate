@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import { ref, watch } from 'vue';
 import { useAuthStore } from '../stores/auth';
+import UiBanner from './ui/UiBanner.vue';
+import UiButton from './ui/UiButton.vue';
+import UiDialog from './ui/UiDialog.vue';
+import UiIcon from './ui/UiIcon.vue';
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
@@ -8,15 +12,11 @@ const emit = defineEmits<{ close: [] }>();
 const auth = useAuthStore();
 const busy = ref(false);
 const error = ref<string | null>(null);
-const acceptButton = ref<HTMLButtonElement | null>(null);
 
 watch(
   () => props.open,
-  async (open) => {
-    if (!open) return;
-    error.value = null;
-    await nextTick();
-    acceptButton.value?.focus();
+  (open) => {
+    if (open) error.value = null;
   },
   { immediate: true },
 );
@@ -49,53 +49,41 @@ async function manualMode(): Promise<void> {
 </script>
 
 <template>
-  <div v-if="open" class="dialog-backdrop">
-    <div
-      class="dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="llm-consent-title"
-      aria-describedby="llm-consent-body"
-      @keydown.esc.stop="manualMode"
-    >
-      <h2 id="llm-consent-title">Use AI planning assistance?</h2>
-      <div id="llm-consent-body" class="consent-body">
-        <p>
-          AI planning sends your intake input and task step information to the
-          <strong>OpenCode Go gateway</strong>, which runs the
-          <strong>DeepSeek model</strong> (deepseek-v4.1-flash).
-        </p>
-        <p>
-          Masking is best effort. Email, phone and account-number patterns are masked, but
-          names, addresses and account numbers are <strong>not guaranteed</strong> to be removed.
-        </p>
-        <p>
-          You can revoke consent at any time in AI settings. Without consent, OhMyDate stays
-          in manual planning mode and makes no AI calls.
-        </p>
+  <UiDialog
+    v-if="open"
+    labelledby="llm-consent-title"
+    describedby="llm-consent-body"
+    :dismissible="!busy"
+    @close="manualMode"
+  >
+    <header class="dialog-header dialog-header--start">
+      <span class="dialog-icon"><UiIcon name="shield" :size="22" /></span>
+      <div class="dialog-heading">
+        <h2 id="llm-consent-title" class="dialog-title">Use AI planning assistance?</h2>
+        <p class="muted">You can change this any time in AI settings.</p>
       </div>
-      <p v-if="error" class="error-text" role="alert">{{ error }}</p>
-      <div class="dialog-actions">
-        <button ref="acceptButton" type="button" class="primary-action" :disabled="busy" @click="grant">
-          {{ busy ? 'Saving…' : 'Allow AI planning' }}
-        </button>
-        <button type="button" class="link-button" :disabled="busy" @click="manualMode">
-          Use manual mode
-        </button>
-      </div>
+    </header>
+    <div id="llm-consent-body" class="dialog-body consent-body">
+      <p>
+        AI planning sends your intake input and task step information to the
+        <strong>OpenCode Go gateway</strong>, which runs the
+        <strong>DeepSeek model</strong> (deepseek-v4.1-flash).
+      </p>
+      <UiBanner tone="warn" title="Masking is best effort">
+        Email, phone and account-number patterns are masked, but names, addresses and
+        account numbers are <strong>not guaranteed</strong> to be removed.
+      </UiBanner>
+      <p class="muted">
+        You can revoke consent at any time in AI settings. Without consent, OhMyDate stays
+        in manual planning mode and makes no AI calls.
+      </p>
     </div>
-  </div>
+    <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
+    <div class="dialog-actions">
+      <UiButton variant="ghost" :disabled="busy" @click="manualMode">Use manual mode</UiButton>
+      <UiButton variant="primary" :disabled="busy" :busy="busy" data-autofocus @click="grant">
+        {{ busy ? 'Saving…' : 'Allow AI planning' }}
+      </UiButton>
+    </div>
+  </UiDialog>
 </template>
-
-<style scoped>
-.consent-body p {
-  margin-block: 0 0.75rem;
-}
-
-.dialog-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-</style>

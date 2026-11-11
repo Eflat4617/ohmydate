@@ -7,6 +7,8 @@ import { useToastStore } from '../stores/toast';
 import { useUiStore } from '../stores/ui';
 import ConflictDialog from './ConflictDialog.vue';
 import TaskItem from './TaskItem.vue';
+import UiBanner from './ui/UiBanner.vue';
+import UiEmptyState from './ui/UiEmptyState.vue';
 
 const props = withDefaults(
   defineProps<{ tasks: Task[]; disabled?: boolean; emptyText?: string }>(),
@@ -209,7 +211,7 @@ function onCancelConflict(): void {
 
 <template>
   <section class="task-list" :aria-busy="busy">
-    <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+    <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
     <ul v-if="visibleTasks.length > 0" class="task-items">
       <TaskItem
         v-for="task in visibleTasks"
@@ -228,7 +230,7 @@ function onCancelConflict(): void {
         @remove="onRemove(task)"
       />
     </ul>
-    <p v-else class="muted empty-state">{{ props.emptyText }}</p>
+    <UiEmptyState v-else icon="check-circle" :title="props.emptyText" />
 
     <ConflictDialog
       v-if="conflict"

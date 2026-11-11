@@ -7,6 +7,10 @@ import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
 import QuickAddForm from '../components/QuickAddForm.vue';
 import TaskList from '../components/TaskList.vue';
+import UiBadge from '../components/ui/UiBadge.vue';
+import UiBanner from '../components/ui/UiBanner.vue';
+import UiButton from '../components/ui/UiButton.vue';
+import UiSkeleton from '../components/ui/UiSkeleton.vue';
 
 const offline = useOfflineStore();
 const ui = useUiStore();
@@ -46,6 +50,7 @@ const isLoading = computed(
     (inboxProjectId.value !== undefined && tasksQuery.isLoading.value),
 );
 const isError = computed(() => inboxQuery.isError.value || tasksQuery.isError.value);
+const openCount = computed(() => tasks.value.filter((task) => task.status !== 'done').length);
 const quickAddDisabled = computed(
   () => !offline.mutationsEnabled || createBusy.value,
 );
@@ -83,30 +88,45 @@ async function refresh(): Promise<void> {
 <template>
   <section class="page">
     <header class="page-header">
-      <div>
+      <div class="page-heading">
         <h1>Inbox</h1>
-        <p class="muted">Capture now, organise later.</p>
+        <p class="page-lede">Capture now, organise later.</p>
+      </div>
+      <div class="page-actions">
+        <UiBadge v-if="!offline.mutationsEnabled" tone="offline" dot class="offline-note" role="status">
+          Read-only while offline.
+        </UiBadge>
+        <UiBadge v-else-if="openCount > 0" tone="outline">{{ openCount }} open</UiBadge>
       </div>
     </header>
 
     <QuickAddForm ref="quickAdd" :disabled="quickAddDisabled" @submit="addTask" />
-    <p v-if="createError" class="error-text" role="alert">{{ createError }}</p>
+    <UiBanner v-if="createError" tone="error" role="alert">{{ createError }}</UiBanner>
 
-    <p v-if="!offline.mutationsEnabled" class="offline-note" role="status">
-      Read-only while offline.
-    </p>
-
-    <p v-if="isLoading" class="muted">Loading tasks…</p>
-    <div v-else-if="isError" class="error-panel">
-      <p class="error-text" role="alert">Could not load tasks.</p>
-      <button type="button" @click="refetchAll()">Retry</button>
+    <div v-if="isLoading" class="list-loading">
+      <p class="visually-hidden" role="status">Loading tasks…</p>
+      <UiSkeleton variant="card" :count="3" :lines="1" />
     </div>
-    <div v-else-if="inboxMissing" class="error-panel">
+    <UiBanner v-else-if="isError" tone="error" class="error-panel">
+      <p class="error-text" role="alert">Could not load tasks.</p>
+      <template #actions>
+        <UiButton size="sm" icon="sync" @click="refetchAll()">Retry</UiButton>
+      </template>
+    </UiBanner>
+    <UiBanner v-else-if="inboxMissing" tone="warn" class="error-panel">
       <p class="error-text" role="alert">
         Inbox project is missing. Tasks cannot be shown until it exists.
       </p>
-      <button type="button" @click="refetchAll()">Retry</button>
-    </div>
-    <TaskList v-else :tasks="tasks" :disabled="!offline.mutationsEnabled" @refresh="refresh" />
+      <template #actions>
+        <UiButton size="sm" icon="sync" @click="refetchAll()">Retry</UiButton>
+      </template>
+    </UiBanner>
+    <TaskList
+      v-else
+      :tasks="tasks"
+      :disabled="!offline.mutationsEnabled"
+      empty-text="Inbox zero. Add the next thing on your mind above."
+      @refresh="refresh"
+    />
   </section>
 </template>
