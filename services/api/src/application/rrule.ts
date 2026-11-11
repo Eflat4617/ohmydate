@@ -14,6 +14,14 @@ export interface Occurrence {
 
 export const MAX_OCCURRENCES = 2_000;
 
+/** Typed RRULE rejection: callers map this to 422 validation_failed. */
+export class InvalidRRuleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidRRuleError';
+  }
+}
+
 const BYDAY_INDEX: Readonly<Record<string, number>> = {
   MO: 1,
   TU: 2,
@@ -24,78 +32,135 @@ const BYDAY_INDEX: Readonly<Record<string, number>> = {
   SU: 7,
 };
 
+const ALLOWED_PARTS = new Set([
+  'FREQ',
+  'INTERVAL',
+  'COUNT',
+  'UNTIL',
+  'BYDAY',
+  'BYMONTHDAY',
+  'WKST',
+]);
+
 interface ParsedRule {
   readonly freq: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'YEARLY';
   readonly interval: number;
   readonly count?: number;
   readonly untilMs?: number;
+  readonly untilDate?: string;
   readonly byDay: readonly number[];
+  readonly byMonthDay: readonly number[];
 }
 
-function parseUntil(raw: string): number {
+function parseUntil(raw: string): { untilMs?: number; untilDate?: string } {
   if (/^\d{8}$/.test(raw)) {
-    const date = Temporal.PlainDate.from(
-      `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`,
-    );
-    return date.toZonedDateTime('UTC').epochMilliseconds;
+    const date = `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+    try {
+      Temporal.PlainDate.from(date);
+    } catch {
+      throw new InvalidRRuleError(`Unsupported RRULE UNTIL date: ${raw}`);
+    }
+    return { untilDate: date };
   }
   const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(raw);
   if (match !== null) {
     const [, year, month, day, hour, minute, second] = match;
-    return Temporal.PlainDateTime.from({
-      year: Number(year),
-      month: Number(month),
-      day: Number(day),
-      hour: Number(hour),
-      minute: Number(minute),
-      second: Number(second),
-    })
-      .toZonedDateTime('UTC')
-      .epochMilliseconds;
+    try {
+      return {
+        untilMs: Temporal.PlainDateTime.from({
+          year: Number(year),
+          month: Number(month),
+          day: Number(day),
+          hour: Number(hour),
+          minute: Number(minute),
+          second: Number(second),
+        })
+          .toZonedDateTime('UTC')
+          .epochMilliseconds,
+      };
+    } catch {
+      throw new InvalidRRuleError(`Unsupported RRULE UNTIL instant: ${raw}`);
+    }
   }
-  throw new RangeError(`Unsupported RRULE UNTIL value: ${raw}`);
+  throw new InvalidRRuleError(`Unsupported RRULE UNTIL value: ${raw}`);
 }
 
 export function parseRRule(rrule: string): ParsedRule {
   const parts = new Map<string, string>();
   for (const entry of rrule.split(';')) {
     const [name, value] = entry.split('=', 2);
-    if (name === undefined || value === undefined) {
-      throw new RangeError(`Malformed RRULE part: ${entry}`);
+    if (name === undefined || value === undefined || name.length === 0) {
+      throw new InvalidRRuleError(`Malformed RRULE part: ${entry}`);
     }
-    parts.set(name.toUpperCase(), value.toUpperCase());
+    const upper = name.toUpperCase();
+    if (!ALLOWED_PARTS.has(upper)) {
+      throw new InvalidRRuleError(`Unsupported RRULE part: ${name}`);
+    }
+    if (parts.has(upper)) throw new InvalidRRuleError(`Duplicate RRULE part: ${name}`);
+    parts.set(upper, value.toUpperCase());
   }
   const freq = parts.get('FREQ');
   if (freq !== 'DAILY' && freq !== 'WEEKLY' && freq !== 'MONTHLY' && freq !== 'YEARLY') {
-    throw new RangeError(`Unsupported RRULE FREQ: ${String(freq)}`);
+    throw new InvalidRRuleError(`Unsupported RRULE FREQ: ${String(freq)}`);
   }
   const intervalRaw = parts.get('INTERVAL') ?? '1';
   const interval = Number.parseInt(intervalRaw, 10);
   if (!Number.isInteger(interval) || interval < 1 || interval > 1_000) {
-    throw new RangeError('RRULE INTERVAL must be an integer between 1 and 1000');
+    throw new InvalidRRuleError('RRULE INTERVAL must be an integer between 1 and 1000');
+  }
+  if (parts.has('COUNT') && parts.has('UNTIL')) {
+    throw new InvalidRRuleError('RRULE COUNT and UNTIL are mutually exclusive');
   }
   const countRaw = parts.get('COUNT');
   const count = countRaw === undefined ? undefined : Number.parseInt(countRaw, 10);
   if (count !== undefined && (!Number.isInteger(count) || count < 1 || count > MAX_OCCURRENCES)) {
-    throw new RangeError(`RRULE COUNT must be between 1 and ${MAX_OCCURRENCES}`);
+    throw new InvalidRRuleError(`RRULE COUNT must be between 1 and ${MAX_OCCURRENCES}`);
   }
   const untilRaw = parts.get('UNTIL');
-  const untilMs = untilRaw === undefined ? undefined : parseUntil(untilRaw);
+  const until = untilRaw === undefined ? {} : parseUntil(untilRaw);
+
   const byDayRaw = parts.get('BYDAY');
+  if (byDayRaw !== undefined && freq !== 'WEEKLY') {
+    throw new InvalidRRuleError('RRULE BYDAY is only supported with FREQ=WEEKLY');
+  }
   const byDay =
     byDayRaw === undefined
       ? []
       : byDayRaw.split(',').map((day) => {
-          const index = BYDAY_INDEX[day.replace(/^[+-]?\d+/, '')];
-          if (index === undefined) throw new RangeError(`Unsupported RRULE BYDAY value: ${day}`);
+          const index = /^[A-Z]{2}$/.test(day) ? BYDAY_INDEX[day] : undefined;
+          if (index === undefined) {
+            throw new InvalidRRuleError(`Unsupported RRULE BYDAY value: ${day}`);
+          }
           return index;
         });
+
+  const byMonthDayRaw = parts.get('BYMONTHDAY');
+  if (byMonthDayRaw !== undefined && freq !== 'MONTHLY') {
+    throw new InvalidRRuleError('RRULE BYMONTHDAY is only supported with FREQ=MONTHLY');
+  }
+  const byMonthDay =
+    byMonthDayRaw === undefined
+      ? []
+      : byMonthDayRaw.split(',').map((day) => {
+          const value = Number.parseInt(day, 10);
+          if (!Number.isInteger(value) || value < 1 || value > 31) {
+            throw new InvalidRRuleError(`Unsupported RRULE BYMONTHDAY value: ${day}`);
+          }
+          return value;
+        });
+
+  const wkst = parts.get('WKST');
+  if (wkst !== undefined && wkst !== 'MO') {
+    throw new InvalidRRuleError('RRULE WKST only supports MO');
+  }
+
   return {
     freq,
     interval,
     ...(count === undefined ? {} : { count }),
-    ...(untilMs === undefined ? {} : { untilMs }),
+    ...until,
     byDay,
+    byMonthDay,
   };
 }
 
@@ -118,9 +183,7 @@ function matches(
       return days >= 0 && days % rule.interval === 0;
     case 'WEEKLY': {
       if (days < 0) return false;
-      const weekIndex = Math.floor(
-        (days + (startDate.dayOfWeek - 1)) / 7,
-      );
+      const weekIndex = Math.floor((days + (startDate.dayOfWeek - 1)) / 7);
       if (weekIndex % rule.interval !== 0) return false;
       const allowed = rule.byDay.length === 0 ? [startDate.dayOfWeek] : rule.byDay;
       return allowed.includes(date.dayOfWeek);
@@ -129,7 +192,8 @@ function matches(
       if (days < 0) return false;
       const months = monthsBetween(startDate, date);
       if (months < 0 || months % rule.interval !== 0) return false;
-      return date.day === startDate.day;
+      const allowed = rule.byMonthDay.length === 0 ? [startDate.day] : rule.byMonthDay;
+      return allowed.includes(date.day);
     }
     case 'YEARLY': {
       if (days < 0) return false;
@@ -140,14 +204,33 @@ function matches(
   }
 }
 
+function localEndOfDay(date: string, timeZone: string): number {
+  const plain = Temporal.PlainDate.from(date);
+  return Temporal.PlainDateTime.from({
+    year: plain.year,
+    month: plain.month,
+    day: plain.day,
+    hour: 23,
+    minute: 59,
+    second: 59,
+    millisecond: 999,
+  })
+    .toZonedDateTime(timeZone).epochMilliseconds;
+}
+
+const MAX_LOOKBACK_MS = 10 * 366 * 24 * 60 * 60 * 1000;
+
 /**
  * Expand a commitment into occurrences that overlap `[from, to)`.
  *
- * Recurrence is interpreted on the commitment's IANA wall clock: the local
- * start time is preserved across DST transitions (gap -> next valid instant,
- * overlap -> the first occurrence, matching 08 §3). The query window must be
- * at most 366 days and expansion is capped at 2,000 occurrences; callers map
- * the thrown `RangeError` to 422.
+ * Recurrence is interpreted on the commitment's IANA wall clock. `UNTIL` is
+ * inclusive; a DATE-form UNTIL means the end of that local day in the
+ * commitment time zone. DST gap wall times shift forward to the next valid
+ * instant and overlap wall times resolve to the first occurrence (Temporal's
+ * "compatible" disambiguation, matching 08 §3). The query window must be at
+ * most 366 days and expansion is capped at 2,000 occurrences. Unsupported
+ * rules or an expansion start more than ten years before the range throw
+ * InvalidRRuleError, which callers map to 422.
  */
 export function expandOccurrences(
   commitment: RecurringCommitment,
@@ -157,15 +240,15 @@ export function expandOccurrences(
   const fromMs = Date.parse(from);
   const toMs = Date.parse(to);
   if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || toMs <= fromMs) {
-    throw new RangeError('occurrence range is not a valid interval');
+    throw new InvalidRRuleError('occurrence range is not a valid interval');
   }
   if (toMs - fromMs > 366 * 24 * 60 * 60 * 1000) {
-    throw new RangeError('occurrence range exceeds 366 days');
+    throw new InvalidRRuleError('occurrence range exceeds 366 days');
   }
   const startMs = Date.parse(commitment.startAt);
   const endMs = Date.parse(commitment.endAt);
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
-    throw new RangeError('commitment interval is invalid');
+    throw new InvalidRRuleError('commitment interval is invalid');
   }
   if (commitment.rrule === undefined) {
     return endMs > fromMs && startMs < toMs
@@ -174,6 +257,15 @@ export function expandOccurrences(
   }
 
   const rule = parseRRule(commitment.rrule);
+  if (fromMs - startMs > MAX_LOOKBACK_MS) {
+    throw new InvalidRRuleError(
+      'recurring commitment starts more than ten years before the query range',
+    );
+  }
+  const untilMs =
+    rule.untilMs ??
+    (rule.untilDate === undefined ? undefined : localEndOfDay(rule.untilDate, commitment.timeZone));
+
   const durationMs = endMs - startMs;
   const start = Temporal.Instant.from(commitment.startAt).toZonedDateTimeISO(
     commitment.timeZone,
@@ -185,26 +277,26 @@ export function expandOccurrences(
   let matched = 0;
   let guard = 0;
 
-  // The guard bounds a pathological rule (a daily rule started decades before
-  // the query window) instead of walking forever.
   while (guard < 40_000) {
     guard += 1;
     const occurrence = cursor.toPlainDateTime(localTime).toZonedDateTime(commitment.timeZone);
     const occurrenceStartMs = occurrence.epochMilliseconds;
     const occurrenceEndMs = occurrenceStartMs + durationMs;
     if (occurrenceStartMs >= toMs) break;
+    if (untilMs !== undefined && occurrenceStartMs > untilMs) break;
 
     if (matches(rule, startDate, cursor)) {
       matched += 1;
       if (rule.count !== undefined && matched > rule.count) break;
-      if (rule.untilMs !== undefined && occurrenceStartMs >= rule.untilMs) break;
       if (occurrenceEndMs > fromMs && occurrenceStartMs < toMs) {
         occurrences.push({
           startAt: occurrence.toInstant().toString(),
           endAt: Temporal.Instant.fromEpochMilliseconds(occurrenceEndMs).toString(),
         });
         if (occurrences.length > MAX_OCCURRENCES) {
-          throw new RangeError(`commitment expands to more than ${MAX_OCCURRENCES} occurrences`);
+          throw new InvalidRRuleError(
+            `commitment expands to more than ${MAX_OCCURRENCES} occurrences`,
+          );
         }
       }
     }
@@ -212,7 +304,7 @@ export function expandOccurrences(
   }
 
   if (guard >= 40_000) {
-    throw new RangeError('commitment recurrence expansion exceeded its safety bound');
+    throw new InvalidRRuleError('commitment recurrence expansion exceeded its safety bound');
   }
   return occurrences;
 }

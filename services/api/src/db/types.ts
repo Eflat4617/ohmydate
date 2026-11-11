@@ -130,7 +130,6 @@ export interface UserTable {
 export interface ProjectTable {
   id: Col<'uuid', false, false>;
   owner_id: Col<'uuid', false, false>;
-  goal_id: Col<'uuid', true, false>;
   title: Col<'text', false, false>;
   kind: Col<'text', false, true>;
   archived: Col<'boolean', false, true>;
@@ -648,7 +647,6 @@ export const databaseTables = {
   project: {
     id: col('uuid', false, false),
     owner_id: col('uuid', false, false),
-    goal_id: col('uuid', true, false),
     title: col('text', false, false),
     kind: col('text', false, true),
     archived: col('boolean', false, true),

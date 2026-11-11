@@ -37,6 +37,7 @@ import {
   type IntakeField,
   type PlannedQuestion as DomainPlannedQuestion,
   type IntakeState,
+  type Task,
   type TaskCreate,
   type TaskPriority,
   type TaskRepository,
@@ -923,6 +924,7 @@ export class IntakeService {
         );
         const taskIds = new Map<string, Id>();
         const created: { id: Id; version: Version }[] = [];
+        const identityTasks: Task[] = [];
         // ADR-020 §3: the ledger's persisted planned_task_id is authoritative on
         // every retry; never substitute the freshly generated proposal above.
         const plannedIdByKey = new Map(
@@ -947,6 +949,10 @@ export class IntakeService {
             if (existingStep?.state === 'created' && existingStep.taskId !== undefined) {
               taskIds.set(step.key, existingStep.taskId);
               created.push({ id: existingStep.taskId, version: 1 as Version });
+              assertOwned();
+              const identity = await this.#tasks.get(ownerId, existingStep.taskId);
+              assertOwned();
+              if (identity !== null) identityTasks.push(identity);
               continue;
             }
 
@@ -1005,6 +1011,7 @@ export class IntakeService {
               // Publish the post-update version so the outbox event does not
               // carry the pre-repair version (M2-03cR2 LOW).
               created.push({ id: repaired.id, version: repaired.version });
+              identityTasks.push(repaired);
               continue;
             }
 
@@ -1052,6 +1059,7 @@ export class IntakeService {
             );
             taskIds.set(step.key, task.id);
             created.push({ id: task.id, version: task.version });
+            identityTasks.push(task);
           }
         } catch (error) {
           // Ownership loss is not recoverable by this request: leave the
@@ -1084,12 +1092,32 @@ export class IntakeService {
         }
 
         assertOwned();
+        const method = session.manual || this.#llm === null ? 'template' : 'llm';
+        const estimates = ordered.flatMap((step) => {
+          const taskId = taskIds.get(step.key);
+          if (taskId === undefined) return [];
+          return [
+            {
+              id: this.#ids.next(),
+              taskId,
+              p50Min: step.estimate.p50Minutes,
+              p90Min: step.estimate.p90Minutes,
+              method,
+              confidence: method === 'template' ? 0.6 : 0.5,
+            } as const,
+          ];
+        });
+        const uniqueIdentityTasks = [
+          ...new Map(identityTasks.map((task) => [task.id, task])).values(),
+        ];
         const updated = await this.#approvals.complete({
           ownerId,
           sessionId: id,
           expectedSessionVersion: session.version,
           outboxId: this.#ids.next(),
           holderToken: holder,
+          identityTasks: uniqueIdentityTasks,
+          estimates,
         });
         return { session: await this.#toDto(updated), tasks: created };
       });

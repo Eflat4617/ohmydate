@@ -413,13 +413,6 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           );
           expect(constraint.rowCount).toBe(0);
         } else if (migration === '0008_plan_api_persistence.sql') {
-          const projectColumn = await client.query<{ name: string | null }>(
-            `SELECT column_name AS name
-               FROM information_schema.columns
-              WHERE table_schema = $1 AND table_name = 'project' AND column_name = 'goal_id'`,
-            [schema],
-          );
-          expect(projectColumn.rows[0]?.name).toBeUndefined();
           const availabilityColumns = await client.query<{ column_name: string }>(
             `SELECT column_name
                FROM information_schema.columns

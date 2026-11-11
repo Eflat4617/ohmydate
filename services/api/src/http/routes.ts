@@ -1,5 +1,4 @@
 import {
-  intakeRoutes,
   planningRoutes,
   routes,
   type ApprovePlanRequest,
@@ -86,7 +85,12 @@ import {
   requestHash,
   headerValue,
 } from './headers.js';
-import { ProblemError, domainErrorToProblem, problemBodyFor } from './problem.js';
+import {
+  ProblemError,
+  domainErrorToProblem,
+  planningErrorToProblem,
+  problemBodyFor,
+} from './problem.js';
 
 const SID_COOKIE = 'sid';
 const CSRF_COOKIE = 'csrf';
@@ -378,14 +382,15 @@ async function runIdempotent(
     const problem =
       error instanceof DomainError
         ? domainErrorToProblem(error)
-        : error instanceof IntakeError
-          ? {
-              status: error.status,
-              code: error.code,
-              title: error.title,
-              detail: error.detail,
-            }
-          : undefined;
+        : (planningErrorToProblem(error) ??
+          (error instanceof IntakeError
+            ? {
+                status: error.status,
+                code: error.code,
+                title: error.title,
+                detail: error.detail,
+              }
+            : undefined));
 
     // ADR-020 §11: a succession-wait 409 `approval_in_progress` is transient
     // contention, not a stored domain result. Release its reservation so the
@@ -1051,7 +1056,7 @@ function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
 
 export function registerRoutes(app: FastifyInstance, runtime: RouteRuntime): void {
   const handlers = buildHandlers(runtime);
-  for (const route of [...routes, ...planningRoutes, ...intakeRoutes]) {
+  for (const route of [...routes, ...planningRoutes]) {
     const meta = routeMeta(route);
     const handler = handlers[meta.operationId];
     if (handler === undefined) {

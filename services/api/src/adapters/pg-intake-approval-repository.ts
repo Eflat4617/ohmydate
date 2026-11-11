@@ -18,6 +18,7 @@ import type {
 } from '../application/intake/ports.js';
 import { mapSession } from './pg-intake-session-repository.js';
 import { IntakeApprovalOwnershipLostError } from '../application/intake/intake-error.js';
+import { ensurePlannerTaskIdentity } from './planner-task-identity.js';
 
 type ApprovalRow = Selectable<IntakeApprovalTable>;
 type StepRow = Selectable<IntakeApprovalStepTable>;
@@ -292,6 +293,15 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
     readonly expectedSessionVersion: number;
     readonly outboxId: Id;
     readonly holderToken: string;
+    readonly identityTasks: readonly import('@ohmydate/domain').Task[];
+    readonly estimates: readonly {
+      readonly id: Id;
+      readonly taskId: Id;
+      readonly p50Min: number;
+      readonly p90Min: number;
+      readonly method: 'template' | 'llm';
+      readonly confidence: number;
+    }[];
   }): Promise<IntakeSessionRecord> {
     return this.#db.transaction().execute(async (trx) => {
       const approval = await trx
@@ -325,6 +335,22 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
           input.expectedSessionVersion as never,
           input.expectedSessionVersion as never,
         );
+      }
+      await ensurePlannerTaskIdentity(trx, input.ownerId, input.identityTasks);
+      for (const estimate of input.estimates) {
+        await trx
+          .insertInto('estimate')
+          .values({
+            id: estimate.id,
+            owner_id: input.ownerId,
+            task_id: estimate.taskId,
+            p50_min: estimate.p50Min,
+            p90_min: estimate.p90Min,
+            method: estimate.method,
+            confidence: estimate.confidence,
+            is_current: true,
+          })
+          .execute();
       }
       await trx
         .updateTable('intake_approval')

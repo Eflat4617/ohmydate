@@ -45,7 +45,8 @@ import type {
   NewPlan,
   PlanningStore,
 } from '../application/planning-ports.js';
-import { expandOccurrences, MAX_OCCURRENCES } from '../application/rrule.js';
+import { expandOccurrences, InvalidRRuleError, MAX_OCCURRENCES } from '../application/rrule.js';
+import { ensurePlannerTaskIdentity } from './planner-task-identity.js';
 
 const DEFAULT_PREFS: AvailabilityPreferencesDto = {
   maxDailyFocusMin: 240,
@@ -292,14 +293,12 @@ export class PgPlanningStore implements PlanningStore {
     const fromMs = Date.parse(query.from);
     const toMs = Date.parse(query.to);
     if (toMs - fromMs > MAX_RANGE_MS) {
-      throw new RangeError('commitment range exceeds 366 days');
+      throw new ValidationFailedError([
+        { path: '/to', message: 'commitment range exceeds 366 days' },
+      ]);
     }
     const limit = Math.min(Math.max(query.limit ?? 20, 1), 100);
-    let builder = this.#db
-      .selectFrom('commitment_event')
-      .selectAll()
-      .where('owner_id', '=', ownerId)
-      .where('deleted_at', 'is', null)
+    let builder = this.#commitmentsRangeBuilder(this.#db, ownerId, query.from, query.to)
       .orderBy('id', 'asc')
       .limit(limit);
     if (query.cursor !== undefined) {
@@ -309,10 +308,12 @@ export class PgPlanningStore implements PlanningStore {
     let occurrences = 0;
     const items = rows.map((row) => {
       const commitment = this.#mapCommitment(row);
-      const expanded = expandOccurrences(commitment, query.from, query.to);
+      const expanded = this.#expandOrThrow(commitment, query.from, query.to);
       occurrences += expanded.length;
       if (occurrences > MAX_OCCURRENCES) {
-        throw new RangeError(`commitments expand to more than ${MAX_OCCURRENCES} occurrences`);
+        throw new ValidationFailedError([
+          { path: '/to', message: `commitments expand to more than ${MAX_OCCURRENCES} occurrences` },
+        ]);
       }
       return {
         ...commitment,
@@ -327,6 +328,18 @@ export class PgPlanningStore implements PlanningStore {
       items,
       nextCursor: rows.length === limit ? (rows[rows.length - 1]?.id ?? null) : null,
     };
+  }
+
+  async listCommitmentsInRange(
+    ownerId: Id,
+    from: string,
+    to: string,
+  ): Promise<Commitment[]> {
+    const rows = await this.#commitmentsRangeBuilder(this.#db, ownerId, from, to)
+      .orderBy('start_at', 'asc')
+      .orderBy('id', 'asc')
+      .execute();
+    return rows.map((row) => this.#mapCommitment(row));
   }
 
   async createCommitment(ownerId: Id, input: CommitmentCreate): Promise<Commitment> {
@@ -548,15 +561,18 @@ export class PgPlanningStore implements PlanningStore {
       .executeTakeFirst();
     if (goal === undefined) return null;
     const rows = await this.#db
-      .selectFrom('task')
-      .innerJoin('project', 'project.id', 'task.project_id')
-      .select('task.id')
-      .where('project.owner_id', '=', ownerId)
-      .where('project.goal_id', '=', goalId)
-      .where('task.deleted_at', 'is', null)
-      .where('task.status_cache', '<>', 'done')
+      .selectFrom('intake_session')
+      .innerJoin('intake_approval_step', 'intake_approval_step.session_id', 'intake_session.id')
+      .select('intake_approval_step.task_id')
+      .where('intake_session.owner_id', '=', ownerId)
+      .where('intake_session.goal_id', '=', goalId)
+      .where('intake_approval_step.state', '=', 'created')
+      .where('intake_approval_step.task_id', 'is not', null)
       .execute();
-    return { goalExists: true, taskIds: rows.map((row) => row.id as Id) };
+    return {
+      goalExists: true,
+      taskIds: [...new Set(rows.map((row) => row.task_id as Id))],
+    };
   }
 
   async listActiveBlocks(ownerId: Id): Promise<readonly ApprovedBlock[]> {
@@ -573,12 +589,30 @@ export class PgPlanningStore implements PlanningStore {
       idempotencyKey: string;
       now: Instant;
       taskIds: readonly Id[];
+      planningTaskIds: readonly Id[];
+      identityTasks: readonly import('@ohmydate/domain').Task[];
       prepare: (snapshot: ApprovalSnapshot) => Promise<import('../application/planning-ports.js').PreparedApproval>;
     },
   ): Promise<PlanVersionDto> {
     try {
       return await this.#db.transaction().execute(async (trx) => {
         const now = new Date(instantToEpochMs(this.#clock.now()));
+        // Replay lookup comes before the If-Match lock so a stored approval is
+        // returned even after the 24h generic idempotency record expires.
+        const approval = await trx
+          .selectFrom('schedule_approval')
+          .selectAll()
+          .where('owner_id', '=', ownerId)
+          .where('idempotency_key', '=', request.idempotencyKey)
+          .executeTakeFirst();
+        if (approval !== undefined) {
+          const version = await this.#loadVersion(trx, ownerId, approval.plan_version_id as Id);
+          if (version.planId !== planId || version.candidateId !== candidateId) {
+            throw new IdempotencyMismatchError();
+          }
+          return version;
+        }
+
         await this.#ensureAvailabilityRow(trx, ownerId, 'UTC', DEFAULT_PREFS);
         const availabilityRow = await trx
           .selectFrom('user_availability_version')
@@ -591,18 +625,6 @@ export class PgPlanningStore implements PlanningStore {
             request.expectedAvailabilityVersion,
             availabilityRow.version,
           );
-        }
-
-        const approval = await trx
-          .selectFrom('schedule_approval')
-          .selectAll()
-          .where('owner_id', '=', ownerId)
-          .where('idempotency_key', '=', request.idempotencyKey)
-          .executeTakeFirst();
-        if (approval !== undefined) {
-          const version = await this.#loadVersion(trx, ownerId, approval.plan_version_id as Id);
-          if (version.planId !== planId) throw new IdempotencyMismatchError();
-          return version;
         }
 
         const planRow = await trx
@@ -629,8 +651,9 @@ export class PgPlanningStore implements PlanningStore {
         if (candidateRow === undefined) throw new NotFoundError('plan candidate', candidateId);
 
         const availability = await this.#readAvailability(trx, ownerId);
-        const commitments = await this.#commitmentsRaw(trx, ownerId);
+        const commitments = await this.#commitmentsRange(trx, ownerId, planRow.horizon_start, planRow.horizon_end);
         const blocks = await this.#listActiveBlocks(trx, ownerId);
+        await this.#assertPlanningTasksLive(trx, ownerId, request.planningTaskIds);
         const estimates = await this.#loadEstimates(trx, ownerId, request.taskIds);
         const candidate = this.#mapCandidate(candidateRow);
         const snapshot: ApprovalSnapshot = {
@@ -667,8 +690,11 @@ export class PgPlanningStore implements PlanningStore {
               planVersionIds.map((row) => row.id),
             )
             .where('status', '<>', 'superseded')
+            .where('start_at', '>=', now)
             .execute();
         }
+
+        await ensurePlannerTaskIdentity(trx, ownerId, request.identityTasks);
 
         const seqRow = await trx
           .selectFrom('plan_version')
@@ -904,15 +930,66 @@ export class PgPlanningStore implements PlanningStore {
     };
   }
 
-  async #commitmentsRaw(db: Db | Trx, ownerId: Id): Promise<Commitment[]> {
-    const rows = await db
+  #commitmentsRangeBuilder(db: Db | Trx, ownerId: Id, from: string, to: string) {
+    return db
       .selectFrom('commitment_event')
       .selectAll()
       .where('owner_id', '=', ownerId)
       .where('deleted_at', 'is', null)
+      .where((eb) =>
+        eb.or([
+          eb('rrule', 'is not', null),
+          eb.and([
+            eb('start_at', '<', new Date(to)),
+            eb('end_at', '>', new Date(from)),
+          ]),
+        ]),
+      );
+  }
+
+  async #commitmentsRange(
+    db: Db | Trx,
+    ownerId: Id,
+    from: Date | string,
+    to: Date | string,
+  ): Promise<Commitment[]> {
+    const fromIso = toInstant(from);
+    const toIso = toInstant(to);
+    const rows = await this.#commitmentsRangeBuilder(db, ownerId, fromIso, toIso)
       .orderBy('start_at', 'asc')
+      .orderBy('id', 'asc')
       .execute();
     return rows.map((row) => this.#mapCommitment(row));
+  }
+
+  #expandOrThrow(commitment: Commitment, from: string, to: string) {
+    try {
+      return expandOccurrences(commitment, from, to);
+    } catch (error) {
+      if (error instanceof InvalidRRuleError) {
+        throw new ValidationFailedError([{ path: '/rrule', message: error.message }]);
+      }
+      throw error;
+    }
+  }
+
+  async #assertPlanningTasksLive(
+    trx: Trx,
+    ownerId: Id,
+    taskIds: readonly Id[],
+  ): Promise<void> {
+    if (taskIds.length === 0) return;
+    const rows = await trx
+      .selectFrom('task')
+      .select(['id', 'status_cache', 'deleted_at'])
+      .where('owner_id', '=', ownerId)
+      .where('id', 'in', taskIds)
+      .execute();
+    for (const row of rows) {
+      if (row.deleted_at !== null || row.status_cache === 'done') {
+        throw new PlanConflictError(`scoped task is no longer schedulable: ${row.id}`);
+      }
+    }
   }
 
   async #listActiveBlocks(db: Db | Trx, ownerId: Id): Promise<ApprovedBlock[]> {

@@ -46,7 +46,13 @@ import type {
   PlanningStore,
   PreparedApproval,
 } from './planning-ports.js';
-import { clipOccurrence, expandOccurrences, MAX_OCCURRENCES, parseRRule } from './rrule.js';
+import {
+  clipOccurrence,
+  expandOccurrences,
+  InvalidRRuleError,
+  MAX_OCCURRENCES,
+  parseRRule,
+} from './rrule.js';
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -176,7 +182,15 @@ function commitmentInstants(
 ): ScheduleInput['commitments'] {
   const result: ScheduleInput['commitments'] = [];
   for (const commitment of commitments) {
-    const occurrences = expandOccurrences(commitment, horizon.start, horizon.end);
+    let occurrences;
+    try {
+      occurrences = expandOccurrences(commitment, horizon.start, horizon.end);
+    } catch (error) {
+      if (error instanceof InvalidRRuleError) {
+        throw new ValidationFailedError([{ path: '/commitments', message: error.message }]);
+      }
+      throw error;
+    }
     for (const occurrence of occurrences) {
       const clipped = clipOccurrence(occurrence, horizon.start, horizon.end);
       if (clipped !== null) result.push({ start: clipped.startAt, end: clipped.endAt });
@@ -210,7 +224,8 @@ interface AssemblyInput {
   readonly horizon: PlanHorizon;
   readonly availability: Availability;
   readonly commitments: readonly Commitment[];
-  readonly tasks: readonly Task[];
+  readonly planningTasks: readonly Task[];
+  readonly extraTasks: readonly Task[];
   readonly estimates: ReadonlyMap<string, EstimateRecord>;
   readonly activeBlocks: readonly ApprovedBlock[];
   readonly currentPlanId?: Id | undefined;
@@ -223,12 +238,28 @@ interface Assembled {
   readonly lockedBlocks: SchedulerBlock[];
 }
 
+function futureMinutes(blocks: readonly ApprovedBlock[], taskId: Id, now: string): number {
+  const nowMs = Date.parse(now);
+  let minutes = 0;
+  for (const block of blocks) {
+    if (block.taskId !== taskId) continue;
+    if (Date.parse(block.startAt) < nowMs) continue;
+    minutes += Math.max(0, (Date.parse(block.endAt) - Date.parse(block.startAt)) / MINUTE_MS);
+  }
+  return minutes;
+}
+
 function assembleScheduleInput(source: AssemblyInput): Assembled {
   const { horizon, availability } = source;
   const lockedBlocks: SchedulerBlock[] = [];
   const existingBlocks: SchedulerBlock[] = [];
   const historyBlocks: SchedulerBlock[] = [];
   const nowMs = Date.parse(source.now);
+  const allTasks = new Map<string, Task>();
+  for (const task of [...source.planningTasks, ...source.extraTasks]) {
+    allTasks.set(task.id, task);
+  }
+  const planningIds = new Set(source.planningTasks.map((task) => task.id));
 
   for (const block of source.activeBlocks) {
     const schedulerBlock: SchedulerBlock = {
@@ -237,7 +268,10 @@ function assembleScheduleInput(source: AssemblyInput): Assembled {
       end: block.endAt,
     };
     if (Date.parse(block.startAt) < nowMs) {
+      // 06 §7.1: history is a fact. The scheduler consumes it through
+      // existingBlocks (its documented history channel), not lockedBlocks.
       historyBlocks.push(schedulerBlock);
+      existingBlocks.push(schedulerBlock);
     } else if (source.currentPlanId !== undefined && block.planId === source.currentPlanId) {
       existingBlocks.push(schedulerBlock);
     } else {
@@ -246,30 +280,43 @@ function assembleScheduleInput(source: AssemblyInput): Assembled {
   }
 
   const riskLevel = riskLevelOf(availability);
-  const tasks: ScheduleInput['tasks'] = source.tasks.map((task) => {
+  const tasks: ScheduleInput['tasks'] = [...allTasks.values()].map((task) => {
     const estimate = source.estimates.get(task.id);
-    if (estimate === undefined) {
+    const inPlanningSet = planningIds.has(task.id);
+    if (estimate === undefined && inPlanningSet) {
       throw new ValidationFailedError([
         { path: `/scope/${task.id}`, message: `missing_estimate for task ${task.id}` },
       ]);
     }
-    const required = riskLevel === 'p90' ? estimate.p90Min : estimate.p50Min;
-    const remainingMin = Math.max(
-      0,
-      required - historyMinutes(source.activeBlocks, task.id, source.now),
-    );
+    const effective = estimate ?? { p50Min: 0, p90Min: 0 };
+    const required = riskLevel === 'p90' ? effective.p90Min : effective.p50Min;
+    const remainingMin = inPlanningSet
+      ? Math.max(0, required - historyMinutes(source.activeBlocks, task.id, source.now))
+      : futureMinutes(source.activeBlocks, task.id, source.now);
+    // Non-splittable work is one block equal to the remaining requirement.
+    // Out-of-scope locked/history tasks are not re-placed; keep their bounds
+    // permissive so auditing the already-approved blocks cannot invent an H5.
+    const splittable = inPlanningSet ? task.splittable : true;
+    const minSessionMin = !inPlanningSet
+      ? 1
+      : splittable
+        ? (task.session?.minMinutes ?? DEFAULT_MIN_SESSION_MIN)
+        : remainingMin;
+    const maxSessionMin = !inPlanningSet
+      ? 100_000
+      : splittable
+        ? (task.session?.maxMinutes ?? DEFAULT_MAX_SESSION_MIN)
+        : remainingMin;
     return {
       id: task.id,
       ...(task.dueAt === undefined ? {} : { dueAt: task.dueAt }),
-      estimate: { p50Min: estimate.p50Min, p90Min: estimate.p90Min },
+      estimate: { p50Min: effective.p50Min, p90Min: effective.p90Min },
       remainingMin,
-      splittable: task.splittable,
-      minSessionMin: task.session?.minMinutes ?? DEFAULT_MIN_SESSION_MIN,
-      maxSessionMin: task.session?.maxMinutes ?? DEFAULT_MAX_SESSION_MIN,
+      splittable,
+      minSessionMin,
+      maxSessionMin,
       priority: task.priority,
-      dependsOn: task.dependsOn.filter((dependency) =>
-        source.tasks.some((candidate) => candidate.id === dependency),
-      ),
+      dependsOn: task.dependsOn.filter((dependency) => allTasks.has(dependency)),
     };
   });
 
@@ -354,16 +401,17 @@ export class PlanService {
     validateHorizon(horizon);
     const now = this.#clock.now();
     const availability = await this.#store.getAvailability(ownerId);
-    const scope = await this.#resolveScope(ownerId, request.scope, 'create');
-    const taskIds = await this.#taskClosureIds(ownerId, scope.taskIds);
+    const planning = await this.#planningTaskSet(ownerId, request.scope, 'create');
     const activeBlocks = await this.#store.listActiveBlocks(ownerId);
-    const lockedTaskIds = activeBlocks
-      .filter((block) => Date.parse(block.startAt) >= Date.parse(now))
-      .map((block) => block.taskId);
-    const allTaskIds = [...new Set([...taskIds, ...lockedTaskIds])];
-    const tasks = await this.#loadTasks(ownerId, allTaskIds, 'create');
-    const estimates = await this.#store.getCurrent(ownerId, allTaskIds);
-    const commitments = await this.#commitmentsInRange(ownerId, horizon);
+    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids, now);
+    const allTasks = [...planning.tasks, ...extras.tasks];
+    const taskIds = allTasks.map((task) => task.id);
+    const estimates = await this.#store.getCurrent(ownerId, taskIds);
+    const commitments = await this.#store.listCommitmentsInRange(
+      ownerId,
+      horizon.start,
+      horizon.end,
+    );
     const seed = deriveSeed({
       kind: 'create',
       ownerId,
@@ -371,7 +419,7 @@ export class PlanService {
       horizon,
       timeZone: availability.timeZone,
       availabilityVersion: availability.version,
-      taskIds: [...allTaskIds].sort(),
+      taskIds: [...taskIds].sort(),
     });
     const assembled = assembleScheduleInput({
       now,
@@ -379,21 +427,21 @@ export class PlanService {
       horizon,
       availability,
       commitments,
-      tasks,
+      planningTasks: planning.tasks,
+      extraTasks: extras.tasks,
       estimates,
-      activeBlocks,
+      activeBlocks: extras.blocks,
       seed,
     });
     const policies = request.policies;
     const result = generate(assembled.input, policies === undefined ? {} : { policies });
-    const plan = await this.#store.createPlan(ownerId, {
+    return this.#store.createPlan(ownerId, {
       scope: request.scope,
       horizon,
       timeZone: availability.timeZone,
       availabilityVersion: availability.version,
       candidates: result.candidates.map(mapCandidate),
     });
-    return plan;
   }
 
   async getPlan(ownerId: Id, id: Id): Promise<Plan> {
@@ -417,19 +465,19 @@ export class PlanService {
     if (candidate === null) throw new NotFoundError('plan candidate', candidateId);
     const now = this.#clock.now();
     const availability = await this.#store.getAvailability(ownerId);
-    const scope = await this.#resolvePlanScope(ownerId, plan);
-    const scopeIds = new Set(scope.taskIds);
+    const planning = await this.#planningTaskSet(ownerId, plan.scope, 'conflict');
     blocks.forEach((block, index) => {
-      this.#preflightBlock(block, index, plan.horizon, scopeIds, '/blocks');
+      this.#preflightBlock(block, index, plan.horizon, planning.ids, '/blocks');
     });
     const activeBlocks = await this.#store.listActiveBlocks(ownerId);
-    const lockedTaskIds = activeBlocks
-      .filter((block) => Date.parse(block.startAt) >= Date.parse(now))
-      .map((block) => block.taskId);
-    const allTaskIds = [...new Set([...scope.taskIds, ...lockedTaskIds])];
-    const tasks = await this.#loadTasks(ownerId, allTaskIds, 'create');
-    const estimates = await this.#store.getCurrent(ownerId, allTaskIds);
-    const commitments = await this.#commitmentsInRange(ownerId, plan.horizon);
+    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids, now);
+    const taskIds = [...planning.tasks, ...extras.tasks].map((task) => task.id);
+    const estimates = await this.#store.getCurrent(ownerId, taskIds);
+    const commitments = await this.#store.listCommitmentsInRange(
+      ownerId,
+      plan.horizon.start,
+      plan.horizon.end,
+    );
     const seed = deriveSeed({ kind: 'preview', planId, horizon: plan.horizon });
     const assembled = assembleScheduleInput({
       now,
@@ -437,9 +485,10 @@ export class PlanService {
       horizon: plan.horizon,
       availability,
       commitments,
-      tasks,
+      planningTasks: planning.tasks,
+      extraTasks: extras.tasks,
       estimates,
-      activeBlocks,
+      activeBlocks: extras.blocks,
       currentPlanId: planId,
       seed,
     });
@@ -448,9 +497,7 @@ export class PlanService {
       riskLevel: riskLevelOf(availability),
       historyBlocks: assembled.historyBlocks,
     });
-    const publicFindings = findings.filter(
-      (finding) => !finding.code.startsWith('H0_'),
-    );
+    const publicFindings = findings.filter((finding) => !finding.code.startsWith('H0_'));
     if (publicFindings.length !== findings.length) {
       throw new ValidationFailedError([
         {
@@ -469,10 +516,10 @@ export class PlanService {
   /**
    * Approve a candidate in one PostgreSQL transaction (08 §2.4 steps 1-6).
    *
-   * M3 performs no provider writes: task/provider state is not synced during
-   * approval, so this operation never returns `503 provider_unavailable` in
-   * practice even though the public contract keeps the status for a future
-   * provider-sync phase.
+   * No provider HTTP runs inside the transaction. Scope, provider tasks and
+   * estimates are read before the TX; inside it only PostgreSQL state is
+   * re-checked. M3 performs no provider writes, so approval never returns
+   * `503 provider_unavailable` in practice.
    */
   async approve(
     ownerId: Id,
@@ -486,20 +533,17 @@ export class PlanService {
     const candidate = await this.#store.getCandidate(ownerId, planId, candidateId);
     if (candidate === null) throw new NotFoundError('plan candidate', candidateId);
     const now = this.#clock.now();
-    const scope = await this.#resolvePlanScope(ownerId, plan);
+    const planning = await this.#planningTaskSet(ownerId, plan.scope, 'conflict');
     const blocks = editedBlocks ?? candidate.blocks;
     if (editedBlocks !== undefined) {
-      const scopeIds = new Set(scope.taskIds);
       blocks.forEach((block, index) => {
-        this.#preflightBlock(block, index, plan.horizon, scopeIds, '/editedBlocks');
+        this.#preflightBlock(block, index, plan.horizon, planning.ids, '/editedBlocks');
       });
     }
     const activeBlocks = await this.#store.listActiveBlocks(ownerId);
-    const lockedTaskIds = activeBlocks
-      .filter((block) => Date.parse(block.startAt) >= Date.parse(now))
-      .map((block) => block.taskId);
-    const taskIds = [...new Set([...scope.taskIds, ...lockedTaskIds])];
-    await this.#loadTasks(ownerId, taskIds, 'conflict');
+    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids, now);
+    const allTasks = [...planning.tasks, ...extras.tasks];
+    const taskIds = allTasks.map((task) => task.id);
 
     return this.#store.approve(ownerId, planId, candidateId, {
       expectedAvailabilityVersion,
@@ -508,16 +552,18 @@ export class PlanService {
       now,
       ...(editedBlocks === undefined ? {} : { editedBlocks }),
       taskIds,
-      prepare: async (snapshot) => {
-        const freshTasks = await this.#reloadTasksOrConflict(ownerId, taskIds);
-        return this.#prepareApproval(snapshot, {
+      planningTaskIds: [...planning.ids] as Id[],
+      identityTasks: allTasks,
+      prepare: async (snapshot) =>
+        this.#prepareApproval(snapshot, {
           now,
-          tasks: freshTasks,
+          planningTasks: planning.tasks,
+          extraTasks: extras.tasks,
           chosenBlocks: blocks,
-          scopeIds: new Set(scope.taskIds),
-          prefix: '/editedBlocks',
-        });
-      },
+          planningIds: planning.ids,
+          preflight: editedBlocks !== undefined,
+          preflightPrefix: '/editedBlocks',
+        }),
     });
   }
 
@@ -528,16 +574,16 @@ export class PlanService {
     }
     const now = this.#clock.now();
     const availability = await this.#store.getAvailability(ownerId);
-    const scope = await this.#resolvePlanScope(ownerId, plan);
-    const requestedTaskIds = await this.#taskClosureIds(ownerId, scope.taskIds);
+    const planning = await this.#planningTaskSet(ownerId, plan.scope, 'conflict');
     const activeBlocks = await this.#store.listActiveBlocks(ownerId);
-    const lockedTaskIds = activeBlocks
-      .filter((block) => Date.parse(block.startAt) >= Date.parse(now))
-      .map((block) => block.taskId);
-    const taskIds = [...new Set([...requestedTaskIds, ...lockedTaskIds])];
-    const tasks = await this.#loadTasks(ownerId, taskIds, 'conflict');
+    const extras = await this.#resolveExtras(ownerId, activeBlocks, planning.ids, now);
+    const taskIds = [...planning.tasks, ...extras.tasks].map((task) => task.id);
     const estimates = await this.#store.getCurrent(ownerId, taskIds);
-    const commitments = await this.#commitmentsInRange(ownerId, plan.horizon);
+    const commitments = await this.#store.listCommitmentsInRange(
+      ownerId,
+      plan.horizon.start,
+      plan.horizon.end,
+    );
     const seed = deriveSeed({
       kind: 'regenerate',
       ownerId,
@@ -553,19 +599,15 @@ export class PlanService {
       horizon: plan.horizon,
       availability,
       commitments,
-      tasks,
+      planningTasks: planning.tasks,
+      extraTasks: extras.tasks,
       estimates,
-      activeBlocks,
+      activeBlocks: extras.blocks,
       currentPlanId: planId,
       seed,
     });
-    const policies = [
-      ...new Set(plan.candidates.map((candidate) => candidate.policy)),
-    ];
-    const result = generate(
-      assembled.input,
-      policies.length === 0 ? {} : { policies },
-    );
+    const policies = [...new Set(plan.candidates.map((candidate) => candidate.policy))];
+    const result = generate(assembled.input, policies.length === 0 ? {} : { policies });
     return this.#store.replaceCandidates(
       ownerId,
       planId,
@@ -580,21 +622,25 @@ export class PlanService {
     snapshot: ApprovalSnapshot,
     context: {
       now: string;
-      tasks: readonly Task[];
+      planningTasks: readonly Task[];
+      extraTasks: readonly Task[];
       chosenBlocks: readonly PlanBlock[];
-      scopeIds: ReadonlySet<string>;
-      prefix: string;
+      planningIds: ReadonlySet<string>;
+      preflight: boolean;
+      preflightPrefix: string;
     },
   ): Promise<PreparedApproval> {
-    context.chosenBlocks.forEach((block, index) => {
-      this.#preflightBlock(
-        block,
-        index,
-        snapshot.plan.horizon,
-        context.scopeIds,
-        context.prefix,
-      );
-    });
+    if (context.preflight) {
+      context.chosenBlocks.forEach((block, index) => {
+        this.#preflightBlock(
+          block,
+          index,
+          snapshot.plan.horizon,
+          context.planningIds,
+          context.preflightPrefix,
+        );
+      });
+    }
     const seed = deriveSeed({
       kind: 'approve',
       planId: snapshot.plan.id,
@@ -607,7 +653,8 @@ export class PlanService {
       horizon: snapshot.plan.horizon,
       availability: snapshot.availability,
       commitments: snapshot.commitments,
-      tasks: context.tasks,
+      planningTasks: context.planningTasks,
+      extraTasks: context.extraTasks,
       estimates: snapshot.estimates,
       activeBlocks: snapshot.blocks,
       currentPlanId: snapshot.plan.id as Id,
@@ -618,11 +665,16 @@ export class PlanService {
       riskLevel: riskLevelOf(snapshot.availability),
       historyBlocks: assembled.historyBlocks,
     });
-    const preflight = findings.filter((finding) => finding.code.startsWith('H0_'));
-    if (preflight.length > 0) {
+    const preflightFindings = findings.filter((finding) => finding.code.startsWith('H0_'));
+    if (preflightFindings.length > 0) {
+      if (!context.preflight) {
+        throw new PlanConflictError(
+          'the approved candidate references a task that is no longer schedulable',
+        );
+      }
       throw new ValidationFailedError(
-        preflight.map((finding) => ({
-          path: context.prefix,
+        preflightFindings.map((finding) => ({
+          path: context.preflightPrefix,
           message: finding.message,
         })),
       );
@@ -658,13 +710,20 @@ export class PlanService {
     return { goalId, taskIds: resolved.taskIds as Id[] };
   }
 
-  async #resolvePlanScope(ownerId: Id, plan: Plan): Promise<ResolvedScope> {
-    return this.#resolveScope(ownerId, plan.scope, 'conflict');
-  }
-
-  async #taskClosureIds(ownerId: Id, seedIds: readonly Id[]): Promise<Id[]> {
+  /**
+   * One planning task set for generation, preflight and approval:
+   * scope seeds + dependency closure, minus done/deleted tasks. It is
+   * recomputed deterministically from the persisted scope on every call.
+   */
+  async #planningTaskSet(
+    ownerId: Id,
+    scope: PlanScope,
+    mode: 'create' | 'conflict',
+  ): Promise<{ ids: ReadonlySet<string>; tasks: readonly Task[] }> {
+    const resolved = await this.#resolveScope(ownerId, scope, mode);
     const seen = new Set<string>();
-    const queue = [...seedIds];
+    const tasks = new Map<string, Task>();
+    const queue = [...resolved.taskIds];
     const missing: Id[] = [];
     while (queue.length > 0) {
       const id = queue.shift();
@@ -675,25 +734,11 @@ export class PlanService {
         missing.push(id);
         continue;
       }
+      if (task.status === 'done') continue;
+      tasks.set(task.id, task);
       for (const dependency of task.dependsOn) {
         if (!seen.has(dependency)) queue.push(dependency);
       }
-    }
-    if (missing.length > 0) {
-      throw new ValidationFailedError(
-        missing.map((id) => ({ path: `/scope/${id}`, message: `unknown task ${id}` })),
-      );
-    }
-    return [...seen] as Id[];
-  }
-
-  async #loadTasks(ownerId: Id, ids: readonly Id[], mode: 'create' | 'conflict'): Promise<Task[]> {
-    const tasks: Task[] = [];
-    const missing: Id[] = [];
-    for (const id of ids) {
-      const task = await this.#tasks.get(ownerId, id);
-      if (task === null) missing.push(id);
-      else tasks.push(task);
     }
     if (missing.length > 0) {
       if (mode === 'create') {
@@ -703,20 +748,44 @@ export class PlanService {
       }
       throw new PlanConflictError(`scoped task vanished: ${missing.join(', ')}`);
     }
-    return tasks;
+    return { ids: new Set(tasks.keys()), tasks: [...tasks.values()] };
   }
 
-  async #reloadTasksOrConflict(ownerId: Id, ids: readonly Id[]): Promise<Task[]> {
-    return this.#loadTasks(ownerId, ids, 'conflict');
-  }
-
-  async #commitmentsInRange(ownerId: Id, horizon: PlanHorizon): Promise<Commitment[]> {
-    const page = await this.#store.listCommitments(ownerId, {
-      from: horizon.start,
-      to: horizon.end,
-      limit: 100,
-    });
-    return page.items;
+  async #resolveExtras(
+    ownerId: Id,
+    activeBlocks: readonly ApprovedBlock[],
+    planningIds: ReadonlySet<string>,
+    now: string,
+  ): Promise<{ tasks: readonly Task[]; blocks: readonly ApprovedBlock[] }> {
+    const ids = [
+      ...new Set(
+        activeBlocks
+          .map((block) => block.taskId)
+          .filter((id) => !planningIds.has(id)),
+      ),
+    ];
+    const tasks: Task[] = [];
+    const missing = new Set<string>();
+    for (const id of ids) {
+      const task = await this.#tasks.get(ownerId, id);
+      if (task === null) missing.add(id);
+      else tasks.push(task);
+    }
+    const nowMs = Date.parse(now);
+    const futureMissing = activeBlocks.filter(
+      (block) => missing.has(block.taskId) && Date.parse(block.startAt) >= nowMs,
+    );
+    if (futureMissing.length > 0) {
+      throw new PlanConflictError(
+        `locked task vanished: ${[...new Set(futureMissing.map((block) => block.taskId))].join(', ')}`,
+      );
+    }
+    return {
+      tasks,
+      // History of a vanished task is not schedulable state; drop that fact
+      // rather than failing every future plan for the owner.
+      blocks: activeBlocks.filter((block) => !missing.has(block.taskId)),
+    };
   }
 
   #preflightBlock(
@@ -762,7 +831,7 @@ export function validateRRule(rrule: string): void {
     // before they are persisted.
     parseRRule(rrule);
   } catch (error) {
-    if (error instanceof RangeError) {
+    if (error instanceof InvalidRRuleError) {
       throw new ValidationFailedError([{ path: '/rrule', message: error.message }]);
     }
     throw error;

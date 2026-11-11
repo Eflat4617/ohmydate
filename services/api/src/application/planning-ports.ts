@@ -84,6 +84,10 @@ export interface ApprovalRequest {
   readonly editedBlocks?: readonly PlanBlock[] | undefined;
   /** Scope task ids (plus locked-block tasks) whose current estimates to load. */
   readonly taskIds: readonly Id[];
+  /** Planning task set (scope + dependency closure minus done tasks). */
+  readonly planningTaskIds: readonly Id[];
+  /** Provider tasks whose planner identity rows must exist before block insert. */
+  readonly identityTasks: readonly import('@ohmydate/domain').Task[];
   prepare(snapshot: ApprovalSnapshot): Promise<PreparedApproval>;
 }
 
@@ -95,6 +99,8 @@ export interface PlanningStore extends EstimateRepository {
     expectedVersion: number,
   ): Promise<Availability>;
   listCommitments(ownerId: Id, query: CommitmentListQuery): Promise<CommitmentPage>;
+  /** Unpaged, owner-scoped, range-prefiltered rows for planning assembly. */
+  listCommitmentsInRange(ownerId: Id, from: string, to: string): Promise<Commitment[]>;
   createCommitment(ownerId: Id, input: CommitmentCreate): Promise<Commitment>;
   updateCommitment(
     ownerId: Id,

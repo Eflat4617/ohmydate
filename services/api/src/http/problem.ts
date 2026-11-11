@@ -10,6 +10,11 @@ import {
   type ValidationIssue,
 } from '@ohmydate/domain';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import {
+  AvailabilityChangedError,
+  ConstraintViolationError,
+  PlanConflictError,
+} from '../application/planning-errors.js';
 
 export interface ProblemInit {
   readonly status: number;
@@ -163,6 +168,36 @@ export function domainErrorToProblem(error: DomainError): ProblemInit {
     };
   }
   return { status: 500, code: 'internal_error', title: 'Internal error', detail: error.message };
+}
+
+/** Planning-domain results that are storable per 08 §1 (409/422; 412 is not). */
+export function planningErrorToProblem(error: unknown): ProblemInit | null {
+  if (error instanceof ConstraintViolationError) {
+    return {
+      status: 422,
+      code: 'constraint_violation',
+      title: 'Plan violates scheduling constraints',
+      detail: 'the candidate cannot be approved as-is',
+      violations: error.violations,
+    };
+  }
+  if (error instanceof PlanConflictError) {
+    return {
+      status: 409,
+      code: 'illegal_transition',
+      title: 'State conflict',
+      detail: error.message,
+    };
+  }
+  if (error instanceof AvailabilityChangedError) {
+    return {
+      status: 412,
+      code: 'availability_changed',
+      title: 'Availability changed',
+      detail: error.message,
+    };
+  }
+  return null;
 }
 
 export interface FastifyValidationError {

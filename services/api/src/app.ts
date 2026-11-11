@@ -360,16 +360,6 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         error.message,
       );
     }
-    if (error instanceof RangeError) {
-      return sendProblem(
-        request,
-        reply,
-        422,
-        'validation_failed',
-        'Domain validation failed',
-        error.message,
-      );
-    }
     if (error instanceof ProblemError) {
       if (error.headers !== undefined) {
         for (const [name, value] of Object.entries(error.headers)) reply.header(name, value);

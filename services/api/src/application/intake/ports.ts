@@ -6,7 +6,7 @@ import type {
   IntakeInput,
   TaskTemplate,
 } from '@ohmydate/contracts';
-import type { Id, Instant, IntakeState } from '@ohmydate/domain';
+import type { Id, Instant, IntakeState, Task } from '@ohmydate/domain';
 import type { JsonValue } from '../../db/types.js';
 
 export interface IntakeSessionRecord {
@@ -233,6 +233,17 @@ export interface IntakeApprovalStore {
     readonly expectedSessionVersion: number;
     readonly outboxId: Id;
     readonly holderToken: string;
+    /** Provider-authoritative tasks whose planner identity rows must be written. */
+    readonly identityTasks: readonly Task[];
+    /** FU-45: one current estimate row per approved task, written in CTX. */
+    readonly estimates: readonly {
+      readonly id: Id;
+      readonly taskId: Id;
+      readonly p50Min: number;
+      readonly p90Min: number;
+      readonly method: 'template' | 'llm';
+      readonly confidence: number;
+    }[];
   }): Promise<IntakeSessionRecord>;
 }
 
