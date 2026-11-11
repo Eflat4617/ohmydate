@@ -146,17 +146,17 @@ export class PlannerClient {
     const { error, response } = await this.client.POST('/auth/login', {
       body: { email, password },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
   }
 
   async logout(): Promise<void> {
     const { error, response } = await this.client.POST('/auth/logout');
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
   }
 
   async getMe(): Promise<User> {
     const { data, error, response } = await this.client.GET('/me');
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty user response');
     this.remember('user', data.version, response.headers.get('ETag'));
     return data;
@@ -166,7 +166,7 @@ export class PlannerClient {
     const { data, error, response } = await this.client.GET('/projects', {
       params: { query: pageQuery(options) },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty project page');
     for (const project of data.items) {
       this.remember(`project:${project.id}`, project.version);
@@ -179,7 +179,7 @@ export class PlannerClient {
       body: { title },
       params: { header: { 'Idempotency-Key': idempotencyKey } },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty project response');
     this.remember(`project:${data.id}`, data.version, response.headers.get('ETag'));
     return data;
@@ -200,7 +200,7 @@ export class PlannerClient {
     if (options.limit !== undefined) query.limit = options.limit;
 
     const { data, error, response } = await this.client.GET('/tasks', { params: { query } });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty task page');
     for (const task of data.items) this.remember(`task:${task.id}`, task.version);
     return data;
@@ -211,7 +211,7 @@ export class PlannerClient {
       params: { path: { id: taskId } },
       ...(options.fresh === true ? { cache: 'no-store' as RequestCache } : {}),
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty task response');
     this.remember(`task:${data.id}`, data.version, response.headers.get('ETag'));
     return data;
@@ -222,7 +222,7 @@ export class PlannerClient {
       body: input,
       params: { header: { 'Idempotency-Key': idempotencyKey } },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty task response');
     this.remember(`task:${data.id}`, data.version, response.headers.get('ETag'));
     return data;
@@ -242,7 +242,7 @@ export class PlannerClient {
       },
       body: patch,
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty task response');
     this.remember(`task:${data.id}`, data.version, response.headers.get('ETag'));
     return data;
@@ -260,7 +260,7 @@ export class PlannerClient {
         header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
       },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty task response');
     this.remember(`task:${data.id}`, data.version, response.headers.get('ETag'));
     return data;
@@ -274,7 +274,7 @@ export class PlannerClient {
         header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
       },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     this.versions.delete(`task:${taskId}`);
   }
 
@@ -294,7 +294,7 @@ export class PlannerClient {
     const { data, error, response } = await this.client.GET('/availability', {
       ...(options.fresh === true ? { cache: 'no-store' as RequestCache } : {}),
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty availability response');
     this.remember('availability', data.version, response.headers.get('ETag'));
     return data;
@@ -315,7 +315,7 @@ export class PlannerClient {
       },
       body: input,
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty availability response');
     this.remember('availability', data.version, response.headers.get('ETag'));
     return data;
@@ -333,7 +333,7 @@ export class PlannerClient {
     const { data, error, response } = await this.client.GET('/commitments', {
       params: { query },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty commitment page');
     for (const commitment of data.items) {
       this.remember(`commitment:${commitment.id}`, commitment.version);
@@ -346,7 +346,7 @@ export class PlannerClient {
       body: input,
       params: { header: { 'Idempotency-Key': idempotencyKey } },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty commitment response');
     this.remember(`commitment:${data.id}`, data.version);
     return data;
@@ -366,7 +366,7 @@ export class PlannerClient {
       },
       body: patch,
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty commitment response');
     this.remember(`commitment:${data.id}`, data.version);
     return data;
@@ -384,7 +384,7 @@ export class PlannerClient {
         header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
       },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     this.versions.delete(`commitment:${commitmentId}`);
   }
 
@@ -393,7 +393,7 @@ export class PlannerClient {
       body: input,
       params: { header: { 'Idempotency-Key': idempotencyKey } },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty plan response');
     this.remember(`plan:${data.id}`, data.version, response.headers.get('ETag'));
     return data;
@@ -404,7 +404,7 @@ export class PlannerClient {
       params: { path: { id: planId } },
       ...(options.fresh === true ? { cache: 'no-store' as RequestCache } : {}),
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty plan response');
     this.remember(`plan:${data.id}`, data.version, response.headers.get('ETag'));
     return data;
@@ -428,7 +428,7 @@ export class PlannerClient {
         body: { blocks },
       },
     );
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty preview response');
     return data;
   }
@@ -453,7 +453,7 @@ export class PlannerClient {
         body: editedBlocks === undefined ? {} : { editedBlocks },
       },
     );
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty plan version response');
     return data;
   }
@@ -470,7 +470,7 @@ export class PlannerClient {
         header: { 'If-Match': etagForVersion(version), 'Idempotency-Key': idempotencyKey },
       },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty plan response');
     this.remember(`plan:${data.id}`, data.version, response.headers.get('ETag'));
     return data;
@@ -502,7 +502,7 @@ export class PlannerClient {
       body: { input },
       params: { header: { 'Idempotency-Key': idempotencyKey } },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(
         response.status,
@@ -522,7 +522,7 @@ export class PlannerClient {
       params: { path: { id: sessionId } },
       ...(options.fresh === true ? { cache: 'no-store' as RequestCache } : {}),
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(response.status, 'unknown', 'Empty intake session response');
     }
@@ -544,7 +544,7 @@ export class PlannerClient {
       },
       body: { answers: [...answers] },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(response.status, 'unknown', 'Empty intake session response');
     }
@@ -569,7 +569,7 @@ export class PlannerClient {
         body: confirmation,
       },
     );
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(response.status, 'unknown', 'Empty intake session response');
     }
@@ -581,7 +581,7 @@ export class PlannerClient {
     const { data, error, response } = await this.client.GET('/intake-sessions/{id}/draft', {
       params: { path: { id: sessionId } },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(response.status, 'unknown', 'Empty draft response');
     }
@@ -603,7 +603,7 @@ export class PlannerClient {
       },
       body: patch,
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(response.status, 'unknown', 'Empty draft response');
     }
@@ -627,7 +627,7 @@ export class PlannerClient {
         },
       },
     );
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(response.status, 'unknown', 'Empty intake session response');
     }
@@ -677,7 +677,7 @@ export class PlannerClient {
     const { data, error, response } = await this.client.GET('/templates', {
       params: { query },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(response.status, 'unknown', 'Empty template page');
     }
@@ -688,7 +688,7 @@ export class PlannerClient {
     const { data, error, response } = await this.client.GET('/templates/{id}', {
       params: { path: { id: templateId } },
     });
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(response.status, 'unknown', 'Empty template response');
     }
@@ -715,7 +715,7 @@ export class PlannerClient {
             ? await this.client.POST('/intake-sessions/{id}:cancel', { params })
             : await this.client.POST('/intake-sessions/{id}:manual', { params });
     const { data, error, response } = result;
-    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
       throw new ApiError(response.status, 'unknown', 'Empty intake session response');
     }

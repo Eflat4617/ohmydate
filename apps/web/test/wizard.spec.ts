@@ -6,6 +6,7 @@ import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { defineComponent } from 'vue';
 import {
+  ApiError,
   createPlannerClient,
   newActionId,
   plannerClient,
@@ -67,7 +68,7 @@ async function mountWizard(sessionId?: string) {
 
 async function createSession(title: string): Promise<IntakeSession> {
   return createPlannerClient().createIntakeSession(
-    { deliverable: title, dueAt: '2026-11-30T18:00:00.000Z' },
+    { title, dueAt: '2026-11-30T18:00:00.000Z' },
     newActionId('create'),
   );
 }
@@ -122,9 +123,7 @@ describe('planning wizard scenario A (new type)', () => {
     });
 
     const questionText = wrapper.text();
-    expect(questionText).not.toContain('What exactly should be produced as the deliverable?');
     expect(questionText).not.toContain('When is it due?');
-    expect(questionText).not.toContain('Is anything required before you can start?');
     expect(wrapper.findAll('.question-card').length).toBeGreaterThan(0);
     expect(wrapper.findAll('.question-card').length).toBeLessThanOrEqual(5);
 
@@ -499,6 +498,68 @@ describe('offline and accessibility', () => {
       expect((control.text().trim().length > 0) || control.attributes('aria-label') !== undefined).toBe(true);
     }
     expect(wrapper.findAll('h1').length).toBe(1);
+    wrapper.unmount();
+  });
+});
+
+describe('FU-40 input mapping and transient approval retry', () => {
+  it('sends title and description without the legacy deliverable/prerequisites mapping', async () => {
+    const { wrapper } = await mountWizard();
+    await wrapper.get('#wizard-title').setValue('FU-40 제목');
+    await wrapper.get('#wizard-description').setValue('설명 본문');
+    await wrapper.get('form').trigger('submit');
+
+    await waitFor(() => {
+      expect(wrapper.text()).toContain('3단계 · 질문');
+    });
+
+    const stored = [...mockDb.intakeSessions.values()][0];
+    if (stored === undefined) throw new Error('expected a stored intake session');
+    expect(stored.input.title).toBe('FU-40 제목');
+    expect(stored.input.description).toBe('설명 본문');
+    expect(stored.input.deliverable).toBeUndefined();
+    expect(stored.input.prerequisites).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it('waits for Retry-After and retries approval with the same idempotency key', async () => {
+    const session = await createSession('승인 재시도 과제');
+    const manual = await createPlannerClient().enterManualIntakeMode(
+      session.id,
+      newActionId('manual'),
+      session.version,
+    );
+    const retryable = new ApiError(
+      409,
+      'approval_in_progress',
+      'Approval in progress',
+      undefined,
+      0,
+    );
+    const spy = vi
+      .spyOn(plannerClient, 'approveIntakeDraft')
+      .mockRejectedValueOnce(retryable)
+      .mockResolvedValueOnce({
+        ...manual,
+        state: 'feasibility_check',
+        version: manual.version + 1,
+      });
+    const { wrapper } = await mountWizard(manual.id);
+    await waitFor(() => {
+      expect(wrapper.text()).toContain('4단계 · 단계 초안');
+    });
+
+    await button(wrapper, '초안 승인').trigger('click');
+    await waitFor(() => {
+      expect(wrapper.text()).toContain('초안 승인 완료');
+    });
+
+    expect(spy).toHaveBeenCalledTimes(2);
+    const firstKey = spy.mock.calls[0]?.[1];
+    const secondKey = spy.mock.calls[1]?.[1];
+    expect(firstKey).toBeDefined();
+    expect(secondKey).toBe(firstKey);
+    spy.mockRestore();
     wrapper.unmount();
   });
 });

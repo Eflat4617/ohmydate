@@ -315,11 +315,7 @@ async function approve(): Promise<void> {
     dirty.value = false;
     stale.value = false;
     message.value = `Approved plan version ${version.seq}.`;
-    queryClient.setQueryData(['plan', activePlan.id], {
-      ...activePlan,
-      status: 'active',
-      currentVersionId: version.id,
-    });
+    await planQuery.refetch();
   } catch (cause) {
     if (cause instanceof ApiError) {
       if (cause.status === 412 && cause.code === 'availability_changed') {
@@ -327,6 +323,7 @@ async function approve(): Promise<void> {
         stale.value = true;
         message.value = '';
         actionError.value = null;
+        await planQuery.refetch();
         return;
       }
       if (cause.status === 422 && cause.code === 'constraint_violation') {

@@ -103,6 +103,8 @@ const currentStep = computed<number>(() => {
 
 const terminal = computed(() => currentStep.value === 0);
 const paused = computed(() => session.value?.state === 'needs_input');
+const canPause = computed(() => session.value?.state === 'clarification');
+const canResume = computed(() => session.value?.state === 'needs_input');
 function hasLocalValue(field: IntakeField): boolean {
   const value = session.value?.input[field];
   if (value === undefined || value === null) return false;
@@ -234,17 +236,21 @@ function toInstant(value: string): string | undefined {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
 }
 
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
+}
+
 function buildInput(): IntakeInput {
-  const input: IntakeInput = { deliverable: form.title.trim() };
+  const input: IntakeInput = { title: form.title.trim() };
   const dueAt = toInstant(form.dueAt);
   if (dueAt !== undefined) input.dueAt = dueAt;
   const context = [
     form.description.trim(),
     form.fileName.trim().length > 0 ? `file: ${form.fileName.trim()}` : '',
   ].filter((part) => part.length > 0);
-  const only = context[0];
-  if (context.length === 1 && only !== undefined) input.prerequisites = only;
-  else if (context.length > 1) input.prerequisites = context;
+  if (context.length > 0) input.description = context.join('\n').slice(0, 4_000);
   return input;
 }
 
@@ -325,11 +331,10 @@ async function answer(question: PlannedQuestion, action: 'answer' | 'skip' | 'id
     }
     if (typeof value === 'string') value = value.trim();
   }
-  const payload: IntakeAnswerInput = {
-    questionKey: question.field,
-    action,
-    ...(value === undefined ? {} : { value }),
-  };
+  const payload: IntakeAnswerInput =
+    action === 'answer'
+      ? { questionKey: question.field, action: 'answer', value: value as string | number | boolean }
+      : { questionKey: question.field, action };
   const scope = `intake:${current.id}:answers:${question.field}`;
   const actionToken = actions.begin(scope, payload, samePayload, current.version);
   const updated = await run(() =>
@@ -471,9 +476,26 @@ async function approve(): Promise<void> {
   }
   const scope = `intake:${current.id}:approve`;
   const action = actions.begin(scope, { id: current.id }, samePayload, current.version);
-  const updated = await run(() =>
-    plannerClient.approveIntakeDraft(current.id, action.key, current.version),
-  );
+  const updated = await run(async () => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await plannerClient.approveIntakeDraft(current.id, action.key, current.version);
+      } catch (cause) {
+        if (
+          cause instanceof ApiError &&
+          cause.status === 409 &&
+          cause.code === 'approval_in_progress' &&
+          attempt < 5
+        ) {
+          const seconds = Math.max(cause.retryAfterSeconds ?? 1, 0);
+          liveMessage.value = `승인 처리 중입니다. ${seconds}초 후 다시 시도합니다.`;
+          await delay(seconds * 1_000);
+          continue;
+        }
+        throw cause;
+      }
+    }
+  });
   if (updated === undefined) return;
   actions.settle(scope, action);
   applySession(updated);
@@ -516,14 +538,14 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
       </div>
       <div v-if="session !== null && !terminal && currentStep < 5" class="wizard-controls">
         <button
-          v-if="!paused"
+          v-if="canPause"
           type="button"
           :disabled="!canMutate"
           @click="sessionAction('pause')"
         >
           일시정지
         </button>
-        <button v-else type="button" :disabled="!canMutate" @click="sessionAction('resume')">
+        <button v-else-if="canResume" type="button" :disabled="!canMutate" @click="sessionAction('resume')">
           재개
         </button>
         <button type="button" class="danger" :disabled="!canMutate" @click="sessionAction('cancel')">
@@ -614,7 +636,7 @@ const nextMilestone = '다음 단계: 일정안(곧 지원)';
         id="wizard-description"
         v-model="form.description"
         rows="3"
-        maxlength="2000"
+        maxlength="4000"
         :disabled="creating || !offline.mutationsEnabled"
       ></textarea>
 

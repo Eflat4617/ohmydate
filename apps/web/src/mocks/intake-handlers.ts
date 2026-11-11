@@ -175,7 +175,7 @@ function buildDraft(session: MockIntakeSession, db: MockDb): DecompositionDraft 
     session.templateId === undefined ? undefined : db.templates.get(session.templateId);
   const steps =
     template === undefined
-      ? genericSteps(String(session.input.deliverable ?? ''))
+      ? genericSteps(String(session.input.title ?? ''))
       : cloneSteps(template.steps);
   const candidate: DomainDraft = {
     steps,
@@ -197,7 +197,7 @@ function detectType(
   input: IntakeInput,
 ): { classification: 'new' | 'similar'; templateId?: string; confidence: number; reasons: string[]; missingRequired: IntakeField[] } {
   const missing = missingRequired(input);
-  const title = String(input.deliverable ?? '');
+  const title = String(input.title ?? '');
   const template =
     db.templates.get(REPORT_TEMPLATE_ID) ??
     [...db.templates.values()].find((candidate) => candidate.name.includes('보고서'));
@@ -262,6 +262,9 @@ function applyAnswers(
     if (answer.action === 'answer' && !isProvided(answer.value)) {
       return problem(422, 'validation_failed', 'answer action requires a value');
     }
+    if (answer.action !== 'answer' && 'value' in answer) {
+      return problem(422, 'validation_failed', `${answer.action} action must not carry a value`);
+    }
   }
 
   const answeredFields = new Set(answers.map((answer) => answer.questionKey));
@@ -271,7 +274,7 @@ function applyAnswers(
       questionKey: answer.questionKey,
       ...(question === undefined ? {} : { questionText: question.prompt }),
       action: answer.action,
-      ...(answer.value === undefined ? {} : { value: answer.value }),
+      ...(answer.action === 'answer' ? { value: answer.value } : {}),
       skipped: answer.action !== 'answer',
     };
   });
@@ -368,6 +371,29 @@ export function createIntakeHandlers(db: MockDb) {
       const input = body === undefined ? null : asRecord(body.input);
       if (input === null || Object.keys(input).length === 0) {
         return rememberDomainResult(db, token, 422, 'validation_failed', 'input is required');
+      }
+      const title = input['title'];
+      if (typeof title !== 'string' || title.trim().length === 0 || title.length > 200) {
+        return rememberDomainResult(
+          db,
+          token,
+          422,
+          'validation_failed',
+          'title is required and must be 1-200 characters',
+        );
+      }
+      const description = input['description'];
+      if (
+        description !== undefined &&
+        (typeof description !== 'string' || description.length > 4_000)
+      ) {
+        return rememberDomainResult(
+          db,
+          token,
+          422,
+          'validation_failed',
+          'description must be a string of at most 4000 characters',
+        );
       }
       const now = new Date().toISOString();
       const detected = detectType(db, input as IntakeInput);
@@ -672,8 +698,14 @@ export function createIntakeHandlers(db: MockDb) {
         );
       }
       if (action === 'pause') {
-        if (session.state === 'needs_input') {
-          return rememberDomainResult(db, token, 409, 'illegal_transition', 'session is already paused');
+        if (session.state !== 'clarification') {
+          return rememberDomainResult(
+            db,
+            token,
+            409,
+            'illegal_transition',
+            `cannot pause in state ${session.state}`,
+          );
         }
         session.pausedFrom = session.state;
         session.state = 'needs_input';
@@ -681,7 +713,7 @@ export function createIntakeHandlers(db: MockDb) {
         if (session.state !== 'needs_input') {
           return rememberDomainResult(db, token, 409, 'illegal_transition', 'session is not paused');
         }
-        session.state = session.pausedFrom ?? 'clarification';
+        session.state = 'clarification';
         delete session.pausedFrom;
       } else if (action === 'cancel') {
         const advanced = transition(session.state, { type: 'user_cancelled' });
