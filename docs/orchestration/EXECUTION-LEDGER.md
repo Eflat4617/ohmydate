@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 21:40 | **사용자 허가: 막힘/돌파구 작업에 Fable 5.2 medium 워커 사용 가능**(MODEL_BINDINGS §10). 호출 확인 FABLE_OK(modelUsage claude-fable-5-2). start-claude-worker.sh에 MODEL/EFFORT 변수 추가 | 사용자 메시지, claude -p probe | orchestrator |
 | 2026-11-11 21:30 | **사용자 선택(가속): 복잡한 백엔드도 Opus 구현**(MODEL_BINDINGS §9). M5-02 DeepSeek 워커(ctx_3c0c0ba78df2, 미커밋 FU-59 3파일) 중지 → 같은 worktree에서 Opus 5.5 xhigh로 재개. M6 병행·세션 6개·미리 써보기는 미선택 | AskUserQuestion | orchestrator |
 | 2026-11-11 20:33 | UI-POLISH worker_done(9c22a02, Opus): 토큰·공통 부품·레이아웃, MSW axe 14→0/130, 신규 실 API axe E2E, E2E 22/22 → Sol 리뷰(ctx_ae4617faec28). 스크린샷 확인 중 영어 문구·분 단위 원값 발견 → **사용자 결정: 한국어로 변경** → UI-I18N(Opus, UI-POLISH 병합 직후) | 스크린샷, AskUserQuestion | orchestrator |
 | 2026-11-11 20:20 | **FU-41R-1 REQUEST_CHANGES (Sol medium)**: 독립 감사 1,200 재계획 보존·상한 위반 0, 가능 후보 2,595건 H1–H8 위반 0. MEDIUM — 의존 관계 추가 시 선행 작업 영구 고정으로 기존 '의존 변경 가능성' 속성 깨짐(CI 실패). **06 §7 영향 범위 계약 확정**(트리거 작업 + 변경된 의존 간선 양 끝 + 후행, 부족 시 선행 단계 확장). 수정 1/2 | reviews/FU-41R-1.md | orchestrator |

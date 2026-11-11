@@ -83,3 +83,10 @@
 - 적용: 동시성·트랜잭션·멱등·지출/과금·보안 경계·스케줄러 핵심 로직이 들어가는 **백엔드 구현 Task는 Opus 5.5 xhigh**(`start-claude-worker.sh`; 기존 worktree 재개는 `worker-start --agent claude --model claude-opus-5-5 --effort xhigh`). 계약 정의·마이그레이션 단순 추가·테스트 인프라·문서·소규모 정리 Task는 DeepSeek v4.1 flash high 유지.
 - 첫 적용: M5-02(진행 중이던 DeepSeek 워커 중지, 같은 worktree에서 Opus로 재개; 미커밋 FU-59 부분 작업은 Opus가 검토 후 유지/폐기).
 - 리뷰는 Sol 6.1 medium(구현자와 모델 계열 분리) 유지.
+
+## 10. 돌파구 워커 = Fable 5.2 medium (2026-11-11 21:40, 사용자 허가)
+- 사용자: "진행하다 막히거나, 돌파구가 필요한 작업이 존재한다면, 워커로 fable 5.2 midium 을 호출해도 좋아."
+- 확인: `claude -p --model claude-fable-5-2 --effort medium` → 응답 FABLE_OK, modelUsage = claude-fable-5-2.
+- 적용 조건(하나라도): ① 같은 Task가 BLOCKED(수정 2회 후 HIGH 잔존)되어 재설계가 필요할 때 ② 같은 계열 결함이 리뷰에서 2회 이상 반복될 때(예: 사용자 전환 경합, 마스킹 회귀) ③ 설계 선택지가 불분명해 원인 분석·대안 설계가 먼저 필요할 때.
+- 실행: `worker-start --agent claude --model claude-fable-5-2 --effort medium`(기존 worktree) 또는 `start-claude-worker.sh`에 MODEL/EFFORT 지정. 역할은 재설계/돌파 구현(또는 원인 분석 문서) — 리뷰는 계속 Sol 6.1 medium(구현자와 계열 분리; Sol 한도 시 Opus).
+- 원장에 "돌파구 워커 사용 사유"를 기록.
