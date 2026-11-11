@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 23:28 | FU-58F(Fable) 질문: 공유 dist 제거(호출별 private build workspace)로 DistLock이 죽은 코드가 됨 → **orchestrator 결정 A**: DistLock + 그 대상 테스트 5개 삭제 허용(대상 코드 자체를 제거하는 경우; 살아 있는 동작의 단언은 1:1 유지/이전, 삭제 테스트별 대체 테스트 매핑 보고 조건). 리뷰에서 매핑 검증 | msg_a3c4111317d5 | orchestrator |
 | 2026-11-11 23:20 | **FU-61-58R-1 REQUEST_CHANGES**: HIGH 1 — dist lock 3자 경합에서 두 lease 동시 보유(FU-57R2와 같은 결함 계열 2회째). readyz(FU-61)는 통과. **돌파구 워커 Fable 5.2 medium 투입**(MODEL_BINDINGS §10 조건②: 같은 계열 결함 반복) — 공유 dist 제거(호출별 고유 빌드 디렉터리) 우선 검토 | reviews/FU-61-58R-1.md, packets/FU-58F.md | orchestrator |
 | 2026-11-11 23:15 | FU-61+58 worker_done(f550340+0251dc8) → Sol medium 리뷰 시작. **M5-03 시작**(Opus xhigh: 재계획 제안 UI + 내 패턴 + E2E-5R + FU-63). **FU-62 시작**(Opus xhigh: 설명·위반 코드 additive 계약 + 한국어 렌더) | packets/M5-03.md, FU-62.md, FU-61-58R.md | orchestrator |
 | 2026-11-11 22:58 | **UI-I18N merged 413f14b** (UI-I18NR APPROVE, Sol). 병합 후 M5-01 신규 코드 2개 한국어 문구 + 고정 코드 수 19→21 보정 cb505fa. **M5-02 merged e2d1eec** (M5-02R2 APPROVE, Sol; LOW → FU-63). 통합 CI 1601 pass + web 240(1차는 공유 DB 마이그레이션 rollback 30s 타임아웃 2건, 재실행 통과 → FU-58 범위) | reviews/UI-I18NR.md, M5-02R2.md | orchestrator |
