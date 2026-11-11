@@ -76,30 +76,46 @@ function percentile(sorted: number[], fraction: number): number {
  *
  * 1. We measure `process.cpuUsage()` (user + system) rather than wall time, so
  *    time spent queued off-CPU is not charged to the generator.
- * 2. Before every measured run we run a small, fixed calibration generate in
- *    the same process and divide the measured CPU time by the calibration
- *    time. The factor is expressed in milliseconds via CALIBRATION_REF_MS,
- *    the calibration fixture's CPU time on the 06 §11 reference machine, so
- *    the asserted quantity is still "milliseconds of generator work on the
+ * 2. Before every measured run we run a fixed CPU-bound workload that is
+ *    completely independent of packages/scheduler (a deterministic array
+ *    hash), and divide the measured CPU time by that calibration time. The
+ *    factor is expressed in milliseconds via CALIBRATION_REF_MS, so the
+ *    asserted quantity is still "milliseconds of generator work on the
  *    reference machine" and the 500 ms threshold is unchanged. A uniformly
  *    slower/loaded host scales both the calibration and the workload, leaving
- *    the normalised value stable; a real generator regression does not.
+ *    the normalised value stable. Because the calibration never calls the
+ *    generator, a real scheduler-wide regression still doubles the numerator
+ *    without moving the denominator (see the negative self-test below); this
+ *    is why the calibration must not be another `generate()` call, which
+ *    would cancel exactly the slowdown the gate exists to catch.
+ *
+ * CALIBRATION_REF_MS was measured on this host on 2026-11-12 under a quiet
+ * run: 31 samples of `runCalibrationWorkload()` gave p50=10.543 ms,
+ * p95=10.629 ms, min=10.515 ms, max=14.713 ms; 10.5 ms is the rounded median.
+ * Re-measure it if the calibration workload itself changes.
  *
  * Best-of-N batches is kept (the load average is printed for diagnosis only)
  * so a burst of contention can be outlived without weakening the target.
  */
-const CALIBRATION_REF_MS = 8;
+const CALIBRATION_REF_MS = 10.5;
 
-function buildCalibrationInput(): ScheduleInput {
-  const input = buildLargeInput();
-  return {
-    ...input,
-    horizon: { start: '2026-11-09T00:00:00Z', end: '2026-11-12T00:00:00Z' },
-    tasks: input.tasks.slice(0, 10).map((task) => ({
-      ...task,
-      dueAt: '2026-11-12T00:00:00Z',
-    })),
-  };
+const CALIBRATION_VALUES = new Uint32Array(4096);
+for (let index = 0; index < CALIBRATION_VALUES.length; index += 1) {
+  CALIBRATION_VALUES[index] =
+    (Math.imul(index + 1, 2654435761) ^ 0x9e3779b9) >>> 0;
+}
+
+let calibrationSink = 0;
+
+function runCalibrationWorkload(): void {
+  let hash = 0x811c9dc5;
+  for (let round = 0; round < 3000; round += 1) {
+    for (let index = 0; index < CALIBRATION_VALUES.length; index += 1) {
+      hash ^= CALIBRATION_VALUES[index]!;
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+  }
+  calibrationSink = (calibrationSink + hash) >>> 0;
 }
 
 function cpuMillisSince(start: NodeJS.CpuUsage): number {
@@ -107,10 +123,33 @@ function cpuMillisSince(start: NodeJS.CpuUsage): number {
   return (usage.user + usage.system) / 1000;
 }
 
+function measureCalibratedCpuMillis(work: () => void): number {
+  const calibrationStart = process.cpuUsage();
+  runCalibrationWorkload();
+  const calibrationMs = Math.max(0.001, cpuMillisSince(calibrationStart));
+
+  const start = process.cpuUsage();
+  work();
+  const cpuMs = cpuMillisSince(start);
+  return (cpuMs / calibrationMs) * CALIBRATION_REF_MS;
+}
+
+/** Busy-wait on CPU for at least `targetMs`, independent of packages/scheduler. */
+function burnCpuMillis(targetMs: number): void {
+  const start = process.cpuUsage();
+  let hash = calibrationSink;
+  while (cpuMillisSince(start) < targetMs) {
+    for (let index = 0; index < 65536; index += 1) {
+      hash ^= CALIBRATION_VALUES[index & (CALIBRATION_VALUES.length - 1)]!;
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+  }
+  calibrationSink = (calibrationSink + hash) >>> 0;
+}
+
 describe('generator performance (06 §11)', () => {
   it('50 tasks / 14 days / 3 policies p95 < 500 ms (calibrated CPU time)', () => {
     const input = buildLargeInput();
-    const calibration = buildCalibrationInput();
     const batchSize = 20;
     const maxBatches = 5;
     const batchP95: number[] = [];
@@ -119,18 +158,16 @@ describe('generator performance (06 §11)', () => {
       const timings: number[] = [];
 
       for (let run = 0; run < batchSize; run += 1) {
-        const calibrationStart = process.cpuUsage();
-        generate(calibration, { policies: ['balanced'], seed: calibration.seed });
-        const calibrationMs = Math.max(0.001, cpuMillisSince(calibrationStart));
-
-        const start = process.cpuUsage();
-        const result = generate(input, {
-          policies: ['front_loaded', 'balanced', 'focus_blocked'],
-          seed: input.seed,
-        });
-        const cpuMs = cpuMillisSince(start);
-        timings.push((cpuMs / calibrationMs) * CALIBRATION_REF_MS);
-        expect(result.candidates.map((candidate) => candidate.feasible)).toEqual([
+        let result: ReturnType<typeof generate> | undefined;
+        timings.push(
+          measureCalibratedCpuMillis(() => {
+            result = generate(input, {
+              policies: ['front_loaded', 'balanced', 'focus_blocked'],
+              seed: input.seed,
+            });
+          }),
+        );
+        expect(result?.candidates.map((candidate) => candidate.feasible)).toEqual([
           true,
           true,
           true,
@@ -163,5 +200,44 @@ describe('generator performance (06 §11)', () => {
         `generator perf assertion skipped (SCHED_PERF_ASSERT not set); best p95=${Math.min(...batchP95).toFixed(1)}ms.`,
       );
     }
+  }, 180000);
+
+  it('calibrated p95 roughly doubles under a uniform +100% workload slowdown (negative self-test)', () => {
+    // Feed the same measurement function the gate uses a fixed CPU workload
+    // that cannot vary with GC/JIT in the scheduler, so this self-test is
+    // deterministic. If the calibration were another copy of the workload
+    // under test (the bug this guards against), both samples would scale
+    // together and the ratio below would stay at 1x.
+    const baseline: number[] = [];
+    const slowed: number[] = [];
+
+    for (let run = 0; run < 12; run += 1) {
+      baseline.push(
+        measureCalibratedCpuMillis(() => {
+          burnCpuMillis(25);
+        }),
+      );
+      slowed.push(
+        measureCalibratedCpuMillis(() => {
+          // Exactly +100% of the measured workload.
+          burnCpuMillis(25);
+          burnCpuMillis(25);
+        }),
+      );
+    }
+
+    const baselineP95 = percentile(
+      [...baseline].sort((a, b) => a - b),
+      0.95,
+    );
+    const slowedP95 = percentile(
+      [...slowed].sort((a, b) => a - b),
+      0.95,
+    );
+    console.log(
+      `slowdown self-test: baseline p95=${baselineP95.toFixed(1)}ms doubled p95=${slowedP95.toFixed(1)}ms ratio=${(slowedP95 / baselineP95).toFixed(2)}x`,
+    );
+    expect(slowedP95).toBeGreaterThan(baselineP95 * 1.7);
+    expect(slowedP95).toBeLessThan(baselineP95 * 2.3);
   }, 180000);
 });
