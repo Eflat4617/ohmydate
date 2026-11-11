@@ -1,6 +1,14 @@
 import type { VueWrapper } from '@vue/test-utils';
 import { HttpResponse, http } from 'msw';
-import { newActionId, plannerClient, type Plan, type Task, type User, type WorkSession } from '../src/api';
+import {
+  newActionId,
+  plannerClient,
+  type IntakeSession,
+  type Plan,
+  type Task,
+  type User,
+  type WorkSession,
+} from '../src/api';
 import NotificationsPanel from '../src/components/NotificationsPanel.vue';
 import { setLayoutClock } from '../src/layout/clock';
 import {
@@ -524,7 +532,65 @@ const CASES: OwnerSwitchCase[] = [
       await buttonByText(wrapper, 'AI 계획 도움 켜기').trigger('click');
     },
   },
+  {
+    name: 'wizard: save the edited draft',
+    covers: ['src/views/PlanningWizardView.vue'],
+    path: async () => `/plan/${(await draftSession()).id}`,
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await vi.waitFor(() => expect(wrapper.find('#step-title-s1').exists()).toBe(true));
+      await wrapper.get('#step-title-s1').setValue('A-private-step');
+    },
+    hold: { method: 'PATCH', path: '/draft' },
+    act: async (wrapper) => {
+      await buttonByText(wrapper, '초안 저장').trigger('click');
+    },
+  },
+  {
+    name: 'wizard: approve the draft',
+    covers: ['src/views/PlanningWizardView.vue'],
+    path: async () => `/plan/${(await draftSession()).id}`,
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await vi.waitFor(() => expect(wrapper.find('#step-title-s1').exists()).toBe(true));
+    },
+    hold: { method: 'POST', path: '/draft:approve' },
+    act: async (wrapper) => {
+      await buttonByText(wrapper, '초안 승인').trigger('click');
+    },
+  },
+  {
+    name: 'wizard: switch to manual mode',
+    covers: ['src/views/PlanningWizardView.vue'],
+    path: async () =>
+      `/plan/${(await plannerClient.createIntakeSession({ title: '보고서 작성', dueAt: '2026-11-30T18:00:00.000Z' }, newActionId('create'))).id}`,
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await vi.waitFor(() => expect(wrapper.findAll('button').some((item) => item.text().includes('직접 작성으로 전환'))).toBe(true));
+    },
+    hold: { method: 'POST', path: ':manual' },
+    act: async (wrapper) => {
+      await buttonByText(wrapper, '직접 작성으로 전환').trigger('click');
+    },
+  },
 ];
+
+/** A planning session that already has a step draft (every question answered "모름"). */
+async function draftSession(): Promise<IntakeSession> {
+  let current = await plannerClient.createIntakeSession(
+    { title: '논문 요약', dueAt: '2026-11-30T18:00:00.000Z' },
+    newActionId('create'),
+  );
+  for (let round = 0; round < 5 && (current.questions ?? []).length > 0; round += 1) {
+    current = await plannerClient.answerIntakeQuestions(
+      current.id,
+      (current.questions ?? []).map((question) => ({ questionKey: question.field, action: 'idk' as const })),
+      newActionId('answers'),
+      current.version,
+    );
+  }
+  return current;
+}
 
 function seedTask(): Task {
   const task = [...mockDb.tasks.values()].find((item) => item.title === SEED_TASK_TITLE);

@@ -25,6 +25,7 @@ import {
 } from '../domain/draftValidation';
 import { useOfflineStore } from '../stores/offline';
 import { useAuthStore } from '../stores/auth';
+import { runOwnerBound, type OwnerScope } from '../session/ownerBound';
 import {
   captureOwnerBinding,
   isOwnerBindingCurrent,
@@ -247,15 +248,18 @@ function applySession(updated: IntakeSession): void {
   if (updated.manual && updated.error === undefined) llmIssue.value = null;
 }
 
+/** Re-read the session for the current owner; a read that outlives the owner caches nothing. */
 async function refreshSession(): Promise<IntakeSession | null> {
   if (sessionId.value.length === 0) return null;
-  try {
-    const fresh = await plannerClient.getIntakeSession(sessionId.value, { fresh: true });
-    queryClient.setQueryData(['intake', fresh.id], fresh);
-    return fresh;
-  } catch {
-    return null;
-  }
+  const outcome = await runOwnerBound(
+    async (owner) => {
+      const fresh = await owner.wait(plannerClient.getIntakeSession(sessionId.value, { fresh: true }));
+      queryClient.setQueryData(['intake', fresh.id], fresh);
+      return fresh;
+    },
+    { onError: () => undefined },
+  );
+  return outcome.status === 'done' ? outcome.value : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -693,21 +697,25 @@ function handleError(cause: unknown): void {
   mutationError.value = errorMessage(cause, t('wizard.requestFailed'));
 }
 
-async function run<T>(operation: () => Promise<T>): Promise<T | undefined> {
+/**
+ * Every non-AI wizard mutation goes through here, under the owner who started
+ * it (ADR-023). If the signed-in user changes meanwhile the answer is dropped:
+ * the caller gets `undefined`, exactly as for a failure, and shows nothing.
+ */
+async function run<T>(operation: (owner: OwnerScope) => Promise<T>): Promise<T | undefined> {
   if (!offline.mutationsEnabled) {
     mutationError.value = t('wizard.offlineMutation');
     return undefined;
   }
   busyCount.value += 1;
   mutationError.value = null;
-  try {
-    return await operation();
-  } catch (cause) {
-    handleError(cause);
-    return undefined;
-  } finally {
-    busyCount.value -= 1;
-  }
+  const outcome = await runOwnerBound(async (owner) => owner.wait(operation(owner)), {
+    onError: handleError,
+    onSettled: () => {
+      busyCount.value -= 1;
+    },
+  });
+  return outcome.status === 'done' ? outcome.value : undefined;
 }
 
 function toInstant(value: string): string | undefined {
@@ -946,46 +954,53 @@ async function saveDraft(): Promise<void> {
 
 async function approve(): Promise<void> {
   if (busy.value) return;
-  const saved = await persistDraft();
-  if (!saved) return;
-  const current = session.value;
-  if (current === null || current.state !== 'decomposition') {
-    await refreshSession();
-    return;
-  }
-  const scope = `intake:${current.id}:approve`;
-  const action = actions.begin(scope, { id: current.id }, samePayload, current.version);
-  const updated = await run(async () => {
-    for (let attempt = 0; ; attempt += 1) {
-      // The view may have been disposed, or the connection may have dropped
-      // during Retry-After. Never send the delayed request offline; leaving the
-      // action unsettled preserves the same idempotency key for the next retry.
-      if (disposed) return undefined;
-      if (!offline.mutationsEnabled) {
-        mutationError.value = t('wizard.approveOffline');
-        return undefined;
-      }
-      try {
-        return await plannerClient.approveIntakeDraft(current.id, action.key, current.version);
-      } catch (cause) {
-        if (
-          cause instanceof ApiError &&
-          cause.status === 409 &&
-          cause.code === 'approval_in_progress' &&
-          attempt < 5
-        ) {
-          const seconds = Math.max(cause.retryAfterSeconds ?? 1, 0);
-          liveMessage.value = t('wizard.approveRetrying', { seconds });
-          await delay(seconds * 1_000);
-          continue;
-        }
-        throw cause;
-      }
+  // One owner for the whole chain (save the draft, then approve it): a user
+  // switch in between must not send the approval with the next user's session.
+  await runOwnerBound(async (owner) => {
+    const saved = await owner.wait(persistDraft());
+    if (!saved) return;
+    const current = session.value;
+    if (current === null || current.state !== 'decomposition') {
+      await owner.wait(refreshSession());
+      return;
     }
+    const scope = `intake:${current.id}:approve`;
+    const action = actions.begin(scope, { id: current.id }, samePayload, current.version);
+    const updated = await owner.wait(
+      run(async (bound: OwnerScope) => {
+        for (let attempt = 0; ; attempt += 1) {
+          // The view may have been disposed, or the connection may have dropped
+          // during Retry-After. Never send the delayed request offline; leaving the
+          // action unsettled preserves the same idempotency key for the next retry.
+          if (disposed) return undefined;
+          if (!offline.mutationsEnabled) {
+            mutationError.value = t('wizard.approveOffline');
+            return undefined;
+          }
+          try {
+            return await bound.wait(plannerClient.approveIntakeDraft(current.id, action.key, current.version));
+          } catch (cause) {
+            bound.rethrowIfStale(cause);
+            if (
+              cause instanceof ApiError &&
+              cause.status === 409 &&
+              cause.code === 'approval_in_progress' &&
+              attempt < 5
+            ) {
+              const seconds = Math.max(cause.retryAfterSeconds ?? 1, 0);
+              liveMessage.value = t('wizard.approveRetrying', { seconds });
+              await bound.wait(delay(seconds * 1_000));
+              continue;
+            }
+            throw cause;
+          }
+        }
+      }),
+    );
+    if (updated === undefined) return;
+    actions.settle(scope, action);
+    applySession(updated);
   });
-  if (updated === undefined) return;
-  actions.settle(scope, action);
-  applySession(updated);
 }
 
 async function reloadDraft(): Promise<void> {

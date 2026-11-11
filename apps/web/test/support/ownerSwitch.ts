@@ -259,7 +259,15 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
   let switched = false;
   let journalForB = 0;
   let expected: SwitchReference = { live: [], dialogs: 0 };
-  let baseline: { route: string; live: string[]; dialogs: number; keys: string[]; dom: string; toasts: number } | null = null;
+  let baseline: {
+    route: string;
+    live: string[];
+    dialogs: number;
+    keys: string[];
+    dom: string;
+    toasts: number;
+    cache: string;
+  } | null = null;
 
   // One stage at a time: a previous stage's interception must not be wrapped again.
   if (vi.isMockFunction(globalThis.fetch)) vi.mocked(globalThis.fetch).mockRestore();
@@ -323,6 +331,12 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
       keys: storageKeys(),
       dom: document.body.textContent ?? '',
       toasts: toasts.toasts.length,
+      cache: queryClient
+        .getQueryCache()
+        .getAll()
+        .map((query) => `${query.queryHash}@${query.state.dataUpdatedAt}`)
+        .sort()
+        .join('|'),
     };
   }
 
@@ -505,6 +519,7 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
           now.route !== before.route ||
           now.dialogs !== before.dialogs ||
           now.dom !== before.dom ||
+          now.cache !== before.cache ||
           now.keys.join('|') !== before.keys.join('|') ||
           now.live.join('|') !== before.live.join('|');
         expect(changed, 'the action had no observable effect for its own owner').toBe(true);
