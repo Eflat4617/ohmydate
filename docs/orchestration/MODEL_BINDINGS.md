@@ -77,3 +77,9 @@
 - **추가 지시(2026-11-11 18:20):** "직접 써보기 전에 opus가 화면들의 디자인을 통일해서 다듬는데 낫겠다. 대신, 이번 수정라운드가 끝나고 deepseek의 능력이 의심되면 바로 opus로 전환해".
   - UI-POLISH(디자인 통일) Task를 M4 종료 후, GU-1 전에 Opus 5.5 xhigh 워커로 실행.
   - M4-UId 수정 라운드 1(DeepSeek) 결과가 리뷰에서 다시 HIGH이거나 수정이 지시를 제대로 따르지 못하면(능력 의심) 남은 M4-UId 작업은 수정 예산 소모 여부와 무관하게 **즉시 Opus 5.5 xhigh 워커로 전환**(같은 worktree, 새 Task).
+
+## 9. 복잡한 백엔드 구현 워커 = Opus 5.5 xhigh (2026-11-11 21:30, 사용자 선택)
+- 사용자: 가속 방법 중 "① 복잡한 백엔드도 Opus"만 선택(M6 병행·세션 6개·미리 써보기는 선택하지 않음 → 기존대로).
+- 적용: 동시성·트랜잭션·멱등·지출/과금·보안 경계·스케줄러 핵심 로직이 들어가는 **백엔드 구현 Task는 Opus 5.5 xhigh**(`start-claude-worker.sh`; 기존 worktree 재개는 `worker-start --agent claude --model claude-opus-5-5 --effort xhigh`). 계약 정의·마이그레이션 단순 추가·테스트 인프라·문서·소규모 정리 Task는 DeepSeek v4.1 flash high 유지.
+- 첫 적용: M5-02(진행 중이던 DeepSeek 워커 중지, 같은 worktree에서 Opus로 재개; 미커밋 FU-59 부분 작업은 Opus가 검토 후 유지/폐기).
+- 리뷰는 Sol 6.1 medium(구현자와 모델 계열 분리) 유지.
