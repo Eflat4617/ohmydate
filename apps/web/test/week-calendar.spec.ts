@@ -96,3 +96,42 @@ describe('week calendar across the repeated fall-back hour', () => {
     expect(commitment.attributes('aria-label')).toContain('Crossing commitment');
   });
 });
+
+describe('week calendar scroll region keyboard access', () => {
+  it('stays focusable and labelled when the week has no blocks', () => {
+    const wrapper = mount(WeekCalendar, {
+      attachTo: document.body,
+      props: { timeZone: 'UTC', weekStart: '2026-11-09', blocks: [] },
+    });
+
+    expect(wrapper.findAll('.calendar-block')).toHaveLength(0);
+    const region = wrapper.get('.week-calendar');
+    expect(region.attributes('role')).toBe('region');
+    expect(region.attributes('aria-label')).toBe('Week calendar');
+    expect(region.attributes('tabindex')).toBe('0');
+    (region.element as HTMLElement).focus();
+    expect(document.activeElement).toBe(region.element);
+    wrapper.unmount();
+  });
+
+  it('does not edit blocks when arrow keys reach the region itself', async () => {
+    const wrapper = mount(WeekCalendar, {
+      attachTo: document.body,
+      props: {
+        timeZone: 'UTC',
+        weekStart: '2026-11-09',
+        editable: true,
+        blocks: [
+          { taskId: TASK_ID, startAt: '2026-11-11T09:00:00.000Z', endAt: '2026-11-11T10:00:00.000Z' },
+        ],
+      },
+    });
+
+    const region = wrapper.get('.week-calendar');
+    await region.trigger('keydown', { key: 'ArrowDown' });
+    await region.trigger('keydown', { key: 'ArrowUp' });
+    expect(wrapper.emitted('update:blocks')).toBeUndefined();
+    expect(wrapper.get('.calendar-block').attributes('tabindex')).toBeUndefined();
+    wrapper.unmount();
+  });
+});

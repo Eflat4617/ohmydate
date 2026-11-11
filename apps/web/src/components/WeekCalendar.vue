@@ -302,7 +302,8 @@ defineExpose({ dates, positionedBlocks });
 </script>
 
 <template>
-  <section class="week-calendar" aria-label="Week calendar">
+  <!-- The section is the horizontal scroller; keep it keyboard-reachable even for an empty week (axe scrollable-region-focusable). -->
+  <section class="week-calendar" role="region" aria-label="Week calendar" tabindex="0">
     <div class="calendar-scroll">
       <div class="calendar-week">
         <div class="calendar-corner" aria-hidden="true"></div>
