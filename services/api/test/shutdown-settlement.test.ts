@@ -431,11 +431,12 @@ describe.skipIf(!hasDatabase)('never-settling handler fails shutdown explicitly'
         expect(elapsed).toBeLessThan(deadlineMs);
 
         const output = spawned.output();
+        // Both events must be present. Their byte order in the captured stream is a
+        // logging race: pino flushes asynchronously while DB_DESTROYED is a direct
+        // process.stdout.write, so arrival order does not prove program order.
+        const lines = output.split('\n');
+        expect(lines).toContain('DB_DESTROYED');
         expect(output).toContain('unsettled operations after shutdown cleanup budget');
-        expect(output).toContain('DB_DESTROYED');
-        expect(output.indexOf('unsettled operations')).toBeLessThan(
-          output.indexOf('DB_DESTROYED'),
-        );
 
         const unsettled = output
           .trim()
