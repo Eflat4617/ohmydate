@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 08:30 | **FU-79R-1 REQUEST_CHANGES** (Opus 대체 리뷰): HIGH 없음(초기화 경로는 운영·실제 공급자에서 도달 불가, 인증 우회 없음, 공통 guard 사용 확인). MEDIUM 2 — 새 knob·경로 API 테스트 없음, 병합 후 M6-03의 e2e-6-notes가 시각 고정 밖(23:50Z 이후 실패 가능)·config.ts 충돌. LOW 3. 수정 1/2 → DeepSeek | reviews/FU-79R-1.md | orchestrator |
 | 2026-11-12 08:25 | **FU-66R2 REQUEST_CHANGES → BLOCKED** (Opus 대체 리뷰): HIGH — 자체 테스트가 closure만 느리게 해 generate() 기반 보정(원래 결함)을 여전히 못 잡고, generate 호출 카운터는 연결되지 않아 항상 0(M1/M2 변이 모두 생존). MEDIUM → FU-80(포화 부하에서 gate 실패). **좁은 새 Task FU-66d를 Opus xhigh로**(DeepSeek 2회 실패), generate 바인딩 mock + 공유 보정 상수 + 변이 실패 증명 | reviews/FU-66R2.md, packets/FU-66d.md | orchestrator |
 | 2026-11-12 08:03 | FU-79R Sol 리뷰가 사용량 한도로 중단(08:31 해제) → 규칙대로 **Opus 5.5 xhigh 대체 리뷰**(구현 DeepSeek이므로 계열 분리 유지), gpt-6-luna 제안 거절 | worker-read | orchestrator |
 | 2026-11-12 07:48 | **FU-77 시작 — 돌파구 워커 Fable 5.2 xhigh**(§10 조건②: 사용자 격리 결함이 M4-UI·M6-02R-1·FU-76R-1·M6-03R-1/R2에서 반복). 범위: 사용자별 저장 모듈 하나 + ESLint 강제, 사용자 확인 비동기 도구, 사용자 전환 테스트 도구로 화면 전반 회귀, ADR-023 개정 | packets/FU-77.md | orchestrator |
