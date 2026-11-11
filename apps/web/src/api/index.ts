@@ -12,6 +12,21 @@ export {
   type TaskPatch,
   type TaskStatus,
   type User,
+  type Today,
+  type TodayBlock,
+  type TodayProposal,
+  type TodayAcceptRequest,
+  type TodayShrinkRequest,
+  type TodayRescheduleRequest,
+  type WorkSession,
+  type SessionCreate,
+  type SessionReviewRequest,
+  type EstimationFeedback,
+  type Notification,
+  type NotificationQuery,
+  type PushSubscription,
+  type PushSubscriptionCreate,
+  type PlanVersion,
 } from './client';
 export { ApiError, apiErrorFromPayload, apiErrorFromResponse, parseProblem, type ApiErrorCode, type Problem, type ProblemCode } from './errors';
 export { findInboxProject } from './inbox';

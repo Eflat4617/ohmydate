@@ -35,6 +35,11 @@ function newTask(): void {
       <li>
         <RouterLink to="/today">Today <kbd>t</kbd></RouterLink>
       </li>
+      <li>
+        <button type="button" class="link-button nav-link-button" @click="ui.openNotifications">
+          Notifications
+        </button>
+      </li>
     </ul>
     <div class="nav-secondary">
       <button type="button" class="link-button" @click="ui.openSearch">

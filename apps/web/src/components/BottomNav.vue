@@ -25,6 +25,7 @@ function newTask(): void {
     <RouterLink to="/projects">Projects</RouterLink>
     <button type="button" class="bottom-add" aria-label="New task" @click="newTask">+</button>
     <RouterLink to="/today">Today</RouterLink>
+    <button type="button" aria-label="Notifications" @click="ui.openNotifications">Alerts</button>
     <button type="button" aria-label="Help" @click="ui.openHelp">?</button>
   </nav>
 </template>
