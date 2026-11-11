@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    globalSetup: ['services/api/test/support/global-setup.ts'],
     include: [
       'apps/**/test/**/*.test.ts',
       'services/**/test/**/*.test.ts',

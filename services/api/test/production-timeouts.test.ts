@@ -12,12 +12,30 @@ import {
   makeSchemaName,
   requireDatabaseUrl,
 } from './db/helpers.js';
+import {
+  acquireDistLease,
+  ensureApiDist,
+  markApiDistBuilt,
+  releaseDistLease,
+} from './support/dist-artifact.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 
 const apiRoot = fileURLToPath(new URL('..', import.meta.url));
 const distMain = join(apiRoot, 'dist', 'main.js');
 const slowFixture = join(apiRoot, 'test', 'support', 'slow-app.mjs');
+
+// dist is built once by vitest globalSetup. The lease is held for the whole
+// file so the build-smoke test below can rebuild dist without racing other
+// test files that spawn apps from it. See support/dist-artifact.ts.
+beforeAll(async () => {
+  await acquireDistLease();
+  await ensureApiDist();
+}, 120_000);
+
+afterAll(async () => {
+  await releaseDistLease();
+});
 
 function baseEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -131,18 +149,8 @@ function stop(child: ChildProcess | undefined): void {
 describe.skipIf(!hasDatabase)('production HTTP timeout regressions', () => {
   let schema: string;
 
-  beforeAll(() => {
-    const execPath = process.env['npm_execpath'];
-    const isJsEntry = execPath !== undefined && /\.(c|m)?js$/.test(execPath);
-    const command = isJsEntry ? process.execPath : (execPath ?? 'pnpm');
-    const prefix = isJsEntry ? [execPath as string] : [];
-    const build = spawnSync(command, [...prefix, 'run', 'build'], {
-      cwd: apiRoot,
-      encoding: 'utf8',
-    });
-    if (build.status !== 0) {
-      throw new Error(`build failed: ${build.stdout}\n${build.stderr}`);
-    }
+  beforeAll(async () => {
+    await ensureApiDist();
   }, 120_000);
 
   beforeEach(async () => {
@@ -361,6 +369,12 @@ describe('build smoke without DATABASE_URL', () => {
       timeout: 120_000,
     });
   }
+
+  // build-smoke rebuilds dist in place; refresh the stamp so later files do
+  // not rebuild it a second time.
+  afterAll(() => {
+    markApiDistBuilt();
+  });
 
   test(
     'always compiles, then skips only for the optional developer command',

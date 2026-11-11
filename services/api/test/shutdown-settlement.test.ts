@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
@@ -26,6 +26,11 @@ import {
   databaseUrl,
   hasDatabase,
 } from './vikunja/pg-support.js';
+import {
+  acquireDistLease,
+  ensureApiDist,
+  releaseDistLease,
+} from './support/dist-artifact.js';
 
 const { Pool } = pg;
 
@@ -258,19 +263,16 @@ async function startSyntheticProvider(): Promise<SyntheticProvider> {
   };
 }
 
-beforeAll(() => {
-  const execPath = process.env['npm_execpath'];
-  const isJsEntry = execPath !== undefined && /\.(c|m)?js$/.test(execPath);
-  const command = isJsEntry ? process.execPath : (execPath ?? 'pnpm');
-  const prefix = isJsEntry ? [execPath as string] : [];
-  const build = spawnSync(command, [...prefix, 'run', 'build'], {
-    cwd: apiRoot,
-    encoding: 'utf8',
-  });
-  if (build.status !== 0) {
-    throw new Error(`build failed: ${build.stdout}\n${build.stderr}`);
-  }
+// dist is built once by vitest globalSetup; the lease keeps build-smoke from
+// rebuilding it underneath a spawned app. See support/dist-artifact.ts.
+beforeAll(async () => {
+  await acquireDistLease();
+  await ensureApiDist();
 }, 120_000);
+
+afterAll(async () => {
+  await releaseDistLease();
+});
 
 describe('boot validation', () => {
   test('rejects SHUTDOWN_CLEANUP_BUDGET_MS that reaches the hard deadline', async () => {
