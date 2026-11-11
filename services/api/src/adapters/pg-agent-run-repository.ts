@@ -13,6 +13,7 @@ import {
 interface DraftPayload {
   readonly draft?: unknown;
   readonly issues?: readonly { readonly code: string; readonly message: string }[];
+  readonly editedEstimateKeys?: unknown;
 }
 
 function parsePayload(value: JsonValue): DraftPayload {
@@ -107,6 +108,9 @@ export class PgAgentRunRepository implements AgentRunRepository {
       constraintOk: latest.constraint_ok,
       policyOk: latest.policy_ok,
       issues: payload.issues ?? [],
+      editedEstimateKeys: Array.isArray(payload.editedEstimateKeys)
+        ? payload.editedEstimateKeys.filter((key): key is string => typeof key === 'string')
+        : [],
     };
   }
 

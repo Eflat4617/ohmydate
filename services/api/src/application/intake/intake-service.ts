@@ -360,6 +360,33 @@ function questionDto(question: DomainPlannedQuestion): PlannedQuestionDto {
   };
 }
 
+/**
+ * FU-48: step keys whose estimate differs from the previously stored draft
+ * (or that are new), unioned with earlier edits. Keys that no longer exist are
+ * dropped so a removed step cannot mark a later step with the same key.
+ */
+export function editedEstimateKeys(
+  previous: readonly { readonly key: string; readonly estimate: { readonly p50Minutes: number; readonly p90Minutes: number } }[],
+  next: readonly { readonly key: string; readonly estimate: { readonly p50Minutes: number; readonly p90Minutes: number } }[],
+  alreadyEdited: readonly string[],
+): string[] {
+  const before = new Map(previous.map((step) => [step.key, step.estimate]));
+  const prior = new Set(alreadyEdited);
+  const edited = new Set<string>();
+  for (const step of next) {
+    const old = before.get(step.key);
+    if (
+      prior.has(step.key) ||
+      old === undefined ||
+      old.p50Minutes !== step.estimate.p50Minutes ||
+      old.p90Minutes !== step.estimate.p90Minutes
+    ) {
+      edited.add(step.key);
+    }
+  }
+  return [...edited].sort();
+}
+
 function estimateForScope(scope: IntakeInput['estimatedScope']): {
   p50Minutes: number;
   p90Minutes: number;
@@ -805,6 +832,11 @@ export class IntakeService {
         policyOk: !validation.splitRequested,
         constraintOk: validation.issues.length === 0,
         issues: validation.issues.map((issue) => ({ code: issue.code, message: issue.message })),
+        editedEstimateKeys: editedEstimateKeys(
+          stored.draft.steps,
+          (validation.draft as DecompositionDraftDto).steps,
+          stored.editedEstimateKeys,
+        ),
       },
       expectedVersion,
     );
@@ -1127,7 +1159,8 @@ export class IntakeService {
         }
 
         assertOwned();
-        const method = session.manual || this.#llm === null ? 'template' : 'llm';
+        const generatedMethod = session.manual || this.#llm === null ? 'template' : 'llm';
+        const edited = new Set(stored.editedEstimateKeys);
         const uniqueIdentityTasks = [
           ...new Map(identityTasks.map((task) => [task.id, task])).values(),
         ];
@@ -1138,6 +1171,10 @@ export class IntakeService {
         const estimates = ordered.flatMap((step) => {
           const taskId = taskIds.get(step.key);
           if (taskId === undefined || !identityIds.has(taskId)) return [];
+          // FU-48: a user-edited estimate is the user's own statement and is
+          // recorded as `personal` (04 §2 method enum), not as the generator's
+          // method. Values are kept exactly as approved in the draft.
+          const method = edited.has(step.key) ? 'personal' : generatedMethod;
           return [
             {
               id: this.#ids.next(),

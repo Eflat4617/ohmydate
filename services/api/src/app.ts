@@ -33,6 +33,8 @@ import { IntakeError } from './application/intake/intake-error.js';
 import { DailyProblemError } from './application/daily-errors.js';
 import { NotificationJob } from './application/notification-service.js';
 import { ExportPurgeJob } from './application/export-purge-job.js';
+import { ReplanDetectionJob } from './application/replan-detection-job.js';
+import { ReplanSuppressedError } from './application/replan-errors.js';
 import { PgNotificationStore } from './adapters/pg-notification-store.js';
 import { PgExportStore } from './adapters/pg-export-store.js';
 import { createVikunjaRepositories } from './adapters/vikunja/composition.js';
@@ -45,6 +47,8 @@ import {
 /** Distinct advisory lock key from the Vikunja reconciler (08 §4, §2.9). */
 export const NOTIFICATION_ADVISORY_LOCK_KEY = 5_196_102;
 export const EXPORT_PURGE_ADVISORY_LOCK_KEY = 5_196_103;
+export const REPLAN_DETECTION_ADVISORY_LOCK_KEY = 5_196_104;
+export const DEFAULT_REPLAN_DETECTION_JOB_INTERVAL_MS = 300_000;
 export const DEFAULT_NOTIFICATION_JOB_INTERVAL_MS = 60_000;
 export const DEFAULT_EXPORT_PURGE_JOB_INTERVAL_MS = 300_000;
 import type { Database } from './db/types.js';
@@ -593,6 +597,17 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         error.message,
       );
     }
+    if (error instanceof ReplanSuppressedError) {
+      reply.header('Retry-After', String(error.retryAfterSec));
+      return sendProblem(
+        request,
+        reply,
+        409,
+        'replan_suppressed',
+        'Replan suppressed',
+        error.message,
+      );
+    }
     if (error instanceof DailyProblemError) {
       return sendProblem(
         request,
@@ -753,6 +768,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     planningStore,
     llm,
     budgetGuard,
+    logger: {
+      warn: (message, details) => app.log.warn(details ?? {}, message),
+    },
   });
 
   registerHealthRoutes(app, config, db);
@@ -804,12 +822,31 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         error: (message, details) => app.log.error(details ?? {}, message),
       },
     });
+    const replanDetectionJob = new ReplanDetectionJob({
+      runner: runtime.replan,
+      clock,
+      intervalMs: DEFAULT_REPLAN_DETECTION_JOB_INTERVAL_MS,
+      leaderLock: createPgSessionLeaderLock({
+        connectionString: leaderConnection,
+        key: REPLAN_DETECTION_ADVISORY_LOCK_KEY,
+        logger: {
+          warn: (message, details) => app.log.warn(details ?? {}, message),
+          error: (message, details) => app.log.error(details ?? {}, message),
+        },
+      }),
+      logger: {
+        warn: (message, details) => app.log.warn(details ?? {}, message),
+        error: (message, details) => app.log.error(details ?? {}, message),
+      },
+    });
     app.addHook('onClose', async () => {
       await notificationJob.stop();
       await exportPurgeJob.stop();
+      await replanDetectionJob.stop();
     });
     notificationJob.start();
     exportPurgeJob.start();
+    replanDetectionJob.start();
   }
 
   if (config.provider === 'vikunja' && config.reconcileIntervalMs > 0) {

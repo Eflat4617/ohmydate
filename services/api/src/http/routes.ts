@@ -1,7 +1,16 @@
 import {
   dailyRoutes,
   planningRoutes,
+  replanningRoutes,
   routes,
+  type EstimationFeedbackIdParams,
+  type EstimationFeedbackPatch,
+  type EstimationReset,
+  type ReplanApproveRequest,
+  type ReplanProposalIdParams,
+  type ReplanProposalListQuery,
+  type ReplanReject,
+  type ReplanRequest,
   type ApprovePlanRequest,
   type AvailabilityPut,
   type CommitmentCreate,
@@ -100,6 +109,10 @@ import { PgNotificationStore } from '../adapters/pg-notification-store.js';
 import { PgPushSubscriptionStore } from '../adapters/pg-push-subscription-store.js';
 import { ExportService } from '../application/export-service.js';
 import { PgExportPayloadBuilder, PgExportStore } from '../adapters/pg-export-store.js';
+import { EstimationService } from '../application/estimation-service.js';
+import { ReplanService } from '../application/replan-service.js';
+import { PgEstimationStore } from '../adapters/pg-estimation-store.js';
+import { PgReplanStore } from '../adapters/pg-replan-store.js';
 import { resolvePushKey } from '../application/push-crypto.js';
 import type { Database } from '../db/types.js';
 import type { BudgetGuard, LlmPort } from '@ohmydate/llm';
@@ -141,6 +154,8 @@ export interface RouteRuntime {
   readonly notifications: NotificationStore;
   readonly pushSubscriptions: PgPushSubscriptionStore;
   readonly exports: ExportService;
+  readonly replan: ReplanService;
+  readonly estimation: EstimationService;
 }
 
 interface RouteMeta {
@@ -860,6 +875,79 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       return { status: 201, body: feedback };
     });
 
+  const approveReplanProposal = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as ReplanProposalIdParams;
+      const body = (request.body ?? {}) as ReplanApproveRequest;
+      const version = await runtime.replan.approve(
+        auth.userId,
+        params.id as Id,
+        requireAvailabilityIfMatch(request),
+        requireIdempotencyKey(request),
+        body.editedBlocks,
+      );
+      return {
+        status: 201,
+        body: version,
+        headers: { ETag: etagForVersion(version.version) },
+      };
+    });
+
+  const rejectReplanProposal = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as ReplanProposalIdParams;
+      const body = (request.body ?? {}) as ReplanReject;
+      const proposal = await runtime.replan.reject(
+        auth.userId,
+        params.id as Id,
+        requireIfMatch(request),
+        body.reason,
+      );
+      return {
+        status: 200,
+        body: proposal,
+        headers: { ETag: etagForVersion(proposal.version) },
+      };
+    });
+
+  const requestReplanProposal = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const proposal = await runtime.replan.request(auth.userId, request.body as ReplanRequest);
+      return {
+        status: 201,
+        body: proposal,
+        headers: { ETag: etagForVersion(proposal.version) },
+      };
+    });
+
+  const patchEstimationFeedback = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const params = request.params as EstimationFeedbackIdParams;
+      const body = request.body as EstimationFeedbackPatch;
+      const item = await runtime.estimation.patchFeedback(
+        auth.userId,
+        params.id as Id,
+        body.excluded,
+        requireIfMatch(request),
+      );
+      return {
+        status: 200,
+        body: item,
+        headers: { ETag: etagForVersion(item.version) },
+      };
+    });
+
+  const resetEstimation = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const profile = await runtime.estimation.reset(auth.userId, request.body as EstimationReset);
+      return { status: 200, body: profile };
+    });
+
   const dismissNotification = async (request: FastifyRequest, reply: FastifyReply) =>
     runIdempotent(runtime, request, reply, async () => {
       const auth = currentAuth(request);
@@ -1067,6 +1155,38 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       return reply.code(200).header('ETag', etag).send(page);
     },
     dismissNotification,
+    listReplanProposals: async (request, reply) => {
+      const auth = currentAuth(request);
+      const page = await runtime.replan.list(
+        auth.userId,
+        request.query as ReplanProposalListQuery,
+      );
+      const etag = etagForBody(page);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(page);
+    },
+    getReplanProposal: async (request, reply) => {
+      const auth = currentAuth(request);
+      const params = request.params as ReplanProposalIdParams;
+      const proposal = await runtime.replan.get(auth.userId, params.id as Id);
+      const etag = etagForVersion(proposal.version);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(proposal);
+    },
+    approveReplanProposal,
+    rejectReplanProposal,
+    requestReplanProposal,
+    getEstimationProfile: async (request, reply) => {
+      const auth = currentAuth(request);
+      const profile = await runtime.estimation.profile(auth.userId);
+      // generatedAt changes on every read; the validator covers the content.
+      const { generatedAt: _generatedAt, ...content } = profile;
+      const etag = etagForBody(content);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(profile);
+    },
+    patchEstimationFeedback,
+    resetEstimation,
     createPushSubscription,
     deletePushSubscription,
     createExport,
@@ -1368,6 +1488,7 @@ function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
       if (
         meta.operationId === 'approvePlanCandidate' ||
         meta.operationId === 'approveTodayProposal' ||
+        meta.operationId === 'approveReplanProposal' ||
         meta.operationId === 'putAvailability'
       ) {
         requireAvailabilityIfMatch(request);
@@ -1381,7 +1502,7 @@ function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
 
 export function registerRoutes(app: FastifyInstance, runtime: RouteRuntime): void {
   const handlers = buildHandlers(runtime);
-  for (const route of [...routes, ...planningRoutes, ...dailyRoutes]) {
+  for (const route of [...routes, ...planningRoutes, ...dailyRoutes, ...replanningRoutes]) {
     const meta = routeMeta(route);
     const handler = handlers[meta.operationId];
     if (handler === undefined) {
@@ -1415,6 +1536,8 @@ export function createRuntime(options: {
   planningStore: PlanningStore;
   llm: LlmPort | null;
   budgetGuard: BudgetGuard;
+  /** Ids-only operational logger for background use-cases (never bodies). */
+  logger?: { warn(message: string, details?: Readonly<Record<string, unknown>>): void };
 }): RouteRuntime {
   const databaseUrl = options.config.databaseUrl;
   const approvalLock =
@@ -1447,10 +1570,26 @@ export function createRuntime(options: {
     clock: options.clock,
     ids: options.ids,
   });
+  const estimation = new EstimationService({
+    store: new PgEstimationStore({ db: options.db, ids: options.ids }),
+    clock: options.clock,
+  });
   const sessions = new SessionService({
     store: new PgWorkSessionStore({ db: options.db }),
     clock: options.clock,
     ids: options.ids,
+    estimation: {
+      baseP50: (ownerId, taskId) => estimation.baseP50(ownerId, taskId),
+      afterReview: (ownerId, feedbackId) => estimation.refreshAfterReview(ownerId, feedbackId),
+    },
+  });
+  const replan = new ReplanService({
+    tasks: options.repos.tasks,
+    planning: options.planningStore,
+    store: new PgReplanStore({ db: options.db, clock: options.clock, ids: options.ids }),
+    clock: options.clock,
+    ids: options.ids,
+    ...(options.logger === undefined ? {} : { logger: options.logger }),
   });
   const notifications = new PgNotificationStore({ db: options.db, ids: options.ids });
   const pushSubscriptions = new PgPushSubscriptionStore({
@@ -1486,6 +1625,8 @@ export function createRuntime(options: {
     notifications,
     pushSubscriptions,
     exports,
+    replan,
+    estimation,
   };
 }
 
