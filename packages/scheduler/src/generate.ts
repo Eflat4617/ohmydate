@@ -15,6 +15,7 @@ import { validate, validateInput } from './validate.js';
 import { deficit } from './explain.js';
 import { taskRequiredMinutes } from './requirements.js';
 import {
+  GRID_MINUTES,
   GRID_MS,
   MINUTE_MS,
   instantToUtc,
@@ -27,7 +28,18 @@ import { createPrng, type Prng } from './prng.js';
 import { canonicalJson, sha256Hex } from './hash.js';
 import { itemFromMessage, type ExplanationItem } from './codes.js';
 
-export const GENERATOR_VERSION = 'm3-02.6';
+export const GENERATOR_VERSION = 'm3-02.7';
+
+/**
+ * Deterministic work cap for one gap-fitted split search (`passes` checks plus
+ * trial placements). The search is a fallback for fragmented free time, so it
+ * must stay cheap even when no split exists. `fitSessionsIntoGaps` searches
+ * at most twice per task (remainder after kept blocks, then a full re-split)
+ * and each `searchGapSessions` runs `searchRuns` at most twice (policy order,
+ * then time order), so a task costs at most 4 x GAP_FIT_BUDGET evaluations
+ * per repair pass, each O(occupied intervals).
+ */
+const GAP_FIT_BUDGET = 512;
 
 /** Explanation prefix used when a replan exceeds its 06 §7 change bound. */
 const REPLAN_BOUND_PREFIX = 'Replan change bound exceeded:';
@@ -150,6 +162,11 @@ interface BuildContext {
   historyBlocks: Block[];
   historyIntervals: Interval[];
   historyByTask: Map<string, Interval[]>;
+  /**
+   * Future (start >= now), non-locked existing blocks per task in start order:
+   * the blocks a replan may keep or move.
+   */
+  futureExistingByTask: Map<string, Interval[]>;
   /** Keys of `input.lockedBlocks`, to exclude from changedBlocks. */
   lockedKeys: Set<string>;
   breakAfterMs: number;
@@ -160,6 +177,15 @@ interface BuildContext {
   nowMs: number;
   riskLevel: 'p50' | 'p90';
   taskById: Map<string, Task>;
+  /** Direct dependents (successors) per task id; absent when there are none. */
+  dependentsByTask: Map<string, Task[]>;
+  /**
+   * False when the unplaced work certainly exceeds the placeable time (grid
+   * cells from max(horizon.start, now), capped per local date by
+   * maxDailyFocusMin). No plan can be feasible then, so the repair pass of
+   * `runPlacementAttempt` is skipped and the plain partial plan is reported.
+   */
+  repairPlausible: boolean;
   dueMsByTask: Map<string, number>;
   bufferMsByTask: Map<string, number>;
 }
@@ -440,6 +466,8 @@ function buildContext(input: ScheduleInput): BuildContext {
   const nowMs = parseInstant(input.now);
   const slots = computeAvailableSlots(input);
   const slotsByStart: SlotInfo[] = [];
+  const placementStartMs = Math.max(horizonStartMs, nowMs);
+  const placeableCellsByDate = new Map<string, number>();
 
   for (const slot of slots) {
     const startMs = parseInstant(slot.start);
@@ -448,8 +476,15 @@ function buildContext(input: ScheduleInput): BuildContext {
     const cellStarts: number[] = [];
     const cellDates: string[] = [];
     for (let cursor = startMs; cursor + GRID_MS <= endMs; cursor += GRID_MS) {
+      const date = dateAt(cursor, segments);
       cellStarts.push(cursor);
-      cellDates.push(dateAt(cursor, segments));
+      cellDates.push(date);
+      if (cursor >= placementStartMs) {
+        placeableCellsByDate.set(
+          date,
+          (placeableCellsByDate.get(date) ?? 0) + 1,
+        );
+      }
     }
     if (cellStarts.length > 0) {
       slotsByStart.push({
@@ -485,15 +520,52 @@ function buildContext(input: ScheduleInput): BuildContext {
   const lockedByTask = groupIntervalsByTask(lockedIntervals);
   const historyIntervals = toIntervals(historyBlocks);
   const historyByTask = groupIntervalsByTask(historyIntervals);
+  const futureExistingByTask = groupIntervalsByTask(
+    toIntervals(input.existingBlocks ?? [])
+      .filter(
+        (interval) =>
+          interval.startMs >= nowMs &&
+          !lockedKeys.has(
+            blockKey(interval.taskId, interval.startMs, interval.endMs),
+          ),
+      )
+      .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs),
+  );
 
   const taskById = new Map(input.tasks.map((task) => [task.id, task]));
+  const dependentsByTask = new Map<string, Task[]>();
+  for (const task of input.tasks) {
+    for (const dependencyId of task.dependsOn) {
+      if (!taskById.has(dependencyId)) {
+        continue;
+      }
+      const list = dependentsByTask.get(dependencyId) ?? [];
+      list.push(task);
+      dependentsByTask.set(dependencyId, list);
+    }
+  }
   const dueMsByTask = new Map<string, number>();
   const bufferMsByTask = new Map<string, number>();
+  let unplacedMin = 0;
   for (const task of input.tasks) {
     if (task.dueAt !== undefined) {
       dueMsByTask.set(task.id, parseInstant(task.dueAt));
     }
     bufferMsByTask.set(task.id, (task.bufferBeforeDueMin ?? 0) * MINUTE_MS);
+    unplacedMin = boundedMinuteAdd(
+      unplacedMin,
+      taskRequiredMinutes(task, input.prefs.riskLevel) -
+        minutesOf(lockedByTask.get(task.id) ?? []),
+    );
+  }
+  // One grid step of slack per date: a cell is dated by its start and may
+  // reach under one step into the next local date.
+  let placeableMin = 0;
+  for (const cells of placeableCellsByDate.values()) {
+    placeableMin += Math.min(
+      (cells + 1) * GRID_MINUTES,
+      input.prefs.maxDailyFocusMin + GRID_MINUTES,
+    );
   }
 
   return {
@@ -505,6 +577,7 @@ function buildContext(input: ScheduleInput): BuildContext {
     historyBlocks,
     historyIntervals,
     historyByTask,
+    futureExistingByTask,
     lockedKeys,
     breakAfterMs: input.prefs.breakAfterMin * MINUTE_MS,
     breakMs: input.prefs.breakMin * MINUTE_MS,
@@ -514,6 +587,8 @@ function buildContext(input: ScheduleInput): BuildContext {
     nowMs,
     riskLevel: input.prefs.riskLevel,
     taskById,
+    dependentsByTask,
+    repairPlausible: unplacedMin <= placeableMin,
     dueMsByTask,
     bufferMsByTask,
   };
@@ -1124,7 +1199,11 @@ function generateForPolicy(
     retainedSeeds: 0,
   };
   const result = chosen.result;
-  const retainedSeeds = chosen.retainedSeeds;
+  // Existing blocks emitted unchanged: the attempt's seeds plus any own block
+  // a gap-fitted split kept (`fitSessionsIntoGaps`).
+  const retainedSeeds = result.placements.filter(
+    (placement) => placement.seeded,
+  ).length;
 
   const finalState = stateFromPlacements(context, result.placements);
   const blocks = blocksFromPlacements(finalState.placements);
@@ -1421,14 +1500,86 @@ interface PlacementAttempt {
   reasons: Set<HeuristicReason>;
   /** H7 shortfall of this attempt, including locked minutes as placed. */
   deficitMin: number;
+  /**
+   * Plain pass only: a dead end the repair aids target was seen (a splittable
+   * task without contiguous room for its equal chunks, a task that could not
+   * follow its dependencies, or an H3 violation).
+   */
+  repairable: boolean;
+  /** A task with dependencies could not be placed completely. */
+  starved: boolean;
 }
 
+/** Settings of a repair pass of `placeTasks`. */
+interface RepairAids {
+  /** Extra time kept free before the room each dependent still needs. */
+  successorSlackMs: number;
+  /**
+   * Whether a gap-fitted split first keeps the task's own still-valid blocks
+   * (minimal change) before it re-splits the whole task.
+   */
+  keepOwnBlocks: boolean;
+}
+
+/**
+ * Greedy placement plus bounded improvement for one seed set.
+ *
+ * The plain pass is the versioned policy greedy; a feasible plain plan is
+ * returned as is. Otherwise, when the plan is repairable and the work is not
+ * certainly over capacity, a repair pass repeats the greedy with two
+ * feasibility aids (FU-69): the successor bound (`successorBound`) keeps a
+ * task from ending so late that its dependents can no longer fit, and the
+ * gap-fitted split (`fitSessionsIntoGaps`) covers a splittable task whose
+ * equal chunks find no contiguous room. The successor bound ignores H6 and
+ * keeping a task's own blocks can hold it too late for its dependents, so
+ * when a dependent is still short one more repair pass keeps a break free
+ * before every dependent's room and re-splits tasks from scratch.
+ *
+ * A repaired plan replaces the plain one only when it ranks strictly better
+ * (feasible, then smaller H7 deficit, then fewer violations): an aided task
+ * can cost a later task its room, and a partial plan must never get worse.
+ */
 function runPlacementAttempt(
   context: BuildContext,
   policy: PolicyName,
   seed: number,
   maxImprovement: number,
   seeds: Placement[],
+): PlacementAttempt {
+  const pass = (repair: RepairAids | undefined): PlacementAttempt =>
+    placeTasks(context, policy, seed, maxImprovement, seeds, repair);
+  const plain = pass(undefined);
+  if (
+    plain.violations.length === 0 ||
+    !plain.repairable ||
+    !context.repairPlausible
+  ) {
+    return plain;
+  }
+  let best = plain;
+  const repaired = pass({ successorSlackMs: 0, keepOwnBlocks: true });
+  if (isBetterAttempt(repaired, 0, best, 0)) {
+    best = repaired;
+  }
+  if (best.violations.length > 0 && repaired.starved) {
+    const spaced = pass({
+      successorSlackMs: context.breakAfterMs > 0 ? context.breakMs : 0,
+      keepOwnBlocks: false,
+    });
+    if (isBetterAttempt(spaced, 0, best, 0)) {
+      best = spaced;
+    }
+  }
+  return best;
+}
+
+function placeTasks(
+  context: BuildContext,
+  policy: PolicyName,
+  seed: number,
+  maxImprovement: number,
+  seeds: Placement[],
+  repair: RepairAids | undefined,
 ): PlacementAttempt {
   const state = createState(context);
   for (const seedPlacement of seeds) {
@@ -1443,6 +1594,8 @@ function runPlacementAttempt(
   }
 
   const reasons = new Set<HeuristicReason>();
+  let repairable = false;
+  let starved = false;
   const completionByTask = new Map<string, number>();
   for (const interval of state.intervals) {
     completionByTask.set(
@@ -1455,7 +1608,12 @@ function runPlacementAttempt(
   }
   const prng = createPrng(seed + policySeedOffset(policy));
 
-  for (const task of orderTasks(context, policy)) {
+  const ordered = orderTasks(context, policy);
+  for (let taskIndex = 0; taskIndex < ordered.length; taskIndex += 1) {
+    const task = ordered[taskIndex];
+    if (task === undefined) {
+      continue;
+    }
     const fixed = context.lockedByTask.get(task.id) ?? [];
     const fixedMin = fixed.reduce(
       (sum, interval) => sum + (interval.endMs - interval.startMs) / MINUTE_MS,
@@ -1492,7 +1650,25 @@ function runPlacementAttempt(
       earliestMs,
       dependencyReadyMs,
     );
-    const windowEndMs = Math.min(context.horizonEndMs, dueMs - bufferMs);
+    let windowEndMs = Math.min(context.horizonEndMs, dueMs - bufferMs);
+    if (
+      repair !== undefined &&
+      remainingMin > 0 &&
+      context.dependentsByTask.has(task.id)
+    ) {
+      // Leave room for the dependents: without this a policy can park the
+      // task at the tail of the horizon and starve every successor (H3).
+      windowEndMs = Math.min(
+        windowEndMs,
+        successorBound(
+          context,
+          state,
+          ordered,
+          taskIndex,
+          repair.successorSlackMs,
+        ),
+      );
+    }
 
     let lastEndMs = Number.NEGATIVE_INFINITY;
     for (const interval of state.intervals) {
@@ -1503,7 +1679,10 @@ function runPlacementAttempt(
 
     if (remainingMin > 0 && windowEndMs <= windowStartMs) {
       reasons.add('insufficient_available_time');
+      starved ||= task.dependsOn.length > 0;
     } else {
+      let placed: Placement[] = [];
+      let unplaced = false;
       for (const durationMin of chunks.chunks) {
         const position = selectPlacement(
           context,
@@ -1515,11 +1694,7 @@ function runPlacementAttempt(
           windowEndMs,
         );
         if (position === undefined) {
-          reasons.add(
-            task.splittable
-              ? 'insufficient_available_time'
-              : 'no_contiguous_window',
-          );
+          unplaced = true;
           break;
         }
         const placement: Placement = {
@@ -1536,6 +1711,40 @@ function runPlacementAttempt(
           seeded: false,
         };
         addPlacement(state, placement);
+        placed.push(placement);
+      }
+      if (unplaced) {
+        // The equal-size chunks need contiguous room that fragmented free time
+        // (frozen replan blocks, commitments, locked blocks) may not offer
+        // even though the task is splittable and the gaps add up. Fit the
+        // sessions to the gaps before declaring a shortfall (06 §3 H5, §7.1).
+        const fitted =
+          repair !== undefined && chunks.reason === undefined
+            ? fitSessionsIntoGaps(
+                context,
+                state,
+                policy,
+                task,
+                remainingMin,
+                windowStartMs,
+                windowEndMs,
+                placed,
+                repair.keepOwnBlocks,
+              )
+            : undefined;
+        if (fitted === undefined) {
+          reasons.add(
+            task.splittable
+              ? 'insufficient_available_time'
+              : 'no_contiguous_window',
+          );
+          starved ||= task.dependsOn.length > 0;
+          repairable ||= task.splittable && chunks.reason === undefined;
+        } else {
+          placed = fitted;
+        }
+      }
+      for (const placement of placed) {
         lastEndMs = Math.max(lastEndMs, placement.endMs);
       }
     }
@@ -1576,6 +1785,11 @@ function runPlacementAttempt(
     violations,
     reasons,
     deficitMin: attemptDeficitMin(context, finalPlacements),
+    repairable:
+      repairable ||
+      starved ||
+      violations.some((violation) => violation.code === 'H3'),
+    starved,
   };
 }
 
@@ -1801,6 +2015,872 @@ function buildChunks(task: Task, remainingMin: number): ChunkSpec {
     chunks.push(units * 5);
   }
   return { chunks, reason };
+}
+
+interface SessionBounds {
+  minUnits: number;
+  maxUnits: number;
+}
+
+/** Contiguous free grid cells of one slot on one local date. */
+interface FreeRun {
+  slot: SlotInfo;
+  firstCell: number;
+  cellCount: number;
+  startMs: number;
+  /** Upper bound on the cells this run can host under the daily focus cap. */
+  usableCells: number;
+  /** Focus minutes already on the run's local date (balanced ordering). */
+  dayLoadMin: number;
+}
+
+/**
+ * True when `units` grid cells can be covered by whole sessions inside the
+ * task's session bounds (zero cells need no session).
+ */
+function isRepresentable(units: number, bounds: SessionBounds): boolean {
+  if (units === 0) {
+    return true;
+  }
+  if (units < bounds.minUnits) {
+    return false;
+  }
+  return Math.ceil(units / bounds.maxUnits) * bounds.minUnits <= units;
+}
+
+function cloneState(state: PlanState): PlanState {
+  return {
+    timeZone: state.timeZone,
+    placements: [...state.placements],
+    intervals: [...state.intervals],
+    dailyLoad: new Map(state.dailyLoad),
+  };
+}
+
+/**
+ * Gap-fitted split for a splittable task whose equal-size chunks do not all
+ * fit (FU-69). `buildChunks` asks for `ceil(required / maxSession)` equal
+ * sessions, each needing its own contiguous room; when frozen replan blocks or
+ * commitments fragment the free time, that fails although shorter sessions
+ * inside [minSessionMin, maxSessionMin] would cover the requirement.
+ *
+ * The search runs on a copy of the state and commits only a COMPLETE split, so
+ * a failed search leaves the partial equal-chunk placement untouched. With
+ * `keepOwnBlocks` the task's own still-valid future blocks are kept first and
+ * only the remainder is fitted (06 §7 S5, §7.1); then a full re-split is
+ * tried.
+ */
+function fitSessionsIntoGaps(
+  context: BuildContext,
+  state: PlanState,
+  policy: PolicyName,
+  task: Task,
+  remainingMin: number,
+  windowStartMs: number,
+  windowEndMs: number,
+  nominal: Placement[],
+  keepOwnBlocks: boolean,
+): Placement[] | undefined {
+  if (
+    !task.splittable ||
+    remainingMin <= 0 ||
+    remainingMin % GRID_MINUTES !== 0
+  ) {
+    return undefined;
+  }
+  const bounds: SessionBounds = {
+    minUnits: Math.max(1, Math.ceil(task.minSessionMin / GRID_MINUTES)),
+    maxUnits: Math.floor(task.maxSessionMin / GRID_MINUTES),
+  };
+  const requiredUnits = remainingMin / GRID_MINUTES;
+  if (
+    bounds.maxUnits < bounds.minUnits ||
+    !isRepresentable(requiredUnits, bounds)
+  ) {
+    return undefined;
+  }
+
+  const scratch = cloneState(state);
+  for (const placement of nominal) {
+    removePlacement(scratch, placement);
+  }
+
+  let sessions: Placement[] | undefined;
+  const retained = keepOwnBlocks
+    ? retainOwnBlocks(
+        context,
+        scratch,
+        task,
+        requiredUnits,
+        bounds,
+        windowStartMs,
+        windowEndMs,
+      )
+    : [];
+  if (retained.length > 0) {
+    const retainedUnits = retained.reduce(
+      (sum, placement) => sum + placement.durationMin / GRID_MINUTES,
+      0,
+    );
+    const rest = searchGapSessions(
+      context,
+      scratch,
+      policy,
+      task,
+      requiredUnits - retainedUnits,
+      bounds,
+      windowStartMs,
+      windowEndMs,
+    );
+    if (rest === undefined) {
+      for (const placement of retained) {
+        removePlacement(scratch, placement);
+      }
+    } else {
+      sessions = [...retained, ...rest];
+    }
+  }
+  sessions ??= searchGapSessions(
+    context,
+    scratch,
+    policy,
+    task,
+    requiredUnits,
+    bounds,
+    windowStartMs,
+    windowEndMs,
+  );
+  if (sessions === undefined) {
+    return undefined;
+  }
+
+  for (const placement of nominal) {
+    removePlacement(state, placement);
+  }
+  for (const placement of sessions) {
+    addPlacement(state, placement);
+  }
+  return sessions;
+}
+
+/**
+ * Keep the task's own future existing blocks that are still valid sessions in
+ * the current window and state, as long as the remainder stays representable.
+ * The kept blocks are added to `state` as seeded placements.
+ */
+function retainOwnBlocks(
+  context: BuildContext,
+  state: PlanState,
+  task: Task,
+  requiredUnits: number,
+  bounds: SessionBounds,
+  windowStartMs: number,
+  windowEndMs: number,
+): Placement[] {
+  const retained: Placement[] = [];
+  let retainedUnits = 0;
+  for (const block of context.futureExistingByTask.get(task.id) ?? []) {
+    const units = (block.endMs - block.startMs) / GRID_MS;
+    if (
+      !Number.isInteger(units) ||
+      units < bounds.minUnits ||
+      units > bounds.maxUnits ||
+      block.startMs < windowStartMs ||
+      block.endMs > windowEndMs ||
+      retainedUnits + units > requiredUnits ||
+      !isRepresentable(requiredUnits - retainedUnits - units, bounds)
+    ) {
+      continue;
+    }
+    const slot = findContainingSlot(context, block.startMs, block.endMs);
+    if (
+      slot === undefined ||
+      !passes(context, state, block.startMs, block.endMs)
+    ) {
+      continue;
+    }
+    const placement: Placement = {
+      taskId: task.id,
+      durationMin: units * GRID_MINUTES,
+      startMs: block.startMs,
+      endMs: block.endMs,
+      slotId: slot.id,
+      localHour: localHourOf(
+        block.startMs,
+        block.endMs,
+        context.input.timeZone,
+      ),
+      seeded: true,
+    };
+    addPlacement(state, placement);
+    retained.push(placement);
+    retainedUnits += units;
+  }
+  return retained;
+}
+
+/** Maximal run of free grid cells `[firstCell, endCell)` of one slot. */
+interface CellRange {
+  slot: SlotInfo;
+  firstCell: number;
+  endCell: number;
+}
+
+/**
+ * Free whole grid cells inside [windowStartMs, windowEndMs) in time order:
+ * every slot minus the occupied intervals of `state`.
+ */
+function freeCellRanges(
+  context: BuildContext,
+  state: PlanState,
+  windowStartMs: number,
+  windowEndMs: number,
+): CellRange[] {
+  const busy: Array<{ startMs: number; endMs: number }> = [];
+  for (const interval of state.intervals) {
+    const last = busy[busy.length - 1];
+    if (last !== undefined && interval.startMs <= last.endMs) {
+      last.endMs = Math.max(last.endMs, interval.endMs);
+    } else {
+      busy.push({ startMs: interval.startMs, endMs: interval.endMs });
+    }
+  }
+
+  const ranges: CellRange[] = [];
+  const pushRange = (slot: SlotInfo, fromMs: number, toMs: number) => {
+    const firstCell = Math.max(
+      0,
+      Math.ceil((fromMs - slot.startMs) / GRID_MS),
+    );
+    const endCell = Math.min(
+      slot.cellStarts.length,
+      Math.floor((toMs - slot.startMs) / GRID_MS),
+    );
+    if (endCell > firstCell) {
+      ranges.push({ slot, firstCell, endCell });
+    }
+  };
+  for (const slot of context.slotsByStart) {
+    const lowMs = Math.max(slot.startMs, windowStartMs);
+    const highMs = Math.min(slot.endMs, windowEndMs);
+    let freeFromMs = lowMs;
+    for (const occupied of busy) {
+      if (freeFromMs >= highMs || occupied.startMs >= highMs) {
+        break;
+      }
+      if (occupied.endMs <= freeFromMs) {
+        continue;
+      }
+      pushRange(slot, freeFromMs, occupied.startMs);
+      freeFromMs = occupied.endMs;
+    }
+    pushRange(slot, freeFromMs, highMs);
+  }
+  return ranges;
+}
+
+/**
+ * Most focus cells that `cellCount` consecutive free cells can hold under the
+ * H6 continuous-focus rule alone: stretches of at most breakAfterMin separated
+ * by breakMin. An upper bound (neighbouring focus only lowers it).
+ */
+function focusCellsWithBreaks(context: BuildContext, cellCount: number): number {
+  if (cellCount <= 0) {
+    return 0;
+  }
+  const stretchCells = Math.floor(context.breakAfterMs / GRID_MS);
+  if (context.breakAfterMs <= 0 || stretchCells < 1) {
+    return cellCount;
+  }
+  const cycleCells = stretchCells + Math.ceil(context.breakMs / GRID_MS);
+  const cycles = Math.floor(cellCount / cycleCells);
+  return (
+    cycles * stretchCells +
+    Math.min(cellCount - cycles * cycleCells, stretchCells)
+  );
+}
+
+interface FocusStretch {
+  startMs: number;
+  endMs: number;
+}
+
+/** Occupied intervals merged while they are closer than breakMin (H6). */
+function focusStretches(
+  context: BuildContext,
+  state: PlanState,
+): FocusStretch[] {
+  const stretches: FocusStretch[] = [];
+  for (const interval of state.intervals) {
+    const last = stretches[stretches.length - 1];
+    if (
+      last !== undefined &&
+      interval.startMs - last.endMs < context.breakMs
+    ) {
+      last.endMs = Math.max(last.endMs, interval.endMs);
+    } else {
+      stretches.push({ startMs: interval.startMs, endMs: interval.endMs });
+    }
+  }
+  return stretches;
+}
+
+/**
+ * Upper bound on the focus cells a free run can hold under H6 given the focus
+ * stretches next to it. At either end the run's focus joins the neighbour
+ * (then that stretch is limited by what the neighbour leaves of
+ * breakAfterMin, and a break follows) or stays a break away from it (then
+ * those cells are lost). Each end alone gives a valid bound; the smaller wins.
+ */
+function focusCellsInRun(
+  context: BuildContext,
+  stretches: FocusStretch[],
+  startMs: number,
+  cellCount: number,
+): number {
+  if (context.breakAfterMs <= 0) {
+    return cellCount;
+  }
+  const endMs = startMs + cellCount * GRID_MS;
+  let before: FocusStretch | undefined;
+  let after: FocusStretch | undefined;
+  for (const stretch of stretches) {
+    if (stretch.endMs <= startMs) {
+      before = stretch;
+    } else if (stretch.startMs >= endMs) {
+      after = stretch;
+      break;
+    }
+  }
+  const breakCells = Math.ceil(context.breakMs / GRID_MS);
+  const besideNeighbour = (skipMs: number, joinedMs: number): number => {
+    const joined = Math.min(cellCount, Math.floor(joinedMs / GRID_MS));
+    return Math.max(
+      focusCellsWithBreaks(context, cellCount - Math.ceil(skipMs / GRID_MS)),
+      joined < 1
+        ? 0
+        : joined +
+            focusCellsWithBreaks(context, cellCount - joined - breakCells),
+    );
+  };
+  let bound = focusCellsWithBreaks(context, cellCount);
+  if (before !== undefined && before.endMs + context.breakMs > startMs) {
+    bound = Math.min(
+      bound,
+      besideNeighbour(
+        before.endMs + context.breakMs - startMs,
+        before.startMs + context.breakAfterMs - startMs,
+      ),
+    );
+  }
+  if (after !== undefined && after.startMs - context.breakMs < endMs) {
+    bound = Math.min(
+      bound,
+      besideNeighbour(
+        endMs - (after.startMs - context.breakMs),
+        endMs - (after.endMs - context.breakAfterMs),
+      ),
+    );
+  }
+  return bound;
+}
+
+/**
+ * Free runs for a gap-fitted split, in time order: the free cell ranges split
+ * at local-date changes so the daily focus cap bounds each run on its own.
+ * Runs that cannot host one minimum session are dropped.
+ */
+function freeRuns(
+  context: BuildContext,
+  state: PlanState,
+  windowStartMs: number,
+  windowEndMs: number,
+  minUnits: number,
+): FreeRun[] {
+  const runs: FreeRun[] = [];
+  const stretches = focusStretches(context, state);
+  const pushRun = (slot: SlotInfo, firstCell: number, endCell: number) => {
+    const cellCount = endCell - firstCell;
+    const startMs = slot.cellStarts[firstCell];
+    if (cellCount < minUnits || startMs === undefined) {
+      return;
+    }
+    const date = slot.cellDates[firstCell] ?? '';
+    const dayLoadMin = state.dailyLoad.get(date) ?? 0;
+    // A cell may straddle local midnight by under one grid step when the slot
+    // is not grid-aligned to it, so round the cap up to stay an upper bound.
+    const usableCells = Math.min(
+      focusCellsInRun(context, stretches, startMs, cellCount),
+      Math.ceil((context.maxDailyFocusMin - dayLoadMin) / GRID_MINUTES),
+    );
+    if (usableCells < minUnits) {
+      return;
+    }
+    runs.push({
+      slot,
+      firstCell,
+      cellCount,
+      startMs,
+      usableCells,
+      dayLoadMin,
+    });
+  };
+  for (const range of freeCellRanges(
+    context,
+    state,
+    windowStartMs,
+    windowEndMs,
+  )) {
+    const { slot } = range;
+    let runStart = range.firstCell;
+    for (let cell = runStart + 1; cell <= range.endCell; cell += 1) {
+      if (
+        cell === range.endCell ||
+        slot.cellDates[cell] !== slot.cellDates[runStart]
+      ) {
+        pushRun(slot, runStart, cell);
+        runStart = cell;
+      }
+    }
+  }
+  return runs;
+}
+
+/**
+ * Latest instant from which `needUnits` free cells are still usable before
+ * `limitMs`: scanning the ranges backwards, a range counts only when the part
+ * inside [fromMs, limitMs) holds one `pieceUnits` session (the whole need when
+ * `contiguous`). Undefined when the need does not fit at all.
+ */
+function latestStartWithRoom(
+  ranges: CellRange[],
+  fromMs: number,
+  limitMs: number,
+  needUnits: number,
+  pieceUnits: number,
+  contiguous: boolean,
+): number | undefined {
+  let gathered = 0;
+  for (let index = ranges.length - 1; index >= 0; index -= 1) {
+    const range = ranges[index];
+    if (range === undefined) {
+      continue;
+    }
+    const { slot } = range;
+    const firstCell = Math.max(
+      range.firstCell,
+      Math.ceil((fromMs - slot.startMs) / GRID_MS),
+    );
+    const endCell = Math.min(
+      range.endCell,
+      Math.floor((limitMs - slot.startMs) / GRID_MS),
+    );
+    const length = endCell - firstCell;
+    if (length < pieceUnits) {
+      continue;
+    }
+    if (contiguous) {
+      return slot.startMs + (endCell - needUnits) * GRID_MS;
+    }
+    if (gathered + length >= needUnits) {
+      const take = Math.max(needUnits - gathered, pieceUnits);
+      return slot.startMs + (endCell - take) * GRID_MS;
+    }
+    gathered += length;
+  }
+  return undefined;
+}
+
+/**
+ * Latest end the task `ordered[taskIndex]` may have so that its dependents
+ * can still be placed (FU-69): for every transitive dependent, the latest
+ * instant from which its still-unplaced minutes fit into the free cells before
+ * its own deadline and its own dependents' bounds, and the start of any block
+ * it already has. Positive infinity when nothing constrains the task.
+ *
+ * With `slackMs` 0 this is a necessary condition for H3 + H7 only (it ignores
+ * H6 and the room other tasks will take), so it never removes a position that
+ * a valid greedy plan uses; a dependent that cannot be placed at all imposes
+ * no bound. A positive `slackMs` keeps that much time free before each
+ * dependent's room as well (the break H6 may demand after its dependency),
+ * which is a heuristic and may be stricter than necessary.
+ */
+function successorBound(
+  context: BuildContext,
+  state: PlanState,
+  ordered: Task[],
+  taskIndex: number,
+  slackMs: number,
+): number {
+  const task = ordered[taskIndex];
+  const direct =
+    task === undefined ? undefined : context.dependentsByTask.get(task.id);
+  if (direct === undefined) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const reachable = new Set<string>();
+  const queue = [...direct];
+  for (let head = 0; head < queue.length; head += 1) {
+    const dependent = queue[head];
+    if (dependent === undefined || reachable.has(dependent.id)) {
+      continue;
+    }
+    reachable.add(dependent.id);
+    queue.push(...(context.dependentsByTask.get(dependent.id) ?? []));
+  }
+
+  const placementStartMs = Math.max(context.horizonStartMs, context.nowMs);
+  const ranges = freeCellRanges(
+    context,
+    state,
+    placementStartMs,
+    context.horizonEndMs,
+  );
+  const placedMinByTask = new Map<string, number>();
+  const firstStartByTask = new Map<string, number>();
+  const noteBlock = (taskId: string, startMs: number, minutes: number) => {
+    placedMinByTask.set(taskId, (placedMinByTask.get(taskId) ?? 0) + minutes);
+    const knownStartMs = firstStartByTask.get(taskId);
+    firstStartByTask.set(
+      taskId,
+      knownStartMs === undefined ? startMs : Math.min(knownStartMs, startMs),
+    );
+  };
+  for (const placement of state.placements) {
+    noteBlock(placement.taskId, placement.startMs, placement.durationMin);
+  }
+  for (const interval of context.lockedIntervals) {
+    noteBlock(
+      interval.taskId,
+      interval.startMs,
+      (interval.endMs - interval.startMs) / MINUTE_MS,
+    );
+  }
+
+  // `ordered` is topological, so walking it backwards visits every dependent
+  // before the task it depends on.
+  const latestStart = new Map<string, number>();
+  for (let index = ordered.length - 1; index > taskIndex; index -= 1) {
+    const dependent = ordered[index];
+    if (dependent === undefined || !reachable.has(dependent.id)) {
+      continue;
+    }
+    let limitMs = Math.min(
+      context.horizonEndMs,
+      (context.dueMsByTask.get(dependent.id) ?? Number.POSITIVE_INFINITY) -
+        (context.bufferMsByTask.get(dependent.id) ?? 0),
+    );
+    for (const next of context.dependentsByTask.get(dependent.id) ?? []) {
+      limitMs = Math.min(
+        limitMs,
+        latestStart.get(next.id) ?? Number.POSITIVE_INFINITY,
+      );
+    }
+    let boundMs =
+      firstStartByTask.get(dependent.id) ?? Number.POSITIVE_INFINITY;
+    const needMin = Math.max(
+      0,
+      taskRequiredMinutes(dependent, context.riskLevel) -
+        (placedMinByTask.get(dependent.id) ?? 0),
+    );
+    if (needMin > 0) {
+      const needUnits = Math.ceil(needMin / GRID_MINUTES);
+      const pieceUnits = dependent.splittable
+        ? Math.min(
+            needUnits,
+            Math.max(1, Math.ceil(dependent.minSessionMin / GRID_MINUTES)),
+          )
+        : needUnits;
+      const earliestMs =
+        dependent.earliestStartAt === undefined
+          ? placementStartMs
+          : Math.max(placementStartMs, parseInstant(dependent.earliestStartAt));
+      const roomMs = latestStartWithRoom(
+        ranges,
+        earliestMs,
+        limitMs,
+        needUnits,
+        pieceUnits,
+        !dependent.splittable,
+      );
+      if (roomMs !== undefined) {
+        boundMs = Math.min(boundMs, roomMs - slackMs);
+      }
+    }
+    latestStart.set(dependent.id, boundMs);
+  }
+
+  let boundMs = Number.POSITIVE_INFINITY;
+  for (const dependent of direct) {
+    boundMs = Math.min(
+      boundMs,
+      latestStart.get(dependent.id) ?? Number.POSITIVE_INFINITY,
+    );
+  }
+  return boundMs;
+}
+
+/**
+ * Policy order in which a gap-fitted split consumes free runs: earliest first
+ * (front_loaded), longest first (focus_blocked), least-loaded day first
+ * (balanced). `runs` is in time order, which also breaks ties.
+ */
+function orderFreeRuns(runs: FreeRun[], policy: PolicyName): FreeRun[] {
+  if (policy === 'front_loaded') {
+    return runs;
+  }
+  if (policy === 'focus_blocked') {
+    return [...runs].sort(
+      (a, b) => b.cellCount - a.cellCount || a.startMs - b.startMs,
+    );
+  }
+  return [...runs].sort(
+    (a, b) => a.dayLoadMin - b.dayLoadMin || a.startMs - b.startMs,
+  );
+}
+
+/**
+ * Cover exactly `units` grid cells with sessions inside the session bounds:
+ * `searchRuns` over the free runs in policy order and, when that order is not
+ * chronological and finds nothing, once more in time order. Only the
+ * chronological search sees every session's preceding focus when it picks a
+ * start, so only it can leave the H6 break after a session in an earlier gap.
+ *
+ * Work is bounded and deterministic: at most two `searchRuns` calls of
+ * `GAP_FIT_BUDGET` evaluations each. Successful sessions stay in `state`; a
+ * failed search leaves it unchanged and returns undefined.
+ */
+function searchGapSessions(
+  context: BuildContext,
+  state: PlanState,
+  policy: PolicyName,
+  task: Task,
+  units: number,
+  bounds: SessionBounds,
+  windowStartMs: number,
+  windowEndMs: number,
+): Placement[] | undefined {
+  if (units === 0) {
+    return [];
+  }
+  const chronological = freeRuns(
+    context,
+    state,
+    windowStartMs,
+    windowEndMs,
+    bounds.minUnits,
+  );
+  const preferred = orderFreeRuns(chronological, policy);
+  const found = searchRuns(context, state, task, units, bounds, preferred);
+  if (
+    found !== undefined ||
+    preferred.every((run, index) => run === chronological[index])
+  ) {
+    return found;
+  }
+  return searchRuns(context, state, task, units, bounds, chronological);
+}
+
+/**
+ * Depth-first search for sessions that cover exactly `units` cells, visiting
+ * `runs` in the given order and filling each run left to right. For the next
+ * session in a run H6 makes three starts distinct (`startOffsets`); every
+ * passing (start, length) whose remainder is still representable is tried,
+ * longest session first. Every session is checked with `passes` against the
+ * live state, so H1/H6 hold by construction.
+ *
+ * `GAP_FIT_BUDGET` evaluations (`passes` checks plus trial placements) bound
+ * the work and the recursion depth; an exhausted budget is a failed search.
+ */
+function searchRuns(
+  context: BuildContext,
+  state: PlanState,
+  task: Task,
+  units: number,
+  bounds: SessionBounds,
+  runs: FreeRun[],
+): Placement[] | undefined {
+  // usableAfter[k]: upper bound on the cells runs k.. can still host.
+  const usableAfter: number[] = new Array<number>(runs.length + 1).fill(0);
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    usableAfter[index] =
+      (usableAfter[index + 1] ?? 0) + (runs[index]?.usableCells ?? 0);
+  }
+  if (units > (usableAfter[0] ?? 0)) {
+    return undefined;
+  }
+
+  let budget = GAP_FIT_BUDGET;
+  const sessions: Placement[] = [];
+
+  const fits = (run: FreeRun, offset: number, length: number): boolean => {
+    if (budget <= 0) {
+      return false;
+    }
+    budget -= 1;
+    const startMs = run.startMs + offset * GRID_MS;
+    return passes(context, state, startMs, startMs + length * GRID_MS);
+  };
+  // `passes` is monotone in the session length for a fixed start (a shorter
+  // block overlaps less, loads less and joins no longer run), so the longest
+  // passing length is found by bisection.
+  const longestFitting = (
+    run: FreeRun,
+    offset: number,
+    cap: number,
+  ): number => {
+    if (cap < bounds.minUnits || !fits(run, offset, bounds.minUnits)) {
+      return 0;
+    }
+    let low = bounds.minUnits;
+    let high = cap;
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2);
+      if (fits(run, offset, middle)) {
+        low = middle;
+      } else {
+        high = middle - 1;
+      }
+    }
+    return low;
+  };
+
+  const search = (
+    index: number,
+    offset: number,
+    remaining: number,
+  ): boolean => {
+    if (remaining === 0) {
+      return true;
+    }
+    for (let k = index; k < runs.length; k += 1) {
+      const run = runs[k];
+      if (run === undefined) {
+        continue;
+      }
+      const from = k === index ? offset : 0;
+      const leftCells = run.cellCount - from;
+      const usableHere =
+        leftCells < bounds.minUnits ? 0 : Math.min(run.usableCells, leftCells);
+      if (remaining > usableHere + (usableAfter[k + 1] ?? 0)) {
+        return false;
+      }
+      if (usableHere === 0) {
+        continue;
+      }
+      const starts = startOffsets(context, state, run, from);
+      const longest = starts.map((start) =>
+        longestFitting(
+          run,
+          start,
+          Math.min(bounds.maxUnits, remaining, run.cellCount - start),
+        ),
+      );
+      // Longest session first across the starts (earliest start on ties): a
+      // start that only admits short sessions is then tried last instead of
+      // draining the budget before the next start is reached.
+      for (
+        let length = Math.max(...longest);
+        length >= bounds.minUnits;
+        length -= 1
+      ) {
+        if (!isRepresentable(remaining - length, bounds)) {
+          continue;
+        }
+        for (let choice = 0; choice < starts.length; choice += 1) {
+          const start = starts[choice];
+          if (start === undefined || length > (longest[choice] ?? 0)) {
+            continue;
+          }
+          if (budget <= 0) {
+            return false;
+          }
+          budget -= 1;
+          const startMs = run.startMs + start * GRID_MS;
+          const endMs = startMs + length * GRID_MS;
+          const placement: Placement = {
+            taskId: task.id,
+            durationMin: length * GRID_MINUTES,
+            startMs,
+            endMs,
+            slotId: run.slot.id,
+            localHour: localHourOf(startMs, endMs, context.input.timeZone),
+            seeded: false,
+          };
+          addPlacement(state, placement);
+          sessions.push(placement);
+          if (search(k, start + length, remaining - length)) {
+            return true;
+          }
+          sessions.pop();
+          removePlacement(state, placement);
+        }
+      }
+    }
+    return false;
+  };
+
+  return search(0, 0, units) ? sessions : undefined;
+}
+
+/**
+ * Start offsets worth trying for the next session of a run whose cells from
+ * `from` on are free. With P the focus run that ends before `from` and S the
+ * one that starts after the run, a session joins P when it starts within
+ * breakMin of it and joins S when it ends within breakMin of it, and the
+ * joined stretch may not exceed breakAfterMin (H6). That makes three starts
+ * distinct, each the earliest of its class (an earlier start admits every
+ * length a later start of the same class does and leaves more room):
+ *   1. `from`: joins P when P is that close;
+ *   2. the first cell a full break after P: joins nothing before it;
+ *   3. the first cell from which a session may run into S, that is no earlier
+ *      than S's end minus breakAfterMin: a session starting between 2 and 3
+ *      has to stop a break short of S.
+ * H1 holds on free cells and the daily cap does not depend on the start, so
+ * `passes` covers the rest.
+ */
+function startOffsets(
+  context: BuildContext,
+  state: PlanState,
+  run: FreeRun,
+  from: number,
+): number[] {
+  const starts = [from];
+  if (context.breakAfterMs <= 0) {
+    return starts;
+  }
+  const fromMs = run.startMs + from * GRID_MS;
+  const runEndMs = run.startMs + run.cellCount * GRID_MS;
+  let beforeEndMs = Number.NEGATIVE_INFINITY;
+  let afterStartMs = Number.POSITIVE_INFINITY;
+  let afterEndMs = Number.NEGATIVE_INFINITY;
+  for (const interval of state.intervals) {
+    if (interval.endMs <= fromMs) {
+      beforeEndMs = Math.max(beforeEndMs, interval.endMs);
+    } else if (interval.startMs >= runEndMs) {
+      if (afterStartMs === Number.POSITIVE_INFINITY) {
+        afterStartMs = interval.startMs;
+      } else if (interval.startMs - afterEndMs >= context.breakMs) {
+        break;
+      }
+      afterEndMs = Math.max(afterEndMs, interval.endMs);
+    }
+  }
+
+  const offsetOf = (epochMs: number): number =>
+    Math.ceil((epochMs - run.startMs) / GRID_MS);
+  let detached = from;
+  if (beforeEndMs + context.breakMs > fromMs) {
+    detached = offsetOf(beforeEndMs + context.breakMs);
+    starts.push(detached);
+  }
+  if (afterStartMs - runEndMs < context.breakMs) {
+    const anchored = offsetOf(afterEndMs - context.breakAfterMs);
+    if (anchored > detached) {
+      starts.push(anchored);
+    }
+  }
+  return starts;
 }
 
 function selectPlacement(

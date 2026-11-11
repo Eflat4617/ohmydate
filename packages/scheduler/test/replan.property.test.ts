@@ -1,11 +1,13 @@
 import fc from 'fast-check';
 import type {
   AvailabilityRule,
+  Block,
+  PolicyName,
   ScheduleInput,
   Task,
   Weekday,
 } from '../src/index.js';
-import { generate } from '../src/index.js';
+import { generate, validate } from '../src/index.js';
 
 interface Scenario {
   timeZone: string;
@@ -48,6 +50,14 @@ function configuredRuns(): number {
 
 const NUM_RUNS = Math.min(configuredRuns(), 400);
 
+/**
+ * Fixed corpus of the FU-69R-1 witness property (deterministic, ~1 s). The
+ * generator of commit 8950bd5, whose gap search tried only the first start of
+ * a gap, fails this corpus.
+ */
+const WITNESS_RUNS = 400;
+const WITNESS_SEED = 6903;
+
 const baseTaskSpec = fc.record({
   durationUnits: fc.integer({ min: 6, max: 24 }),
   maxUnits: fc.constantFrom(12, 18, 24, 36),
@@ -88,9 +98,16 @@ type Spec = {
   seed: number;
 };
 
+/** Session/break shape of the generated inputs; the defaults are M3-02's. */
+interface Shape {
+  minSessionCapMin?: number;
+  breakAfterMin?: number;
+}
+
 function buildInput(
   specValue: Spec,
   existingBlocks: ScheduleInput['existingBlocks'] = undefined,
+  shape: Shape = {},
 ): ScheduleInput {
   const weekdays =
     specValue.windowKind === 'all' ? [1, 2, 3, 4, 5, 6, 7] : [1, 2, 3, 4, 5];
@@ -103,7 +120,7 @@ function buildInput(
   const tasks: Task[] = specValue.tasks.map((entry, index) => {
     const durationMin = entry.durationUnits * 5;
     const maxSessionMin = Math.max(entry.durationUnits, entry.maxUnits) * 5;
-    const minSessionMin = Math.min(30, durationMin);
+    const minSessionMin = Math.min(shape.minSessionCapMin ?? 30, durationMin);
     return {
       id: `T${index}`,
       dueAt: specValue.scenario.end,
@@ -131,7 +148,7 @@ function buildInput(
     ...(existingBlocks === undefined ? {} : { existingBlocks }),
     prefs: {
       maxDailyFocusMin: 480,
-      breakAfterMin: 480,
+      breakAfterMin: shape.breakAfterMin ?? 480,
       breakMin: 15,
       riskLevel: 'p50',
       dayStartLocal: '00:00',
@@ -209,6 +226,283 @@ describe('replan feasibility property', () => {
       { numRuns: NUM_RUNS },
     );
     expect(comparisons).toBeGreaterThan(20);
+  }, 180000);
+
+  // FU-69R-1: the same implication with 45-minute minimum sessions and a
+  // binding continuous-focus limit. Under the 06 §7.1 freeze it is not a
+  // theorem for every input, so this variant runs a fixed corpus (seeded);
+  // the witness property below is the one with a sound oracle.
+  it('also holds with minSessionMin 45 and breakAfterMin 120 (seeded corpus)', () => {
+    const shape: Shape = { minSessionCapMin: 45, breakAfterMin: 120 };
+    let comparisons = 0;
+    fc.assert(
+      fc.property(spec, (specValue) => {
+        const baseInput = buildInput(specValue, undefined, shape);
+        const base = generate(baseInput, {
+          policies: [specValue.policy],
+          seed: specValue.seed,
+        });
+        const baseCandidate = base.candidates[0];
+        if (baseCandidate === undefined || !baseCandidate.feasible) {
+          fc.pre(false);
+          return;
+        }
+
+        const mutated = mutate(baseInput, specValue);
+        const fresh = generate(mutated, {
+          policies: [specValue.policy],
+          seed: specValue.seed,
+        });
+        if (fresh.candidates[0]?.feasible !== true) {
+          fc.pre(false);
+          return;
+        }
+
+        comparisons += 1;
+        const replan = generate(
+          { ...mutated, existingBlocks: baseCandidate.blocks },
+          { policies: [specValue.policy], seed: specValue.seed },
+        );
+        expect(replan.candidates[0]?.feasible).toBe(true);
+      }),
+      { numRuns: 200, seed: 6945 },
+    );
+    expect(comparisons).toBeGreaterThan(100);
+  }, 180000);
+});
+
+/**
+ * FU-69R-1 witness property (sound oracle, seeded corpus).
+ *
+ * One UTC day is laid out left to right from random items: frozen blocks of
+ * other tasks, commitments, and sessions of task A, separated by nothing, a
+ * few minutes or exactly one break, with little or no tail. The A sessions are
+ * a witness: when the independent validator accepts frozen blocks + witness,
+ * a plan that keeps every frozen block exists, so the replan must be feasible
+ * in every policy and keep those blocks. A's own existing block is absent,
+ * the first witness session, or a shortened one (A grew).
+ *
+ * Minimum sessions of 30/45/60 minutes meet continuous-focus limits of
+ * 90/120/240 minutes here, which is where the start of a session inside a gap
+ * matters (join the previous focus run, leave a break after it, or run into
+ * the next one).
+ */
+const DAY_START_MS = Date.parse('2026-11-09T09:00:00Z');
+const CELL_MS = 5 * 60 * 1000;
+const ALL_POLICIES: PolicyName[] = ['front_loaded', 'balanced', 'focus_blocked'];
+
+function cellInstant(cell: number): string {
+  return new Date(DAY_START_MS + cell * CELL_MS)
+    .toISOString()
+    .replace('.000Z', 'Z');
+}
+
+const witnessSpec = fc.record({
+  items: fc.array(
+    fc.record({
+      kind: fc.constantFrom<'frozen' | 'commitment' | 'session'>(
+        'frozen',
+        'commitment',
+        'session',
+        'session',
+      ),
+      gap: fc.constantFrom<number | 'break'>(0, 0, 'break', 'break', 'break', 1, 2),
+      lengthCells: fc.integer({ min: 2, max: 24 }),
+    }),
+    { minLength: 2, maxLength: 6 },
+  ),
+  tailCells: fc.constantFrom(0, 0, 0, 1, 2, 4),
+  minSessionCells: fc.constantFrom(6, 9, 12),
+  maxSessionExtraCells: fc.integer({ min: 0, max: 15 }),
+  breakAfterMin: fc.constantFrom(90, 120, 240),
+  breakMin: fc.constantFrom(10, 15, 30),
+  existing: fc.constantFrom<'none' | 'first' | 'shrunk'>(
+    'none',
+    'first',
+    'shrunk',
+  ),
+  shrinkCells: fc.integer({ min: 1, max: 6 }),
+  seed: fc.integer({ min: 0, max: 1000 }),
+});
+
+type WitnessSpec = {
+  items: Array<{
+    kind: 'frozen' | 'commitment' | 'session';
+    gap: number | 'break';
+    lengthCells: number;
+  }>;
+  tailCells: number;
+  minSessionCells: number;
+  maxSessionExtraCells: number;
+  breakAfterMin: number;
+  breakMin: number;
+  existing: 'none' | 'first' | 'shrunk';
+  shrinkCells: number;
+  seed: number;
+};
+
+interface WitnessCase {
+  input: ScheduleInput;
+  frozen: Block[];
+  witness: Block[];
+}
+
+function buildWitnessCase(specValue: WitnessSpec): WitnessCase | undefined {
+  const maxSessionCells =
+    specValue.minSessionCells + specValue.maxSessionExtraCells;
+  const breakCells = Math.ceil(specValue.breakMin / 5);
+  const frozen: Block[] = [];
+  const sessions: Block[] = [];
+  const commitments: ScheduleInput['commitments'] = [];
+  const tasks: Task[] = [];
+  let cursor = 0;
+  for (const item of specValue.items) {
+    const start = cursor + (item.gap === 'break' ? breakCells : item.gap);
+    let length = item.lengthCells;
+    if (item.kind === 'session') {
+      length = Math.min(
+        maxSessionCells,
+        Math.max(specValue.minSessionCells, length),
+      );
+    } else if (item.kind === 'frozen') {
+      length = Math.max(3, Math.min(length, specValue.breakAfterMin / 5));
+    }
+    const end = start + length;
+    if (end > 96) {
+      break;
+    }
+    const block = { start: cellInstant(start), end: cellInstant(end) };
+    if (item.kind === 'frozen') {
+      const id = `F${frozen.length}`;
+      frozen.push({ taskId: id, ...block });
+      tasks.push({
+        id,
+        estimate: { p50Min: length * 5, p90Min: length * 5 },
+        splittable: true,
+        minSessionMin: 15,
+        maxSessionMin: Math.max(60, length * 5),
+        priority: 2,
+        dependsOn: [],
+      });
+    } else if (item.kind === 'commitment') {
+      commitments.push(block);
+    } else {
+      sessions.push({ taskId: 'A', ...block });
+    }
+    cursor = end;
+  }
+  const first = sessions[0];
+  if (first === undefined) {
+    return undefined;
+  }
+
+  const requiredMin = sessions.reduce(
+    (sum, block) =>
+      sum + (Date.parse(block.end) - Date.parse(block.start)) / 60000,
+    0,
+  );
+  tasks.push({
+    id: 'A',
+    estimate: { p50Min: requiredMin, p90Min: requiredMin },
+    splittable: true,
+    minSessionMin: specValue.minSessionCells * 5,
+    maxSessionMin: maxSessionCells * 5,
+    priority: 1,
+    dependsOn: [],
+  });
+
+  const existingBlocks: Block[] = [...frozen];
+  if (specValue.existing === 'first' && sessions.length > 1) {
+    existingBlocks.push(first);
+  } else if (specValue.existing === 'shrunk') {
+    const shrunkEndMs =
+      Date.parse(first.end) - specValue.shrinkCells * CELL_MS;
+    const shrunkCells = (shrunkEndMs - Date.parse(first.start)) / CELL_MS;
+    if (shrunkCells >= specValue.minSessionCells) {
+      existingBlocks.push({
+        taskId: 'A',
+        start: first.start,
+        end: new Date(shrunkEndMs).toISOString().replace('.000Z', 'Z'),
+      });
+    }
+  }
+
+  const dayCells = cursor + specValue.tailCells;
+  const dayStart = cellInstant(0);
+  const dayEnd = cellInstant(dayCells);
+  return {
+    input: {
+      now: dayStart,
+      timeZone: 'UTC',
+      horizon: { start: dayStart, end: dayEnd },
+      tasks,
+      availability: [
+        {
+          weekday: 1,
+          startLocal: '09:00',
+          endLocal: dayEnd.slice(11, 16),
+          kind: 'work',
+        },
+      ],
+      exceptions: [],
+      commitments,
+      lockedBlocks: [],
+      existingBlocks,
+      prefs: {
+        maxDailyFocusMin: 480,
+        breakAfterMin: specValue.breakAfterMin,
+        breakMin: specValue.breakMin,
+        riskLevel: 'p50',
+        dayStartLocal: '00:00',
+        dayEndLocal: '24:00',
+      },
+      seed: specValue.seed,
+    },
+    frozen,
+    witness: [...frozen, ...sessions],
+  };
+}
+
+describe('replan witness property (FU-69R-1)', () => {
+  it('is feasible and keeps the frozen blocks whenever a validated frozen-preserving witness exists (seeded corpus)', () => {
+    let cases = 0;
+    let multiSessionWitnesses = 0;
+    fc.assert(
+      fc.property(witnessSpec, (specValue) => {
+        const built = buildWitnessCase(specValue);
+        if (
+          built === undefined ||
+          validate(built.input, built.witness, { riskLevel: 'p50' }).length > 0
+        ) {
+          fc.pre(false);
+          return;
+        }
+        cases += 1;
+        if (built.witness.length - built.frozen.length > 1) {
+          multiSessionWitnesses += 1;
+        }
+        for (const policy of ALL_POLICIES) {
+          const [candidate] = generate(built.input, {
+            policies: [policy],
+            seed: specValue.seed,
+          }).candidates;
+          expect(candidate?.feasible).toBe(true);
+          expect(candidate?.deficitMin).toBe(0);
+          const blocks = candidate?.blocks ?? [];
+          expect(
+            validate(built.input, blocks, { riskLevel: 'p50' }),
+          ).toEqual([]);
+          for (const block of built.frozen) {
+            expect(
+              blocks.filter((other) => other.taskId === block.taskId),
+            ).toEqual([block]);
+          }
+        }
+      }),
+      { numRuns: WITNESS_RUNS, seed: WITNESS_SEED },
+    );
+    expect(cases).toBeGreaterThanOrEqual(WITNESS_RUNS);
+    expect(multiSessionWitnesses).toBeGreaterThan(WITNESS_RUNS / 4);
   }, 180000);
 });
 
