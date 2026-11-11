@@ -12,11 +12,10 @@ import UiButton from '../components/ui/UiButton.vue';
 import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
-import { NOTE_PAGE_SIZE, noteKeys, parsePresetLink, useOwnerKey } from '../composables/notes';
+import { NOTE_PAGE_SIZE, keyOwner, noteKeys, ownerFenced, parsePresetLink, retryFenced, useOwnerKey } from '../composables/notes';
 import { useMediaQuery } from '../composables/useMediaQuery';
 import { t, tp } from '../i18n';
 import { browserTimeZone, formatDateTime } from '../i18n/format';
-import { captureOwnerBinding } from '../session/ownerEpoch';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
 import { useToastStore } from '../stores/toast';
@@ -73,19 +72,20 @@ const serverQ = computed(() => Array.from(q.value).slice(0, 200).join(''));
 
 const listQuery = useInfiniteQuery({
   queryKey: computed(() => noteKeys.list(owner.value, serverQ.value)),
-  queryFn: ({ pageParam }: { pageParam: string | null }) => {
-    const binding = captureOwnerBinding();
-    return plannerClient.listDocuments({
-      ...(serverQ.value.length > 0 ? { q: serverQ.value } : {}),
-      limit: NOTE_PAGE_SIZE,
-      ...(pageParam === null ? {} : { cursor: pageParam }),
-      signal: binding.signal,
-    });
-  },
+  // Each page is one owner-fenced request for the key's owner (M6-03R-1 H1).
+  queryFn: ({ pageParam, queryKey }: { pageParam: string | null; queryKey: readonly unknown[] }) =>
+    ownerFenced(keyOwner(queryKey), (binding) =>
+      plannerClient.listDocuments({
+        ...(serverQ.value.length > 0 ? { q: serverQ.value } : {}),
+        limit: NOTE_PAGE_SIZE,
+        ...(pageParam === null ? {} : { cursor: pageParam }),
+        signal: binding.signal,
+      }),
+    ),
   initialPageParam: null as string | null,
   getNextPageParam: (last: ContextDocumentPage) => last.nextCursor,
   // One quiet retry, then the error state with its own retry button.
-  retry: 1,
+  retry: retryFenced(1),
 });
 
 const notes = computed<ContextDocument[]>(() => (listQuery.data.value?.pages ?? []).flatMap((page) => page.items));

@@ -2,7 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { ActionStore, isStoredFinalResult, plannerClient, type ContextDocument } from '../../api';
-import { isApiStatus, noteKeys, publishNote, useLinkedNotes, useOwnerKey } from '../../composables/notes';
+import { isApiStatus, keyOwner, noteKeys, ownerFenced, publishNote, retryFenced, useLinkedNotes, useOwnerKey } from '../../composables/notes';
 import { t } from '../../i18n';
 import { errorMessage } from '../../i18n/problem';
 import { captureOwnerBinding, isOwnerBindingCurrent } from '../../session/ownerEpoch';
@@ -59,11 +59,12 @@ onBeforeUnmount(() => {
 
 const candidatesQuery = useQuery({
   queryKey: computed(() => [...noteKeys.list(owner.value, q.value), 'wizard']),
-  queryFn: () => {
-    const binding = captureOwnerBinding();
-    return plannerClient.listDocuments({ ...(q.value.length > 0 ? { q: q.value } : {}), limit: 20, signal: binding.signal });
-  },
+  queryFn: ({ queryKey }) =>
+    ownerFenced(keyOwner(queryKey), (binding) =>
+      plannerClient.listDocuments({ ...(q.value.length > 0 ? { q: q.value } : {}), limit: 20, signal: binding.signal }),
+    ),
   enabled: computed(() => pickerOpen.value),
+  retry: retryFenced(),
 });
 const candidates = computed(() => candidatesQuery.data.value?.items ?? []);
 
@@ -92,7 +93,10 @@ async function link(note: ContextDocument): Promise<void> {
     if (isStoredFinalResult(cause)) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     // 412: the note changed elsewhere; the refreshed list carries its new version.
-    if (isApiStatus(cause, 412)) await candidatesQuery.refetch();
+    if (isApiStatus(cause, 412)) {
+      await candidatesQuery.refetch();
+      if (!isOwnerBindingCurrent(binding)) return;
+    }
     pickerError.value = isApiStatus(cause, 422) ? t('notes.links.duplicate') : errorMessage(cause, t('notes.wizard.error'));
   } finally {
     busyId.value = null;
@@ -117,7 +121,10 @@ async function unlink(note: ContextDocument): Promise<void> {
   } catch (cause) {
     if (isStoredFinalResult(cause)) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
-    if (isApiStatus(cause, 412)) await linkedQuery.refetch();
+    if (isApiStatus(cause, 412)) {
+      await linkedQuery.refetch();
+      if (!isOwnerBindingCurrent(binding)) return;
+    }
     error.value = errorMessage(cause, t('notes.wizard.error'));
   } finally {
     busyId.value = null;

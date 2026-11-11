@@ -4,10 +4,9 @@ import { useQueries, useQuery, useQueryClient } from '@tanstack/vue-query';
 import { plannerClient, type ContextDocument, type DocumentTargetKind, type IntakeSession } from '../api';
 import { useLayoutContext } from '../layout/context';
 import { useLayoutNow } from '../layout/now';
-import { captureOwnerBinding } from '../session/ownerEpoch';
 import { useSessionStore } from '../stores/session';
 import { focusContextFor } from './focusContext';
-import { isApiStatus, noteKeys, useOwnerKey } from './notes';
+import { keyOwner, noteKeys, ownerFenced, retryFenced, useOwnerKey } from './notes';
 
 /**
  * RelatedNotes (07 §3.4 "관련 노트 3개", §2.1 `RelatedNotes{limit}`): notes
@@ -103,17 +102,22 @@ export function useRelatedNotes(limit: () => number) {
 
   const taskQuery = useQuery({
     queryKey: computed(() => ['task', owner.value, currentTask.value?.id ?? 'none']),
-    queryFn: () => plannerClient.getTask(currentTask.value?.id ?? '', { fresh: true }),
+    queryFn: ({ queryKey }) =>
+      ownerFenced(keyOwner(queryKey), (binding) =>
+        plannerClient.getTask(currentTask.value?.id ?? '', { fresh: true, signal: binding.signal }),
+      ),
     enabled: computed(() => currentTask.value !== null),
-    retry: (count, cause) => !isApiStatus(cause, 404) && count < 1,
+    retry: retryFenced(1),
     staleTime: 60_000,
   });
 
   const planningSessionId = computed(() => (route.name === 'plan-session' ? param(route.params['sessionId']) : null));
+  // Observe-only: the wizard on this page loads the session; this panel never
+  // fetches it (no request of its own that could outlive the owner).
   const intakeQuery = useQuery({
     queryKey: computed(() => ['intake', planningSessionId.value ?? '']),
     queryFn: () => plannerClient.getIntakeSession(planningSessionId.value ?? '', { fresh: true }),
-    enabled: computed(() => planningSessionId.value !== null && currentTask.value === null),
+    enabled: false,
   });
 
   const openNoteId = computed(() => (route.name === 'notes-detail' ? param(route.params['id']) : null));
@@ -125,10 +129,8 @@ export function useRelatedNotes(limit: () => number) {
   // Re-read the cached note when its query updates (link changes).
   const openNoteQuery = useQuery({
     queryKey: computed(() => noteKeys.doc(owner.value, openNoteId.value ?? 'new')),
-    queryFn: () => {
-      const binding = captureOwnerBinding();
-      return plannerClient.getDocument(openNoteId.value ?? '', binding.signal);
-    },
+    queryFn: ({ queryKey }) =>
+      ownerFenced(keyOwner(queryKey), (binding) => plannerClient.getDocument(openNoteId.value ?? '', binding.signal)),
     enabled: computed(() => openNoteId.value !== null && currentTask.value === null),
     refetchOnWindowFocus: false,
     retry: false,
@@ -161,11 +163,12 @@ export function useRelatedNotes(limit: () => number) {
     queries: computed(() =>
       related.value.targets.map((target) => ({
         queryKey: [...noteKeys.linked(owner.value, target.kind, target.id), limit() + 1],
-        queryFn: () => {
-          const binding = captureOwnerBinding();
-          // One extra: the open note itself may be in the page.
-          return plannerClient.listDocuments({ targetKind: target.kind, targetId: target.id, limit: limit() + 1, signal: binding.signal });
-        },
+        // One extra: the open note itself may be in the page.
+        queryFn: ({ queryKey }: { queryKey: readonly unknown[] }) =>
+          ownerFenced(keyOwner(queryKey), (binding) =>
+            plannerClient.listDocuments({ targetKind: target.kind, targetId: target.id, limit: limit() + 1, signal: binding.signal }),
+          ),
+        retry: retryFenced(),
       })),
     ),
   });

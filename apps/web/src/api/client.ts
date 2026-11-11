@@ -240,9 +240,10 @@ export class PlannerClient {
     return data;
   }
 
-  async listProjects(options: { cursor?: string; limit?: number } = {}): Promise<Page<Project>> {
+  async listProjects(options: { cursor?: string; limit?: number; signal?: AbortSignal } = {}): Promise<Page<Project>> {
     const { data, error, response } = await this.client.GET('/projects', {
       params: { query: pageQuery(options) },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty project page');
@@ -264,7 +265,7 @@ export class PlannerClient {
   }
 
   async listTasks(
-    options: { projectId?: string; status?: TaskStatus; cursor?: string; limit?: number } = {},
+    options: { projectId?: string; status?: TaskStatus; cursor?: string; limit?: number; signal?: AbortSignal } = {},
   ): Promise<Page<Task>> {
     const query: {
       projectId?: string;
@@ -277,17 +278,21 @@ export class PlannerClient {
     if (options.cursor !== undefined) query.cursor = options.cursor;
     if (options.limit !== undefined) query.limit = options.limit;
 
-    const { data, error, response } = await this.client.GET('/tasks', { params: { query } });
+    const { data, error, response } = await this.client.GET('/tasks', {
+      params: { query },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty task page');
     for (const task of data.items) this.remember(`task:${task.id}`, task.version);
     return data;
   }
 
-  async getTask(taskId: string, options: { fresh?: boolean } = {}): Promise<Task> {
+  async getTask(taskId: string, options: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<Task> {
     const { data, error, response } = await this.client.GET('/tasks/{id}', {
       params: { path: { id: taskId } },
       ...(options.fresh === true ? { cache: 'no-store' as RequestCache } : {}),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty task response');

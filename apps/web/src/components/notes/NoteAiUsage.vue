@@ -2,10 +2,9 @@
 import { computed, useId } from 'vue';
 import { useInfiniteQuery } from '@tanstack/vue-query';
 import { plannerClient, type NoteAiUsage, type NoteAiUsagePage, type NoteAiUsageStatus } from '../../api';
-import { noteKeys, useOwnerKey } from '../../composables/notes';
+import { keyOwner, noteKeys, ownerFenced, retryFenced, useOwnerKey } from '../../composables/notes';
 import { t, tp } from '../../i18n';
 import { browserTimeZone, formatDateTime, formatNumber } from '../../i18n/format';
-import { captureOwnerBinding } from '../../session/ownerEpoch';
 import { useAuthStore } from '../../stores/auth';
 import UiBadge from '../ui/UiBadge.vue';
 import UiBanner from '../ui/UiBanner.vue';
@@ -28,17 +27,18 @@ const timeZone = computed(() => auth.user?.timeZone ?? browserTimeZone());
 
 const usageQuery = useInfiniteQuery({
   queryKey: computed(() => noteKeys.usage(owner.value, props.documentId ?? 'none')),
-  queryFn: ({ pageParam }: { pageParam: string | null }) => {
-    const binding = captureOwnerBinding();
-    return plannerClient.listDocumentAiUsage(props.documentId ?? '', {
-      limit: PAGE,
-      ...(pageParam === null ? {} : { cursor: pageParam }),
-      signal: binding.signal,
-    });
-  },
+  queryFn: ({ pageParam, queryKey }: { pageParam: string | null; queryKey: readonly unknown[] }) =>
+    ownerFenced(keyOwner(queryKey), (binding) =>
+      plannerClient.listDocumentAiUsage(props.documentId ?? '', {
+        limit: PAGE,
+        ...(pageParam === null ? {} : { cursor: pageParam }),
+        signal: binding.signal,
+      }),
+    ),
   initialPageParam: null as string | null,
   getNextPageParam: (last: NoteAiUsagePage) => last.nextCursor,
   enabled: computed(() => props.documentId !== null),
+  retry: retryFenced(),
 });
 
 const items = computed<NoteAiUsage[]>(() => (usageQuery.data.value?.pages ?? []).flatMap((page) => page.items));

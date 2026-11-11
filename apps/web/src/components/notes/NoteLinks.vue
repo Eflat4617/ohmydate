@@ -21,10 +21,13 @@ import LinkPickerDialog from './LinkPickerDialog.vue';
 /**
  * "연결 대상" (07 §3.5): the goals, projects and tasks a note is linked to.
  * Link and unlink pin `If-Match` to the NOTE version and answer the note at
- * version + 1, which the editor adopts without touching unsaved text.
+ * version + 1 (`updated`). On 412 the latest note is handed to the editor as
+ * `stale`; the editor decides whether that is a link-only change it can adopt
+ * or a content conflict for the reload / keep-mine-as-copy dialog
+ * (M6-03R-1 M1). This component never advances the edit base itself.
  */
 const props = withDefaults(defineProps<{ note: ContextDocument | null; disabled?: boolean }>(), { disabled: false });
-const emit = defineEmits<{ updated: [note: ContextDocument] }>();
+const emit = defineEmits<{ updated: [note: ContextDocument]; stale: [note: ContextDocument] }>();
 
 const MAX_LINKS = 50;
 const headingId = `note-links-${useId()}`;
@@ -72,11 +75,11 @@ function failure(cause: unknown): string {
   return errorMessage(cause, t('notes.links.error'));
 }
 
-/** 412: the note moved on elsewhere; adopt the server version and say so. */
-async function adoptLatest(noteId: string, binding: ReturnType<typeof captureOwnerBinding>): Promise<void> {
+/** 412: the note moved on elsewhere; hand the server version to the editor to judge. */
+async function reportStale(noteId: string, binding: ReturnType<typeof captureOwnerBinding>): Promise<void> {
   try {
     const latest = await plannerClient.getDocument(noteId, binding.signal);
-    if (isOwnerBindingCurrent(binding)) emit('updated', latest);
+    if (isOwnerBindingCurrent(binding)) emit('stale', latest);
   } catch {
     // The conflict message below still tells the user to retry.
   }
@@ -85,6 +88,7 @@ async function adoptLatest(noteId: string, binding: ReturnType<typeof captureOwn
 function openPicker(): void {
   if (props.disabled || props.note === null || full.value) return;
   pickerError.value = null;
+  error.value = null;
   pickerOpen.value = true;
 }
 
@@ -107,8 +111,10 @@ async function addLink(link: DocumentLinkCreate): Promise<void> {
     if (isStoredFinalResult(cause)) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     if (isApiStatus(cause, 412)) {
-      await adoptLatest(note.id, binding);
-      pickerError.value = t('notes.links.conflict');
+      // The picker closes: the editor may need its own conflict dialog now.
+      pickerOpen.value = false;
+      error.value = t('notes.links.conflict');
+      await reportStale(note.id, binding);
     } else {
       pickerError.value = failure(cause);
     }
@@ -138,8 +144,8 @@ async function removeLink(link: DocumentLink): Promise<void> {
     if (isStoredFinalResult(cause)) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     if (isApiStatus(cause, 412)) {
-      await adoptLatest(note.id, binding);
       error.value = t('notes.links.conflict');
+      await reportStale(note.id, binding);
     } else {
       error.value = failure(cause);
     }

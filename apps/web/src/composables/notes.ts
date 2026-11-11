@@ -7,16 +7,21 @@ import {
   type DocumentLink,
   type DocumentTargetKind,
   type IntakeSession,
+  type Page,
   type Project,
   type Task,
 } from '../api';
-import { captureOwnerBinding } from '../session/ownerEpoch';
-import { useSessionStore } from '../stores/session';
+import { captureOwnerBinding, isOwnerBindingCurrent, ownerState, type OwnerBinding } from '../session/ownerEpoch';
 
 /**
- * Shared notes plumbing (M6-03). Every cache key starts with the owner
- * (ADR-023): a different signed-in user never sees another owner's cached
- * notes, and an owner change resets by key (the page also reloads).
+ * Shared notes plumbing (M6-03). Owner isolation (ADR-023, M6-03R-1 H1):
+ *
+ * - every cache key starts with the owner it belongs to;
+ * - every lookup runs inside `ownerFenced`: ONE OwnerBinding for the whole
+ *   lookup (all pages), its AbortSignal on every request, the key's owner must
+ *   be the bound owner, and the binding is re-checked after every await —
+ *   before the next page is fetched and before anything is returned (and so
+ *   cached). A stale lookup throws `OwnerChangedError`: nothing of it is kept.
  */
 
 export const NOTE_BODY_MAX = 65_536;
@@ -24,10 +29,79 @@ export const NOTE_TITLE_MAX = 200;
 export const NOTE_PAGE_SIZE = 20;
 /** Notes shown in a "linked to this" list (project tab, task detail, wizard). */
 export const LINKED_NOTES_LIMIT = 50;
+/** Page bound for whole-list lookups (link targets, promoted-note search). */
+export const MAX_LOOKUP_PAGES = 5;
+const ANONYMOUS = 'anonymous';
+
+/** Cache-key owner: the same source the OwnerBinding is captured from. */
+export function ownerKeyOf(ownerId: string | null): string {
+  return ownerId ?? ANONYMOUS;
+}
 
 export function useOwnerKey(): ComputedRef<string> {
-  const sessions = useSessionStore();
-  return computed(() => sessions.ownerId ?? 'anonymous');
+  return computed(() => ownerKeyOf(ownerState.ownerId.value));
+}
+
+/** A lookup outlived the owner it started for; its result must be dropped. */
+export class OwnerChangedError extends Error {
+  constructor() {
+    super('owner changed during the request');
+    this.name = 'OwnerChangedError';
+  }
+}
+
+export function assertOwnerCurrent(binding: OwnerBinding): void {
+  if (!isOwnerBindingCurrent(binding)) throw new OwnerChangedError();
+}
+
+/**
+ * Run one lookup for `owner` (the owner in its cache key) under one binding.
+ * Refuses to start for another owner, and refuses to return once the owner
+ * changed — also when the request itself failed because the binding aborted it.
+ */
+export async function ownerFenced<T>(owner: string, run: (binding: OwnerBinding) => Promise<T>): Promise<T> {
+  const binding = captureOwnerBinding();
+  if (ownerKeyOf(binding.ownerId) !== owner) throw new OwnerChangedError();
+  let result: T;
+  try {
+    result = await run(binding);
+  } catch (cause) {
+    assertOwnerCurrent(binding);
+    throw cause;
+  }
+  assertOwnerCurrent(binding);
+  return result;
+}
+
+/** Follow `nextCursor` under one binding, checking it before every page and after it arrives. */
+export async function collectPages<T>(
+  binding: OwnerBinding,
+  fetchPage: (cursor: string | undefined, signal: AbortSignal) => Promise<Page<T>>,
+  options: { maxPages?: number; until?: (item: T) => boolean } = {},
+): Promise<{ items: T[]; found: T | null }> {
+  const items: T[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < (options.maxPages ?? MAX_LOOKUP_PAGES); page += 1) {
+    assertOwnerCurrent(binding);
+    const result = await fetchPage(cursor, binding.signal);
+    assertOwnerCurrent(binding);
+    items.push(...result.items);
+    const found = options.until === undefined ? undefined : result.items.find(options.until);
+    if (found !== undefined) return { items, found };
+    if (result.nextCursor === null) break;
+    cursor = result.nextCursor;
+  }
+  return { items, found: null };
+}
+
+/** The owner a notes/task cache key belongs to (second key segment). */
+export function keyOwner(queryKey: readonly unknown[]): string {
+  return String(queryKey[1]);
+}
+
+/** Retry transient failures only: never a stale-owner lookup or a 404. */
+export function retryFenced(limit = 2): (count: number, cause: unknown) => boolean {
+  return (count, cause) => !(cause instanceof OwnerChangedError) && !isApiStatus(cause, 404) && count < limit;
 }
 
 export const noteKeys = {
@@ -80,33 +154,44 @@ export function useLinkedNotes(
   const owner = useOwnerKey();
   return useQuery({
     queryKey: computed(() => [...noteKeys.linked(owner.value, kind(), targetId() ?? 'none'), options.limit?.() ?? LINKED_NOTES_LIMIT]),
-    queryFn: () => {
-      const binding = captureOwnerBinding();
-      const id = targetId();
-      if (id === null) return { items: [], nextCursor: null };
-      return plannerClient.listDocuments({
-        targetKind: kind(),
-        targetId: id,
-        limit: options.limit?.() ?? LINKED_NOTES_LIMIT,
-        signal: binding.signal,
-      });
-    },
+    queryFn: ({ queryKey }) =>
+      ownerFenced(keyOwner(queryKey), async (binding) => {
+        const id = targetId();
+        if (id === null) return { items: [], nextCursor: null };
+        return plannerClient.listDocuments({
+          targetKind: kind(),
+          targetId: id,
+          limit: options.limit?.() ?? LINKED_NOTES_LIMIT,
+          signal: binding.signal,
+        });
+      }),
     enabled: computed(() => targetId() !== null),
+    retry: retryFenced(),
   });
 }
 
 /**
  * A 409 on promote means a live promoted note already exists; the API does not
- * say which one, so find it among the task's linked notes.
+ * say which one, so search the task's linked notes page by page (M6-03R-1 M2),
+ * under the caller's binding, until it is found or the pages run out.
  */
-export async function findPromotedNote(taskId: string, signal?: AbortSignal): Promise<ContextDocument | null> {
-  const page = await plannerClient.listDocuments({
-    targetKind: 'task',
-    targetId: taskId,
-    limit: LINKED_NOTES_LIMIT,
-    ...(signal === undefined ? {} : { signal }),
-  });
-  return page.items.find((note) => note.source === 'task_description' && note.sourceTaskId === taskId) ?? null;
+export async function findPromotedNote(taskId: string, binding: OwnerBinding): Promise<ContextDocument | null> {
+  const { found } = await collectPages(
+    binding,
+    (cursor, signal) =>
+      plannerClient.listDocuments({
+        targetKind: 'task',
+        targetId: taskId,
+        limit: LINKED_NOTES_LIMIT,
+        ...(cursor === undefined ? {} : { cursor }),
+        signal,
+      }),
+    {
+      maxPages: 20,
+      until: (note) => note.source === 'task_description' && note.sourceTaskId === taskId,
+    },
+  );
+  return found;
 }
 
 export function isApiStatus(cause: unknown, status: number): cause is ApiError {
@@ -117,41 +202,36 @@ export function isApiStatus(cause: unknown, status: number): cause is ApiError {
  * Projects and tasks a note can be linked to, with names for its existing
  * links. Goals have no list endpoint: a goal is named when its planning
  * session is cached on this device (the wizard), otherwise it stays generic.
+ * Each list is ONE owner-fenced lookup over all its pages (M6-03R-1 H1).
  */
 export function useLinkTargets(enabled: () => boolean = () => true) {
   const owner = useOwnerKey();
   const queryClient = useQueryClient();
   const projectsQuery = useQuery({
     queryKey: computed(() => noteKeys.targets(owner.value, 'project')),
-    queryFn: async () => {
-      const projects: Project[] = [];
-      let cursor: string | undefined;
-      for (let page = 0; page < 5; page += 1) {
-        const result = await plannerClient.listProjects({ limit: 100, ...(cursor === undefined ? {} : { cursor }) });
-        projects.push(...result.items);
-        if (result.nextCursor === null) break;
-        cursor = result.nextCursor;
-      }
-      return projects;
-    },
+    queryFn: ({ queryKey }) =>
+      ownerFenced(keyOwner(queryKey), async (binding) => {
+        const { items } = await collectPages<Project>(binding, (cursor, signal) =>
+          plannerClient.listProjects({ limit: 100, ...(cursor === undefined ? {} : { cursor }), signal }),
+        );
+        return items;
+      }),
     enabled: computed(enabled),
     staleTime: 30_000,
+    retry: retryFenced(),
   });
   const tasksQuery = useQuery({
     queryKey: computed(() => noteKeys.targets(owner.value, 'task')),
-    queryFn: async () => {
-      const tasks: Task[] = [];
-      let cursor: string | undefined;
-      for (let page = 0; page < 5; page += 1) {
-        const result = await plannerClient.listTasks({ limit: 100, ...(cursor === undefined ? {} : { cursor }) });
-        tasks.push(...result.items);
-        if (result.nextCursor === null) break;
-        cursor = result.nextCursor;
-      }
-      return tasks.filter((task) => task.deletedAt === undefined);
-    },
+    queryFn: ({ queryKey }) =>
+      ownerFenced(keyOwner(queryKey), async (binding) => {
+        const { items } = await collectPages<Task>(binding, (cursor, signal) =>
+          plannerClient.listTasks({ limit: 100, ...(cursor === undefined ? {} : { cursor }), signal }),
+        );
+        return items.filter((task) => task.deletedAt === undefined);
+      }),
     enabled: computed(enabled),
     staleTime: 30_000,
+    retry: retryFenced(),
   });
 
   const projects = computed(() => (projectsQuery.data.value ?? []).filter((project) => !project.archived));

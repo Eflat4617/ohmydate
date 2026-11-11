@@ -17,9 +17,12 @@ import {
   codePointLength,
   forgetNote,
   isApiStatus,
+  keyOwner,
   noteKeys,
+  ownerFenced,
   publishNote,
   rebaseFields,
+  retryFenced,
   useLinkTargets,
   useOwnerKey,
 } from '../../composables/notes';
@@ -90,13 +93,11 @@ const timeZone = computed(() => auth.user?.timeZone ?? browserTimeZone());
 
 const docQuery = useQuery({
   queryKey: computed(() => noteKeys.doc(owner.value, props.noteId ?? 'new')),
-  queryFn: () => {
-    const binding = captureOwnerBinding();
-    return plannerClient.getDocument(props.noteId ?? '', binding.signal);
-  },
+  queryFn: ({ queryKey }) =>
+    ownerFenced(keyOwner(queryKey), (binding) => plannerClient.getDocument(props.noteId ?? '', binding.signal)),
   enabled: computed(() => props.noteId !== null),
   refetchOnWindowFocus: false,
-  retry: (count, cause) => !isApiStatus(cause, 404) && count < 2,
+  retry: retryFenced(2),
 });
 
 /** The server version being edited; `null` for a note that is not saved yet. */
@@ -254,20 +255,48 @@ async function focusFirstInvalid(): Promise<void> {
   else if (bodyOver.value > 0) bodyInput.value?.focus();
 }
 
-async function openConflict(noteId: string, binding: ReturnType<typeof captureOwnerBinding>): Promise<void> {
+/**
+ * Save answered 412. If the newer server version only moved links/version
+ * (nothing editable changed there), adopt it and report `true` so the save is
+ * sent once more against it; otherwise open the conflict dialog (M6-03R-1 M1).
+ */
+async function resolveSaveConflict(
+  noteId: string,
+  binding: ReturnType<typeof captureOwnerBinding>,
+  allowRebase: boolean,
+): Promise<boolean> {
   try {
     const latest = await plannerClient.getDocument(noteId, binding.signal);
-    if (!isOwnerBindingCurrent(binding)) return;
+    if (!isOwnerBindingCurrent(binding)) return false;
+    const current = base.value;
+    if (
+      allowRebase &&
+      current !== null &&
+      latest.id === current.id &&
+      latest.version > current.version &&
+      sameEditable(fieldsOf(latest), fieldsOf(current))
+    ) {
+      base.value = latest;
+      void publishNote(queryClient, owner.value, latest);
+      return true;
+    }
     conflictError.value = null;
     conflict.value = { server: latest };
+    return false;
   } catch (cause) {
-    if (!isOwnerBindingCurrent(binding)) return;
+    if (!isOwnerBindingCurrent(binding)) return false;
     if (isApiStatus(cause, 404)) notFound.value = true;
     else saveError.value = errorMessage(cause, t('notes.editor.saveError'));
+    return false;
   }
 }
 
-async function save(): Promise<void> {
+/** Form submit / Ctrl+S (never receives the event as an option). */
+function save(): Promise<void> {
+  return saveNote(false);
+}
+
+async function saveNote(retried: boolean): Promise<void> {
   attempted.value = true;
   if (!valid.value) {
     await focusFirstInvalid();
@@ -323,6 +352,7 @@ async function save(): Promise<void> {
   const scope = `note:${current.id}:patch`;
   const action = actions.begin(scope, patch, samePayload, current.version);
   const sent: Fields = { ...fields };
+  let rebased = false;
   try {
     const updated = await plannerClient.updateDocument(current.id, action.payload, action.key, current.version, binding.signal);
     actions.settle(scope, action);
@@ -338,7 +368,7 @@ async function save(): Promise<void> {
     if (isStoredFinalResult(cause)) actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     if (isApiStatus(cause, 412)) {
-      await openConflict(current.id, binding);
+      rebased = await resolveSaveConflict(current.id, binding, !retried);
       statusText.value = '';
     } else if (isApiStatus(cause, 404)) {
       notFound.value = true;
@@ -349,23 +379,58 @@ async function save(): Promise<void> {
   } finally {
     saving.value = false;
   }
+  // A link-only change elsewhere: send the same edit once more against the new version.
+  if (rebased && isOwnerBindingCurrent(binding)) await saveNote(true);
+}
+
+function sameEditable(left: Fields, right: Fields): boolean {
+  return (
+    left.title === right.title &&
+    left.bodyMd === right.bodyMd &&
+    left.sensitivity === right.sensitivity &&
+    left.llmAllowed === right.llmAllowed
+  );
+}
+
+/**
+ * A newer server version reached the editor outside a save (a link/unlink
+ * answer, or the latest note after a link/unlink 412). M6-03R-1 M1: the edit
+ * base only advances silently when the remote change touched links/version
+ * alone. If editable content changed remotely while I have unsaved edits, the
+ * base stays where I started and the reload / keep-mine-as-copy dialog opens —
+ * a later Save can never overwrite the other change.
+ */
+function adoptServerNote(note: ContextDocument): void {
+  const current = base.value;
+  if (current === null || note.id !== current.id || note.version <= current.version) return;
+  if (sameEditable(fieldsOf(note), fieldsOf(current))) {
+    // Link/version-only: my unsaved text stays and now targets the new version.
+    base.value = note;
+    void publishNote(queryClient, owner.value, note);
+    return;
+  }
+  if (!dirty.value) {
+    load(note);
+    void publishNote(queryClient, owner.value, note);
+    return;
+  }
+  conflictError.value = null;
+  conflict.value = { server: note };
 }
 
 function onLinksUpdated(note: ContextDocument): void {
-  const previous = baseFields.value;
-  const merged = rebaseFields({ ...fields }, previous, fieldsOf(note));
-  base.value = note;
-  Object.assign(fields, merged);
-  void publishNote(queryClient, owner.value, note);
+  adoptServerNote(note);
 }
 
 async function reloadFromConflict(): Promise<void> {
   const current = conflict.value;
   if (current === null) return;
+  const binding = captureOwnerBinding();
   load(current.server);
   conflict.value = null;
   attempted.value = false;
   await publishNote(queryClient, owner.value, current.server);
+  if (!isOwnerBindingCurrent(binding)) return;
   await announce(t('notes.conflict.reloaded'));
 }
 
@@ -653,7 +718,7 @@ defineExpose({ isDirty: () => dirty.value, focusTitle });
     </form>
 
     <template v-if="!loading && !notFound && (noteId === null || base !== null)">
-      <NoteLinks :note="base" :disabled="readOnly || saving" @updated="onLinksUpdated" />
+      <NoteLinks :note="base" :disabled="readOnly || saving" @updated="onLinksUpdated" @stale="adoptServerNote" />
       <NoteAiUsage :document-id="base?.id ?? null" />
     </template>
 

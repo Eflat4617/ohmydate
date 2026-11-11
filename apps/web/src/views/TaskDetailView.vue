@@ -14,7 +14,10 @@ import {
   findPromotedNote,
   htmlToPlainText,
   isApiStatus,
+  keyOwner,
+  ownerFenced,
   publishNote,
+  retryFenced,
   useLinkTargets,
   useLinkedNotes,
   useOwnerKey,
@@ -46,8 +49,9 @@ const timeZone = computed(() => auth.user?.timeZone ?? browserTimeZone());
 
 const taskQuery = useQuery({
   queryKey: computed(() => ['task', owner.value, props.id]),
-  queryFn: () => plannerClient.getTask(props.id, { fresh: true }),
-  retry: (count, cause) => !isApiStatus(cause, 404) && count < 2,
+  queryFn: ({ queryKey }) =>
+    ownerFenced(keyOwner(queryKey), (binding) => plannerClient.getTask(props.id, { fresh: true, signal: binding.signal })),
+  retry: retryFenced(2),
 });
 const task = computed<Task | null>(() => taskQuery.data.value ?? null);
 const notesQuery = useLinkedNotes(
@@ -105,7 +109,7 @@ async function promote(): Promise<void> {
     if (!isOwnerBindingCurrent(binding)) return;
     if (isApiStatus(cause, 409)) {
       try {
-        const existing = await findPromotedNote(current.id, binding.signal);
+        const existing = await findPromotedNote(current.id, binding);
         if (!isOwnerBindingCurrent(binding)) return;
         if (existing === null) {
           promoteError.value = t('notes.promote.existsMissing');

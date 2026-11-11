@@ -2,10 +2,9 @@
 import { computed, useId } from 'vue';
 import { useQueries } from '@tanstack/vue-query';
 import { plannerClient, type ContextDocument, type DecompositionEvidence, type DecompositionStep } from '../../api';
-import { isApiStatus, noteKeys, useOwnerKey } from '../../composables/notes';
+import { keyOwner, noteKeys, ownerFenced, retryFenced, useOwnerKey } from '../../composables/notes';
 import { t } from '../../i18n';
 import { browserTimeZone, formatDateTime } from '../../i18n/format';
-import { captureOwnerBinding } from '../../session/ownerEpoch';
 import { useAuthStore } from '../../stores/auth';
 import UiBadge from '../ui/UiBadge.vue';
 import UiIcon from '../ui/UiIcon.vue';
@@ -29,11 +28,9 @@ const noteQueries = useQueries({
   queries: computed(() =>
     docIds.value.map((id) => ({
       queryKey: noteKeys.doc(owner.value, id),
-      queryFn: () => {
-        const binding = captureOwnerBinding();
-        return plannerClient.getDocument(id, binding.signal);
-      },
-      retry: (count: number, cause: unknown) => !isApiStatus(cause, 404) && count < 1,
+      queryFn: ({ queryKey }: { queryKey: readonly unknown[] }) =>
+        ownerFenced(keyOwner(queryKey), (binding) => plannerClient.getDocument(id, binding.signal)),
+      retry: retryFenced(1),
       refetchOnWindowFocus: false,
     })),
   ),

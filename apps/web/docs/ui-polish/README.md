@@ -327,8 +327,13 @@ synced to the task tool.
 - **Links (연결 대상).** A project/task picker (a `dialog` with a radio
   list, already-linked targets disabled). Goal links come
   from the planning wizard, because goals have no list endpoint. Link and
-  unlink pin `If-Match` to the note version; the editor adopts the new
-  version and keeps unsaved text (three-way field merge).
+  unlink pin `If-Match` to the note version. The editor advances its edit
+  base silently only when the newer version changed links or the version
+  alone. If title, body, sensitivity or the AI opt-in changed there while I
+  have unsaved edits, the reload / keep-mine-as-copy dialog opens instead
+  (M6-03R-1 M1). That holds for a link/unlink 412 and for a save 412. A save
+  412 caused only by a link change rebases and is sent once more, with a new
+  If-Match and so a new Idempotency-Key.
 - **AI 근거 사용 이력.** Per note: purpose, status, time, section count and
   hashes, bytes, note version, and *이후 수정됨* when the note changed since.
   The sent text is never stored, so it is never shown.
@@ -338,7 +343,8 @@ synced to the task tool.
 - **Task detail (`/tasks/:id`).** Opened from a task's title. Shows the
   provider description as text only (an inert `DOMParser` document, tags
   dropped), the linked notes, *이 작업에 새 노트*, and *설명을 노트로 승격*
-  (`If-Match` on the task version). A 409 opens the note promoted earlier;
+  (`If-Match` on the task version). A 409 opens the note promoted earlier,
+  found by following `nextCursor` across the task's notes (M6-03R-1 M2);
   a 412 refreshes the task; a 422 means there is no description.
 - **Planning wizard.** *이 계획에 참고할 노트* links notes to the session's
   goal (the only thing decomposition grounds on). Its badges say which notes
@@ -352,9 +358,14 @@ synced to the task tool.
   focus/running session's task and its project; the planning session's goal;
   the open note's targets (that note excluded); and on Today, the next
   block's task and its project.
-- **Owner scope (ADR-023).** Every cache key starts with the owner id, and
-  every write captures the owner binding and drops its continuation after an
-  owner change.
+- **Owner scope (ADR-023, M6-03R-1 H1).** Every cache key starts with the
+  owner id, and every lookup runs in `ownerFenced` (`composables/notes.ts`).
+  That means one OwnerBinding for the whole lookup, all pages included, with
+  its AbortSignal on every request. The key's owner must be the bound owner,
+  and the binding is re-checked after every await, both before the next page
+  and before anything is returned (and so cached). A stale lookup throws
+  `OwnerChangedError` and nothing of it is kept or retried. Every write
+  captures the binding and drops its continuation after an owner change.
 
 ## Evidence
 
