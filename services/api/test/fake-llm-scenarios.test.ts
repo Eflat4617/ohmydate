@@ -20,15 +20,21 @@ import {
 import { createInMemoryRepositories } from '@ohmydate/provider-native/in-memory';
 import { FakeClock, createSeededIdGenerator } from '@ohmydate/testkit';
 import { Kysely, PostgresDialect } from 'kysely';
+import { accessSync, openSync, readFileSync, statSync } from 'node:fs';
+import { access, open, readFile, stat } from 'node:fs/promises';
 import pg from 'pg';
-import { buildApp, fakeLlmFor } from '../src/app.js';
+import type { Mock } from 'vitest';
+import { buildApp, fakeLlmFor, type BuildAppOptions } from '../src/app.js';
 import {
   assertFakeKnobsAllowed,
   configFromEnv,
   createConfig,
+  loadLlmApiKey,
   parseLlmFakeScenario,
   parseLlmFakeScenarioOwners,
+  type AppConfig,
 } from '../src/config.js';
+import { main } from '../src/main.js';
 import type { Database } from '../src/db/types.js';
 import {
   E2eGroundedFakeLlm,
@@ -49,6 +55,30 @@ import {
   login,
   newIdempotencyKey,
 } from './support/test-context.js';
+
+// M6-03d: pass-through spies on the file primitives a key/secret read could use,
+// so the real-provider boot refusal below can prove it happened before any
+// key-file access. Behaviour is unchanged for every other test in this file.
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  const spied = {
+    readFileSync: vi.fn(actual.readFileSync),
+    statSync: vi.fn(actual.statSync),
+    openSync: vi.fn(actual.openSync),
+    accessSync: vi.fn(actual.accessSync),
+  };
+  return { ...actual, ...spied, default: { ...actual, ...spied } };
+});
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  const spied = {
+    readFile: vi.fn(actual.readFile),
+    open: vi.fn(actual.open),
+    stat: vi.fn(actual.stat),
+    access: vi.fn(actual.access),
+  };
+  return { ...actual, ...spied, default: { ...actual, ...spied } };
+});
 
 const OWNER = '01900000-0000-7000-8000-0000000000aa';
 const DOC = '01900000-0000-7000-8000-0000000000d0';
@@ -140,6 +170,132 @@ describe('LLM_FAKE_SCENARIO config (boot refusal)', () => {
     ).toEqual([OWNER, DOC]);
     expect(() => configFromEnv({ LLM_FAKE_SCENARIO_OWNERS: OWNER })).toThrow('LLM_FAKE_SCENARIO_OWNERS requires LLM_FAKE_SCENARIO');
     expect(() => parseLlmFakeScenarioOwners('e2e-grounded', 'alice,bob')).toThrow(/owner ids/);
+  });
+});
+
+describe('M6-03d: boot (buildApp) refuses a real provider carrying a fake-scenario knob', () => {
+  // Never read, never dialled: a regression would fail on these, not reach a paid API.
+  const MISSING_KEY_FILE = '/nonexistent/m6-03d-llm-key-not-read';
+  const UNREACHABLE_PROVIDER = 'http://127.0.0.1:9/m6-03d-never-dispatched';
+  const keyFileSpies = { readFileSync, statSync, openSync, accessSync, readFile, open, stat, access } as unknown as Record<
+    string,
+    Mock
+  >;
+  const NO_KEY_FILE_CALLS = Object.fromEntries(Object.keys(keyFileSpies).map((name) => [name, 0]));
+  const keyFileCalls = () =>
+    Object.fromEntries(Object.entries(keyFileSpies).map(([name, spy]) => [name, spy.mock.calls.length]));
+  const clearKeyFileSpies = () => {
+    for (const spy of Object.values(keyFileSpies)) spy.mockClear();
+  };
+
+  /** A direct buildApp boot whose key, session secret, database and fetch all count their use. */
+  function bootProbe(config: AppConfig, apiKey = 'sk-m6-03d-synthetic-marker') {
+    const clock = new FakeClock();
+    const ids = createSeededIdGenerator(6034, clock);
+    const pool = new pg.Pool({ connectionString: 'postgres://m6-03d@127.0.0.1:9/never-connected' });
+    const connect = vi.spyOn(pool, 'connect');
+    const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
+    const fetch = vi.fn(async () => {
+      throw new Error('M6-03d: no provider dispatch expected');
+    });
+    vi.stubGlobal('fetch', fetch);
+    const reads = { llmApiKey: 0, llmSessionSecret: 0 };
+    const options: BuildAppOptions = {
+      config,
+      repos: createInMemoryRepositories({ clock, ids }),
+      clock,
+      ids,
+      db,
+      logger: false,
+      get llmApiKey() {
+        reads.llmApiKey += 1;
+        return apiKey;
+      },
+      get llmSessionSecret() {
+        reads.llmSessionSecret += 1;
+        return 'm6-03d-synthetic-session-secret';
+      },
+    };
+    return {
+      options,
+      reads,
+      fetch,
+      connect,
+      close: async () => {
+        vi.unstubAllGlobals();
+        await db.destroy();
+      },
+    };
+  }
+
+  const realProvider = {
+    llmProvider: 'deepseek',
+    llmBaseUrl: UNREACHABLE_PROVIDER,
+    llmApiKeyFile: MISSING_KEY_FILE,
+    logLevel: 'silent',
+  } as const satisfies Partial<AppConfig>;
+  const realProviderEnv = {
+    DATABASE_URL: 'postgres://m6-03d@127.0.0.1:9/never-connected',
+    LLM_PROVIDER: 'deepseek',
+    LLM_BASE_URL: UNREACHABLE_PROVIDER,
+    LLM_API_KEY_FILE: MISSING_KEY_FILE,
+    LLM_SESSION_HEADER: 'off',
+  };
+
+  test.each([
+    {
+      knob: 'LLM_FAKE_SCENARIO',
+      overrides: { llmFakeScenario: 'e2e-grounded' },
+      bootError: /^LLM_FAKE_SCENARIO is only allowed with LLM_PROVIDER=fake$/,
+      env: { LLM_FAKE_SCENARIO: 'e2e-grounded' },
+      envError: /^LLM_FAKE_SCENARIO is only allowed with LLM_PROVIDER=fake$/,
+    },
+    {
+      knob: 'LLM_FAKE_SCENARIO_OWNERS alone',
+      overrides: { llmFakeScenarioOwners: [OWNER] },
+      bootError: /^LLM_FAKE_SCENARIO_OWNERS is only allowed with LLM_PROVIDER=fake$/,
+      env: { LLM_FAKE_SCENARIO_OWNERS: OWNER },
+      envError: /^LLM_FAKE_SCENARIO_OWNERS requires LLM_FAKE_SCENARIO$/,
+    },
+  ] as const)(
+    'LLM_PROVIDER=deepseek + $knob is refused before key access, file reads, the database or provider dispatch (negative)',
+    async ({ overrides, bootError, env, envError }) => {
+      const probe = bootProbe(createConfig({ ...realProvider, ...overrides }));
+      try {
+        clearKeyFileSpies();
+        await expect(buildApp(probe.options)).rejects.toThrow(bootError);
+        expect(probe.reads).toEqual({ llmApiKey: 0, llmSessionSecret: 0 });
+        expect(keyFileCalls()).toEqual(NO_KEY_FILE_CALLS);
+        expect(probe.connect).not.toHaveBeenCalled();
+        expect(probe.fetch).not.toHaveBeenCalled();
+
+        // The process entry refuses the env equivalent before loadLlmApiKey touches the key file.
+        clearKeyFileSpies();
+        await expect(main({ ...realProviderEnv, ...env })).rejects.toThrow(envError);
+        expect(keyFileCalls()).toEqual(NO_KEY_FILE_CALLS);
+        expect(probe.fetch).not.toHaveBeenCalled();
+      } finally {
+        await probe.close();
+      }
+    },
+  );
+
+  test('control: the same probes do observe key access and the key-file read (non-vacuous)', async () => {
+    // Without a fake knob the deepseek boot reaches the key; an empty key is refused only after reading it.
+    const probe = bootProbe(createConfig(realProvider), '');
+    try {
+      await expect(buildApp(probe.options)).rejects.toThrow('LLM API key is required when LLM_PROVIDER=deepseek');
+      expect(probe.reads.llmApiKey).toBe(1);
+      expect(probe.fetch).not.toHaveBeenCalled();
+    } finally {
+      await probe.close();
+    }
+    // The default boot key loader goes through the spied node:fs primitives.
+    clearKeyFileSpies();
+    expect(() => loadLlmApiKey({ llmProvider: 'deepseek', llmApiKeyFile: MISSING_KEY_FILE })).toThrow(
+      'LLM_API_KEY_FILE does not exist or is not readable',
+    );
+    expect(keyFileSpies['statSync']).toHaveBeenCalledWith(MISSING_KEY_FILE);
   });
 });
 
