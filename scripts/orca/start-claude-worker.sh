@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Orchestrator-only: start a Claude implementation worker (default Opus 5.5 xhigh, MODEL_BINDINGS §8/§9;
-# MODEL=claude-fable-5-2 EFFORT=medium for breakthrough work, §10)
+# MODEL=claude-fable-5-2 EFFORT=xhigh for breakthrough work, §10)
 # in a NEW child worktree based on BASE_REF (default torgal/ohmydate).
 # Usage: start-claude-worker.sh <task_id> <worktree-name>
 set -euo pipefail

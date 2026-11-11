@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-12 00:45 | **사용자 지시: Fable 워커 effort medium → xhigh**(MODEL_BINDINGS §10). probe FABLE_OK. FU-69 medium 워커(커밋 없음, 임시 폴더만) 중단 → retry-of로 Fable xhigh 재시작 ctx_8945147a5825 | 사용자 메시지 | orchestrator |
 | 2026-11-12 00:32 | M5-03 worker_done(4f7c701). 워커 보고의 스케줄러 속성 테스트 반례를 orchestrator가 통합 브랜치에서 seed 고정으로 **결정적으로 재현** → FU-69(HIGH) **Fable 5.2 medium 투입**(§10 조건③ 원인 분석 선행). FU-70(planId/before 지표 계약), FU-71(잠금 API) 기록 | packets/FU-69.md | orchestrator |
 | 2026-11-12 00:40 | **FU-62 merged d227f4e** (FU-62R APPROVE, Sol). 통합 CI 1638 pass + web 256. M5-03 워커에 병합·ExplanationList 연결 지시 | reviews/FU-62R.md | orchestrator |
 | 2026-11-12 00:20 | **FU-61 + FU-58F merged 4d6a465** (FU-58FR APPROVE, Sol; 구현 Fable 5.2 medium 돌파구 — 공유 dist·잠금 제거, 호출별 private build workspace). 통합 CI 1613 pass + web 240(1차: fu41 property test 부하 중 180s 시간 초과, 단독 78s — FU-66) | reviews/FU-58FR.md | orchestrator |
