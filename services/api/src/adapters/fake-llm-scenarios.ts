@@ -183,17 +183,20 @@ function respond(output: unknown): LlmCompleteResponse {
 }
 
 export interface FakeScenarioOptions {
-  /** Owners the scenario answers; empty = every owner. Others get the plain fake. */
+  /** Owners the scenario answers; empty = every owner. Others get the fallback. */
   readonly owners?: readonly string[];
+  /** What everything outside the scenario gets; default: a fixture-less `FakeLlm`. */
+  readonly fallback?: LlmPort;
 }
 
 /** Deterministic responder for `LLM_FAKE_SCENARIO=e2e-grounded`. */
 export class E2eGroundedFakeLlm implements LlmPort {
-  readonly #fallback = new FakeLlm();
+  readonly #fallback: LlmPort;
   readonly #owners: ReadonlySet<string>;
 
   constructor(options: FakeScenarioOptions = {}) {
     this.#owners = new Set(options.owners ?? []);
+    this.#fallback = options.fallback ?? new FakeLlm();
   }
 
   #inScope(request: LlmCompleteRequest): boolean {
@@ -220,4 +223,20 @@ export function createFakeScenarioLlm(scenario: LlmFakeScenario, options: FakeSc
     case 'e2e-grounded':
       return new E2eGroundedFakeLlm(options);
   }
+}
+
+/**
+ * The fake provider's base LlmPort (`LLM_PROVIDER=fake`): the plain
+ * fixture-less `FakeLlm`, or the configured scenario scoped to its owners.
+ * Self-contained so other fake layers (e.g. FU-76's scripted owners) can wrap
+ * this base instead of replacing it.
+ */
+export function createBaseFakeLlm(options: {
+  readonly scenario: LlmFakeScenario | null;
+  readonly owners?: readonly string[];
+  readonly fallback?: LlmPort;
+}): LlmPort {
+  const fallback = options.fallback ?? new FakeLlm();
+  if (options.scenario === null) return fallback;
+  return createFakeScenarioLlm(options.scenario, { owners: options.owners ?? [], fallback });
 }

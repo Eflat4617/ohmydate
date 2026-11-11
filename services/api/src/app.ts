@@ -5,7 +5,6 @@ import { DomainError, type Clock, type IdGenerator } from '@ohmydate/domain';
 import {
   BudgetExceeded,
   BudgetGuard,
-  FakeLlm,
   OpenAICompatibleLlm,
   PolicyLlm,
   maxPromptTimeoutMs,
@@ -25,7 +24,7 @@ import { llmPromptLimits, type AppConfig } from './config.js';
 import type { AppRepositories, IdempotencyStore } from './application/ports.js';
 import type { Id } from '@ohmydate/domain';
 import { AuthService } from './application/auth-service.js';
-import { createFakeScenarioLlm } from './adapters/fake-llm-scenarios.js';
+import { createBaseFakeLlm } from './adapters/fake-llm-scenarios.js';
 import { Argon2PasswordHasher } from './adapters/argon2-password-hasher.js';
 import { InMemoryLoginRateLimiter } from './adapters/in-memory-login-rate-limiter.js';
 import { InMemorySessionStore } from './adapters/in-memory-session-store.js';
@@ -312,9 +311,7 @@ async function createConfiguredLlm(input: {
   const { options, config, db, clock, ids } = input;
   if (options.llm !== undefined) return options.llm;
   if (config.llmProvider === 'fake') {
-    return config.llmFakeScenario === null
-      ? new FakeLlm()
-      : createFakeScenarioLlm(config.llmFakeScenario, { owners: config.llmFakeScenarioOwners });
+    return createBaseFakeLlm({ scenario: config.llmFakeScenario, owners: config.llmFakeScenarioOwners });
   }
   if (config.llmFakeScenario !== null) throw new Error('LLM_FAKE_SCENARIO requires LLM_PROVIDER=fake');
 

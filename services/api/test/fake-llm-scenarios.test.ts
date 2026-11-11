@@ -8,6 +8,7 @@
 
 import type { ContextDocumentDto, DecompositionDraftDto, IntakeInput, IntakeSessionDto, NoteAiUsageDto } from '@ohmydate/contracts';
 import {
+  FakeLlm,
   LlmUnavailable,
   buildNoteContext,
   groundingIndexOf,
@@ -22,6 +23,7 @@ import {
   FORGED_DOC_ID,
   FORGED_SECTION_HASH,
   PLANTED_LINK,
+  createBaseFakeLlm,
   createFakeScenarioLlm,
   firstNoteBlock,
   groundedDecompositionOutput,
@@ -169,6 +171,19 @@ describe('e2e-grounded responder', () => {
     await expect(llm.complete(request('type_detection', 'v1', {}))).rejects.toBeInstanceOf(LlmUnavailable);
     const { input: body } = groundedInput();
     await expect(llm.complete({ ...request('decomposition', 'v2', body), ownerId: DOC })).rejects.toBeInstanceOf(LlmUnavailable);
+  });
+
+  test('the base factory is the plain fake without a scenario and composes with another fallback layer', async () => {
+    const plain = createBaseFakeLlm({ scenario: null });
+    expect(plain).toBeInstanceOf(FakeLlm);
+    await expect(plain.complete(request('type_detection', 'v1', {}))).rejects.toBeInstanceOf(LlmUnavailable);
+    // An outer layer (e.g. scripted owners) can be the fallback for everything outside the scenario.
+    const scripted = { complete: vi.fn(async () => ({ output: { scripted: true }, usage: { inputTokens: 0, outputTokens: 0, costUsd: 0 }, model: 'fake-llm', latencyMs: 0 })) };
+    const base = createBaseFakeLlm({ scenario: 'e2e-grounded', owners: [OWNER], fallback: scripted });
+    await expect(base.complete({ ...request('type_detection', 'v1', {}), ownerId: DOC })).resolves.toMatchObject({ output: { scripted: true } });
+    const own = await base.complete({ ...request('type_detection', 'v1', {}), ownerId: OWNER });
+    expect(own.output).toEqual({ classification: 'new', confidence: 0.5, reasons: [] });
+    expect(scripted.complete).toHaveBeenCalledTimes(1);
   });
 
   test('keeps the plain FakeLlm behaviour for every other prompt (negative)', async () => {
