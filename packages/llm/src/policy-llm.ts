@@ -177,6 +177,7 @@ export class PolicyLlm implements LlmPort {
       monthStart,
       createdAt: nowIso,
       staleAfterMs: this.#staleAfterMs,
+      ...(request.agentRunId === undefined ? {} : { agentRunId: request.agentRunId }),
     });
     // FU-54: from here on the attempt may be billed; until settlement the
     // reservation is the charge (and stays the charge if the call is aborted).

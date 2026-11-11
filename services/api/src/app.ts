@@ -19,7 +19,7 @@ import Fastify, {
 } from 'fastify';
 import type { Kysely } from 'kysely';
 import { sql } from 'kysely';
-import { llmPromptLimits, type AppConfig } from './config.js';
+import { assertFakeKnobsAllowed, llmPromptLimits, type AppConfig } from './config.js';
 import type { AppRepositories, IdempotencyStore } from './application/ports.js';
 import type { Id } from '@ohmydate/domain';
 import { AuthService } from './application/auth-service.js';
@@ -310,18 +310,7 @@ async function createConfiguredLlm(input: {
 }): Promise<LlmPort | null> {
   const { options, config, db, clock, ids } = input;
   if (options.llm !== undefined) return options.llm;
-  if (config.llmProvider === 'fake') {
-    // FU-76 E2E: listed owners get slow scripted answers; everyone else keeps
-    // the fixture-less FakeLlm (immediate llm_unavailable -> manual mode).
-    if (config.llmFakeScriptedOwners.length > 0) {
-      return new ScriptedFakeLlm({
-        inner: new FakeLlm(),
-        latencyMs: config.llmFakeLatencyMs,
-        owners: config.llmFakeScriptedOwners,
-      });
-    }
-    return new FakeLlm();
-  }
+  if (config.llmProvider === 'fake') return fakeLlmFor(config);
 
   const apiKey = options.llmApiKey;
   if (apiKey === undefined || apiKey.length === 0) {
@@ -388,6 +377,23 @@ async function createConfiguredLlm(input: {
   });
 }
 
+/**
+ * `LLM_PROVIDER=fake` composition. The base fake mode comes first (the
+ * fixture-less FakeLlm: immediate llm_unavailable -> manual mode; other fake
+ * modes plug in here); the FU-76 scripted slow owners WRAP it and delegate
+ * every other owner to it, so no fake mode shadows another. Fake knobs were
+ * already checked by `assertFakeKnobsAllowed` (never in production).
+ */
+function fakeLlmFor(config: AppConfig): LlmPort {
+  const base: LlmPort = new FakeLlm();
+  if (config.llmFakeScriptedOwners.length === 0) return base;
+  return new ScriptedFakeLlm({
+    inner: base,
+    latencyMs: config.llmFakeLatencyMs,
+    owners: config.llmFakeScriptedOwners,
+  });
+}
+
 function hasExplicitBudget(value: unknown): boolean {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const llm = (value as Record<string, unknown>)['llm'];
@@ -408,6 +414,8 @@ export function startupSweepFor(
 
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
   const { config, clock, ids, db } = options;
+  // FU-76R-1 H3: a config built without configFromEnv is checked at boot too.
+  assertFakeKnobsAllowed(config);
   // ADR-020 §10: the succession wait must cover the slowest single HTTP
   // request so a replaced approver's already-started request cannot still be
   // running; requests it would start later are fenced before fetch.

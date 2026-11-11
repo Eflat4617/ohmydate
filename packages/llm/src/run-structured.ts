@@ -30,6 +30,8 @@ export interface StructuredLlmRequest {
   readonly onDispatch?: () => void;
   /** Explicit per-call output bound; otherwise the prompt's limit override (if any). */
   readonly maxOutputTokens?: number;
+  /** Forwarded to the port: the ledger rows of every attempt link to this run. */
+  readonly agentRunId?: string;
 }
 
 export interface RunStructuredOptions {
@@ -287,6 +289,7 @@ export async function runStructured(
             ...(request.sessionKey === undefined ? {} : { sessionKey: request.sessionKey }),
             ...(request.budget === undefined ? {} : { budget: request.budget }),
             ...(request.onDispatch === undefined ? {} : { onDispatch: request.onDispatch }),
+            ...(request.agentRunId === undefined ? {} : { agentRunId: request.agentRunId }),
             ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
             ...(forwardTimeout || attemptTimeoutMs < timeoutMs
               ? { timeoutMs: attemptTimeoutMs }

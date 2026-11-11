@@ -223,6 +223,23 @@ describe('runStructured + PolicyLlm: raced attempts keep their charge (FU-54)', 
   });
 });
 
+describe('ledger rows are linked to the agent run (FU-76R-1 H1)', () => {
+  test('every attempt reservation carries agentRunId; the run cost is the ledger sum once settled', async () => {
+    const ledger = new InMemorySpendLedger();
+    const error = await runStructured(
+      policy(new ChargedThenHangingPort(), ledger),
+      { ...decomposition, agentRunId: 'run-1' },
+      { allowUnbudgeted: true, timeoutMs: 40 },
+    ).catch((caught: unknown) => caught);
+    await settleLedger();
+    expect(error).toBeInstanceOf(LlmTimeoutError);
+    expect(ledger.rows.map((row) => row.agentRunId)).toEqual(['run-1', 'run-1']);
+    expect(ledger.runCostUsd('run-1')).toBeCloseTo(ledgerTotal(ledger), 12);
+    // Negative: an unlinked caller leaves rows unlinked and has no run cost.
+    expect(ledger.runCostUsd('other-run')).toBeNull();
+  });
+});
+
 describe('runStructured total deadline (FU-76)', () => {
   test('the repair attempt gets only the time left and the chain stops at the bound', async () => {
     const ledger = new InMemorySpendLedger();
@@ -355,6 +372,7 @@ describe('stale reservation threshold counts the JSON-mode fallback (FU-54)', ()
         createdAt: age(seconds),
         settledAt: null,
         settleReason: null,
+        agentRunId: null,
       });
     }
     const inner: LlmPort = {

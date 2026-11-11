@@ -25,10 +25,13 @@ import {
   type LlmCompleteRequest,
   type LlmCompleteResponse,
   type LlmPort,
+  type LlmSpendLedger,
 } from '@ohmydate/llm';
 import { createInMemoryRepositories } from '@ohmydate/provider-native/in-memory';
 import { buildApp, startupSweepFor } from '../src/app.js';
 import { createPgSpendLedger } from '../src/adapters/pg-spend-ledger.js';
+import { PgIdempotencyStore } from '../src/adapters/pg-idempotency-store.js';
+import type { IdempotencyStore } from '../src/application/ports.js';
 import { createConfig } from '../src/config.js';
 import { createApplicationClose } from '../src/main.js';
 import { intakeAiRequestBoundMs } from '../src/application/intake/ai-runs.js';
@@ -167,7 +170,10 @@ function generousGuard(): BudgetGuard {
 }
 
 /** PolicyLlm over the slow provider with the production PG ledger, bound after the context exists. */
-function policyPort(slow: SlowDecompositionLlm): { port: LlmPort; bind(ctx: TestContext): void } {
+function policyPort(
+  slow: LlmPort,
+  wrapLedger: (ledger: LlmSpendLedger) => LlmSpendLedger = (ledger) => ledger,
+): { port: LlmPort; bind(ctx: TestContext): void } {
   let policy: PolicyLlm | undefined;
   return {
     port: {
@@ -182,7 +188,7 @@ function policyPort(slow: SlowDecompositionLlm): { port: LlmPort; bind(ctx: Test
         providerId: 'deepseek',
         defaultBudget: { dailyUsd: 5, monthlyUsd: 50 },
         resolve: async () => ({ consent }),
-        ledger: createPgSpendLedger(ctx.db),
+        ledger: wrapLedger(createPgSpendLedger(ctx.db)),
         pricing: DEFAULT_DEEPSEEK_PRICING,
         maxOutputTokens: 2000,
         newReservationId: () => ctx.ids.next(),
@@ -248,6 +254,53 @@ async function decompositionSpend(ctx: TestContext, ownerId: Id) {
     .where('owner_id', '=', ownerId)
     .where('purpose', '=', 'decomposition@v1')
     .execute();
+}
+
+/**
+ * PG idempotency store whose `complete` lands late, so the stored response is
+ * still pending while the draft is already visible (the FU-76R-1 M1 race,
+ * made deterministic).
+ */
+function slowCompleteIdempotency(delayMs: number): { store: IdempotencyStore; bind(ctx: TestContext): void } {
+  let inner: IdempotencyStore | undefined;
+  const target = (): IdempotencyStore => {
+    if (inner === undefined) throw new Error('idempotency store not bound');
+    return inner;
+  };
+  return {
+    store: {
+      reserve: (input) => target().reserve(input),
+      complete: async (input) => {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        return target().complete(input);
+      },
+      release: (ownerId, key) => target().release(ownerId, key),
+    },
+    bind(ctx) {
+      inner = new PgIdempotencyStore({ db: ctx.db, clock: ctx.clock, ids: ctx.ids, ttlMs: 86_400_000 });
+    },
+  };
+}
+
+/** Replays the same key while the server answers the permitted 409 idempotency_in_progress. */
+interface InjectedResponse {
+  readonly statusCode: number;
+  json(): unknown;
+}
+
+async function replayUntilStored<T extends InjectedResponse>(
+  send: () => PromiseLike<T>,
+  timeoutMs = 10_000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const response = await send();
+    const inProgress =
+      response.statusCode === 409 &&
+      (response.json() as { code?: string }).code === 'idempotency_in_progress';
+    if (!inProgress || Date.now() > deadline) return response;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 async function waitFor<T>(check: () => Promise<T | undefined>, timeoutMs = 10_000): Promise<T> {
@@ -334,8 +387,14 @@ describe.skipIf(!hasDatabase)('FU-76 long AI calls', () => {
   test('client disconnect mid-call: the run completes, is charged once, and the reloaded client sees the draft', async () => {
     const slow = new SlowDecompositionLlm();
     const policy = policyPort(slow);
-    const ctx = await createTestContext({ llm: policy.port, budgetGuard: generousGuard() });
+    const idempotency = slowCompleteIdempotency(400);
+    const ctx = await createTestContext({
+      llm: policy.port,
+      budgetGuard: generousGuard(),
+      idempotency: idempotency.store,
+    });
     policy.bind(ctx);
+    idempotency.bind(ctx);
     const ownerId = await ctx.seedUser({ email: 'fu76-disconnect@example.com', password: 'correct-horse' });
     const user = await login(ctx, 'fu76-disconnect@example.com', 'correct-horse');
     await ctx.app.listen({ host: '127.0.0.1', port: 0 });
@@ -373,7 +432,10 @@ describe.skipIf(!hasDatabase)('FU-76 long AI calls', () => {
       expect(done.draft?.steps[1]?.title).toBe('AI drafted the report');
 
       // Same Idempotency-Key replays the stored outcome; nothing runs again.
-      const replay = await answersRequest(ctx, user, session, key);
+      // The stored result may still be pending (the draft is visible before the
+      // idempotent response is persisted, here slowed down on purpose): poll the
+      // same key through the permitted transient 409 until the stored 200 exists.
+      const replay = await replayUntilStored(() => answersRequest(ctx, user, session, key));
       expect(replay.statusCode).toBe(200);
       expect(slow.decompositionCalls).toBe(1);
       const runs = await decompositionRuns(ctx, ownerId);
@@ -590,6 +652,134 @@ describe.skipIf(!hasDatabase)('FU-76 long AI calls', () => {
       expect(swept.version).toBe(young.version + 1);
     } finally {
       slow.release();
+      await ctx.close();
+    }
+  });
+
+  test('FU-76R-1 H1: a cancel during a slow settlement still converges agent_run cost with the ledger', async () => {
+    // A successful provider (actual 0.00027) whose ledger settlement is slow
+    // (1200 ms, longer than the default abort grace); the user cancels once
+    // the settlement has started.
+    const settleStarted = deferred();
+    const settleDone = deferred();
+    const provider: LlmPort = {
+      async complete(request): Promise<LlmCompleteResponse> {
+        request.onDispatch?.();
+        if (request.promptId === 'type_detection') {
+          return {
+            output: { classification: 'new', confidence: 0.9, reasons: ['fixture'], missingRequired: [] },
+            usage: { inputTokens: 10, outputTokens: 5, costUsd: 0.000005 },
+            model: 'deepseek-v4.1-flash',
+            latencyMs: 1,
+          };
+        }
+        return {
+          output: aiDraft,
+          usage: { inputTokens: 1000, outputTokens: 200, costUsd: 0.00027 },
+          model: 'deepseek-v4.1-flash',
+          latencyMs: 30_000,
+        };
+      },
+    };
+    let slowSettles = false;
+    const policy = policyPort(provider, (ledger) => ({
+      reserve: (input) => ledger.reserve(input),
+      settle: async (input) => {
+        if (!slowSettles) return ledger.settle(input);
+        settleStarted.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 1_200));
+        try {
+          return await ledger.settle(input);
+        } finally {
+          settleDone.resolve();
+        }
+      },
+    }));
+    const ctx = await createTestContext({ llm: policy.port, budgetGuard: generousGuard() });
+    policy.bind(ctx);
+    const ownerId = await ctx.seedUser({ email: 'fu76-late-settle@example.com', password: 'correct-horse' });
+    const user = await login(ctx, 'fu76-late-settle@example.com', 'correct-horse');
+    try {
+      const session = await createReadySession(ctx, user);
+      slowSettles = true;
+      const inFlight = answersRequest(ctx, user, session);
+      await settleStarted.promise;
+      const waiting = await getSession(ctx, user, session.id);
+      const manual = await sessionAction(ctx, user, session.id, 'manual', waiting.version);
+      expect(manual.statusCode).toBe(200);
+      expect((await inFlight).statusCode).toBe(200);
+      await settleDone.promise;
+
+      const spend = await decompositionSpend(ctx, ownerId);
+      expect(spend).toHaveLength(1);
+      expect(spend[0]).toMatchObject({ state: 'settled', settle_reason: 'actual' });
+      expect(Number(spend[0]?.actual_usd)).toBeCloseTo(0.00027, 6);
+      // After all work settled the run reports exactly what the ledger holds.
+      const runs = await decompositionRuns(ctx, ownerId);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]?.status).toBe('cancelled');
+      expect(Number(runs[0]?.cost_usd)).toBeCloseTo(Number(spend[0]?.actual_usd), 6);
+      expect(runs[0]?.tokens_in).toBe(1000);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test('FU-76R-1 H1: stale recovery of a linked reservation rewrites the run cost from the ledger', async () => {
+    const ctx = await createTestContext({ budgetGuard: generousGuard() });
+    const ownerId = await ctx.seedUser({ email: 'fu76-recover@example.com', password: 'correct-horse' });
+    try {
+      const now = Date.parse('2026-11-12T10:00:00.000Z');
+      const runId = ctx.ids.next();
+      // A crash left the run swept as cancelled (cost unknown, 0) and its reservation open.
+      await ctx.db
+        .insertInto('agent_run')
+        .values({
+          id: runId,
+          owner_id: ownerId,
+          purpose: 'decomposition',
+          prompt_id_version: 'decomposition@v1',
+          model: 'unknown',
+          provider: 'deepseek',
+          status: 'cancelled',
+        } as never)
+        .execute();
+      await ctx.db
+        .insertInto('llm_spend')
+        .values({
+          id: ctx.ids.next(),
+          owner_id: ownerId,
+          agent_run_id: runId,
+          purpose: 'decomposition@v1',
+          state: 'reserved',
+          reserved_usd: '0.004321',
+          input_tokens: 0,
+          output_tokens: 0,
+          cached_tokens: 0,
+          created_at: new Date(now - 900_000),
+        } as never)
+        .execute();
+      const nowIso = new Date(now).toISOString();
+      await createPgSpendLedger(ctx.db).reserve({
+        id: ctx.ids.next(),
+        ownerId,
+        purpose: 'type_detection@v1',
+        estimateUsd: 0.001,
+        dailyLimitUsd: 5,
+        monthlyLimitUsd: 50,
+        dayStart: `${nowIso.slice(0, 10)}T00:00:00.000Z`,
+        monthStart: `${nowIso.slice(0, 7)}-01T00:00:00.000Z`,
+        createdAt: nowIso,
+        staleAfterMs: 780_000,
+      });
+      const run = await ctx.db
+        .selectFrom('agent_run')
+        .select(['status', 'cost_usd'])
+        .where('id', '=', runId as Id)
+        .executeTakeFirstOrThrow();
+      expect(run.status).toBe('cancelled');
+      expect(Number(run.cost_usd)).toBeCloseTo(0.004321, 6);
+    } finally {
       await ctx.close();
     }
   });

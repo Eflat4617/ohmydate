@@ -1622,6 +1622,8 @@ export class IntakeService {
           schemaId: TYPE_DETECTION_SCHEMA,
           ownerId,
           sessionKey: sessionId,
+          // FU-76R-1 H1: ledger rows link to the run; its cost is derived from them.
+          agentRunId: runId,
         },
         this.#runOptions(TYPE_DETECTION_PROMPT.promptId, run.handle.signal),
       );
@@ -1718,6 +1720,7 @@ export class IntakeService {
           schemaId,
           ownerId: session.ownerId,
           sessionKey: session.id,
+          agentRunId: runId,
           onDispatch: () => {
             dispatched = true;
           },

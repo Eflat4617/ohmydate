@@ -148,6 +148,11 @@ export interface AppConfig {
   readonly llmFakeScriptedOwners: readonly string[];
   readonly llmFakeLatencyMs: number;
   /**
+   * `NODE_ENV` as given (null when unset). `production` rejects every
+   * fake-only test knob (see `assertFakeKnobsAllowed`).
+   */
+  readonly nodeEnv: string | null;
+  /**
    * ADR-020 §7: succession wait for an approval whose previous holder lost its
    * dedicated lock connection. Must be >= the Vikunja client call budget.
    */
@@ -206,6 +211,7 @@ export const defaultConfig: AppConfig = {
   llmMonthlyBudgetUsd: DEFAULT_LLM_MONTHLY_BUDGET_USD,
   llmFakeScriptedOwners: [],
   llmFakeLatencyMs: 0,
+  nodeEnv: null,
   providerMaxCallMs: DEFAULT_PROVIDER_MAX_CALL_MS,
   trustProxy: false,
   pushKeyFile: null,
@@ -247,7 +253,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     llmSessionHeader,
     env['LLM_SESSION_SECRET_FILE'],
   );
-  return createConfig({
+  const config = createConfig({
+    nodeEnv: env['NODE_ENV'] === undefined || env['NODE_ENV'].trim() === '' ? null : env['NODE_ENV'],
     provider: providerKind,
     vikunjaUrl: env['VIKUNJA_URL'] ?? null,
     vikunjaTokenFile: env['VIKUNJA_TOKEN_FILE'] ?? null,
@@ -315,6 +322,38 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     pushKeyFile: env['PUSH_KEY_FILE'] ?? null,
     pushKey: env['PUSH_KEY'] ?? null,
   });
+  assertFakeKnobsAllowed(config);
+  return config;
+}
+
+/** A fake-only test knob: its env name and whether this configuration sets it. */
+export type FakeKnob = readonly [name: string, set: boolean];
+
+/** The fake-only knobs this configuration knows about (FU-76 scripted slow owners). */
+export function fakeKnobsOf(config: AppConfig): FakeKnob[] {
+  return [
+    ['LLM_FAKE_SCRIPTED_OWNERS', config.llmFakeScriptedOwners.length > 0],
+    ['LLM_FAKE_LATENCY_MS', config.llmFakeLatencyMs > 0],
+  ];
+}
+
+/**
+ * FU-76R-1 H3: the ONE guard for fake-only test knobs, applied at config parse
+ * and again at boot (buildApp). Any set knob requires `LLM_PROVIDER=fake` and
+ * is rejected when `NODE_ENV=production`. Other fake modes (e.g. M6-03's
+ * `LLM_FAKE_SCENARIO`) pass their knobs as `extra` or are added to
+ * `fakeKnobsOf`, so every knob shares the same rule.
+ */
+export function assertFakeKnobsAllowed(config: AppConfig, extra: readonly FakeKnob[] = []): void {
+  for (const [name, set] of [...fakeKnobsOf(config), ...extra]) {
+    if (!set) continue;
+    if (config.llmProvider !== 'fake') {
+      throw new Error(`${name} is only allowed with LLM_PROVIDER=fake`);
+    }
+    if (config.nodeEnv === 'production') {
+      throw new Error(`${name} is a test-only fake knob and is rejected when NODE_ENV=production`);
+    }
+  }
 }
 
 function parseLlmProvider(raw: string | undefined): LlmProviderKind {

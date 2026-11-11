@@ -83,6 +83,12 @@ export interface LlmSpendReserveInput {
   readonly createdAt: string;
   /** Open rows older than this are settled at their reserved amount first. */
   readonly staleAfterMs: number;
+  /**
+   * FU-76R-1 H1: the agent run this attempt belongs to. A ledger that can
+   * reach agent_run keeps the run's cost equal to the sum of its rows on every
+   * settlement and recovery.
+   */
+  readonly agentRunId?: string;
 }
 
 export interface LlmSpendSettleInput {
@@ -123,6 +129,8 @@ export interface LlmSpendRow {
   readonly createdAt: string;
   readonly settledAt: string | null;
   readonly settleReason: LlmSpendSettleReason | null;
+  /** Linked agent run (FU-76R-1 H1), or null for unlinked callers. */
+  readonly agentRunId: string | null;
 }
 
 const MESSAGE_OVERHEAD_TOKENS = 16;
@@ -221,7 +229,14 @@ export class InMemorySpendLedger implements LlmSpendLedger {
       createdAt: input.createdAt,
       settledAt: null,
       settleReason: null,
+      agentRunId: input.agentRunId ?? null,
     });
+  }
+
+  /** The run's cost as the ledger sees it (open rows at their reservation). */
+  runCostUsd(agentRunId: string): number | null {
+    const rows = this.rows.filter((row) => row.agentRunId === agentRunId && row.state !== 'released');
+    return rows.length === 0 ? null : rows.reduce((sum, row) => sum + rowSpend(row), 0);
   }
 
   async settle(input: LlmSpendSettleInput): Promise<LlmSpendTotals> {

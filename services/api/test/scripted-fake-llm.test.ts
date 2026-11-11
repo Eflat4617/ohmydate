@@ -1,12 +1,18 @@
 import { FakeLlm, LlmUnavailable, validateOutput } from '@ohmydate/llm';
 import { ScriptedFakeLlm, scriptedFakeOutput } from '../src/adapters/scripted-fake-llm.js';
-import { configFromEnv } from '../src/config.js';
+import { assertFakeKnobsAllowed, configFromEnv, createConfig } from '../src/config.js';
+import { createInMemoryRepositories } from '@ohmydate/provider-native/in-memory';
+import { FakeClock, createSeededIdGenerator } from '@ohmydate/testkit';
+import { Kysely, PostgresDialect } from 'kysely';
+import pg from 'pg';
+import type { Database } from '../src/db/types.js';
+import { databaseUrl, hasDatabase } from './support/test-context.js';
 import {
   AI_REQUEST_OVERHEAD_MS,
   aiCallTotalTimeoutMs,
   intakeAiRequestBoundMs,
 } from '../src/application/intake/ai-runs.js';
-import { DEFAULT_HTTP_CONNECTION_TIMEOUT_MS } from '../src/app.js';
+import { DEFAULT_HTTP_CONNECTION_TIMEOUT_MS, buildApp } from '../src/app.js';
 
 const OWNER = '01900000-0000-7000-8000-000000000001';
 const OTHER = '01900000-0000-7000-8000-000000000002';
@@ -67,6 +73,74 @@ describe('FU-76 scripted fake LLM (E2E only)', () => {
     ).toThrow(/only allowed with LLM_PROVIDER=fake/);
     expect(() => configFromEnv({ LLM_FAKE_SCRIPTED_OWNERS: 'not-an-id' })).toThrow(/user ids/);
     expect(() => configFromEnv({ LLM_FAKE_LATENCY_MS: '-5' })).toThrow(/non-negative/);
+  });
+});
+
+describe('FU-76R-1 H3: fake-only knobs are rejected in production', () => {
+  test('configFromEnv rejects scripted fake owners / latency when NODE_ENV=production', () => {
+    expect(() =>
+      configFromEnv({
+        NODE_ENV: 'production',
+        LLM_PROVIDER: 'fake',
+        LLM_FAKE_SCRIPTED_OWNERS: OWNER,
+        LLM_FAKE_LATENCY_MS: '5000',
+      }),
+    ).toThrow(/production/);
+    expect(() =>
+      configFromEnv({ NODE_ENV: 'production', LLM_PROVIDER: 'fake', LLM_FAKE_LATENCY_MS: '5000' }),
+    ).toThrow(/LLM_FAKE_LATENCY_MS/);
+    // Without the knobs production config is fine; outside production the knobs stay usable.
+    expect(configFromEnv({ NODE_ENV: 'production', LLM_PROVIDER: 'fake' }).llmFakeScriptedOwners).toEqual([]);
+    expect(
+      configFromEnv({ NODE_ENV: 'test', LLM_PROVIDER: 'fake', LLM_FAKE_SCRIPTED_OWNERS: OWNER }).llmFakeScriptedOwners,
+    ).toEqual([OWNER]);
+  });
+
+  test('assertFakeKnobsAllowed is one shared check: any fake knob, production or a real provider -> reject', () => {
+    const base = createConfig({ llmProvider: 'fake' });
+    expect(() => assertFakeKnobsAllowed(base)).not.toThrow();
+    expect(() => assertFakeKnobsAllowed({ ...base, llmFakeScriptedOwners: [OWNER] })).not.toThrow();
+    expect(() =>
+      assertFakeKnobsAllowed({ ...base, nodeEnv: 'production', llmFakeScriptedOwners: [OWNER] }),
+    ).toThrow(/LLM_FAKE_SCRIPTED_OWNERS.*production/);
+    expect(() => assertFakeKnobsAllowed({ ...base, nodeEnv: 'production', llmFakeLatencyMs: 5 })).toThrow(
+      /LLM_FAKE_LATENCY_MS/,
+    );
+    expect(() =>
+      assertFakeKnobsAllowed({ ...base, llmProvider: 'deepseek', llmFakeScriptedOwners: [OWNER] }),
+    ).toThrow(/LLM_PROVIDER=fake/);
+    // Further fake knobs (M6-03 LLM_FAKE_SCENARIO) are passed into the same check.
+    expect(() =>
+      assertFakeKnobsAllowed({ ...base, nodeEnv: 'production' }, [['LLM_FAKE_SCENARIO', true]]),
+    ).toThrow(/LLM_FAKE_SCENARIO/);
+  });
+
+  test.skipIf(!hasDatabase)('boot (buildApp) refuses a production config that carries the scripted fake', async () => {
+    const clock = new FakeClock();
+    const ids = createSeededIdGenerator(76, clock);
+    const pool = new pg.Pool({ connectionString: databaseUrl ?? '' });
+    const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
+    try {
+      await expect(
+        buildApp({
+          config: createConfig({
+            databaseUrl: databaseUrl ?? null,
+            logLevel: 'silent',
+            llmProvider: 'fake',
+            nodeEnv: 'production',
+            llmFakeScriptedOwners: [OWNER],
+            llmFakeLatencyMs: 5000,
+          }),
+          repos: createInMemoryRepositories({ clock, ids }),
+          clock,
+          ids,
+          db,
+          logger: false,
+        }),
+      ).rejects.toThrow(/production/);
+    } finally {
+      await db.destroy();
+    }
   });
 });
 
