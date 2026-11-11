@@ -1,34 +1,59 @@
 import { spawnSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readdir,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Shared services/api build artifact.
+ * Private services/api build artifact (FU-58F).
  *
- * Each Vitest invocation builds services/api/dist exactly once in globalSetup
- * and stamps it with a random per-invocation build id. Consumers assert the
- * stamp before spawning `dist/main.js`, so a stale, missing, or foreign build
- * fails loudly instead of silently testing old code.
+ * Root cause of the FU-57R2 / FU-61-58R-1 finding chain: every Vitest
+ * invocation rebuilt and consumed the single `services/api/dist` directory, so
+ * correctness depended on a cross-process lock with stale-owner takeover. No
+ * verify-then-rename takeover is atomic, and even a perfect lock could not stop
+ * another invocation from rebuilding the artifact between two consumers.
  *
- * Cross-invocation exclusion (two Vitest runs, the build-smoke test, or a
- * crashed previous run) uses a token-owned directory lock. Stale locks are
- * reclaimed only through an atomic rename to a unique tombstone, so exactly
- * one waiter can win the reclaim.
+ * The design removes the shared mutable state instead. Each invocation creates
+ * its own build workspace: a private directory tree that mirrors the inputs of
+ * the real `pnpm run build` through symlinks and receives its own `dist`.
+ * globalSetup builds there (always, never cached), stamps a random build id,
+ * and provides the workspace path and id to the workers; teardown removes it.
+ * Nothing in a Vitest invocation reads or writes `services/api/dist`, so two
+ * invocations have no artifact in common and nothing needs to be locked.
+ *
+ * Workspace names embed the owning pid in the same atomic mkdtemp that creates
+ * them, so a workspace is never observable without its owner. The sweep only
+ * removes workspaces whose owner process is gone; it never takes anything over.
  */
 
 export const API_DIST_BUILD_ID_KEY = 'ohmydateApiDistBuildId' as const;
+export const API_DIST_ROOT_KEY = 'ohmydateApiDistRoot' as const;
 
 declare module 'vitest' {
   export interface ProvidedContext {
     readonly ohmydateApiDistBuildId: string;
+    /** `services/api` directory of this invocation's private build workspace. */
+    readonly ohmydateApiDistRoot: string;
   }
 }
 
+/** The checked-out services/api. Vitest never builds into or runs from its dist. */
 export const defaultApiRoot = fileURLToPath(new URL('../..', import.meta.url));
+export const defaultRepoRoot = fileURLToPath(new URL('../../../..', import.meta.url));
+export const pnpmRunShimPath = fileURLToPath(
+  new URL('./pnpm-run-shim.mjs', import.meta.url),
+);
 
 export interface ApiDistArtifact {
   readonly apiRoot: string;
@@ -38,29 +63,10 @@ export interface ApiDistArtifact {
   readonly buildIdPath: string;
 }
 
-export interface DistLockOptions {
-  readonly pollMs?: number;
-  readonly timeoutMs?: number;
-  readonly ownerGraceMs?: number;
-  readonly isAlive?: (pid: number) => boolean;
-  /**
-   * Test seam: runs after the staging owner directory is fully written but
-   * before it is atomically published at the lock path. Lets a deterministic
-   * test pause publication while a second waiter reclaims a crashed lease.
-   */
-  readonly beforePublish?: () => Promise<void> | void;
-}
-
-interface LockOwner {
-  readonly token: string;
-  readonly pid: number;
-}
-
-const defaultPollMs = 100;
-const defaultTimeoutMs = 15 * 60_000;
-const defaultOwnerGraceMs = 5_000;
-
-export function apiDistArtifact(apiRoot: string = defaultApiRoot): ApiDistArtifact {
+export function apiDistArtifact(apiRoot: string): ApiDistArtifact {
+  if (typeof apiRoot !== 'string' || apiRoot.trim() === '') {
+    throw new Error('api dist artifact requires the build workspace api root');
+  }
   const distDir = join(apiRoot, 'dist');
   return {
     apiRoot,
@@ -130,15 +136,193 @@ export function assertApiDistArtifact(
   }
 }
 
-export function runApiDistBuild(apiRoot: string = defaultApiRoot): void {
-  const execPath = process.env['npm_execpath'];
-  const isJsEntry = execPath !== undefined && /\.(c|m)?js$/.test(execPath);
-  const command = isJsEntry ? process.execPath : (execPath ?? 'pnpm');
-  const prefix = isJsEntry ? [execPath as string] : [];
-  const build = spawnSync(command, [...prefix, 'run', 'build'], {
-    cwd: apiRoot,
+export interface ApiBuildWorkspace {
+  /** Private mirror of the repository root. */
+  readonly root: string;
+  /** Private mirror of services/api; the build writes `dist` here. */
+  readonly apiRoot: string;
+  readonly ownerPid: number;
+}
+
+export interface ApiBuildWorkspaceOptions {
+  readonly repoRoot?: string;
+  readonly baseDir?: string;
+  readonly pid?: number;
+}
+
+export interface ApiBuildWorkspaceSweepOptions {
+  readonly baseDir?: string;
+  readonly isAlive?: (pid: number) => boolean;
+}
+
+/** Per-checkout parent of all build workspaces, so worktrees never share one. */
+export const defaultWorkspaceBaseDir = join(
+  tmpdir(),
+  `ohmydate-api-build-${createHash('sha256').update(defaultApiRoot).digest('hex').slice(0, 16)}`,
+);
+
+const workspaceNamePattern = /^ws-(\d+)-/u;
+// Package-manager state is deliberately not mirrored: the workspace must never
+// look like an installable project whose node_modules links back to the checkout.
+const repoRootSkip = new Set(['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml']);
+const apiRootSkip = new Set(['dist', 'node_modules', 'test']);
+
+async function linkEntries(
+  from: string,
+  to: string,
+  include: (name: string, isDirectory: boolean) => boolean,
+): Promise<void> {
+  await mkdir(to, { recursive: true });
+  for (const entry of await readdir(from, { withFileTypes: true })) {
+    if (include(entry.name, entry.isDirectory())) {
+      await symlink(join(from, entry.name), join(to, entry.name));
+    }
+  }
+}
+
+/** node_modules is mirrored entry by entry so the directory itself stays private. */
+function isMirroredModuleEntry(name: string): boolean {
+  return name === '.bin' || !name.startsWith('.');
+}
+
+/**
+ * Create a private build workspace owned by `pid`.
+ *
+ * Inputs (sources, configs, dependencies) are symlinks to the checkout and are
+ * only ever read. Everything the build or a consumer writes or resolves by
+ * relative path (`dist`, the spawned `.mjs` fixtures, the build-smoke script) is
+ * a real file inside the workspace.
+ */
+export async function createApiBuildWorkspace(
+  options: ApiBuildWorkspaceOptions = {},
+): Promise<ApiBuildWorkspace> {
+  const repoRoot = resolve(options.repoRoot ?? defaultRepoRoot);
+  const baseDir = options.baseDir ?? defaultWorkspaceBaseDir;
+  const ownerPid = options.pid ?? process.pid;
+  if (!Number.isInteger(ownerPid) || ownerPid <= 0) {
+    throw new Error('api build workspace owner pid must be a positive integer');
+  }
+  const realApiRoot = join(repoRoot, 'services', 'api');
+
+  await mkdir(baseDir, { recursive: true });
+  const root = await mkdtemp(join(baseDir, `ws-${String(ownerPid)}-`));
+  const apiRoot = join(root, 'services', 'api');
+  try {
+    // Repository root: shared config files and the workspace package sources.
+    await linkEntries(repoRoot, root, (name, isDirectory) =>
+      isDirectory ? name === 'packages' : !repoRootSkip.has(name),
+    );
+    await linkEntries(
+      join(repoRoot, 'node_modules'),
+      join(root, 'node_modules'),
+      isMirroredModuleEntry,
+    );
+    await linkEntries(realApiRoot, apiRoot, (name) => !apiRootSkip.has(name));
+    await linkEntries(
+      join(realApiRoot, 'node_modules'),
+      join(apiRoot, 'node_modules'),
+      isMirroredModuleEntry,
+    );
+
+    const realSupport = join(realApiRoot, 'test', 'support');
+    const support = join(apiRoot, 'test', 'support');
+    await mkdir(support, { recursive: true });
+    for (const name of await readdir(realSupport)) {
+      if (name.endsWith('.mjs')) await copyFile(join(realSupport, name), join(support, name));
+    }
+
+    await mkdir(join(root, 'scripts', 'ci'), { recursive: true });
+    await copyFile(
+      join(repoRoot, 'scripts', 'ci', 'build-smoke.mjs'),
+      join(root, 'scripts', 'ci', 'build-smoke.mjs'),
+    );
+
+    // `pnpm` inside the workspace is the run-only shim, never the real CLI.
+    const bin = join(root, '.bin');
+    await mkdir(bin);
+    const shim = join(bin, 'pnpm');
+    await writeFile(
+      shim,
+      `#!/bin/sh\nexec '${process.execPath}' '${pnpmRunShimPath}' "$@"\n`,
+      'utf8',
+    );
+    await chmod(shim, 0o755);
+  } catch (error) {
+    await rm(root, { recursive: true, force: true });
+    throw error;
+  }
+  return { root, apiRoot, ownerPid };
+}
+
+export async function removeApiBuildWorkspace(workspace: ApiBuildWorkspace): Promise<void> {
+  await rm(workspace.root, { recursive: true, force: true });
+}
+
+/**
+ * Remove workspaces left behind by invocations that died before teardown.
+ * A workspace whose owner is alive is never touched, so this cannot affect a
+ * concurrent invocation. Returns the removed directories.
+ */
+export async function sweepDeadApiBuildWorkspaces(
+  options: ApiBuildWorkspaceSweepOptions = {},
+): Promise<string[]> {
+  const baseDir = options.baseDir ?? defaultWorkspaceBaseDir;
+  const isAlive = options.isAlive ?? defaultIsAlive;
+  let names: string[];
+  try {
+    names = await readdir(baseDir);
+  } catch (error) {
+    if (isErrno(error, 'ENOENT')) return [];
+    throw error;
+  }
+  const removed: string[] = [];
+  for (const name of names) {
+    const match = workspaceNamePattern.exec(name);
+    if (match === null) continue;
+    if (isAlive(Number(match[1]))) continue;
+    const dir = join(baseDir, name);
+    await rm(dir, { recursive: true, force: true });
+    removed.push(dir);
+  }
+  return removed;
+}
+
+/**
+ * Environment for tools run inside a build workspace. Every `pnpm` they reach,
+ * through PATH or through `npm_execpath`, is the run-only shim: the real CLI
+ * may reinstall dependencies before a script and must never see the workspace.
+ */
+export function apiBuildWorkspaceEnv(
+  workspace: ApiBuildWorkspace,
+  base: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const bin = join(workspace.root, '.bin');
+  const path = base['PATH'];
+  return {
+    ...base,
+    PATH: path === undefined || path === '' ? bin : `${bin}${delimiter}${path}`,
+    npm_execpath: pnpmRunShimPath,
+    OHMYDATE_API_BUILD_SHIM_BIN: bin,
+  };
+}
+
+/**
+ * Run the unmodified `build` script of services/api inside a build workspace.
+ * Refuses the checkout itself: its `dist` is shared with other invocations and
+ * with scripts/ci/build-smoke.mjs.
+ */
+export function runApiDistBuild(workspace: ApiBuildWorkspace): void {
+  if (resolve(workspace.apiRoot) === resolve(defaultApiRoot)) {
+    throw new Error(
+      `refusing to build the shared ${join(defaultApiRoot, 'dist')}; build inside a private workspace`,
+    );
+  }
+  const build = spawnSync(process.execPath, [pnpmRunShimPath, 'run', 'build'], {
+    cwd: workspace.apiRoot,
+    env: apiBuildWorkspaceEnv(workspace),
     encoding: 'utf8',
   });
+  if (build.error !== undefined) throw build.error;
   if (build.status !== 0) {
     throw new Error(`build failed: ${build.stdout}\n${build.stderr}`);
   }
@@ -160,239 +344,4 @@ function defaultIsAlive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'EPERM';
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Token-owned cross-process directory lock.
- *
- * acquire: write the owner into a unique, fully written staging directory and
- * then atomically rename it onto the lock path; the rename itself is the
- * acquire and fails while a non-empty holder directory exists. A stale holder
- * (owner process gone, or owner file absent beyond the grace period) is removed
- * only by renaming the exact observed directory to a unique tombstone and
- * re-verifying the owner token there; if a replacement lease was published in
- * between, it is put back instead. The filesystem makes exactly one reclaimer
- * win that rename. release removes the directory only when the stored token is
- * still ours.
- */
-export class DistLock {
-  readonly #dir: string;
-  readonly #token: string;
-  readonly #pollMs: number;
-  readonly #timeoutMs: number;
-  readonly #ownerGraceMs: number;
-  readonly #isAlive: (pid: number) => boolean;
-  readonly #beforePublish: (() => Promise<void> | void) | undefined;
-  #held = false;
-
-  constructor(dir: string, token: string = randomUUID(), options: DistLockOptions = {}) {
-    if (token.trim() === '') throw new Error('dist lock token must be non-empty');
-    this.#dir = dir;
-    this.#token = token;
-    this.#pollMs = options.pollMs ?? defaultPollMs;
-    this.#timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
-    this.#ownerGraceMs = options.ownerGraceMs ?? defaultOwnerGraceMs;
-    this.#isAlive = options.isAlive ?? defaultIsAlive;
-    this.#beforePublish = options.beforePublish;
-  }
-
-  get directory(): string {
-    return this.#dir;
-  }
-
-  get token(): string {
-    return this.#token;
-  }
-
-  get held(): boolean {
-    return this.#held;
-  }
-
-  async acquire(): Promise<void> {
-    if (this.#held) return;
-    const deadline = Date.now() + this.#timeoutMs;
-    for (;;) {
-      if (await this.#tryPublish()) {
-        this.#held = true;
-        return;
-      }
-      const owner = await this.#readOwner(this.#dir);
-      if (owner === undefined) {
-        if (await this.#isOlderThan(this.#dir, this.#ownerGraceMs)) {
-          await this.#reclaim(undefined);
-        }
-      } else if (!this.#isAlive(owner.pid)) {
-        await this.#reclaim(owner.token);
-      }
-      if (Date.now() >= deadline) {
-        throw new Error(`timed out waiting for dist lock ${this.#dir}`);
-      }
-      await delay(this.#pollMs);
-    }
-  }
-
-  /** Returns true only when this instance removed a lock still owned by its token. */
-  async release(): Promise<boolean> {
-    if (!this.#held) return false;
-    this.#held = false;
-    const owner = await this.#readOwner(this.#dir);
-    if (owner === undefined || owner.token !== this.#token) return false;
-    // Rename our lease away atomically instead of removing files in place: a
-    // concurrent acquirer can then publish only after the lock path is free,
-    // and it can never observe (or be clobbered by) a half-removed directory.
-    const tombstone = `${this.#dir}.released-${randomUUID()}`;
-    try {
-      await rename(this.#dir, tombstone);
-    } catch (error) {
-      if (isErrno(error, 'ENOENT')) return false;
-      throw error;
-    }
-    const moved = await this.#readOwner(tombstone);
-    if (moved === undefined || moved.token !== this.#token) {
-      // Our lease was replaced between the read and the rename. Put it back;
-      // this release must not destroy someone else's live lease.
-      try {
-        await rename(tombstone, this.#dir);
-      } catch (error) {
-        throw new Error(`dist lock release raced for ${this.#dir}`, { cause: error });
-      }
-      return false;
-    }
-    await rm(tombstone, { recursive: true, force: true });
-    return true;
-  }
-
-  /**
-   * Publish our ownership atomically: build a complete owner directory under a
-   * unique staging name, then rename it onto the lock path. Rename succeeds
-   * only when the lock path is free (or an empty leftover directory), so no
-   * waiter can ever observe a directory without its owner token.
-   */
-  async #tryPublish(): Promise<boolean> {
-    const staging = `${this.#dir}.owner-${randomUUID()}`;
-    let published = false;
-    try {
-      await mkdir(staging);
-      await writeFile(
-        join(staging, 'owner.json'),
-        `${JSON.stringify({ token: this.#token, pid: process.pid } satisfies LockOwner)}\n`,
-        'utf8',
-      );
-      if (this.#beforePublish !== undefined) await this.#beforePublish();
-      try {
-        await rename(staging, this.#dir);
-      } catch (error) {
-        if (
-          isErrno(error, 'EEXIST') ||
-          isErrno(error, 'ENOTEMPTY') ||
-          isErrno(error, 'ENOTDIR')
-        ) {
-          return false;
-        }
-        throw error;
-      }
-      published = true;
-      return true;
-    } finally {
-      if (!published) await rm(staging, { recursive: true, force: true });
-    }
-  }
-
-  async #reclaim(expectedToken: string | undefined): Promise<void> {
-    // Re-read the owner now: never reclaim a lease other than the one observed
-    // as stale. An atomically published replacement always carries its owner
-    // token, so a changed/absent token means someone else won.
-    const observed = await this.#readOwner(this.#dir);
-    if (expectedToken === undefined) {
-      if (observed !== undefined) return;
-    } else if (observed === undefined || observed.token !== expectedToken) {
-      return;
-    }
-
-    const tombstone = `${this.#dir}.tombstone-${randomUUID()}`;
-    try {
-      await rename(this.#dir, tombstone);
-    } catch (error) {
-      if (isErrno(error, 'ENOENT')) return;
-      throw error;
-    }
-    const moved = await this.#readOwner(tombstone);
-    const movedIsObserved =
-      expectedToken === undefined
-        ? moved === undefined
-        : moved !== undefined && moved.token === expectedToken;
-    if (!movedIsObserved) {
-      // A replacement lease was published between our stale read and the
-      // rename. Put the live lock back; never proceed to acquire on top of it.
-      try {
-        await rename(tombstone, this.#dir);
-      } catch (error) {
-        throw new Error(
-          `dist lock reclamation raced for ${this.#dir}; refusing to grant a second lease`,
-          { cause: error },
-        );
-      }
-      return;
-    }
-    await rm(tombstone, { recursive: true, force: true });
-  }
-
-  async #readOwner(dir: string): Promise<LockOwner | undefined> {
-    try {
-      const parsed = JSON.parse(
-        await readFile(join(dir, 'owner.json'), 'utf8'),
-      ) as Partial<LockOwner>;
-      if (typeof parsed.token === 'string' && typeof parsed.pid === 'number') {
-        return { token: parsed.token, pid: parsed.pid };
-      }
-      return undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  async #isOlderThan(path: string, ms: number): Promise<boolean> {
-    try {
-      const info = await stat(path);
-      return Date.now() - info.mtimeMs > ms;
-    } catch {
-      return false;
-    }
-  }
-}
-
-const defaultLockDir = join(
-  tmpdir(),
-  `ohmydate-api-dist-${createHash('sha256').update(defaultApiRoot).digest('hex').slice(0, 16)}.lock`,
-);
-
-let defaultLease: DistLock | undefined;
-let leaseDepth = 0;
-
-/**
- * Lease the shared dist artifact for the lifetime of a test file. Reentrant
- * within a process so a file may nest acquisitions.
- */
-export async function acquireDistLease(): Promise<DistLock> {
-  if (leaseDepth === 0) {
-    const lock = new DistLock(defaultLockDir, randomUUID());
-    await lock.acquire();
-    defaultLease = lock;
-  }
-  leaseDepth += 1;
-  if (defaultLease === undefined) throw new Error('dist lease invariant violated');
-  return defaultLease;
-}
-
-export async function releaseDistLease(): Promise<boolean> {
-  if (leaseDepth === 0) return false;
-  leaseDepth -= 1;
-  if (leaseDepth > 0) return true;
-  const lock = defaultLease;
-  defaultLease = undefined;
-  return lock === undefined ? false : lock.release();
 }

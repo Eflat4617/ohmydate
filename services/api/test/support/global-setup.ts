@@ -1,67 +1,83 @@
 import { randomUUID } from 'node:crypto';
-import { rm } from 'node:fs/promises';
 import type { TestProject } from 'vitest/node';
 import {
   API_DIST_BUILD_ID_KEY,
-  acquireDistLease,
+  API_DIST_ROOT_KEY,
   apiDistArtifact,
-  releaseDistLease,
+  createApiBuildWorkspace,
+  removeApiBuildWorkspace,
   runApiDistBuild,
+  sweepDeadApiBuildWorkspaces,
   writeApiDistBuildId,
+  type ApiBuildWorkspace,
   type ApiDistArtifact,
 } from './dist-artifact.js';
 
+export interface ProvidedApiDist {
+  readonly buildId: string;
+  /** `services/api` directory of the private build workspace. */
+  readonly apiRoot: string;
+}
+
 export interface ApiDistBuildSetupDeps {
-  readonly artifact?: ApiDistArtifact;
-  readonly acquireLease?: () => Promise<unknown>;
-  readonly releaseLease?: () => Promise<boolean>;
-  readonly build?: (apiRoot: string) => void;
+  readonly sweepWorkspaces?: () => Promise<unknown>;
+  readonly createWorkspace?: () => Promise<ApiBuildWorkspace>;
+  readonly removeWorkspace?: (workspace: ApiBuildWorkspace) => Promise<void>;
+  readonly build?: (workspace: ApiBuildWorkspace) => void;
   readonly stampBuildId?: (artifact: ApiDistArtifact, buildId: string) => void;
   readonly createBuildId?: () => string;
-  readonly provide?: (project: TestProject, buildId: string) => void;
-  readonly removeArtifact?: (distDir: string) => Promise<void>;
+  readonly provide?: (project: TestProject, provided: ProvidedApiDist) => void;
 }
 
 /**
- * Build services/api/dist exactly once per Vitest invocation, then publish a
- * random build id to every worker through the provided context. Consumers
- * assert their dist carries this id before spawning it.
+ * Build the services/api artifact exactly once per Vitest invocation, inside a
+ * build workspace that only this invocation knows, then publish its location
+ * and a random build id to every worker through the provided context.
+ * Consumers assert that their artifact carries this id before spawning it.
  *
- * The build always runs, even when a stamped artifact from an earlier
- * invocation looks fresh: caching by build id or mtime would let stale code be
- * tested (FU-57R2). Dependencies are injectable only so the regression test can
- * prove this without spawning real compilers.
+ * The build always runs: there is no previous artifact to reuse, because each
+ * invocation starts from a new, empty workspace (FU-57R2: caching by build id
+ * or mtime would let stale code be tested). The workspace is removed by the
+ * returned teardown, or immediately when setup fails. Dependencies are
+ * injectable only so the regression tests can drive this without compilers.
  */
 export async function setupApiDistBuild(
   project: TestProject,
   deps: ApiDistBuildSetupDeps = {},
-): Promise<void> {
-  const artifact = deps.artifact ?? apiDistArtifact();
-  const acquireLease = deps.acquireLease ?? acquireDistLease;
-  const releaseLease = deps.releaseLease ?? releaseDistLease;
+): Promise<() => Promise<void>> {
+  const sweepWorkspaces = deps.sweepWorkspaces ?? (() => sweepDeadApiBuildWorkspaces());
+  const createWorkspace = deps.createWorkspace ?? (() => createApiBuildWorkspace());
+  const removeWorkspace = deps.removeWorkspace ?? removeApiBuildWorkspace;
   const build = deps.build ?? runApiDistBuild;
   const stampBuildId = deps.stampBuildId ?? writeApiDistBuildId;
   const createBuildId = deps.createBuildId ?? randomUUID;
   const provide =
     deps.provide ??
-    ((target: TestProject, buildId: string) =>
-      target.provide(API_DIST_BUILD_ID_KEY, buildId));
-  const removeArtifact =
-    deps.removeArtifact ??
-    ((distDir: string) => rm(distDir, { recursive: true, force: true }));
+    ((target: TestProject, provided: ProvidedApiDist) => {
+      target.provide(API_DIST_BUILD_ID_KEY, provided.buildId);
+      target.provide(API_DIST_ROOT_KEY, provided.apiRoot);
+    });
 
-  await acquireLease();
+  await sweepWorkspaces();
+  const workspace = await createWorkspace();
   try {
-    await removeArtifact(artifact.distDir);
-    build(artifact.apiRoot);
+    build(workspace);
     const buildId = createBuildId();
-    stampBuildId(artifact, buildId);
-    provide(project, buildId);
-  } finally {
-    await releaseLease();
+    stampBuildId(apiDistArtifact(workspace.apiRoot), buildId);
+    provide(project, { buildId, apiRoot: workspace.apiRoot });
+  } catch (error) {
+    await removeWorkspace(workspace);
+    throw error;
   }
+
+  let removed = false;
+  return async () => {
+    if (removed) return;
+    removed = true;
+    await removeWorkspace(workspace);
+  };
 }
 
-export default async function setup(project: TestProject): Promise<void> {
-  await setupApiDistBuild(project);
+export default async function setup(project: TestProject): Promise<() => Promise<void>> {
+  return setupApiDistBuild(project);
 }
