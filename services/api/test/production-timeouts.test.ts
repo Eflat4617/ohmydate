@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import net from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inject } from 'vitest';
 import { migrate } from '../src/db/migrate.js';
 import {
   createSchema,
@@ -12,12 +13,40 @@ import {
   makeSchemaName,
   requireDatabaseUrl,
 } from './db/helpers.js';
+import {
+  API_DIST_BUILD_ID_KEY,
+  acquireDistLease,
+  apiDistArtifact,
+  assertApiDistArtifact,
+  hasApiDistArtifact,
+  releaseDistLease,
+  writeApiDistBuildId,
+} from './support/dist-artifact.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 
 const apiRoot = fileURLToPath(new URL('..', import.meta.url));
 const distMain = join(apiRoot, 'dist', 'main.js');
 const slowFixture = join(apiRoot, 'test', 'support', 'slow-app.mjs');
+const distArtifact = apiDistArtifact();
+const expectedBuildId = inject(API_DIST_BUILD_ID_KEY);
+
+// dist is built once by vitest globalSetup. The lease is held for the whole
+// file so the build-smoke test below can rebuild dist without racing other
+// test files that spawn apps from it. Acquire outside hooks: while another
+// suite rebuilds dist the wait can exceed hookTimeout, so it must not be
+// charged to a suite hook. See support/dist-artifact.ts.
+await acquireDistLease();
+try {
+  assertApiDistArtifact(distArtifact, expectedBuildId);
+} catch (error) {
+  await releaseDistLease();
+  throw error;
+}
+
+afterAll(async () => {
+  await releaseDistLease();
+});
 
 function baseEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -130,20 +159,6 @@ function stop(child: ChildProcess | undefined): void {
 
 describe.skipIf(!hasDatabase)('production HTTP timeout regressions', () => {
   let schema: string;
-
-  beforeAll(() => {
-    const execPath = process.env['npm_execpath'];
-    const isJsEntry = execPath !== undefined && /\.(c|m)?js$/.test(execPath);
-    const command = isJsEntry ? process.execPath : (execPath ?? 'pnpm');
-    const prefix = isJsEntry ? [execPath as string] : [];
-    const build = spawnSync(command, [...prefix, 'run', 'build'], {
-      cwd: apiRoot,
-      encoding: 'utf8',
-    });
-    if (build.status !== 0) {
-      throw new Error(`build failed: ${build.stdout}\n${build.stderr}`);
-    }
-  }, 120_000);
 
   beforeEach(async () => {
     schema = makeSchemaName();
@@ -361,6 +376,14 @@ describe('build smoke without DATABASE_URL', () => {
       timeout: 120_000,
     });
   }
+
+  // build-smoke rebuilds dist in place; restore this invocation's build id
+  // so later test files can still assert the shared artifact.
+  afterAll(() => {
+    if (hasApiDistArtifact(distArtifact)) {
+      writeApiDistBuildId(distArtifact, expectedBuildId);
+    }
+  });
 
   test(
     'always compiles, then skips only for the optional developer command',
