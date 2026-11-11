@@ -142,6 +142,7 @@ import {
   requestHash,
   headerValue,
 } from './headers.js';
+import { loggedPath } from './log-url.js';
 import {
   ProblemError,
   domainErrorToProblem,
@@ -484,7 +485,7 @@ async function runIdempotent(
         // Always surface the original failure; a failed release is recoverable.
         // Log key metadata only: request bodies and headers stay out of logs.
         request.log.warn(
-          { ownerId: auth.userId, key, route },
+          { ownerId: auth.userId, key, route: request.routeOptions.url ?? loggedPath(request.url) },
           'idempotency release failed',
         );
       }

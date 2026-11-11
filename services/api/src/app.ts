@@ -66,6 +66,7 @@ import {
   PlanConflictError,
 } from './application/planning-errors.js';
 import { installShutdownContext } from './http/shutdown-context.js';
+import { loggedPath, loggedUrl } from './http/log-url.js';
 import './http/fastify-augment.js';
 
 export type LoggerOption = NonNullable<FastifyServerOptions['logger']>;
@@ -116,14 +117,6 @@ export interface BuildAppOptions {
 }
 
 /**
- * M6-01: a note search string (`GET /documents?q=`) is user note text; logs keep
- * the path and the other (id-only) query parameters but never its value.
- */
-export function redactLoggedUrl(url: string): string {
-  return url.replace(/([?&]q=)[^&#]*/g, '$1[REDACTED]');
-}
-
-/**
  * 09 §7: structured JSON logs with request IDs. Bodies, cookies and auth
  * headers are never logged; /auth/* bodies are redacted by path as a belt and
  * braces measure on top of the request serializer.
@@ -147,10 +140,14 @@ export function defaultLoggerOptions(config: AppConfig): LoggerOption {
       censor: '[REDACTED]',
     },
     serializers: {
+      // M6-01R-1 H1: path only; query values are never logged (see log-url.ts).
       req(request: { method?: string; url?: string; id?: string }) {
+        const logged = loggedUrl(request.url ?? '');
         return {
           method: request.method ?? '',
-          url: redactLoggedUrl(request.url ?? ''),
+          url: logged.path,
+          ...(logged.queryKeys === undefined ? {} : { queryKeys: logged.queryKeys }),
+          ...(logged.queryOmitted === undefined ? {} : { queryOmitted: logged.queryOmitted }),
           id: request.id ?? '',
         };
       },
@@ -657,7 +654,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           {
             code: problem.code,
             name: (error as Error).name,
-            route: request.routeOptions.url ?? request.url.split('?', 1)[0],
+            route: request.routeOptions.url ?? loggedPath(request.url),
             reqId: request.id,
           },
           'unhandled domain error',
@@ -696,7 +693,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       {
         code: 'internal_error',
         name: (error as Error).name,
-        route: request.routeOptions.url ?? request.url.split('?', 1)[0],
+        route: request.routeOptions.url ?? loggedPath(request.url),
         reqId: request.id,
       },
       'unhandled request error',

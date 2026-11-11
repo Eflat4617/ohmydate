@@ -515,7 +515,9 @@ describe.skipIf(!hasDatabase)('note-grounded intake decomposition', () => {
       for (const marker of [ALLOWED_MARKER, SECRET_MARKER, 'kim@example.com', 'Ignore all previous', 'untrusted_document']) {
         expect({ marker, logged: logs.includes(marker) }).toEqual({ marker, logged: false });
       }
-      expect(logs).toContain('q=[REDACTED]');
+      // M6-01R-1 H1: the search request is logged by path only, never with its query.
+      expect(logs).toContain('"url":"/api/v1/documents"');
+      expect(logs).not.toMatch(/"url":"[^"]*[?;#]/);
     } finally {
       await ctx.close();
     }
