@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 08:03 | FU-79R Sol 리뷰가 사용량 한도로 중단(08:31 해제) → 규칙대로 **Opus 5.5 xhigh 대체 리뷰**(구현 DeepSeek이므로 계열 분리 유지), gpt-6-luna 제안 거절 | worker-read | orchestrator |
 | 2026-11-12 07:48 | **FU-77 시작 — 돌파구 워커 Fable 5.2 xhigh**(§10 조건②: 사용자 격리 결함이 M4-UI·M6-02R-1·FU-76R-1·M6-03R-1/R2에서 반복). 범위: 사용자별 저장 모듈 하나 + ESLint 강제, 사용자 확인 비동기 도구, 사용자 전환 테스트 도구로 화면 전반 회귀, ADR-023 개정 | packets/FU-77.md | orchestrator |
 | 2026-11-12 07:45 | **M6-03 merged 61674ba** (M6-03dR APPROVE, Sol). 통합 CI 2103 pass + web 442, boundaries 0; 통합 E2E(M6 대상 spec: E2E-6 notes·layout, AI wait, a11y screens, E2E-5R) 7/7 pass. **M6 DoD 충족**: 인젝션 평가(live 20/20 evaluated, 0 followed), 레이아웃 hysteresis 단위 테스트, axe 0, E2E-6. 남은 E2E-4 시각 의존은 FU-79에서 처리 중. 다음: FU-77(Fable xhigh) | reviews/M6-03dR.md, e2e-m6.log | orchestrator |
 | 2026-11-12 07:08 | **FU-66R-1 REQUEST_CHANGES** (Sol): MEDIUM 1 — 성능 저하 검출 self-test가 잘못된(generate 기반) 보정으로 되돌려도 통과(burn만 두 배로 해서 스케줄러 자체를 느리게 하지 않음). fu41 커버리지 유지는 리뷰어가 확인. 수정 1/2 → DeepSeek | reviews/FU-66R-1.md | orchestrator |
