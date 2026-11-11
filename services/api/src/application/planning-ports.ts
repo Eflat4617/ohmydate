@@ -27,6 +27,7 @@ export interface EstimateRepository {
 }
 
 export interface ApprovedBlock {
+  readonly id: Id;
   readonly planId: Id;
   readonly planVersionId: Id;
   readonly taskId: Id;
@@ -34,6 +35,18 @@ export interface ApprovedBlock {
   readonly endAt: Instant;
   readonly status: string;
   readonly locked: boolean;
+  readonly version: number;
+}
+
+export interface ActivePlanRevision {
+  readonly planId: Id;
+  readonly planVersionId: Id;
+  /** Plan resource version, also the `Today.version` / If-Match value. */
+  readonly revision: number;
+  readonly timeZone: string;
+  readonly horizon: PlanHorizon;
+  readonly scope: PlanScope;
+  readonly availabilityVersion: number;
 }
 
 export interface NewPlan {
@@ -131,6 +144,8 @@ export interface PlanningStore extends EstimateRepository {
   ): Promise<Plan>;
   resolveGoalTasks(ownerId: Id, goalId: Id): Promise<GoalTasks | null>;
   listActiveBlocks(ownerId: Id): Promise<readonly ApprovedBlock[]>;
+  /** The owner's active approved plan (most recently updated), if any. */
+  getActivePlan(ownerId: Id): Promise<ActivePlanRevision | null>;
   approve(
     ownerId: Id,
     planId: Id,

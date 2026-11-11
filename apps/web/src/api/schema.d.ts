@@ -517,6 +517,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/schedule-blocks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List active approved blocks overlapping a calendar range (FU-51)
+         * @description The range must be positive and at most 366 days (422 validation_failed otherwise). Only non-superseded approved blocks of the owner are returned.
+         */
+        get: operations["listScheduleBlocks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions": {
         parameters: {
             query?: never;
@@ -524,13 +544,31 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List focus sessions, optionally filtered by state */
+        get: operations["listSessions"];
         put?: never;
         /**
          * Start a focus session
          * @description Only one active session per owner exists. A second with the same owner returns 409 active_session_exists.
          */
         post: operations["createSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a focus session (resume/deep-link support) */
+        get: operations["getSession"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1655,6 +1693,32 @@ export interface components {
             taskId: string;
             version: number;
         };
+        ScheduleBlockListQuery: {
+            cursor?: string;
+            /** Format: date-time */
+            from: string;
+            limit?: number;
+            /** Format: date-time */
+            to: string;
+        };
+        ScheduleBlockPage: {
+            items: {
+                /** Format: date-time */
+                endAt: string;
+                /** Format: uuid */
+                id: string;
+                locked: boolean;
+                /** Format: uuid */
+                planVersionId: string;
+                /** Format: date-time */
+                startAt: string;
+                status: "planned" | "done" | "skipped" | "moved" | "superseded";
+                /** Format: uuid */
+                taskId: string;
+                version: number;
+            }[];
+            nextCursor: string | null;
+        };
         /** @description Starts a focus session. clientStartedAt is clamped to [serverNow - 24 h, serverNow + 2 min]; the clamp is recorded so offline replay is exactly-once but observable. */
         SessionCreate: {
             /** Format: uuid */
@@ -1679,6 +1743,11 @@ export interface components {
         SessionIdParams: {
             /** Format: uuid */
             id: string;
+        };
+        SessionListQuery: {
+            cursor?: string;
+            limit?: number;
+            state?: "active" | "paused" | "completed" | "abandoned";
         };
         SessionReviewRequest: {
             note?: string;
@@ -1957,6 +2026,26 @@ export interface components {
             /** Format: uuid */
             taskId: string;
             version: number;
+        };
+        WorkSessionPage: {
+            items: {
+                /** Format: uuid */
+                blockId?: string;
+                clientId: string;
+                /** Format: date-time */
+                endedAt?: string;
+                focusedSec: number;
+                /** Format: uuid */
+                id: string;
+                pausedSec: number;
+                /** Format: date-time */
+                startedAt: string;
+                state: "active" | "paused" | "completed" | "abandoned";
+                /** Format: uuid */
+                taskId: string;
+                version: number;
+            }[];
+            nextCursor: string | null;
         };
     };
     responses: never;
@@ -4646,6 +4735,127 @@ export interface operations {
             };
         };
     };
+    listScheduleBlocks: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Schedule block page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleBlockPage"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listSessions: {
+        parameters: {
+            query?: {
+                state?: "active" | "paused" | "completed" | "abandoned";
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Work session page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkSessionPage"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     createSession: {
         parameters: {
             query?: never;
@@ -4717,6 +4927,64 @@ export interface operations {
             };
             /** @description Domain validation failed */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getSession: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Work session */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkSession"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

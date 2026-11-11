@@ -37,6 +37,7 @@ import {
   PlanConflictError,
 } from '../application/planning-errors.js';
 import type {
+  ActivePlanRevision,
   ApprovalSnapshot,
   ApprovedBlock,
   EstimateRecord,
@@ -579,6 +580,32 @@ export class PgPlanningStore implements PlanningStore {
     return this.#listActiveBlocks(this.#db, ownerId);
   }
 
+  async getActivePlan(ownerId: Id): Promise<ActivePlanRevision | null> {
+    const row = await this.#db
+      .selectFrom('plan')
+      .selectAll()
+      .where('owner_id', '=', ownerId)
+      .where('status', '=', 'active')
+      .where('current_version_id', 'is not', null)
+      .where('deleted_at', 'is', null)
+      .orderBy('updated_at', 'desc')
+      .orderBy('id', 'desc')
+      .executeTakeFirst();
+    if (row === undefined || row.current_version_id === null) return null;
+    return {
+      planId: row.id as Id,
+      planVersionId: row.current_version_id as Id,
+      revision: row.version,
+      timeZone: row.time_zone,
+      horizon: {
+        start: toInstant(row.horizon_start),
+        end: toInstant(row.horizon_end),
+      },
+      scope: parseScope(row.scope),
+      availabilityVersion: row.availability_version,
+    };
+  }
+
   async approve(
     ownerId: Id,
     planId: Id,
@@ -1019,12 +1046,14 @@ export class PgPlanningStore implements PlanningStore {
       .innerJoin('plan_version', 'plan_version.id', 'schedule_block.plan_version_id')
       .innerJoin('plan', 'plan.id', 'plan_version.plan_id')
       .select([
+        'schedule_block.id',
         'schedule_block.plan_version_id',
         'schedule_block.task_id',
         'schedule_block.start_at',
         'schedule_block.end_at',
         'schedule_block.status',
         'schedule_block.locked',
+        'schedule_block.version',
         'plan.id as plan_id',
       ])
       .where('schedule_block.owner_id', '=', ownerId)
@@ -1032,6 +1061,7 @@ export class PgPlanningStore implements PlanningStore {
       .where('plan.deleted_at', 'is', null)
       .execute();
     return rows.map((row) => ({
+      id: row.id as Id,
       planId: row.plan_id as Id,
       planVersionId: row.plan_version_id as Id,
       taskId: row.task_id as Id,
@@ -1039,6 +1069,7 @@ export class PgPlanningStore implements PlanningStore {
       endAt: toInstant(row.end_at),
       status: row.status,
       locked: row.locked,
+      version: row.version,
     }));
   }
 

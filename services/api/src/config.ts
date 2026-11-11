@@ -97,6 +97,16 @@ export interface AppConfig {
    * A boolean, proxy address (string), list of addresses, or hop count.
    */
   readonly trustProxy: boolean | string | string[] | number;
+  /** Path to the 32-byte Web Push encryption key (base64 or hex). */
+  readonly pushKeyFile: string | null;
+  /** Inline Web Push encryption key (base64 or hex) as an env-ref fallback. */
+  readonly pushKey: string | null;
+  /**
+   * Set by `configFromEnv` when PROVIDER != memory and the process is a
+   * production boot (NODE_ENV=production) or PUSH_KEY_REQUIRED=true. Dev/test
+   * boots may use an ephemeral key so unrelated local tooling still starts.
+   */
+  readonly pushKeyRequired: boolean;
 }
 
 export const DEFAULT_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -120,6 +130,9 @@ export const defaultConfig: AppConfig = {
   llmMonthlyBudgetUsd: 0,
   providerMaxCallMs: DEFAULT_PROVIDER_MAX_CALL_MS,
   trustProxy: false,
+  pushKeyFile: null,
+  pushKey: null,
+  pushKeyRequired: false,
 };
 
 /**
@@ -157,6 +170,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env['PROVIDER_MAX_CALL_MS'],
       DEFAULT_PROVIDER_MAX_CALL_MS,
     ),
+    pushKeyFile: env['PUSH_KEY_FILE'] ?? null,
+    pushKey: env['PUSH_KEY'] ?? null,
+    pushKeyRequired:
+      providerKind !== 'memory' &&
+      (env['NODE_ENV'] === 'production' || env['PUSH_KEY_REQUIRED'] === 'true'),
   });
 }
 

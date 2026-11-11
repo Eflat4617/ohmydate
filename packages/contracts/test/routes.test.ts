@@ -200,6 +200,11 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     optionalHeaders: ['If-None-Match'],
     statuses: [200, 304, 400, 401, 422],
   },
+  listScheduleBlocks: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 422],
+  },
   acceptToday: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
@@ -224,6 +229,16 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     requiredHeaders: ['Idempotency-Key'],
     optionalHeaders: [],
     statuses: [201, 400, 401, 403, 404, 409, 422],
+  },
+  getSession: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 404],
+  },
+  listSessions: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 422],
   },
   pauseSession: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
