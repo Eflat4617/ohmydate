@@ -584,6 +584,11 @@ interface PropertyCase {
   tasks: PropertyTask[];
   /** `[dependent, dependency]` edge added by the mutation. */
   edge: [number, number];
+  /** Defaults: balanced, 00:00-24:00, minSession cap 30, breakAfter 480. */
+  policy?: PolicyName;
+  window?: [string, string];
+  minSessionCapMin?: number;
+  breakAfterMin?: number;
 }
 
 /** Same construction as `buildInput`/`mutate` in `replan.property.test.ts`. */
@@ -596,13 +601,14 @@ function propertyInput(spec: PropertyCase, withEdge: boolean): ScheduleInput {
       earliestStartAt: spec.start,
       estimate: { p50Min: durationMin, p90Min: durationMin },
       splittable: true,
-      minSessionMin: Math.min(30, durationMin),
+      minSessionMin: Math.min(spec.minSessionCapMin ?? 30, durationMin),
       maxSessionMin: Math.max(entry.durationUnits, entry.maxUnits) * 5,
       priority: entry.priority,
       dependsOn:
         withEdge && index === spec.edge[0] ? [`T${spec.edge[1]}`] : [],
     };
   });
+  const [windowStart, windowEnd] = spec.window ?? ['00:00', '24:00'];
   return {
     now: spec.start,
     timeZone: spec.timeZone,
@@ -610,8 +616,8 @@ function propertyInput(spec: PropertyCase, withEdge: boolean): ScheduleInput {
     tasks,
     availability: spec.weekdays.map((weekday) => ({
       weekday: weekday as Weekday,
-      startLocal: '00:00',
-      endLocal: '24:00',
+      startLocal: windowStart,
+      endLocal: windowEnd,
       kind: 'work',
     })),
     exceptions: [],
@@ -619,7 +625,7 @@ function propertyInput(spec: PropertyCase, withEdge: boolean): ScheduleInput {
     lockedBlocks: [],
     prefs: {
       maxDailyFocusMin: 480,
-      breakAfterMin: 480,
+      breakAfterMin: spec.breakAfterMin ?? 480,
       breakMin: 15,
       riskLevel: 'p50',
       dayStartLocal: '00:00',
@@ -688,23 +694,90 @@ const DEPENDENCY_CASES: PropertyCase[] = [
     ],
     edge: [1, 0],
   },
+  {
+    name: 'Europe/Berlin DST end, weekdays only, seed 472150992 path 197:4:3:5:4:5:5:5:5:6:6:7 (reviewer CI)',
+    timeZone: 'Europe/Berlin',
+    start: '2026-10-25T00:00:00Z',
+    end: '2026-10-27T00:00:00Z',
+    weekdays: [1, 2, 3, 4, 5],
+    tasks: [
+      { durationUnits: 6, maxUnits: 12, priority: 1 },
+      { durationUnits: 7, maxUnits: 12, priority: 1 },
+      { durationUnits: 6, maxUnits: 12, priority: 1 },
+    ],
+    edge: [1, 0],
+  },
+  // FU-69R-1, binding continuous-focus limits (not reachable from the
+  // committed property, whose breakAfterMin is 480). The successor bound
+  // ignores H6, so the first repair pass still leaves the dependent short:
+  {
+    // ... the dependent needs a break after its dependency.
+    name: 'breakAfter 120, minSession 45: dependent needs a break after its dependency (seed 271828, 3000 runs)',
+    timeZone: 'Europe/Berlin',
+    start: '2026-10-25T00:00:00Z',
+    end: '2026-10-27T00:00:00Z',
+    weekdays: [1, 2, 3, 4, 5],
+    window: ['09:00', '17:00'],
+    minSessionCapMin: 45,
+    breakAfterMin: 120,
+    tasks: [
+      { durationUnits: 22, maxUnits: 12, priority: 2 },
+      { durationUnits: 23, maxUnits: 12, priority: 2 },
+      { durationUnits: 18, maxUnits: 12, priority: 1 },
+    ],
+    edge: [2, 0],
+  },
+  {
+    // ... the dependency's own old blocks sit too late to be kept.
+    name: 'breakAfter 90, front_loaded: the dependency cannot keep its own late blocks',
+    timeZone: 'America/New_York',
+    start: '2026-11-01T04:00:00Z',
+    end: '2026-11-03T05:00:00Z',
+    weekdays: [1, 2, 3, 4, 5],
+    window: ['09:00', '17:00'],
+    breakAfterMin: 90,
+    policy: 'front_loaded',
+    tasks: [
+      { durationUnits: 19, maxUnits: 12, priority: 2 },
+      { durationUnits: 21, maxUnits: 12, priority: 1 },
+      { durationUnits: 18, maxUnits: 12, priority: 2 },
+    ],
+    edge: [1, 0],
+  },
+  {
+    name: 'breakAfter 90, minSession 45, DST start: the dependency cannot keep its own late blocks',
+    timeZone: 'Europe/Berlin',
+    start: '2026-03-28T00:00:00Z',
+    end: '2026-03-30T22:00:00Z',
+    weekdays: [1, 2, 3, 4, 5],
+    window: ['09:00', '17:00'],
+    minSessionCapMin: 45,
+    breakAfterMin: 90,
+    tasks: [
+      { durationUnits: 20, maxUnits: 12, priority: 1 },
+      { durationUnits: 23, maxUnits: 12, priority: 1 },
+      { durationUnits: 22, maxUnits: 12, priority: 1 },
+    ],
+    edge: [1, 0],
+  },
 ];
 
 describe('FU-69 added dependency: the predecessor leaves room for its dependent', () => {
   for (const spec of DEPENDENCY_CASES) {
-    it(`balanced replan is feasible with the unaffected task frozen: ${spec.name}`, () => {
+    const policy = spec.policy ?? 'balanced';
+    it(`${policy} replan is feasible with the unaffected task frozen: ${spec.name}`, () => {
       const baseInput = propertyInput(spec, false);
-      const base = only(baseInput, 'balanced');
+      const base = only(baseInput, policy);
       expectValid(baseInput, base);
 
       const mutated = propertyInput(spec, true);
-      expectValid(mutated, only(mutated, 'balanced'));
+      expectValid(mutated, only(mutated, policy));
 
       const replanInput: ScheduleInput = {
         ...mutated,
         existingBlocks: base.blocks,
       };
-      const replan = only(replanInput, 'balanced');
+      const replan = only(replanInput, policy);
       expectValid(replanInput, replan);
       const [dependent, dependency] = spec.edge;
       expectDependencyOrder(replan.blocks, `T${dependent}`, `T${dependency}`);
@@ -716,10 +789,62 @@ describe('FU-69 added dependency: the predecessor leaves room for its dependent'
       expect(replan.metrics.changedBlocks).toBe(
         symmetricDifference(base.blocks, replan.blocks),
       );
-      // Both edge endpoints are affected (one existing block each).
-      expect(replan.metrics.changedBlocks).toBeLessThanOrEqual(2 * 2 + 2);
+      // Both edge endpoints are affected: 2 x their existing blocks + 2.
+      const affectedExisting = base.blocks.filter(
+        (block) => block.taskId !== `T${frozen}`,
+      ).length;
+      expect(replan.metrics.changedBlocks).toBeLessThanOrEqual(
+        2 * affectedExisting + 2,
+      );
     });
   }
+});
+
+describe('FU-69 grown task: counterexample hit again on the pre-fix code', () => {
+  it('seed -1360500784 path 130:7:4:5:5:12:12:17:17:17:18:19 (front_loaded, T1 grows by 60)', () => {
+    // Monday 09:00-17:00 only: T0 75 | T1 120 | T2 110, free tail 175. T1
+    // grows to 180 (one chunk by the equal-chunk rule); gaps are 120 and 175.
+    const spec: PropertyCase = {
+      name: 'grow',
+      timeZone: 'Europe/Berlin',
+      start: '2026-10-25T00:00:00Z',
+      end: '2026-10-27T00:00:00Z',
+      weekdays: [1, 2, 3, 4, 5],
+      window: ['09:00', '17:00'],
+      tasks: [
+        { durationUnits: 15, maxUnits: 12, priority: 1 },
+        { durationUnits: 24, maxUnits: 36, priority: 1 },
+        { durationUnits: 22, maxUnits: 12, priority: 1 },
+      ],
+      edge: [0, 0],
+    };
+    const baseInput = propertyInput(spec, false);
+    const base = only(baseInput, 'front_loaded');
+    expectValid(baseInput, base);
+
+    const mutated: ScheduleInput = {
+      ...baseInput,
+      tasks: baseInput.tasks.map((entry) =>
+        entry.id === 'T1'
+          ? { ...entry, estimate: { p50Min: 180, p90Min: 180 } }
+          : entry,
+      ),
+    };
+    expectValid(mutated, only(mutated, 'front_loaded'));
+
+    const replanInput: ScheduleInput = {
+      ...mutated,
+      existingBlocks: base.blocks,
+    };
+    const replan = only(replanInput, 'front_loaded');
+    expectValid(replanInput, replan);
+    // Every existing block stays; T1 gains one 60-minute session in the tail.
+    for (const block of base.blocks) {
+      expect(replan.blocks).toContainEqual(block);
+    }
+    expect(minutesOf(taskBlocks(replan.blocks, 'T1'))).toBe(180);
+    expect(replan.metrics.changedBlocks).toBe(1);
+  });
 });
 
 /**
@@ -870,6 +995,328 @@ describe('FU-69 successor bound (UTC, no DST)', () => {
       expect(candidate.blocks).toEqual([
         { taskId: 'P', start: utc('09:00'), end: utc('10:00') },
       ]);
+    }
+  });
+});
+
+/**
+ * FU-69R-1: the gap search stopped at the first start of a gap as soon as any
+ * session length passed there, so it never tried the start that leaves the H6
+ * break after the preceding focus run. Here 10:00 (right after frozen F) admits
+ * at most 60 minutes and no complete split follows from it; 10:15 admits the
+ * 75-minute session that the 45-minute tail completes.
+ */
+function breakOffsetInput(existingBlocks?: Block[]): ScheduleInput {
+  const start = '2026-11-09T09:00:00Z';
+  return {
+    now: start,
+    timeZone: 'UTC',
+    horizon: { start, end: '2026-11-09T12:45:00Z' },
+    tasks: [
+      {
+        id: 'F',
+        estimate: { p50Min: 60, p90Min: 60 },
+        splittable: true,
+        minSessionMin: 15,
+        maxSessionMin: 60,
+        priority: 2,
+        dependsOn: [],
+      },
+      {
+        id: 'A',
+        estimate: { p50Min: 120, p90Min: 120 },
+        splittable: true,
+        minSessionMin: 45,
+        maxSessionMin: 120,
+        priority: 1,
+        dependsOn: [],
+      },
+    ],
+    availability: [
+      { weekday: 1, startLocal: '09:00', endLocal: '12:45', kind: 'work' },
+    ],
+    exceptions: [],
+    commitments: [{ start: utc('11:30'), end: utc('12:00') }],
+    lockedBlocks: [],
+    ...(existingBlocks === undefined ? {} : { existingBlocks }),
+    prefs: {
+      maxDailyFocusMin: 480,
+      breakAfterMin: 120,
+      breakMin: 15,
+      riskLevel: 'p50',
+      dayStartLocal: '00:00',
+      dayEndLocal: '24:00',
+    },
+    seed: 0,
+  };
+}
+
+describe('FU-69R-1 gap search explores the H6 break-offset start', () => {
+  const frozenF: Block = { taskId: 'F', start: utc('09:00'), end: utc('10:00') };
+  // A was 60 minutes at 10:15-11:15 and grew to 120.
+  const existing: Block[] = [
+    frozenF,
+    { taskId: 'A', start: utc('10:15'), end: utc('11:15') },
+  ];
+  const witness: Block[] = [
+    frozenF,
+    { taskId: 'A', start: utc('10:15'), end: utc('11:30') },
+    { taskId: 'A', start: utc('12:00'), end: utc('12:45') },
+  ];
+
+  it('the frozen-preserving witness is valid for the independent validator', () => {
+    expect(
+      validate(breakOffsetInput(existing), witness, { riskLevel: 'p50' }),
+    ).toEqual([]);
+  });
+
+  it('every policy finds the split that starts after the break (reviewer case)', () => {
+    for (const policy of POLICIES) {
+      const fresh = breakOffsetInput();
+      expectValid(fresh, only(fresh, policy));
+
+      const replanInput = breakOffsetInput(existing);
+      const replan = only(replanInput, policy);
+      expectValid(replanInput, replan);
+      expectSessionsInBounds(replanInput, replan.blocks);
+      expect(taskBlocks(replan.blocks, 'F')).toEqual([frozenF]);
+      expect(minutesOf(taskBlocks(replan.blocks, 'A'))).toBe(120);
+      expect(replan.blocks).toEqual(witness);
+      // 1 removed + 2 added <= 2 x (A's one existing block) + 2.
+      expect(replan.metrics.changedBlocks).toBe(3);
+    }
+  });
+});
+
+/**
+ * The other starts H6 makes distinct, and the pruning that keeps the bounded
+ * search from running out of budget. One UTC day from 09:00; A is the only
+ * task that has to be placed, every F block is frozen.
+ */
+interface GapCase {
+  end: string;
+  frozen: Array<[id: string, start: string, end: string]>;
+  commitments?: Array<[start: string, end: string]>;
+  a: { requiredMin: number; minSessionMin: number; maxSessionMin: number };
+  breakAfterMin: number;
+  breakMin: number;
+}
+
+function gapInput(spec: GapCase): { input: ScheduleInput; frozen: Block[] } {
+  const start = utc('09:00');
+  const frozen: Block[] = spec.frozen.map(([taskId, from, to]) => ({
+    taskId,
+    start: utc(from),
+    end: utc(to),
+  }));
+  const tasks: Task[] = frozen.map((block) => {
+    const durationMin = minutesOf([block]);
+    return task({
+      id: block.taskId,
+      estimate: { p50Min: durationMin, p90Min: durationMin },
+      minSessionMin: 15,
+      maxSessionMin: Math.max(60, durationMin),
+      priority: 2,
+    });
+  });
+  tasks.push(
+    task({
+      id: 'A',
+      estimate: { p50Min: spec.a.requiredMin, p90Min: spec.a.requiredMin },
+      minSessionMin: spec.a.minSessionMin,
+      maxSessionMin: spec.a.maxSessionMin,
+    }),
+  );
+  const input: ScheduleInput = {
+    now: start,
+    timeZone: 'UTC',
+    horizon: { start, end: utc(spec.end) },
+    tasks,
+    availability: [
+      { weekday: 1, startLocal: '09:00', endLocal: spec.end, kind: 'work' },
+    ],
+    exceptions: [],
+    commitments: (spec.commitments ?? []).map(([from, to]) => ({
+      start: utc(from),
+      end: utc(to),
+    })),
+    lockedBlocks: [],
+    existingBlocks: frozen,
+    prefs: {
+      maxDailyFocusMin: 480,
+      breakAfterMin: spec.breakAfterMin,
+      breakMin: spec.breakMin,
+      riskLevel: 'p50',
+      dayStartLocal: '00:00',
+      dayEndLocal: '24:00',
+    },
+    seed: 0,
+  };
+  return { input, frozen };
+}
+
+function expectGapPlan(
+  spec: GapCase,
+  witnessA: Array<[start: string, end: string]>,
+  expectedA?: Array<[start: string, end: string]>,
+): void {
+  const { input, frozen } = gapInput(spec);
+  const sessions = (list: Array<[string, string]>): Block[] =>
+    list.map(([from, to]) => ({ taskId: 'A', start: utc(from), end: utc(to) }));
+  // A frozen-preserving plan exists (independent validator).
+  expect(
+    validate(input, [...frozen, ...sessions(witnessA)], { riskLevel: 'p50' }),
+  ).toEqual([]);
+  for (const policy of POLICIES) {
+    const candidate = only(input, policy);
+    expectValid(input, candidate);
+    expectSessionsInBounds(input, candidate.blocks);
+    for (const block of frozen) {
+      expect(taskBlocks(candidate.blocks, block.taskId)).toEqual([block]);
+    }
+    expect(minutesOf(taskBlocks(candidate.blocks, 'A'))).toBe(
+      spec.a.requiredMin,
+    );
+    if (expectedA !== undefined) {
+      expect(taskBlocks(candidate.blocks, 'A')).toEqual(sessions(expectedA));
+    }
+  }
+}
+
+describe('FU-69R-1 gap search: every start H6 makes distinct', () => {
+  it('starts late enough to run into the following frozen block', () => {
+    // breakAfter 90: a session that reaches F (10:10-10:35) joins it, so it may
+    // start no earlier than 10:35 - 90 min = 09:05. 09:00 admits nothing.
+    expectGapPlan(
+      {
+        end: '12:15',
+        frozen: [['F', '10:10', '10:35']],
+        a: { requiredMin: 120, minSessionMin: 60, maxSessionMin: 125 },
+        breakAfterMin: 90,
+        breakMin: 30,
+      },
+      [
+        ['09:10', '10:10'],
+        ['11:05', '12:05'],
+      ],
+      [
+        ['09:05', '10:05'],
+        ['11:05', '12:05'],
+      ],
+    );
+  });
+
+  it('anchors the second session to the next frozen run after a full break', () => {
+    // After 09:00-10:30 the break ends at 11:00, but a 30-minute session from
+    // 11:00 would join F (11:40-12:35) into 95 minutes; 11:05 is the first
+    // start that may join it.
+    expectGapPlan(
+      {
+        end: '13:50',
+        frozen: [['F', '11:40', '12:35']],
+        commitments: [['12:35', '13:30']],
+        a: { requiredMin: 120, minSessionMin: 30, maxSessionMin: 95 },
+        breakAfterMin: 90,
+        breakMin: 30,
+      },
+      [
+        ['09:05', '10:35'],
+        ['11:05', '11:35'],
+      ],
+      [
+        ['09:00', '10:30'],
+        ['11:05', '11:35'],
+      ],
+    );
+  });
+
+  it('retries in time order when the policy order cannot leave a break after an earlier gap', () => {
+    // focus_blocked fills the longest gap (12:40-15:10) first and starts at
+    // 12:40, which leaves no break after any session in 10:45-12:20. Only a
+    // chronological search knows that session when it picks the next start.
+    expectGapPlan(
+      {
+        end: '16:35',
+        frozen: [
+          ['F0', '09:05', '10:45'],
+          ['F1', '15:10', '15:25'],
+        ],
+        commitments: [['12:20', '12:40']],
+        a: { requiredMin: 210, minSessionMin: 60, maxSessionMin: 90 },
+        breakAfterMin: 120,
+        breakMin: 30,
+      },
+      [
+        ['11:15', '12:15'],
+        ['13:10', '14:40'],
+        ['15:35', '16:35'],
+      ],
+    );
+  });
+
+  it('prunes with the break rule instead of exhausting the search budget', () => {
+    // 390 minutes into 160 + 280 free minutes with breakAfter 240: the second
+    // gap can hold at most 270 focus minutes, so the first must give 120+.
+    // Without that bound the longest-first search spent its whole budget below
+    // a first session that can never be completed.
+    expectGapPlan(
+      {
+        end: '17:00',
+        frozen: [],
+        commitments: [['11:40', '12:20']],
+        a: { requiredMin: 390, minSessionMin: 60, maxSessionMin: 115 },
+        breakAfterMin: 240,
+        breakMin: 10,
+      },
+      [
+        ['09:00', '10:00'],
+        ['10:10', '11:30'],
+        ['12:30', '13:50'],
+        ['14:00', '15:00'],
+        ['15:10', '17:00'],
+      ],
+    );
+  });
+
+  it('bounds a gap next to a long frozen stretch by what H6 leaves of it', () => {
+    // breakAfter 240 beside a 120-minute frozen block: the gap after it holds
+    // 205 focus minutes, not its 215 free ones, whether the first session
+    // joins F (120 more, then a break) or starts a break later. With the
+    // looser bound the search spent its budget on first sessions that left
+    // the second gap 210 minutes to cover.
+    expectGapPlan(
+      {
+        end: '17:05',
+        frozen: [['F', '11:30', '13:30']],
+        a: { requiredMin: 320, minSessionMin: 60, maxSessionMin: 110 },
+        breakAfterMin: 240,
+        breakMin: 10,
+      },
+      [
+        ['09:10', '10:20'],
+        ['10:20', '11:20'],
+        ['13:40', '15:10'],
+        ['15:15', '16:55'],
+      ],
+    );
+  });
+
+  it('still reports the shortfall when no start class admits a complete split (negative)', () => {
+    // Same day as the reviewer case but A needs 135 minutes: 75 + 45 is all
+    // the gaps hold with the break after F, so the frozen plan stays short.
+    const { input, frozen } = gapInput({
+      end: '12:45',
+      frozen: [['F', '09:00', '10:00']],
+      commitments: [['11:30', '12:00']],
+      a: { requiredMin: 135, minSessionMin: 45, maxSessionMin: 135 },
+      breakAfterMin: 120,
+      breakMin: 15,
+    });
+    for (const policy of POLICIES) {
+      const candidate = only(input, policy);
+      expect(candidate.feasible).toBe(false);
+      expect(candidate.deficitMin).toBe(135);
+      expect(candidate.blocks).toEqual(frozen);
     }
   });
 });
