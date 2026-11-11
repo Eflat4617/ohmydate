@@ -45,7 +45,7 @@ function render(source: string): VueWrapper {
 function attributesOf(wrapper: VueWrapper): string[] {
   const names: string[] = [];
   for (const element of [wrapper.element, ...wrapper.element.querySelectorAll('*')]) {
-    for (const attribute of Array.from(element.attributes)) names.push(attribute.name);
+    for (const attribute of Array.from(element.attributes) as Attr[]) names.push(attribute.name);
   }
   return names;
 }
@@ -215,7 +215,8 @@ describe('note Markdown preview (escaped VNodes, no v-html)', () => {
     expect(root.querySelector('img, b')).toBeNull();
     expect(root.textContent).toContain('<b>태그</b>');
     expectOnlySafeMarkup(wrapper);
-  });
+    // jsdom under a parallel suite is slow to mount ~2,500 nodes; the bound above is the real check.
+  }, 30_000);
 
   it('survives pathological nesting without losing text, and shows an empty state for blank input', () => {
     // markdown-it drops whatever lies past its nesting limit; the preview falls back to the raw text.

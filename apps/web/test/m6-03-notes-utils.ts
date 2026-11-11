@@ -34,7 +34,7 @@ export function gate(): { promise: Promise<void>; release: () => void } {
   return { promise, release };
 }
 
-export async function setValue(field: DOMWrapper<Element>, value: string): Promise<void> {
+export async function setValue(field: Pick<DOMWrapper<Element>, 'setValue'>, value: string): Promise<void> {
   await field.setValue(value);
   await settle();
 }
