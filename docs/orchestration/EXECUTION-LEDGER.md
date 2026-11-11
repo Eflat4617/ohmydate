@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | 2f14c0f (M4-UI), d0e2c79 (FU-52), 9c62fb6 (M4-02), ba2911c (M4-01), ac17b02 (M23-UI), 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | c9166b2 (FU-55), 2f14c0f (M4-UI), d0e2c79 (FU-52), 9c62fb6 (M4-02), ba2911c (M4-01), ac17b02 (M23-UI), 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -131,6 +131,7 @@
 | M1-01 | ctx_a0837db2027a | 4630821 | **APPROVE** | 잔여 MEDIUM 2(FU-01,02) | **Accepted, merged 521e11a**, G3 pnpm run ci 0 |
 | M1-02 | ctx_367875c2a89f | b235fc2 | **APPROVE** | — | **Accepted, merged 974f2a3**, G3: frozen install 0, ci 0, openapi 재생성 diff 0 |
 | M1-06 | ctx_97b005396cc8 (opus-fallback) | 959ad54 | REQUEST_CHANGES | R1 전부 해결; MEDIUM: 수정 커밋이 traceId 등 테스트 삭제(AGENTS.md 위반) | **fix 2/2 FINAL** |
+| FU-55 | ctx_d30f0600f6b3 (Sol medium; 구현 Opus) | d8a86ba | **APPROVE** (지적 없음) | — | **Accepted, merged c9166b2**; 충돌(e2e/helpers/planner.ts 양쪽 헬퍼 유지) 해결, ci 1497 pass + web 168, **E2E 21/21** |
 | M4-UI (+M4-03,UIc,UId) | ctx_7555c320974c (Sol medium) | 5384216 | **APPROVE** — 실제 Chromium 자동 리셋·교차 탭 로그아웃 확인 | FU-56 | **Accepted, merged 2f14c0f**; ci 1497 pass/29 skip + web 166; E2E 12/12(병합 후 재실행; E2E-3은 시각 의존이라 FU-55 계속) |
 | FU-52 (+52c) | ctx_e76ac2289629 (opus-fallback) | 6cf7806 | **APPROVE** — 한국어 동시 20건 최악 지출 $0.0304 ≤ $0.035, 키 표식 안전 | FU-54 | **Accepted, merged d0e2c79**; 충돌(마이그레이션 픽스처) 해결, ci 1496 pass/29 skip + web 112 |
 | M4-02 | ctx_0ecb8620f811 (Sol medium) | f154993 | **APPROVE** | FU-53; 부속 범위: e2e/global-setup.ts·build-smoke.mjs(합성 푸시 키), schema.d.ts | **Accepted, merged 9c62fb6**; ci 1424 pass/29 skip + web 112; E2E 8/8 |
