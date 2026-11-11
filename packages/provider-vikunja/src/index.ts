@@ -4,6 +4,7 @@ export {
   VIKUNJA_ERROR_CODES,
   VikunjaClient,
   mapVikunjaError,
+  runWithAbortSignal,
   toValidationIssues,
   type CreateTokenInput,
   type CreatedToken,
