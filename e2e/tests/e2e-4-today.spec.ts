@@ -301,11 +301,21 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
 
       const rescheduled = page.locator('.today-card', { hasText: label });
       await expect(rescheduled).toBeVisible({ timeout: 20_000 });
-      const rescheduledBlockId =
-        (await rescheduled.getAttribute('data-block-id')) ?? shrunkBlockId;
       await expect
-        .poll(async () => (await scheduleBlock(page, rescheduledBlockId, rangeFrom, rangeTo))?.startAt)
-        .not.toBe(beforeReschedule.startAt);
+        .poll(async () => await rescheduled.getAttribute('data-block-id'), {
+          timeout: 20_000,
+        })
+        .not.toBe(shrunkBlockId);
+      const rescheduledBlockId = await rescheduled.getAttribute('data-block-id');
+      if (rescheduledBlockId === null) throw new Error(`card ${label} has no refreshed block id`);
+      await expect
+        .poll(async () => (await scheduleBlock(page, rescheduledBlockId, rangeFrom, rangeTo)) !== undefined, {
+          timeout: 20_000,
+        })
+        .toBe(true);
+      const afterReschedule = await scheduleBlock(page, rescheduledBlockId, rangeFrom, rangeTo);
+      expect(afterReschedule).toBeDefined();
+      expect(afterReschedule?.startAt).not.toBe(beforeReschedule.startAt);
     }
     await expect(page.getByRole('alert')).toHaveCount(0);
     await context.close();

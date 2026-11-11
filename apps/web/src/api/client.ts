@@ -171,8 +171,10 @@ export class PlannerClient {
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
   }
 
-  async getMe(): Promise<User> {
-    const { data, error, response } = await this.client.GET('/me');
+  async getMe(signal?: AbortSignal): Promise<User> {
+    const { data, error, response } = await this.client.GET('/me', {
+      ...(signal === undefined ? {} : { signal }),
+    });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty user response');
     this.remember('user', data.version, response.headers.get('ETag'));
@@ -183,6 +185,7 @@ export class PlannerClient {
     patch: UserSettingsPatch,
     idempotencyKey: string,
     expectedVersion: number,
+    signal?: AbortSignal,
   ): Promise<User> {
     const { data, error, response } = await this.client.PATCH('/me/settings', {
       params: {
@@ -192,6 +195,7 @@ export class PlannerClient {
         },
       },
       body: patch,
+      ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty user response');
@@ -784,9 +788,10 @@ export class PlannerClient {
     return this.versions.get(`notification:${notificationId}`);
   }
 
-  async getToday(date: string): Promise<Today> {
+  async getToday(date: string, signal?: AbortSignal): Promise<Today> {
     const { data, error, response } = await this.client.GET('/today', {
       params: { query: { date } },
+      ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty today response');
@@ -798,12 +803,14 @@ export class PlannerClient {
     input: TodayAcceptRequest,
     idempotencyKey: string,
     expectedVersion: number,
+    signal?: AbortSignal,
   ): Promise<Today> {
     const { data, error, response } = await this.client.POST('/today:accept', {
       params: {
         header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
       },
       body: input,
+      ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty today response');
@@ -815,12 +822,14 @@ export class PlannerClient {
     input: TodayShrinkRequest,
     idempotencyKey: string,
     expectedVersion: number,
+    signal?: AbortSignal,
   ): Promise<TodayProposal> {
     const { data, error, response } = await this.client.POST('/today:shrink', {
       params: {
         header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
       },
       body: input,
+      ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error);
     if (data === undefined) {
@@ -833,12 +842,14 @@ export class PlannerClient {
     input: TodayRescheduleRequest,
     idempotencyKey: string,
     expectedVersion: number,
+    signal?: AbortSignal,
   ): Promise<TodayProposal> {
     const { data, error, response } = await this.client.POST('/today:reschedule', {
       params: {
         header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
       },
       body: input,
+      ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error);
     if (data === undefined) {
@@ -851,12 +862,14 @@ export class PlannerClient {
     proposalId: string,
     idempotencyKey: string,
     ifMatch: string,
+    signal?: AbortSignal,
   ): Promise<PlanVersion> {
     const { data, error, response } = await this.client.POST('/today/proposals/{id}:approve', {
       params: {
         path: { id: proposalId },
         header: { 'If-Match': ifMatch, 'Idempotency-Key': idempotencyKey },
       },
+      ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error);
     if (data === undefined) {
@@ -867,11 +880,12 @@ export class PlannerClient {
 
   async getSession(
     sessionId: string,
-    options: { fresh?: boolean } = {},
+    options: { fresh?: boolean; signal?: AbortSignal } = {},
   ): Promise<WorkSession> {
     const { data, error, response } = await this.client.GET('/sessions/{id}', {
       params: { path: { id: sessionId } },
       ...(options.fresh === true ? { cache: 'no-store' as RequestCache } : {}),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session response');
@@ -880,7 +894,12 @@ export class PlannerClient {
   }
 
   async listSessions(
-    options: { state?: WorkSession['state']; cursor?: string; limit?: number } = {},
+    options: {
+      state?: WorkSession['state'];
+      cursor?: string;
+      limit?: number;
+      signal?: AbortSignal;
+    } = {},
   ): Promise<Page<WorkSession>> {
     const query: { state?: WorkSession['state']; cursor?: string; limit?: number } = {};
     if (options.state !== undefined) query.state = options.state;
@@ -888,6 +907,7 @@ export class PlannerClient {
     if (options.limit !== undefined) query.limit = options.limit;
     const { data, error, response } = await this.client.GET('/sessions', {
       params: { query },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session page');
@@ -902,6 +922,7 @@ export class PlannerClient {
     to: string;
     cursor?: string;
     limit?: number;
+    signal?: AbortSignal;
   }): Promise<Page<ScheduleBlock>> {
     const query: { from: string; to: string; cursor?: string; limit?: number } = {
       from: options.from,
@@ -911,6 +932,7 @@ export class PlannerClient {
     if (options.limit !== undefined) query.limit = options.limit;
     const { data, error, response } = await this.client.GET('/schedule-blocks', {
       params: { query },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) {
@@ -919,10 +941,15 @@ export class PlannerClient {
     return data;
   }
 
-  async createSession(input: SessionCreate, idempotencyKey: string): Promise<WorkSession> {
+  async createSession(
+    input: SessionCreate,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<WorkSession> {
     const { data, error, response } = await this.client.POST('/sessions', {
       params: { header: { 'Idempotency-Key': idempotencyKey } },
       body: input,
+      ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session response');
@@ -935,6 +962,7 @@ export class PlannerClient {
     clientAt: string,
     idempotencyKey: string,
     expectedVersion: number,
+    signal?: AbortSignal,
   ): Promise<WorkSession> {
     const { data, error, response } = await this.client.POST('/sessions/{id}:pause', {
       params: {
@@ -945,6 +973,7 @@ export class PlannerClient {
         },
       },
       body: { clientAt },
+      ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session response');
@@ -957,6 +986,7 @@ export class PlannerClient {
     clientAt: string,
     idempotencyKey: string,
     expectedVersion: number,
+    signal?: AbortSignal,
   ): Promise<WorkSession> {
     const { data, error, response } = await this.client.POST('/sessions/{id}:resume', {
       params: {
@@ -967,6 +997,7 @@ export class PlannerClient {
         },
       },
       body: { clientAt },
+      ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session response');
@@ -979,6 +1010,7 @@ export class PlannerClient {
     clientAt: string,
     idempotencyKey: string,
     expectedVersion: number,
+    signal?: AbortSignal,
   ): Promise<WorkSession> {
     const { data, error, response } = await this.client.POST('/sessions/{id}:complete', {
       params: {
@@ -989,6 +1021,7 @@ export class PlannerClient {
         },
       },
       body: { clientAt },
+      ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session response');

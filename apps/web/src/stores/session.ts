@@ -8,6 +8,7 @@ import {
 } from '../session/owner';
 import {
   isOwnerBindingCurrent,
+  onActiveOwnerChange,
   setActiveOwner,
   type OwnerBinding,
 } from '../session/ownerEpoch';
@@ -49,6 +50,14 @@ export const useSessionStore = defineStore('session', () => {
   const syncState = ref<SyncState>('idle');
   const syncMessage = ref<string | null>(null);
 
+  onActiveOwnerChange((nextOwnerId) => {
+    ownerId.value = nextOwnerId;
+    sessions.value = readStorage(nextOwnerId);
+    pendingCount.value = 0;
+    syncState.value = 'idle';
+    syncMessage.value = null;
+  });
+
   const active = computed<WorkSession | null>(() => {
     const all = Object.values(sessions.value);
     return (
@@ -65,6 +74,11 @@ export const useSessionStore = defineStore('session', () => {
   function remember(session: WorkSession, binding?: OwnerBinding): void {
     if (binding !== undefined && !isOwnerBindingCurrent(binding)) {
       const target = binding.ownerId;
+      if (target === ownerId.value) {
+        sessions.value = { ...sessions.value, [session.id]: session };
+        writeStorage(ownerId.value, sessions.value);
+        return;
+      }
       writeStorage(target, { ...readStorage(target), [session.id]: session });
       return;
     }
@@ -79,6 +93,13 @@ export const useSessionStore = defineStore('session', () => {
   function forget(sessionId: string, binding?: OwnerBinding): void {
     if (binding !== undefined && !isOwnerBindingCurrent(binding)) {
       const target = binding.ownerId;
+      if (target === ownerId.value) {
+        const next = { ...sessions.value };
+        delete next[sessionId];
+        sessions.value = next;
+        writeStorage(ownerId.value, next);
+        return;
+      }
       const stored = { ...readStorage(target) };
       delete stored[sessionId];
       writeStorage(target, stored);

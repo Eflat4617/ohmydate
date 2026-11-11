@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import { readActiveOwnerId, writeActiveOwnerId } from './owner';
+import { OWNER_STORAGE_KEY, readActiveOwnerId, writeActiveOwnerId } from './owner';
 import { sessionJournal } from './journal';
 
 export interface OwnerBinding {
@@ -13,6 +13,14 @@ const epoch = ref(0);
 let controller = new AbortController();
 
 export const ownerState = { ownerId, epoch };
+
+type OwnerChangeListener = (nextOwnerId: string | null) => void;
+const ownerChangeListeners = new Set<OwnerChangeListener>();
+
+export function onActiveOwnerChange(listener: OwnerChangeListener): () => void {
+  ownerChangeListeners.add(listener);
+  return () => ownerChangeListeners.delete(listener);
+}
 
 export function currentOwnerId(): string | null {
   return ownerId.value;
@@ -54,7 +62,16 @@ export function setActiveOwner(nextOwnerId: string | null): number {
     invalidateOwnerEpoch();
     ownerId.value = nextOwnerId;
     writeActiveOwnerId(nextOwnerId);
+    for (const listener of ownerChangeListeners) listener(nextOwnerId);
   }
   sessionJournal.setOwner(nextOwnerId);
   return epoch.value;
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key !== OWNER_STORAGE_KEY) return;
+    const next = event.newValue !== null && event.newValue.length > 0 ? event.newValue : null;
+    if (next !== ownerId.value) setActiveOwner(next);
+  });
 }

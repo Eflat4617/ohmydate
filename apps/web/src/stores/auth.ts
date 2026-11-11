@@ -2,7 +2,12 @@ import { ref } from 'vue';
 import { defineStore } from 'pinia';
 import { ApiError, plannerClient, type User } from '../api';
 import { uuidV7Key } from '../api/idempotency';
-import { invalidateOwnerEpoch, ownerState } from '../session/ownerEpoch';
+import {
+  captureOwnerBinding,
+  invalidateOwnerEpoch,
+  isOwnerBindingCurrent,
+  ownerState,
+} from '../session/ownerEpoch';
 import { useSessionStore } from './session';
 
 export const useAuthStore = defineStore('auth', () => {
@@ -14,8 +19,10 @@ export const useAuthStore = defineStore('auth', () => {
   const error = ref<string | null>(null);
 
   async function loadCurrent(): Promise<User | null> {
+    const binding = captureOwnerBinding();
     try {
-      const current = await plannerClient.getMe();
+      const current = await plannerClient.getMe(binding.signal);
+      if (!isOwnerBindingCurrent(binding)) return null;
       user.value = current;
       if (current.id !== sessions.ownerId) sessions.setOwner(current.id);
       return current;
@@ -54,21 +61,29 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function setLlmConsent(granted: boolean): Promise<void> {
+    const binding = captureOwnerBinding();
     if (user.value === null) return;
-    user.value = await plannerClient.updateMySettings(
+    const updated = await plannerClient.updateMySettings(
       { llm: { consent: { granted } } },
       uuidV7Key(),
       user.value.version,
+      binding.signal,
     );
+    if (!isOwnerBindingCurrent(binding)) return;
+    user.value = updated;
   }
 
   async function setLlmBudget(dailyUsd: number, monthlyUsd: number): Promise<void> {
+    const binding = captureOwnerBinding();
     if (user.value === null) return;
-    user.value = await plannerClient.updateMySettings(
+    const updated = await plannerClient.updateMySettings(
       { llm: { budget: { dailyUsd, monthlyUsd } } },
       uuidV7Key(),
       user.value.version,
+      binding.signal,
     );
+    if (!isOwnerBindingCurrent(binding)) return;
+    user.value = updated;
   }
 
   return {

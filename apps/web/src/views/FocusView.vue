@@ -17,13 +17,21 @@ import { focusClientId } from '../session/clientId';
 import {
   enqueueFocusEvent,
   flushFocusJournal,
+  retryQuarantinedFocusEvents,
   sendFocusEvent,
 } from '../session/focusQueue';
 import { sessionJournal, type FocusEventKind } from '../session/journal';
 import {
   captureOwnerBinding,
   isOwnerBindingCurrent,
+  type OwnerBinding,
 } from '../session/ownerEpoch';
+import {
+  clearQuarantine,
+  listQuarantine,
+  quarantineRevision,
+} from '../session/quarantine';
+
 import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 import { useToastStore } from '../stores/toast';
@@ -84,6 +92,26 @@ const canComplete = computed(
 const showReview = computed(() => session.value?.state === 'completed');
 const syncMessage = computed(() => sessions.syncMessage);
 const syncTone = computed(() => sessions.syncState);
+const quarantinedCount = computed(() => {
+  void quarantineRevision.value;
+  return listQuarantine(sessions.ownerId).length;
+});
+
+async function retryQuarantine(): Promise<void> {
+  const binding = captureOwnerBinding();
+  await retryQuarantinedFocusEvents({
+    store: sessions,
+    online: offline.online,
+    binding,
+  });
+  if (offline.online && isOwnerBindingCurrent(binding)) {
+    await flushFocusJournal({ store: sessions, online: true });
+  }
+}
+
+function dismissQuarantine(): void {
+  clearQuarantine(sessions.ownerId);
+}
 
 function samePayload<T>(left: T, right: T): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
@@ -102,16 +130,59 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-function scheduleOperation<T>(task: () => Promise<T>): Promise<T> {
+function isAbortError(cause: unknown): boolean {
+  return cause instanceof Error && cause.name === 'AbortError';
+}
+
+function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+  if (signal.aborted) return Promise.resolve(undefined);
+  return new Promise<T | undefined>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(undefined);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      },
+      (cause: unknown) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(cause);
+      },
+    );
+  });
+}
+
+function scheduleOperation<T>(task: () => Promise<T>): Promise<T | undefined> {
+  const binding: OwnerBinding = captureOwnerBinding();
   operationsPending.value += 1;
-  const run = operationChain.then(task, task);
+  const start = () => {
+    if (binding.signal.aborted) return Promise.resolve(undefined);
+    return abortable(task(), binding.signal);
+  };
+  const run = operationChain.then(start, start);
   operationChain = run.then(
     () => undefined,
     () => undefined,
   );
-  return run.finally(() => {
-    operationsPending.value = Math.max(0, operationsPending.value - 1);
-  });
+  return run
+    .catch((cause: unknown) => {
+      if (isAbortError(cause)) return undefined;
+      throw cause;
+    })
+    .finally(() => {
+      operationsPending.value = Math.max(0, operationsPending.value - 1);
+    });
 }
 
 watch(
@@ -127,7 +198,7 @@ watch(
 function syncPending(): Promise<void> {
   return scheduleOperation(async () => {
     await flushFocusJournal({ store: sessions, online: offline.online });
-  });
+  }).then(() => undefined);
 }
 
 async function startFromQuery(): Promise<void> {
@@ -156,7 +227,11 @@ async function startFromQuery(): Promise<void> {
         clientId: focusClientId(),
       };
     action = actions.begin(scope, input, samePayload);
-    const started = await plannerClient.createSession(action.payload, action.key);
+    const started = await plannerClient.createSession(
+      action.payload,
+      action.key,
+      binding.signal,
+    );
     actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) {
       sessions.remember(started, binding);
@@ -186,7 +261,10 @@ async function restoreSession(): Promise<void> {
   if (local !== null) {
     if (!offline.online || sessions.pendingCount > 0) return;
     try {
-      const fresh = await plannerClient.getSession(local.id, { fresh: true });
+      const fresh = await plannerClient.getSession(local.id, {
+        fresh: true,
+        signal: binding.signal,
+      });
       if (!isOwnerBindingCurrent(binding)) {
         if (fresh.version >= local.version) sessions.remember(fresh, binding);
         return;
@@ -214,7 +292,10 @@ async function restoreSession(): Promise<void> {
   }
   loadState.value = 'loading';
   try {
-    const fresh = await plannerClient.getSession(sessionId.value, { fresh: true });
+    const fresh = await plannerClient.getSession(sessionId.value, {
+      fresh: true,
+      signal: binding.signal,
+    });
     if (!isOwnerBindingCurrent(binding)) {
       sessions.remember(fresh, binding);
       return;
@@ -267,13 +348,17 @@ async function perform(kind: FocusEventKind): Promise<void> {
     const key = uuidV7Key();
     const clientAt = new Date().toISOString();
     try {
-      const updated = await sendFocusEvent(plannerClient, {
-        sessionId: current.id,
-        kind,
-        clientAt,
-        idempotencyKey: key,
-        expectedVersion: current.version,
-      });
+      const updated = await sendFocusEvent(
+        plannerClient,
+        {
+          sessionId: current.id,
+          kind,
+          clientAt,
+          idempotencyKey: key,
+          expectedVersion: current.version,
+        },
+        binding.signal,
+      );
       sessions.update(updated, binding);
     } catch (cause) {
       if (cause instanceof ApiError) {
@@ -410,6 +495,17 @@ watch(
 
     <p v-if="!offline.online" class="chip chip--offline" role="status">Offline · timer keeps running locally</p>
     <p v-if="error" class="error-text" role="alert">{{ error }}</p>
+
+    <section v-if="quarantinedCount > 0" class="error-panel quarantine-notice" role="status">
+      <p class="error-text">
+        {{ quarantinedCount }} saved focus event{{ quarantinedCount === 1 ? '' : 's' }} could not
+        be replayed and {{ quarantinedCount === 1 ? 'was' : 'were' }} set aside on this device.
+      </p>
+      <div class="dialog-actions">
+        <button type="button" @click="retryQuarantine">Retry upload</button>
+        <button type="button" @click="dismissQuarantine">Dismiss</button>
+      </div>
+    </section>
 
     <div v-if="resumeOffer && sessions.active" class="resume-banner">
       <span>A session is already running.</span>

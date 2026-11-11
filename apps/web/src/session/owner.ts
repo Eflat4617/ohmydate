@@ -1,4 +1,4 @@
-const OWNER_STORAGE_KEY = 'ohmydate.focus.owner';
+export const OWNER_STORAGE_KEY = 'ohmydate.focus.owner';
 
 export const ANONYMOUS_OWNER = 'anonymous';
 

@@ -113,6 +113,7 @@ describe('Today view', () => {
       expect.any(String),
       expect.any(String),
       expect.stringMatching(/^W\/"availability:\d+"$/),
+      expect.any(AbortSignal),
     );
     expect(wrapper.find('.proposal-preview').exists()).toBe(false);
     wrapper.unmount();

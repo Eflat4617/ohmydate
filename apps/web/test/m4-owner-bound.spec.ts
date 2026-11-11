@@ -10,11 +10,24 @@ import {
   type User,
   type WorkSession,
 } from '../src/api';
+import AppShell from '../src/components/AppShell.vue';
 import FocusView from '../src/views/FocusView.vue';
 import TodayView from '../src/views/TodayView.vue';
-import { flushFocusJournal } from '../src/session/focusQueue';
+import {
+  flushFocusJournal,
+  retryQuarantinedFocusEvents,
+} from '../src/session/focusQueue';
 import { sessionJournal } from '../src/session/journal';
-import { clearQuarantine, listQuarantine } from '../src/session/quarantine';
+import {
+  clearQuarantine,
+  listQuarantine,
+  quarantineRecord,
+} from '../src/session/quarantine';
+import { OWNER_STORAGE_KEY } from '../src/session/owner';
+import {
+  captureOwnerBinding,
+  invalidateOwnerEpoch,
+} from '../src/session/ownerEpoch';
 import { useAuthStore } from '../src/stores/auth';
 import { useSessionStore } from '../src/stores/session';
 import {
@@ -121,7 +134,19 @@ describe('owner-bound Focus and Today client operations', () => {
     sessions.remember(session);
 
     const pending = deferred<WorkSession>();
-    vi.spyOn(plannerClient, 'pauseSession').mockImplementation(() => pending.promise);
+    let pauseSignal: AbortSignal | undefined;
+    vi.spyOn(plannerClient, 'pauseSession').mockImplementation(
+      (
+        _sessionId: string,
+        _clientAt: string,
+        _key: string,
+        _version: number,
+        signal?: AbortSignal,
+      ) => {
+        pauseSignal = signal;
+        return pending.promise;
+      },
+    );
     const router = testRouter();
     await router.push(`/focus/${session.id}`);
     const wrapper = mount(FocusView, {
@@ -135,6 +160,7 @@ describe('owner-bound Focus and Today client operations', () => {
     wrapper.unmount();
 
     await signIn(pinia, ownerB, login, getMe);
+    expect(pauseSignal?.aborted).toBe(true);
     pending.reject(new TypeError('Failed to fetch'));
 
     await vi.waitFor(async () => {
@@ -297,12 +323,391 @@ describe('owner-bound Focus and Today client operations', () => {
     wrapper.unmount();
   });
 
+  it('discards a stale loadCurrent response after switching to owner B', async () => {
+    const pinia = createPinia();
+    const auth = useAuthStore(pinia);
+    const sessions = useSessionStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    const ownerB = owner(mockDb.user, 'owner-b');
+    const login = vi.spyOn(plannerClient, 'login');
+    const getMe = vi.spyOn(plannerClient, 'getMe');
+
+    await signIn(pinia, ownerA, login, getMe);
+    const pendingMe = deferred<User>();
+    getMe.mockImplementationOnce(() => pendingMe.promise);
+    const loading = auth.loadCurrent();
+    await vi.waitFor(() => expect(getMe).toHaveBeenCalledTimes(2));
+    await signIn(pinia, ownerB, login, getMe);
+
+    pendingMe.resolve(ownerA);
+    const result = await loading;
+
+    expect(result).toBeNull();
+    expect(auth.user?.id).toBe(ownerB.id);
+    expect(auth.ownerId).toBe(ownerB.id);
+    expect(sessions.ownerId).toBe(ownerB.id);
+    expect(sessions.active).toBeNull();
+  });
+
+  it('discards stale consent and budget responses after switching to owner B', async () => {
+    const pinia = createPinia();
+    const auth = useAuthStore(pinia);
+    const ownerA: User = { ...owner(mockDb.user, 'owner-a'), llmProvider: 'deepseek' };
+    const ownerB: User = { ...owner(mockDb.user, 'owner-b'), llmProvider: 'deepseek' };
+    const login = vi.spyOn(plannerClient, 'login');
+    const getMe = vi.spyOn(plannerClient, 'getMe');
+    const updatedAt = new Date().toISOString();
+
+    await signIn(pinia, ownerA, login, getMe);
+    const consent = deferred<User>();
+    const budget = deferred<User>();
+    const update = vi.spyOn(plannerClient, 'updateMySettings');
+    update
+      .mockImplementationOnce(() => consent.promise)
+      .mockImplementationOnce(() => budget.promise);
+    const consentRequest = auth.setLlmConsent(true);
+    const budgetRequest = auth.setLlmBudget(2, 10);
+    await signIn(pinia, ownerB, login, getMe);
+
+    consent.resolve({
+      ...ownerA,
+      version: 2,
+      llm: { consent: { granted: true, at: updatedAt, provider: 'deepseek' } },
+    });
+    budget.resolve({
+      ...ownerA,
+      version: 3,
+      llm: { budget: { dailyUsd: 2, monthlyUsd: 10 } },
+    });
+    await Promise.all([consentRequest, budgetRequest]);
+
+    expect(auth.user?.id).toBe(ownerB.id);
+    expect(auth.user?.llm?.consent?.granted).not.toBe(true);
+    expect(auth.user?.llm?.budget).toBeUndefined();
+    expect(auth.ownerId).toBe(ownerB.id);
+
+    const router = testRouter();
+    await router.push('/today');
+    const wrapper = mount(AppShell, {
+      global: { plugins: [pinia, router] },
+      attachTo: document.body,
+    });
+    await vi.waitFor(() =>
+      expect(wrapper.text()).toContain('Use AI planning assistance?'),
+    );
+    wrapper.unmount();
+  });
+
+  it('bumps the owner epoch when another tab changes the owner key', async () => {
+    const pinia = createPinia();
+    const auth = useAuthStore(pinia);
+    const sessions = useSessionStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    const ownerB = owner(mockDb.user, 'owner-b');
+    const login = vi.spyOn(plannerClient, 'login');
+    const getMe = vi.spyOn(plannerClient, 'getMe');
+
+    await signIn(pinia, ownerA, login, getMe);
+    const epochBefore = auth.epoch;
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: OWNER_STORAGE_KEY,
+        oldValue: ownerA.id,
+        newValue: ownerB.id,
+      }),
+    );
+
+    expect(auth.ownerId).toBe(ownerB.id);
+    expect(auth.epoch).toBeGreaterThan(epochBefore);
+    expect(sessions.ownerId).toBe(ownerB.id);
+  });
+
+  it('keeps a persistent quarantine notice and retries the records from Focus', async () => {
+    const pinia = createPinia();
+    const sessions = useSessionStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    sessions.setOwner(ownerA.id);
+    const session = workSession();
+    sessions.remember(session);
+    const record = await sessionJournal.append(
+      {
+        id: createUuidV7(),
+        sessionId: session.id,
+        kind: 'pause',
+        clientAt: new Date().toISOString(),
+        idempotencyKey: newActionId('pause'),
+        expectedVersion: 1,
+      },
+      ownerA.id,
+    );
+    quarantineRecord(ownerA.id, record, 'session gone');
+    await sessionJournal.remove(record.seq);
+    vi.spyOn(plannerClient, 'pauseSession').mockResolvedValue({
+      ...session,
+      state: 'paused',
+      version: 2,
+    });
+
+    const router = testRouter();
+    await router.push(`/focus/${session.id}`);
+    const wrapper = mount(FocusView, {
+      global: { plugins: [pinia, router] },
+      attachTo: document.body,
+    });
+    await vi.waitFor(() => expect(wrapper.text()).toContain('set aside'));
+    await button(wrapper, 'Retry upload').trigger('click');
+    await vi.waitFor(() => expect(listQuarantine(ownerA.id)).toHaveLength(0));
+    await vi.waitFor(async () =>
+      expect(await sessionJournal.list(undefined, ownerA.id)).toHaveLength(0),
+    );
+    wrapper.unmount();
+  });
+
+  it('shows the quarantine notice in Today', async () => {
+    const pinia = createPinia();
+    const sessions = useSessionStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    sessions.setOwner(ownerA.id);
+    quarantineRecord(
+      ownerA.id,
+      {
+        seq: 1,
+        ownerId: ownerA.id,
+        id: createUuidV7(),
+        sessionId: createUuidV7(),
+        kind: 'pause',
+        clientAt: new Date().toISOString(),
+        idempotencyKey: newActionId('pause'),
+        expectedVersion: 1,
+      },
+      'session gone',
+    );
+    const router = testRouter();
+    await router.push('/today');
+    const wrapper = mount(TodayView, {
+      global: { plugins: [pinia, VueQueryPlugin, router] },
+      attachTo: document.body,
+    });
+    await vi.waitFor(() => expect(wrapper.findAll('.today-card').length).toBeGreaterThan(0));
+    expect(wrapper.text()).toContain('set aside');
+    await button(wrapper, 'Dismiss').trigger('click');
+    await vi.waitFor(() => expect(wrapper.text()).not.toContain('set aside'));
+    wrapper.unmount();
+  });
+
+  it('keeps the quarantined count when a later replay fails transiently', async () => {
+    const pinia = createPinia();
+    const sessions = useSessionStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    sessions.setOwner(ownerA.id);
+    const session = workSession();
+    await sessionJournal.append(
+      {
+        id: createUuidV7(),
+        sessionId: session.id,
+        kind: 'pause',
+        clientAt: new Date().toISOString(),
+        idempotencyKey: newActionId('pause'),
+        expectedVersion: 1,
+      },
+      ownerA.id,
+    );
+    await sessionJournal.append(
+      {
+        id: createUuidV7(),
+        sessionId: session.id,
+        kind: 'resume',
+        clientAt: new Date().toISOString(),
+        idempotencyKey: newActionId('resume'),
+        expectedVersion: 2,
+      },
+      ownerA.id,
+    );
+    vi.spyOn(plannerClient, 'getMe').mockResolvedValue(ownerA);
+    vi.spyOn(plannerClient, 'pauseSession').mockRejectedValue(
+      new ApiError(404, 'not_found', 'session gone'),
+    );
+    vi.spyOn(plannerClient, 'resumeSession').mockRejectedValue(
+      new TypeError('Failed to fetch'),
+    );
+
+    const result = await flushFocusJournal({ store: sessions, online: true });
+
+    expect(result.quarantined).toBe(1);
+    expect(result.remaining).toBe(1);
+    expect(await sessionJournal.list(undefined, ownerA.id)).toHaveLength(1);
+    expect(listQuarantine(ownerA.id)).toHaveLength(1);
+    expect(sessions.syncMessage).toMatch(/1 saved focus event.*set aside/i);
+    expect(sessions.syncMessage).toMatch(/still waiting|waiting to upload/i);
+  });
+
+  it('keeps the quarantined count when a later replay conflicts', async () => {
+    const pinia = createPinia();
+    const sessions = useSessionStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    sessions.setOwner(ownerA.id);
+    const session = workSession();
+    await sessionJournal.append(
+      {
+        id: createUuidV7(),
+        sessionId: session.id,
+        kind: 'pause',
+        clientAt: new Date().toISOString(),
+        idempotencyKey: newActionId('pause'),
+        expectedVersion: 1,
+      },
+      ownerA.id,
+    );
+    await sessionJournal.append(
+      {
+        id: createUuidV7(),
+        sessionId: session.id,
+        kind: 'resume',
+        clientAt: new Date().toISOString(),
+        idempotencyKey: newActionId('resume'),
+        expectedVersion: 2,
+      },
+      ownerA.id,
+    );
+    vi.spyOn(plannerClient, 'getMe').mockResolvedValue(ownerA);
+    vi.spyOn(plannerClient, 'pauseSession').mockRejectedValue(
+      new ApiError(404, 'not_found', 'session gone'),
+    );
+    vi.spyOn(plannerClient, 'resumeSession').mockRejectedValue(
+      new ApiError(409, 'illegal_transition', 'stale version'),
+    );
+
+    const result = await flushFocusJournal({ store: sessions, online: true });
+
+    expect(result.quarantined).toBe(1);
+    expect(result.remaining).toBe(1);
+    expect(result.conflict).toMatch(/1 saved focus event.*set aside/i);
+    expect(listQuarantine(ownerA.id)).toHaveLength(1);
+  });
+
+  it('does not remove a journal record when the quarantine write fails', async () => {
+    const pinia = createPinia();
+    const sessions = useSessionStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    sessions.setOwner(ownerA.id);
+    const session = workSession();
+    await sessionJournal.append(
+      {
+        id: createUuidV7(),
+        sessionId: session.id,
+        kind: 'pause',
+        clientAt: new Date().toISOString(),
+        idempotencyKey: newActionId('pause'),
+        expectedVersion: 1,
+      },
+      ownerA.id,
+    );
+    vi.spyOn(plannerClient, 'getMe').mockResolvedValue(ownerA);
+    vi.spyOn(plannerClient, 'pauseSession').mockRejectedValue(
+      new ApiError(404, 'not_found', 'session gone'),
+    );
+    const original = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string,
+    ) {
+      if (key.startsWith('ohmydate.focus.quarantine')) {
+        throw new DOMException('quota exceeded', 'QuotaExceededError');
+      }
+      return original.call(this, key, value);
+    });
+
+    const result = await flushFocusJournal({ store: sessions, online: true });
+
+    expect(result.quarantined).toBe(0);
+    expect(listQuarantine(ownerA.id)).toHaveLength(0);
+    expect(await sessionJournal.list(undefined, ownerA.id)).toHaveLength(1);
+    expect(sessions.syncMessage).toMatch(/set aside/i);
+  });
+
+  it('re-queues quarantined records when retried', async () => {
+    const pinia = createPinia();
+    const sessions = useSessionStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    sessions.setOwner(ownerA.id);
+    const session = workSession();
+    quarantineRecord(
+      ownerA.id,
+      {
+        seq: 1,
+        ownerId: ownerA.id,
+        id: createUuidV7(),
+        sessionId: session.id,
+        kind: 'pause',
+        clientAt: new Date().toISOString(),
+        idempotencyKey: newActionId('pause'),
+        expectedVersion: 1,
+      },
+      'session gone',
+    );
+
+    const requeued = await retryQuarantinedFocusEvents({ store: sessions, online: true });
+
+    expect(requeued).toBe(1);
+    expect(listQuarantine(ownerA.id)).toHaveLength(0);
+    expect(await sessionJournal.list(undefined, ownerA.id)).toHaveLength(1);
+  });
+
+  it('stops without quarantining when the cookie owner no longer matches the binding', async () => {
+    const pinia = createPinia();
+    const sessions = useSessionStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    const ownerB = owner(mockDb.user, 'owner-b');
+    sessions.setOwner(ownerA.id);
+    const session = workSession();
+    await sessionJournal.append(
+      {
+        id: createUuidV7(),
+        sessionId: session.id,
+        kind: 'pause',
+        clientAt: new Date().toISOString(),
+        idempotencyKey: newActionId('pause'),
+        expectedVersion: 1,
+      },
+      ownerA.id,
+    );
+    vi.spyOn(plannerClient, 'getMe').mockResolvedValue(ownerB);
+    vi.spyOn(plannerClient, 'pauseSession').mockRejectedValue(
+      new ApiError(404, 'not_found', 'session gone'),
+    );
+
+    const result = await flushFocusJournal({ store: sessions, online: true });
+
+    expect(result.quarantined).toBe(0);
+    expect(result.remaining).toBe(1);
+    expect(listQuarantine(ownerA.id)).toHaveLength(0);
+    expect(await sessionJournal.list(undefined, ownerA.id)).toHaveLength(1);
+    expect(sessions.syncMessage).toMatch(/owner changed/i);
+  });
+
+  it('merges a stale same-owner write into the in-memory sessions', async () => {
+    const pinia = createPinia();
+    const sessions = useSessionStore(pinia);
+    const ownerA = owner(mockDb.user, 'owner-a');
+    sessions.setOwner(ownerA.id);
+    const binding = captureOwnerBinding();
+    const session = workSession();
+    invalidateOwnerEpoch();
+
+    sessions.remember(session, binding);
+
+    expect(sessions.get(session.id)?.id).toBe(session.id);
+    expect(storedFor(ownerA.id)[session.id]?.id).toBe(session.id);
+  });
+
   it('quarantines a terminal 403/404 replay per owner and keeps later events moving', async () => {
     const pinia = createPinia();
     const sessions = useSessionStore(pinia);
     const ownerA = owner(mockDb.user, 'owner-a');
     const ownerB = owner(mockDb.user, 'owner-b');
     sessions.setOwner(ownerA.id);
+    vi.spyOn(plannerClient, 'getMe').mockResolvedValue(ownerA);
 
     const session = workSession();
     const terminal = {

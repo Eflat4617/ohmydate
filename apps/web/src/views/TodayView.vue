@@ -22,6 +22,15 @@ import {
   captureOwnerBinding,
   isOwnerBindingCurrent,
 } from '../session/ownerEpoch';
+import {
+  clearQuarantine,
+  listQuarantine,
+  quarantineRevision,
+} from '../session/quarantine';
+import {
+  flushFocusJournal,
+  retryQuarantinedFocusEvents,
+} from '../session/focusQueue';
 
 const router = useRouter();
 const offline = useOfflineStore();
@@ -33,7 +42,10 @@ const date = localDateIso();
 const ownerId = computed(() => sessionStore.ownerId);
 const todayQuery = useQuery({
   queryKey: computed(() => ['today', date, ownerId.value ?? 'anonymous']),
-  queryFn: () => plannerClient.getToday(date),
+  queryFn: () => {
+    const binding = captureOwnerBinding();
+    return plannerClient.getToday(date, binding.signal);
+  },
 });
 
 const today = computed(() => todayQuery.data.value ?? null);
@@ -48,10 +60,12 @@ const scheduleQuery = useQuery({
   queryFn: async () => {
     const current = today.value;
     if (current === null) throw new Error('Today is not loaded');
+    const binding = captureOwnerBinding();
     return plannerClient.listScheduleBlocks({
       from: zonedWallClockToInstant(current.date, 0, current.timeZone),
       to: zonedWallClockToInstant(addDaysToDate(current.date, 1), 0, current.timeZone),
       limit: 100,
+      signal: binding.signal,
     });
   },
   enabled: computed(() => today.value !== null),
@@ -61,10 +75,18 @@ const resumableQuery = useQuery({
   queryKey: computed(() => ['sessions', 'resumable', ownerId.value ?? 'anonymous']),
   queryFn: async () => {
     const binding = captureOwnerBinding();
-    const active = await plannerClient.listSessions({ state: 'active', limit: 1 });
+    const active = await plannerClient.listSessions({
+      state: 'active',
+      limit: 1,
+      signal: binding.signal,
+    });
     let session = active.items[0] ?? null;
     if (session === null) {
-      const paused = await plannerClient.listSessions({ state: 'paused', limit: 1 });
+      const paused = await plannerClient.listSessions({
+        state: 'paused',
+        limit: 1,
+        signal: binding.signal,
+      });
       session = paused.items[0] ?? null;
     }
     return { ownerId: binding.ownerId, session };
@@ -120,6 +142,27 @@ const busy = ref(false);
 const proposal = ref<TodayProposal | null>(null);
 const proposalError = ref<string | null>(null);
 
+const quarantinedCount = computed(() => {
+  void quarantineRevision.value;
+  return listQuarantine(sessionStore.ownerId).length;
+});
+
+async function retryQuarantine(): Promise<void> {
+  const binding = captureOwnerBinding();
+  await retryQuarantinedFocusEvents({
+    store: sessionStore,
+    online: offline.online,
+    binding,
+  });
+  if (offline.online && isOwnerBindingCurrent(binding)) {
+    await flushFocusJournal({ store: sessionStore, online: true });
+  }
+}
+
+function dismissQuarantine(): void {
+  clearQuarantine(sessionStore.ownerId);
+}
+
 const activeSession = computed(() => {
   const fromQuery =
     resumableQuery.data.value?.ownerId === sessionStore.ownerId
@@ -152,7 +195,12 @@ async function acceptToday(blockIds?: string[]): Promise<void> {
   try {
     const payload = { date: current.date, ...(blockIds === undefined ? {} : { blockIds }) };
     const action = actions.begin(`today:accept:${current.date}`, payload, samePayload, current.version);
-    await plannerClient.acceptToday(action.payload, action.key, current.version);
+    await plannerClient.acceptToday(
+      action.payload,
+      action.key,
+      current.version,
+      binding.signal,
+    );
     actions.settle(`today:accept:${current.date}`, action);
     if (!isOwnerBindingCurrent(binding)) return;
     toast.show('Today’s plan accepted.');
@@ -183,7 +231,12 @@ async function previewShrink(): Promise<void> {
     const payload = { date: current.date, blockId: block.id, targetMin: shrinkTarget.value };
     const scope = `today:shrink:${block.id}`;
     const action = actions.begin(scope, payload, samePayload, current.version);
-    const result = await plannerClient.shrinkToday(action.payload, action.key, current.version);
+    const result = await plannerClient.shrinkToday(
+      action.payload,
+      action.key,
+      current.version,
+      binding.signal,
+    );
     actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     proposal.value = result;
@@ -206,7 +259,12 @@ async function reschedule(block: TodayBlock): Promise<void> {
     const payload = { date: current.date, blockIds: [block.id] };
     const scope = `today:reschedule:${block.id}`;
     const action = actions.begin(scope, payload, samePayload, current.version);
-    const result = await plannerClient.rescheduleToday(action.payload, action.key, current.version);
+    const result = await plannerClient.rescheduleToday(
+      action.payload,
+      action.key,
+      current.version,
+      binding.signal,
+    );
     actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     proposal.value = result;
@@ -231,7 +289,12 @@ async function approveProposal(): Promise<void> {
   const scope = `today:approve:${value.id}`;
   try {
     const action = actions.begin(scope, { proposalId: value.id }, samePayload);
-    await plannerClient.approveTodayProposal(value.id, action.key, proposalIfMatch(value));
+    await plannerClient.approveTodayProposal(
+      value.id,
+      action.key,
+      proposalIfMatch(value),
+      binding.signal,
+    );
     actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) return;
     toast.show('Proposal approved. Your plan is updated.');
@@ -268,7 +331,11 @@ async function startFocus(block: TodayBlock): Promise<void> {
         clientId: focusClientId(),
       };
     action = actions.begin(scope, input, samePayload);
-    const session = await plannerClient.createSession(action.payload, action.key);
+    const session = await plannerClient.createSession(
+      action.payload,
+      action.key,
+      binding.signal,
+    );
     actions.settle(scope, action);
     if (!isOwnerBindingCurrent(binding)) {
       sessionStore.remember(session, binding);
@@ -322,6 +389,17 @@ function resumeActive(): void {
       <span>A session is already running.</span>
       <button type="button" @click="resumeActive">Resume the active session</button>
     </div>
+
+    <section v-if="quarantinedCount > 0" class="error-panel quarantine-notice" role="status">
+      <p class="error-text">
+        {{ quarantinedCount }} saved focus event{{ quarantinedCount === 1 ? '' : 's' }} could not
+        be replayed and {{ quarantinedCount === 1 ? 'was' : 'were' }} set aside on this device.
+      </p>
+      <div class="dialog-actions">
+        <button type="button" @click="retryQuarantine">Retry upload</button>
+        <button type="button" @click="dismissQuarantine">Dismiss</button>
+      </div>
+    </section>
 
     <div v-if="isLoading" class="today-skeleton" aria-hidden="true">
       <div class="skeleton-card" />
