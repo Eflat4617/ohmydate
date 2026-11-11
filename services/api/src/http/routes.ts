@@ -85,7 +85,7 @@ import {
   type Version,
 } from '@ohmydate/domain';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { AppConfig } from '../config.js';
+import { llmPromptLimits, type AppConfig } from '../config.js';
 import type { Clock } from '@ohmydate/domain';
 import type {
   AppRepositories,
@@ -1772,6 +1772,7 @@ export function createRuntime(options: {
     llm: options.llm,
     llmProvider: options.config.llmProvider,
     budgetGuard: options.budgetGuard,
+    promptLimits: llmPromptLimits(options.config),
   });
   const todayStore = new PgTodayStore({
     db: options.db,

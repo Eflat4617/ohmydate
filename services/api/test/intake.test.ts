@@ -139,7 +139,8 @@ describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
     const detectionInput = buildDetectionLlmInput(readyInput, []);
     const invalid = { classification: 'maybe' };
     const errors = validateOutput('llm.type_detection.v1', invalid).errors;
-    const repairedInput = appendValidationErrors(detectionInput.input, errors);
+    // M6-01 fix round 1: the repair input repeats the rendered output contract.
+    const repairedInput = appendValidationErrors(detectionInput.input, errors, 'llm.type_detection.v1');
     const llm = new FakeLlm([
       {
         promptId: 'type_detection',
@@ -424,9 +425,11 @@ describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
   test('schema failure is repaired once and falls back to manual mode', async () => {
     const detectionInput = buildDetectionLlmInput({ title: 'Write a poem', deliverable: 'Write a poem' }, []);
     const invalidOutput = { classification: 'bogus', confidence: 2 };
+    // M6-01 fix round 1: the repair input repeats the rendered output contract.
     const repairInput = appendValidationErrors(
       detectionInput.input,
       validateOutput('llm.type_detection.v1', invalidOutput).errors,
+      'llm.type_detection.v1',
     );
     const llm = new FakeLlm([
       {

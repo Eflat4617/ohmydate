@@ -63,6 +63,7 @@ import {
   type LlmPort,
   type NoteContextLimits,
   type NoteContextResult,
+  type PromptLimitOverrides,
   type RedactionKind,
 } from '@ohmydate/llm';
 import { NotFoundError, coldStartEstimate, isInstant } from '@ohmydate/domain';
@@ -134,6 +135,8 @@ export interface IntakeServiceOptions {
    */
   readonly notes?: NoteContextSource;
   readonly noteLimits?: Partial<NoteContextLimits>;
+  /** Per-prompt token/timeout limits (config); default: llm DEFAULT_PROMPT_LIMIT_OVERRIDES. */
+  readonly promptLimits?: PromptLimitOverrides;
 }
 
 export interface LlmInputBundle {
@@ -529,6 +532,7 @@ export class IntakeService {
   readonly #config: IntakeAgentConfig;
   readonly #notes: NoteContextSource | undefined;
   readonly #noteLimits: NoteContextLimits;
+  readonly #promptLimits: PromptLimitOverrides | undefined;
 
   constructor(options: IntakeServiceOptions) {
     this.#clock = options.clock;
@@ -546,6 +550,15 @@ export class IntakeService {
     this.#config = options.config ?? INTAKE_AGENT_CONFIG;
     this.#notes = options.notes;
     this.#noteLimits = { ...DEFAULT_NOTE_CONTEXT_LIMITS, ...(options.noteLimits ?? {}) };
+    this.#promptLimits = options.promptLimits;
+  }
+
+  #runOptions(): { budgetGuard: BudgetGuard; estimatedCostUsd: number; promptLimits?: PromptLimitOverrides } {
+    return {
+      budgetGuard: this.#budgetGuard,
+      estimatedCostUsd: 0,
+      ...(this.#promptLimits === undefined ? {} : { promptLimits: this.#promptLimits }),
+    };
   }
 
   async listTemplates(
@@ -1417,7 +1430,7 @@ export class IntakeService {
           ownerId,
           sessionKey: sessionId,
         },
-        { budgetGuard: this.#budgetGuard, estimatedCostUsd: 0 },
+        this.#runOptions(),
       );
       await this.#recordRun({
         ownerId,
@@ -1510,7 +1523,7 @@ export class IntakeService {
             dispatched = true;
           },
         },
-        { budgetGuard: this.#budgetGuard, estimatedCostUsd: 0 },
+        this.#runOptions(),
       );
     } catch (error) {
       const usage = usageFromError(error);

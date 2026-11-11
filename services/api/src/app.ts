@@ -8,6 +8,8 @@ import {
   FakeLlm,
   OpenAICompatibleLlm,
   PolicyLlm,
+  maxPromptTimeoutMs,
+  staleReservationThresholdMs,
   type LlmPort,
   type LlmSpendLedger,
   type ResolvedLlmAccess,
@@ -19,7 +21,7 @@ import Fastify, {
 } from 'fastify';
 import type { Kysely, Transaction } from 'kysely';
 import { sql } from 'kysely';
-import type { AppConfig } from './config.js';
+import { llmPromptLimits, type AppConfig } from './config.js';
 import type { AppRepositories, IdempotencyStore } from './application/ports.js';
 import type { Id } from '@ohmydate/domain';
 import { AuthService } from './application/auth-service.js';
@@ -170,13 +172,16 @@ export const READYZ_DB_TIMEOUT_MS = 2_500;
  * - `requestTimeout` bounds receiving the whole request (default 10 s).
  * - `headersTimeout` bounds receiving the headers (default 10 s).
  * - `connectionTimeout` is only the socket inactivity guard for the worst-case
- *   provider budget above; it must stay well above 30 s (default 60 s).
+ *   provider budget above; it must stay well above 30 s. M6-01 fix round 1: a
+ *   note-grounded decomposition may take one 120 s attempt plus one repair
+ *   (`LLM_DECOMPOSITION_TIMEOUT_MS`), so the default is 300 s (2 x 120 s + margin)
+ *   and boot warns when an explicit value is below twice that timeout.
  * - `connectionsCheckingInterval` makes the receive limits fire promptly
  *   instead of Node's 30 s default.
  */
 export const DEFAULT_HTTP_REQUEST_TIMEOUT_MS = 10_000;
 export const DEFAULT_HTTP_HEADERS_TIMEOUT_MS = 10_000;
-export const DEFAULT_HTTP_CONNECTION_TIMEOUT_MS = 60_000;
+export const DEFAULT_HTTP_CONNECTION_TIMEOUT_MS = 300_000;
 export const DEFAULT_HTTP_CONNECTIONS_CHECKING_INTERVAL_MS = 1_000;
 export const HTTP_REQUEST_TIMEOUT_ENV = 'HTTP_REQUEST_TIMEOUT_MS';
 export const HTTP_HEADERS_TIMEOUT_ENV = 'HTTP_HEADERS_TIMEOUT_MS';
@@ -363,6 +368,9 @@ async function createConfiguredLlm(input: {
     maxOutputTokens: config.llmMaxOutputTokens,
     newReservationId: () => ids.next(),
     now: () => new Date(clock.now()),
+    // A decomposition attempt may legitimately run for llmDecompositionTimeoutMs;
+    // only reservations older than the slowest attempt chain are recovered.
+    staleAfterMs: staleReservationThresholdMs(maxPromptTimeoutMs(llmPromptLimits(config))),
   });
 }
 
@@ -559,6 +567,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // socket inactivity guard explicitly. It only covers a dead peer and must
   // stay above the worst-case provider budget, not valid handler latency.
   app.server.timeout = connectionTimeoutMs;
+  const decompositionCallBudgetMs = 2 * config.llmDecompositionTimeoutMs;
+  if (config.llmProvider !== 'fake' && connectionTimeoutMs < decompositionCallBudgetMs) {
+    app.log.warn(
+      { connectionTimeoutMs, decompositionCallBudgetMs },
+      'HTTP connection timeout is below the decomposition call budget (attempt + repair)',
+    );
+  }
 
   app.decorateRequest('authSession', null);
   installShutdownContext(app);
