@@ -55,6 +55,97 @@ S1 조기 완료, S2 일일 분산(분산 최소), S3 선호 시간대 적합, S
 ## 6. 출력·설명 지표
 `totalFocusMin, minSlackMin(마감 여유 최소값), maxDailyLoadMin, avgDailyLoadMin, contextSwitches, changedBlocks(재계획), deficitMin, p90CoverageRatio, feasible, explanation[]`(결정론 템플릿 문장; LLM 설명은 선택).
 
+### 6.1 설명·위반 코드 (2026-11-11 확정, FU-62)
+- `explanation[]`(영문 템플릿 문장)은 로그·호환용으로 **그대로 유지**한다. 같은 위치의 `explanationItems[i] = { code, params }`가 `explanation[i]`의 안정 표현이며 두 배열의 길이는 항상 같다(생성기는 문장과 코드를 한 단위로만 만든다). 후보(`PlanCandidate`)와 재계획 후보(`ReplanCandidate`)에 실린다.
+- 검증기 위반(`Violation`)과 입력 문제(`InputIssue`)는 `code`(H-종류) 외에 `messageCode` + `params`를 가진다. 메시지 템플릿 1개 = 코드 1개이며, 코드 접두사는 H-종류(`h1_*`는 H1)와 같다. 계약(`Violation.messageCode`/`params`)은 선택 필드이고 FU-62 이후 API가 만드는 모든 위반에 채워진다.
+- **닫힌 열거형**: 아래 표가 전부이며 단일 소스는 `packages/scheduler/src/codes.ts`와 `packages/contracts/src/explanation.ts`(패리티 테스트, 이 표와의 일치 테스트 포함). 알 수 없는 코드는 타입 오류다.
+- **params**: 숫자(분·개수·상한) 또는 불투명 토큰(task ID, UTC ISO instant, `YYYY-MM-DD` 날짜, 닫힌 enum 값)만. 작업 제목·노트·사용자 입력 문자열은 절대 싣지 않는다(계약 패턴 `^[A-Za-z0-9_.:+-]{1,100}$`). 이름은 클라이언트가 ID로 찾는다. `…At` 키는 UTC instant, 분 단위 키는 `…Min`.
+- FU-62 이전에 저장된 후보/제안은 `explanationItems: []`로 직렬화되고 클라이언트는 원문(`explanation[]`)을 보여 준다.
+
+**생성기 설명 코드**
+
+| 코드 | params | 영문 원문(요지) |
+|---|---|---|
+| `policy_summary` | `policy`, `policyVersion` | Policy … v…: 요약 |
+| `placement_summary` | `placedMin`, `requiredMin`, `blockCount`, `retainedCount` | Placed … of … required minutes … |
+| `constraints_satisfied` | — | All hard constraints H1-H8 satisfied. |
+| `infeasible_summary` | `violationCount` | Infeasible with N hard violation(s): … |
+| `heuristic_insufficient_available_time` | — | Heuristic reason: insufficient_available_time. |
+| `heuristic_no_contiguous_window` | — | Heuristic reason: no_contiguous_window. |
+| `heuristic_estimate_not_grid_aligned` | — | Heuristic reason: estimate_not_grid_aligned. |
+| `heuristic_estimate_below_grid` | — | Heuristic reason: estimate_below_grid. (방어용 분기, 현재 입력으로는 도달하지 않음) |
+| `heuristic_session_bounds_infeasible` | — | Heuristic reason: session_bounds_infeasible. |
+| `unplaced_minutes` | `deficitMin` | Unplaced minutes (H7 shortfall): … min. |
+| `capacity_deficit` | `capacityDeficitMin` | Capacity deficit: … min. |
+| `replan_bound_exceeded` | `changedBlocks`, `bound`, `affectedExistingBlocks` | Replan change bound exceeded: … |
+| `input_rejected` | `issueCount` | Input rejected before generation: … |
+
+**입력 문제 코드**(`validateInput`; 입력 거부 후보의 설명 줄 `<issue code>: <message>`에도 실림)
+
+| 코드 | params | 영문 원문(요지) |
+|---|---|---|
+| `input_invalid_time_zone` | — | Invalid IANA time zone |
+| `input_invalid_horizon_instant` | — | Horizon contains an invalid instant. |
+| `input_horizon_not_increasing` | — | Horizon end must be after horizon start. |
+| `input_horizon_too_long` | `maxDays` | Horizon spans more than … days |
+| `input_invalid_now` | — | now is not a valid instant. |
+| `input_duplicate_task` | `taskId` | Task id … is duplicated. |
+| `input_invalid_estimate` | `taskId`, `maxMin` | estimate is not a whole number of minutes |
+| `input_invalid_buffer` | `taskId`, `maxMin` | bufferBeforeDueMin is not a whole number of minutes |
+| `input_invalid_session_minutes` | `taskId`, `maxMin` | session bound is not a whole number of minutes |
+| `input_invalid_session_bounds` | `taskId` | invalid session bounds |
+| `input_invalid_task_window_instant` | `taskId` | invalid window instant |
+| `input_task_window_empty` | `taskId` | earliestStartAt at or after its due window |
+| `input_invalid_preference` | `field`(`maxDailyFocusMin`\|`breakAfterMin`\|`breakMin`), `maxMin` | prefs.… must be a whole number of minutes |
+| `input_unknown_dependency` | `taskId`, `dependencyId` | depends on unknown task |
+| `input_dependency_cycle` | — | Task dependencies contain a cycle. |
+| `input_invalid_weekday` | — | Availability weekday … is outside 1-7. |
+| `input_invalid_availability_window` | `weekday` | Availability window … is invalid. |
+| `input_invalid_exception_date` | — | Exception date … is invalid. |
+| `input_exception_partial_window` | — | Exception … must have both start and end or neither. |
+| `input_invalid_exception_window` | — | Exception window … is invalid. |
+| `input_commitment_invalid_instant` | — | commitment has an invalid instant. |
+| `input_commitment_end_before_start` | — | commitment ends before it starts. |
+| `input_commitment_too_long` | `maxDays` | Commitment spans more than … days |
+| `input_unknown_block_task` | `taskId` | Block references unknown task |
+| `input_invalid_block_instant` | `taskId` | Block … has an invalid instant. |
+| `input_block_sub_millisecond` | `taskId` | Block … has sub-millisecond precision. |
+| `input_block_off_grid` | `taskId` | Block … is not on the 5-minute grid. |
+| `input_block_end_before_start` | `taskId` | Block … ends before it starts. |
+| `input_block_too_long` | `taskId`, `maxDays` | Block … spans more than … days |
+
+**검증기 위반 코드**(`Violation.messageCode`; 불가능 후보 설명 줄에도 실림. H0은 API에서 422 `validation_failed`로 바뀌어 공개 위반으로는 나가지 않음)
+
+| 코드 | H | params | 영문 원문(요지) |
+|---|---|---|---|
+| `h0_unknown_task` | H0_unknown_task | `taskId` | Block references unknown task |
+| `h0_outside_horizon` | H0_horizon | `taskId`, `startAt`, `endAt` | outside the planning horizon |
+| `h1_same_task_overlap` | H1 | `taskId` | Blocks for task … overlap. |
+| `h1_tasks_overlap` | H1 | `taskId`, `otherTaskId` | Blocks for tasks … and … overlap. |
+| `h1_commitment_overlap` | H1 | `taskId`, `startAt`, `endAt` | overlaps a commitment |
+| `h1_active_block_overlap` | H1 | — | **API 전용**: 승인 시 저장소 EXCLUDE 제약(동시 승인 경합)으로 거부 |
+| `h2_outside_availability` | H2 | `taskId`, `startAt`, `endAt` | outside availability |
+| `h3_dependency_order` | H3 | `taskId`, `dependencyId` | starts before dependency … finishes |
+| `h4_before_earliest_start` | H4 | `taskId`, `earliestStartAt` | starts before earliestStartAt |
+| `h4_inside_due_buffer` | H4 | `taskId`, `dueAt`, `bufferMin` | ends inside its pre-due buffer |
+| `h4_after_due` | H4 | `taskId`, `dueAt` | ends after its due time |
+| `h5_unsplittable_no_remaining` | H5 | `taskId` | no remaining minutes and must not have a block |
+| `h5_unsplittable_required_out_of_bounds` | H5 | `taskId`, `requiredMin`, `minSessionMin`, `maxSessionMin` | requires … minutes, outside [min, max] |
+| `h5_unsplittable_single_block` | H5 | `taskId`, `requiredMin` | must be one block covering … minutes |
+| `h5_session_out_of_bounds` | H5 | `taskId`, `durationMin`, `minSessionMin`, `maxSessionMin`, `startAt`, `endAt` | …-minute session outside [min, max] |
+| `h6_daily_focus_exceeded` | H6 | `date`, `totalMin`, `maxDailyFocusMin` | Daily focus on … is … minutes, above … |
+| `h6_break_missing` | H6 | `date`, `breakAfterMin`, `breakMin` | Continuous focus … without a …-minute break |
+| `h7_deficit` | H7 | `taskId`, `shortMin` | short by … minutes (deficit) |
+| `h7_overallocated` | H7 | `taskId`, `excessMin` | overallocated by … minutes |
+| `h8_invalid_time_zone` | H8 | — | Invalid IANA time zone |
+| `h8_invalid_horizon` | H8 | — | Horizon contains an invalid instant. |
+| `h8_invalid_instant` | H8 | `taskId` | Block … has an invalid instant. |
+| `h8_sub_millisecond` | H8 | `taskId` | sub-millisecond precision |
+| `h8_off_grid` | H8 | `taskId` | not aligned to the 5-minute grid |
+| `h8_end_before_start` | H8 | `taskId` | ends before it starts |
+
+- 코드 추가·삭제는 위 표, `codes.ts`, `explanation.ts`, 웹 ko 카탈로그(`explain.*`)를 함께 바꾸며 OpenAPI·웹 클라이언트를 재생성한다(테스트가 어긋남을 잡는다). 기존 코드의 의미·params 변경은 새 코드로 한다.
+
 ## 7. 재계획 (M5)
 - 트리거: 실측 지연으로 slack<0, 새 commitment 충돌, 사용자 요청.
 - 범위: 영향받는 task와 그 후행만 해제, `locked`/과거/오늘 진행 중 블록 고정.

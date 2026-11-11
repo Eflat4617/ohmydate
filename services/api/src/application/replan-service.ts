@@ -708,6 +708,7 @@ export class ReplanService {
       explanation: chosen.explanation
         .slice(0, MAX_EXPLANATION_LINES)
         .map((line) => line.slice(0, MAX_EXPLANATION_LENGTH)),
+      explanationItems: chosen.explanationItems.slice(0, MAX_EXPLANATION_LINES),
     };
     return {
       candidate,

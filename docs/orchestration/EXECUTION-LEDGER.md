@@ -9,7 +9,7 @@
 | Phase | **D1 자율 개발 (2026-11-11 사용자 승인: GA-1·GM-1·GD-1, 설치 전권)** |
 | Run | `run_d9c785e909e0` (M0–M1) |
 | 통합 브랜치 | `torgal/ohmydate` (base `d7e6abf`) |
-| 마지막 Accepted merge | e2d1eec (M5-02), 413f14b (UI-I18N), 383b2a3 (M5-01), 5ea4a91 (UI-POLISH), aa34394 (FU-41), 68a8531 (FU-57), c9166b2 (FU-55), 2f14c0f (M4-UI), d0e2c79 (FU-52), 9c62fb6 (M4-02), ba2911c (M4-01), ac17b02 (M23-UI), 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
+| 마지막 Accepted merge | d227f4e (FU-62), 4d6a465 (FU-61+58F), e2d1eec (M5-02), 413f14b (UI-I18N), 383b2a3 (M5-01), 5ea4a91 (UI-POLISH), aa34394 (FU-41), 68a8531 (FU-57), c9166b2 (FU-55), 2f14c0f (M4-UI), d0e2c79 (FU-52), 9c62fb6 (M4-02), ba2911c (M4-01), ac17b02 (M23-UI), 2fc56e8 (FU-38c/d), 5da710f (M3-04), 0462c19 (M3-03), 87dad91 (M2-03), 2820739 (FU-42), bfdc39e (FU-39), 053363f (FU-37), b0c565a (M3-02+M3-02c), 9344caa (FU-32), 543cbee (FU-35), df4244c (M2-02), af25b39 (FU-33), 194b747 (FU-28, 재조정기 기본 ON), 08512de (FU-24), M1-08 (E2E, **M1 G4 PASS**), eba45ea (FU-23), 49bf2a3 (FU-27), 1111794 (M1-10), 1e56bec (FU-18), 804c981 (M2-01+01c), ed38b31 (FU-14), 3db53ad (M1-06+06c), 10f8260 (FU-09), 3aa02bd (M1-05), 4264b54 (M3-01b), de307fc (M1-07), e49d336 (M1-03), 1e9b641 (M1-04), ce31fff (FU-01), M1-02, M1-01, 88f61e9 (M0-03) |
 | 열린 게이트 | GB-1(제품 LLM), GD-2, GD-3, GL-1, GL-2 |
 
 ## 2. 결정 기록
@@ -18,6 +18,12 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-12 00:40 | **FU-62 merged d227f4e** (FU-62R APPROVE, Sol). 통합 CI 1638 pass + web 256. M5-03 워커에 병합·ExplanationList 연결 지시 | reviews/FU-62R.md | orchestrator |
+| 2026-11-12 00:20 | **FU-61 + FU-58F merged 4d6a465** (FU-58FR APPROVE, Sol; 구현 Fable 5.2 medium 돌파구 — 공유 dist·잠금 제거, 호출별 private build workspace). 통합 CI 1613 pass + web 240(1차: fu41 property test 부하 중 180s 시간 초과, 단독 78s — FU-66) | reviews/FU-58FR.md | orchestrator |
+| 2026-11-11 23:39 | FU-62 범위 확장 승인: docs/blueprint/06 §6.1 코드 표 + 08 §1 한 줄(문서만) | msg_c3bbff26d310 | orchestrator |
+| 2026-11-11 23:28 | FU-58F(Fable) 질문: 공유 dist 제거(호출별 private build workspace)로 DistLock이 죽은 코드가 됨 → **orchestrator 결정 A**: DistLock + 그 대상 테스트 5개 삭제 허용(대상 코드 자체를 제거하는 경우; 살아 있는 동작의 단언은 1:1 유지/이전, 삭제 테스트별 대체 테스트 매핑 보고 조건). 리뷰에서 매핑 검증 | msg_a3c4111317d5 | orchestrator |
+| 2026-11-11 23:20 | **FU-61-58R-1 REQUEST_CHANGES**: HIGH 1 — dist lock 3자 경합에서 두 lease 동시 보유(FU-57R2와 같은 결함 계열 2회째). readyz(FU-61)는 통과. **돌파구 워커 Fable 5.2 medium 투입**(MODEL_BINDINGS §10 조건②: 같은 계열 결함 반복) — 공유 dist 제거(호출별 고유 빌드 디렉터리) 우선 검토 | reviews/FU-61-58R-1.md, packets/FU-58F.md | orchestrator |
+| 2026-11-11 23:15 | FU-61+58 worker_done(f550340+0251dc8) → Sol medium 리뷰 시작. **M5-03 시작**(Opus xhigh: 재계획 제안 UI + 내 패턴 + E2E-5R + FU-63). **FU-62 시작**(Opus xhigh: 설명·위반 코드 additive 계약 + 한국어 렌더) | packets/M5-03.md, FU-62.md, FU-61-58R.md | orchestrator |
 | 2026-11-11 22:58 | **UI-I18N merged 413f14b** (UI-I18NR APPROVE, Sol). 병합 후 M5-01 신규 코드 2개 한국어 문구 + 고정 코드 수 19→21 보정 cb505fa. **M5-02 merged e2d1eec** (M5-02R2 APPROVE, Sol; LOW → FU-63). 통합 CI 1601 pass + web 240(1차는 공유 DB 마이그레이션 rollback 30s 타임아웃 2건, 재실행 통과 → FU-58 범위) | reviews/UI-I18NR.md, M5-02R2.md | orchestrator |
 | 2026-11-11 22:32 | UI-I18NR Sol 리뷰가 사용량 한도(22:29 해제)로 중단 → 구현자(Opus)와 계열 분리를 위해 Opus 대체 대신 해제 대기, SOL_OK 확인 후 retry-of로 Sol medium 재시작 | codex probe | orchestrator |
 | 2026-11-11 22:16 | **M5-02R-1 REQUEST_CHANGES (Sol medium; 구현 Opus)**: HIGH 2 — 재계획이 잠긴 블록을 이동·잠금 상실(assembleScheduleInput의 기존 결함, 재생성에도 영향 가능), 거절과 동시 요청이 24h 억제 우회. MEDIUM 2 — replan_suppressed 멱등 미저장(08 §1상 저장 대상), packages/domain/test 범위 밖(→ 범위 확장 승인). 수정 1/2 → ctx_52cd84edd09c | reviews/M5-02R-1.md | orchestrator |

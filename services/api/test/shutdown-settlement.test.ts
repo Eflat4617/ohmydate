@@ -29,10 +29,9 @@ import {
 } from './vikunja/pg-support.js';
 import {
   API_DIST_BUILD_ID_KEY,
-  acquireDistLease,
+  API_DIST_ROOT_KEY,
   apiDistArtifact,
   assertApiDistArtifact,
-  releaseDistLease,
 } from './support/dist-artifact.js';
 
 const { Pool } = pg;
@@ -40,25 +39,14 @@ const { Pool } = pg;
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 
 const apiRoot = fileURLToPath(new URL('..', import.meta.url));
-const distMain = join(apiRoot, 'dist', 'main.js');
-const neverFixture = join(apiRoot, 'test', 'support', 'never-settling-app.mjs');
-const distArtifact = apiDistArtifact();
-
-// dist is built once by vitest globalSetup; the lease keeps build-smoke from
-// rebuilding it underneath a spawned app. Acquire outside hooks: while another
-// suite rebuilds dist the wait can exceed hookTimeout, so it must not be
-// charged to a suite hook.
-await acquireDistLease();
-try {
-  assertApiDistArtifact(distArtifact, inject(API_DIST_BUILD_ID_KEY));
-} catch (error) {
-  await releaseDistLease();
-  throw error;
-}
-
-afterAll(async () => {
-  await releaseDistLease();
-});
+// The compiled app is built once by vitest globalSetup into a build workspace
+// private to this invocation; nothing else builds into or removes it, so no
+// lease is needed. The fixture is the workspace copy, whose `../../dist`
+// imports resolve to that same private artifact. See support/dist-artifact.ts.
+const distArtifact = apiDistArtifact(inject(API_DIST_ROOT_KEY));
+const distMain = distArtifact.mainPath;
+const neverFixture = join(distArtifact.apiRoot, 'test', 'support', 'never-settling-app.mjs');
+assertApiDistArtifact(distArtifact, inject(API_DIST_BUILD_ID_KEY));
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -283,8 +271,7 @@ async function startSyntheticProvider(): Promise<SyntheticProvider> {
   };
 }
 
-// dist is built once by vitest globalSetup; the lease keeps build-smoke from
-// rebuilding it underneath a spawned app. See support/dist-artifact.ts.
+// Spawned from this invocation's private artifact. See support/dist-artifact.ts.
 describe('boot validation', () => {
   test('rejects SHUTDOWN_CLEANUP_BUDGET_MS that reaches the hard deadline', async () => {
     const port = await freePort();

@@ -48,6 +48,7 @@ import type {
 } from '../application/planning-ports.js';
 import { expandOccurrences, InvalidRRuleError, MAX_OCCURRENCES } from '../application/rrule.js';
 import { ensurePlannerTaskIdentity } from './planner-task-identity.js';
+import { candidateExplanationJson, parseCandidateExplanation } from './explanation-json.js';
 
 const DEFAULT_PREFS: AvailabilityPreferencesDto = {
   maxDailyFocusMin: 240,
@@ -131,12 +132,6 @@ function parseMetrics(value: unknown): PlanMetricsDto {
     p90CoverageRatio:
       typeof record['p90CoverageRatio'] === 'number' ? record['p90CoverageRatio'] : 1,
   };
-}
-
-function parseExplanation(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === 'string')
-    : [];
 }
 
 function parseScope(value: unknown): PlanScope {
@@ -856,7 +851,12 @@ export class PgPlanningStore implements PlanningStore {
     } catch (error) {
       if (isPgError(error, '23P01')) {
         throw new ConstraintViolationError([
-          { code: 'H1', message: 'an approved block overlaps an active schedule block' },
+          {
+            code: 'H1',
+            message: 'an approved block overlaps an active schedule block',
+            messageCode: 'h1_active_block_overlap',
+            params: {},
+          },
         ]);
       }
       if (isPgError(error, '23503')) {
@@ -1124,7 +1124,12 @@ export class PgPlanningStore implements PlanningStore {
           policy: candidate.policy,
           blocks: jsonb(blocksJson(candidate.blocks)),
           metrics: jsonb(metricsJson(candidate.metrics)),
-          explanation: jsonb(candidate.explanation as unknown as JsonValue),
+          explanation: jsonb(
+            candidateExplanationJson(
+              candidate.explanation,
+              candidate.explanationItems,
+            ) as unknown as JsonValue,
+          ),
           diversity_note: candidate.diversityNote ?? null,
           feasible: candidate.feasible,
           deficit_min: candidate.deficitMin,
@@ -1165,6 +1170,7 @@ export class PgPlanningStore implements PlanningStore {
     generator_version: string;
   }): PlanCandidateDto {
     const metrics = parseMetrics(row.metrics);
+    const explanation = parseCandidateExplanation(row.explanation);
     return {
       id: row.id as Id,
       policy: row.policy as PlanCandidateDto['policy'],
@@ -1173,7 +1179,8 @@ export class PgPlanningStore implements PlanningStore {
       feasible: row.feasible,
       deficitMin: row.deficit_min,
       capacityDeficitMin: metrics.capacityDeficitMin,
-      explanation: parseExplanation(row.explanation),
+      explanation: explanation.explanation,
+      explanationItems: explanation.explanationItems,
       ...(row.diversity_note === null ? {} : { diversityNote: row.diversity_note }),
       generatorVersion: row.generator_version,
       inputHash: row.input_hash,

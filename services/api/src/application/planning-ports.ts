@@ -6,6 +6,7 @@ import type {
   CommitmentListQuery,
   CommitmentPage,
   CommitmentPatch,
+  ExplanationItem,
   Plan,
   PlanBlock,
   PlanCandidateDto,
@@ -65,6 +66,8 @@ export interface NewCandidate {
   readonly deficitMin: number;
   readonly capacityDeficitMin: number;
   readonly explanation: readonly string[];
+  /** FU-62: `explanationItems[i]` codes `explanation[i]`. */
+  readonly explanationItems: readonly ExplanationItem[];
   readonly diversityNote?: string | undefined;
   readonly generatorVersion: string;
   readonly inputHash: string;

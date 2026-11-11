@@ -15,38 +15,28 @@ import {
 } from './db/helpers.js';
 import {
   API_DIST_BUILD_ID_KEY,
-  acquireDistLease,
+  API_DIST_ROOT_KEY,
+  apiBuildWorkspaceEnv,
   apiDistArtifact,
   assertApiDistArtifact,
+  createApiBuildWorkspace,
   hasApiDistArtifact,
-  releaseDistLease,
-  writeApiDistBuildId,
+  removeApiBuildWorkspace,
+  type ApiBuildWorkspace,
 } from './support/dist-artifact.js';
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 120_000 });
 
 const apiRoot = fileURLToPath(new URL('..', import.meta.url));
-const distMain = join(apiRoot, 'dist', 'main.js');
-const slowFixture = join(apiRoot, 'test', 'support', 'slow-app.mjs');
-const distArtifact = apiDistArtifact();
+// The compiled app is built once by vitest globalSetup into a build workspace
+// private to this invocation; nothing else builds into or removes it, so no
+// lease is needed. The fixture is the workspace copy, whose `../../dist`
+// imports resolve to that same private artifact. See support/dist-artifact.ts.
+const distArtifact = apiDistArtifact(inject(API_DIST_ROOT_KEY));
 const expectedBuildId = inject(API_DIST_BUILD_ID_KEY);
-
-// dist is built once by vitest globalSetup. The lease is held for the whole
-// file so the build-smoke test below can rebuild dist without racing other
-// test files that spawn apps from it. Acquire outside hooks: while another
-// suite rebuilds dist the wait can exceed hookTimeout, so it must not be
-// charged to a suite hook. See support/dist-artifact.ts.
-await acquireDistLease();
-try {
-  assertApiDistArtifact(distArtifact, expectedBuildId);
-} catch (error) {
-  await releaseDistLease();
-  throw error;
-}
-
-afterAll(async () => {
-  await releaseDistLease();
-});
+const distMain = distArtifact.mainPath;
+const slowFixture = join(distArtifact.apiRoot, 'test', 'support', 'slow-app.mjs');
+assertApiDistArtifact(distArtifact, expectedBuildId);
 
 function baseEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
@@ -363,27 +353,33 @@ describe.skipIf(!hasDatabase)('production HTTP timeout regressions', () => {
 });
 
 describe('build smoke without DATABASE_URL', () => {
-  const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
-  const script = join(repoRoot, 'scripts', 'ci', 'build-smoke.mjs');
+  // build-smoke removes and rebuilds `services/api/dist` next to itself. It runs
+  // here as a byte copy inside its own build workspace, so it can neither touch
+  // the checkout's dist nor the artifact the other test files spawn from.
+  let workspace: ApiBuildWorkspace;
+
+  beforeAll(async () => {
+    workspace = await createApiBuildWorkspace();
+  });
+
+  afterAll(async () => {
+    await removeApiBuildWorkspace(workspace);
+  });
 
   function run(args: readonly string[]) {
-    const env: NodeJS.ProcessEnv = { ...process.env, CI: '' };
+    const env = apiBuildWorkspaceEnv(workspace, { ...process.env, CI: '' });
     delete env['DATABASE_URL'];
-    return spawnSync(process.execPath, [script, ...args], {
-      cwd: repoRoot,
-      env,
-      encoding: 'utf8',
-      timeout: 120_000,
-    });
+    return spawnSync(
+      process.execPath,
+      [join(workspace.root, 'scripts', 'ci', 'build-smoke.mjs'), ...args],
+      {
+        cwd: workspace.root,
+        env,
+        encoding: 'utf8',
+        timeout: 120_000,
+      },
+    );
   }
-
-  // build-smoke rebuilds dist in place; restore this invocation's build id
-  // so later test files can still assert the shared artifact.
-  afterAll(() => {
-    if (hasApiDistArtifact(distArtifact)) {
-      writeApiDistBuildId(distArtifact, expectedBuildId);
-    }
-  });
 
   test(
     'always compiles, then skips only for the optional developer command',
@@ -397,6 +393,11 @@ describe('build smoke without DATABASE_URL', () => {
       expect(required.status).toBe(1);
       expect(required.stdout).toContain('[build-smoke] build');
       expect(required.stderr).toContain('required from pnpm run ci');
+
+      // It compiled inside its own workspace and left this invocation's
+      // artifact (same build id, still complete) alone.
+      expect(hasApiDistArtifact(apiDistArtifact(workspace.apiRoot))).toBe(true);
+      expect(() => assertApiDistArtifact(distArtifact, expectedBuildId)).not.toThrow();
     },
     120_000,
   );
