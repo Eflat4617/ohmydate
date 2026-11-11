@@ -21,6 +21,7 @@
     "typecheck": "vue-tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@ohmydate/ui-policy": "workspace:*",
     "@tanstack/vue-query": "5.107.1",
     "openapi-fetch": "0.17.0",
     "pinia": "3.0.4",

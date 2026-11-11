@@ -196,6 +196,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@ohmydate/ui-policy':
+        specifier: workspace:*
+        version: link:../../packages/ui-policy
       '@tanstack/vue-query':
         specifier: 5.107.1
         version: 5.107.1(vue@3.5.45(typescript@5.9.3))
@@ -326,7 +329,11 @@ importers:
         specifier: 5.1.0
         version: 5.1.0(@types/node@24.19.2)(jsdom@27.4.0(supports-color@10.2.2))(msw@3.0.4(@types/node@24.19.2)(supports-color@10.2.2)(typescript@6.0.3)(vite@7.3.8(@types/node@24.19.2)(tsx@4.23.15)))(vite@7.3.8(@types/node@24.19.2)(tsx@4.23.15))
 
-  packages/ui-policy: {}
+  packages/ui-policy:
+    dependencies:
+      '@sinclair/typebox':
+        specifier: 0.34.52
+        version: 0.34.52
 
   services/api:
     dependencies:
