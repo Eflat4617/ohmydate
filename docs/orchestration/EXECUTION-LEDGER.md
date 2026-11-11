@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 07:05 | **M6-03R2 REQUEST_CHANGES → BLOCKED**(2회 후 HIGH): HIGH는 테스트 범위 공백(buildApp 경로의 real provider + 시나리오 거부 테스트 없음; 리뷰어 probe로 런타임 guard는 정상 확인). LOW: 삭제 완료 후 사용자 확인 누락. 정책대로 재설계 대신 **좁은 새 Task M6-03d**(새 라운드 예산, 같은 Opus worktree). FU-66 worker_done(565f80c) → FU-66R Sol ctx_dc113513749b | reviews/M6-03R2.md, packets/M6-03d.md | orchestrator |
 | 2026-11-12 07:00 | M6-03 fix worker_done(3f807ba) → M6-03R2 Sol medium ctx_6546ed9827dc(대체된 real-provider negative 확인 요청). **FU-79 시작**(DeepSeek): E2E-4가 UTC 21:45–24:00에 통합 브랜치에서도 실패(시각 의존), E2E-5 로그인 429 흔들림 | packets/FU-79.md | orchestrator |
 | 2026-11-12 06:58 | FU-66 worker_done(c12ff8f): fu41 property 113 s→17.6 s(가능한 형태만 생성, heavy 옵션 유지). **orchestrator 사전 지적**: perf gate 보정이 generate() 자체를 써서 균일한 성능 저하를 감출 수 있음 → 스케줄러와 무관한 고정 CPU 작업으로 보정 + 균일 저하 검출 self-test 요구 후 리뷰 | packets/FU-66.md | orchestrator |
 | 2026-11-12 06:55 | live contract smoke 재실행(FU-76 병합 후 통합 브랜치, 합성 입력): **12/12 schema-valid, 형식 재요청 0**(분해 v1 p50 20 s, v2 30 s) | evals/2026-11-12-contract-live-post-fu76.json | orchestrator |
