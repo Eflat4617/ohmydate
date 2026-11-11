@@ -79,6 +79,19 @@ function configuredRuns(): number {
 
 const NUM_RUNS = configuredRuns();
 
+/** Effective heavy-property sample; bounded by SCHED_PROPERTY_RUNS. */
+function configuredHeavyRuns(): number {
+  const raw = process.env.SCHED_HEAVY_RUNS;
+  const requested = raw === undefined ? 150 : Number.parseInt(raw, 10);
+  const runs = Number.isInteger(requested) && requested > 0 ? requested : 150;
+  return Math.max(40, Math.min(NUM_RUNS, runs));
+}
+
+/** Heavy-property timeout tracks the requested sample size. */
+function heavyTimeoutMs(): number {
+  return Math.max(240_000, configuredHeavyRuns() * 1_600);
+}
+
 interface TaskSpec {
   durationUnits: number;
   minUnits: number;
@@ -464,29 +477,55 @@ function fixedExistingBlocks(input: ScheduleInput): Block[] {
   );
 }
 
+function blockKeyOf(block: Block): string {
+  return `${block.taskId}|${block.start}|${block.end}`;
+}
+
 function independentH1Violation(
   blocks: Block[],
   commitments: Commitment[],
+  history: Block[],
+  candidate: Block[],
 ): boolean {
+  const historyKeys = new Set(history.map(blockKeyOf));
+  const candidateKeys = new Set(candidate.map(blockKeyOf));
   const intervals = blocks
     .map((block) => ({
       startMs: Temporal.Instant.from(block.start).epochMilliseconds,
       endMs: Temporal.Instant.from(block.end).epochMilliseconds,
-      taskId: block.taskId,
+      key: blockKeyOf(block),
     }))
     .sort((a, b) => a.startMs - b.startMs);
-  for (let index = 1; index < intervals.length; index += 1) {
-    const previous = intervals[index - 1];
-    const current = intervals[index];
-    if (
-      previous !== undefined &&
-      current !== undefined &&
-      current.startMs < previous.endMs
-    ) {
+  // Sweep with every still-active interval, not just the immediate predecessor:
+  // nested history can hide an outer interval that still overlaps the current
+  // one.
+  const active: typeof intervals = [];
+  for (const current of intervals) {
+    for (let index = active.length - 1; index >= 0; index -= 1) {
+      const entry = active[index];
+      if (entry !== undefined && entry.endMs <= current.startMs) {
+        active.splice(index, 1);
+      }
+    }
+    for (const previous of active) {
+      if (previous.endMs <= current.startMs) {
+        continue;
+      }
+      const involvesHistory =
+        historyKeys.has(previous.key) || historyKeys.has(current.key);
+      const involvesCandidate =
+        candidateKeys.has(previous.key) || candidateKeys.has(current.key);
+      if (involvesHistory && !involvesCandidate) {
+        continue;
+      }
       return true;
     }
+    active.push(current);
   }
   for (const block of blocks) {
+    if (historyKeys.has(blockKeyOf(block))) {
+      continue;
+    }
     const startMs = Temporal.Instant.from(block.start).epochMilliseconds;
     const endMs = Temporal.Instant.from(block.end).epochMilliseconds;
     for (const commitment of commitments) {
@@ -510,9 +549,23 @@ function independentH6Violation(
   maxDailyFocusMin: number,
   breakAfterMin: number,
   breakMin: number,
+  history: Block[],
 ): boolean {
-  for (const minutes of dailyLoadsByMinute(blocks, timeZone).values()) {
-    if (minutes > maxDailyFocusMin) {
+  const historyKeys = new Set(history.map(blockKeyOf));
+  const byDate = new Map<string, { total: number; audited: number }>();
+  for (const block of blocks) {
+    const audited = !historyKeys.has(blockKeyOf(block));
+    for (const [date, minutes] of dailyLoadsByMinute([block], timeZone)) {
+      const entry = byDate.get(date) ?? { total: 0, audited: 0 };
+      entry.total += minutes;
+      if (audited) {
+        entry.audited += minutes;
+      }
+      byDate.set(date, entry);
+    }
+  }
+  for (const entry of byDate.values()) {
+    if (entry.audited > 0 && entry.total > maxDailyFocusMin) {
       return true;
     }
   }
@@ -523,29 +576,35 @@ function independentH6Violation(
     .map((block) => ({
       startMs: Temporal.Instant.from(block.start).epochMilliseconds,
       endMs: Temporal.Instant.from(block.end).epochMilliseconds,
+      audited: !historyKeys.has(blockKeyOf(block)),
     }))
     .sort((a, b) => a.startMs - b.startMs);
   const breakMs = breakMin * 60 * 1000;
   const breakAfterMs = breakAfterMin * 60 * 1000;
   let runStart: number | undefined;
   let runEnd: number | undefined;
+  let runHasAudited = false;
   for (const interval of intervals) {
     if (runStart === undefined || runEnd === undefined) {
       runStart = interval.startMs;
       runEnd = interval.endMs;
+      runHasAudited = interval.audited;
       continue;
     }
     if (interval.startMs - runEnd >= breakMs) {
-      if (runEnd - runStart > breakAfterMs) {
+      if (runHasAudited && runEnd - runStart > breakAfterMs) {
         return true;
       }
       runStart = interval.startMs;
       runEnd = interval.endMs;
+      runHasAudited = interval.audited;
     } else {
       runEnd = Math.max(runEnd, interval.endMs);
+      runHasAudited = runHasAudited || interval.audited;
     }
   }
   return (
+    runHasAudited &&
     runStart !== undefined &&
     runEnd !== undefined &&
     runEnd - runStart > breakAfterMs
@@ -593,18 +652,7 @@ describe('generator properties', () => {
     // practical; the fast properties above still honour the full count.
     // SCHED_HEAVY_RUNS can raise the heavy-property sample; it is capped by
     // SCHED_PROPERTY_RUNS so the default 10k suite stays bounded.
-    const rawHeavyRuns = process.env.SCHED_HEAVY_RUNS;
-    const requestedHeavyRuns =
-      rawHeavyRuns === undefined ? 150 : Number.parseInt(rawHeavyRuns, 10);
-    const HEAVY_RUNS = Math.max(
-      40,
-      Math.min(
-        NUM_RUNS,
-        Number.isInteger(requestedHeavyRuns) && requestedHeavyRuns > 0
-          ? requestedHeavyRuns
-          : 150,
-      ),
-    );
+    const HEAVY_RUNS = configuredHeavyRuns();
     let feasibleInputs = 0;
     let totalInputs = 0;
     fc.assert(
@@ -645,16 +693,29 @@ describe('generator properties', () => {
             ).toBeGreaterThanOrEqual(nowMs);
           }
 
+          const lockedKeys = new Set(input.lockedBlocks.map(blockKeyOf));
+          const history = fixedExistingBlocks(input).filter(
+            (block) => !lockedKeys.has(blockKeyOf(block)),
+          );
+          const historyKeys = new Set(history.map(blockKeyOf));
           const fullPlan = uniqueBlocks([
             ...input.lockedBlocks,
-            ...fixedExistingBlocks(input),
+            ...history,
             ...candidate.blocks,
           ]);
 
-          expect(independentH1Violation(fullPlan, input.commitments)).toBe(
-            false,
-          );
+          expect(
+            independentH1Violation(
+              fullPlan,
+              input.commitments,
+              history,
+              candidate.blocks,
+            ),
+          ).toBe(false);
           for (const block of fullPlan) {
+            if (historyKeys.has(blockKeyOf(block))) {
+              continue;
+            }
             expect(
               isCoveredByMinutes(
                 input,
@@ -670,6 +731,7 @@ describe('generator properties', () => {
               input.prefs.maxDailyFocusMin,
               input.prefs.breakAfterMin,
               input.prefs.breakMin,
+              history,
             ),
           ).toBe(false);
         }
@@ -683,5 +745,145 @@ describe('generator properties', () => {
     expect(feasibleInputs / Math.max(1, totalInputs)).toBeGreaterThanOrEqual(
       0.3,
     );
-  }, 240000);
+  }, heavyTimeoutMs());
+
+  it('independent H1 catches a candidate under a nested history outer interval', () => {
+    const history: Block[] = [
+      {
+        taskId: 'B',
+        start: '2026-11-09T09:00:00Z',
+        end: '2026-11-09T12:00:00Z',
+      },
+      {
+        taskId: 'B',
+        start: '2026-11-09T09:30:00Z',
+        end: '2026-11-09T10:00:00Z',
+      },
+    ];
+    const candidate: Block[] = [
+      {
+        taskId: 'A',
+        start: '2026-11-09T10:30:00Z',
+        end: '2026-11-09T11:00:00Z',
+      },
+    ];
+    expect(
+      independentH1Violation(
+        [...history, ...candidate],
+        [],
+        history,
+        candidate,
+      ),
+    ).toBe(true);
+    const input = nestedHistoryInput('2026-11-09T17:00:00Z');
+    expect(
+      validate(input, candidate, {
+        riskLevel: 'p50',
+        historyBlocks: history,
+      }).map((violation) => violation.code),
+    ).toContain('H1');
+  });
+
+  it('adversarial nested-history property fails if audited H1 is disabled', () => {
+    const nestedH1Spec = fc.record({
+      innerStartUnits: fc.integer({ min: 0, max: 12 }),
+      innerUnits: fc.integer({ min: 1, max: 6 }),
+      gapUnits: fc.integer({ min: 2, max: 12 }),
+      candidateUnits: fc.integer({ min: 1, max: 6 }),
+      tailUnits: fc.integer({ min: 0, max: 6 }),
+    });
+    const unitMs = 5 * 60 * 1000;
+    const baseMs = Date.UTC(2026, 10, 9, 9, 0);
+    const iso = (ms: number): string => new Date(ms).toISOString();
+    fc.assert(
+      fc.property(nestedH1Spec, (spec) => {
+        const innerStart = spec.innerStartUnits;
+        const innerEnd = innerStart + spec.innerUnits;
+        const candidateStart = innerEnd + spec.gapUnits;
+        const candidateEnd = candidateStart + spec.candidateUnits;
+        const outerUnits = candidateEnd + spec.tailUnits;
+        const outer: Block = {
+          taskId: 'B',
+          start: iso(baseMs),
+          end: iso(baseMs + outerUnits * unitMs),
+        };
+        const inner: Block = {
+          taskId: 'B',
+          start: iso(baseMs + innerStart * unitMs),
+          end: iso(baseMs + innerEnd * unitMs),
+        };
+        const candidate: Block = {
+          taskId: 'A',
+          start: iso(baseMs + candidateStart * unitMs),
+          end: iso(baseMs + candidateEnd * unitMs),
+        };
+        const history = [outer, inner];
+        expect(
+          independentH1Violation(
+            [...history, candidate],
+            [],
+            history,
+            [candidate],
+          ),
+        ).toBe(true);
+        const input = nestedHistoryInput('2026-11-09T17:00:00Z');
+        expect(
+          validate(input, [candidate], {
+            riskLevel: 'p50',
+            historyBlocks: history,
+          }).map((violation) => violation.code),
+        ).toContain('H1');
+      }),
+      { numRuns: Math.min(NUM_RUNS, 300) },
+    );
+  });
+
+  function nestedHistoryInput(dueAt: string): ScheduleInput {
+    return {
+      now: '2026-11-09T09:00:00Z',
+      timeZone: 'UTC',
+      horizon: {
+        start: '2026-11-09T09:00:00Z',
+        end: dueAt,
+      },
+      tasks: [
+        {
+          id: 'A',
+          dueAt,
+          estimate: { p50Min: 30, p90Min: 30 },
+          splittable: true,
+          minSessionMin: 5,
+          maxSessionMin: 120,
+          priority: 1,
+          dependsOn: [],
+        },
+        {
+          id: 'B',
+          dueAt,
+          estimate: { p50Min: 60, p90Min: 60 },
+          remainingMin: 0,
+          splittable: false,
+          minSessionMin: 60,
+          maxSessionMin: 60,
+          priority: 1,
+          dependsOn: [],
+        },
+      ],
+      availability: [
+        { weekday: 1, startLocal: '00:00', endLocal: '24:00', kind: 'work' },
+      ],
+      exceptions: [],
+      commitments: [],
+      lockedBlocks: [],
+      prefs: {
+        maxDailyFocusMin: 480,
+        breakAfterMin: 480,
+        breakMin: 15,
+        riskLevel: 'p50',
+        dayStartLocal: '00:00',
+        dayEndLocal: '24:00',
+      },
+      seed: 39039,
+    };
+  }
 });

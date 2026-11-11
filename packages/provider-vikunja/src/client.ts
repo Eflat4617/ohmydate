@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   NotFoundError,
   ProviderUnavailableError,
@@ -23,6 +24,8 @@ export interface VikunjaClientOptions {
   readonly timeoutMs?: number;
   readonly retries?: number;
   readonly sleep?: (milliseconds: number) => Promise<void>;
+  /** Default cancellation signal for every request made by this client. */
+  readonly signal?: AbortSignal;
 }
 
 export interface VikunjaProblem {
@@ -114,6 +117,11 @@ export interface RequestOptions {
   readonly contentType?: string;
   readonly ifMatch?: string;
   readonly headers?: Readonly<Record<string, string>>;
+  /**
+   * Cancels this request when aborted. The token is combined with the
+   * per-attempt timeout; an aborted caller signal stops the retry loop.
+   */
+  readonly signal?: AbortSignal;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -135,6 +143,22 @@ export function vikunjaCallBudgetMs(): number {
 }
 const JSON_CONTENT_TYPE = 'application/json';
 const MERGE_PATCH_CONTENT_TYPE = 'application/merge-patch+json';
+
+/**
+ * Ambient cancellation context for provider calls made while serving a
+ * request. The API installs its shutdown signal here, so every Vikunja client
+ * used by the handler (including clients constructed outside the handler)
+ * observes the same deadline without threading a signal through every port.
+ */
+const abortSignalContext = new AsyncLocalStorage<AbortSignal>();
+
+export function runWithAbortSignal<T>(signal: AbortSignal, callback: () => T): T {
+  return abortSignalContext.run(signal, callback);
+}
+
+export function currentAbortSignal(): AbortSignal | undefined {
+  return abortSignalContext.getStore();
+}
 
 /**
  * Stable Vikunja numeric error codes observed on the v2.8.0 instance. Only the
@@ -230,6 +254,7 @@ export class VikunjaClient {
   readonly #timeoutMs: number;
   readonly #retries: number;
   readonly #sleep: (milliseconds: number) => Promise<void>;
+  readonly #defaultSignal: AbortSignal | undefined;
 
   #token: string | undefined;
 
@@ -239,6 +264,7 @@ export class VikunjaClient {
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#retries = options.retries ?? DEFAULT_RETRIES;
     this.#sleep = options.sleep ?? sleepDefault;
+    this.#defaultSignal = options.signal;
     this.#token = options.token;
   }
 
@@ -474,11 +500,16 @@ export class VikunjaClient {
     const url = `${this.#baseUrl}/api/v2${path}${buildQuery(options.query)}`;
     const idempotent = method === 'GET';
     const maxAttempts = idempotent ? this.#retries + 1 : 1;
+    const signal = options.signal ?? this.#defaultSignal ?? currentAbortSignal();
 
     let lastError: unknown;
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      if (isAborted(signal)) {
+        lastError = new ProviderUnavailableError('vikunja');
+        break;
+      }
       try {
-        return await this.#attempt<T>(method, url, options);
+        return await this.#attempt<T>(method, url, options, signal);
       } catch (error) {
         if (error instanceof TransportFailure) {
           lastError = error.domainError;
@@ -489,6 +520,9 @@ export class VikunjaClient {
           const retryable = idempotent && isNetworkError(error);
           if (!retryable || attempt + 1 >= maxAttempts) break;
         }
+        // A shutdown deadline must stop the retry loop even if it fires while
+        // the backoff sleep is pending.
+        if (isAborted(signal)) break;
         await this.#sleep(RETRY_BACKOFF_BASE_MS * 2 ** attempt);
       }
     }
@@ -502,9 +536,22 @@ export class VikunjaClient {
     method: string,
     url: string,
     options: RequestOptions,
+    signal: AbortSignal | undefined,
   ): Promise<ResponseEnvelope<T>> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
+    let abortedExternally = false;
+    const onExternalAbort = (): void => {
+      abortedExternally = true;
+      controller.abort();
+    };
+    if (signal !== undefined) {
+      if (signal.aborted) {
+        clearTimeout(timer);
+        throw new TransportFailure(new ProviderUnavailableError('vikunja'), false);
+      }
+      signal.addEventListener('abort', onExternalAbort, { once: true });
+    }
     const headers: Record<string, string> = {
       Accept: JSON_CONTENT_TYPE,
       ...options.headers,
@@ -528,12 +575,17 @@ export class VikunjaClient {
       });
       text = await response.text();
     } catch (error) {
+      if (abortedExternally) {
+        // The caller's shutdown signal is terminal: retrying cannot outlive it.
+        throw new TransportFailure(new ProviderUnavailableError('vikunja'), false);
+      }
       if (isAbortError(error)) {
         throw new TransportFailure(new ProviderUnavailableError('vikunja'), true);
       }
       throw error;
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onExternalAbort);
     }
 
     // Vikunja answers a merge-patch that changes nothing with 304 Not Modified.
@@ -594,6 +646,10 @@ function isAbortError(error: unknown): boolean {
     error instanceof Error &&
     (error.name === 'AbortError' || error.name === 'TimeoutError')
   );
+}
+
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal !== undefined && signal.aborted;
 }
 
 function isNetworkError(error: unknown): boolean {

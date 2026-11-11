@@ -16,7 +16,7 @@
   | GET | 선택 If-None-Match(304) | 없음 | — |
   | `/auth/login`, `/auth/logout` | 없음 | 없음 | — |
   모든 Problem 응답 media type = `application/problem+json`. 모든 경로는 입력 검증 실패 400(형식)/422(도메인), provider를 거치는 경로는 503을 개별 선언.
-- **멱등 기록 저장 규칙 확정(2026-11-11, M1-07R2 지적):** 저장·재생 대상은 **2xx 응답과 409/422 도메인 결과**뿐이다. 400/401/403/412/428/429/5xx 및 `idempotency_in_progress`는 저장하지 않으며 같은 키로 재시도 가능(키 예약은 해제). 요청 해시는 메서드+경로+정규화 본문으로 계산하고 **If-Match는 해시에 포함하지 않는다**. 클라이언트는 If-Match가 바뀌는 재시도(예: 충돌 후 덮어쓰기)에 새 키를 발급하는 것을 권장한다.
+- **멱등 기록 저장 규칙 확정(2026-11-11, M1-07R2 지적):** 저장·재생 대상은 **2xx 응답과 409/422 도메인 결과**뿐이다. 400/401/403/412/428/429/5xx, `idempotency_in_progress`, 그리고 일시적 경합 409 `approval_in_progress`(Retry-After 동반, ADR-020 §11)는 저장하지 않으며 같은 키로 재시도 가능(키 예약은 해제). 요청 해시는 메서드+경로+정규화 본문으로 계산하고 **If-Match는 해시에 포함하지 않는다**. 클라이언트는 If-Match가 바뀌는 재시도(예: 충돌 후 덮어쓰기)에 새 키를 발급하는 것을 권장한다.
 - 목록: `{items, nextCursor}` 커서 페이지네이션.
 - 권한: 모든 리소스 `owner_id = session.userId` 검사(리포지토리 레벨 강제).
 
@@ -67,6 +67,18 @@
 | POST /plans/{id}:regenerate | 412 후 재생성 |
 
 **승인 원자성:** 단일 PG 트랜잭션: (1) `SELECT … FOR UPDATE` user availability_version (2) 최신 commitments/locked로 validator 재실행 (3) 이전 active version 블록 `superseded` (4) 새 blocks insert(EXCLUDE 제약) (5) schedule_approval(idempotency_key unique) (6) outbox `plan.approved`. 하나라도 실패 시 롤백.
+
+### 2.4a 가용 시간·약속 (M3, 2026-11-11 추가)
+| 메서드 경로 | 설명 |
+|---|---|
+| GET /availability | `{version, timeZone, rules[{weekday,startLocal,endLocal,kind}], exceptions[{date,kind,startLocal?,endLocal?}], prefs{maxDailyFocusMin,breakAfterMin,breakMin,dayStartLocal,dayEndLocal,riskLevel}}` + `ETag: W/"availability:<version>"` |
+| PUT /availability | 전체 교체, `If-Match: W/"availability:<n>"`(누락 428/불일치 412), Idem. 성공 시 `availability_version` +1(사용자 단위 단조 증가) |
+| GET /commitments?from&to&cursor | 고정 약속(반복 포함, `rrule?` + IANA tz). 응답에 기간 내 **전개된 발생** `occurrences[]` 포함 |
+| POST /commitments | 201, Idem. 생성·변경·삭제 모두 `availability_version` +1 (승인 412 판정에 쓰임) |
+| PATCH /commitments/{id} · DELETE /commitments/{id} | If-Match(약속 version) + Idem |
+- 시간 규칙: rule/exception은 로컬 벽시계(사용자 tz), commitment는 Instant + tz(반복은 해당 tz 벽시계 기준 전개). 전개 상한: 조회 기간 ≤ 366일, 발생 ≤ 2,000건(초과 시 422 `validation_failed`).
+- 입력 상한(스케줄러 계약과 일치): 분 값은 정수 0..100000, horizon ≤ 366일(`MAX_HORIZON_DAYS`).
+- Plan(§2.4) 생성 시 서버가 위 데이터 + 승인된 활성 블록(locked/history)으로 `ScheduleInput`을 조립한다. 클라이언트는 ScheduleInput을 직접 보내지 않는다.
 
 ### 2.5 Today/Session (M4)
 | 메서드 경로 | 설명 |

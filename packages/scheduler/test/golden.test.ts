@@ -145,7 +145,7 @@ function historyBlocksOf(input: ScheduleInput): Block[] {
 }
 
 describe('golden cases G01-G15', () => {
-  it('contains all fourteen fixtures', () => {
+  it('contains all fifteen fixtures', () => {
     expect(fixtureFiles).toHaveLength(15);
   });
 

@@ -7,6 +7,7 @@ import {
 import {
   VikunjaClient,
   mapVikunjaError,
+  runWithAbortSignal,
   toValidationIssues,
 } from '../../src/client.js';
 import { FakeHttp } from './fake-http.js';
@@ -229,5 +230,106 @@ describe('VikunjaClient response validation', () => {
     });
 
     await expect(client.getTask('1')).rejects.toBeInstanceOf(ProviderUnavailableError);
+  });
+});
+
+describe('VikunjaClient abort signal', () => {
+  test('a caller abort stops the retry loop with no further attempts', async () => {
+    const controller = new AbortController();
+    let attempts = 0;
+    const sleeps: number[] = [];
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      retries: 5,
+      fetch: (_input, init) => {
+        attempts += 1;
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            reject(error);
+          });
+          // Abort while the first attempt is in flight, as a shutdown
+          // deadline does.
+          controller.abort();
+        });
+      },
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds);
+      },
+    });
+
+    await expect(
+      client.request('GET', '/tasks/1', { signal: controller.signal }),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(attempts).toBe(1);
+    expect(sleeps).toEqual([]);
+  });
+
+  test('an ambient request-context signal is observed without per-call wiring', async () => {
+    const controller = new AbortController();
+    let attempts = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      retries: 3,
+      fetch: (_input, init) => {
+        attempts += 1;
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            reject(error);
+          });
+          controller.abort();
+        });
+      },
+      sleep: async () => {},
+    });
+
+    await expect(
+      runWithAbortSignal(controller.signal, () => client.getTask('1')),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(attempts).toBe(1);
+  });
+
+  test('an already-aborted signal makes no fetch attempt at all', async () => {
+    let attempts = 0;
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      fetch: async () => {
+        attempts += 1;
+        return new Response('{}', { status: 200 });
+      },
+      sleep: async () => {},
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      client.request('GET', '/tasks/1', { signal: controller.signal }),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(attempts).toBe(0);
+  });
+});
+
+describe('abort context isolation', () => {
+  test('an aborted ambient context does not affect calls outside that context', async () => {
+    const http = new FakeHttp(() => ({ status: 200, body: { id: 1, title: 'ok' } }));
+    const client = new VikunjaClient({
+      baseUrl: 'http://vikunja.test',
+      fetch: http.fetch,
+      sleep: async () => {},
+    });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      runWithAbortSignal(controller.signal, () => client.getTask('1')),
+    ).rejects.toBeInstanceOf(ProviderUnavailableError);
+    expect(http.calls).toHaveLength(0);
+
+    const result = await client.getTask('1');
+    expect(result.data.title).toBe('ok');
+    expect(http.calls).toHaveLength(1);
   });
 });

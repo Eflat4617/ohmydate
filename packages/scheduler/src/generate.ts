@@ -26,7 +26,7 @@ import { POLICIES, POLICY_NAMES } from './policies.js';
 import { createPrng, type Prng } from './prng.js';
 import { canonicalJson, sha256Hex } from './hash.js';
 
-export const GENERATOR_VERSION = 'm3-02.3';
+export const GENERATOR_VERSION = 'm3-02.4';
 
 interface Interval {
   startMs: number;
@@ -145,10 +145,7 @@ export function generate(
   const issues = validateInput(input);
 
   if (issues.length > 0) {
-    const requiredTotal = input.tasks.reduce(
-      (sum, task) => sum + taskRequiredMinutes(task, input.prefs.riskLevel),
-      0,
-    );
+    const requiredTotal = finiteRequiredTotal(input);
     const candidates = requested.map((policy) =>
       invalidInputCandidate(policy, inputHash, issues, requiredTotal),
     );
@@ -266,6 +263,22 @@ function capacityDeficit(context: BuildContext): number {
       0,
     );
   }
+}
+
+/**
+ * Finite fallback total for rejected inputs. Invalid estimates (Infinity/NaN)
+ * must not leak into candidate metrics, so only finite non-negative values are
+ * summed.
+ */
+function finiteRequiredTotal(input: ScheduleInput): number {
+  let total = 0;
+  for (const task of input.tasks) {
+    const required = taskRequiredMinutes(task, input.prefs.riskLevel);
+    if (Number.isFinite(required) && required > 0) {
+      total += required;
+    }
+  }
+  return total;
 }
 
 function invalidInputCandidate(
@@ -925,9 +938,9 @@ function generateForPolicy(
 
   // Final fallback: no seeds. If a still-seeded attempt was feasible we never
   // get here, so the first feasible attempt wins. When every attempt is
-  // infeasible, keep the one with the most retained seeds and then the fewest
-  // violations, so the returned partial plan stays as close to the previous
-  // plan as possible.
+  // infeasible, rank by the smallest H7 deficit, then the fewest violations,
+  // and only then by retained seeds (plan continuity). Partial plans should
+  // first place as much required work as possible.
   if (result.violations.length > 0) {
     const noSeeds = runPlacementAttempt(
       context,
@@ -996,6 +1009,8 @@ interface PlacementAttempt {
   placements: Placement[];
   violations: Violation[];
   reasons: Set<string>;
+  /** H7 shortfall of this attempt, including locked minutes as placed. */
+  deficitMin: number;
 }
 
 function runPlacementAttempt(
@@ -1146,7 +1161,40 @@ function runPlacementAttempt(
 
   const blocks = blocksFromPlacements(finalPlacements);
   const violations = validatePlan(context, blocks);
-  return { placements: finalPlacements, violations, reasons };
+  return {
+    placements: finalPlacements,
+    violations,
+    reasons,
+    deficitMin: attemptDeficitMin(context, finalPlacements),
+  };
+}
+
+/** H7 shortfall for an attempt: required minutes minus live placements. */
+function attemptDeficitMin(
+  context: BuildContext,
+  placements: Placement[],
+): number {
+  const placedByTask = new Map<string, number>();
+  for (const placement of placements) {
+    placedByTask.set(
+      placement.taskId,
+      (placedByTask.get(placement.taskId) ?? 0) + placement.durationMin,
+    );
+  }
+  for (const interval of context.lockedIntervals) {
+    placedByTask.set(
+      interval.taskId,
+      (placedByTask.get(interval.taskId) ?? 0) +
+        (interval.endMs - interval.startMs) / MINUTE_MS,
+    );
+  }
+  let shortfall = 0;
+  for (const task of context.input.tasks) {
+    const required = taskRequiredMinutes(task, context.riskLevel);
+    const placed = placedByTask.get(task.id) ?? 0;
+    shortfall += Math.max(0, required - placed);
+  }
+  return shortfall;
 }
 
 function policySeedOffset(policy: PolicyName): number {
@@ -1176,10 +1224,13 @@ function isBetterAttempt(
   if (candidateFeasible !== currentFeasible) {
     return candidateFeasible;
   }
-  if (candidateSeeds !== currentSeeds) {
-    return candidateSeeds > currentSeeds;
+  if (candidate.deficitMin !== current.deficitMin) {
+    return candidate.deficitMin < current.deficitMin;
   }
-  return candidate.violations.length < current.violations.length;
+  if (candidate.violations.length !== current.violations.length) {
+    return candidate.violations.length < current.violations.length;
+  }
+  return candidateSeeds > currentSeeds;
 }
 
 function stateFromPlacements(
@@ -1594,44 +1645,33 @@ function h6WouldBreak(
     return false;
   }
 
-  let low = 0;
-  let high = intervals.length;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    const interval = intervals[middle];
-    if (interval !== undefined && interval.startMs <= startMs) {
-      low = middle + 1;
-    } else {
-      high = middle;
-    }
-  }
-
+  // Occupied intervals may nest or overlap (legitimate history under 06 §7.1),
+  // so a backward scan cannot stop at the first gap: an earlier interval can
+  // extend past the nearest one. Grow the run union until no interval joins
+  // within breakMin on either side.
   let runStart = startMs;
   let runEnd = endMs;
-  let index = low - 1;
-  while (index >= 0) {
-    const previous = intervals[index];
-    if (previous === undefined) {
-      break;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const interval of intervals) {
+      const joins =
+        interval.endMs <= runStart
+          ? runStart - interval.endMs < context.breakMs
+          : interval.startMs >= runEnd
+            ? interval.startMs - runEnd < context.breakMs
+            : interval.startMs < runEnd && interval.endMs > runStart;
+      if (!joins) {
+        continue;
+      }
+      const nextStart = Math.min(runStart, interval.startMs);
+      const nextEnd = Math.max(runEnd, interval.endMs);
+      if (nextStart !== runStart || nextEnd !== runEnd) {
+        runStart = nextStart;
+        runEnd = nextEnd;
+        changed = true;
+      }
     }
-    if (runStart - previous.endMs >= context.breakMs) {
-      break;
-    }
-    runStart = Math.min(runStart, previous.startMs);
-    runEnd = Math.max(runEnd, previous.endMs);
-    index -= 1;
-  }
-  index = low;
-  while (index < intervals.length) {
-    const next = intervals[index];
-    if (next === undefined) {
-      break;
-    }
-    if (next.startMs - runEnd >= context.breakMs) {
-      break;
-    }
-    runEnd = Math.max(runEnd, next.endMs);
-    index += 1;
   }
   return runEnd - runStart > context.breakAfterMs;
 }

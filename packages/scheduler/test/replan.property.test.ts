@@ -217,13 +217,23 @@ const advanceTaskSpec = fc.record({
   maxUnits: fc.constantFrom(12, 18, 24, 36),
   priority: fc.integer({ min: 1, max: 4 }),
   splittable: fc.boolean(),
+  dependencyMode: fc.integer({ min: 0, max: 1 }),
 });
 
 const advanceSpec = fc.record({
   scenario: fc.constantFrom(...SCENARIOS),
   window: fc.constantFrom(...WINDOWS),
   windowKind: fc.constantFrom<'all' | 'weekdays'>('all', 'weekdays'),
-  tasks: fc.array(advanceTaskSpec, { minLength: 1, maxLength: 3 }),
+  tasks: fc.array(advanceTaskSpec, { minLength: 1, maxLength: 6 }),
+  commitments: fc.array(
+    fc.record({
+      startStep: fc.integer({ min: 0, max: 400 }),
+      lengthSteps: fc.constantFrom(6, 12),
+    }),
+    { maxLength: 1 },
+  ),
+  maxDailyFocusMin: fc.constantFrom(180, 240, 480),
+  breakAfterMin: fc.constantFrom(120, 240, 480),
   policy: fc.constantFrom<'front_loaded' | 'balanced' | 'focus_blocked'>(
     'front_loaded',
     'balanced',
@@ -243,7 +253,11 @@ type AdvanceSpec = {
     maxUnits: number;
     priority: number;
     splittable: boolean;
+    dependencyMode: number;
   }>;
+  commitments: Array<{ startStep: number; lengthSteps: number }>;
+  maxDailyFocusMin: number;
+  breakAfterMin: number;
   policy: 'front_loaded' | 'balanced' | 'focus_blocked';
   seed: number;
   pivotIndex: number;
@@ -272,7 +286,20 @@ function buildAdvanceInput(specValue: AdvanceSpec): ScheduleInput {
         ? Math.max(entry.durationUnits, entry.maxUnits) * 5
         : durationMin,
       priority: entry.priority as 1 | 2 | 3 | 4,
-      dependsOn: [],
+      dependsOn:
+        index > 0 && entry.dependencyMode === 1 ? [`T${index - 1}`] : [],
+    };
+  });
+  const horizonStartMs = Date.parse(specValue.scenario.start);
+  const horizonEndMs = Date.parse(specValue.scenario.end);
+  const commitments = specValue.commitments.map((entry) => {
+    const startMs = Math.min(
+      horizonStartMs + entry.startStep * 5 * 60 * 1000,
+      horizonEndMs - entry.lengthSteps * 5 * 60 * 1000,
+    );
+    return {
+      start: new Date(startMs).toISOString(),
+      end: new Date(startMs + entry.lengthSteps * 5 * 60 * 1000).toISOString(),
     };
   });
   return {
@@ -285,11 +312,11 @@ function buildAdvanceInput(specValue: AdvanceSpec): ScheduleInput {
     tasks,
     availability,
     exceptions: [],
-    commitments: [],
+    commitments,
     lockedBlocks: [],
     prefs: {
-      maxDailyFocusMin: 480,
-      breakAfterMin: 480,
+      maxDailyFocusMin: specValue.maxDailyFocusMin,
+      breakAfterMin: specValue.breakAfterMin,
       breakMin: 15,
       riskLevel: 'p50',
       dayStartLocal: '00:00',

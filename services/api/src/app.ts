@@ -34,6 +34,7 @@ import {
   type FastifyValidationError,
 } from './http/problem.js';
 import { createRuntime, registerRoutes } from './http/routes.js';
+import { installShutdownContext } from './http/shutdown-context.js';
 import './http/fastify-augment.js';
 
 export type LoggerOption = NonNullable<FastifyServerOptions['logger']>;
@@ -307,6 +308,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   app.server.timeout = connectionTimeoutMs;
 
   app.decorateRequest('authSession', null);
+  installShutdownContext(app);
   await app.register(cookie);
 
   app.addHook('onSend', async (request, reply, payload) => {

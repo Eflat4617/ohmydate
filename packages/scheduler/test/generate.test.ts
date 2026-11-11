@@ -492,6 +492,51 @@ describe('plan generator', () => {
     expect(result.candidates[0]?.metrics.p90CoverageRatio).toBe(1);
   });
 
+  it('ranks all-infeasible attempts by deficit before retained seeds', () => {
+    const seedBlock: Block = {
+      taskId: 'A',
+      start: '2026-11-09T09:00:00Z',
+      end: '2026-11-09T09:30:00Z',
+    };
+    const input = makeInput({
+      tasks: [
+        makeTask({
+          id: 'A',
+          dueAt: '2026-11-09T10:00:00Z',
+          estimate: { p50Min: 90, p90Min: 90 },
+          minSessionMin: 30,
+          maxSessionMin: 60,
+        }),
+      ],
+      availability: [
+        { weekday: 1, startLocal: '09:00', endLocal: '10:00', kind: 'work' },
+      ],
+      horizon: {
+        start: '2026-11-09T00:00:00Z',
+        end: '2026-11-10T00:00:00Z',
+      },
+      existingBlocks: [seedBlock],
+    });
+    const withoutSeed = { ...input, existingBlocks: [] };
+
+    const seeded = generate(input, {
+      policies: ['front_loaded'],
+      seed: input.seed,
+    }).candidates[0];
+    const fresh = generate(withoutSeed, {
+      policies: ['front_loaded'],
+      seed: input.seed,
+    }).candidates[0];
+
+    expect(seeded?.feasible).toBe(false);
+    expect(fresh?.feasible).toBe(false);
+    expect(seeded?.deficitMin).toBe(45);
+    expect(seeded?.deficitMin).toBe(fresh?.deficitMin);
+    expect(seeded?.explanation.join('\n')).toContain(
+      'retaining 0 existing block(s)',
+    );
+  });
+
   it('documents and versions policy ordering and slot rules', () => {
     expect(POLICY_VERSION).toBe('1.0.0');
     expect(

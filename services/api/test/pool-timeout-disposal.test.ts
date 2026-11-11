@@ -72,3 +72,86 @@ describe.skipIf(!hasDatabase)('client-side query timeout disposal', () => {
     30_000,
   );
 });
+
+describe.skipIf(!hasDatabase)('transaction and callback checkout pool discipline', () => {
+  test(
+    'a blackholed Kysely transaction times out, rolls back and gets a fresh client',
+    async () => {
+      const proxy: DropProxy = await startDropProxy(databaseUrl as string);
+      const pool = createDatabasePool(proxy.connectionString, {
+        PG_QUERY_TIMEOUT_MS: '400',
+      });
+      pool.options.max = 1;
+      attachPoolErrorHandler(pool, () => undefined);
+      const db = new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
+
+      try {
+        const first = await sql<{ pid: number }>`select pg_backend_pid() as pid`.execute(db);
+        const firstPid = first.rows[0]?.pid;
+        expect(typeof firstPid).toBe('number');
+
+        proxy.pause();
+        const startedAt = Date.now();
+        // BEGIN, the body query and the rollback all hit the black hole. Each
+        // client-side deadline must release a poisoned client instead of
+        // returning it to the pool.
+        await expect(
+          db.transaction().execute(async (trx) => {
+            await sql`select 1`.execute(trx);
+          }),
+        ).rejects.toThrow(/query read timeout|timeout/i);
+        expect(Date.now() - startedAt).toBeLessThan(5_000);
+
+        proxy.resume();
+        const second = await sql<{ pid: number }>`select pg_backend_pid() as pid`.execute(db);
+        expect(second.rows[0]?.pid).not.toBe(firstPid);
+      } finally {
+        proxy.resume();
+        await db.destroy();
+        await proxy.close();
+      }
+    },
+    30_000,
+  );
+
+  test(
+    'twenty callback checkouts release without leaking pool counters',
+    async () => {
+      const pool = createDatabasePool(databaseUrl as string, {});
+      pool.options.max = 1;
+      attachPoolErrorHandler(pool, () => undefined);
+
+      try {
+        await Promise.all(
+          Array.from(
+            { length: 20 },
+            () =>
+              new Promise<void>((resolve, reject) => {
+                pool.connect((error, client, done) => {
+                  if (error !== undefined || client === undefined) {
+                    reject(error ?? new Error('no callback client'));
+                    return;
+                  }
+                  client.query('select 1', (queryError) => {
+                    done();
+                    if (queryError !== undefined && queryError !== null) {
+                      reject(queryError);
+                    } else {
+                      resolve();
+                    }
+                  });
+                });
+              }),
+          ),
+        );
+
+        expect(pool.totalCount).toBe(1);
+        expect(pool.idleCount).toBe(1);
+        expect(pool.waitingCount).toBe(0);
+      } finally {
+        await pool.end();
+      }
+    },
+    30_000,
+  );
+});
