@@ -1,4 +1,5 @@
 import {
+  ESTIMATOR_VERSION,
   NotFoundError,
   VersionConflictError,
   instantToEpochMs,
@@ -24,6 +25,8 @@ import type {
 type Db = Kysely<Database>;
 type Trx = Transaction<Database>;
 
+/** Marks template.stats written by the estimator (05 §10 learned values). */
+const LEARNED_STATS_SOURCE = ESTIMATOR_VERSION;
 const STEP_KINDS: ReadonlySet<string> = new Set(['prep', 'work', 'review', 'buffer']);
 const METHODS: ReadonlySet<string> = new Set(['prior', 'template', 'personal', 'llm']);
 
@@ -156,7 +159,19 @@ export class PgEstimationStore implements EstimationStore {
         }
       }
       for (const entry of plan.templateStats) {
-        const stats = (entry.stats ?? {}) as unknown as JsonValue;
+        if (entry.stats === null) {
+          // No personal samples (left): clear only stats this estimator wrote;
+          // seeded/system stats are template input, not learned values.
+          await trx
+            .updateTable('task_template')
+            .set({ stats: jsonb({}), updated_at: nowDate })
+            .where('id', '=', entry.templateId)
+            .where('owner_id', '=', ownerId)
+            .where(sql<boolean>`stats->>'source' = ${LEARNED_STATS_SOURCE}`)
+            .execute();
+          continue;
+        }
+        const stats = { ...entry.stats, source: LEARNED_STATS_SOURCE } as unknown as JsonValue;
         await trx
           .updateTable('task_template')
           .set({ stats: jsonb(stats), updated_at: nowDate })
@@ -232,6 +247,7 @@ export class PgEstimationStore implements EstimationStore {
         .updateTable('task_template')
         .set({ stats: jsonb({}) })
         .where('owner_id', '=', ownerId)
+        .where(sql<boolean>`stats->>'source' = ${LEARNED_STATS_SOURCE}`)
         .execute();
       return;
     }
@@ -260,6 +276,7 @@ export class PgEstimationStore implements EstimationStore {
       .set({ stats: jsonb({}) })
       .where('owner_id', '=', ownerId)
       .where('id', '=', templateId)
+      .where(sql<boolean>`stats->>'source' = ${LEARNED_STATS_SOURCE}`)
       .execute();
   }
 

@@ -204,7 +204,7 @@ export interface EstimationSample {
   readonly actualFocusMin: number;
   /** Owner override (05 §10). */
   readonly excluded: boolean;
-  /** Ordering key for "latest per task": ISO instant, then id. */
+  /** Ordering key for "latest per task": canonical UTC ISO instant, then id. */
   readonly createdAt: string;
 }
 
@@ -257,10 +257,13 @@ function stdDev(values: readonly number[]): number {
   return Math.sqrt(variance);
 }
 
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** UTC ISO instants of one canonical spelling order lexicographically. */
 function compareSamples(a: EstimationSample, b: EstimationSample): number {
-  const byTime = Date.parse(a.createdAt) - Date.parse(b.createdAt);
-  if (byTime !== 0 && Number.isFinite(byTime)) return byTime;
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  return compareText(a.createdAt, b.createdAt) || compareText(a.id, b.id);
 }
 
 function usable(sample: EstimationSample): boolean {

@@ -56,7 +56,7 @@ import {
   type LlmPort,
   type RedactionKind,
 } from '@ohmydate/llm';
-import { NotFoundError, isInstant } from '@ohmydate/domain';
+import { NotFoundError, coldStartEstimate, isInstant } from '@ohmydate/domain';
 import {
   currentAbortSignal,
   runWithAbortSignal,
@@ -1159,7 +1159,13 @@ export class IntakeService {
         }
 
         assertOwned();
-        const generatedMethod = session.manual || this.#llm === null ? 'template' : 'llm';
+        // 05 §6 cold start: a confirmed template (or the manual/no-LLM path,
+        // which has always been recorded as template) is the template prior;
+        // otherwise the LLM estimate is inflated x1.3 with confidence <= 0.3.
+        const generatedMethod =
+          session.manual || this.#llm === null || session.templateId !== undefined
+            ? 'template'
+            : 'llm';
         const edited = new Set(stored.editedEstimateKeys);
         const uniqueIdentityTasks = [
           ...new Map(identityTasks.map((task) => [task.id, task])).values(),
@@ -1172,17 +1178,29 @@ export class IntakeService {
           const taskId = taskIds.get(step.key);
           if (taskId === undefined || !identityIds.has(taskId)) return [];
           // FU-48: a user-edited estimate is the user's own statement and is
-          // recorded as `personal` (04 §2 method enum), not as the generator's
-          // method. Values are kept exactly as approved in the draft.
-          const method = edited.has(step.key) ? 'personal' : generatedMethod;
+          // recorded as `personal` (04 §2 method enum) at the edited value,
+          // not as the generator's method. Every value lands on the 5-minute
+          // scheduler grid (a non-grid requirement can never be placed).
+          const interval = {
+            p50Min: step.estimate.p50Minutes,
+            p90Min: step.estimate.p90Minutes,
+          };
+          const estimate = edited.has(step.key)
+            ? coldStartEstimate({ user: interval })
+            : generatedMethod === 'template'
+              ? coldStartEstimate({
+                  template: interval,
+                  ...(session.templateId === undefined ? {} : { templateId: session.templateId }),
+                })
+              : coldStartEstimate({ llm: interval });
           return [
             {
               id: this.#ids.next(),
               taskId,
-              p50Min: step.estimate.p50Minutes,
-              p90Min: step.estimate.p90Minutes,
-              method,
-              confidence: method === 'template' ? 0.6 : 0.5,
+              p50Min: estimate.p50Min,
+              p90Min: estimate.p90Min,
+              method: estimate.method as 'template' | 'llm' | 'personal',
+              confidence: estimate.confidence,
             } as const,
           ];
         });

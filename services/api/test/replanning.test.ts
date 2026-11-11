@@ -3,7 +3,7 @@ import {
   type PlanVersionDto,
   type ReplanProposal,
   type RouteDefinition,
-  type ScheduleBlockPage,
+  type ScheduleBlockDto,
 } from '@ohmydate/contracts';
 import type { InjectOptions } from 'fastify';
 import type { Id, Instant } from '@ohmydate/domain';
@@ -82,7 +82,7 @@ describe.skipIf(!hasDatabase)('replan proposals API (M5-02)', () => {
       headers: authHeaders(session),
     });
     expect(response.statusCode).toBe(200);
-    return (response.json() as ScheduleBlockPage).items;
+    return (response.json() as { items: ScheduleBlockDto[] }).items;
   }
 
   async function setCurrentEstimate(ownerId: Id, taskId: Id, p50Min: number, p90Min: number) {

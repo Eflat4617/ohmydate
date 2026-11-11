@@ -1180,8 +1180,7 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       const auth = currentAuth(request);
       const profile = await runtime.estimation.profile(auth.userId);
       // generatedAt changes on every read; the validator covers the content.
-      const { generatedAt: _generatedAt, ...content } = profile;
-      const etag = etagForBody(content);
+      const etag = etagForBody({ ...profile, generatedAt: null });
       if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
       return reply.code(200).header('ETag', etag).send(profile);
     },
