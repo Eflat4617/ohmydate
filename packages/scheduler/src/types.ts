@@ -120,6 +120,15 @@ export interface ScheduleInput {
    * audited for H2/H4/H5 and do not reduce `remainingMin`.
    */
   existingBlocks?: Block[];
+  /**
+   * 06 §7.1 caller contract (FU-59): tasks the replan must release even when
+   * their existing blocks still look valid. The scheduler cannot infer removed
+   * dependency edges or an edit that already satisfies dependency order, so the
+   * caller supplies them explicitly. These tasks join the affected set, their
+   * transitive successors, and the staged predecessor expansion; every other
+   * future existing block stays frozen.
+   */
+  affectedTaskIds?: Id[];
   prefs: Preferences;
   seed: number;
 }
