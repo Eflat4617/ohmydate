@@ -141,6 +141,7 @@ const shrinkTarget = ref(25);
 const busy = ref(false);
 const proposal = ref<TodayProposal | null>(null);
 const proposalError = ref<string | null>(null);
+const retryBusy = ref(false);
 
 const quarantinedCount = computed(() => {
   void quarantineRevision.value;
@@ -148,14 +149,20 @@ const quarantinedCount = computed(() => {
 });
 
 async function retryQuarantine(): Promise<void> {
+  if (retryBusy.value) return;
+  retryBusy.value = true;
   const binding = captureOwnerBinding();
-  await retryQuarantinedFocusEvents({
-    store: sessionStore,
-    online: offline.online,
-    binding,
-  });
-  if (offline.online && isOwnerBindingCurrent(binding)) {
-    await flushFocusJournal({ store: sessionStore, online: true });
+  try {
+    await retryQuarantinedFocusEvents({
+      store: sessionStore,
+      online: offline.online,
+      binding,
+    });
+    if (offline.online && isOwnerBindingCurrent(binding)) {
+      await flushFocusJournal({ store: sessionStore, online: true });
+    }
+  } finally {
+    retryBusy.value = false;
   }
 }
 
@@ -396,8 +403,8 @@ function resumeActive(): void {
         be replayed and {{ quarantinedCount === 1 ? 'was' : 'were' }} set aside on this device.
       </p>
       <div class="dialog-actions">
-        <button type="button" @click="retryQuarantine">Retry upload</button>
-        <button type="button" @click="dismissQuarantine">Dismiss</button>
+        <button type="button" :disabled="retryBusy" @click="retryQuarantine">Retry upload</button>
+        <button type="button" :disabled="retryBusy" @click="dismissQuarantine">Dismiss</button>
       </div>
     </section>
 

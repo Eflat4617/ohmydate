@@ -61,6 +61,7 @@ const resumeOffer = ref(false);
 const feedback = ref<EstimationFeedback | null>(null);
 const reviewBusy = ref(false);
 const reviewError = ref<string | null>(null);
+const retryBusy = ref(false);
 const actions = new ActionStore();
 let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -98,14 +99,20 @@ const quarantinedCount = computed(() => {
 });
 
 async function retryQuarantine(): Promise<void> {
+  if (retryBusy.value) return;
+  retryBusy.value = true;
   const binding = captureOwnerBinding();
-  await retryQuarantinedFocusEvents({
-    store: sessions,
-    online: offline.online,
-    binding,
-  });
-  if (offline.online && isOwnerBindingCurrent(binding)) {
-    await flushFocusJournal({ store: sessions, online: true });
+  try {
+    await retryQuarantinedFocusEvents({
+      store: sessions,
+      online: offline.online,
+      binding,
+    });
+    if (offline.online && isOwnerBindingCurrent(binding)) {
+      await flushFocusJournal({ store: sessions, online: true });
+    }
+  } finally {
+    retryBusy.value = false;
   }
 }
 
@@ -502,8 +509,8 @@ watch(
         be replayed and {{ quarantinedCount === 1 ? 'was' : 'were' }} set aside on this device.
       </p>
       <div class="dialog-actions">
-        <button type="button" @click="retryQuarantine">Retry upload</button>
-        <button type="button" @click="dismissQuarantine">Dismiss</button>
+        <button type="button" :disabled="retryBusy" @click="retryQuarantine">Retry upload</button>
+        <button type="button" :disabled="retryBusy" @click="dismissQuarantine">Dismiss</button>
       </div>
     </section>
 

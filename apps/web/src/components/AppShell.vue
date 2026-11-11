@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
@@ -100,8 +100,17 @@ function onKeydown(event: KeyboardEvent): void {
 onMounted(() => {
   teardownOffline = offline.initialize();
   window.addEventListener('keydown', onKeydown);
-  if (auth.user === null) void auth.loadCurrent();
+  void auth.ensureOwnerConfirmed();
 });
+
+watch(
+  () => auth.bootstrapState,
+  (state) => {
+    if (state === 'anonymous' && route.name !== 'login' && router.hasRoute('login')) {
+      void router.replace({ name: 'login' });
+    }
+  },
+);
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown);
@@ -110,20 +119,25 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <a class="skip-link" href="#main-content">Skip to content</a>
-  <div class="app-shell">
-    <NavRail />
-    <div class="app-main">
-      <OfflineBanner />
-      <main id="main-content" tabindex="-1">
-        <slot />
-      </main>
-    </div>
-    <BottomNav />
+  <div v-if="!auth.confirmed" class="app-shell app-shell--loading" role="status" aria-live="polite">
+    <p class="muted">Loading OhMyDate…</p>
   </div>
-  <ToastHost />
-  <HelpDialog :open="ui.helpOpen" @close="ui.closeDialogs()" />
-  <SearchDialog :open="ui.searchOpen" @close="ui.closeDialogs()" />
-  <NotificationsPanel :open="ui.notificationsOpen" @close="ui.closeDialogs()" />
-  <LlmConsentDialog :open="consentOpen" @close="consentDismissed = true" />
+  <template v-else>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <div class="app-shell">
+      <NavRail />
+      <div class="app-main">
+        <OfflineBanner />
+        <main id="main-content" tabindex="-1">
+          <slot />
+        </main>
+      </div>
+      <BottomNav />
+    </div>
+    <ToastHost />
+    <HelpDialog :open="ui.helpOpen" @close="ui.closeDialogs()" />
+    <SearchDialog :open="ui.searchOpen" @close="ui.closeDialogs()" />
+    <NotificationsPanel :open="ui.notificationsOpen" @close="ui.closeDialogs()" />
+    <LlmConsentDialog :open="consentOpen" @close="consentDismissed = true" />
+  </template>
 </template>

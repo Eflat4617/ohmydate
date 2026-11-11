@@ -7,9 +7,11 @@ import {
   writeActiveOwnerId,
 } from '../session/owner';
 import {
+  adoptActiveOwner,
   isOwnerBindingCurrent,
   onActiveOwnerChange,
-  setActiveOwner,
+  ownerChanged,
+  ownerState,
   type OwnerBinding,
 } from '../session/ownerEpoch';
 
@@ -56,9 +58,7 @@ export const useSessionStore = defineStore('session', () => {
     pendingCount.value = 0;
     syncState.value = 'idle';
     syncMessage.value = null;
-  });
-
-  const active = computed<WorkSession | null>(() => {
+  });  const active = computed<WorkSession | null>(() => {
     const all = Object.values(sessions.value);
     return (
       all.find((session) => session.state === 'active') ??
@@ -127,9 +127,14 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   function setOwner(nextOwnerId: string | null): void {
-    setActiveOwner(nextOwnerId);
+    const previous = ownerState.ownerId.value;
+    if (nextOwnerId !== previous) {
+      ownerChanged(previous, nextOwnerId, 'session-store');
+    } else {
+      adoptActiveOwner(nextOwnerId, 'session-store');
+      writeActiveOwnerId(nextOwnerId);
+    }
     ownerId.value = nextOwnerId;
-    writeActiveOwnerId(nextOwnerId);
     sessions.value = readStorage(nextOwnerId);
     pendingCount.value = 0;
     syncState.value = 'idle';

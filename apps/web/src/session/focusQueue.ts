@@ -12,10 +12,11 @@ import {
   type OwnerBinding,
 } from './ownerEpoch';
 import {
-  clearQuarantine,
   listQuarantine,
   quarantineRecord,
+  removeQuarantinedEntries,
 } from './quarantine';
+import { withOwnerLock } from './ownerLock';
 
 export interface FocusStoreLike {
   get(sessionId: string): WorkSession | null;
@@ -146,7 +147,9 @@ export function flushFocusJournal(options: QueueOptions): Promise<FlushResult> {
   }
   const existing = byOwner.get(key);
   if (existing !== undefined) return existing;
-  const pending = runFlush({ ...options, journal, binding }).finally(() => {
+  const pending = withOwnerLock(binding.ownerId, () =>
+    runFlush({ ...options, journal, binding }),
+  ).finally(() => {
     byOwner?.delete(key);
   });
   byOwner.set(key, pending);
@@ -168,33 +171,49 @@ function withQuarantine(message: string, quarantined: number): string {
 export async function retryQuarantinedFocusEvents(options: QueueOptions): Promise<number> {
   const journal = options.journal ?? defaultJournal;
   const binding = options.binding ?? captureOwnerBinding();
-  const entries = listQuarantine(binding.ownerId);
-  if (entries.length === 0) return 0;
-  let requeued = 0;
-  for (const entry of entries) {
-    const record = entry.record;
-    await journal.append(
-      {
-        id: record.id,
-        sessionId: record.sessionId,
-        kind: record.kind,
-        clientAt: record.clientAt,
-        idempotencyKey: record.idempotencyKey,
-        expectedVersion: record.expectedVersion,
-      },
-      binding.ownerId,
+  return withOwnerLock(binding.ownerId, async () => {
+    if (!isOwnerBindingCurrent(binding)) return 0;
+    const entries = listQuarantine(binding.ownerId);
+    if (entries.length === 0) return 0;
+    const queuedKeys = new Set(
+      (await journal.list(undefined, binding.ownerId)).map((record) => record.idempotencyKey),
     );
-    requeued += 1;
-  }
-  clearQuarantine(binding.ownerId);
-  const remaining = await remainingFor(journal, binding);
-  options.store.setPendingCount(remaining, binding);
-  options.store.setSyncState(
-    'offline',
-    `${remaining} focus event${remaining === 1 ? '' : 's'} re-queued from quarantine. Uploading automatically when you reconnect.`,
-    binding,
-  );
-  return requeued;
+    const requeued = new Set<string>();
+    for (const entry of entries) {
+      if (!isOwnerBindingCurrent(binding)) break;
+      const record = entry.record;
+      if (queuedKeys.has(record.idempotencyKey)) {
+        requeued.add(record.idempotencyKey);
+        continue;
+      }
+      try {
+        await journal.append(
+          {
+            id: record.id,
+            sessionId: record.sessionId,
+            kind: record.kind,
+            clientAt: record.clientAt,
+            idempotencyKey: record.idempotencyKey,
+            expectedVersion: record.expectedVersion,
+          },
+          binding.ownerId,
+        );
+        queuedKeys.add(record.idempotencyKey);
+        requeued.add(record.idempotencyKey);
+      } catch {
+        break;
+      }
+    }
+    removeQuarantinedEntries(binding.ownerId, requeued);
+    const remaining = await remainingFor(journal, binding);
+    options.store.setPendingCount(remaining, binding);
+    options.store.setSyncState(
+      'offline',
+      `${remaining} focus event${remaining === 1 ? '' : 's'} re-queued from quarantine. Uploading automatically when you reconnect.`,
+      binding,
+    );
+    return requeued.size;
+  });
 }
 
 async function runFlush(

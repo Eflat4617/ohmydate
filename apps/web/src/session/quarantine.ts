@@ -47,6 +47,25 @@ export function quarantineRecord(
   }
 }
 
+export function removeQuarantinedEntries(
+  ownerId: string | null,
+  idempotencyKeys: Iterable<string>,
+): void {
+  if (typeof localStorage === 'undefined') return;
+  const remove = new Set(idempotencyKeys);
+  if (remove.size === 0) return;
+  const entries = listQuarantine(ownerId);
+  const kept = entries.filter((entry) => !remove.has(entry.record.idempotencyKey));
+  if (kept.length === entries.length) return;
+  try {
+    if (kept.length === 0) localStorage.removeItem(storageKey(ownerId));
+    else localStorage.setItem(storageKey(ownerId), JSON.stringify(kept));
+    quarantineRevision.value += 1;
+  } catch (cause) {
+    void cause;
+  }
+}
+
 export function clearQuarantine(ownerId: string | null): void {
   if (typeof localStorage === 'undefined') return;
   try {

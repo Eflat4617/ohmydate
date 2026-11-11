@@ -11,6 +11,7 @@ const monthlyUsd = ref(5);
 const consent = computed(() => auth.user?.llm?.consent);
 const budget = computed(() => auth.user?.llm?.budget);
 const deepseek = computed(() => auth.user?.llmProvider === 'deepseek');
+const ready = computed(() => auth.confirmed && auth.user !== null);
 
 function syncBudget(): void {
   dailyUsd.value = budget.value?.dailyUsd ?? 0.2;
@@ -18,7 +19,7 @@ function syncBudget(): void {
 }
 
 onMounted(async () => {
-  if (auth.user === null) await auth.loadCurrent();
+  if (!auth.confirmed) await auth.ensureOwnerConfirmed();
   syncBudget();
 });
 
@@ -49,7 +50,8 @@ async function saveBudget(): Promise<void> {
 
 <template>
   <section class="page">
-    <h1>AI settings</h1>
+    <template v-if="ready">
+      <h1>AI settings</h1>
     <p class="muted">
       AI planning uses the OpenCode Go gateway with the DeepSeek model
       (deepseek-v4.1-flash). Requests include only your intake input and the task step
@@ -134,5 +136,7 @@ async function saveBudget(): Promise<void> {
         </form>
       </fieldset>
     </template>
+    </template>
+    <p v-else class="muted" role="status">Loading AI settings…</p>
   </section>
 </template>
