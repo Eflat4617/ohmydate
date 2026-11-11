@@ -1,8 +1,12 @@
 import type {
+  Availability,
+  Commitment,
   DecompositionStep,
   IntakeField,
   IntakeSession,
   IntakeState,
+  Plan,
+  PlanVersion,
   Project,
   Task,
   TaskTemplate,
@@ -29,12 +33,20 @@ export interface MockDb {
   tasks: Map<string, Task>;
   intakeSessions: Map<string, MockIntakeSession>;
   templates: Map<string, TaskTemplate>;
+  availability: Availability;
+  availabilityVersion: number;
+  commitments: Map<string, Commitment>;
+  plans: Map<string, Plan>;
+  planVersions: Map<string, PlanVersion>;
   idempotency: Map<string, StoredResponse>;
   pendingIdempotency: Set<string>;
   authenticated: boolean;
   taskRevision: number;
   projectRevision: number;
 }
+
+export const SEED_COMMITMENT_ID = '01900000-0000-7000-8000-000000000010';
+export const SEED_ONE_OFF_COMMITMENT_ID = '01900000-0000-7000-8000-000000000011';
 
 export const USER_ID = '01900000-0000-7000-8000-000000000002';
 export const INBOX_PROJECT_ID = '01900000-0000-7000-8000-000000000001';
@@ -166,6 +178,51 @@ export function createMockDb(): MockDb {
   };
   const seededTask = seedTask(SEED_TASK_TITLE, 1);
   const reportTemplate = seedReportTemplate(createdAt);
+  const availability: Availability = {
+    version: 1,
+    timeZone: 'Asia/Seoul',
+    rules: [
+      { weekday: 1, startLocal: '09:00', endLocal: '18:00', kind: 'work' },
+      { weekday: 2, startLocal: '09:00', endLocal: '18:00', kind: 'work' },
+      { weekday: 3, startLocal: '09:00', endLocal: '18:00', kind: 'work' },
+      { weekday: 4, startLocal: '09:00', endLocal: '18:00', kind: 'work' },
+      { weekday: 5, startLocal: '09:00', endLocal: '18:00', kind: 'work' },
+    ],
+    exceptions: [],
+    prefs: {
+      maxDailyFocusMin: 300,
+      breakAfterMin: 60,
+      breakMin: 15,
+      dayStartLocal: '08:00',
+      dayEndLocal: '22:00',
+      riskLevel: 'p50',
+    },
+  };
+  const teamSync: Commitment = {
+    id: SEED_COMMITMENT_ID,
+    ownerId: USER_ID,
+    title: 'Team sync',
+    startAt: '2026-11-09T00:00:00.000Z',
+    endAt: '2026-11-09T01:00:00.000Z',
+    timeZone: 'Asia/Seoul',
+    rrule: 'FREQ=WEEKLY;BYDAY=MO',
+    source: 'manual',
+    version: 1,
+    createdAt,
+    updatedAt: createdAt,
+  };
+  const thesisReview: Commitment = {
+    id: SEED_ONE_OFF_COMMITMENT_ID,
+    ownerId: USER_ID,
+    title: 'Thesis review',
+    startAt: '2026-11-11T10:00:00.000Z',
+    endAt: '2026-11-11T11:00:00.000Z',
+    timeZone: 'Asia/Seoul',
+    source: 'manual',
+    version: 1,
+    createdAt,
+    updatedAt: createdAt,
+  };
   return {
     user,
     inboxProjectId: INBOX_PROJECT_ID,
@@ -176,6 +233,14 @@ export function createMockDb(): MockDb {
     tasks: new Map([[seededTask.id, seededTask]]),
     intakeSessions: new Map(),
     templates: new Map([[reportTemplate.id, reportTemplate]]),
+    availability,
+    availabilityVersion: 1,
+    commitments: new Map([
+      [teamSync.id, teamSync],
+      [thesisReview.id, thesisReview],
+    ]),
+    plans: new Map(),
+    planVersions: new Map(),
     idempotency: new Map(),
     pendingIdempotency: new Set(),
     authenticated: true,
@@ -194,6 +259,11 @@ export function resetMockDb(): void {
   mockDb.tasks = fresh.tasks;
   mockDb.intakeSessions = fresh.intakeSessions;
   mockDb.templates = fresh.templates;
+  mockDb.availability = fresh.availability;
+  mockDb.availabilityVersion = fresh.availabilityVersion;
+  mockDb.commitments = fresh.commitments;
+  mockDb.plans = fresh.plans;
+  mockDb.planVersions = fresh.planVersions;
   mockDb.idempotency = fresh.idempotency;
   mockDb.pendingIdempotency = fresh.pendingIdempotency;
   mockDb.authenticated = fresh.authenticated;
