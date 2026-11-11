@@ -159,3 +159,7 @@
 - **키·과금(사용자 승인 대상):** 제품용 DeepSeek API 키는 사용자가 직접 발급해 `deploy/secrets/llm.env`(git 제외, 권한 600) 또는 `LLM_API_KEY_FILE`로만 주입. 개발 워커용 OpenCode(opencode-go) 자격증명은 **제품에 재사용하지 않음**. 키는 로그·DB·응답에 절대 기록하지 않음(09 §6–§7). 예산은 `user.settings.llm.budget`(일/월 금액 상한, 토큰 사용량×단가로 계산) — 초과 시 `budget_exceeded` → 수동 모드. 기본 상한은 사용자 확정 전까지 보수적 값으로 두고 설정에서 변경.
 - **안전 장치:** 마스킹(ADR-019, Sol 승인) + 입력 크기 제한(FU-49) 통과 후에만 전송; 타임아웃 30s·재시도 2회(429/5xx만, 05 §8); 동의 고지(05 §12)에 "DeepSeek(중국 소재 사업자)의 서버로 전송", 전송 범위, 마스킹은 최선 노력(이름·주소·계좌번호 등 미보장) 명시, 철회 시 수동 모드. CI는 계속 FakeLlm(실제 호출 금지); 실제 호출 스모크는 키가 있을 때만 수동 실행.
 - **ADR-021에서 유지:** GD-3 보류(노트북 로컬), GU-1(M6 후 M7 전 사용자 직접 사용 확인)은 그대로 유효.
+- **ADR-022 보강(2026-11-11, 사용자):** "오픈코드 go deepseek 4.1 flash medium을 쓸거고, … api key는 … deepseek_api_key.txt로 넣어놨어."
+  - 공급자 = **OpenCode Go 게이트웨이**(OpenAI 호환), base URL `https://opencode.ai/inference/go/openai/v1`(로컬 `~/.cache/opencode/models.json` 메타데이터 기준), 모델 `deepseek-v4.1-flash`, `reasoning_effort=medium`. 단가 메타데이터: 입력 $0.15 / 출력 $0.6 per 1M tokens, cache read $0.003 [메타데이터 값, 공식 가격표 미확인].
+  - 키: 사용자가 둔 `<repo root>/deepseek_api_key.txt`(git 무시, 권한 600). 제품은 `LLM_API_KEY_FILE=<절대 경로>`로만 읽음. **워커·리뷰어는 이 파일을 읽거나 출력하거나 다른 위치로 복사하지 않는다**(AGENTS.md 규칙). 실제 호출 스모크는 orchestrator가 합성 입력으로만 수동 실행.
+  - 주의: 개발 워커(OpenCode, opencode-go)와 같은 OpenCode Go 계정 사용량을 공유할 수 있음.

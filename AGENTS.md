@@ -17,6 +17,7 @@ OhMyDate: 적응형 AI 개인 플래너. 기준 명세 `ORCA_ADAPTIVE_PLANNER_MA
 - 모든 변경 API: `If-Match` + `Idempotency-Key`. 오류는 problem+json `code` enum.
 - LLM 출력은 proposal로만 저장, 스키마 검증 후 사용. 테스트는 FakeLlm.
 - 로그에 노트 본문·프롬프트·토큰·비밀 금지.
+- 비밀 파일(`*api_key*.txt`, `deploy/secrets/**`, `*.key.txt`)을 읽기·출력·복사·커밋 금지. 제품은 `LLM_API_KEY_FILE` 경로로만 키를 읽고, 테스트는 FakeLlm/녹화 fixture만 사용.
 - 테스트: 새 동작마다 단위 테스트 + 네거티브 1개 이상. 테스트 삭제·skip·assert 완화 금지.
 - 커밋: Conventional Commits, 본문에 `Task: <id>`.
 - 의존성 추가 시 라이선스 확인(MIT/Apache-2.0/BSD/ISC 외는 리뷰 필요).

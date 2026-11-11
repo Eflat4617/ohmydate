@@ -18,6 +18,7 @@
 | 2026-11-11 | D0 읽기 전용 감사 + 설계 문서 작성 | 사용자 지시 | orchestrator |
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
+| 2026-11-11 14:38 | **사용자: 제품 LLM = OpenCode Go deepseek-v4.1-flash medium, 키 파일 제공**. 키 파일이 저장소 루트에 있어 즉시 .gitignore(*api_key*.txt, deploy/secrets/) + chmod 600 — 커밋 이력 없음 확인, 내용 미열람. ADR-022 보강, AGENTS.md 비밀 파일 금지 규칙 추가 | 사용자 메시지 | orchestrator |
 | 2026-11-11 14:33 | **사용자 결정 변경: GB-1 = DeepSeek API** → ADR-022(ADR-021 대체). 제품 키는 사용자가 발급해 비밀 파일로 주입, 워커용 opencode 자격증명 재사용 금지, 금액 예산 상한(사용자 확정 대기, 기본 보수적). FU-52 갱신 | 사용자 메시지 | orchestrator |
 | 2026-11-11 14:30 | **사용자 결정**: GB-1 = API 요금제 대신 ChatGPT 계정 OAuth 로그인 사용 → ADR-021(로컬 Codex CLI 하위 프로세스 어댑터, 토큰 미보관, 약관 확인 필요). GD-3 = 홈서버 배포 보류, 노트북 로컬 사용. **GU-1 신설**: M6 완료 후 Native(M7) 교체 전 사용자 직접 사용 확인. M4-02R-1 REQUEST_CHANGES(HIGH 3: Today 승인 TX 내 재검증 없음, 푸시 키 임시 키 허용, 제안 JSON이 인덱스 키에 들어가 54000) → 수정 1/2 + 0010 승인. FU-50 원래 크기로 조정 완료 → FU-50R | 사용자 메시지, reviews/M4-02R-1.md | orchestrator |
 | 2026-11-11 14:19 | FU-50 worker_done(d2d525d): 절대 50ms → CPU 시간 비율(4S/S≤5)+이차 변이 증명. 조정 요청: 비율 측정 크기를 1KB/4KB가 아닌 원래 규모(25KB/100KB)로 | worker report | orchestrator |
