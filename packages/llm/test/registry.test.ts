@@ -16,13 +16,14 @@ const PROMPT_DIR = join(import.meta.dirname, '..', 'prompts');
 
 const expectedSchemas = [
   'llm.decomposition.v1',
+  'llm.decomposition.v2',
   'llm.layout_suggestion.v1',
   'llm.questions.v1',
   'llm.replan_explanation.v1',
   'llm.type_detection.v1',
 ];
 
-test('all five contract schemas are registered', () => {
+test('all six contract schemas are registered', () => {
   expect(SCHEMA_IDS).toEqual(expectedSchemas);
   for (const schemaId of expectedSchemas) expect(hasSchema(schemaId)).toBe(true);
 });
@@ -32,6 +33,7 @@ test('every schema file compiles under Ajv strict mode', () => {
     'llm.type_detection.v1.json',
     'llm.questions.v1.json',
     'llm.decomposition.v1.json',
+    'llm.decomposition.v2.json',
     'llm.replan_explanation.v1.json',
     'llm.layout_suggestion.v1.json',
   ];
@@ -50,6 +52,7 @@ test('generated schema map matches the checked-in JSON files', () => {
     'llm.type_detection.v1.json',
     'llm.questions.v1.json',
     'llm.decomposition.v1.json',
+    'llm.decomposition.v2.json',
     'llm.replan_explanation.v1.json',
     'llm.layout_suggestion.v1.json',
   ];
@@ -111,6 +114,7 @@ test('prompt files are available through the pure registry', () => {
   const keys = listPromptKeys();
   expect(keys).toEqual([
     'decomposition@v1',
+    'decomposition@v2',
     'layout_suggestion@v1',
     'questions@v1',
     'replan_explanation@v1',
@@ -127,6 +131,8 @@ test('prompt registry matches the checked-in markdown files', () => {
     const file = readFileSync(join(PROMPT_DIR, id, 'v1.md'), 'utf8');
     expect(getPrompt(id, 'v1')).toBe(file);
   }
+  const v2 = readFileSync(join(PROMPT_DIR, 'decomposition', 'v2.md'), 'utf8');
+  expect(getPrompt('decomposition', 'v2')).toBe(v2);
 });
 
 test('layout suggestion accepts the canonical 07 §2.1 ids plus scalar props', () => {

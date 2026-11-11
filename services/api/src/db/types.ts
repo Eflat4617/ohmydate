@@ -717,6 +717,53 @@ export interface TodayProposalTable {
   created_at: Col<'timestamptz', false, true>;
 }
 
+/**
+ * 0013 notes. `body_tsv` is `GENERATED ALWAYS ... STORED` without NOT NULL, so
+ * information_schema reports it nullable with no default; inserts omit it and
+ * PostgreSQL computes it (writing a value is rejected by the database).
+ */
+export interface ContextDocumentTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  title: Col<'text', false, false>;
+  body_md: Col<'text', false, true>;
+  body_tsv: Col<'tsvector', true, false>;
+  sensitivity: Col<'text', false, true>;
+  llm_allowed: Col<'boolean', false, true>;
+  source: Col<'text', false, true>;
+  source_task_id: Col<'uuid', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  deleted_at: Col<'timestamptz', true, false>;
+  version: Col<'integer', false, true>;
+}
+
+export interface DocumentLinkTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  document_id: Col<'uuid', false, false>;
+  target_kind: Col<'text', false, false>;
+  target_id: Col<'uuid', false, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface NoteAiUsageTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  document_id: Col<'uuid', false, false>;
+  agent_run_id: Col<'uuid', false, false>;
+  purpose: Col<'text', false, false>;
+  document_version: Col<'integer', false, false>;
+  body_hash: Col<'text', false, false>;
+  section_hashes: Col<'text_array', false, false>;
+  sent_bytes: Col<'integer', false, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
 export interface Database {
   user: UserTable;
   project: ProjectTable;
@@ -758,6 +805,9 @@ export interface Database {
   push_subscription: PushSubscriptionTable;
   export_job: ExportJobTable;
   today_proposal: TodayProposalTable;
+  context_document: ContextDocumentTable;
+  document_link: DocumentLinkTable;
+  note_ai_usage: NoteAiUsageTable;
   vikunja_mapping: VikunjaMappingTable;
   vikunja_planner_fields: VikunjaPlannerFieldsTable;
   vikunja_change_journal: VikunjaChangeJournalTable;
@@ -1292,6 +1342,45 @@ export const databaseTables = {
     expires_at: col('timestamptz', false, false),
     created_at: col('timestamptz', false, true),
   },
+  context_document: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    title: col('text', false, false),
+    body_md: col('text', false, true),
+    body_tsv: col('tsvector', true, false),
+    sensitivity: col('text', false, true),
+    llm_allowed: col('boolean', false, true),
+    source: col('text', false, true),
+    source_task_id: col('uuid', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    deleted_at: col('timestamptz', true, false),
+    version: col('integer', false, true),
+  },
+  document_link: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    document_id: col('uuid', false, false),
+    target_kind: col('text', false, false),
+    target_id: col('uuid', false, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  note_ai_usage: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    document_id: col('uuid', false, false),
+    agent_run_id: col('uuid', false, false),
+    purpose: col('text', false, false),
+    document_version: col('integer', false, false),
+    body_hash: col('text', false, false),
+    section_hashes: col('text_array', false, false),
+    sent_bytes: col('integer', false, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
   vikunja_mapping: {
     entity_type: col('text', false, false),
     entity_id: col('uuid', false, false),
@@ -1450,6 +1539,12 @@ type TableAssertions = {
   >;
   export_job: AssertTableColumns<ExportJobTable, typeof databaseTables.export_job>;
   today_proposal: AssertTableColumns<TodayProposalTable, typeof databaseTables.today_proposal>;
+  context_document: AssertTableColumns<
+    ContextDocumentTable,
+    typeof databaseTables.context_document
+  >;
+  document_link: AssertTableColumns<DocumentLinkTable, typeof databaseTables.document_link>;
+  note_ai_usage: AssertTableColumns<NoteAiUsageTable, typeof databaseTables.note_ai_usage>;
   vikunja_mapping: AssertTableColumns<
     VikunjaMappingTable,
     typeof databaseTables.vikunja_mapping

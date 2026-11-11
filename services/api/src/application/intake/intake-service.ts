@@ -2,6 +2,7 @@ import { IntakeInputSchema } from '@ohmydate/contracts';
 import type {
   DecompositionDraftDto,
   DecompositionDraftPatch,
+  DecompositionEvidenceDto,
   IntakeAnswer,
   IntakeAnswersRequest,
   IntakeAssumptionDto,
@@ -49,11 +50,20 @@ import {
   LlmError,
   LlmUnavailable,
   SchemaViolation,
+  buildNoteContext,
   buildUntrustedBlock,
+  groundingIndexOf,
   redact,
   runStructured,
+  sanitizeGroundedDecomposition,
+  DEFAULT_NOTE_CONTEXT_LIMITS,
+  type RunStructuredResult,
   type BudgetGuard,
+  type GroundedDecompositionOutput,
   type LlmPort,
+  type NoteContextLimits,
+  type NoteContextResult,
+  type PromptLimitOverrides,
   type RedactionKind,
 } from '@ohmydate/llm';
 import { NotFoundError, coldStartEstimate, isInstant } from '@ohmydate/domain';
@@ -67,6 +77,7 @@ import type { TSchema } from '@sinclair/typebox';
 import { INTAKE_AGENT_CONFIG, type IntakeAgentConfig } from './config.js';
 import { detectTypeDeterministic } from './detection.js';
 import { IntakeApprovalOwnershipLostError, IntakeError } from './intake-error.js';
+import type { NoteContextSource } from '../notes/ports.js';
 import {
   draftKind,
   type AgentRunRepository,
@@ -86,8 +97,11 @@ function isPgForeignKeyViolation(error: unknown): boolean {
 
 const TYPE_DETECTION_PROMPT = { promptId: 'type_detection', version: 'v1' } as const;
 const DECOMPOSITION_PROMPT = { promptId: 'decomposition', version: 'v1' } as const;
+/** M6-01: note-grounded decomposition, used only when note sections are sent. */
+const GROUNDED_DECOMPOSITION_PROMPT = { promptId: 'decomposition', version: 'v2' } as const;
 const TYPE_DETECTION_SCHEMA = 'llm.type_detection.v1';
 const DECOMPOSITION_SCHEMA = 'llm.decomposition.v1';
+const GROUNDED_DECOMPOSITION_SCHEMA = 'llm.decomposition.v2';
 
 const DRAFT_STATES: ReadonlySet<IntakeState> = new Set([
   'decomposition',
@@ -115,6 +129,14 @@ export interface IntakeServiceOptions {
   readonly llmProvider?: string;
   readonly budgetGuard: BudgetGuard;
   readonly config?: IntakeAgentConfig;
+  /**
+   * M6-01 note grounding: live, llm_allowed notes linked to the session goal
+   * are fenced into the decomposition prompt. Omitted -> no note context.
+   */
+  readonly notes?: NoteContextSource;
+  readonly noteLimits?: Partial<NoteContextLimits>;
+  /** Per-prompt token/timeout limits (config); default: llm DEFAULT_PROMPT_LIMIT_OVERRIDES. */
+  readonly promptLimits?: PromptLimitOverrides;
 }
 
 export interface LlmInputBundle {
@@ -268,25 +290,62 @@ export function buildDetectionLlmInput(
   };
 }
 
-/** Exported so tests can register the exact FakeLlm fixture input. */
+/**
+ * Exported so tests can register the exact FakeLlm fixture input. `notes` (the
+ * fenced, redacted note sections) is present only for note-grounded calls, so
+ * the v1 input stays byte-identical when no note is linked.
+ */
 export function buildDecompositionLlmInput(
   input: IntakeInput,
   template: TaskTemplate | undefined,
+  notes?: NoteContextResult,
 ): LlmInputBundle {
   const report: Record<string, number> = {};
   const documents = [
     ...taskDocuments(input, report),
     ...(template === undefined ? [] : templateDocuments(template, report)),
   ];
+  if (notes !== undefined) {
+    for (const [kind, count] of Object.entries(notes.redactionReport)) {
+      if (count !== undefined) report[kind] = (report[kind] ?? 0) + count;
+    }
+  }
   return {
     input: {
       configVersion: INTAKE_AGENT_CONFIG.version,
       task: redactedStructuredTask(input, report),
       template: template === undefined ? null : templateStructured(template),
       documents,
+      ...(notes === undefined ? {} : { notes: [...notes.blocks] }),
     },
     redactionReport: report,
   };
+}
+
+/** Ranking text for note sections (never sent): the user's own intake text. */
+export function intakeQueryText(input: IntakeInput): string {
+  const parts: string[] = [input.title];
+  for (const value of [input.description, input.deliverable, input.currentProgress]) {
+    if (typeof value === 'string') parts.push(value);
+  }
+  if (typeof input.prerequisites === 'string') parts.push(input.prerequisites);
+  else if (Array.isArray(input.prerequisites)) {
+    for (const entry of input.prerequisites) if (typeof entry === 'string') parts.push(entry);
+  }
+  return parts.join('\n');
+}
+
+/**
+ * Keep evidence whose step keys still exist after an edit; an item whose steps
+ * were all removed stays as context with an empty list.
+ */
+function evidenceForSteps(
+  evidence: readonly DecompositionEvidenceDto[] | undefined,
+  steps: readonly { readonly key: string }[],
+): DecompositionEvidenceDto[] | undefined {
+  if (evidence === undefined) return undefined;
+  const keys = new Set(steps.map((step) => step.key));
+  return evidence.map((item) => ({ ...item, stepKeys: item.stepKeys.filter((key) => keys.has(key)) }));
 }
 
 interface DetectionLlmOutput {
@@ -471,6 +530,9 @@ export class IntakeService {
   readonly #llmProvider: string;
   readonly #budgetGuard: BudgetGuard;
   readonly #config: IntakeAgentConfig;
+  readonly #notes: NoteContextSource | undefined;
+  readonly #noteLimits: NoteContextLimits;
+  readonly #promptLimits: PromptLimitOverrides | undefined;
 
   constructor(options: IntakeServiceOptions) {
     this.#clock = options.clock;
@@ -486,6 +548,17 @@ export class IntakeService {
     this.#llmProvider = options.llmProvider ?? 'fake';
     this.#budgetGuard = options.budgetGuard;
     this.#config = options.config ?? INTAKE_AGENT_CONFIG;
+    this.#notes = options.notes;
+    this.#noteLimits = { ...DEFAULT_NOTE_CONTEXT_LIMITS, ...(options.noteLimits ?? {}) };
+    this.#promptLimits = options.promptLimits;
+  }
+
+  #runOptions(): { budgetGuard: BudgetGuard; estimatedCostUsd: number; promptLimits?: PromptLimitOverrides } {
+    return {
+      budgetGuard: this.#budgetGuard,
+      estimatedCostUsd: 0,
+      ...(this.#promptLimits === undefined ? {} : { promptLimits: this.#promptLimits }),
+    };
   }
 
   async listTemplates(
@@ -823,11 +896,16 @@ export class IntakeService {
       );
     }
 
+    const evidence = evidenceForSteps(stored.draft.evidence, validation.draft.steps);
+    const draft: DecompositionDraftDto = {
+      ...(validation.draft as DecompositionDraftDto),
+      ...(evidence === undefined ? {} : { evidence }),
+    };
     const updated = await this.#sessions.patchDraftAndUpdate(
       ownerId,
       id,
       {
-        draft: validation.draft as DecompositionDraftDto,
+        draft,
         schemaOk: true,
         policyOk: !validation.splitRequested,
         constraintOk: validation.issues.length === 0,
@@ -840,7 +918,7 @@ export class IntakeService {
       },
       expectedVersion,
     );
-    return { draft: validation.draft as DecompositionDraftDto, version: updated.version };
+    return { draft, version: updated.version };
   }
 
   async approveDraft(
@@ -1352,7 +1430,7 @@ export class IntakeService {
           ownerId,
           sessionKey: sessionId,
         },
-        { budgetGuard: this.#budgetGuard, estimatedCostUsd: 0 },
+        this.#runOptions(),
       );
       await this.#recordRun({
         ownerId,
@@ -1420,61 +1498,39 @@ export class IntakeService {
       session.templateId === undefined
         ? undefined
         : (await this.#templates.get(session.ownerId, session.templateId)) ?? undefined;
-    const bundle = buildDecompositionLlmInput(session.input, template);
+    const noteContext = await this.#noteContext(session);
+    const bundle = buildDecompositionLlmInput(session.input, template, noteContext);
+    const prompt = noteContext === undefined ? DECOMPOSITION_PROMPT : GROUNDED_DECOMPOSITION_PROMPT;
+    const schemaId =
+      noteContext === undefined ? DECOMPOSITION_SCHEMA : GROUNDED_DECOMPOSITION_SCHEMA;
+    const promptIdVersion = `${prompt.promptId}@${prompt.version}`;
     const llm = this.#llm;
     if (llm === null) throw new LlmUnavailable('no LLM provider configured');
+    // Fired by the provider adapter only when the prompt actually leaves the
+    // process (never for a call refused by the consent/budget gate).
+    let dispatched = false;
+    let result: RunStructuredResult;
     try {
-      const result = await runStructured(
+      result = await runStructured(
         llm,
         {
-          ...DECOMPOSITION_PROMPT,
+          ...prompt,
           input: bundle.input,
-          schemaId: DECOMPOSITION_SCHEMA,
+          schemaId,
           ownerId: session.ownerId,
           sessionKey: session.id,
+          onDispatch: () => {
+            dispatched = true;
+          },
         },
-        { budgetGuard: this.#budgetGuard, estimatedCostUsd: 0 },
+        this.#runOptions(),
       );
+    } catch (error) {
+      const usage = usageFromError(error);
       const runId = await this.#recordRun({
         ownerId: session.ownerId,
         purpose: 'decomposition',
-        promptIdVersion: `${DECOMPOSITION_PROMPT.promptId}@${DECOMPOSITION_PROMPT.version}`,
-        model: result.model,
-        provider: result.provider ?? this.#llmProvider,
-        tokensIn: result.usage.inputTokens,
-        tokensOut: result.usage.outputTokens,
-        costUsd: result.usage.costUsd ?? 0,
-        latencyMs: result.latencyMs,
-        status: 'succeeded',
-        redactionReport: bundle.redactionReport,
-      });
-      const output = result.output as DecompositionLlmOutput;
-      const validation = validateDecomposition(output);
-      await this.#agentRuns.saveDraft({
-        id: this.#ids.next(),
-        ownerId: session.ownerId,
-        runId,
-        kind: draftKind(session.id),
-        payload: {
-          draft: validation.draft,
-          issues: validation.issues.map((issue) => ({
-            code: issue.code,
-            message: issue.message,
-          })),
-          hallucinatedRefs: [...validation.hallucinatedRefs],
-        } as unknown as import('../../db/types.js').JsonValue,
-        schemaOk: true,
-        policyOk: !validation.splitRequested,
-        constraintOk: validation.issues.length === 0,
-        decision: 'pending',
-      });
-      return session;
-    } catch (error) {
-      const usage = usageFromError(error);
-      await this.#recordRun({
-        ownerId: session.ownerId,
-        purpose: 'decomposition',
-        promptIdVersion: `${DECOMPOSITION_PROMPT.promptId}@${DECOMPOSITION_PROMPT.version}`,
+        promptIdVersion,
         model: 'unknown',
         provider: this.#llmProvider,
         tokensIn: usage.inputTokens,
@@ -1484,11 +1540,143 @@ export class IntakeService {
         status: runStatus(error),
         redactionReport: bundle.redactionReport,
       });
+      // A failed call can still have sent the note sections (timeout, 5xx,
+      // schema violation); record them so the history stays complete.
+      await this.#recordNoteUsage(session.ownerId, runId, noteContext, dispatched);
       const draft = manualDraft(session.input, assumptionText);
       const updated = await this.#saveManualDraft(session.ownerId, session.id, draft, session);
       if (error instanceof BudgetExceeded) throw IntakeError.budgetExceeded(error.message);
       return updated;
     }
+
+    // Success path: persistence failures here surface as errors instead of
+    // being mistaken for an LLM failure (no second agent_run, no manual draft).
+    const runId = await this.#recordRun({
+      ownerId: session.ownerId,
+      purpose: 'decomposition',
+      promptIdVersion,
+      model: result.model,
+      provider: result.provider ?? this.#llmProvider,
+      tokensIn: result.usage.inputTokens,
+      tokensOut: result.usage.outputTokens,
+      costUsd: result.usage.costUsd ?? 0,
+      latencyMs: result.latencyMs,
+      status: 'succeeded',
+      redactionReport: bundle.redactionReport,
+    });
+    await this.#recordNoteUsage(session.ownerId, runId, noteContext, dispatched);
+
+    let output = result.output as DecompositionLlmOutput;
+    let evidence: DecompositionEvidenceDto[] | undefined;
+    const groundingIssues: { code: string; message: string }[] = [];
+    const groundingRefs: string[] = [];
+    if (noteContext !== undefined) {
+      const grounded = sanitizeGroundedDecomposition(
+        result.output as GroundedDecompositionOutput,
+        groundingIndexOf(noteContext),
+      );
+      output = {
+        steps: grounded.output.steps as readonly DecompositionStep[],
+        assumptions: grounded.output.assumptions,
+        questionsRemaining: grounded.output.questionsRemaining,
+      };
+      const updatedAt = new Map(
+        noteContext.documents.map((doc) => [doc.docId, doc.updatedAt] as const),
+      );
+      evidence = grounded.output.evidence.map((item) => ({
+        kind: item.kind,
+        statement: item.statement,
+        source: { kind: 'note' as const, docId: item.docId, sectionHash: item.sectionHash },
+        stepKeys: [...item.stepKeys],
+        updatedAt: updatedAt.get(item.docId) ?? this.#clock.now(),
+      }));
+      const counts: Record<string, number> = {};
+      for (const issue of grounded.hallucinatedRefs) {
+        counts[issue.reason] = (counts[issue.reason] ?? 0) + 1;
+        groundingRefs.push(issue.ref);
+        groundingIssues.push({
+          code: 'hallucinated_ref',
+          message: `evidence ${issue.evidenceIndex} cites an ${issue.reason.replace('_', ' ')}; reference removed`,
+        });
+      }
+      if (grounded.linksRemoved > 0) {
+        groundingIssues.push({
+          code: 'untrusted_link_removed',
+          message: `${grounded.linksRemoved} link(s) removed from note-grounded output`,
+        });
+      }
+      if (grounded.hallucinatedRefs.length > 0 && this.#notes !== undefined) {
+        await this.#notes.recordHallucinatedRefs({
+          id: this.#ids.next(),
+          ownerId: session.ownerId,
+          agentRunId: runId,
+          counts,
+        });
+      }
+    }
+
+    const validation = validateDecomposition(output);
+    const draft: DecompositionDraftDto = {
+      ...(validation.draft as DecompositionDraftDto),
+      ...(evidence === undefined ? {} : { evidence }),
+    };
+    await this.#agentRuns.saveDraft({
+      id: this.#ids.next(),
+      ownerId: session.ownerId,
+      runId,
+      kind: draftKind(session.id),
+      payload: {
+        draft,
+        issues: [
+          ...validation.issues.map((issue) => ({
+            code: issue.code,
+            message: issue.message,
+          })),
+          ...groundingIssues,
+        ],
+        hallucinatedRefs: [...validation.hallucinatedRefs, ...groundingRefs],
+      } as unknown as import('../../db/types.js').JsonValue,
+      schemaOk: true,
+      policyOk: !validation.splitRequested,
+      constraintOk: validation.issues.length === 0,
+      decision: 'pending',
+    });
+    return session;
+  }
+
+  /**
+   * M6-01: notes linked to the session goal that may be sent (live,
+   * llm_allowed, same owner), reduced to ranked, redacted, fenced sections.
+   * `undefined` keeps the ungrounded decomposition@v1 path byte-identical.
+   */
+  async #noteContext(session: IntakeSessionRecord): Promise<NoteContextResult | undefined> {
+    if (this.#notes === undefined || session.goalId === undefined) return undefined;
+    const documents = await this.#notes.linkedForContext(
+      session.ownerId,
+      [{ kind: 'goal', id: session.goalId }],
+      this.#noteLimits.maxDocuments,
+    );
+    if (documents.length === 0) return undefined;
+    const context = buildNoteContext({
+      ownerId: session.ownerId,
+      query: intakeQueryText(session.input),
+      documents,
+      limits: this.#noteLimits,
+    });
+    return context.sections.length === 0 ? undefined : context;
+  }
+
+  async #recordNoteUsage(
+    ownerId: Id,
+    runId: Id,
+    context: NoteContextResult | undefined,
+    dispatched: boolean,
+  ): Promise<void> {
+    if (context === undefined || !dispatched || this.#notes === undefined) return;
+    await this.#notes.recordUsage(
+      { ownerId, agentRunId: runId, purpose: 'decomposition', entries: context.documents },
+      () => this.#ids.next(),
+    );
   }
 
   async #saveManualDraft(

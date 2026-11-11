@@ -94,7 +94,23 @@
 GET /replan-proposals?state=pending · POST /replan-proposals/{id}:approve (If-Match, Idem) · POST /replan-proposals/{id}:reject `{reason?}` (24h 억제)
 
 ### 2.7 Knowledge (M6)
-GET/POST /documents · GET/PATCH/DELETE /documents/{id} · GET /documents:search?q= · POST /documents/{id}/links · POST /attachments (multipart, ≤20MB [가정], MIME allowlist) · GET /ai-context/preview?taskId= (AI에 보낼 근거 목록과 마스킹 결과 미리보기) · PATCH /ai-context/selection
+**노트(ContextDocument) — M6-01 구현(2026-11-12).** 노트는 planner 소유 Markdown이며 Vikunja와 동기화하지 않는다(07 §7). `bodyMd`는 저장된 원문 Markdown 그대로 반환하고 API는 HTML을 렌더링·반환하지 않는다(표시용 sanitize는 웹 책임). 모든 경로는 owner 범위이며 다른 사용자의 노트·대상은 404.
+| 메서드 경로 | 헤더 | 입력 → 출력 | 코드 |
+|---|---|---|---|
+| GET /documents?q&targetKind&targetId&cursor&limit | If-None-Match | → Page<ContextDocument> (최신 수정순; `q`는 title+body 검색) | 200/304/400/401/422 |
+| POST /documents | Idem | `{title(1–200자), bodyMd?(≤65,536자), sensitivity?(P1\|P2, 기본 P2), llmAllowed?(기본 false), links?[{targetKind,targetId}]≤50}` → ContextDocument | 201/400/401/403/404(대상)/409/422/503 |
+| GET /documents/{id} | If-None-Match | → ContextDocument, `ETag: W/"<version>"` | 200/304/400/401/404 |
+| PATCH /documents/{id} | If-Match + Idem | `{title?,bodyMd?,sensitivity?,llmAllowed?}`(≥1개) → ContextDocument | 200/400/401/403/404/409/412/422/428 |
+| DELETE /documents/{id} | If-Match + Idem | soft delete(목록·조회·AI 전송에서 제외) | 204/400/401/403/404/409/412/422/428 |
+| POST /documents/{id}/links | If-Match(노트 version) + Idem | `{targetKind: goal\|project\|task, targetId}` → ContextDocument(version+1) | 201/400/401/403/404/409/412/422(중복·50개 초과)/428/503 |
+| DELETE /documents/{id}/links/{linkId} | If-Match(노트 version) + Idem | → ContextDocument(version+1) | 200/400/401/403/404/409/412/422/428 |
+| GET /documents/{id}/ai-usage?cursor&limit | If-None-Match | → Page<NoteAiUsage> | 200/304/400/401/404/422 |
+| POST /tasks/{id}:promote-description | If-Match(**task** version) + Idem | 현재 provider 설명을 1회 복사해 task에 연결된 노트 생성 → ContextDocument | 201/400/401/403/404/409(이미 승격된 살아있는 노트 `illegal_transition`)/412/422(설명 없음)/428/503 |
+- **검색:** `body_tsv`는 `setweight(to_tsvector('simple', title),'A') || setweight(to_tsvector('simple', body_md),'B')` 생성 컬럼 + GIN. 한국어 형태소 사전이 PostgreSQL에 없어 `simple`을 쓴다. `q`는 NFKC·소문자 후 글자/숫자 토큰(최대 8개)만 남겨 `token:*` 접두 일치를 AND로 묶고 `ts_rank` 순 정렬 — "논문"은 "논문을"과 맞지만 중간 일치·형태소 일치는 지원하지 않는다. 연산자만 있는 `q`는 빈 결과. 커서는 offset 기반 불투명 문자열(잘못된 커서 422). 로그의 요청 URL에서 `q` 값은 `[REDACTED]`.
+- **승격:** Vikunja 편집기 HTML은 일반 Markdown 텍스트로 변환(블록→줄바꿈, li→`- `, script/style 제거, 결과에 `<` 없음). 이후 작업 설명이 바뀌어도 노트는 바뀌지 않는다(동기화 없음). 승격 노트를 삭제하면 다시 승격할 수 있다.
+- **AI 사용 이력(`note_ai_usage`):** 노트 구간이 실제로 프롬프트에 실려 공급자로 나간 호출(어댑터의 `onDispatch` — 동의·예산 게이트에서 거부된 호출은 기록 안 함, 전송 후 실패한 호출은 기록)마다 `{agentRunId, purpose, promptIdVersion, status, provider, model, documentVersion, bodyHash(sha256), sectionHashes[16hex], sentBytes, stale, createdAt}`. 본문·프롬프트는 저장하지 않는다. `stale`은 그 뒤 노트가 수정됨을 뜻한다.
+- **AI 근거(05 §9/§10):** Intake 분해에서 세션 goal에 연결된 `llmAllowed=true` 노트(살아있는 것, 같은 owner)만 구간 선택(요청과의 용어 겹침 순, 바이트 예산 6 KiB·구간 1.5 KiB·최대 12구간, 겹침 0인 구간은 문서 첫 구간만) → ADR-019 마스킹(본문 전체 대상) → HTML 주석·zero-width·태그 문자 제거 → 구간마다 `<untrusted_document id section hash>`(내용 XML 이스케이프)로 감싸 `decomposition@v2`/`llm.decomposition.v2`로 보낸다. 연결 노트가 없으면 기존 `decomposition@v1` 입력과 동일. 모델 출력의 `evidence[{kind: fact|inference, docId, sectionHash, statement, stepKeys}]`는 보낸 (docId, sectionHash)·초안 step key에 있는 것만 남기고 나머지는 제거 + `hallucinated_ref`(draft issues/hallucinatedRefs, `audit_event(action=hallucinated_ref, 개수만)`). 노트 기반 출력의 URL은 `[link removed]`. 초안 DTO의 선택 필드 `evidence[{kind, statement, source{kind:'note',docId,sectionHash}, stepKeys, updatedAt}]`(PATCH로 설정 불가, step 편집 시 stepKeys 재필터).
+- **미구현(후속):** POST /attachments, GET /ai-context/preview, PATCH /ai-context/selection, 노트 요약 캐시(본문 해시 키 — 요약 기능 도입 시), 내보내기(zip)에 노트 포함.
 
 ### 2.8 UI 레이아웃 (M6)
 GET /ui/layout-policy (정책 버전·규칙 파라미터) · GET/PUT /ui/layout-preferences (사용자 override, If-Match)

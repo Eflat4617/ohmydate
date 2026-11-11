@@ -55,8 +55,23 @@ import {
   TaskSchema,
 } from './task.js';
 import {
+  ContextDocumentCreateSchema,
+  ContextDocumentIdParamsSchema,
+  ContextDocumentListQuerySchema,
+  ContextDocumentPageSchema,
+  ContextDocumentPatchSchema,
+  ContextDocumentSchema,
+  DocumentLinkCreateSchema,
+  DocumentLinkParamsSchema,
+  DocumentLinkSchema,
+  NoteAiUsageListQuerySchema,
+  NoteAiUsagePageSchema,
+  NoteAiUsageSchema,
+} from './notes.js';
+import {
   DecompositionDraftPatchSchema,
   DecompositionDraftSchema,
+  DecompositionEvidenceSchema,
   DecompositionEstimateSchema,
   DecompositionStepSchema,
   IntakeAnswerSchema,
@@ -1096,11 +1111,150 @@ export const replanningRoutes: readonly RouteDefinition[] = [
   },
 ];
 
+
+/**
+ * M6-01 notes (ContextDocument) routes (08 §2.7). Notes are planner-owned and never
+ * synced to the task provider. Link targets and the promoted task must belong to the
+ * caller (otherwise 404). Adding/removing a link changes the note version, so both use
+ * the note's `If-Match` like any other sub-resource mutation (08 §1 header table).
+ */
+export const notesRoutes: readonly RouteDefinition[] = [
+  {
+    method: 'get',
+    path: '/documents',
+    operationId: 'listDocuments',
+    summary: 'List or search notes',
+    description:
+      'Newest first. q searches title and body with the PostgreSQL simple text-search configuration (prefix match per token, ranked by ts_rank; Korean has no stemmer). targetKind + targetId must be given together and list notes linked to that goal/project/task.',
+    query: ContextDocumentListQuerySchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Note page', schema: ContextDocumentPageSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 422),
+    },
+  },
+  {
+    method: 'post',
+    path: '/documents',
+    operationId: 'createDocument',
+    summary: 'Create a note',
+    description:
+      'bodyMd is raw Markdown (at most 65 536 characters) and is stored and returned as-is; the API never renders HTML. llmAllowed defaults to false. Optional links must target the caller\'s own goals, projects or tasks (404 otherwise).',
+    headers: IdempotencyHeadersSchema,
+    body: ContextDocumentCreateSchema,
+    responses: {
+      201: { description: 'Created note', schema: ContextDocumentSchema },
+      ...problems(400, 401, 403, 404, 409, 422, 503),
+    },
+  },
+  {
+    method: 'get',
+    path: '/documents/{id}',
+    operationId: 'getDocument',
+    summary: 'Read a note',
+    params: ContextDocumentIdParamsSchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Note', schema: ContextDocumentSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 404),
+    },
+  },
+  {
+    method: 'patch',
+    path: '/documents/{id}',
+    operationId: 'updateDocument',
+    summary: 'Update a note',
+    description:
+      'Editing title or body changes the stored body hash, so earlier AI usage entries become stale and later calls send the new sections.',
+    params: ContextDocumentIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: ContextDocumentPatchSchema,
+    responses: {
+      200: { description: 'Updated note', schema: ContextDocumentSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/documents/{id}',
+    operationId: 'deleteDocument',
+    summary: 'Soft-delete a note',
+    description: 'A deleted note is no longer listed, readable or sent to the AI.',
+    params: ContextDocumentIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      204: { description: 'Note deleted' },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/documents/{id}/links',
+    operationId: 'addDocumentLink',
+    summary: 'Link a note to a goal, project or task',
+    description:
+      'If-Match is the note version. The target must belong to the caller (404 otherwise); a duplicate link or more than 50 links is 422.',
+    params: ContextDocumentIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: DocumentLinkCreateSchema,
+    responses: {
+      201: { description: 'Note with the new link', schema: ContextDocumentSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/documents/{id}/links/{linkId}',
+    operationId: 'removeDocumentLink',
+    summary: 'Remove a note link',
+    description: 'If-Match is the note version. Returns the note without the link.',
+    params: DocumentLinkParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      200: { description: 'Note without the link', schema: ContextDocumentSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'get',
+    path: '/documents/{id}/ai-usage',
+    operationId: 'listDocumentAiUsage',
+    summary: 'List AI calls that received sections of this note',
+    description:
+      'Newest first. Ids, section hashes and byte counts only; the sent text is never stored (05 §12).',
+    params: ContextDocumentIdParamsSchema,
+    query: NoteAiUsageListQuerySchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'AI usage page', schema: NoteAiUsagePageSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 404, 422),
+    },
+  },
+  {
+    method: 'post',
+    path: '/tasks/{id}:promote-description',
+    operationId: 'promoteTaskDescription',
+    summary: 'Copy the task description into a new linked note once',
+    description:
+      'If-Match is the task version. Reads the current provider description once, converts editor HTML to plain Markdown (the result never contains a tag), creates a note linked to the task and never syncs afterwards (07 §7). An empty description is 422; a task that already has a live promoted note is 409 illegal_transition.',
+    params: TaskIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      201: { description: 'Created note', schema: ContextDocumentSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
+    },
+  },
+];
+
 export const contractRoutes: readonly RouteDefinition[] = [
   ...routes,
   ...planningRoutes,
   ...dailyRoutes,
   ...replanningRoutes,
+  ...notesRoutes,
 ];
 
 export const schemaRegistry = {
@@ -1219,6 +1373,19 @@ export const schemaRegistry = {
   EstimationReset: EstimationResetSchema,
   EstimationFeedbackPatch: EstimationFeedbackPatchSchema,
   EstimationFeedbackIdParams: EstimationFeedbackIdParamsSchema,
+  DecompositionEvidence: DecompositionEvidenceSchema,
+  DocumentLinkCreate: DocumentLinkCreateSchema,
+  DocumentLink: DocumentLinkSchema,
+  ContextDocument: ContextDocumentSchema,
+  ContextDocumentCreate: ContextDocumentCreateSchema,
+  ContextDocumentPatch: ContextDocumentPatchSchema,
+  ContextDocumentPage: ContextDocumentPageSchema,
+  ContextDocumentListQuery: ContextDocumentListQuerySchema,
+  ContextDocumentIdParams: ContextDocumentIdParamsSchema,
+  DocumentLinkParams: DocumentLinkParamsSchema,
+  NoteAiUsage: NoteAiUsageSchema,
+  NoteAiUsagePage: NoteAiUsagePageSchema,
+  NoteAiUsageListQuery: NoteAiUsageListQuerySchema,
 } as const;
 
 export type SchemaRegistry = typeof schemaRegistry;

@@ -1,7 +1,8 @@
 import { BudgetExceeded, LlmError, LlmUnavailable } from './errors.js';
 import type { LlmPricingPerMillion } from './openai-compatible-llm.js';
 import type { LlmBudget, LlmCompleteRequest, LlmCompleteResponse, LlmPort, LlmUsage } from './port.js';
-import { getPrompt } from './prompt-registry.js';
+import { structuredSystemPrompt } from './output-contract.js';
+import { effectiveMaxOutputTokens } from './prompt-limits.js';
 import {
   estimateInputTokensUpperBound,
   estimateReservationUsd,
@@ -134,11 +135,13 @@ export class PolicyLlm implements LlmPort {
 
     // The adapter sends exactly these messages (plus the fallback instruction on
     // a JSON-mode rejection), so the reservation is an upper bound for dispatch.
-    const system = getPrompt(request.promptId, request.version);
+    // Same system message (prompt + generated contract) and the same per-call
+    // output bound the adapter will send, so the reservation stays an upper bound.
+    const system = structuredSystemPrompt(request.promptId, request.version, request.schemaId);
     const user = JSON.stringify(request.input ?? {}) ?? '{}';
     const estimateUsd = estimateReservationUsd(
       estimateInputTokensUpperBound(system, user),
-      this.#options.maxOutputTokens,
+      effectiveMaxOutputTokens(request.maxOutputTokens, this.#options.maxOutputTokens),
       this.#options.pricing,
     );
 

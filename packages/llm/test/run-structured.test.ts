@@ -55,7 +55,8 @@ test('returns validated output and usage from FakeLlm', async () => {
 test('one invalid output triggers exactly one repair retry with validation errors appended', async () => {
   const invalid = { classification: 'maybe', confidence: 2, reasons: [] };
   const errors = validateOutput('llm.type_detection.v1', invalid).errors;
-  const repairedInput = appendValidationErrors(request.input, errors);
+  // Fix round 1: the repair input repeats the rendered output contract.
+  const repairedInput = appendValidationErrors(request.input, errors, request.schemaId);
 
   const llm = new FakeLlm([
     { promptId: 'type_detection', input: request.input, response: { output: invalid } },
@@ -72,7 +73,8 @@ test('one invalid output triggers exactly one repair retry with validation error
 test('two invalid outputs throw SchemaViolation after the single repair', async () => {
   const invalid = { classification: 'maybe' };
   const errors = validateOutput('llm.type_detection.v1', invalid).errors;
-  const repairedInput = appendValidationErrors(request.input, errors);
+  // Fix round 1: the repair input repeats the rendered output contract.
+  const repairedInput = appendValidationErrors(request.input, errors, request.schemaId);
   const llm = new FakeLlm([
     { promptId: 'type_detection', input: request.input, response: { output: invalid } },
     { promptId: 'type_detection', input: repairedInput, response: { output: invalid } },

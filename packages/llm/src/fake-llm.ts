@@ -26,6 +26,16 @@ export interface FakeLlmCall {
   readonly version: string;
   readonly schemaId: string;
   readonly inputHash: string;
+  /** The exact input object, only when the fake was built with `recordInputs`. */
+  readonly input?: unknown;
+}
+
+export interface FakeLlmOptions {
+  /**
+   * Keep each call's input for prompt-content assertions (injection tests).
+   * Off by default so the dev-mode fake never retains prompt bodies.
+   */
+  readonly recordInputs?: boolean;
 }
 
 const encoder = new TextEncoder();
@@ -87,14 +97,26 @@ function toUsage(usage: Partial<LlmUsage> | undefined): LlmUsage {
 
 export class FakeLlm implements LlmPort {
   private readonly fixtures = new Map<string, FakeLlmResponse>();
+  private readonly fallbacks = new Map<string, FakeLlmResponse>();
+  private readonly recordInputs: boolean;
   readonly calls: FakeLlmCall[] = [];
 
-  constructor(fixtures: readonly FakeLlmFixture[] = []) {
+  constructor(fixtures: readonly FakeLlmFixture[] = [], options: FakeLlmOptions = {}) {
+    this.recordInputs = options.recordInputs === true;
     for (const fixture of fixtures) this.addFixture(fixture);
   }
 
   addFixture(fixture: FakeLlmFixture): void {
     this.fixtures.set(fixtureKey(fixture.promptId, fixture.input), fixture.response);
+  }
+
+  /**
+   * Response for any input of `promptId` that has no exact fixture. Used by
+   * pipeline tests whose prompt contains generated note blocks; exact-input
+   * fixtures still win.
+   */
+  addPromptFallback(promptId: string, response: FakeLlmResponse): void {
+    this.fallbacks.set(promptId, response);
   }
 
   get callCount(): number {
@@ -109,9 +131,14 @@ export class FakeLlm implements LlmPort {
       version: request.version,
       schemaId: request.schemaId,
       inputHash,
+      ...(this.recordInputs ? { input: request.input } : {}),
     });
+    // Simulated provider boundary: the fake "receives" the prompt here.
+    request.onDispatch?.();
 
-    const response = this.fixtures.get(fixtureKey(request.promptId, request.input));
+    const response =
+      this.fixtures.get(fixtureKey(request.promptId, request.input)) ??
+      this.fallbacks.get(request.promptId);
     if (response === undefined) {
       throw new LlmUnavailable(
         `no fake fixture for ${request.promptId} (input ${inputHash})`,

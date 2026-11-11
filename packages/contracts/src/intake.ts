@@ -194,11 +194,43 @@ export const DecompositionStepSchema = Type.Object(
   { additionalProperties: false, $id: 'DecompositionStep' },
 );
 
+export const DECOMPOSITION_EVIDENCE_KINDS = ['fact', 'inference'] as const;
+
+export type DecompositionEvidenceKindName = (typeof DECOMPOSITION_EVIDENCE_KINDS)[number];
+
+/**
+ * M6-01 note grounding (05 §9/§10): one note section the model relied on. `kind`
+ * separates what the note states (`fact`) from what was derived (`inference`); `source`
+ * is the cited note section, validated against the sections actually sent (unknown
+ * refs are removed as hallucinated); `updatedAt` is the note's update time when it was
+ * sent. Server-produced only: PATCH cannot set evidence.
+ */
+export const DecompositionEvidenceSchema = Type.Object(
+  {
+    kind: Type.Union(
+      DECOMPOSITION_EVIDENCE_KINDS.map((kind) => Type.Literal(kind)) as TLiteral<DecompositionEvidenceKindName>[],
+    ),
+    statement: Type.String({ maxLength: 200 }),
+    source: Type.Object(
+      {
+        kind: Type.Literal('note'),
+        docId: IdSchema,
+        sectionHash: Type.String({ pattern: '^[0-9a-f]{16}$' }),
+      },
+      { additionalProperties: false },
+    ),
+    stepKeys: Type.Array(Type.String({ pattern: '^s[0-9]{1,2}$' }), { maxItems: 12 }),
+    updatedAt: InstantSchema,
+  },
+  { additionalProperties: false, $id: 'DecompositionEvidence' },
+);
+
 export const DecompositionDraftSchema = Type.Object(
   {
     steps: Type.Array(DecompositionStepSchema, { minItems: 1, maxItems: 12 }),
     assumptions: Type.Array(Type.String({ maxLength: 200 })),
     questionsRemaining: Type.Array(Type.String({ maxLength: 300 }), { maxItems: 5 }),
+    evidence: Type.Optional(Type.Array(DecompositionEvidenceSchema, { maxItems: 12 })),
   },
   { additionalProperties: false, $id: 'DecompositionDraft' },
 );
@@ -290,6 +322,7 @@ export type IntakeAssumptionDto = Static<typeof IntakeAssumptionSchema> & Intake
 export type DecompositionEstimateDto = Static<typeof DecompositionEstimateSchema>;
 export type DecompositionStepDto = Static<typeof DecompositionStepSchema>;
 export type DecompositionDraftDto = Static<typeof DecompositionDraftSchema>;
+export type DecompositionEvidenceDto = Static<typeof DecompositionEvidenceSchema>;
 export type DecompositionDraftPatch = Static<typeof DecompositionDraftPatchSchema>;
 export type IntakeTypeConfirmation = Static<typeof IntakeTypeConfirmationSchema>;
 export type IntakeError = Static<typeof IntakeErrorSchema>;

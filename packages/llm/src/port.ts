@@ -38,6 +38,22 @@ export interface LlmCompleteRequest {
   readonly budget?: LlmBudget;
   /** Aborted by the caller timeout; adapters must stop work when this fires. */
   readonly signal?: AbortSignal;
+  /**
+   * M6-01 audit hook: provider adapters call this immediately before the
+   * prompt leaves the process (every network attempt; `FakeLlm` on every
+   * simulated call). Policy wrappers pass it through untouched, so a call
+   * refused by the consent/budget gate never fires it. Callers use it to
+   * record which note sections were actually sent (note_ai_usage). It must
+   * not throw and must not be serialised into the prompt.
+   */
+  readonly onDispatch?: () => void;
+  /**
+   * Per-call output bound (prompt limits). Policy reservation and the adapter's
+   * `max_tokens` both use it (see `effectiveMaxOutputTokens`); absent -> configured default.
+   */
+  readonly maxOutputTokens?: number;
+  /** Per-call provider attempt timeout; absent -> the adapter's configured timeout. */
+  readonly timeoutMs?: number;
 }
 
 export interface LlmCompleteResponse {

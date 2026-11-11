@@ -39,6 +39,7 @@ const MIGRATION_FILES = [
   '0010_daily_storage.sql',
   '0011_llm_spend.sql',
   '0012_replanning.sql',
+  '0013_context_documents.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -110,6 +111,9 @@ const DAILY_STORAGE_TABLES = ['today_proposal'];
 // 0012_replanning.sql.
 const REPLANNING_TABLES = ['replan_proposal', 'replan_suppression'];
 
+// 0013_context_documents.sql.
+const NOTES_TABLES = ['context_document', 'document_link', 'note_ai_usage'];
+
 describe.skipIf(!hasDatabase)('migration runner', () => {
   let schema: string;
 
@@ -156,6 +160,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           ...DAILY_STORAGE_TABLES,
           ...LLM_SPEND_TABLES,
           ...REPLANNING_TABLES,
+          ...NOTES_TABLES,
           'schema_migrations',
         ].sort(),
       );

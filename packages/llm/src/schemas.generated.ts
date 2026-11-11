@@ -89,6 +89,150 @@ export const SCHEMA_SOURCES: Readonly<Record<string, unknown>> = {
     }
   }
 },
+  "llm.decomposition.v2": {
+  "$id": "llm.decomposition.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "steps",
+    "assumptions",
+    "questionsRemaining",
+    "evidence"
+  ],
+  "properties": {
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "title",
+          "deliverable",
+          "doneCriteria",
+          "kind",
+          "estimate",
+          "dependsOn",
+          "splittable"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^s[0-9]{1,2}$"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "deliverable": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "doneCriteria": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "kind": {
+            "enum": [
+              "prep",
+              "work",
+              "review",
+              "buffer"
+            ]
+          },
+          "estimate": {
+            "type": "object",
+            "required": [
+              "p50Minutes",
+              "p90Minutes"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "p50Minutes": {
+                "type": "integer",
+                "minimum": 5,
+                "maximum": 2400
+              },
+              "p90Minutes": {
+                "type": "integer",
+                "minimum": 5,
+                "maximum": 4800
+              }
+            }
+          },
+          "dependsOn": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "splittable": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      }
+    },
+    "questionsRemaining": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "docId",
+          "sectionHash",
+          "statement",
+          "stepKeys"
+        ],
+        "properties": {
+          "kind": {
+            "enum": [
+              "fact",
+              "inference"
+            ]
+          },
+          "docId": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "sectionHash": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "statement": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "stepKeys": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+              "type": "string",
+              "pattern": "^s[0-9]{1,2}$"
+            }
+          }
+        }
+      }
+    }
+  }
+},
   "llm.layout_suggestion.v1": {
   "$id": "llm.layout_suggestion.v1",
   "type": "object",

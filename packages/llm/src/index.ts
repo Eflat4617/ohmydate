@@ -30,8 +30,47 @@ export {
   hashInput,
   type FakeLlmCall,
   type FakeLlmFixture,
+  type FakeLlmOptions,
   type FakeLlmResponse,
 } from './fake-llm.js';
+
+export {
+  DEFAULT_NOTE_CONTEXT_LIMITS,
+  NOTE_CONTEXT_BUILDER_VERSION,
+  bodyHashOf,
+  buildNoteBlock,
+  buildNoteContext,
+  escapeUntrustedContent,
+  groundingIndexOf,
+  neutralizeLinks,
+  noteTerms,
+  partitionGroundedRefs,
+  sanitizeUntrustedText,
+  sectionHashOf,
+  splitNoteSections,
+  type GroundedRefCandidate,
+  type GroundedRefPartition,
+  type GroundingIndex,
+  type HallucinatedRefReason,
+  type NoteContextDocument,
+  type NoteContextDocumentUsage,
+  type NoteContextLimits,
+  type NoteContextRequest,
+  type NoteContextResult,
+  type NoteContextSection,
+  type NoteExclusionReason,
+  type NoteSection,
+} from './note-context.js';
+
+export {
+  sanitizeGroundedDecomposition,
+  type GroundedDecompositionOutput,
+  type GroundedEvidenceOutput,
+  type GroundedRefIssue,
+  type GroundedRefIssueReason,
+  type GroundedSanitizeResult,
+  type GroundedStepOutput,
+} from './grounded-output.js';
 
 export {
   DEFAULT_DEEPSEEK_PRICING,
@@ -82,6 +121,27 @@ export {
   type RedactionKind,
   type RedactionResult,
 } from './privacy.js';
+
+export {
+  exampleForPattern,
+  exampleForSchema,
+  renderOutputContract,
+  schemaIdForPrompt,
+  structuredSystemPrompt,
+} from './output-contract.js';
+
+export {
+  DEFAULT_DECOMPOSITION_MAX_OUTPUT_TOKENS,
+  DEFAULT_DECOMPOSITION_TIMEOUT_MS,
+  DEFAULT_PROMPT_LIMIT_OVERRIDES,
+  DEFAULT_STRUCTURED_TIMEOUT_MS,
+  MAX_OUTPUT_TOKENS_CEILING,
+  effectiveMaxOutputTokens,
+  maxPromptTimeoutMs,
+  promptLimitsFor,
+  type PromptLimitOverrides,
+  type PromptLimits,
+} from './prompt-limits.js';
 
 export {
   getPrompt,

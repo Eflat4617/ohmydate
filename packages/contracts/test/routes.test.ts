@@ -330,6 +330,51 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     optionalHeaders: [],
     statuses: [200, 400, 401, 403, 422],
   },
+  listDocuments: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 422],
+  },
+  createDocument: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 404, 409, 422, 503],
+  },
+  getDocument: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 404],
+  },
+  updateDocument: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  deleteDocument: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [204, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  addDocumentLink: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 404, 409, 412, 422, 428, 503],
+  },
+  removeDocumentLink: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  listDocumentAiUsage: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 404, 422],
+  },
+  promoteTaskDescription: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [201, 400, 401, 403, 404, 409, 412, 422, 428, 503],
+  },
 };
 
 const keyOf = (method: string, path: string): string => `${method.toUpperCase()} ${path}`;
@@ -476,6 +521,23 @@ test('route table covers replanning and estimation endpoints from 08 §2.6/§2.1
   }
 });
 
+test('route table covers notes endpoints from 08 §2.7 (M6-01)', () => {
+  const keys = new Set(routes.map((route) => keyOf(route.method, route.path)));
+  for (const expected of [
+    'GET /documents',
+    'POST /documents',
+    'GET /documents/{id}',
+    'PATCH /documents/{id}',
+    'DELETE /documents/{id}',
+    'POST /documents/{id}/links',
+    'DELETE /documents/{id}/links/{linkId}',
+    'GET /documents/{id}/ai-usage',
+    'POST /tasks/{id}:promote-description',
+  ]) {
+    expect({ expected, present: keys.has(expected) }).toEqual({ expected, present: true });
+  }
+});
+
 test('approval and availability replacement pin If-Match to availability versions', () => {
   for (const operationId of [
     'approvePlanCandidate',
@@ -591,6 +653,11 @@ test('existing-resource mutations require both If-Match and Idempotency-Key', ()
     'approveReplanProposal',
     'rejectReplanProposal',
     'patchEstimationFeedback',
+    'updateDocument',
+    'deleteDocument',
+    'addDocumentLink',
+    'removeDocumentLink',
+    'promoteTaskDescription',
   ]) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();
@@ -613,6 +680,7 @@ test('creation POSTs require Idempotency-Key without If-Match', () => {
     'createExport',
     'requestReplanProposal',
     'resetEstimation',
+    'createDocument',
   ]) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();

@@ -1,4 +1,10 @@
 import { readFileSync, statSync } from 'node:fs';
+import {
+  DEFAULT_DECOMPOSITION_MAX_OUTPUT_TOKENS,
+  DEFAULT_DECOMPOSITION_TIMEOUT_MS,
+  MAX_OUTPUT_TOKENS_CEILING,
+  type PromptLimitOverrides,
+} from '@ohmydate/llm';
 
 export interface LoginRateLimitConfig {
   readonly limit: number;
@@ -100,8 +106,25 @@ export interface AppConfig {
    * provider=deepseek and the session header is auto; never logged.
    */
   readonly llmSessionSecretFile: string | null;
-  /** Bound sent as `max_tokens`; also the spend-reservation output bound. */
+  /**
+   * Default bound sent as `max_tokens` (env `LLM_MAX_OUTPUT_TOKENS`, default 2000);
+   * also the spend-reservation output bound for prompts without an override
+   * (type_detection keeps it, with the 30 s per-call timeout).
+   */
   readonly llmMaxOutputTokens: number;
+  /**
+   * M6-01 fix round 1: decomposition answers are long (reasoning tokens count) —
+   * env `LLM_DECOMPOSITION_MAX_OUTPUT_TOKENS`, default 8000, at most 32768. The
+   * spend reservation of a decomposition call uses this per-call bound.
+   */
+  readonly llmDecompositionMaxOutputTokens: number;
+  /**
+   * Per-call decomposition timeout (runStructured timer and adapter attempt) —
+   * env `LLM_DECOMPOSITION_TIMEOUT_MS`, default 120000. A genuine timeout is still
+   * `llm_unavailable` (manual mode). Keep `HTTP_CONNECTION_TIMEOUT_MS` above
+   * twice this value (first attempt + one repair).
+   */
+  readonly llmDecompositionTimeoutMs: number;
   /**
    * Absolute path to the product API key file. Read exactly once at boot;
    * never logged, stored in config snapshots, or sent in a request body.
@@ -166,6 +189,8 @@ export const defaultConfig: AppConfig = {
   llmSessionHeader: 'auto',
   llmSessionSecretFile: null,
   llmMaxOutputTokens: 2000,
+  llmDecompositionMaxOutputTokens: DEFAULT_DECOMPOSITION_MAX_OUTPUT_TOKENS,
+  llmDecompositionTimeoutMs: DEFAULT_DECOMPOSITION_TIMEOUT_MS,
   llmApiKeyFile: null,
   llmPriceInputPerM: DEFAULT_LLM_PRICE_INPUT_PER_M,
   llmPriceOutputPerM: DEFAULT_LLM_PRICE_OUTPUT_PER_M,
@@ -230,6 +255,17 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
       'LLM_MAX_OUTPUT_TOKENS',
       env['LLM_MAX_OUTPUT_TOKENS'],
       2000,
+    ),
+    llmDecompositionMaxOutputTokens: parseBoundedInt(
+      'LLM_DECOMPOSITION_MAX_OUTPUT_TOKENS',
+      env['LLM_DECOMPOSITION_MAX_OUTPUT_TOKENS'],
+      DEFAULT_DECOMPOSITION_MAX_OUTPUT_TOKENS,
+      MAX_OUTPUT_TOKENS_CEILING,
+    ),
+    llmDecompositionTimeoutMs: parsePositiveInt(
+      'LLM_DECOMPOSITION_TIMEOUT_MS',
+      env['LLM_DECOMPOSITION_TIMEOUT_MS'],
+      DEFAULT_DECOMPOSITION_TIMEOUT_MS,
     ),
     llmApiKeyFile,
     llmPriceInputPerM: parseMoney(
@@ -397,6 +433,30 @@ function parsePositiveInt(name: string, raw: string | undefined, fallback: numbe
     throw new Error(`${name} must be a positive integer`);
   }
   return value;
+}
+
+function parseBoundedInt(
+  name: string,
+  raw: string | undefined,
+  fallback: number,
+  max: number,
+): number {
+  const value = parsePositiveInt(name, raw, fallback);
+  if (value > max) throw new Error(`${name} must be at most ${max}`);
+  return value;
+}
+
+/**
+ * Per-prompt LLM call limits handed to the intake flow (runStructured) — the
+ * adapter and the spend policy receive the same per-call values on each request.
+ */
+export function llmPromptLimits(config: AppConfig): PromptLimitOverrides {
+  return {
+    decomposition: {
+      maxOutputTokens: config.llmDecompositionMaxOutputTokens,
+      timeoutMs: config.llmDecompositionTimeoutMs,
+    },
+  };
 }
 
 function parseMoney(name: string, raw: string | undefined, fallback: number): number {
