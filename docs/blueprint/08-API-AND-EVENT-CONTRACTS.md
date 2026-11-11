@@ -62,7 +62,7 @@
 |---|---|
 | POST /plans | `{scope:{goalId|taskIds}, policies?:[…], horizon}` → Plan + candidates(≤3) 201, Idem. 응답에 `availabilityVersion` |
 | GET /plans/{id} | Plan + candidates + metrics |
-| POST /plans/{id}/candidates/{cid}:preview-edit | 편집된 블록 → validator 결과(부작용 없음) |
+| POST /plans/{id}/candidates/{cid}:preview-edit | 편집된 블록 → validator 결과(부작용 없음). `If-Match: W/"<plan.version>"`(2026-11-11 확정), 사전 검증 오류 경로 `/blocks/<i>` |
 | POST /plans/{id}/candidates/{cid}:approve | `If-Match: W/"availability:<n>"`, Idem, body `{editedBlocks?}` → PlanVersion 201 / 412 availability_changed / 422 constraint_violation{violations[]} |
 | POST /plans/{id}:regenerate | 412 후 재생성 |
 
