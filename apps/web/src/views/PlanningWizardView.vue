@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import {
@@ -126,6 +126,10 @@ const answerNumber = reactive<Record<string, number>>({});
 const answerBoolean = reactive<Record<string, boolean>>({});
 
 const draft = ref<DecompositionDraft | null>(null);
+let disposed = false;
+onUnmounted(() => {
+  disposed = true;
+});
 
 const draftValidation = computed(() =>
   draft.value === null ? { valid: true, issues: [] } : validateDraft(draft.value),
@@ -478,6 +482,15 @@ async function approve(): Promise<void> {
   const action = actions.begin(scope, { id: current.id }, samePayload, current.version);
   const updated = await run(async () => {
     for (let attempt = 0; ; attempt += 1) {
+      // The view may have been disposed, or the connection may have dropped
+      // during Retry-After. Never send the delayed request offline; leaving the
+      // action unsettled preserves the same idempotency key for the next retry.
+      if (disposed) return undefined;
+      if (!offline.mutationsEnabled) {
+        mutationError.value =
+          '연결이 끊겨 승인을 보류했습니다. 다시 연결되면 같은 요청으로 재시도하세요.';
+        return undefined;
+      }
       try {
         return await plannerClient.approveIntakeDraft(current.id, action.key, current.version);
       } catch (cause) {

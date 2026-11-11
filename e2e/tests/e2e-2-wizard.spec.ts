@@ -97,7 +97,7 @@ test.describe('E2E-2 — planning wizard against the real API', () => {
     await context.close();
   });
 
-  test('completes the first wizard step with the keyboard alone', async ({ browser }) => {
+  test('completes the wizard with the keyboard from step 1 through approval', async ({ browser }) => {
     const suffix = Date.now().toString(36);
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -121,6 +121,43 @@ test.describe('E2E-2 — planning wizard against the real API', () => {
     await expect(
       page.getByRole('heading', { name: /3단계 · 질문|4단계 · 단계 초안/ }),
     ).toBeVisible();
+
+    for (let guard = 0; guard < 12; guard += 1) {
+      if (await page.getByRole('heading', { name: '4단계 · 단계 초안' }).isVisible()) break;
+      await tabUntil(
+        page,
+        async () =>
+          page.evaluate(() => {
+            const element = document.activeElement;
+            return (
+              element instanceof HTMLButtonElement &&
+              !element.disabled &&
+              (element.textContent?.includes('건너뛰기') ?? false)
+            );
+          }),
+      );
+      const answered = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'POST' &&
+          new URL(response.url()).pathname.endsWith('/answers'),
+      );
+      await page.keyboard.press('Enter');
+      expect((await answered).ok()).toBe(true);
+      await page.waitForTimeout(100);
+    }
+    await expect(page.getByRole('heading', { name: '4단계 · 단계 초안' })).toBeVisible();
+
+    await tabUntil(page, async () => (await activeId(page)) === 'step-title-s1');
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.type(`Keyboard edited ${suffix}`);
+    await tabUntil(
+      page,
+      async () =>
+        page.evaluate(() => document.activeElement?.textContent?.includes('초안 승인') ?? false),
+    );
+    await page.keyboard.press('Enter');
+
+    await expect(page.getByRole('heading', { name: '초안 승인 완료' })).toBeVisible();
 
     await context.close();
   });

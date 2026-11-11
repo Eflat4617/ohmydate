@@ -22,6 +22,7 @@ export interface LocalParts {
 
 const DATE_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
 const OFFSET_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+const ZONE_NAME_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
 
 function formatterFor(timeZone: string): Intl.DateTimeFormat {
   const cached = DATE_FORMATTERS.get(timeZone);
@@ -53,6 +54,19 @@ function offsetFormatterFor(timeZone: string): Intl.DateTimeFormat {
     hourCycle: 'h23',
   });
   OFFSET_FORMATTERS.set(timeZone, formatter);
+  return formatter;
+}
+
+function zoneNameFormatterFor(timeZone: string): Intl.DateTimeFormat {
+  const cached = ZONE_NAME_FORMATTERS.get(timeZone);
+  if (cached !== undefined) return cached;
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    timeZoneName: 'shortOffset',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  ZONE_NAME_FORMATTERS.set(timeZone, formatter);
   return formatter;
 }
 
@@ -99,6 +113,29 @@ export function localDateOf(instant: string, timeZone: string): string {
   return localParts(instant, timeZone).date;
 }
 
+/**
+ * Short UTC-offset label (e.g. `GMT-4`) for an instant in the target zone.
+ * Repeated wall-clock times share an hour but differ by offset; labels use
+ * this suffix to stay unambiguous during DST overlaps.
+ */
+export function formatZoneOffset(instant: string, timeZone: string): string {
+  const millis = Date.parse(instant);
+  if (!Number.isFinite(millis)) throw new RangeError(`Invalid instant: ${instant}`);
+  for (const part of zoneNameFormatterFor(timeZone).formatToParts(new Date(millis))) {
+    if (part.type === 'timeZoneName') return part.value;
+  }
+  return formatOffset(offsetMsAt(millis, timeZone));
+}
+
+function formatOffset(offsetMs: number): string {
+  const totalMinutes = Math.round(offsetMs / 60_000);
+  const sign = totalMinutes < 0 ? '-' : '+';
+  const absolute = Math.abs(totalMinutes);
+  const hours = Math.floor(absolute / 60);
+  const minutes = absolute % 60;
+  return `GMT${sign}${hours}${minutes === 0 ? '' : `:${String(minutes).padStart(2, '0')}`}`;
+}
+
 export function localMinutesOf(instant: string, timeZone: string): number {
   return localParts(instant, timeZone).minutes;
 }
@@ -133,11 +170,24 @@ export function zonedWallClockToInstant(
   const hour = Math.floor(minutes / 60);
   const minute = minutes % 60;
   const naive = Date.UTC(year ?? 1970, (month ?? 1) - 1, day ?? 1, hour, minute);
-  const firstOffset = offsetMsAt(naive, timeZone);
-  let candidate = naive - firstOffset;
-  const secondOffset = offsetMsAt(candidate, timeZone);
-  if (secondOffset !== firstOffset) candidate = naive - secondOffset;
-  return new Date(candidate).toISOString();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const beforeOffset = offsetMsAt(naive - dayMs, timeZone);
+  const afterOffset = offsetMsAt(naive + dayMs, timeZone);
+  const offsets = beforeOffset === afterOffset ? [beforeOffset] : [beforeOffset, afterOffset];
+
+  const valid: number[] = [];
+  for (const offset of offsets) {
+    const candidate = naive - offset;
+    if (offsetMsAt(candidate, timeZone) === offset) valid.push(candidate);
+  }
+  if (valid.length > 0) {
+    // An overlap has two valid instants; the first occurrence is the earlier one.
+    return new Date(Math.min(...valid)).toISOString();
+  }
+
+  // The wall clock fell into a spring-forward gap. Applying the pre-transition
+  // offset shifts the requested time forward by exactly the gap (08 §3).
+  return new Date(naive - beforeOffset).toISOString();
 }
 
 export function addDaysToDate(date: string, days: number): string {

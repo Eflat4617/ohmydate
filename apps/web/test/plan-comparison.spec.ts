@@ -1,5 +1,7 @@
 import { HttpResponse, http } from 'msw';
+import { createPinia } from 'pinia';
 import { createPlannerClient, newActionId, plannerClient, type Plan } from '../src/api';
+import { useOfflineStore } from '../src/stores/offline';
 import PlanComparisonView from '../src/views/PlanComparisonView.vue';
 import { createUuidV7, mockDb } from '../src/mocks/db';
 import { server } from '../src/mocks/server';
@@ -28,11 +30,11 @@ async function createPlan(): Promise<Plan> {
   );
 }
 
-async function mountPlan(planId: string) {
+async function mountPlan(planId: string, pinia = createPinia()) {
   const router = testRouter();
   await router.push(`/plans/${planId}`);
   await router.isReady();
-  const wrapper = mountWithPlugins(PlanComparisonView, { router });
+  const wrapper = mountWithPlugins(PlanComparisonView, { router, pinia });
   await settle();
   await vi.waitFor(() => {
     expect(wrapper.text()).toContain('Plan comparison');
@@ -332,5 +334,113 @@ describe('plan approval', () => {
     expect(wrapper.text()).not.toContain('Availability changed elsewhere');
 
     wrapper.unmount();
+  });
+});
+
+describe('approval problem payloads from the real client', () => {
+  it('renders constraint_violation findings parsed from the problem body', async () => {
+    const plan = await createPlan();
+    server.use(
+      http.post(/\/api\/v1\/plans\/.*\/candidates\/.*:approve$/, () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Constraint violation',
+            status: 422,
+            code: 'constraint_violation',
+            detail: 'Edited blocks overlap',
+            violations: [{ code: 'H1', message: 'Blocks overlap each other.' }],
+          },
+          { status: 422, headers: { 'Content-Type': 'application/problem+json' } },
+        ),
+      ),
+    );
+
+    const wrapper = await mountPlan(plan.id);
+    await buttonByText(wrapper, 'Approve this plan').trigger('click');
+
+    await vi.waitFor(
+      () => {
+        expect(wrapper.text()).toContain('Blocks overlap each other.');
+      },
+      { timeout: 3_000 },
+    );
+    expect(wrapper.text()).toContain('H1');
+    expect(wrapper.text()).toContain('Edited blocks overlap');
+
+    wrapper.unmount();
+  });
+
+  it('highlights the block named by /editedBlocks/<i>', async () => {
+    const plan = await createPlan();
+    server.use(
+      http.post(/\/api\/v1\/plans\/.*\/candidates\/.*:approve$/, () =>
+        HttpResponse.json(
+          {
+            type: 'about:blank',
+            title: 'Validation failed',
+            status: 422,
+            code: 'validation_failed',
+            detail: 'Edited blocks failed pre-flight validation',
+            errors: [{ path: '/editedBlocks/0', message: 'block lies outside the plan horizon' }],
+          },
+          { status: 422, headers: { 'Content-Type': 'application/problem+json' } },
+        ),
+      ),
+    );
+
+    const wrapper = await mountPlan(plan.id);
+    await buttonByText(wrapper, 'Approve this plan').trigger('click');
+
+    await vi.waitFor(
+      () => {
+        expect(wrapper.text()).toContain('Block 1: block lies outside the plan horizon');
+      },
+      { timeout: 3_000 },
+    );
+    expect(wrapper.findAll('.calendar-block')[0]?.classes()).toContain('calendar-block--error');
+
+    wrapper.unmount();
+  });
+});
+
+describe('offline transitions during delayed work', () => {
+  it('cancels a debounced preview when the connection drops before it fires', async () => {
+    const plan = await createPlan();
+    const pinia = createPinia();
+    const wrapper = await mountPlan(plan.id, pinia);
+    const offline = useOfflineStore(pinia);
+    const spy = vi.spyOn(plannerClient, 'previewCandidateEdit');
+
+    await vi.waitFor(() => {
+      expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0);
+    });
+    const block = wrapper.findAll('.calendar-block')[0]!;
+    await block.trigger('keydown', { key: 'ArrowDown' });
+    offline.setOnline(false);
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await settle();
+
+    expect(spy).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+});
+
+describe('pending preview cleanup on unmount', () => {
+  it('does not fire a debounced preview after the view is unmounted', async () => {
+    const plan = await createPlan();
+    const wrapper = await mountPlan(plan.id);
+    const spy = vi.spyOn(plannerClient, 'previewCandidateEdit');
+
+    await vi.waitFor(() => {
+      expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0);
+    });
+    await wrapper.findAll('.calendar-block')[0]!.trigger('keydown', { key: 'ArrowDown' });
+    wrapper.unmount();
+    await settle();
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    expect(spy).not.toHaveBeenCalled();
   });
 });

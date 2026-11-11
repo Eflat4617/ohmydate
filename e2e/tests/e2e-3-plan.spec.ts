@@ -67,6 +67,7 @@ test.describe('E2E-3 — plan comparison and stale-availability approval', () =>
 
     const generated = await loadPlan(pageA, planId);
     const firstCandidate = generated.candidates[0];
+    if (firstCandidate === undefined) throw new Error('generated plan has no candidates');
     const firstBlock = firstCandidate?.blocks[0];
     if (firstBlock === undefined) throw new Error('generated plan has no blocks to edit');
 
@@ -78,15 +79,67 @@ test.describe('E2E-3 — plan comparison and stale-availability approval', () =>
     }
     await expect(pageA.locator('.violation-list li').first()).toBeVisible({ timeout: 15_000 });
     await pageA.getByRole('button', { name: 'Reset edits' }).click();
+    await expect(pageA.locator('.violation-list li')).toHaveCount(0);
 
+    let feasible = false;
+    for (const key of ['ArrowDown', 'ArrowUp'] as const) {
+      const candidateBlock = pageA.locator('.calendar-block').last();
+      await candidateBlock.focus();
+      await candidateBlock.press(key);
+      await pageA.waitForTimeout(700);
+      if ((await pageA.locator('.violation-list li').count()) === 0) {
+        feasible = true;
+        break;
+      }
+      await pageA.getByRole('button', { name: 'Reset edits' }).click();
+      await expect(pageA.locator('.violation-list li')).toHaveCount(0);
+    }
+    expect(feasible, 'a small keyboard edit should remain feasible').toBe(true);
+
+    const approveRequest = pageA.waitForRequest(
+      (request) =>
+        request.method() === 'POST' && new URL(request.url()).pathname.endsWith(':approve'),
+    );
     const firstApproval = pageA.waitForResponse(
       (response) =>
         response.request().method() === 'POST' &&
         new URL(response.url()).pathname.endsWith(':approve'),
     );
     await pageA.getByRole('button', { name: 'Approve this plan' }).click();
-    expect((await firstApproval).status()).toBe(201);
+    const editedRequest = (await approveRequest).postDataJSON() as {
+      editedBlocks?: readonly { taskId: string; startAt: string; endAt: string }[];
+    };
+    if (editedRequest.editedBlocks === undefined) throw new Error('expected editedBlocks');
+    const changedBlock = editedRequest.editedBlocks.find(
+      (edited) =>
+        !firstCandidate.blocks.some(
+          (original) =>
+            original.taskId === edited.taskId &&
+            original.startAt === edited.startAt &&
+            original.endAt === edited.endAt,
+        ),
+    );
+    if (changedBlock === undefined) throw new Error('keyboard edit did not change a block');
+
+    const firstResponse = await firstApproval;
+    expect(firstResponse.status()).toBe(201);
+    const approvedVersion = (await firstResponse.json()) as {
+      id: string;
+      blocks: readonly { taskId: string; startAt: string; endAt: string }[];
+    };
+    expect(
+      approvedVersion.blocks.some(
+        (block) =>
+          block.taskId === changedBlock.taskId &&
+          block.startAt === changedBlock.startAt &&
+          block.endAt === changedBlock.endAt,
+      ),
+    ).toBe(true);
     await expect(pageA.getByRole('heading', { name: 'Plan approved' })).toBeVisible();
+
+    const persisted = await loadPlan(pageA, planId);
+    expect(persisted.currentVersionId).toBe(approvedVersion.id);
+    expect(persisted.version).toBeGreaterThan(generated.version);
 
     const contextB = await browser.newContext({
       storageState: await contextA.storageState(),

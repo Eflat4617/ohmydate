@@ -215,6 +215,11 @@ async function runPreview(): Promise<void> {
   const activePlan = plan.value;
   const candidate = selectedCandidate.value;
   if (activePlan === null || candidate === null || !dirty.value) return;
+  // The debounce can fire after the connection drops; never queue a mutation offline.
+  if (!offline.mutationsEnabled) {
+    previewing.value = false;
+    return;
+  }
   const token = ++previewToken;
   previewing.value = true;
   previewError.value = null;
@@ -380,7 +385,21 @@ const weekLabel = computed(() => {
   return `${weekDates.value[0]} – ${weekDates.value[6]}`;
 });
 
-onUnmounted(clearPreviewTimer);
+watch(
+  () => offline.mutationsEnabled,
+  (enabled) => {
+    if (enabled) return;
+    // Drop queued and in-flight preview work; a stale response must not land.
+    clearPreviewTimer();
+    previewToken += 1;
+    previewing.value = false;
+  },
+);
+
+onUnmounted(() => {
+  previewToken += 1;
+  clearPreviewTimer();
+});
 </script>
 
 <template>

@@ -54,3 +54,45 @@ describe('week calendar in a DST fall-back week', () => {
     expect(secondDayBlock?.attributes('aria-label')).toContain('2026-11-02 00:30');
   });
 });
+
+describe('week calendar across the repeated fall-back hour', () => {
+  it('sizes blocks and commitments from instants and labels offsets', () => {
+    const wrapper = mount(WeekCalendar, {
+      props: {
+        timeZone: 'America/New_York',
+        weekStart: '2026-11-01',
+        taskNames: { [TASK_ID]: 'Crossing block' },
+        commitmentNames: { 'commitment-1': 'Crossing commitment' },
+        blocks: [
+          {
+            taskId: TASK_ID,
+            startAt: '2026-11-01T05:30:00.000Z',
+            endAt: '2026-11-01T06:30:00.000Z',
+          },
+        ],
+        commitmentOccurrences: [
+          {
+            commitmentId: 'commitment-1',
+            startAt: '2026-11-01T05:30:00.000Z',
+            endAt: '2026-11-01T06:30:00.000Z',
+          },
+        ],
+      },
+    });
+
+    const day = wrapper.get('.calendar-day[data-date="2026-11-01"]');
+    const block = day.get('.calendar-block');
+    const blockElement = block.element as HTMLElement;
+    expect(blockElement.style.top).toBe('90px');
+    expect(blockElement.style.height).toBe('60px');
+    expect(block.attributes('aria-label')).toContain('01:30 to 01:30');
+    expect(block.attributes('aria-label')).toContain('[GMT-4→GMT-5]');
+
+    const commitment = day.get('.calendar-commitment');
+    const commitmentElement = commitment.element as HTMLElement;
+    expect(commitmentElement.style.top).toBe('90px');
+    expect(commitmentElement.style.height).toBe('60px');
+    expect(commitment.attributes('aria-label')).toContain('[GMT-4→GMT-5]');
+    expect(commitment.attributes('aria-label')).toContain('Crossing commitment');
+  });
+});

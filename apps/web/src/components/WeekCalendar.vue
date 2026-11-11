@@ -7,6 +7,7 @@ import type {
   PlanBlock,
 } from '../api';
 import {
+  formatZoneOffset,
   localParts,
   weekDates,
   weekdayOfDate,
@@ -136,7 +137,10 @@ function blockLabel(block: PlanBlock): string {
   const start = localParts(block.startAt, props.timeZone);
   const end = localParts(block.endAt, props.timeZone);
   const task = props.taskNames[block.taskId] ?? block.taskId;
-  return `${task}, ${start.date} ${pad(start.hour)}:${pad(start.minute)} to ${end.date === start.date ? `${pad(end.hour)}:${pad(end.minute)}` : `${end.date} ${pad(end.hour)}:${pad(end.minute)}`}`;
+  const startOffset = formatZoneOffset(block.startAt, props.timeZone);
+  const endOffset = formatZoneOffset(block.endAt, props.timeZone);
+  const offsetSuffix = startOffset === endOffset ? startOffset : `${startOffset}→${endOffset}`;
+  return `${task}, ${start.date} ${pad(start.hour)}:${pad(start.minute)} to ${end.date === start.date ? `${pad(end.hour)}:${pad(end.minute)}` : `${end.date} ${pad(end.hour)}:${pad(end.minute)}`} [${offsetSuffix}]`;
 }
 
 function pad(value: number): string {
@@ -145,22 +149,25 @@ function pad(value: number): string {
 
 function positionFor(startAt: string, endAt: string): { date: string; top: number; height: number } | null {
   const start = localParts(startAt, props.timeZone);
-  const end = localParts(endAt, props.timeZone);
   if (!dates.value.includes(start.date)) return null;
-  let duration: number;
-  if (end.date === start.date) {
-    duration = end.minutes - start.minutes;
-  } else {
-    const startMs = Date.parse(startAt);
-    const endMs = Date.parse(endAt);
-    duration = Number.isFinite(startMs) && Number.isFinite(endMs) ? (endMs - startMs) / 60_000 : 0;
-    duration = Math.min(duration, 1440 - start.minutes);
-  }
+  const startMs = Date.parse(startAt);
+  const endMs = Date.parse(endAt);
+  const duration =
+    Number.isFinite(startMs) && Number.isFinite(endMs) ? (endMs - startMs) / 60_000 : 0;
   return {
     date: start.date,
     top: start.minutes,
     height: Math.max(GRID_MINUTES, Math.min(duration, 1440 - start.minutes)),
   };
+}
+
+function commitmentLabel(commitment: PositionedCommitment): string {
+  const start = localParts(commitment.startAt, props.timeZone);
+  const end = localParts(commitment.endAt, props.timeZone);
+  const startOffset = formatZoneOffset(commitment.startAt, props.timeZone);
+  const endOffset = formatZoneOffset(commitment.endAt, props.timeZone);
+  const offsetSuffix = startOffset === endOffset ? startOffset : `${startOffset}→${endOffset}`;
+  return `${commitment.title}, ${start.date} ${pad(start.hour)}:${pad(start.minute)} to ${end.date === start.date ? `${pad(end.hour)}:${pad(end.minute)}` : `${end.date} ${pad(end.hour)}:${pad(end.minute)}`} [${offsetSuffix}]`;
 }
 
 const positionedBlocks = computed<PositionedBlock[]>(() => {
@@ -349,6 +356,7 @@ defineExpose({ dates, positionedBlocks });
             class="calendar-commitment"
             :style="{ top: `${commitment.top}px`, height: `${commitment.height}px` }"
             :title="commitment.title"
+            :aria-label="commitmentLabel(commitment)"
           >
             <span>{{ commitment.title }}</span>
           </div>

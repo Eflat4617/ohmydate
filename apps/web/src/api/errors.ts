@@ -3,24 +3,34 @@ import type { components } from './schema';
 export type Problem = components['schemas']['Problem'];
 export type ProblemCode = Problem['code'];
 
-const PROBLEM_CODES: ReadonlySet<string> = new Set<ProblemCode>([
-  'validation_failed',
-  'version_conflict',
-  'availability_changed',
-  'idempotency_mismatch',
-  'provider_unavailable',
-  'llm_unavailable',
-  'budget_exceeded',
-  'dependency_cycle',
-  'illegal_transition',
-  'approval_in_progress',
-  'not_found',
-  'forbidden',
-  'rate_limited',
-  'unauthenticated',
-  'idempotency_in_progress',
-  'internal_error',
-]);
+/**
+ * Exhaustive map of the contract's Problem codes. Typing it as
+ * `Record<ProblemCode, true>` makes generated-schema drift a typecheck error:
+ * adding or removing a code without updating this map fails the build.
+ */
+const PROBLEM_CODE_MAP: Record<ProblemCode, true> = {
+  validation_failed: true,
+  version_conflict: true,
+  availability_changed: true,
+  constraint_violation: true,
+  idempotency_mismatch: true,
+  provider_unavailable: true,
+  llm_unavailable: true,
+  budget_exceeded: true,
+  dependency_cycle: true,
+  illegal_transition: true,
+  approval_in_progress: true,
+  not_found: true,
+  forbidden: true,
+  rate_limited: true,
+  unauthenticated: true,
+  idempotency_in_progress: true,
+  internal_error: true,
+};
+
+const PROBLEM_CODES: ReadonlySet<string> = new Set<ProblemCode>(
+  Object.keys(PROBLEM_CODE_MAP) as ProblemCode[],
+);
 
 export type ApiErrorCode = ProblemCode | 'unknown';
 

@@ -48,6 +48,7 @@ export interface PlanDto {
   readonly id: string;
   readonly version: number;
   readonly availabilityVersion: number;
+  readonly currentVersionId?: string;
   readonly horizon: { readonly start: string; readonly end: string };
   readonly timeZone: string;
   readonly candidates: readonly {

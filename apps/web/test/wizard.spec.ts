@@ -563,3 +563,49 @@ describe('FU-40 input mapping and transient approval retry', () => {
     wrapper.unmount();
   });
 });
+
+describe('offline transitions during delayed approval', () => {
+  it('defers the Retry-After retry while offline and reuses the key after reconnect', async () => {
+    const session = await createSession('오프라인 재시도 과제');
+    const manual = await createPlannerClient().enterManualIntakeMode(
+      session.id,
+      newActionId('manual'),
+      session.version,
+    );
+    const { wrapper, pinia } = await mountWizard(manual.id);
+    await waitFor(() => {
+      expect(wrapper.text()).toContain('4단계 - 단계 초안'.replace(' - ', ' · '));
+    });
+
+    const { useOfflineStore } = await import('../src/stores/offline');
+    const offline = useOfflineStore(pinia);
+    const spy = vi.spyOn(plannerClient, 'approveIntakeDraft');
+    spy.mockImplementationOnce(async () => {
+      offline.setOnline(false);
+      throw new ApiError(409, 'approval_in_progress', 'Approval in progress', undefined, 0);
+    });
+    spy.mockResolvedValueOnce({
+      ...manual,
+      state: 'feasibility_check',
+      version: manual.version + 1,
+    });
+
+    await button(wrapper, '초안 승인').trigger('click');
+    await waitFor(() => {
+      expect(wrapper.text()).toContain('연결이 끊겨 승인을 보류했습니다');
+    });
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    offline.setOnline(true);
+    await settle();
+    await button(wrapper, '초안 승인').trigger('click');
+    await waitFor(() => {
+      expect(wrapper.text()).toContain('초안 승인 완료');
+    });
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(spy.mock.calls[1]?.[1]).toBe(spy.mock.calls[0]?.[1]);
+
+    spy.mockRestore();
+    wrapper.unmount();
+  });
+});
