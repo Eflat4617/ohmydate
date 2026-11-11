@@ -78,6 +78,24 @@ import {
   TemplateStatsSchema,
 } from './template.js';
 import {
+  EstimationFeedbackIdParamsSchema,
+  EstimationFeedbackPatchSchema,
+  EstimationProfileGroupSchema,
+  EstimationProfileItemSchema,
+  EstimationProfileSchema,
+  EstimationRatioStatsSchema,
+  EstimationResetSchema,
+  ReplanApproveRequestSchema,
+  ReplanCandidateSchema,
+  ReplanProposalIdParamsSchema,
+  ReplanProposalListQuerySchema,
+  ReplanProposalPageSchema,
+  ReplanProposalSchema,
+  ReplanRejectSchema,
+  ReplanRequestSchema,
+  ReplanTriggerSchema,
+} from './replanning.js';
+import {
   EstimationFeedbackSchema,
   ExportIdParamsSchema,
   ExportSchema,
@@ -954,10 +972,131 @@ export const dailyRoutes: readonly RouteDefinition[] = [
   },
 ];
 
+/**
+ * M5 replanning and estimation-learning routes (08 §2.6, §2.10, 05 §6/§10/§11).
+ * Contract-only: M5-02 supplies the handlers. Proposal approval pins
+ * `If-Match` to the user-wide `W/"availability:<n>"` tag exactly like plan
+ * approval (08 §2.4), while rejection pins it to the proposal's own version.
+ */
+export const replanningRoutes: readonly RouteDefinition[] = [
+  {
+    method: 'get',
+    path: '/replan-proposals',
+    operationId: 'listReplanProposals',
+    summary: 'List replan proposals, optionally filtered by state',
+    query: ReplanProposalListQuerySchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Replan proposal page', schema: ReplanProposalPageSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 422),
+    },
+  },
+  {
+    method: 'get',
+    path: '/replan-proposals/{id}',
+    operationId: 'getReplanProposal',
+    summary: 'Read a replan proposal',
+    params: ReplanProposalIdParamsSchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Replan proposal', schema: ReplanProposalSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 404),
+    },
+  },
+  {
+    method: 'post',
+    path: '/replan-proposals/{id}:approve',
+    operationId: 'approveReplanProposal',
+    summary: 'Approve a replan proposal as a new plan version',
+    description:
+      'Reuses the plan-approval atomicity contract (08 §2.4): If-Match is the user-wide availability version W/"availability:<n>", and one transaction re-reads availability and locked blocks, re-runs validation, supersedes prior blocks and creates a plan version with createdBy="replan". A stale snapshot returns 412 availability_changed, a non-pending proposal returns 409 proposal_state_conflict, and scheduler findings return 422 constraint_violation{violations[]}.',
+    params: ReplanProposalIdParamsSchema,
+    headers: IfMatchAvailabilityAndIdempotencyHeadersSchema,
+    body: ReplanApproveRequestSchema,
+    responses: {
+      201: { description: 'Approved plan version', schema: PlanVersionSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428, 503),
+    },
+  },
+  {
+    method: 'post',
+    path: '/replan-proposals/{id}:reject',
+    operationId: 'rejectReplanProposal',
+    summary: 'Reject a replan proposal and suppress the same reason for 24 h',
+    description:
+      'If-Match is the proposal resource version W/"<n>". A rejected proposal records a replan_suppression(owner, reason, until = now + 24 h) so the same reason is not proposed again inside the window (05 §11).',
+    params: ReplanProposalIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: ReplanRejectSchema,
+    responses: {
+      200: { description: 'Rejected replan proposal', schema: ReplanProposalSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/replan-proposals:request',
+    operationId: 'requestReplanProposal',
+    summary: 'Request a user-initiated replan proposal',
+    description:
+      'Creates a pending proposal for a plan with trigger kind user_request. When the same reason is inside its 24 h post-rejection suppression window, or the owner already received two proposals today, the response is 409 replan_suppressed with Retry-After seconds until the next allowed attempt.',
+    headers: IdempotencyHeadersSchema,
+    body: ReplanRequestSchema,
+    responses: {
+      201: { description: 'Created replan proposal', schema: ReplanProposalSchema },
+      ...problems(400, 401, 403, 404, 409, 422),
+    },
+  },
+  {
+    method: 'get',
+    path: '/estimation/profile',
+    operationId: 'getEstimationProfile',
+    summary: 'Read the personal estimation profile ("내 패턴")',
+    description:
+      'Returns per-template/task-kind log-ratio statistics with sample count, confidence and method, plus feedback items whose outlier/exclusion state can be toggled. Priors and shrinkage use k=5 and |z|>2.5 outlier rejection (05 §6).',
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Estimation profile', schema: EstimationProfileSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401),
+    },
+  },
+  {
+    method: 'patch',
+    path: '/estimation/feedback/{id}',
+    operationId: 'patchEstimationFeedback',
+    summary: 'Exclude or re-include one learning feedback item',
+    params: EstimationFeedbackIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: EstimationFeedbackPatchSchema,
+    responses: {
+      200: { description: 'Updated feedback item', schema: EstimationProfileItemSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/estimation:reset',
+    operationId: 'resetEstimation',
+    summary: 'Reset learned estimation corrections by scope',
+    description:
+      'Resets personal corrections for one template (scope="template", templateId required) or all templates (scope="all") per 05 §6 and 08 §2.10. Returns the refreshed estimation profile.',
+    headers: IdempotencyHeadersSchema,
+    body: EstimationResetSchema,
+    responses: {
+      200: { description: 'Refreshed estimation profile', schema: EstimationProfileSchema },
+      ...problems(400, 401, 403, 422),
+    },
+  },
+];
+
 export const contractRoutes: readonly RouteDefinition[] = [
   ...routes,
   ...planningRoutes,
   ...dailyRoutes,
+  ...replanningRoutes,
 ];
 
 export const schemaRegistry = {
@@ -1056,6 +1195,22 @@ export const schemaRegistry = {
   Export: ExportSchema,
   ExportStartResponse: ExportStartResponseSchema,
   ExportIdParams: ExportIdParamsSchema,
+  ReplanTrigger: ReplanTriggerSchema,
+  ReplanCandidate: ReplanCandidateSchema,
+  ReplanProposal: ReplanProposalSchema,
+  ReplanProposalPage: ReplanProposalPageSchema,
+  ReplanProposalListQuery: ReplanProposalListQuerySchema,
+  ReplanProposalIdParams: ReplanProposalIdParamsSchema,
+  ReplanApproveRequest: ReplanApproveRequestSchema,
+  ReplanReject: ReplanRejectSchema,
+  ReplanRequest: ReplanRequestSchema,
+  EstimationRatioStats: EstimationRatioStatsSchema,
+  EstimationProfileGroup: EstimationProfileGroupSchema,
+  EstimationProfileItem: EstimationProfileItemSchema,
+  EstimationProfile: EstimationProfileSchema,
+  EstimationReset: EstimationResetSchema,
+  EstimationFeedbackPatch: EstimationFeedbackPatchSchema,
+  EstimationFeedbackIdParams: EstimationFeedbackIdParamsSchema,
 } as const;
 
 export type SchemaRegistry = typeof schemaRegistry;

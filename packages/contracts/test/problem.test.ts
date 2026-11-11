@@ -26,6 +26,8 @@ const EXPECTED_CODES = [
   'idempotency_in_progress',
   'active_session_exists',
   'session_state_conflict',
+  'replan_suppressed',
+  'proposal_state_conflict',
   'internal_error',
 ];
 

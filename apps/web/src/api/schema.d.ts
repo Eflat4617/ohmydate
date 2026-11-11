@@ -89,6 +89,63 @@ export interface paths {
         patch: operations["updateCommitment"];
         trace?: never;
     };
+    "/estimation/feedback/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Exclude or re-include one learning feedback item */
+        patch: operations["patchEstimationFeedback"];
+        trace?: never;
+    };
+    "/estimation/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the personal estimation profile ("내 패턴")
+         * @description Returns per-template/task-kind log-ratio statistics with sample count, confidence and method, plus feedback items whose outlier/exclusion state can be toggled. Priors and shrinkage use k=5 and |z|>2.5 outlier rejection (05 §6).
+         */
+        get: operations["getEstimationProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/estimation:reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset learned estimation corrections by scope
+         * @description Resets personal corrections for one template (scope="template", templateId required) or all templates (scope="all") per 05 §6 and 08 §2.10. Returns the refreshed estimation profile.
+         */
+        post: operations["resetEstimation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/exports": {
         parameters: {
             query?: never;
@@ -512,6 +569,100 @@ export interface paths {
         post?: never;
         /** Remove a push subscription */
         delete: operations["deletePushSubscription"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/replan-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List replan proposals, optionally filtered by state */
+        get: operations["listReplanProposals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/replan-proposals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a replan proposal */
+        get: operations["getReplanProposal"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/replan-proposals/{id}:approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a replan proposal as a new plan version
+         * @description Reuses the plan-approval atomicity contract (08 §2.4): If-Match is the user-wide availability version W/"availability:<n>", and one transaction re-reads availability and locked blocks, re-runs validation, supersedes prior blocks and creates a plan version with createdBy="replan". A stale snapshot returns 412 availability_changed, a non-pending proposal returns 409 proposal_state_conflict, and scheduler findings return 422 constraint_violation{violations[]}.
+         */
+        post: operations["approveReplanProposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/replan-proposals/{id}:reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a replan proposal and suppress the same reason for 24 h
+         * @description If-Match is the proposal resource version W/"<n>". A rejected proposal records a replan_suppression(owner, reason, until = now + 24 h) so the same reason is not proposed again inside the window (05 §11).
+         */
+        post: operations["rejectReplanProposal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/replan-proposals:request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Request a user-initiated replan proposal
+         * @description Creates a pending proposal for a plan with trigger kind user_request. When the same reason is inside its 24 h post-rejection suppression window, or the owner already received two proposals today, the response is 409 replan_suppressed with Retry-After seconds until the next allowed attempt.
+         */
+        post: operations["requestReplanProposal"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1083,6 +1234,105 @@ export interface components {
             /** Format: uuid */
             taskId: string;
         };
+        EstimationFeedbackIdParams: {
+            /** Format: uuid */
+            id: string;
+        };
+        EstimationFeedbackPatch: {
+            excluded: boolean;
+        };
+        EstimationProfile: {
+            confidence: number;
+            /** Format: date-time */
+            generatedAt: string;
+            groups: {
+                confidence: number;
+                dimension: "template" | "kind";
+                key: string;
+                method: string;
+                sampleCount: number;
+                stats: {
+                    logRatioMean: number;
+                    logRatioStdDev: number;
+                    p50Ratio: number;
+                    p90Ratio: number;
+                    sampleCount: number;
+                };
+                taskKind?: "prep" | "work" | "review" | "buffer";
+                /** Format: uuid */
+                templateId?: string;
+            }[];
+            items: {
+                actualFocusMin: number;
+                /** Format: date-time */
+                createdAt: string;
+                estimatedP50: number;
+                excluded: boolean;
+                /** Format: uuid */
+                feedbackId: string;
+                quality: "ok" | "outlier" | "excluded";
+                ratio: number;
+                /** Format: uuid */
+                taskId: string;
+                taskKind?: "prep" | "work" | "review" | "buffer";
+                /** Format: uuid */
+                templateId?: string;
+                version: number;
+                zScore: number;
+            }[];
+            method: string;
+            outlierZThreshold: number;
+            sampleCount: number;
+            shrinkageK: number;
+        };
+        EstimationProfileGroup: {
+            confidence: number;
+            dimension: "template" | "kind";
+            key: string;
+            method: string;
+            sampleCount: number;
+            stats: {
+                logRatioMean: number;
+                logRatioStdDev: number;
+                p50Ratio: number;
+                p90Ratio: number;
+                sampleCount: number;
+            };
+            taskKind?: "prep" | "work" | "review" | "buffer";
+            /** Format: uuid */
+            templateId?: string;
+        };
+        EstimationProfileItem: {
+            actualFocusMin: number;
+            /** Format: date-time */
+            createdAt: string;
+            estimatedP50: number;
+            excluded: boolean;
+            /** Format: uuid */
+            feedbackId: string;
+            quality: "ok" | "outlier" | "excluded";
+            ratio: number;
+            /** Format: uuid */
+            taskId: string;
+            taskKind?: "prep" | "work" | "review" | "buffer";
+            /** Format: uuid */
+            templateId?: string;
+            version: number;
+            zScore: number;
+        };
+        EstimationRatioStats: {
+            logRatioMean: number;
+            logRatioStdDev: number;
+            p50Ratio: number;
+            p90Ratio: number;
+            sampleCount: number;
+        };
+        /** @description Reset personal estimation corrections for one template or all. templateId is required when scope is "template" (422 validation_failed otherwise). */
+        EstimationReset: {
+            scope: "template" | "all";
+            /** Format: uuid */
+            templateId?: string;
+        };
         Export: {
             /** Format: date-time */
             createdAt: string;
@@ -1634,7 +1884,7 @@ export interface components {
             }[];
         };
         Problem: {
-            code: "validation_failed" | "version_conflict" | "availability_changed" | "constraint_violation" | "idempotency_mismatch" | "provider_unavailable" | "llm_unavailable" | "budget_exceeded" | "dependency_cycle" | "illegal_transition" | "approval_in_progress" | "not_found" | "forbidden" | "rate_limited" | "unauthenticated" | "idempotency_in_progress" | "active_session_exists" | "session_state_conflict" | "internal_error";
+            code: "validation_failed" | "version_conflict" | "availability_changed" | "constraint_violation" | "idempotency_mismatch" | "provider_unavailable" | "llm_unavailable" | "budget_exceeded" | "dependency_cycle" | "illegal_transition" | "approval_in_progress" | "not_found" | "forbidden" | "rate_limited" | "unauthenticated" | "idempotency_in_progress" | "active_session_exists" | "session_state_conflict" | "replan_suppressed" | "proposal_state_conflict" | "internal_error";
             detail?: string;
             errors?: {
                 message: string;
@@ -1699,6 +1949,162 @@ export interface components {
         PushSubscriptionKeys: {
             auth: string;
             p256dh: string;
+        };
+        ReplanApproveRequest: {
+            editedBlocks?: {
+                /** Format: date-time */
+                endAt: string;
+                /** Format: date-time */
+                startAt: string;
+                /** Format: uuid */
+                taskId: string;
+            }[];
+        };
+        ReplanCandidate: {
+            blocks: {
+                /** Format: date-time */
+                endAt: string;
+                /** Format: date-time */
+                startAt: string;
+                /** Format: uuid */
+                taskId: string;
+            }[];
+            bound: number;
+            changedBlocks: number;
+            explanation: string[];
+            flags: ("infeasible" | "bound_exceeded" | "scope_extended" | "capacity_deficit")[];
+            metrics: {
+                avgDailyLoadMin: number;
+                capacityDeficitMin: number;
+                changedBlocks: number;
+                contextSwitches: number;
+                deficitMin: number;
+                maxDailyLoadMin: number;
+                minSlackMin: number;
+                p90CoverageRatio: number;
+                totalFocusMin: number;
+            };
+        };
+        ReplanProposal: {
+            availabilityVersion: number;
+            /** Format: uuid */
+            basePlanVersionId: string;
+            candidate: {
+                blocks: {
+                    /** Format: date-time */
+                    endAt: string;
+                    /** Format: date-time */
+                    startAt: string;
+                    /** Format: uuid */
+                    taskId: string;
+                }[];
+                bound: number;
+                changedBlocks: number;
+                explanation: string[];
+                flags: ("infeasible" | "bound_exceeded" | "scope_extended" | "capacity_deficit")[];
+                metrics: {
+                    avgDailyLoadMin: number;
+                    capacityDeficitMin: number;
+                    changedBlocks: number;
+                    contextSwitches: number;
+                    deficitMin: number;
+                    maxDailyLoadMin: number;
+                    minSlackMin: number;
+                    p90CoverageRatio: number;
+                    totalFocusMin: number;
+                };
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: uuid */
+            id: string;
+            state: "pending" | "approved" | "rejected" | "expired" | "superseded";
+            /** @description Replan trigger plus the caller-supplied affected task scope (06 §7.1). Non-affected future blocks stay fixed. */
+            trigger: {
+                affectedTaskIds: string[];
+                /** Format: date-time */
+                detectedAt: string;
+                kind: "deadline_risk" | "commitment_conflict" | "early_completion" | "user_request";
+                reason: "deadline_slack_negative" | "commitment_overlap" | "early_completion_capacity" | "dependency_change" | "user_request";
+            };
+            version: number;
+        };
+        ReplanProposalIdParams: {
+            /** Format: uuid */
+            id: string;
+        };
+        ReplanProposalListQuery: {
+            cursor?: string;
+            limit?: number;
+            state?: "pending" | "approved" | "rejected" | "expired" | "superseded";
+        };
+        ReplanProposalPage: {
+            items: {
+                availabilityVersion: number;
+                /** Format: uuid */
+                basePlanVersionId: string;
+                candidate: {
+                    blocks: {
+                        /** Format: date-time */
+                        endAt: string;
+                        /** Format: date-time */
+                        startAt: string;
+                        /** Format: uuid */
+                        taskId: string;
+                    }[];
+                    bound: number;
+                    changedBlocks: number;
+                    explanation: string[];
+                    flags: ("infeasible" | "bound_exceeded" | "scope_extended" | "capacity_deficit")[];
+                    metrics: {
+                        avgDailyLoadMin: number;
+                        capacityDeficitMin: number;
+                        changedBlocks: number;
+                        contextSwitches: number;
+                        deficitMin: number;
+                        maxDailyLoadMin: number;
+                        minSlackMin: number;
+                        p90CoverageRatio: number;
+                        totalFocusMin: number;
+                    };
+                };
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                expiresAt: string;
+                /** Format: uuid */
+                id: string;
+                state: "pending" | "approved" | "rejected" | "expired" | "superseded";
+                /** @description Replan trigger plus the caller-supplied affected task scope (06 §7.1). Non-affected future blocks stay fixed. */
+                trigger: {
+                    affectedTaskIds: string[];
+                    /** Format: date-time */
+                    detectedAt: string;
+                    kind: "deadline_risk" | "commitment_conflict" | "early_completion" | "user_request";
+                    reason: "deadline_slack_negative" | "commitment_overlap" | "early_completion_capacity" | "dependency_change" | "user_request";
+                };
+                version: number;
+            }[];
+            nextCursor: string | null;
+        };
+        ReplanReject: {
+            reason?: string;
+        };
+        ReplanRequest: {
+            affectedTaskIds?: string[];
+            /** Format: uuid */
+            planId: string;
+            reason?: "deadline_slack_negative" | "commitment_overlap" | "early_completion_capacity" | "dependency_change" | "user_request";
+        };
+        /** @description Replan trigger plus the caller-supplied affected task scope (06 §7.1). Non-affected future blocks stay fixed. */
+        ReplanTrigger: {
+            affectedTaskIds: string[];
+            /** Format: date-time */
+            detectedAt: string;
+            kind: "deadline_risk" | "commitment_conflict" | "early_completion" | "user_request";
+            reason: "deadline_slack_negative" | "commitment_overlap" | "early_completion_capacity" | "dependency_change" | "user_request";
         };
         ScheduleBlock: {
             /** Format: date-time */
@@ -2632,6 +3038,216 @@ export interface operations {
             };
             /** @description If-Match header required */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    patchEstimationFeedback: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EstimationFeedbackPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated feedback item */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstimationProfileItem"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Version precondition failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match header required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getEstimationProfile: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Estimation profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstimationProfile"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    resetEstimation: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EstimationReset"];
+            };
+        };
+        responses: {
+            /** @description Refreshed estimation profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstimationProfile"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4770,6 +5386,415 @@ export interface operations {
             };
             /** @description If-Match header required */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listReplanProposals: {
+        parameters: {
+            query?: {
+                state?: "pending" | "approved" | "rejected" | "expired" | "superseded";
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Replan proposal page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplanProposalPage"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getReplanProposal: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Replan proposal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplanProposal"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    approveReplanProposal: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplanApproveRequest"];
+            };
+        };
+        responses: {
+            /** @description Approved plan version */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanVersion"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Version precondition failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match header required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Provider unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    rejectReplanProposal: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplanReject"];
+            };
+        };
+        responses: {
+            /** @description Rejected replan proposal */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplanProposal"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Version precondition failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match header required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    requestReplanProposal: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplanRequest"];
+            };
+        };
+        responses: {
+            /** @description Created replan proposal */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplanProposal"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
