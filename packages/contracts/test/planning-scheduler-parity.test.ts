@@ -210,6 +210,27 @@ test('edited-block preflight failures use validation_failed errors, not H0 viola
   }
 });
 
+test('documented preflight error paths exist on the route body schema', () => {
+  for (const operationId of ['previewPlanCandidateEdit', 'approvePlanCandidate']) {
+    const route = requireRoute(operationId);
+    const match = /errors\[\{path: "\/([A-Za-z][A-Za-z0-9]*)\/<i>"/.exec(route.description ?? '');
+    expect({ operationId, documented: match?.[1] }).toEqual({
+      operationId,
+      documented: expect.any(String),
+    });
+    const properties = Object.keys(
+      ((route.body as { properties?: Record<string, unknown> } | undefined)?.properties ?? {}) as Record<
+        string,
+        unknown
+      >,
+    );
+    expect({ operationId, bodyProperties: properties }).toEqual({
+      operationId,
+      bodyProperties: expect.arrayContaining([match?.[1]]),
+    });
+  }
+});
+
 function requireRoute(operationId: string) {
   const route = planningRoutes.find((candidate) => candidate.operationId === operationId);
   if (route === undefined) throw new Error(`route ${operationId} missing`);

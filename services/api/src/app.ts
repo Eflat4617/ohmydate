@@ -15,6 +15,7 @@ import { Argon2PasswordHasher } from './adapters/argon2-password-hasher.js';
 import { InMemoryLoginRateLimiter } from './adapters/in-memory-login-rate-limiter.js';
 import { InMemorySessionStore } from './adapters/in-memory-session-store.js';
 import { PgIdempotencyStore } from './adapters/pg-idempotency-store.js';
+import { PgPlanningStore } from './adapters/pg-planning-store.js';
 import { PgUserRepository } from './adapters/pg-user-repository.js';
 import { createVikunjaRepositories } from './adapters/vikunja/composition.js';
 import { listReconcilerOwnerIds } from './adapters/vikunja/owner-accounts.js';
@@ -31,6 +32,11 @@ import {
   type FastifyValidationError,
 } from './http/problem.js';
 import { createRuntime, registerRoutes } from './http/routes.js';
+import {
+  AvailabilityChangedError,
+  ConstraintViolationError,
+  PlanConflictError,
+} from './application/planning-errors.js';
 import './http/fastify-augment.js';
 
 export type LoggerOption = NonNullable<FastifyServerOptions['logger']>;
@@ -297,6 +303,48 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   );
 
   app.setErrorHandler((error, request, reply) => {
+    if (error instanceof AvailabilityChangedError) {
+      return sendProblem(
+        request,
+        reply,
+        412,
+        'availability_changed',
+        'Availability changed',
+        error.message,
+      );
+    }
+    if (error instanceof ConstraintViolationError) {
+      return sendProblem(
+        request,
+        reply,
+        422,
+        'constraint_violation',
+        'Plan violates scheduling constraints',
+        'the candidate cannot be approved as-is',
+        undefined,
+        error.violations,
+      );
+    }
+    if (error instanceof PlanConflictError) {
+      return sendProblem(
+        request,
+        reply,
+        409,
+        'illegal_transition',
+        'State conflict',
+        error.message,
+      );
+    }
+    if (error instanceof RangeError) {
+      return sendProblem(
+        request,
+        reply,
+        422,
+        'validation_failed',
+        'Domain validation failed',
+        error.message,
+      );
+    }
     if (error instanceof ProblemError) {
       if (error.headers !== undefined) {
         for (const [name, value] of Object.entries(error.headers)) reply.header(name, value);
@@ -391,6 +439,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     repos = (await createVikunjaRepositories({ db, config, clock, ids })).repos;
   }
 
+  const planningStore = new PgPlanningStore({ db, clock, ids });
   const runtime = createRuntime({
     config,
     clock,
@@ -399,6 +448,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     idempotency,
     auth,
     repos,
+    planningStore,
   });
 
   registerHealthRoutes(app, config, db);

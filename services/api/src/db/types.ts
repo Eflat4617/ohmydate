@@ -121,6 +121,7 @@ export interface UserTable {
 export interface ProjectTable {
   id: Col<'uuid', false, false>;
   owner_id: Col<'uuid', false, false>;
+  goal_id: Col<'uuid', true, false>;
   title: Col<'text', false, false>;
   kind: Col<'text', false, true>;
   archived: Col<'boolean', false, true>;
@@ -412,6 +413,8 @@ export interface AvailabilityExceptionTable {
 export interface UserAvailabilityVersionTable {
   owner_id: Col<'uuid', false, false>;
   version: Col<'integer', false, true>;
+  time_zone: Col<'text', false, true>;
+  prefs: Col<'jsonb', false, true>;
   updated_at: Col<'timestamptz', false, true>;
 }
 
@@ -612,6 +615,7 @@ export const databaseTables = {
   project: {
     id: col('uuid', false, false),
     owner_id: col('uuid', false, false),
+    goal_id: col('uuid', true, false),
     title: col('text', false, false),
     kind: col('text', false, true),
     archived: col('boolean', false, true),
@@ -881,6 +885,8 @@ export const databaseTables = {
   user_availability_version: {
     owner_id: col('uuid', false, false),
     version: col('integer', false, true),
+    time_zone: col('text', false, true),
+    prefs: col('jsonb', false, true),
     updated_at: col('timestamptz', false, true),
   },
   plan: {
