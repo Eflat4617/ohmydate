@@ -299,6 +299,7 @@ export class PgIntakeSessionRepository implements IntakeSessionRepository {
       readonly policyOk: boolean;
       readonly constraintOk: boolean;
       readonly issues: readonly { readonly code: string; readonly message: string }[];
+      readonly editedEstimateKeys: readonly string[];
     },
     expectedVersion: number,
   ): Promise<IntakeSessionRecord> {
@@ -331,6 +332,7 @@ export class PgIntakeSessionRepository implements IntakeSessionRepository {
           payload: jsonb({
             draft: input.draft,
             issues: input.issues,
+            editedEstimateKeys: [...input.editedEstimateKeys],
           } as unknown as JsonValue),
           schema_ok: input.schemaOk,
           policy_ok: input.policyOk,

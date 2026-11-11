@@ -342,6 +342,11 @@ export class TodayService {
         { path: '/blockId', message: 'only unstarted blocks can be shortened' },
       ]);
     }
+    if (target.locked) {
+      throw new ValidationFailedError([
+        { path: '/blockId', message: 'a locked block cannot be changed' },
+      ]);
+    }
     const duration = minutesBetween(target.startAt, target.endAt);
     if (input.targetMin > duration) {
       throw new ValidationFailedError([
@@ -386,6 +391,11 @@ export class TodayService {
     if (original.some((block) => Date.parse(block.startAt) < instantToEpochMs(now))) {
       throw new ValidationFailedError([
         { path: '/blockIds', message: 'only unstarted blocks can be rescheduled' },
+      ]);
+    }
+    if (original.some((block) => block.locked)) {
+      throw new ValidationFailedError([
+        { path: '/blockIds', message: 'a locked block cannot be changed' },
       ]);
     }
 
@@ -618,8 +628,13 @@ export class TodayService {
     replacements: readonly PlanBlock[],
   ): PlanBlock[] {
     const nowMs = instantToEpochMs(this.#clock.now());
+    // M5-02R-1 H1: locked blocks are carried over by the approval TX as-is
+    // and audited as lockedBlocks; they are never re-emitted as candidates.
     const kept = snapshot.planBlocks
-      .filter((block) => !replaced.has(block.id) && Date.parse(block.startAt) >= nowMs)
+      .filter(
+        (block) =>
+          !replaced.has(block.id) && !block.locked && Date.parse(block.startAt) >= nowMs,
+      )
       .map((block) => ({
         taskId: block.taskId,
         startAt: block.startAt,
@@ -640,9 +655,12 @@ export class TodayService {
         end: block.endAt,
       })),
       now,
-      snapshot.otherBlocks
-        .filter((block) => Date.parse(block.startAt) >= nowMs)
-        .map(toSchedulerBlock),
+      [
+        ...snapshot.otherBlocks.filter((block) => Date.parse(block.startAt) >= nowMs),
+        ...snapshot.planBlocks.filter(
+          (block) => block.locked && Date.parse(block.startAt) >= nowMs,
+        ),
+      ].map(toSchedulerBlock),
     );
     const historyBlocks = [...snapshot.planBlocks, ...snapshot.otherBlocks]
       .filter((block) => Date.parse(block.startAt) < nowMs)

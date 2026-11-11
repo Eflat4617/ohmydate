@@ -112,19 +112,34 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/**
+ * M5 estimation learning hook (05 §11 "세션 종료 → 추정 갱신(조용히)").
+ * `baseP50` is the task's cold-start estimate, so learning ratios stay
+ * relative to the value the personal correction is applied to.
+ * `afterReview` recomputes outliers and current estimates and returns the
+ * reviewed feedback's final quality.
+ */
+export interface SessionEstimationHook {
+  baseP50(ownerId: Id, taskId: Id): Promise<number | null>;
+  afterReview(ownerId: Id, feedbackId: Id): Promise<EstimationFeedback['quality'] | undefined>;
+}
+
 export class SessionService {
   readonly #store: WorkSessionStore;
   readonly #clock: Clock;
   readonly #ids: import('@ohmydate/domain').IdGenerator;
+  readonly #estimation: SessionEstimationHook | undefined;
 
   constructor(deps: {
     readonly store: WorkSessionStore;
     readonly clock: Clock;
     readonly ids: import('@ohmydate/domain').IdGenerator;
+    readonly estimation?: SessionEstimationHook;
   }) {
     this.#store = deps.store;
     this.#clock = deps.clock;
     this.#ids = deps.ids;
+    this.#estimation = deps.estimation;
   }
 
   async create(ownerId: Id, input: SessionCreate): Promise<WorkSession> {
@@ -199,14 +214,17 @@ export class SessionService {
     if (session.state !== 'completed') {
       throw sessionStateConflict('only a completed session can be reviewed');
     }
-    const estimatedP50 = await this.#store.getCurrentEstimateP50(ownerId, session.taskId);
+    const baseP50 = (await this.#estimation?.baseP50(ownerId, session.taskId)) ?? null;
+    const estimatedP50 =
+      baseP50 ?? (await this.#store.getCurrentEstimateP50(ownerId, session.taskId));
     const totalFocusSec = await this.#store.sumCompletedFocusSec(ownerId, session.taskId);
     const actualFocusMin = Math.round(totalFocusSec / 60);
-    const quality: EstimationFeedback['quality'] = estimateQuality(estimatedP50, actualFocusMin);
+    let quality: EstimationFeedback['quality'] = estimateQuality(estimatedP50, actualFocusMin);
     const now = this.#clock.now();
+    const feedbackId = this.#ids.next();
     await this.#store.createReview({
       reviewId: this.#ids.next(),
-      feedbackId: this.#ids.next(),
+      feedbackId,
       ownerId,
       sessionId,
       taskId: session.taskId,
@@ -218,6 +236,15 @@ export class SessionService {
       quality,
       now,
     });
+    if (this.#estimation !== undefined) {
+      // Quiet by design: the review is already committed and every later
+      // review/feedback toggle/reset recomputes from scratch, so a failed
+      // refresh self-heals and must not turn the stored review into an error.
+      const refreshed = await this.#estimation
+        .afterReview(ownerId, feedbackId)
+        .catch(() => undefined);
+      if (refreshed !== undefined) quality = refreshed;
+    }
     return {
       taskId: session.taskId,
       estimatedP50,
@@ -283,13 +310,12 @@ export class SessionService {
 }
 
 /**
- * Documented quality rule: a completed session is an `outlier` when the
- * estimated P50 is known and actual focus is below half or above twice P50.
- * Unknown estimates (P50 = 0) are always `outlier` so learning skips them.
+ * Initial quality at review time (M5, 05 §6): unknown estimates (P50 = 0) and
+ * zero focus can never be learned from and are `outlier`. Every other sample
+ * starts `ok`; the estimator then applies the |z| > 2.5 leave-one-out rule
+ * against the owner's other samples (replacing the M4 0.5x/2x placeholder).
  */
 export function estimateQuality(estimatedP50: number, actualFocusMin: number): EstimationFeedback['quality'] {
-  if (estimatedP50 <= 0) return 'outlier';
-  if (actualFocusMin < estimatedP50 / 2) return 'outlier';
-  if (actualFocusMin > estimatedP50 * 2) return 'outlier';
+  if (estimatedP50 <= 0 || actualFocusMin <= 0) return 'outlier';
   return 'ok';
 }

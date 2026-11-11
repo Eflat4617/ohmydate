@@ -6,7 +6,7 @@ import type {
   Task,
   Weekday,
 } from '../src/index.js';
-import { generate } from '../src/index.js';
+import { generate, validateInput } from '../src/index.js';
 
 const MINUTE_MS = 60_000;
 
@@ -558,7 +558,7 @@ interface ReplanSpec {
 const ODD_OFFSET_ZONES = [
   'Asia/Kathmandu',
   'Australia/Lord_Howe',
-  'Australia/Chatham',
+  'Pacific/Chatham',
   'Pacific/Marquesas',
   'America/St_Johns',
   'Asia/Kolkata',
@@ -642,6 +642,38 @@ function replanInput(spec: ReplanSpec): ScheduleInput {
 }
 
 describe('FU-41 replan preservation property', () => {
+  it('only randomizes over valid IANA zones (FU-59: an invalid zone was silently skipped by fc.pre)', () => {
+    for (const timeZone of ODD_OFFSET_ZONES) {
+      expect(() => new Intl.DateTimeFormat('en-US', { timeZone })).not.toThrow();
+      const issues = validateInput(
+        replanInput({
+          timeZone,
+          window: ['09:00', '17:00'],
+          tasks: [
+            { durationUnits: 6, maxUnits: 12, priority: 2, dependency: false },
+            { durationUnits: 6, maxUnits: 12, priority: 2, dependency: true },
+          ],
+          policy: 'balanced',
+          seed: 1,
+          blockIndex: 0,
+          offsetUnits: 0,
+          commitmentUnits: 3,
+        }),
+      );
+      expect({ timeZone, issues }).toEqual({ timeZone, issues: [] });
+    }
+    expect(validateInput({ ...replanInput({
+      timeZone: 'Australia/Chatham',
+      window: ['09:00', '17:00'],
+      tasks: [{ durationUnits: 6, maxUnits: 12, priority: 2, dependency: false }],
+      policy: 'balanced',
+      seed: 1,
+      blockIndex: 0,
+      offsetUnits: 0,
+      commitmentUnits: 3,
+    }) }).map((issue) => issue.code)).toContain('invalid_timezone');
+  });
+
   it('preserves unaffected blocks and the change bound over random commitment conflicts in odd-offset zones', () => {
     let comparisons = 0;
     fc.assert(

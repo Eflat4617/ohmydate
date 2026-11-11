@@ -109,15 +109,15 @@ function validateHorizon(horizon: PlanHorizon): { startMs: number; endMs: number
   return { startMs, endMs };
 }
 
-function toPlanBlock(block: SchedulerBlock): PlanBlock {
+export function toPlanBlock(block: SchedulerBlock): PlanBlock {
   return { taskId: block.taskId as Id, startAt: block.start, endAt: block.end };
 }
 
-function fromPlanBlock(block: PlanBlock): SchedulerBlock {
+export function fromPlanBlock(block: PlanBlock): SchedulerBlock {
   return { taskId: block.taskId, start: block.startAt, end: block.endAt };
 }
 
-function toContractViolations(
+export function toContractViolations(
   violations: readonly SchedulerViolation[],
 ): ContractViolation[] {
   return violations.map((violation) => ({
@@ -220,7 +220,7 @@ function historyMinutes(blocks: readonly ApprovedBlock[], taskId: Id, now: strin
   return minutes;
 }
 
-interface AssemblyInput {
+export interface AssemblyInput {
   readonly now: string;
   readonly timeZone: string;
   readonly horizon: PlanHorizon;
@@ -234,7 +234,7 @@ interface AssemblyInput {
   readonly seed: number;
 }
 
-interface Assembled {
+export interface Assembled {
   readonly input: ScheduleInput;
   readonly historyBlocks: SchedulerBlock[];
   readonly lockedBlocks: SchedulerBlock[];
@@ -249,7 +249,12 @@ function blockMinutes(blocks: readonly SchedulerBlock[], taskId: Id): number {
   return minutes;
 }
 
-function assembleScheduleInput(source: AssemblyInput): Assembled {
+/**
+ * Shared ScheduleInput assembly for plan creation, preview, approval and the
+ * M5 replan path (08 §2.4a): availability + commitments + approved blocks
+ * (history/existing/locked) + current estimates.
+ */
+export function assembleScheduleInput(source: AssemblyInput): Assembled {
   const { horizon, availability } = source;
   const lockedBlocks: SchedulerBlock[] = [];
   const existingBlocks: SchedulerBlock[] = [];
@@ -282,11 +287,15 @@ function assembleScheduleInput(source: AssemblyInput): Assembled {
     } else if (
       inPlanningSet &&
       source.currentPlanId !== undefined &&
-      block.planId === source.currentPlanId
+      block.planId === source.currentPlanId &&
+      !block.locked
     ) {
       existingBlocks.push(schedulerBlock);
     } else {
-      // Blocks of other live (non-planning-set) tasks are fixed commitments.
+      // Blocks of other live (non-planning-set) tasks, and every future
+      // locked block (06 §7 "locked 고정", M5-02R-1 H1), are immutable
+      // lockedBlocks: audited and credited, never moved or re-emitted. A
+      // locked block that already started is history above (06 §7.1).
       lockedBlocks.push(schedulerBlock);
     }
   }
@@ -586,7 +595,7 @@ export class PlanService {
       currentPlanId: planId,
       seed,
     });
-    const schedulerBlocks = blocks.map(fromPlanBlock);
+    const schedulerBlocks = withoutLockedEchoes(blocks, extras.blocks, now).map(fromPlanBlock);
     const findings = validate(assembled.input, schedulerBlocks, {
       riskLevel: riskLevelOf(availability),
       historyBlocks: assembled.historyBlocks,
@@ -755,7 +764,8 @@ export class PlanService {
       currentPlanId: snapshot.plan.id as Id,
       seed,
     });
-    const schedulerBlocks = context.chosenBlocks.map(fromPlanBlock);
+    const chosen = withoutLockedEchoes(context.chosenBlocks, snapshot.blocks, context.now);
+    const schedulerBlocks = chosen.map(fromPlanBlock);
     const findings = validate(assembled.input, schedulerBlocks, {
       riskLevel: riskLevelOf(snapshot.availability),
       historyBlocks: assembled.historyBlocks,
@@ -775,7 +785,7 @@ export class PlanService {
       );
     }
     return {
-      blocks: context.chosenBlocks,
+      blocks: chosen,
       violations: toContractViolations(findings),
     };
   }
@@ -850,42 +860,8 @@ export class PlanService {
     ownerId: Id,
     activeBlocks: readonly ApprovedBlock[],
     planningIds: ReadonlySet<string>,
-  ): Promise<{
-    tasks: readonly Task[];
-    blocks: readonly ApprovedBlock[];
-    vanishedTaskIds: readonly Id[];
-  }> {
-    const ids = [
-      ...new Set(
-        activeBlocks
-          .map((block) => block.taskId)
-          .filter((id) => !planningIds.has(id)),
-      ),
-    ];
-    const tasks: Task[] = [];
-    const vanished = new Set<string>();
-    const done = new Set<string>();
-    for (const id of ids) {
-      const task = await this.#tasks.get(ownerId, id);
-      if (task === null) {
-        vanished.add(id);
-        continue;
-      }
-      if (task.status === 'done') {
-        done.add(id);
-        continue;
-      }
-      tasks.push(task);
-    }
-    return {
-      tasks,
-      // Done/vanished work is not schedulable state: drop its blocks rather
-      // than failing or locking every future plan for the owner (probes
-      // H/H2/K). The approval TX supersedes vanished tasks' stored future
-      // blocks.
-      blocks: activeBlocks.filter((block) => !vanished.has(block.taskId) && !done.has(block.taskId)),
-      vanishedTaskIds: [...vanished] as Id[],
-    };
+  ): Promise<ResolvedExtras> {
+    return resolveExtraTasks(this.#tasks, ownerId, activeBlocks, planningIds);
   }
 
   #preflightBlock(
@@ -923,6 +899,77 @@ export class PlanService {
     }
     if (issues.length > 0) throw new ValidationFailedError(issues);
   }
+}
+
+/**
+ * M5-02R-1 H1: locked future blocks are immutable and never part of a
+ * candidate. An edited block that echoes one exactly (same task and instants)
+ * is the unchanged locked block, not a new block, so it is dropped before
+ * validation; any other edit of that task is validated normally (moving the
+ * locked minutes elsewhere overallocates the task -> H7 constraint_violation).
+ */
+export function withoutLockedEchoes(
+  blocks: readonly PlanBlock[],
+  activeBlocks: readonly ApprovedBlock[],
+  now: string,
+): PlanBlock[] {
+  const nowMs = Date.parse(now);
+  const locked = new Set(
+    activeBlocks
+      .filter((block) => block.locked && Date.parse(block.startAt) >= nowMs)
+      .map((block) => `${block.taskId}|${Date.parse(block.startAt)}|${Date.parse(block.endAt)}`),
+  );
+  if (locked.size === 0) return [...blocks];
+  return blocks.filter(
+    (block) => !locked.has(`${block.taskId}|${Date.parse(block.startAt)}|${Date.parse(block.endAt)}`),
+  );
+}
+
+export interface ResolvedExtras {
+  readonly tasks: readonly Task[];
+  readonly blocks: readonly ApprovedBlock[];
+  readonly vanishedTaskIds: readonly Id[];
+}
+
+/**
+ * Tasks owning active blocks outside the planning set. Done/vanished work is
+ * not schedulable state: its blocks are dropped rather than failing or
+ * locking every future plan for the owner (probes H/H2/K). The approval TX
+ * supersedes vanished tasks' stored future blocks.
+ */
+export async function resolveExtraTasks(
+  tasks: TaskRepository,
+  ownerId: Id,
+  activeBlocks: readonly ApprovedBlock[],
+  planningIds: ReadonlySet<string>,
+): Promise<ResolvedExtras> {
+  const ids = [
+    ...new Set(
+      activeBlocks
+        .map((block) => block.taskId)
+        .filter((id) => !planningIds.has(id)),
+    ),
+  ];
+  const resolved: Task[] = [];
+  const vanished = new Set<string>();
+  const done = new Set<string>();
+  for (const id of ids) {
+    const task = await tasks.get(ownerId, id);
+    if (task === null) {
+      vanished.add(id);
+      continue;
+    }
+    if (task.status === 'done') {
+      done.add(id);
+      continue;
+    }
+    resolved.push(task);
+  }
+  return {
+    tasks: resolved,
+    blocks: activeBlocks.filter((block) => !vanished.has(block.taskId) && !done.has(block.taskId)),
+    vanishedTaskIds: [...vanished] as Id[],
+  };
 }
 
 const MAX_WRITE_RRULE_COUNT = 1_000;

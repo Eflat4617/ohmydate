@@ -299,7 +299,7 @@ export class PgIntakeApprovalRepository implements IntakeApprovalStore {
       readonly taskId: Id;
       readonly p50Min: number;
       readonly p90Min: number;
-      readonly method: 'template' | 'llm';
+      readonly method: 'template' | 'llm' | 'personal';
       readonly confidence: number;
     }[];
   }): Promise<IntakeSessionRecord> {
