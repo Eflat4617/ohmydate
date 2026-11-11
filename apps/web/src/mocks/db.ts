@@ -1,5 +1,7 @@
 import type {
   Availability,
+  Export,
+  Notification,
   Commitment,
   DecompositionStep,
   IntakeField,
@@ -8,9 +10,13 @@ import type {
   Plan,
   PlanVersion,
   Project,
+  PushSubscription,
   Task,
   TaskTemplate,
+  Today,
+  TodayProposal,
   User,
+  WorkSession,
 } from '../api/client';
 
 export interface StoredResponse {
@@ -18,6 +24,18 @@ export interface StoredResponse {
   readonly status: number;
   readonly body: unknown;
   readonly headers: Record<string, string>;
+}
+
+export interface StoredProposal {
+  readonly proposal: TodayProposal;
+  readonly availabilityVersion: number;
+  applied: boolean;
+  planVersion?: PlanVersion;
+}
+
+export interface SessionClock {
+  activeSince: number | null;
+  pausedSince: number | null;
 }
 
 export interface MockIntakeSession extends IntakeSession {
@@ -38,6 +56,15 @@ export interface MockDb {
   commitments: Map<string, Commitment>;
   plans: Map<string, Plan>;
   planVersions: Map<string, PlanVersion>;
+  today: Today;
+  todayRevision: number;
+  proposals: Map<string, StoredProposal>;
+  sessions: Map<string, WorkSession>;
+  sessionClocks: Map<string, SessionClock>;
+  activeSessionId: string | null;
+  notifications: Map<string, Notification>;
+  pushSubscriptions: Map<string, PushSubscription>;
+  exports: Map<string, Export>;
   idempotency: Map<string, StoredResponse>;
   pendingIdempotency: Set<string>;
   authenticated: boolean;
@@ -53,6 +80,14 @@ export const INBOX_PROJECT_ID = '01900000-0000-7000-8000-000000000001';
 export const SAMPLE_PROJECT_ID = '01900000-0000-7000-8000-000000000003';
 export const REPORT_TEMPLATE_ID = '01900000-0000-7000-8000-0000000000b1';
 export const SEED_TASK_TITLE = 'Review weekly plan';
+export const TODAY_TASK_ONE_ID = '01900000-0000-7000-8000-0000000000a1';
+export const TODAY_TASK_TWO_ID = '01900000-0000-7000-8000-0000000000a2';
+export const TODAY_BLOCK_ONE_ID = '01900000-0000-7000-8000-0000000000b1';
+export const TODAY_BLOCK_TWO_ID = '01900000-0000-7000-8000-0000000000b2';
+export const TODAY_TASK_ONE_TITLE = 'Summarise research notes';
+export const TODAY_TASK_TWO_TITLE = 'Draft presentation outline';
+export const SEED_NOTIFICATION_ID = '01900000-0000-7000-8000-0000000000c1';
+export const SEED_SCHEDULED_NOTIFICATION_ID = '01900000-0000-7000-8000-0000000000c2';
 
 export function createUuidV7(): string {
   const timestamp = Date.now().toString(16).padStart(12, '0').slice(-12);
@@ -70,10 +105,10 @@ export function createUuidV7(): string {
   return `${timestamp.slice(0, 8)}-${timestamp.slice(8, 12)}-7${random.slice(0, 3)}-${variant}${random.slice(7, 10)}-${random.slice(10, 22)}`;
 }
 
-function seedTask(title: string, version: number): Task {
+function seedTask(title: string, version: number, id?: string): Task {
   const createdAt = '2026-11-01T09:00:00.000Z';
   return {
-    id: createUuidV7(),
+    ...(id === undefined ? { id: createUuidV7() } : { id }),
     ownerId: USER_ID,
     projectId: INBOX_PROJECT_ID,
     title,
@@ -81,6 +116,7 @@ function seedTask(title: string, version: number): Task {
     splittable: true,
     priority: 2,
     dependsOn: [],
+    session: { minMinutes: 25, maxMinutes: 90 },
     version,
     createdAt,
     updatedAt: createdAt,
@@ -145,6 +181,61 @@ function seedReportTemplate(createdAt: string): TaskTemplate {
   };
 }
 
+function createToday(): Today {
+  return {
+    date: '2026-11-14',
+    timeZone: 'Asia/Seoul',
+    slackMin: 200,
+    risk: {
+      level: 'medium',
+      reasons: ['One block ends close to a task deadline'],
+    },
+    version: 1,
+    blocks: [
+      {
+        id: TODAY_BLOCK_ONE_ID,
+        taskId: TODAY_TASK_ONE_ID,
+        title: TODAY_TASK_ONE_TITLE,
+        startAt: '2026-11-14T10:00:00.000Z',
+        endAt: '2026-11-14T11:30:00.000Z',
+        status: 'planned',
+      },
+      {
+        id: TODAY_BLOCK_TWO_ID,
+        taskId: TODAY_TASK_TWO_ID,
+        title: TODAY_TASK_TWO_TITLE,
+        startAt: '2026-11-14T12:00:00.000Z',
+        endAt: '2026-11-14T12:40:00.000Z',
+        status: 'planned',
+      },
+    ],
+  };
+}
+
+function seedNotifications(): [Notification, Notification] {
+  return [
+    {
+      id: SEED_NOTIFICATION_ID,
+      kind: 'due_soon',
+      dedupeKey: `due-soon:${TODAY_TASK_ONE_ID}`,
+      scheduledAt: '2026-11-14T09:50:00.000Z',
+      sentAt: '2026-11-14T09:55:00.000Z',
+      channel: 'in_app',
+      state: 'sent',
+      version: 1,
+    },
+    {
+      id: SEED_SCHEDULED_NOTIFICATION_ID,
+      kind: 'daily_summary',
+      dedupeKey: 'daily-summary:2026-11-14',
+      scheduledAt: '2026-11-14T20:00:00.000Z',
+      channel: 'in_app',
+      state: 'scheduled',
+      version: 1,
+    },
+  ];
+}
+
 export function createMockDb(): MockDb {
   const createdAt = '2026-11-01T08:00:00.000Z';
   const user: User = {
@@ -177,6 +268,9 @@ export function createMockDb(): MockDb {
     updatedAt: createdAt,
   };
   const seededTask = seedTask(SEED_TASK_TITLE, 1);
+  const todayTaskOne = seedTask(TODAY_TASK_ONE_TITLE, 1, TODAY_TASK_ONE_ID);
+  const todayTaskTwo = seedTask(TODAY_TASK_TWO_TITLE, 1, TODAY_TASK_TWO_ID);
+  const [seededNotification, scheduledNotification] = seedNotifications();
   const reportTemplate = seedReportTemplate(createdAt);
   const availability: Availability = {
     version: 1,
@@ -230,7 +324,11 @@ export function createMockDb(): MockDb {
       [inbox.id, inbox],
       [sample.id, sample],
     ]),
-    tasks: new Map([[seededTask.id, seededTask]]),
+    tasks: new Map([
+      [seededTask.id, seededTask],
+      [todayTaskOne.id, todayTaskOne],
+      [todayTaskTwo.id, todayTaskTwo],
+    ]),
     intakeSessions: new Map(),
     templates: new Map([[reportTemplate.id, reportTemplate]]),
     availability,
@@ -241,6 +339,18 @@ export function createMockDb(): MockDb {
     ]),
     plans: new Map(),
     planVersions: new Map(),
+    today: createToday(),
+    todayRevision: 1,
+    proposals: new Map(),
+    sessions: new Map(),
+    sessionClocks: new Map(),
+    activeSessionId: null,
+    notifications: new Map([
+      [seededNotification.id, seededNotification],
+      [scheduledNotification.id, scheduledNotification],
+    ]),
+    pushSubscriptions: new Map(),
+    exports: new Map(),
     idempotency: new Map(),
     pendingIdempotency: new Set(),
     authenticated: true,
@@ -264,6 +374,15 @@ export function resetMockDb(): void {
   mockDb.commitments = fresh.commitments;
   mockDb.plans = fresh.plans;
   mockDb.planVersions = fresh.planVersions;
+  mockDb.today = fresh.today;
+  mockDb.todayRevision = fresh.todayRevision;
+  mockDb.proposals = fresh.proposals;
+  mockDb.sessions = fresh.sessions;
+  mockDb.sessionClocks = fresh.sessionClocks;
+  mockDb.activeSessionId = fresh.activeSessionId;
+  mockDb.notifications = fresh.notifications;
+  mockDb.pushSubscriptions = fresh.pushSubscriptions;
+  mockDb.exports = fresh.exports;
   mockDb.idempotency = fresh.idempotency;
   mockDb.pendingIdempotency = fresh.pendingIdempotency;
   mockDb.authenticated = fresh.authenticated;

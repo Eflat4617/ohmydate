@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import AvailabilityView from './views/AvailabilityView.vue';
 import CommitmentsView from './views/CommitmentsView.vue';
+import FocusView from './views/FocusView.vue';
 import InboxView from './views/InboxView.vue';
 import LoginView from './views/LoginView.vue';
 import PlanComparisonView from './views/PlanComparisonView.vue';
@@ -21,6 +22,7 @@ export const router = createRouter({
     { path: '/plan/new', name: 'plan-new', component: PlanningWizardView },
     { path: '/plan/:sessionId', name: 'plan-session', component: PlanningWizardView, props: true },
     { path: '/today', name: 'today', component: TodayView },
+    { path: '/focus/:sessionId', name: 'focus', component: FocusView, props: true },
     { path: '/commitments', name: 'commitments', component: CommitmentsView },
     { path: '/settings/availability', name: 'availability', component: AvailabilityView },
     { path: '/plans/new', name: 'plans-new', component: PlanNewView },

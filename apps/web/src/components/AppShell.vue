@@ -3,15 +3,18 @@ import { nextTick, onMounted, onUnmounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
+import { useSessionStore } from '../stores/session';
 import BottomNav from './BottomNav.vue';
 import HelpDialog from './HelpDialog.vue';
 import NavRail from './NavRail.vue';
 import OfflineBanner from './OfflineBanner.vue';
+import NotificationsPanel from './NotificationsPanel.vue';
 import SearchDialog from './SearchDialog.vue';
 import ToastHost from './ToastHost.vue';
 
 const ui = useUiStore();
 const offline = useOfflineStore();
+const sessions = useSessionStore();
 const router = useRouter();
 const route = useRoute();
 
@@ -49,7 +52,7 @@ function onKeydown(event: KeyboardEvent): void {
     return;
   }
 
-  if (ui.helpOpen || ui.searchOpen) {
+  if (ui.helpOpen || ui.searchOpen || ui.notificationsOpen) {
     if (event.key === 'Escape') {
       event.preventDefault();
       ui.closeDialogs();
@@ -73,6 +76,11 @@ function onKeydown(event: KeyboardEvent): void {
     case '?':
       event.preventDefault();
       ui.openHelp();
+      break;
+    case 'f':
+      if (route.name === 'focus') return;
+      event.preventDefault();
+      void router.push(sessions.active === null ? { name: 'today' } : `/focus/${sessions.active.id}`);
       break;
     default:
       break;
@@ -105,4 +113,5 @@ onUnmounted(() => {
   <ToastHost />
   <HelpDialog :open="ui.helpOpen" @close="ui.closeDialogs()" />
   <SearchDialog :open="ui.searchOpen" @close="ui.closeDialogs()" />
+  <NotificationsPanel :open="ui.notificationsOpen" @close="ui.closeDialogs()" />
 </template>

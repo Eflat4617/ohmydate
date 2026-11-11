@@ -2,6 +2,7 @@ import { HttpResponse, http, type JsonBodyType } from 'msw';
 import type { ProblemCode } from '../api/errors';
 import type { Project, Task, TaskCreate, TaskPatch, TaskStatus, User } from '../api/client';
 import { createUuidV7, type MockDb, type StoredResponse } from './db';
+import { createDailyHandlers } from './daily';
 
 const TASK_STATUSES: readonly TaskStatus[] = ['todo', 'in_progress', 'done'];
 
@@ -502,6 +503,8 @@ export function createHandlers(db: MockDb) {
       remember(db, token, 204, null);
       return new HttpResponse(null, { status: 204 });
     }),
+
+    ...createDailyHandlers(db),
 
     http.post('*/api/v1/tasks/:id/dependencies', async ({ request, params }) => {
       if (!db.authenticated) return unauthenticated();

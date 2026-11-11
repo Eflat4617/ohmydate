@@ -8,6 +8,23 @@ export type TaskPatch = components['schemas']['TaskPatch'];
 export type TaskStatus = Task['status'];
 export type Project = components['schemas']['Project'];
 export type User = components['schemas']['User'];
+export type Today = components['schemas']['Today'];
+export type TodayBlock = components['schemas']['TodayBlock'];
+export type TodayProposal = components['schemas']['TodayProposal'];
+export type TodayAcceptRequest = components['schemas']['TodayAcceptRequest'];
+export type TodayShrinkRequest = components['schemas']['TodayShrinkRequest'];
+export type TodayRescheduleRequest = components['schemas']['TodayRescheduleRequest'];
+export type WorkSession = components['schemas']['WorkSession'];
+export type SessionCreate = components['schemas']['SessionCreate'];
+export type SessionReviewRequest = components['schemas']['SessionReviewRequest'];
+export type EstimationFeedback = components['schemas']['EstimationFeedback'];
+export type Notification = components['schemas']['Notification'];
+export type NotificationQuery = components['schemas']['NotificationQuery'];
+export type PushSubscription = components['schemas']['PushSubscription'];
+export type PushSubscriptionCreate = components['schemas']['PushSubscriptionCreate'];
+export type Export = components['schemas']['Export'];
+export type ExportStartResponse = components['schemas']['ExportStartResponse'];
+export type PlanVersion = components['schemas']['PlanVersion'];
 export type Page<T> = { items: T[]; nextCursor: string | null };
 export type IntakeInput = components['schemas']['IntakeInput'];
 export type IntakeSession = components['schemas']['IntakeSession'];
@@ -39,7 +56,6 @@ export type PlanCandidate = components['schemas']['PlanCandidate'];
 export type PlanCreate = components['schemas']['PlanCreate'];
 export type PlanBlock = components['schemas']['PlanBlock'];
 export type PlanMetrics = components['schemas']['PlanMetrics'];
-export type PlanVersion = components['schemas']['PlanVersion'];
 export type PreviewEditResponse = components['schemas']['PreviewEditResponse'];
 export type ScheduleBlock = components['schemas']['ScheduleBlock'];
 export type Violation = PreviewEditResponse['violations'][number];
@@ -733,6 +749,269 @@ export class PlannerClient {
     if (cached !== undefined) return cached;
     const session = await this.getIntakeSession(sessionId, { fresh: true });
     return session.version;
+  }
+
+  cachedTodayVersion(): number | undefined {
+    return this.versions.get('today');
+  }
+
+  cachedSessionVersion(sessionId: string): number | undefined {
+    return this.versions.get(`session:${sessionId}`);
+  }
+
+  cachedNotificationVersion(notificationId: string): number | undefined {
+    return this.versions.get(`notification:${notificationId}`);
+  }
+
+  async getToday(date: string): Promise<Today> {
+    const { data, error, response } = await this.client.GET('/today', {
+      params: { query: { date } },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty today response');
+    this.remember('today', data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async acceptToday(
+    input: TodayAcceptRequest,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<Today> {
+    const { data, error, response } = await this.client.POST('/today:accept', {
+      params: {
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      body: input,
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty today response');
+    this.remember('today', data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async shrinkToday(
+    input: TodayShrinkRequest,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<TodayProposal> {
+    const { data, error, response } = await this.client.POST('/today:shrink', {
+      params: {
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      body: input,
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty proposal response');
+    }
+    return data;
+  }
+
+  async rescheduleToday(
+    input: TodayRescheduleRequest,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<TodayProposal> {
+    const { data, error, response } = await this.client.POST('/today:reschedule', {
+      params: {
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      body: input,
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty proposal response');
+    }
+    return data;
+  }
+
+  async approveTodayProposal(
+    proposalId: string,
+    idempotencyKey: string,
+    ifMatch: string,
+  ): Promise<PlanVersion> {
+    const { data, error, response } = await this.client.POST('/today/proposals/{id}:approve', {
+      params: {
+        path: { id: proposalId },
+        header: { 'If-Match': ifMatch, 'Idempotency-Key': idempotencyKey },
+      },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty plan version response');
+    }
+    return data;
+  }
+
+  async createSession(input: SessionCreate, idempotencyKey: string): Promise<WorkSession> {
+    const { data, error, response } = await this.client.POST('/sessions', {
+      params: { header: { 'Idempotency-Key': idempotencyKey } },
+      body: input,
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session response');
+    this.remember(`session:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async pauseSession(
+    sessionId: string,
+    clientAt: string,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<WorkSession> {
+    const { data, error, response } = await this.client.POST('/sessions/{id}:pause', {
+      params: {
+        path: { id: sessionId },
+        header: {
+          'If-Match': etagForVersion(expectedVersion),
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+      body: { clientAt },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session response');
+    this.remember(`session:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async resumeSession(
+    sessionId: string,
+    clientAt: string,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<WorkSession> {
+    const { data, error, response } = await this.client.POST('/sessions/{id}:resume', {
+      params: {
+        path: { id: sessionId },
+        header: {
+          'If-Match': etagForVersion(expectedVersion),
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+      body: { clientAt },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session response');
+    this.remember(`session:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async completeSession(
+    sessionId: string,
+    clientAt: string,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<WorkSession> {
+    const { data, error, response } = await this.client.POST('/sessions/{id}:complete', {
+      params: {
+        path: { id: sessionId },
+        header: {
+          'If-Match': etagForVersion(expectedVersion),
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+      body: { clientAt },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty session response');
+    this.remember(`session:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async reviewSession(
+    sessionId: string,
+    review: SessionReviewRequest,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<EstimationFeedback> {
+    const { data, error, response } = await this.client.POST('/sessions/{id}/review', {
+      params: {
+        path: { id: sessionId },
+        header: {
+          'If-Match': etagForVersion(expectedVersion),
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+      body: review,
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty estimation response');
+    }
+    return data;
+  }
+
+  async listNotifications(
+    options: { state?: Notification['state']; cursor?: string; limit?: number } = {},
+  ): Promise<Page<Notification>> {
+    const query: { state?: Notification['state']; cursor?: string; limit?: number } = {};
+    if (options.state !== undefined) query.state = options.state;
+    if (options.cursor !== undefined) query.cursor = options.cursor;
+    if (options.limit !== undefined) query.limit = options.limit;
+    const { data, error, response } = await this.client.GET('/notifications', {
+      params: { query },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty notification page');
+    for (const item of data.items) this.remember(`notification:${item.id}`, item.version);
+    return data;
+  }
+
+  async dismissNotification(
+    notificationId: string,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<Notification> {
+    const { data, error, response } = await this.client.POST('/notifications/{id}:dismiss', {
+      params: {
+        path: { id: notificationId },
+        header: {
+          'If-Match': etagForVersion(expectedVersion),
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty notification response');
+    }
+    this.remember(`notification:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  async createPushSubscription(
+    input: PushSubscriptionCreate,
+    idempotencyKey: string,
+  ): Promise<PushSubscription> {
+    const { data, error, response } = await this.client.POST('/push-subscriptions', {
+      params: { header: { 'Idempotency-Key': idempotencyKey } },
+      body: input,
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
+    if (data === undefined) {
+      throw new ApiError(response.status, 'unknown', 'Empty push subscription response');
+    }
+    return data;
+  }
+
+  async deletePushSubscription(
+    subscriptionId: string,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<void> {
+    const { error, response } = await this.client.DELETE('/push-subscriptions/{id}', {
+      params: {
+        path: { id: subscriptionId },
+        header: {
+          'If-Match': etagForVersion(expectedVersion),
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error);
   }
 
   private async resolveTaskVersion(taskId: string): Promise<number> {

@@ -4,6 +4,7 @@ import { defineStore } from 'pinia';
 export const useUiStore = defineStore('ui', () => {
   const helpOpen = ref(false);
   const searchOpen = ref(false);
+  const notificationsOpen = ref(false);
   const conflictCount = ref(0);
   const conflictOpen = computed(() => conflictCount.value > 0);
   const newTaskRequest = ref(0);
@@ -11,16 +12,25 @@ export const useUiStore = defineStore('ui', () => {
   function openHelp(): void {
     helpOpen.value = true;
     searchOpen.value = false;
+    notificationsOpen.value = false;
   }
 
   function openSearch(): void {
     searchOpen.value = true;
     helpOpen.value = false;
+    notificationsOpen.value = false;
+  }
+
+  function openNotifications(): void {
+    notificationsOpen.value = true;
+    helpOpen.value = false;
+    searchOpen.value = false;
   }
 
   function closeDialogs(): void {
     helpOpen.value = false;
     searchOpen.value = false;
+    notificationsOpen.value = false;
   }
 
   function openConflict(): void {
@@ -38,11 +48,13 @@ export const useUiStore = defineStore('ui', () => {
   return {
     helpOpen,
     searchOpen,
+    notificationsOpen,
     conflictOpen,
     conflictCount,
     newTaskRequest,
     openHelp,
     openSearch,
+    openNotifications,
     closeDialogs,
     openConflict,
     closeConflict,
