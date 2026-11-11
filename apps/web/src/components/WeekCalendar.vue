@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type {
   Availability,
   AvailabilityException,
@@ -209,6 +209,33 @@ function blocksForDate(date: string): PositionedBlock[] {
   return positionedBlocks.value.filter((block) => block.date === date);
 }
 
+// Presentational: open the scroller at the working part of the day (first
+// block, else first availability window, else 07:00) instead of midnight.
+const scroller = ref<HTMLElement | null>(null);
+const firstOffsetPx = computed(() => {
+  const blockTops = positionedBlocks.value.map((item) => item.top);
+  if (blockTops.length > 0) return Math.min(...blockTops);
+  const windowTops = dates.value.flatMap((date) => windowsForDate(date).map((band) => band.start));
+  return windowTops.length > 0 ? Math.min(...windowTops) : 7 * 60 * MINUTE_PX;
+});
+
+function scrollToWorkingHours(): void {
+  const element = scroller.value;
+  if (element === null) return;
+  element.scrollTop = Math.max(0, firstOffsetPx.value - 60 * MINUTE_PX);
+}
+
+onMounted(() => {
+  void nextTick(scrollToWorkingHours);
+});
+
+watch(
+  () => props.weekStart,
+  () => {
+    void nextTick(scrollToWorkingHours);
+  },
+);
+
 function commitmentsForDate(date: string): PositionedCommitment[] {
   return positionedCommitments.value.filter((commitment) => commitment.date === date);
 }
@@ -303,7 +330,7 @@ defineExpose({ dates, positionedBlocks });
 
 <template>
   <!-- The section is the horizontal scroller; keep it keyboard-reachable even for an empty week (axe scrollable-region-focusable). -->
-  <section class="week-calendar" role="region" aria-label="Week calendar" tabindex="0">
+  <section ref="scroller" class="week-calendar" role="region" aria-label="Week calendar" tabindex="0">
     <div class="calendar-scroll">
       <div class="calendar-week">
         <div class="calendar-corner" aria-hidden="true"></div>

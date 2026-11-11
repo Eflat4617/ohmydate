@@ -1,42 +1,33 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue';
+import UiButton from './ui/UiButton.vue';
+import UiDialog from './ui/UiDialog.vue';
+import UiField from './ui/UiField.vue';
 
-const props = defineProps<{ open: boolean }>();
+defineProps<{ open: boolean }>();
 defineEmits<{ close: [] }>();
-
-const searchInput = ref<HTMLInputElement | null>(null);
-
-watch(
-  () => props.open,
-  async (open) => {
-    if (!open) return;
-    await nextTick();
-    searchInput.value?.focus();
-  },
-  { immediate: true },
-);
 </script>
 
 <template>
-  <div v-if="open" class="dialog-backdrop" @click.self="$emit('close')">
-    <div
-      class="dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="search-title"
-      @keydown.esc.stop="$emit('close')"
+  <UiDialog v-if="open" labelledby="search-title" close-on-backdrop @close="$emit('close')">
+    <h2 id="search-title" class="dialog-title">Search</h2>
+    <UiField
+      id="global-search"
+      label="Search tasks"
+      help="Search will arrive with the knowledge milestone."
     >
-      <h2 id="search-title">Search</h2>
-      <label for="global-search">Search tasks</label>
-      <input
-        id="global-search"
-        ref="searchInput"
-        type="search"
-        placeholder="Search is coming in a later milestone"
-        autocomplete="off"
-      />
-      <p class="muted">Search will arrive with the knowledge milestone.</p>
-      <button type="button" class="primary-action" @click="$emit('close')">Close</button>
+      <template #default="{ describedby }">
+        <input
+          id="global-search"
+          type="search"
+          placeholder="Search is coming in a later milestone"
+          autocomplete="off"
+          data-autofocus
+          :aria-describedby="describedby"
+        />
+      </template>
+    </UiField>
+    <div class="dialog-actions">
+      <UiButton variant="primary" @click="$emit('close')">Close</UiButton>
     </div>
-  </div>
+  </UiDialog>
 </template>

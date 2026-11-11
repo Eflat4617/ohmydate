@@ -13,6 +13,9 @@ import OfflineBanner from './OfflineBanner.vue';
 import NotificationsPanel from './NotificationsPanel.vue';
 import SearchDialog from './SearchDialog.vue';
 import ToastHost from './ToastHost.vue';
+import BrandMark from './BrandMark.vue';
+import UiSpinner from './ui/UiSpinner.vue';
+import { calmMode } from '../composables/useCalmMode';
 
 const ui = useUiStore();
 const offline = useOfflineStore();
@@ -143,15 +146,16 @@ onUnmounted(() => {
 
 <template>
   <div v-if="!auth.confirmed" class="app-shell app-shell--loading" role="status" aria-live="polite">
-    <p class="muted">Loading OhMyDate…</p>
+    <BrandMark :size="40" />
+    <p class="app-loading-text"><UiSpinner /> <span>Loading OhMyDate…</span></p>
   </div>
   <template v-else>
     <a class="skip-link" href="#main-content">Skip to content</a>
-    <div class="app-shell">
+    <div class="app-shell" :class="{ 'app-shell--calm': calmMode }">
       <NavRail />
       <div class="app-main">
         <OfflineBanner />
-        <main id="main-content" tabindex="-1">
+        <main id="main-content" tabindex="-1" class="app-content">
           <slot />
         </main>
       </div>

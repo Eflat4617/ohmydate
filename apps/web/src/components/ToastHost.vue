@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useToastStore, type Toast } from '../stores/toast';
+import UiIcon from './ui/UiIcon.vue';
 
 const toast = useToastStore();
 
@@ -10,7 +11,7 @@ function runAction(item: Toast): void {
 </script>
 
 <template>
-  <div class="toast-region" aria-live="polite" aria-atomic="false">
+  <div class="toast-region" aria-live="polite" aria-atomic="false" data-modal-exempt>
     <div
       v-for="item in toast.toasts"
       :key="item.id"
@@ -18,17 +19,23 @@ function runAction(item: Toast): void {
       :class="`toast--${item.tone}`"
       role="status"
     >
-      <span>{{ item.message }}</span>
-      <button v-if="item.action" type="button" class="toast-action" @click="runAction(item)">
+      <UiIcon :name="item.tone === 'error' ? 'error' : 'check-circle'" :size="18" class="toast-icon" />
+      <span class="toast-message">{{ item.message }}</span>
+      <button
+        v-if="item.action"
+        type="button"
+        class="btn btn--ghost btn--sm toast-action"
+        @click="runAction(item)"
+      >
         {{ item.action.label }}
       </button>
       <button
         type="button"
-        class="toast-dismiss"
+        class="btn btn--ghost btn--sm btn--icon toast-dismiss"
         :aria-label="`Dismiss notification: ${item.message}`"
         @click="toast.dismiss(item.id)"
       >
-        ×
+        <UiIcon name="close" :size="16" />
       </button>
     </div>
   </div>
