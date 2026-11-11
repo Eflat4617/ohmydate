@@ -31,6 +31,18 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 5_000,
+  label = 'condition',
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${label}`);
+    await delay(1);
+  }
+}
+
 describe('api dist artifact', () => {
   test('accepts the build id stamped by this invocation', async () => {
     const artifact = await makeDistArtifact();
@@ -160,6 +172,77 @@ describe('dist lock', () => {
 
       if (first.held) await first.release();
       if (second.held) await second.release();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('paused owner publication cannot hand a second waiter a second lease', async () => {
+    const dir = await makeLockDir();
+    const crashedPid = 424242;
+    const isAlive = (pid: number): boolean => pid !== crashedPid;
+    let resumePublish: (() => void) | undefined;
+    let signalPaused: (() => void) | undefined;
+    const publicationPaused = new Promise<void>((resolve) => {
+      signalPaused = resolve;
+    });
+    let pauseFirstPublication = true;
+    try {
+      await mkdir(dir);
+      await writeFile(
+        join(dir, 'owner.json'),
+        JSON.stringify({ token: 'crashed-holder', pid: crashedPid }),
+        'utf8',
+      );
+
+      // The reviewer's interleaving: a reclaimer replaces the crashed holder
+      // and pauses after writing its complete owner directory but before the
+      // atomic publish rename. With mkdir-then-write the lock path would sit
+      // ownerless and a second stale reclaimer could rename it away.
+      const first = new DistLock(dir, 'waiter-a', {
+        isAlive,
+        pollMs: 1,
+        timeoutMs: 5_000,
+        beforePublish: async () => {
+          if (!pauseFirstPublication) return;
+          pauseFirstPublication = false;
+          signalPaused?.();
+          await new Promise<void>((resolve) => {
+            resumePublish = resolve;
+          });
+        },
+      });
+      const second = new DistLock(dir, 'waiter-b', { isAlive, pollMs: 1, timeoutMs: 5_000 });
+
+      const firstWait = first.acquire();
+      await publicationPaused;
+      expect(first.held).toBe(false);
+
+      const secondWait = second.acquire();
+      await waitFor(() => second.held, 5_000, 'second waiter lease');
+      expect(first.held).toBe(false);
+      expect([first.held, second.held].filter(Boolean)).toHaveLength(1);
+
+      if (resumePublish === undefined) throw new Error('publication was never paused');
+      resumePublish();
+
+      // The paused reclaimer resumes after the second waiter has published:
+      // its rename must fail against the non-empty live lease and it must keep
+      // waiting instead of granting itself a second lease.
+      await waitFor(() => !pauseFirstPublication, 5_000, 'first publication resume');
+      await delay(50);
+      expect(first.held).toBe(false);
+      expect([first.held, second.held].filter(Boolean)).toHaveLength(1);
+      const owner = JSON.parse(await readFile(join(dir, 'owner.json'), 'utf8')) as {
+        token: string;
+      };
+      expect(owner.token).toBe('waiter-b');
+
+      expect(await second.release()).toBe(true);
+      await firstWait;
+      expect(first.held).toBe(true);
+      expect(await first.release()).toBe(true);
+      await secondWait;
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

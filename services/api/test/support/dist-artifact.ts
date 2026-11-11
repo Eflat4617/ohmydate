@@ -43,6 +43,12 @@ export interface DistLockOptions {
   readonly timeoutMs?: number;
   readonly ownerGraceMs?: number;
   readonly isAlive?: (pid: number) => boolean;
+  /**
+   * Test seam: runs after the staging owner directory is fully written but
+   * before it is atomically published at the lock path. Lets a deterministic
+   * test pause publication while a second waiter reclaims a crashed lease.
+   */
+  readonly beforePublish?: () => Promise<void> | void;
 }
 
 interface LockOwner {
@@ -163,11 +169,15 @@ function delay(ms: number): Promise<void> {
 /**
  * Token-owned cross-process directory lock.
  *
- * acquire: atomic mkdir, then write our token. A stale holder (owner process
- * gone, or owner file absent beyond the grace period) is removed only by
- * renaming the directory to a unique tombstone; the filesystem makes exactly
- * one reclaimer win that rename. release removes the directory only when the
- * stored token is still ours.
+ * acquire: write the owner into a unique, fully written staging directory and
+ * then atomically rename it onto the lock path; the rename itself is the
+ * acquire and fails while a non-empty holder directory exists. A stale holder
+ * (owner process gone, or owner file absent beyond the grace period) is removed
+ * only by renaming the exact observed directory to a unique tombstone and
+ * re-verifying the owner token there; if a replacement lease was published in
+ * between, it is put back instead. The filesystem makes exactly one reclaimer
+ * win that rename. release removes the directory only when the stored token is
+ * still ours.
  */
 export class DistLock {
   readonly #dir: string;
@@ -176,6 +186,7 @@ export class DistLock {
   readonly #timeoutMs: number;
   readonly #ownerGraceMs: number;
   readonly #isAlive: (pid: number) => boolean;
+  readonly #beforePublish: (() => Promise<void> | void) | undefined;
   #held = false;
 
   constructor(dir: string, token: string = randomUUID(), options: DistLockOptions = {}) {
@@ -186,6 +197,7 @@ export class DistLock {
     this.#timeoutMs = options.timeoutMs ?? defaultTimeoutMs;
     this.#ownerGraceMs = options.ownerGraceMs ?? defaultOwnerGraceMs;
     this.#isAlive = options.isAlive ?? defaultIsAlive;
+    this.#beforePublish = options.beforePublish;
   }
 
   get directory(): string {
@@ -204,7 +216,7 @@ export class DistLock {
     if (this.#held) return;
     const deadline = Date.now() + this.#timeoutMs;
     for (;;) {
-      if (await this.#tryCreate()) {
+      if (await this.#tryPublish()) {
         this.#held = true;
         return;
       }
@@ -229,31 +241,78 @@ export class DistLock {
     this.#held = false;
     const owner = await this.#readOwner(this.#dir);
     if (owner === undefined || owner.token !== this.#token) return false;
-    await rm(this.#dir, { recursive: true, force: true });
+    // Rename our lease away atomically instead of removing files in place: a
+    // concurrent acquirer can then publish only after the lock path is free,
+    // and it can never observe (or be clobbered by) a half-removed directory.
+    const tombstone = `${this.#dir}.released-${randomUUID()}`;
+    try {
+      await rename(this.#dir, tombstone);
+    } catch (error) {
+      if (isErrno(error, 'ENOENT')) return false;
+      throw error;
+    }
+    const moved = await this.#readOwner(tombstone);
+    if (moved === undefined || moved.token !== this.#token) {
+      // Our lease was replaced between the read and the rename. Put it back;
+      // this release must not destroy someone else's live lease.
+      try {
+        await rename(tombstone, this.#dir);
+      } catch (error) {
+        throw new Error(`dist lock release raced for ${this.#dir}`, { cause: error });
+      }
+      return false;
+    }
+    await rm(tombstone, { recursive: true, force: true });
     return true;
   }
 
-  async #tryCreate(): Promise<boolean> {
+  /**
+   * Publish our ownership atomically: build a complete owner directory under a
+   * unique staging name, then rename it onto the lock path. Rename succeeds
+   * only when the lock path is free (or an empty leftover directory), so no
+   * waiter can ever observe a directory without its owner token.
+   */
+  async #tryPublish(): Promise<boolean> {
+    const staging = `${this.#dir}.owner-${randomUUID()}`;
+    let published = false;
     try {
-      await mkdir(this.#dir);
-    } catch (error) {
-      if (isErrno(error, 'EEXIST')) return false;
-      throw error;
-    }
-    try {
+      await mkdir(staging);
       await writeFile(
-        this.#ownerPath(),
+        join(staging, 'owner.json'),
         `${JSON.stringify({ token: this.#token, pid: process.pid } satisfies LockOwner)}\n`,
         'utf8',
       );
-    } catch (error) {
-      await rm(this.#dir, { recursive: true, force: true });
-      throw error;
+      if (this.#beforePublish !== undefined) await this.#beforePublish();
+      try {
+        await rename(staging, this.#dir);
+      } catch (error) {
+        if (
+          isErrno(error, 'EEXIST') ||
+          isErrno(error, 'ENOTEMPTY') ||
+          isErrno(error, 'ENOTDIR')
+        ) {
+          return false;
+        }
+        throw error;
+      }
+      published = true;
+      return true;
+    } finally {
+      if (!published) await rm(staging, { recursive: true, force: true });
     }
-    return true;
   }
 
   async #reclaim(expectedToken: string | undefined): Promise<void> {
+    // Re-read the owner now: never reclaim a lease other than the one observed
+    // as stale. An atomically published replacement always carries its owner
+    // token, so a changed/absent token means someone else won.
+    const observed = await this.#readOwner(this.#dir);
+    if (expectedToken === undefined) {
+      if (observed !== undefined) return;
+    } else if (observed === undefined || observed.token !== expectedToken) {
+      return;
+    }
+
     const tombstone = `${this.#dir}.tombstone-${randomUUID()}`;
     try {
       await rename(this.#dir, tombstone);
@@ -262,10 +321,13 @@ export class DistLock {
       throw error;
     }
     const moved = await this.#readOwner(tombstone);
-    if (moved !== undefined && (expectedToken === undefined || moved.token !== expectedToken)) {
-      // Another waiter released the stale lock and a new holder acquired it
-      // between our stale read and the rename. Put the live lock back; never
-      // proceed to acquire on top of it.
+    const movedIsObserved =
+      expectedToken === undefined
+        ? moved === undefined
+        : moved !== undefined && moved.token === expectedToken;
+    if (!movedIsObserved) {
+      // A replacement lease was published between our stale read and the
+      // rename. Put the live lock back; never proceed to acquire on top of it.
       try {
         await rename(tombstone, this.#dir);
       } catch (error) {
@@ -300,10 +362,6 @@ export class DistLock {
     } catch {
       return false;
     }
-  }
-
-  #ownerPath(): string {
-    return join(this.#dir, 'owner.json');
   }
 }
 
