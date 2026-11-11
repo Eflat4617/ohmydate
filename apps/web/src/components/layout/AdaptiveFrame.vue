@@ -66,6 +66,9 @@ function valid(spec: LayoutSpec | null): LayoutSpec | null {
 // page then mounts once, in its final place.
 layout.attach(input);
 displayed.value = valid(layout.current);
+// Today's data that was still loading when the user navigated belongs to
+// that navigation: when it arrives it applies quietly, without a toast.
+let awaitingFirstData = observer.today.value === null;
 
 async function apply(spec: LayoutSpec | null): Promise<void> {
   // 07 §2.1: an invalid spec is never rendered; the previous layout stays.
@@ -108,6 +111,17 @@ watch(
       return;
     }
     expectedPath = null;
+    awaitingFirstData = observer.today.value === null;
+    layout.intent();
+  },
+);
+
+// Registered before the context watcher so a first load wins the same flush.
+watch(
+  () => observer.today.value !== null,
+  (loaded) => {
+    if (!loaded || !awaitingFirstData) return;
+    awaitingFirstData = false;
     layout.intent();
   },
 );
@@ -118,6 +132,11 @@ const contextKey = computed(() => {
   return [s.activeSessionId, s.riskTaskCount, s.riskAcknowledged, s.inReviewWindow, s.unreviewedSessionCount, s.day].join('|');
 });
 watch(contextKey, () => {
+  if (awaitingFirstData && observer.today.value !== null) {
+    awaitingFirstData = false;
+    layout.intent();
+    return;
+  }
   layout.step();
 });
 

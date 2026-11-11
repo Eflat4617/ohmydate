@@ -112,6 +112,8 @@ describe('adaptive layout — modes (07 §2.2)', () => {
     seedTodayRisk(mockDb);
     const app = await openToday();
     await vi.waitFor(() => expect(modeOf(app.wrapper)).toBe('deadline_risk'));
+    // The risk came with the page the user opened: no "layout changed" toast.
+    expect(useToastStore(app.pinia).toasts.some((item) => item.message === '레이아웃이 바뀌었어요')).toBe(false);
     expect(regionsOf(app.wrapper).primary).toEqual(['DeadlineRiskPanel', 'TodayPlan']);
     const panel = app.wrapper.get('[data-panel="deadline-risk"]');
     expect(panel.text()).toContain('마감 위험이 있어요');
