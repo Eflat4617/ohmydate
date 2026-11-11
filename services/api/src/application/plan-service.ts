@@ -474,8 +474,14 @@ export class PlanService {
     ownerId: Id,
     query: ScheduleBlockListQuery,
   ): Promise<ScheduleBlockPage> {
-    const fromMs = assertMinutePrecision(query.from, '/from');
-    const toMs = assertMinutePrecision(query.to, '/to');
+    const fromMs = Date.parse(query.from);
+    const toMs = Date.parse(query.to);
+    if (!Number.isFinite(fromMs)) {
+      throw new ValidationFailedError([{ path: '/from', message: 'invalid instant' }]);
+    }
+    if (!Number.isFinite(toMs)) {
+      throw new ValidationFailedError([{ path: '/to', message: 'invalid instant' }]);
+    }
     if (toMs <= fromMs) {
       throw new ValidationFailedError([
         { path: '/to', message: 'to must be after from' },

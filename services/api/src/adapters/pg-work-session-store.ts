@@ -51,6 +51,19 @@ export class PgWorkSessionStore implements WorkSessionStore {
     readonly clientId: string;
     readonly now: Instant;
   }): Promise<WorkSessionRecord> {
+    if (input.blockId !== undefined) {
+      const block = await this.#db
+        .selectFrom('schedule_block')
+        .select('task_id')
+        .where('id', '=', input.blockId)
+        .where('owner_id', '=', input.ownerId)
+        .executeTakeFirst();
+      if (block === undefined || block.task_id !== input.taskId) {
+        throw new ValidationFailedError([
+          { path: '/blockId', message: 'blockId must belong to the session task' },
+        ]);
+      }
+    }
     try {
       const row = await this.#db
         .insertInto('work_session')
