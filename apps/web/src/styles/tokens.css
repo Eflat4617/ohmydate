@@ -84,6 +84,7 @@
   --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, 'D2Coding', monospace;
   --font-numeric: var(--font-sans);
 
+  --text-2xs: 0.6875rem; /* dense calendar labels only */
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-md: 1rem;

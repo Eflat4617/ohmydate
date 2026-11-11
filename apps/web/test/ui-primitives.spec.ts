@@ -212,7 +212,7 @@ describe('UiField', () => {
     const wrapper = mount(UiField, {
       props: { id: 'f1', label: 'Title', help: 'Shown on Today', error: 'Required' },
       slots: {
-        default: (slot: { describedby?: string; invalid?: string }) =>
+        default: (slot: { describedby: string | undefined; invalid: string | undefined }) =>
           h('input', { id: 'f1', 'aria-describedby': slot.describedby, 'aria-invalid': slot.invalid }),
       },
     });
@@ -228,7 +228,7 @@ describe('UiField', () => {
     const wrapper = mount(UiField, {
       props: { id: 'f2', label: 'Plain' },
       slots: {
-        default: (slot: { describedby?: string; invalid?: string }) =>
+        default: (slot: { describedby: string | undefined; invalid: string | undefined }) =>
           h('input', { id: 'f2', 'aria-describedby': slot.describedby, 'aria-invalid': slot.invalid }),
       },
     });

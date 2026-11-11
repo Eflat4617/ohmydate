@@ -308,6 +308,24 @@ async function flowAi(browser, run) {
   await context.close();
 }
 
+// The dev server can reload a page while it optimises deps; retry a flow once
+// (findings from the failed attempt are discarded).
+async function withRetry(flow, browser, run) {
+  const mark = findings.length;
+  try {
+    await flow(browser, run);
+  } catch (error) {
+    const detail = String(error?.message ?? error)
+      .split('\n')
+      .filter((line) => /Timeout|waiting for|intercepts/.test(line))
+      .slice(0, 3)
+      .join(' / ');
+    console.log(`  retrying ${flow.name} (${run.viewport.name} ${run.scheme}): ${detail}`);
+    findings.length = mark;
+    await flow(browser, run);
+  }
+}
+
 async function main() {
   await mkdir(outDir, { recursive: true });
   let vite = null;
@@ -321,9 +339,7 @@ async function main() {
       for (const scheme of SCHEMES) {
         const run = { viewport, scheme };
         console.log(`${label} · ${viewport.name} ${viewport.width}x${viewport.height} · ${scheme}`);
-        await flowMain(browser, run);
-        await flowDaily(browser, run);
-        await flowAi(browser, run);
+        for (const flow of [flowMain, flowDaily, flowAi]) await withRetry(flow, browser, run);
       }
     }
   } finally {
