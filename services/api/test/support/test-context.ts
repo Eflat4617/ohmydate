@@ -3,7 +3,11 @@ import { hash } from '@node-rs/argon2';
 import { vi } from 'vitest';
 
 // DB-backed suites migrate schemas and can exceed the 5 s default under load.
-vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
+// The migration runner serializes on one advisory lock per database, so every
+// concurrent Vitest invocation against the shared test database queues behind
+// the others. The budget covers that queue for several parallel runs (FU-58F);
+// it bounds a hang and is not a behavioural assertion.
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 import { PgUserRepository } from '../../src/adapters/pg-user-repository.js';
 import { UserService } from '../../src/application/user-service.js';
