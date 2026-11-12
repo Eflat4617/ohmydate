@@ -1,0 +1,42 @@
+# REVIEW PACKET: FU-73RR — Independent review of FU-73R
+Role: reviewer (GPT-6.1 Sol high via Codex). READ-ONLY: do not modify, create or delete files; do not commit. Running tests/builds is allowed (generated caches like node_modules are fine).
+Target worktree: this worktree. Branch: torgal/fu-73-phantom-bump. Base: torgal/ohmydate. Head: f61105c.
+Original packet: read it fully with `git show torgal/ohmydate:docs/orchestration/packets/FU-73R.md` (stacked worktrees may not contain it; use the same `git show torgal/ohmydate:<path>` for any docs/orchestration file). Worker claims (treat as unverified claims): see below.
+MUST: inspect git diff torgal/ohmydate...f61105c; check changed paths are within the packet's ALLOWED PATHS; run every command in the packet's TESTS yourself and paste exit codes; apply the checklist in docs/orchestration/WORKER-AND-REVIEW-CONTRACT.md §4.
+Finish with exactly one worker_done (orca orchestration send --type worker_done ... --outcome succeeded) whose body is the review in this format:
+REVIEW VERDICT: APPROVE | REQUEST_CHANGES | BLOCKED
+Findings (most severe first):
+  [CRITICAL|HIGH|MEDIUM|LOW] <title>
+    Evidence: <file>:<line> + reproduction or test output
+    Required change | Suggestion
+Contract / license / security / migration impact: <text or "none">
+Missing tests: <list>
+Verification actually executed: yes|no — exact commands + exit codes
+git status --porcelain after review: <must be empty>
+Residual risks: <list>
+--- WORKER CLAIMS ---
+REVIEW of FU-73 (phantom version bump after Vikunja create-with-dependencies; implementer Opus 5.5 xhigh). Branch torgal/fu-73-phantom-bump commit f61105c (base cfbc26d). Merge candidate torgal/ohmydate...f61105c. Read docs/orchestration/packets/FU-73.md. Worker report:
+What I did: root-caused FU-73 on live Vikunja v2.8.0 and fixed it in provider-vikunja (commit f61105c). It now has a deterministic unit reproduction, a live test that forces the second boundary, and negatives; all exact tests and full CI pass. What I found: Vikunja touches the BASE task's `updated`/ETag from an async listener 10-60 ms AFTER a relation create/delete response returns, and the adapter stored or compared a pre-touch ETag, so any touch landing in a later second was treated as a remote change and bumped the version. What is left: nothing for FU-73; two out-of-scope observations are listed under RISKS.
+
+ID: task_8e399c873ca0 / ctx_2912e714b0a5. Worktree /home/torgal/orca/workspaces/oh_my_date/fu-73-phantom-bump, branch torgal/fu-73-phantom-bump, base cfbc26d, commit f61105c (single commit, Task trailer, tree clean, not pushed).
+
+ROOT CAUSE (live probes): right after POST /tasks/{t}/relations, GET t still shows the old updated/ETag. About 60 ms later it shows updated = write second. DELETE relation behaves the same. The other task is never touched. Task delete touches nothing. create() GETs the ETag BEFORE writing relations and only patched the fingerprint afterwards; update()'s final GET usually precedes the touch too. If the touch lands in a later second (rare idle, common under load), the comparison `etag !== mapping.externalEtag` with an unchanged fingerprint bumps v2. It sits in #reconcileRemote -> #commitReconciled (the feed showed [1,2]) and in the update/complete/softDelete pre-check #remoteChanged (412 on the first write at the returned v1).
+
+FIX: `externalUpdatedAt` becomes an accounted-for watermark that never decreases. After the adapter's own relation writes it is raised to the provider-clock write time plus 10 s grace. The write time comes from the relation `created` field, else the Date header, else the observed `updated`; no planner clock. Covered: create (provisional before the writes, final after), orphan adoption, update dependency diff, and update failure paths that mark needsReconcile. A single `observeRemote()` treats an ETag move with an unchanged fingerprint and `updated` < watermark as the adapter's own touch and settles it (adopts the ETag, no bump). Content changes always bump. ETag-only changes at or after the watermark bump as before. Mappings with no adapter relation write are unchanged (watermark = observed updated). Client: createRelation/deleteRelation return the provider write time, and the envelope gains `date`. No contract, migration or PG change: the column already exists, so the semantics change but the schema does not.
+
+DIFF: 5 files, +1048/-72 (about 270 of those lines in task-repository.ts, the rest mostly tests). The new self-touch unit file has 14 tests; the contract test file gains one live FU-73 test.
+
+CHECKLIST: 1 root cause with evidence: met. 2 own writes never bump (create, adopt, update deps incl. failure paths); remote edits still bump: met. 3 deterministic unit test fails before / passes after: met (11 of 14 fail on cfbc26d; the 3 pure negative guards pass before and after). Negative: a remote edit after create gives v2 and the stale write throws VersionConflict: met. Live [1] not loosened, and the new live test fails before the fix with [1,2]: met. 4 same pattern checked: complete/softDelete have no relation writes; task delete touches nothing (live probe); projects never compare remote ETags; not applicable. Mutation check: each of 8 watermark sites, when disabled, is killed by at least one new test.
+
+TESTS: provider-vikunja test with DATABASE_URL and VIKUNJA_URL -> exit 0, 14 files, 132 passed, 9 skipped (all existing strictConcurrency/idempotentCreate capability skips). Live contract file 10x while the API suite ran as load (fully overlapped, API suite 542 passed, exit 0) -> 10/10 exit 0, 31 passed / 9 skipped each, tree hash unchanged during the loop. pnpm run ci -> exit 0: typecheck, lint, test (171 files, 2121 passed, 29 skipped; web 442 passed), check:api-client with no diff, check:boundaries 0 violations, build-smoke /healthz 200 and SIGTERM exit 0. The first CI attempt exited 1 only because this fresh worktree lacked a full install (ui-policy could not find @sinclair/typebox); `pnpm install --frozen-lockfile` fixed it, with no lockfile change.
+
+RISKS: (a) a genuine ETag-ONLY Vikunja edit (comment, label, etc.; nothing visible in Task) within 10 s of the adapter's own relation write is absorbed without a bump; content edits always bump. (b) A listener lag over 10 s, or a lost relation response with no earlier write time, can still produce one phantom bump. (c) Journal snapshot `at` may show the watermark; it is informational only. OUT OF SCOPE: (d) when a task is deleted, Vikunja drops its dependents' `blocked` relation WITHOUT touching their `updated`, so the incremental `updated >=` scan may never surface the dependents' FU-14R LOW bump. This deserves its own task. (e) An earlier, contaminated load run hit a 10 s hook timeout in the existing 'paginates tasks that share the same millisecond' test under heavy load; the clean 10x rerun passed. ROLLBACK: delete branch torgal/fu-73-phantom-bump (or revert f61105c).
+Coordinator note: out-of-scope observation (d) is tracked as FU-81 — not a finding here.
+Focus (medium, priority order):
+1) Correctness of the watermark: externalUpdatedAt monotonic; raised only after the adapter's OWN relation writes, to provider write time + 10 s; observeRemote() absorbs ONLY an ETag move with unchanged fingerprint and updated < watermark; any content change ALWAYS bumps (negative tests); ETag-only changes at/after the watermark bump. Can a genuine remote CONTENT edit inside the 10 s window ever be absorbed (fingerprint coverage — which fields are in the fingerprint)? Can a remote edit be lost permanently (not just delayed)?
+2) Concurrency: watermark + mapping writes atomic with the create/update commit; failure paths (needsReconcile) correct; no regression of If-Match / VersionConflict semantics (412 still raised for real conflicts).
+3) Provider-clock use only (relation created / Date header / observed updated) — no planner clock; clock skew between Vikunja and planner cannot widen the window.
+4) Tests: deterministic unit reproduction fails on cfbc26d; live test forces the second boundary; existing [1] assertion unchanged; mutation claims plausible.
+Run: pnpm --filter @ohmydate/provider-vikunja test (DATABASE_URL=postgres://ohmydate:ohmydate-dev-only@127.0.0.1:55432/planner_test VIKUNJA_URL=http://127.0.0.1:3456) and the live contract file a few times under load.
+Round 1 of 2. HIGH for lost/absorbed genuine remote changes, broken conflict detection, or weakened tests.
+
