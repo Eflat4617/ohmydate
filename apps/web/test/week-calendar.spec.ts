@@ -135,3 +135,64 @@ describe('week calendar scroll region keyboard access', () => {
     wrapper.unmount();
   });
 });
+
+describe('week calendar while editing is off (FU-86F)', () => {
+  const blocks = [{ taskId: TASK_ID, startAt: '2026-11-10T01:00:00.000Z', endAt: '2026-11-10T02:00:00.000Z' }];
+
+  function press(element: Element, clientY: number): void {
+    element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientY }));
+  }
+
+  function move(clientY: number): void {
+    window.dispatchEvent(new PointerEvent('pointermove', { clientY }));
+  }
+
+  function release(clientY: number): void {
+    window.dispatchEvent(new PointerEvent('pointerup', { clientY }));
+  }
+
+  it('refuses a press-and-drag and the arrow keys, changes nothing and reports each try', async () => {
+    const wrapper = mount(WeekCalendar, {
+      attachTo: document.body,
+      props: { timeZone: 'UTC', weekStart: '2026-11-09', blocks, editable: false },
+    });
+    expect(wrapper.find('.calendar-resize').exists()).toBe(false);
+    const block = wrapper.get('.calendar-block');
+    press(block.element, 0);
+    move(30);
+    release(30);
+    await block.trigger('keydown', { key: 'ArrowDown' });
+    await block.trigger('keydown', { key: 'ArrowUp', shiftKey: true });
+    expect(wrapper.emitted('update:blocks')).toBeUndefined();
+    expect(wrapper.emitted('edit-blocked')).toEqual([[0], [0], [0]]);
+    // Other keys are no edit: nothing to report (negative).
+    await block.trigger('keydown', { key: 'Enter' });
+    await block.trigger('keydown', { key: 'Tab' });
+    expect(wrapper.emitted('edit-blocked')).toHaveLength(3);
+    wrapper.unmount();
+  });
+
+  it('a drag under way stops changing blocks while editing is off and moves again once it is back', async () => {
+    const wrapper = mount(WeekCalendar, {
+      attachTo: document.body,
+      props: { timeZone: 'UTC', weekStart: '2026-11-09', blocks, editable: true },
+    });
+    press(wrapper.get('.calendar-block').element, 0);
+    // Editable: the press itself is no blocked edit (negative).
+    expect(wrapper.emitted('edit-blocked')).toBeUndefined();
+    await wrapper.setProps({ editable: false });
+    move(30);
+    expect(wrapper.emitted('update:blocks')).toBeUndefined();
+    expect(wrapper.emitted('edit-blocked')).toEqual([[0]]);
+    await wrapper.setProps({ editable: true });
+    move(30);
+    const updates = wrapper.emitted('update:blocks') as Array<[Array<{ startAt: string; endAt: string }>]> | undefined;
+    expect(updates).toHaveLength(1);
+    expect(updates?.[0]?.[0][0]).toMatchObject({
+      startAt: '2026-11-10T01:30:00.000Z',
+      endAt: '2026-11-10T02:30:00.000Z',
+    });
+    release(30);
+    wrapper.unmount();
+  });
+});

@@ -6,6 +6,7 @@ import type {
   TodayProposal,
 } from '@ohmydate/contracts';
 import type { Id, Instant } from '@ohmydate/domain';
+import { sql } from 'kysely';
 import {
   authHeaders,
   createTestContext,
@@ -33,6 +34,15 @@ import {
  */
 
 const START = '2026-11-11T08:00:00Z' as Instant;
+
+async function waitFor(check: () => Promise<boolean>, label: string, timeoutMs = 15_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`timed out waiting for ${label}`);
+}
 
 describe.skipIf(!hasDatabase)('schedule block lock/unlock (FU-71)', () => {
   let ctx: TestContext;
@@ -99,6 +109,87 @@ describe.skipIf(!hasDatabase)('schedule block lock/unlock (FU-71)', () => {
     });
     expect(response.statusCode).toBe(200);
     return (response.json() as { items: ScheduleBlockDto[] }).items;
+  }
+
+  /**
+   * FU-86 race gate: holds the plan row (`FOR UPDATE`) as a concurrent writer
+   * would. Every lock and approval TX takes that row before it reads blocks,
+   * so requests sent meanwhile queue on it in the order they arrive (Postgres
+   * hands a row lock to its waiters first come, first served).
+   */
+  async function holdPlanRow(planId: string): Promise<{ pid: number; release: () => Promise<void> }> {
+    let open!: () => void;
+    const released = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let ready!: (pid: number) => void;
+    const pidReady = new Promise<number>((resolve) => {
+      ready = resolve;
+    });
+    const holder = ctx.db.transaction().execute(async (trx) => {
+      await trx.selectFrom('plan').select('id').where('id', '=', planId as Id).forUpdate().execute();
+      const row = await sql<{ pid: number }>`select pg_backend_pid() as pid`.execute(trx);
+      ready(row.rows[0]?.pid ?? -1);
+      await released;
+    });
+    const pid = await pidReady;
+    return {
+      pid,
+      release: async () => {
+        open();
+        await holder;
+      },
+    };
+  }
+
+  /** Backends waiting on the holder, directly or behind another waiter in the same queue. */
+  async function queuedBehind(holderPid: number): Promise<number> {
+    const rows = (
+      await sql<{ pid: number; blockers: number[] }>`
+        select pid, pg_blocking_pids(pid) as blockers from pg_stat_activity
+        where wait_event_type = 'Lock' and datname = current_database()`.execute(ctx.db)
+    ).rows;
+    const chain = new Set<number>([holderPid]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const row of rows) {
+        if (!chain.has(row.pid) && row.blockers.some((pid) => chain.has(pid))) {
+          chain.add(row.pid);
+          grew = true;
+        }
+      }
+    }
+    return chain.size - 1;
+  }
+
+  /**
+   * Sends `first`, waits until it queues on the held plan row, sends `second`,
+   * waits until it queues behind, then releases the row: `first` runs first.
+   */
+  async function inOrder<A, B>(planId: string, first: () => Promise<A>, second: () => Promise<B>): Promise<[A, B]> {
+    const gate = await holdPlanRow(planId);
+    let a: Promise<A> | undefined;
+    let b: Promise<B> | undefined;
+    try {
+      a = first();
+      await waitFor(async () => (await queuedBehind(gate.pid)) >= 1, 'the first request to queue on the plan row');
+      b = second();
+      await waitFor(async () => (await queuedBehind(gate.pid)) >= 2, 'the second request to queue behind it');
+    } finally {
+      await gate.release();
+    }
+    return Promise.all([a, b]);
+  }
+
+  async function auditActions(blockId: string): Promise<string[]> {
+    const rows = await ctx.db
+      .selectFrom('audit_event')
+      .select(['action'])
+      .where('entity_id', '=', blockId as Id)
+      .orderBy('created_at')
+      .orderBy('id')
+      .execute();
+    return rows.map((row) => row.action);
   }
 
   async function onePlan(label: string) {
@@ -241,6 +332,49 @@ describe.skipIf(!hasDatabase)('schedule block lock/unlock (FU-71)', () => {
     const superseded = await lockRequest(session, block.id, 'unlock', { ifMatch: `W/"${before.version + 1}"` });
     expect(superseded.statusCode).toBe(409);
     expect(await planVersion(plan.id)).toBe(revision + 1);
+  });
+
+  test('FU-86: a block of a soft-deleted plan is 404 not_found (lock and unlock) and nothing changes', async () => {
+    const { session, plan, block } = await onePlan('deleted-plan');
+    await ctx.db
+      .updateTable('plan')
+      .set({ deleted_at: new Date(START) })
+      .where('id', '=', plan.id as Id)
+      .execute();
+    const before = await blockRow(block.id);
+    const revision = await planVersion(plan.id);
+    for (const action of ['lock', 'unlock'] as const) {
+      const response = await lockRequest(session, block.id, action, { ifMatch: `W/"${before.version}"` });
+      expect(response.statusCode).toBe(404);
+      expect(response.headers['content-type']).toContain('application/problem+json');
+      expect(response.json()).toMatchObject({ code: 'not_found' });
+    }
+    expect(await blockRow(block.id)).toEqual(before);
+    expect(await planVersion(plan.id)).toBe(revision);
+    expect(await auditActions(block.id)).toEqual([]);
+    // Consistent with the calendar, which no longer lists the block.
+    expect((await calendar(session)).some((item) => item.id === block.id)).toBe(false);
+  });
+
+  test('FU-86: a block of a plan that is not active is 409 illegal_transition and nothing changes', async () => {
+    const { session, plan, block } = await onePlan('inactive-plan');
+    const before = await blockRow(block.id);
+    const revision = await planVersion(plan.id);
+    for (const status of ['superseded', 'draft'] as const) {
+      await ctx.db.updateTable('plan').set({ status }).where('id', '=', plan.id as Id).execute();
+      for (const action of ['lock', 'unlock'] as const) {
+        const response = await lockRequest(session, block.id, action, { ifMatch: `W/"${before.version}"` });
+        expect(response.statusCode).toBe(409);
+        expect(response.json()).toMatchObject({ code: 'illegal_transition' });
+      }
+    }
+    expect(await blockRow(block.id)).toEqual(before);
+    expect(await planVersion(plan.id)).toBe(revision);
+    expect(await auditActions(block.id)).toEqual([]);
+    // Active again, the same block is lockable (the 409 came from the plan state).
+    await ctx.db.updateTable('plan').set({ status: 'active' }).where('id', '=', plan.id as Id).execute();
+    const locked = await lockRequest(session, block.id, 'lock', { ifMatch: `W/"${before.version}"` });
+    expect(locked.statusCode).toBe(200);
   });
 
   test('the same Idempotency-Key replays the stored answer; a new key on the same state is a no-op', async () => {
@@ -422,5 +556,125 @@ describe.skipIf(!hasDatabase)('schedule block lock/unlock (FU-71)', () => {
       await ctx.app.inject({ method: 'GET', url: `/api/v1/plans/${plan.id}`, headers: authHeaders(session) })
     ).json() as Plan;
     expect(planAfter.status).toBe('active');
+  });
+
+  /** An approved one-task plan, a commitment over its block and a replan proposal that moves it. */
+  async function proposalMovingBlock(label: string) {
+    const { ownerId, session } = await newOwner(label);
+    const task = await seedPlanTask(ctx, ownerId, { title: `FU-86 ${label}` });
+    const { plan, version } = await approvedPlan(ctx, session, [task.id]);
+    const block = version.blocks[0];
+    if (block === undefined) throw new Error('block missing');
+    const commitment = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/commitments',
+      headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+      payload: { title: 'Over the block', startAt: block.startAt, endAt: block.endAt, timeZone: 'UTC' },
+    });
+    expect(commitment.statusCode).toBe(201);
+    const requested = await requestReplan(ctx, session, { planId: plan.id });
+    expect(requested.statusCode).toBe(201);
+    const proposal = requested.json() as ReplanProposal;
+    expect(proposal.candidate.blocks.some((entry) => entry.startAt === block.startAt)).toBe(false);
+    return { ownerId, session, task, plan, block, proposal };
+  }
+
+  async function liveBlocks(ownerId: Id, taskId: string) {
+    return ctx.db
+      .selectFrom('schedule_block')
+      .select(['id', 'status', 'locked', 'start_at', 'end_at'])
+      .where('owner_id', '=', ownerId)
+      .where('task_id', '=', taskId as Id)
+      .where('status', '<>', 'superseded')
+      .execute();
+  }
+
+  test('FU-86 race, lock first: :lock and a replan approval in flight together — the lock wins, the approval is 422, the block never moves', async () => {
+    const { ownerId, session, task, plan, block, proposal } = await proposalMovingBlock('race-lock-first');
+    const revision = await planVersion(plan.id);
+    const [locked, approved] = await inOrder(
+      plan.id,
+      () => lockRequest(session, block.id, 'lock', { ifMatch: `W/"${block.version}"` }),
+      () => approveProposal(ctx, session, proposal),
+    );
+    expect(locked.statusCode).toBe(200);
+    expect(locked.json()).toMatchObject({ id: block.id, locked: true, version: block.version + 1 });
+    // The approval re-read the block after the lock committed: moving it is a violation.
+    expect(approved.statusCode).toBe(422);
+    expect(approved.json()).toMatchObject({ code: 'constraint_violation' });
+    expect(await blockRow(block.id)).toMatchObject({
+      status: 'planned',
+      locked: true,
+      version: block.version + 1,
+      start_at: new Date(block.startAt),
+      end_at: new Date(block.endAt),
+    });
+    expect(await liveBlocks(ownerId, task.id)).toHaveLength(1);
+    expect(await planVersion(plan.id)).toBe(revision + 1);
+  });
+
+  test('FU-86 race, approval first: the approval moves the block, the queued :lock is 412 and locks nothing', async () => {
+    const { ownerId, session, task, plan, block, proposal } = await proposalMovingBlock('race-approve-first');
+    const [approved, locked] = await inOrder(
+      plan.id,
+      () => approveProposal(ctx, session, proposal),
+      () => lockRequest(session, block.id, 'lock', { ifMatch: `W/"${block.version}"` }),
+    );
+    expect(approved.statusCode).toBe(201);
+    // The approval superseded the row (version +1) before the lock read it.
+    expect(locked.statusCode).toBe(412);
+    expect(locked.json()).toMatchObject({ code: 'version_conflict' });
+    expect(await blockRow(block.id)).toMatchObject({ status: 'superseded', locked: false });
+    const live = await liveBlocks(ownerId, task.id);
+    expect(live.length).toBeGreaterThan(0);
+    expect(live.every((row) => !row.locked && row.start_at.getTime() !== Date.parse(block.startAt))).toBe(true);
+    expect(await auditActions(block.id)).toEqual([]);
+  });
+
+  test('FU-86: two locks of different blocks of one plan at once both land (200, 200; plan.version +2)', async () => {
+    const owner = await newOwner('two-blocks');
+    const first = await seedPlanTask(ctx, owner.ownerId, { title: 'FU-86 first' });
+    const second = await seedPlanTask(ctx, owner.ownerId, { title: 'FU-86 second' });
+    const { plan, version } = await approvedPlan(ctx, owner.session, [first.id, second.id]);
+    const a = version.blocks.find((block) => block.taskId === first.id);
+    const b = version.blocks.find((block) => block.taskId === second.id);
+    if (a === undefined || b === undefined) throw new Error('blocks missing');
+    const revision = await planVersion(plan.id);
+    const updatedAt = (
+      await ctx.db.selectFrom('plan').select(['updated_at']).where('id', '=', plan.id as Id).executeTakeFirstOrThrow()
+    ).updated_at;
+
+    const [left, right] = await inOrder(
+      plan.id,
+      () => lockRequest(owner.session, a.id, 'lock', { ifMatch: `W/"${a.version}"` }),
+      () => lockRequest(owner.session, b.id, 'lock', { ifMatch: `W/"${b.version}"` }),
+    );
+    expect(left.statusCode).toBe(200);
+    expect(right.statusCode).toBe(200);
+    expect(await blockRow(a.id)).toMatchObject({ locked: true, version: a.version + 1 });
+    expect(await blockRow(b.id)).toMatchObject({ locked: true, version: b.version + 1 });
+    // Serialised on the plan row: no lost revision bump, updated_at untouched.
+    expect(await planVersion(plan.id)).toBe(revision + 2);
+    const after = await ctx.db.selectFrom('plan').select(['updated_at']).where('id', '=', plan.id as Id).executeTakeFirstOrThrow();
+    expect(after.updated_at).toEqual(updatedAt);
+    expect(await auditActions(a.id)).toEqual(['schedule_block.locked']);
+    expect(await auditActions(b.id)).toEqual(['schedule_block.locked']);
+  });
+
+  test('FU-86: the same block locked twice at once (two keys) is 200 then 412, one change and one audit row', async () => {
+    const { session, plan, block } = await onePlan('same-block');
+    const revision = await planVersion(plan.id);
+    const [winner, loser] = await inOrder(
+      plan.id,
+      () => lockRequest(session, block.id, 'lock', { ifMatch: `W/"${block.version}"` }),
+      () => lockRequest(session, block.id, 'lock', { ifMatch: `W/"${block.version}"` }),
+    );
+    expect(winner.statusCode).toBe(200);
+    expect(winner.json()).toMatchObject({ locked: true, version: block.version + 1 });
+    expect(loser.statusCode).toBe(412);
+    expect(loser.json()).toMatchObject({ code: 'version_conflict' });
+    expect(await blockRow(block.id)).toMatchObject({ locked: true, version: block.version + 1 });
+    expect(await planVersion(plan.id)).toBe(revision + 1);
+    expect(await auditActions(block.id)).toEqual(['schedule_block.locked']);
   });
 });

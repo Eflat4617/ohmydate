@@ -144,6 +144,18 @@
   flex: none;
 }
 
+/* A busy button keeps its size (FU-86F): the spinner takes the icon's box —
+   UiButton draws icons at 16 px in small buttons and 18 px otherwise. */
+.btn .spinner.btn-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.btn--sm .spinner.btn-icon {
+  width: 16px;
+  height: 16px;
+}
+
 @media (pointer: coarse) {
   .btn--sm {
     min-height: var(--control-height);

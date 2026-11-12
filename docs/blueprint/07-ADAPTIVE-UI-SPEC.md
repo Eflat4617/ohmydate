@@ -104,6 +104,8 @@ Desktop                                         Mobile (≤640px)
 ## 5. 접근성 수락 기준
 키보드만으로 시나리오 A·C 완주, 모든 인터랙티브 요소 accessible name, 대비 WCAG 2.2 AA, 레이아웃 전환 시 포커스 보존 + `aria-live=polite` 안내, axe 위반 0(critical/serious).
 
+- 블록 고정 토글(FU-71, FU-86): 이름은 상태와 관계없이 "블록 고정" 하나(보이는 글자와 같음, WCAG 2.5.3 Label in Name)이고 상태는 `aria-pressed`(눈으로는 자물쇠 아이콘과 눌린 스타일)가 전한다. 목록의 각 토글은 `aria-describedby`로 그 행의 작업 제목과 시간을 가리켜 스크린 리더에서 행을 구분할 수 있다. 오프라인이면 비활성.
+
 ## 6. 오프라인·동기화 (ADR-010)
 - M1–M7: Service Worker 캐시 읽기 + 명시적 오프라인 제한(편집 비활성). 예외: Focus 세션 로컬 기록(멱등 업로드).
 - 편집 큐는 M8+ 재평가(조건: 실제 오프라인 편집 요구 빈도 측정).

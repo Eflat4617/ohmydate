@@ -96,6 +96,49 @@ function overlaps(left: { startAt: string; endAt: string }, right: { startAt: st
   return Date.parse(left.startAt) < Date.parse(right.endAt) && Date.parse(right.startAt) < Date.parse(left.endAt);
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+interface Box {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * FU-86F: page-relative boxes (scroll-independent) of the plan page's calendar
+ * and of every approved-schedule row and its lock toggle.
+ */
+async function approvedLayout(page: Page): Promise<Record<string, Box>> {
+  return page.evaluate(() => {
+    const boxes: Record<string, Box> = {};
+    const add = (key: string, element: Element | null) => {
+      if (element === null) return;
+      const rect = element.getBoundingClientRect();
+      boxes[key] = { x: rect.x + window.scrollX, y: rect.y + window.scrollY, width: rect.width, height: rect.height };
+    };
+    add('calendar', document.querySelector('.week-calendar'));
+    for (const row of document.querySelectorAll('[data-approved-block-id]')) {
+      const id = row.getAttribute('data-approved-block-id') ?? '';
+      add(`row ${id}`, row);
+      add(`toggle ${id}`, row.querySelector('button[data-block-lock]'));
+    }
+    return boxes;
+  });
+}
+
+function expectSameLayout(actual: Record<string, Box>, expected: Record<string, Box>, when: string): void {
+  expect(Object.keys(actual).sort(), `${when}: the same rows and toggles`).toEqual(Object.keys(expected).sort());
+  for (const [key, box] of Object.entries(expected)) {
+    for (const side of ['x', 'y', 'width', 'height'] as const) {
+      const moved = Math.abs((actual[key]?.[side] ?? Number.NaN) - box[side]);
+      expect(moved, `${when}: ${key} ${side} moved by ${moved}px`).toBeLessThanOrEqual(0.5);
+    }
+  }
+}
+
 /**
  * FU-71: lock a block the way a user does — the plan page's approved schedule,
  * paging forward to the block's week when the plan starts in an earlier one.
@@ -120,22 +163,68 @@ async function lockInUi(page: Page, planId: string, block: ApprovedBlockDto): Pr
     await page.getByRole('button', { name: '다음 주' }).click();
   }
   await expect(row).toBeVisible();
-  const toggle = row.getByRole('button', { name: '블록 고정' });
+  const toggle = row.getByRole('button', { name: '블록 고정', exact: true });
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  // FU-86: the row's task title and time describe the toggle, so rows differ for a screen reader.
+  const title = (await row.locator('.approved-schedule-title').innerText()).trim();
+  expect(title.length).toBeGreaterThan(0);
+  await expect(toggle).toHaveAccessibleDescription(new RegExp(`^${escapeRegExp(title)} .*\\d{1,2}:\\d{2}`));
+  // FU-86F: the lock answer is held so the page can be measured while it is out.
+  const layoutBefore = await approvedLayout(page);
+  let releaseLock: () => void = () => {};
+  const lockHeld = new Promise<void>((resolve) => {
+    releaseLock = resolve;
+  });
+  const isLockRequest = (url: URL) => url.pathname.endsWith(`/schedule-blocks/${block.id}:lock`);
+  await page.route(isLockRequest, async (route) => {
+    await lockHeld;
+    await route.continue();
+  });
   const response = page.waitForResponse(
     (candidate) =>
       candidate.request().method() === 'POST' && candidate.url().endsWith(`/schedule-blocks/${block.id}:lock`),
   );
   await toggle.focus();
   await page.keyboard.press('Enter');
+  await expect(toggle).toHaveAttribute('aria-busy', 'true');
+  // Pressing a toggle moves nothing: the calendar, every row and every toggle keep their boxes
+  // (FU-86R: a note above the calendar pushed them down, and a second click hit the next row).
+  expectSameLayout(await approvedLayout(page), layoutBefore, 'lock out');
+  const calendarBlock = page.locator('.calendar-block').first();
+  if ((await calendarBlock.count()) > 0) {
+    // An edit tried meanwhile is held; the reason floats over the calendar and still moves nothing.
+    // (The candidate's blocks are usually in this week; near a week boundary they may not be.)
+    await calendarBlock.evaluate((element) => (element as HTMLElement).focus({ preventScroll: true }));
+    await page.keyboard.press('ArrowDown');
+    const note = page.locator('#plan-lock-saving-note');
+    await expect(note).toHaveText(
+      '블록 고정을 저장하는 동안에는 일정안을 편집할 수 없어요. 저장이 끝나면 다시 편집할 수 있어요.',
+    );
+    await expect(note).toHaveAttribute('role', 'status');
+    await expect(calendarBlock).toHaveAccessibleDescription(/^블록 고정을 저장하는 동안에는/);
+    expectSameLayout(await approvedLayout(page), layoutBefore, 'reason shown');
+    const noteBox = await note.boundingBox();
+    const calendarBox = await page.locator('.week-calendar').boundingBox();
+    if (noteBox === null || calendarBox === null) throw new Error('note or calendar has no box');
+    expect(noteBox.y).toBeGreaterThanOrEqual(calendarBox.y);
+    expect(noteBox.y + noteBox.height).toBeLessThanOrEqual(calendarBox.y + calendarBox.height);
+    await expect(page.locator('.calendar-toolbar')).toContainText('생성된 블록');
+  }
+  releaseLock();
   const locked = await response;
+  await page.unroute(isLockRequest);
   expect(locked.status()).toBe(200);
   const headers = locked.request().headers();
   expect(headers['if-match']).toBe(`W/"${block.version}"`);
   expect(headers['idempotency-key']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-  const unlock = row.getByRole('button', { name: '고정 해제' });
-  await expect(unlock).toHaveAttribute('aria-pressed', 'true');
-  await expect(unlock).toBeEnabled();
+  // FU-86: the same button, now pressed; its name does not change with the state.
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveAccessibleName('블록 고정');
+  await expect(toggle).toBeEnabled();
+  // Settled: the reason is gone, the draft is untouched and nothing has moved.
+  await expect(page.locator('#plan-lock-saving-note')).toHaveText('');
+  await expect(page.locator('.calendar-toolbar')).toContainText('생성된 블록');
+  expectSameLayout(await approvedLayout(page), layoutBefore, 'lock settled');
 }
 
 test.describe('E2E-5R — replan proposal flow (real API)', () => {
