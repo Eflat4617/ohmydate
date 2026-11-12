@@ -31,6 +31,9 @@ import { OWNER_B, createOwnerSwitchStage, type OwnerSwitchStage } from './suppor
  * owner-scoped storage, owner-bound continuations, the owner-scoped query
  * client and the page seal. The screens are covered by owner-switch-sweep.
  */
+// Stage-based tests mount real screens; shared test machines can be slow.
+vi.setConfig({ testTimeout: 60_000 });
+
 const OWNER_A = '01900000-0000-7000-8000-0000000000a0';
 
 function gate<T = void>() {

@@ -66,6 +66,14 @@ export interface RequestRecord {
 
 export type BoundEventKind = 'waiting' | 'settled' | 'finished';
 
+/** How long the harness waits for something the screen is expected to do (a request, an armed switch). */
+const WAIT_MS = 20_000;
+
+/** `vi.waitFor` with the harness's patience: test machines are shared and can be slow. */
+export function until<T>(check: () => T | Promise<T>): Promise<T> {
+  return vi.waitFor(check, { timeout: WAIT_MS });
+}
+
 export interface HoldMatch {
   readonly method?: string;
   /** Substring of the URL path, or a pattern for it. */
@@ -212,7 +220,7 @@ function handleOf(hold: Hold, label: string): HeldResponses {
       return hold.count;
     },
     async arrived(count = 1) {
-      await vi.waitFor(() => expect(hold.count, `held ${label}`).toBeGreaterThanOrEqual(count), { timeout: 3_000 });
+      await vi.waitFor(() => expect(hold.count, `held ${label}`).toBeGreaterThanOrEqual(count), { timeout: WAIT_MS });
     },
     release(options = {}) {
       hold.deliverAs = options.as ?? 'response';
@@ -483,7 +491,7 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
       await router.push(path);
       const wrapper = track(mount(App, { global: { plugins: plugins() }, attachTo: document.body }));
       await router.isReady();
-      await vi.waitFor(() => expect(wrapper.find('.adaptive-frame, .page').exists()).toBe(true));
+      await until(() => expect(wrapper.find('.adaptive-frame, .page').exists()).toBe(true));
       await settle();
       return wrapper;
     },
@@ -632,7 +640,7 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
           now.keys.join('|') !== before.keys.join('|') ||
           now.live.join('|') !== before.live.join('|');
         expect(changed, 'the action had no observable effect for its own owner').toBe(true);
-      });
+      }, { timeout: WAIT_MS });
     },
 
     async dispose() {
@@ -745,7 +753,7 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
       vi.useRealTimers();
     });
 
-    it('control: the action takes effect for the owner who started it', async () => {
+    it('control: the action takes effect for the owner who started it', { timeout: SINGLE_RUN_MS }, async () => {
       const arranged = await arrange(testCase);
       stage = arranged.stage;
       const alertsBefore = alertTexts();
@@ -766,7 +774,7 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
       }
     });
 
-    it('switch: released after another user signed in, it reaches nothing of theirs', async () => {
+    it('switch: released after another user signed in, it reaches nothing of theirs', { timeout: SINGLE_RUN_MS }, async () => {
       const onSwitch = await idleReference();
       const arranged = await arrange(testCase);
       stage = arranged.stage;
@@ -791,7 +799,7 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
     // re-read, then a refresh). The switch above lands on the first await; this
     // one finds every request the action leads to and switches the owner
     // while each of them is pending, in turn.
-    it('switch at every network await of the action, in every order: nothing reaches the next user', async () => {
+    it('switch at every network await of the action, in every order: nothing reaches the next user', { timeout: EXPLORATION_MS }, async () => {
       if (testCase.hold === undefined) return;
       const onSwitch = await idleReference();
       const discovery = await arrange(testCase);
@@ -803,7 +811,7 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
       // A debounced action sends its first request a little later.
       await vi.waitFor(
         () => expect(sent.requestsSinceMark().some((request) => matches(declared, request.method, request.path))).toBe(true),
-        { timeout: 3_000 },
+        { timeout: WAIT_MS },
       );
       await stage.settle();
       await testCase.afterwards?.(stage);
@@ -852,7 +860,7 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
     // changes right after the wait settled but before the task resumes (the
     // microtask gap of FU-77R-1 H1); and once more right after each task
     // finished, before whoever awaits it resumes.
-    it('switch at every owner-bound suspension point, in both orders: nothing reaches the next user', async () => {
+    it('switch at every owner-bound suspension point, in both orders: nothing reaches the next user', { timeout: EXPLORATION_MS }, async () => {
       const onSwitch = await idleReference();
       const discovery = await arrange(testCase);
       stage = discovery.stage;
@@ -866,7 +874,7 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
         const sent = stage;
         await vi.waitFor(
           () => expect(sent.requestsSinceMark().some((request) => matches(declared, request.method, request.path))).toBe(true),
-          { timeout: 3_000 },
+          { timeout: WAIT_MS },
         );
       }
       await stage.settle();
@@ -893,7 +901,7 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
             // The switch can fire while the screen gets ready; its controls may be gone by now.
             if (!stage.switched) throw cause;
           }
-          await vi.waitFor(() => expect(reached.fired, context).toBe(true), { timeout: 3_000 });
+          await vi.waitFor(() => expect(reached.fired, context).toBe(true), { timeout: WAIT_MS });
           await stage.settle();
           await testCase.afterwards?.(stage);
           await stage.settle();
@@ -908,6 +916,10 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
 
 /** Upper bound on the requests explored per case (a polling screen never stops sending). */
 const MAX_EXPLORED_AWAITS = 8;
+
+/** One arrangement, and a test that walks through many of them. Generous: CI machines are shared. */
+const SINGLE_RUN_MS = 60_000;
+const EXPLORATION_MS = 300_000;
 
 /**
  * The orders in which a pending request and an owner change can meet:

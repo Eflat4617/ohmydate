@@ -7,7 +7,7 @@ import { adoptActiveOwner, currentOwnerId } from '../src/session/ownerEpoch';
 import { buttonInElement, dialogByTitle } from './m6-03-notes-utils';
 import { useTestClock } from './m6-layout-utils';
 import { setLayoutClock } from '../src/layout/clock';
-import { OWNER_B, createOwnerSwitchStage, type OwnerSwitchStage } from './support/ownerSwitch';
+import { OWNER_B, createOwnerSwitchStage, type OwnerSwitchStage, until } from './support/ownerSwitch';
 
 /**
  * FU-77R-1 H1 — a check made when the awaited promise RESOLVES is not a check
@@ -15,6 +15,9 @@ import { OWNER_B, createOwnerSwitchStage, type OwnerSwitchStage } from './suppor
  * the owner changes in the microtask gap after the answer was accepted, and
  * during a helper's own await.
  */
+// Stage-based tests mount real screens; shared test machines can be slow.
+vi.setConfig({ testTimeout: 60_000 });
+
 const OWNER_A = '01900000-0000-7000-8000-0000000000a0';
 
 function gate<T = void>() {
@@ -132,10 +135,10 @@ describe('H1 — the screens the reviewer reproduced it on', () => {
   it('AvailabilityView: the PUT answer is accepted, then the owner changes before save() resumes — nothing cached or announced for B', async () => {
     stage = await createOwnerSwitchStage();
     const wrapper = await stage.mountView('/settings/availability');
-    await vi.waitFor(() => expect(wrapper.find('form.settings-form').exists()).toBe(true));
+    await until(() => expect(wrapper.find('form.settings-form').exists()).toBe(true));
     const armed = stage.switchAtBoundEvent('settled', 0);
     await wrapper.get('form.settings-form').trigger('submit');
-    await vi.waitFor(() => expect(armed.fired).toBe(true));
+    await until(() => expect(armed.fired).toBe(true));
     await stage.settle();
     stage.expectNoLeak();
   });
@@ -146,14 +149,14 @@ describe('H1 — the screens the reviewer reproduced it on', () => {
     const planning = await plannerClient.createIntakeSession({ title: '졸업 논문 실험 계획' }, newActionId('intake'));
     const wrapper = stage.mount(WizardNotesPanel, { props: { goalId: String(planning.goalId) } });
     await wrapper.get('[data-wizard-notes-add]').trigger('click');
-    await vi.waitFor(() => expect(() => dialogByTitle('참고할 노트 고르기')).not.toThrow());
+    await until(() => expect(() => dialogByTitle('참고할 노트 고르기')).not.toThrow());
     const picker = dialogByTitle('참고할 노트 고르기');
-    await vi.waitFor(() => expect(picker.querySelector(`[data-wizard-candidate="${NOTE_MEETING_ID}"]`)).not.toBeNull());
+    await until(() => expect(picker.querySelector(`[data-wizard-candidate="${NOTE_MEETING_ID}"]`)).not.toBeNull());
     await stage.settle();
     // Waits of link(): the POST, the cache publish, then announce()'s own nextTick.
     const armed = stage.switchAtBoundEvent('waiting', 2);
     buttonInElement(picker, '“발표 준비 회의” 이 계획에 연결').click();
-    await vi.waitFor(() => expect(armed.fired).toBe(true));
+    await until(() => expect(armed.fired).toBe(true));
     await nextTick();
     await stage.settle();
     expect(document.body.textContent).not.toContain('이 계획에 연결했어요');

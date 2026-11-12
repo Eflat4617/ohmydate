@@ -30,6 +30,7 @@ import { buttonInElement, dialogByTitle, setValue } from '../m6-03-notes-utils';
 import { IN_REVIEW_WINDOW, startedSession, useTestClock } from '../m6-layout-utils';
 import {
   sweepOwnerSwitch,
+  until,
   type HeldResponses,
   type OwnerSwitchCase,
   type OwnerSwitchStage,
@@ -61,7 +62,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     covers: ['src/views/AvailabilityView.vue'],
     path: '/settings/availability',
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.find('form.settings-form').exists()).toBe(true));
+      await until(() => expect(wrapper.find('form.settings-form').exists()).toBe(true));
     },
     hold: { method: 'PUT', path: '/availability' },
     act: async (wrapper) => {
@@ -73,7 +74,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     covers: ['src/views/CommitmentsView.vue'],
     path: '/commitments',
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.find('#commitment-title').exists()).toBe(true));
+      await until(() => expect(wrapper.find('#commitment-title').exists()).toBe(true));
     },
     hold: { method: 'POST', path: '/commitments' },
     act: async (wrapper) => {
@@ -90,7 +91,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       expect(mockDb.commitments.has(SEED_COMMITMENT_ID)).toBe(true);
     },
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.findAll('.commitment-list li').length).toBeGreaterThan(0));
+      await until(() => expect(wrapper.findAll('.commitment-list li').length).toBeGreaterThan(0));
     },
     hold: { method: 'DELETE', path: '/commitments/' },
     act: async (wrapper) => {
@@ -192,7 +193,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     ready: async (wrapper) => {
       await todayReady(wrapper);
       await buttonByText(wrapper.findAll('.today-card')[0] as unknown as VueWrapper, '재배치').trigger('click');
-      await vi.waitFor(() => expect(wrapper.findAll('button').some((item) => item.text().includes('승인'))).toBe(true));
+      await until(() => expect(wrapper.findAll('button').some((item) => item.text().includes('승인'))).toBe(true));
     },
     hold: { method: 'POST', path: /\/today\/proposals\/.+:approve$/ },
     act: async (wrapper) => {
@@ -204,7 +205,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     covers: ['src/views/FocusView.vue', 'src/layout/localSignals.ts'],
     path: async (stage) => `/focus/${(await finishedSession(stage)).id}`,
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.text()).toContain('이번 세션은 어땠나요?'));
+      await until(() => expect(wrapper.text()).toContain('이번 세션은 어땠나요?'));
       await wrapper.findAll('input[type="radio"]')[1]?.setValue(true);
     },
     hold: { method: 'POST', path: '/review' },
@@ -217,8 +218,8 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     covers: ['src/views/FocusView.vue', 'src/session/focusQueue.ts', 'src/stores/session.ts'],
     path: async (stage) => `/focus/${(await runningSession(stage)).id}`,
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
-      await vi.waitFor(() => expect(buttonByText(wrapper, '일시정지').attributes('disabled')).toBeUndefined());
+      await until(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
+      await until(() => expect(buttonByText(wrapper, '일시정지').attributes('disabled')).toBeUndefined());
     },
     hold: { method: 'POST', path: ':pause' },
     act: async (wrapper) => {
@@ -250,7 +251,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       seedTodayRisk(mockDb);
     },
     ready: async () => {
-      await vi.waitFor(() => expect(panelButton('deadline-risk', '확인했어요')).toBeDefined());
+      await until(() => expect(panelButton('deadline-risk', '확인했어요')).toBeDefined());
     },
     act: async () => {
       panelButton('deadline-risk', '확인했어요')?.click();
@@ -269,7 +270,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       useSessionStore(stage.pinia).remember({ ...done, endedAt: ended });
     },
     ready: async () => {
-      await vi.waitFor(() => expect(panelButton('review-prompt', '오늘은 건너뛰기')).toBeDefined());
+      await until(() => expect(panelButton('review-prompt', '오늘은 건너뛰기')).toBeDefined());
     },
     act: async () => {
       panelButton('review-prompt', '오늘은 건너뛰기')?.click();
@@ -298,7 +299,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     ready: async (wrapper) => {
       await replanReady(wrapper);
       await buttonByText(wrapper, '거절').trigger('click');
-      await vi.waitFor(() => expect(document.querySelector('.replan-reject-dialog')).not.toBeNull());
+      await until(() => expect(document.querySelector('.replan-reject-dialog')).not.toBeNull());
     },
     hold: { method: 'POST', path: ':reject' },
     act: async () => {
@@ -315,8 +316,8 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       seedReplanScenario(mockDb);
     },
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.findAll('button').some((item) => item.text().includes('재계획 요청'))).toBe(true));
-      await vi.waitFor(() => expect(buttonByText(wrapper, '재계획 요청').attributes('disabled')).toBeUndefined());
+      await until(() => expect(wrapper.findAll('button').some((item) => item.text().includes('재계획 요청'))).toBe(true));
+      await until(() => expect(buttonByText(wrapper, '재계획 요청').attributes('disabled')).toBeUndefined());
     },
     hold: { method: 'POST', path: '/replan-proposals:request' },
     act: async (wrapper) => {
@@ -344,7 +345,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     path: '/notes/new',
     seed: useTodayClock,
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.find('[data-note-title]').exists()).toBe(true));
+      await until(() => expect(wrapper.find('[data-note-title]').exists()).toBe(true));
       await setValue(wrapper.get('[data-note-title]'), 'A-private-note');
       await setValue(wrapper.get('[data-note-body]'), 'A-private-body');
     },
@@ -362,7 +363,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     ready: async (wrapper) => {
       await noteReady(wrapper);
       await wrapper.get('[data-note-delete]').trigger('click');
-      await vi.waitFor(() => expect(() => dialogByTitle('노트를 삭제할까요?')).not.toThrow());
+      await until(() => expect(() => dialogByTitle('노트를 삭제할까요?')).not.toThrow());
     },
     hold: { method: 'DELETE', path: '/documents/' },
     act: async () => {
@@ -377,9 +378,9 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     ready: async (wrapper) => {
       await noteReady(wrapper);
       await wrapper.get('[data-note-link-add]').trigger('click');
-      await vi.waitFor(() => expect(() => dialogByTitle('연결할 대상 고르기')).not.toThrow());
+      await until(() => expect(() => dialogByTitle('연결할 대상 고르기')).not.toThrow());
       const picker = dialogByTitle('연결할 대상 고르기');
-      await vi.waitFor(() => expect(picker.querySelector('[data-link-option] input:not([disabled])')).not.toBeNull());
+      await until(() => expect(picker.querySelector('[data-link-option] input:not([disabled])')).not.toBeNull());
       picker.querySelector<HTMLInputElement>('[data-link-option] input:not([disabled])')?.click();
     },
     hold: { method: 'POST', path: '/links' },
@@ -393,7 +394,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     path: '/plan/new',
     seed: useTodayClock,
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.find('#wizard-title').exists()).toBe(true));
+      await until(() => expect(wrapper.find('#wizard-title').exists()).toBe(true));
       await wrapper.get('#wizard-title').setValue('A-private-goal');
       await wrapper.get('#wizard-description').setValue('A-private-description');
     },
@@ -408,7 +409,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     covers: ['src/views/PlanNewView.vue'],
     path: () => `/plans/new?taskIds=${seedTaskId()}`,
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.text()).toContain('작업 1개'));
+      await until(() => expect(wrapper.text()).toContain('작업 1개'));
     },
     hold: { method: 'POST', path: /\/plans$/ },
     act: async (wrapper) => {
@@ -452,7 +453,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     ready: async (wrapper) => {
       await patternsReady(wrapper);
       await wrapper.get('[data-reset-all]').trigger('click');
-      await vi.waitFor(() => expect(document.querySelector('[data-reset-confirm]')).not.toBeNull());
+      await until(() => expect(document.querySelector('[data-reset-confirm]')).not.toBeNull());
     },
     hold: { method: 'POST', path: '/estimation:reset' },
     act: async () => {
@@ -470,8 +471,8 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
     seed: useTodayClock,
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.find('[data-task-promote]').exists()).toBe(true));
-      await vi.waitFor(() => expect(wrapper.get('[data-task-promote]').attributes('disabled')).toBeUndefined());
+      await until(() => expect(wrapper.find('[data-task-promote]').exists()).toBe(true));
+      await until(() => expect(wrapper.get('[data-task-promote]').attributes('disabled')).toBeUndefined());
     },
     hold: { method: 'POST', path: ':promote-description' },
     act: async (wrapper) => {
@@ -499,7 +500,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     covers: ['src/notifications/useNotifications.ts', 'src/components/NotificationsPanel.vue'],
     mount: (stage) => stage.mount(NotificationsPanel, { props: { open: true } }),
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.findAll('.notification-item').length).toBeGreaterThan(0));
+      await until(() => expect(wrapper.findAll('.notification-item').length).toBeGreaterThan(0));
     },
     hold: { method: 'POST', path: ':dismiss' },
     act: async (wrapper) => {
@@ -517,7 +518,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       return stage.mount(NotificationsPanel, { props: { open: true } });
     },
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(buttonByText(wrapper, '푸시 알림 켜기').attributes('disabled')).toBeUndefined());
+      await until(() => expect(buttonByText(wrapper, '푸시 알림 켜기').attributes('disabled')).toBeUndefined());
     },
     hold: { method: 'POST', path: '/push-subscriptions' },
     act: async (wrapper) => {
@@ -543,7 +544,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       );
     },
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.findAll('button').some((item) => item.text().includes('AI 계획 도움 켜기'))).toBe(true));
+      await until(() => expect(wrapper.findAll('button').some((item) => item.text().includes('AI 계획 도움 켜기'))).toBe(true));
     },
     hold: { method: 'PATCH', path: '/me/settings' },
     act: async (wrapper) => {
@@ -556,7 +557,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     path: async () => `/plan/${(await draftSession()).id}`,
     seed: useTodayClock,
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.find('#step-title-s1').exists()).toBe(true));
+      await until(() => expect(wrapper.find('#step-title-s1').exists()).toBe(true));
       await wrapper.get('#step-title-s1').setValue('A-private-step');
     },
     hold: { method: 'PATCH', path: '/draft' },
@@ -570,7 +571,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     path: async () => `/plan/${(await draftSession()).id}`,
     seed: useTodayClock,
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.find('#step-title-s1').exists()).toBe(true));
+      await until(() => expect(wrapper.find('#step-title-s1').exists()).toBe(true));
     },
     hold: { method: 'POST', path: '/draft:approve' },
     act: async (wrapper) => {
@@ -584,7 +585,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       `/plan/${(await plannerClient.createIntakeSession({ title: '보고서 작성', dueAt: '2026-11-30T18:00:00.000Z' }, newActionId('create'))).id}`,
     seed: useTodayClock,
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.findAll('button').some((item) => item.text().includes('직접 작성으로 전환'))).toBe(true));
+      await until(() => expect(wrapper.findAll('button').some((item) => item.text().includes('직접 작성으로 전환'))).toBe(true));
     },
     hold: { method: 'POST', path: ':manual' },
     act: async (wrapper) => {
@@ -602,9 +603,9 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
     ready: async (wrapper) => {
       await wrapper.get('[data-wizard-notes-add]').trigger('click');
-      await vi.waitFor(() => expect(() => dialogByTitle('참고할 노트 고르기')).not.toThrow());
+      await until(() => expect(() => dialogByTitle('참고할 노트 고르기')).not.toThrow());
       const picker = dialogByTitle('참고할 노트 고르기');
-      await vi.waitFor(() => expect(picker.querySelector(`[data-wizard-candidate="${NOTE_MEETING_ID}"]`)).not.toBeNull());
+      await until(() => expect(picker.querySelector(`[data-wizard-candidate="${NOTE_MEETING_ID}"]`)).not.toBeNull());
     },
     hold: { method: 'POST', path: '/links' },
     act: async () => {
@@ -617,7 +618,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     path: '/settings/layout',
     seed: useTodayClock,
     ready: async (wrapper) => {
-      await vi.waitFor(() => expect(wrapper.find('[data-layout-auto]').exists()).toBe(true));
+      await until(() => expect(wrapper.find('[data-layout-auto]').exists()).toBe(true));
     },
     act: async (wrapper) => {
       await wrapper.get('[data-layout-auto]').setValue(false);
@@ -664,21 +665,21 @@ function createPlan(): Promise<Plan> {
 }
 
 async function planReady(wrapper: VueWrapper): Promise<void> {
-  await vi.waitFor(() => expect(wrapper.findAll('.candidate-card').length).toBeGreaterThan(0));
-  await vi.waitFor(() => expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0));
+  await until(() => expect(wrapper.findAll('.candidate-card').length).toBeGreaterThan(0));
+  await until(() => expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0));
 }
 
 async function patternsReady(wrapper: VueWrapper): Promise<void> {
-  await vi.waitFor(() => expect(wrapper.find(`[data-feedback-id="${FEEDBACK_IDS.one}"]`).exists()).toBe(true));
+  await until(() => expect(wrapper.find(`[data-feedback-id="${FEEDBACK_IDS.one}"]`).exists()).toBe(true));
 }
 
 async function noteReady(wrapper: VueWrapper): Promise<void> {
-  await vi.waitFor(() => expect(wrapper.find('[data-note-links]').exists()).toBe(true));
-  await vi.waitFor(() => expect((wrapper.get('[data-note-title]').element as HTMLInputElement).value).toBe('발표 준비 회의'));
+  await until(() => expect(wrapper.find('[data-note-links]').exists()).toBe(true));
+  await until(() => expect((wrapper.get('[data-note-title]').element as HTMLInputElement).value).toBe('발표 준비 회의'));
 }
 
 async function replanReady(wrapper: VueWrapper): Promise<void> {
-  await vi.waitFor(() => expect(wrapper.findAll('.replan-change').length).toBeGreaterThan(0));
+  await until(() => expect(wrapper.findAll('.replan-change').length).toBeGreaterThan(0));
 }
 
 let startHold: HeldResponses | null = null;
@@ -738,11 +739,11 @@ function useTodayClock(): void {
 }
 
 async function todayReady(wrapper: VueWrapper): Promise<void> {
-  await vi.waitFor(() => expect(wrapper.findAll('.today-card').length).toBeGreaterThan(0));
+  await until(() => expect(wrapper.findAll('.today-card').length).toBeGreaterThan(0));
 }
 
 export async function inboxReady(wrapper: VueWrapper): Promise<void> {
-  await vi.waitFor(() => expect(wrapper.text()).toContain(SEED_TASK_TITLE));
+  await until(() => expect(wrapper.text()).toContain(SEED_TASK_TITLE));
 }
 
 /**

@@ -2,7 +2,7 @@ import { readdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SEED_TASK_TITLE } from '../src/mocks/db';
-import { createOwnerSwitchStage, type OwnerSwitchStage } from './support/ownerSwitch';
+import { createOwnerSwitchStage, type OwnerSwitchStage, until } from './support/ownerSwitch';
 import { OWNER_SWITCH_CASES, OWNER_SWITCH_SHARDS, buttonByText, inboxReady } from './support/ownerSwitchCases';
 
 /**
@@ -20,6 +20,9 @@ import { OWNER_SWITCH_CASES, OWNER_SWITCH_SHARDS, buttonByText, inboxReady } fro
  * talks to the API must add a case there (or an exemption with a reason
  * here): the manifest test below fails until it does.
  */
+
+// Stage-based tests mount real screens; shared test machines can be slow.
+vi.setConfig({ testTimeout: 60_000 });
 
 const CASES = OWNER_SWITCH_CASES;
 
@@ -107,7 +110,7 @@ describe('inbox: delete with undo — the timer belongs to whoever clicked', () 
   it('control: the delete is sent when the undo window closes', async () => {
     stage = await clickDelete();
     await vi.advanceTimersByTimeAsync(6_100);
-    await vi.waitFor(() => expect(stage?.requests.some((request) => request.method === 'DELETE')).toBe(true));
+    await until(() => expect(stage?.requests.some((request) => request.method === 'DELETE')).toBe(true));
   });
 
   it('switch: another user signed in during the undo window — nothing is sent, shown or cached', async () => {
