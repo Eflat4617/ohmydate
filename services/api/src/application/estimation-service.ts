@@ -35,8 +35,11 @@ const MAX_PROFILE_GROUPS = 200;
  * FU-64: the estimator only ever classifies the newest feedback window. Rows
  * older than this bound stop contributing to group statistics, so a template
  * whose samples have all aged out loses its learned stats and its open tasks
- * fall back to the prior/base estimate. In-window results match the unbounded
- * computation except for z-score rounding in the last bits (<= 1e-12).
+ * fall back to the kind-group correction when that group has in-window
+ * samples, else to the prior/base estimate. Histories within the bound match
+ * the unbounded computation except for z-score rounding in the last bits
+ * (<= 1e-12); beyond it, in-window z-scores and outlier flags are computed
+ * against in-window group members only and can differ (05 §6, FU-64-68R2).
  */
 export const MAX_LEARNING_FEEDBACK_ROWS = 2_000;
 const PROFILE_METHOD = `${ESTIMATOR_VERSION}: ${ESTIMATION_PRIORS_VERSION} log-normal priors + shrinkage k=${SHRINKAGE_K}, |z|>${OUTLIER_Z_THRESHOLD} outliers`;
