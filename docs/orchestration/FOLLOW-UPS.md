@@ -105,4 +105,4 @@
 | FU-95 | FU-92R LOWs | auth cookies expire 14 d after login (Max-Age set only at login) although the store slides — re-issue sid/csrf when expiry slides; login 500 when the user row vanishes between password check and session insert (FK 23503 → 401); rollback note: run db:rollback before removing 0015 files | LOW | after GU-1 |
 | FU-96 | GU-1 사용자 버그 | 비분할 단계가 H6 한도(breakAfterMin/maxDailyFocusMin)보다 길면 배치 불가 → 선행 체인 전체 0블록. 스케줄링 시 자동 분할 + 설명 코드 + 선행 막힘 사유 | HIGH | IN PROGRESS (Opus 5.5 xhigh, task_f03a495e7dd6) |
 | FU-97 | GU-1 사용자 피드백 | 가용시간 주간 그리드(월–일×30분) 편집기, off-grid 규칙 보존, WeekCalendar에 '쉼' 표시 | MEDIUM | IN PROGRESS (Opus 5.5 xhigh, task_11e0160907fd) |
-| FU-98 | GU-1 사용자 피드백 | /plans/new 작업 선택을 프로젝트별 묶음 + 모두 선택(삼상태), 위저드 '일정안 만들기'가 projectId로 미리 선택 | MEDIUM | IN PROGRESS (Opus 5.5 xhigh, task_dc978a722a22) |
+| FU-98 | GU-1 사용자 피드백 | /plans/new 작업 선택을 프로젝트별 묶음 + 모두 선택(삼상태), 위저드 '일정안 만들기'가 projectId로 미리 선택 | MEDIUM | DONE 0d0a444 (goal 단위 묶음; 승인 시 Vikunja 프로젝트 생성은 후속 후보) |
