@@ -18,7 +18,13 @@ import {
   repoRoot,
   warn,
 } from './common.mjs';
-import { collectCredentials, resolveLocale, resolveTimeZone } from './prompt.mjs';
+import {
+  collectCredentials,
+  isValidLocale,
+  isValidTimeZone,
+  resolveLocale,
+  resolveTimeZone,
+} from './prompt.mjs';
 import { initSecrets } from './secrets.mjs';
 import {
   ensureMigrations,
@@ -217,6 +223,91 @@ export async function readOptionalJson(path) {
   }
 }
 
+/** Validate explicit --time-zone/--locale/env before any side effect. */
+export function validateProvidedIdentity(values, env) {
+  const timeZone = values.get('time-zone') ?? env.OHMYDATE_LOCAL_TIME_ZONE;
+  if (timeZone !== undefined && !isValidTimeZone(timeZone)) {
+    throw new Error(`시간대가 올바른 IANA 식별자가 아닙니다: ${timeZone}`);
+  }
+  const locale = values.get('locale') ?? env.OHMYDATE_LOCAL_LOCALE;
+  if (locale !== undefined && !isValidLocale(locale)) {
+    throw new Error(`locale 형식이 올바르지 않습니다: ${locale}`);
+  }
+}
+
+/** Warn when a rotation cannot identify (and therefore revoke) the old token. */
+export function previousTokenWarning(rotated, previousTokenId) {
+  if (!rotated || previousTokenId !== null) return null;
+  return (
+    '이전 Vikunja 토큰 id 를 확인하지 못해 자동으로 폐기하지 못했습니다. ' +
+    '이전 토큰이 계속 유효할 수 있으니 Vikunja 설정의 API 토큰에서 직접 삭제하세요.'
+  );
+}
+
+/** Short non-reversible fingerprint used to tie metadata to the token file. */
+export function tokenFingerprint(token) {
+  return createHash('sha256').update(token).digest('hex').slice(0, 16);
+}
+
+/**
+ * A meta-write failure can leave an old tokenId next to a newer token file.
+ * Trust the recorded id only when the fingerprint matches the token actually
+ * in the file; otherwise the id is unknown and must not be revoked.
+ */
+export function resolvePreviousToken(token, metadataEntry) {
+  const recordedId = metadataEntry?.tokenId ?? null;
+  if (token === null) return { tokenId: recordedId, unknown: false };
+  const fingerprint = tokenFingerprint(token);
+  const recorded =
+    typeof metadataEntry?.tokenFingerprint === 'string' ? metadataEntry.tokenFingerprint : null;
+  const matches = recorded === fingerprint;
+  return { tokenId: matches ? recordedId : null, unknown: !matches, fingerprint };
+}
+
+/**
+ * Write the rotated token state. A new token is unrecorded until the token file
+ * write succeeds; revoke it only when that write did not replace the file
+ * (FU-90 finding 5).
+ */
+export async function persistTokenState(options) {
+  const {
+    tokenCreated,
+    tokenFileExisted,
+    metadataExisted,
+    tokenId,
+    writeTokenFile,
+    writeTokenMetadata,
+    deleteToken,
+  } = options;
+  let tokenFileReplaced = false;
+  try {
+    if (tokenCreated || !tokenFileExisted) {
+      try {
+        await writeTokenFile();
+        tokenFileReplaced = true;
+      } catch (error) {
+        // writeJsonAtomic can fail after its rename (chmod/dir fsync): the
+        // token is already on disk, so it must not be revoked.
+        if (error !== null && typeof error === 'object' && error.fileReplaced === true) {
+          tokenFileReplaced = true;
+        }
+        throw error;
+      }
+    }
+    if (tokenCreated || !metadataExisted) {
+      await writeTokenMetadata();
+    }
+  } catch (error) {
+    if (tokenCreated && !tokenFileReplaced && tokenId !== null) {
+      await deleteToken(tokenId).catch(() => undefined);
+    }
+    throw new Error(
+      'Vikunja 토큰 파일을 저장하지 못했습니다. 파일 권한과 디스크 공간을 확인한 뒤 다시 실행하세요.',
+      { cause: error },
+    );
+  }
+}
+
 async function main() {
   const { flags, values } = parseFlags(process.argv.slice(2));
   if (flags.has('help')) {
@@ -229,8 +320,16 @@ async function main() {
     return;
   }
   const rotateToken = flags.has('rotate-token');
+  for (const name of ['time-zone', 'locale']) {
+    if (flags.has(name)) {
+      throw new Error(`--${name} 에는 값이 필요합니다. 예: --${name} <값>`);
+    }
+  }
   const env = process.env;
   const context = createContext(env);
+
+  // Refuse a bad zone/locale before secrets, migrations or Vikunja registration.
+  validateProvidedIdentity(values, env);
 
   const secrets = await initSecrets({ context, env });
   log(`비밀 디렉터리 준비 완료: ${secrets.secretsDir}`);
@@ -257,6 +356,17 @@ async function main() {
   if (migrationOutput.length > 0) console.log(migrationOutput);
 
   const existingUser = await findUserByEmail(dbUrl, credentials.email);
+
+  // C2: new users get the machine's IANA zone (Korean prompt allows a change)
+  // and ko-KR. Existing users are never modified by a re-run. Validate the
+  // interactive answer before Vikunja registration creates any side effect.
+  let timeZone;
+  let locale;
+  if (existingUser === null) {
+    timeZone = await resolveTimeZone(env, values);
+    locale = resolveLocale(env, values);
+  }
+
   const vikunja = await ensureVikunjaUser(
     context.vikunjaUrl,
     credentials.email,
@@ -265,15 +375,6 @@ async function main() {
   const inboxId = await ensureInbox(context.vikunjaUrl, vikunja.jwt);
   if (vikunja.userId === null) {
     throw new Error('Vikunja 사용자 id 를 확인하지 못했습니다.');
-  }
-
-  // C2: new users get the machine's IANA zone (Korean prompt allows a change)
-  // and ko-KR. Existing users are never modified by a re-run.
-  let timeZone;
-  let locale;
-  if (existingUser === null) {
-    timeZone = await resolveTimeZone(env, values);
-    locale = resolveLocale(env, values);
   }
 
   const ownerId =
@@ -290,7 +391,8 @@ async function main() {
       : {};
 
   const previousToken = existingTokens[ownerId] ?? null;
-  const previousTokenId = metadata[ownerId]?.tokenId ?? null;
+  const previous = resolvePreviousToken(previousToken, metadata[ownerId]);
+  const previousTokenId = previous.tokenId;
   let expiresAt = metadata[ownerId]?.expiresAt ?? null;
   const retainedTokenAlive =
     previousToken === null ? false : await tokenIsAlive(context.vikunjaUrl, previousToken);
@@ -315,27 +417,21 @@ async function main() {
       expiresAt,
       vikunjaUserId: vikunja.userId,
       tokenId,
+      tokenFingerprint: tokenFingerprint(token),
       updatedAt: new Date().toISOString(),
     },
   };
-  try {
-    if (tokenCreated || tokenFile.text === null) {
-      await writeTokenFile(context.tokenFile, mergedTokens);
-    }
-    if (tokenCreated || metadata[ownerId] === undefined) {
-      await writeTokenMetadata(context.tokenMetaFile, mergedMetadata);
-    }
-  } catch (error) {
-    // The new token is not recorded anywhere yet; revoke it instead of
-    // leaving an unrecorded 365-day token behind.
-    if (tokenId !== null) {
-      await deleteVikunjaToken(context.vikunjaUrl, vikunja.jwt, tokenId).catch(() => undefined);
-    }
-    throw new Error(
-      'Vikunja 토큰 파일을 저장하지 못했습니다. 파일 권한과 디스크 공간을 확인한 뒤 다시 실행하세요.',
-      { cause: error },
-    );
-  }
+  await persistTokenState({
+    tokenCreated,
+    tokenFileExisted: tokenFile.text !== null,
+    // A stale meta (old tokenId, newer token file) is rewritten even without a
+    // rotation, so the next run can identify the token that is really in use.
+    metadataExisted: metadata[ownerId] !== undefined && !previous.unknown,
+    tokenId,
+    writeTokenFile: () => writeTokenFile(context.tokenFile, mergedTokens),
+    writeTokenMetadata: () => writeTokenMetadata(context.tokenMetaFile, mergedMetadata),
+    deleteToken: (id) => deleteVikunjaToken(context.vikunjaUrl, vikunja.jwt, id),
+  });
 
   if (rotated && previousTokenId !== null && previousTokenId !== tokenId) {
     const removed = await deleteVikunjaToken(
@@ -345,6 +441,8 @@ async function main() {
     ).catch(() => false);
     if (!removed) warn('이전 Vikunja 토큰을 삭제하지 못했습니다 (이미 만료되었거나 직접 삭제 필요).');
   }
+  const rotationWarning = previousTokenWarning(rotated || previous.unknown, previousTokenId);
+  if (rotationWarning !== null) warn(rotationWarning);
 
   log('설정 완료');
   log(` - 이메일: ${credentials.email}`);
@@ -359,9 +457,6 @@ async function main() {
   log('다음 명령: corepack pnpm local:start');
   if (tokenCreated) {
     log('로컬 앱이 이미 실행 중이라면 local:stop 후 local:start 로 재시작하세요.');
-  }
-  if (secrets.created.length > 0) {
-    warn('스택이 아직 없다면 coordinator가 `corepack pnpm local:secrets` 1회 후 `local:stack up` 을 실행해야 합니다.');
   }
 }
 

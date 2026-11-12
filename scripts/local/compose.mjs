@@ -11,7 +11,6 @@ import {
   fail,
   isEntryPoint,
   log,
-  parseFlags,
   repoRoot,
 } from './common.mjs';
 
@@ -26,8 +25,66 @@ export function composeEnvFile() {
   return join(repoRoot, 'deploy/local/local.env');
 }
 
-function stripVolumeFlags(args) {
-  return args.filter((arg) => arg !== '-v' && arg !== '--volumes');
+/**
+ * `--dry-run` and `--help` are booleans: unlike common.parseFlags they never
+ * consume the following token as a value. Everything after the first `--` is a
+ * verbatim docker compose argument, so `local:stack logs -- vikunja` forwards
+ * the service name (FU-90 finding 1).
+ */
+export function parseComposeArgv(argv) {
+  const separator = argv.indexOf('--');
+  const head = separator < 0 ? argv : argv.slice(0, separator);
+  const passthrough = separator < 0 ? [] : argv.slice(separator + 1);
+  const flags = new Set();
+  const positionals = [];
+  for (const arg of head) {
+    if (arg === '--dry-run') flags.add('dry-run');
+    else if (arg === '--help') flags.add('help');
+    else if (arg.startsWith('--dry-run=') || arg.startsWith('--help=')) {
+      throw new Error(
+        `지원하지 않는 인자 형식입니다: ${arg}. --dry-run / --help 는 값 없이 사용하세요.`,
+      );
+    } else positionals.push(arg);
+  }
+  return { flags, positionals, passthrough };
+}
+
+const DOWN_TIMEOUT_FLAGS = new Set(['-t', '--timeout']);
+
+/** Allow-list `down` arguments; every spelling of -v/--volumes is refused. */
+export function validateDownArgs(args) {
+  const result = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === undefined) continue;
+    if (arg === '--remove-orphans') {
+      result.push(arg);
+      continue;
+    }
+    if (DOWN_TIMEOUT_FLAGS.has(arg)) {
+      const value = args[index + 1];
+      if (value === undefined || !/^\d+$/u.test(value)) {
+        throw new Error(`down 의 ${arg} 에는 초 단위 숫자가 필요합니다.`);
+      }
+      result.push(arg, value);
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith('--timeout=')) {
+      const value = arg.slice('--timeout='.length);
+      if (!/^\d+$/u.test(value)) {
+        throw new Error('down 의 --timeout 에는 초 단위 숫자가 필요합니다.');
+      }
+      result.push(arg);
+      continue;
+    }
+    throw new Error(
+      `down 에서는 지원하지 않는 인자입니다: ${arg}. ` +
+        '허용: --remove-orphans, -t/--timeout <초>. ' +
+        '-v/--volumes 는 볼륨을 지우므로 허용하지 않습니다.',
+    );
+  }
+  return result;
 }
 
 /** Build the sudo docker compose argv. Never includes -v on down. */
@@ -50,12 +107,18 @@ export function composeInvocation(action, extra = []) {
     return { command: 'sudo', args: [...command, 'up', ...args] };
   }
   if (action === 'down') {
-    return { command: 'sudo', args: [...command, 'down', ...stripVolumeFlags(extra)] };
+    return { command: 'sudo', args: [...command, 'down', ...validateDownArgs(extra)] };
   }
   if (action === 'logs') {
     return {
       command: 'sudo',
-      args: [...command, 'logs', '--tail', '200', ...extra.filter((arg) => arg !== '-f')],
+      args: [
+        ...command,
+        'logs',
+        '--tail',
+        '200',
+        ...extra.filter((arg) => arg !== '-f' && arg !== '--follow'),
+      ],
     };
   }
   return { command: 'sudo', args: [...command, 'ps', ...extra] };
@@ -85,20 +148,22 @@ async function recordStackState(context, invocation) {
 }
 
 async function main() {
-  const { flags, positionals } = parseFlags(process.argv.slice(2));
+  const { flags, positionals, passthrough } = parseComposeArgv(process.argv.slice(2));
   if (flags.has('help') || positionals.length === 0) {
     console.log(
       'usage: node scripts/local/compose.mjs <up|down|ps|logs> [--dry-run] [-- extra args]\n' +
         '  up    start the stack detached (sudo docker compose ... up -d)\n' +
-        '  down  stop containers; NEVER removes volumes (-v is ignored)\n' +
+        '  down  stop containers; NEVER removes volumes (-v is refused)\n' +
         '  ps    show container status\n' +
         '  logs  last 200 lines (no follow)\n' +
-        '  --dry-run prints the exact command without running docker',
+        '  --dry-run prints the exact command without running docker\n' +
+        '  -- extra args are passed to docker compose verbatim',
     );
     return;
   }
   const action = positionals[0];
-  const invocation = composeInvocation(action, positionals.slice(1));
+  const extras = [...positionals.slice(1), ...passthrough];
+  const invocation = composeInvocation(action, extras);
   const printed = formatCommand(invocation);
   log(`실행: ${printed}`);
   if (flags.has('dry-run')) {

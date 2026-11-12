@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { realpathSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { hash } from '@node-rs/argon2';
 import {
   createUuidV7Generator,
@@ -128,9 +130,34 @@ async function main(): Promise<void> {
   }
 }
 
-try {
-  await main();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
+function realpathOrNull(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
+/** Importing this module in a test must never read stdin or open the database. */
+export function isCreateUserEntrypoint(
+  entry: string | undefined = process.argv[1],
+  moduleUrl: string = import.meta.url,
+): boolean {
+  if (entry === undefined) return false;
+  const modulePath = realpathOrNull(fileURLToPath(moduleUrl));
+  if (modulePath === null) return false;
+  for (const candidate of [entry, `${entry}.js`]) {
+    const resolved = realpathOrNull(candidate);
+    if (resolved !== null && resolved === modulePath) return true;
+  }
+  return false;
+}
+
+if (isCreateUserEntrypoint()) {
+  try {
+    await main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
 }
