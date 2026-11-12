@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 15:22 | 통합 CI 06e686c(FU-85+FU-64+68+GU-1-PKG) **exit 0 첫 실행**(load ~16, 전원 '균형'): root 2212 passed/30 skipped, web 521+164, boundaries 559/0, build-smoke OK → e8134a8·1478e5a의 보류 판정 해소. 전체 E2E 백그라운드 | scratchpad int-ci-06e686c.log | orchestrator |
 | 2026-11-12 15:16 | **GU-1-PKG merged 06e686c** (GU-1-PKGR2 APPROVE, Fable 2라운드: 1라운드 HIGH/MEDIUM 전부 재현으로 수정 확인). 진행 중이던 통합 CI는 병합으로 무효 → 중단 후 06e686c에서 재실행. MEDIUM(local:stack --dry-run 인자 파싱) + LOW → **FU-90** DeepSeek ctx_c617dd9c7f7b (GU-1 전). **GU-1-GUIDE** Opus 5.5 xhigh ctx_254f19cff149 (docs/user/GU-1-사용안내.md) | reviews/GU-1-PKGR2.md, packets/FU-90.md, packets/GU-1-GUIDE.md | orchestrator |
 | 2026-11-12 15:13 | 사용자 결정: 배터리 무시하고 평소대로 진행('무시하고 그냥 해 중간에 interrupt 하는 일이 있어도'). 중단 시 재개 절차로 복구. 보류했던 통합 CI 재실행, 전체 suite 동시 2개 이하 규칙만 유지 | 사용자 메시지 | user |
 | 2026-11-12 15:12 | FU-86R **REQUEST_CHANGES** (Fable; Required MEDIUM: 'saving' 안내가 레이아웃을 35.6 px(390 px에서 55.2 px) 밀어 두 번째 클릭이 옆 행 토글을 누름 — 실제 브라우저 재현). FU-86F 수정 1라운드: Opus 5.5 xhigh ctx_b9b698aedd78 (LOW 2건 포함, 브라우저 bounding-box 회귀 검사 요구) | reviews/FU-86R.md | orchestrator |
