@@ -226,11 +226,27 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
     await expect(pageB.getByRole('heading', { name: '인박스' })).toBeVisible();
     await expect(pageB.getByText(aOnlyTitle, { exact: true })).toBeVisible();
 
+    // Tab 1's own GET /me (B) and the first GET /tasks it sends after that /me,
+    // so A's title is checked against B's rendered list, not a list still loading.
+    let sawAutomaticMe = false;
     const autoMe = pageA.waitForResponse(
+      (response) => {
+        const matches =
+          response.request().method() === 'GET' &&
+          new URL(response.url()).pathname.endsWith('/api/v1/me') &&
+          response.status() === 200;
+        if (matches) sawAutomaticMe = true;
+        return matches;
+      },
+      { timeout: 20_000 },
+    );
+    const tabOneTasksAfterReset = pageA.waitForResponse(
       (response) =>
+        sawAutomaticMe &&
         response.request().method() === 'GET' &&
-        new URL(response.url()).pathname.endsWith('/api/v1/me') &&
+        new URL(response.url()).pathname.endsWith('/api/v1/tasks') &&
         response.status() === 200,
+      { timeout: 20_000 },
     );
     await login(pageB, state, accountB);
     const automaticMe = (await (await autoMe).json()) as MeDto;
@@ -252,6 +268,8 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
       await pageA.evaluate((ownerId) => localStorage.getItem(`ohmydate.focus.sessions:${ownerId}`), ownerB.id),
     ).toBeNull();
     expect(await pageA.evaluate((key) => localStorage.getItem(key), sessionsKeyA)).not.toBeNull();
+    await tabOneTasksAfterReset;
+    await expect(pageA.locator('.task-list')).toBeVisible({ timeout: 20_000 });
     await expect(pageA.getByText(aOnlyTitle, { exact: true })).toHaveCount(0);
 
     const tabOneMe = await pageA.request.get(`${state.apiUrl}/api/v1/me`);
@@ -275,6 +293,7 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
         response.request().method() === 'GET' &&
         new URL(response.url()).pathname.endsWith('/api/v1/me') &&
         response.status() === 401,
+      { timeout: 20_000 },
     );
     await pageB.bringToFront();
     await pageB.getByRole('button', { name: '로그아웃' }).click();

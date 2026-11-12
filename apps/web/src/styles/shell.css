@@ -39,7 +39,9 @@
   outline: none;
 }
 
-.offline-banner {
+/* Shell-level notices (offline, failed identity check) share one measure so they line up. */
+.offline-banner,
+.identity-revalidation-banner {
   width: 100%;
   max-width: var(--content-wide);
   margin-inline: auto;

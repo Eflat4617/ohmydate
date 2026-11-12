@@ -136,7 +136,12 @@ export function bindRequestOwnerSignal(source: (() => AbortSignal) | null): void
   requestOwnerSignal = source;
 }
 
-function anySignal(signals: readonly AbortSignal[]): AbortSignal {
+/**
+ * One signal that aborts when any of `signals` does, with the first reason.
+ * Shared by the owner-abort middleware and callers that add their own bound
+ * (the identity revalidation timeout, FU-56/FU-85).
+ */
+export function anySignal(signals: readonly AbortSignal[]): AbortSignal {
   if (typeof AbortSignal.any === 'function') return AbortSignal.any([...signals]);
   const controller = new AbortController();
   for (const signal of signals) {
