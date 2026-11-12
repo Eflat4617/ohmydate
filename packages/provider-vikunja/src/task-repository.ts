@@ -133,6 +133,35 @@ function contentFingerprint(
  */
 const SELF_TOUCH_GRACE_MS = 10_000;
 
+/**
+ * FU-81: upper bound on dependents re-read by one delete follow-up (one
+ * `softDelete`, or one poll). Dependents beyond it still name the deleted
+ * task in their fingerprint, so the next poll picks them up.
+ */
+export const DELETED_DEPENDENT_RESCAN_LIMIT = 50;
+
+/**
+ * External ids of the dependency relations a mapping fingerprint recorded.
+ * This is the adapter's reverse edge set (FU-81): the relations the mapping's
+ * current version was reconciled against. A dependent whose fingerprint still
+ * names a deleted task has not yet been versioned for losing that dependency.
+ */
+function recordedRelations(fingerprint: string | undefined): readonly string[] {
+  if (fingerprint === undefined) return [];
+  try {
+    const parsed = JSON.parse(fingerprint) as { readonly relations?: unknown };
+    return Array.isArray(parsed.relations)
+      ? parsed.relations.filter((id): id is string => typeof id === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function namesAnyOf(mapping: ExternalMapping, externalIds: ReadonlySet<string>): boolean {
+  return recordedRelations(mapping.contentFingerprint).some((id) => externalIds.has(id));
+}
+
 function latestInstant(...values: readonly (Instant | undefined)[]): Instant | undefined {
   let latest: Instant | undefined;
   for (const value of values) {
@@ -274,6 +303,9 @@ function normalizeLimit(limit: number | undefined): number {
  *    seen minus a one-second overlap), never from journal entry times, so a
  *    skewed planner clock cannot step over an external edit. The journal
  *    sequence removes the deliberate one-second overlap (FU-14/FU-16).
+ *    A delete changes the dependents' relations without touching them, so
+ *    every trashed task also re-reads the dependents that still name it
+ *    (FU-81, `#reconcileDeletedDependents`).
  */
 export class VikunjaTaskRepository implements TaskRepository {
   readonly capabilities: RepositoryCapabilities = CAPABILITIES;
@@ -977,13 +1009,19 @@ export class VikunjaTaskRepository implements TaskRepository {
   }
 
   /**
-   * Soft-deletes the task upstream. Vikunja drops the `blocked` relation when a
-   * task is deleted, so every dependent task changes on the next poll: the
-   * adapter sees the relation ids differ from the stored content fingerprint
-   * and reports the dependent with a new version and an empty `dependsOn`.
+   * Soft-deletes the task upstream. Vikunja drops the dependents' `blocked`
+   * relation in the same request but does not touch their `updated` or ETag
+   * (measured live, FU-81), so the incremental `updated >=` scan would never
+   * see them. After committing the tombstone the adapter therefore re-reads
+   * the dependents its reverse edges name (`#reconcileDeletedDependents`) and
+   * commits each one once with a new version and the dependency dropped.
    * A client still holding the dependent's old version therefore gets a
    * `VersionConflictError` on its next write; this is intentional,
    * provider-faithful behavior (FU-14R LOW).
+   *
+   * That follow-up is best-effort: the delete is already committed and
+   * reported, and a dependent left unreconciled still names the deleted task,
+   * which stays in Vikunja's trash, so the next poll retries it.
    */
   async softDelete(ownerId: Id, id: Id, expectedVersion: Version): Promise<Version> {
     await this.#ensureSnapshot(ownerId);
@@ -1029,6 +1067,15 @@ export class VikunjaTaskRepository implements TaskRepository {
     );
     if (committed.fresh) {
       await this.#appendJournal(ownerId, committed.mapping, now, now);
+    }
+    try {
+      await this.#reconcileDeletedDependents(
+        ownerId,
+        client,
+        new Set([mapping.externalId]),
+      );
+    } catch {
+      // Best-effort (see above): the next poll retries the dependents.
     }
     return committed.mapping.localVersion;
   }
@@ -1622,19 +1669,19 @@ export class VikunjaTaskRepository implements TaskRepository {
     }
 
     const deleted = await client.listAllDeletedTasks();
+    // FU-81: every trashed task of this owner, tombstoned now or earlier. A
+    // dependent that still names one of them was not reconciled yet (first
+    // sighting, or an earlier follow-up failed) and is re-read below.
+    const trashed = new Set<string>();
     for (const candidate of deleted) {
       const mapping = await this.#mappings.getByExternal(
         'vikunja',
         'task',
         String(candidate.id),
       );
-      if (
-        mapping === null ||
-        mapping.ownerId !== ownerId ||
-        mapping.deletedAt !== undefined
-      ) {
-        continue;
-      }
+      if (mapping === null || mapping.ownerId !== ownerId) continue;
+      trashed.add(mapping.externalId);
+      if (mapping.deletedAt !== undefined) continue;
       const deletedAt = normalizeRemoteInstant(candidate.deleted_at) ?? this.#clock.now();
       const now = this.#clock.now();
       const updated: ExternalMapping = {
@@ -1657,9 +1704,71 @@ export class VikunjaTaskRepository implements TaskRepository {
       }
       await this.#appendJournal(ownerId, updated, deletedAt, deletedAt);
     }
+    await this.#reconcileDeletedDependents(ownerId, client, trashed);
 
     if (!observedNewer) return fromSeconds;
     return Math.max(0, maxUpdatedSeconds - REMOTE_OVERLAP_SECONDS);
+  }
+
+  /**
+   * FU-81: Vikunja drops a deleted task's incoming `blocked` relations without
+   * touching the dependents' `updated` or ETag, so neither the incremental
+   * `updated >=` scan nor an ETag comparison would ever surface them. The
+   * reverse edges are the relations each mapping fingerprint recorded:
+   * a live task mapping whose fingerprint names one of `deletedExternalIds` is
+   * re-read and reconciled through `#commitReconciled`. The missing relation
+   * is a content change, so it bumps the version and journals exactly once.
+   * The FU-73 watermark is kept as-is.
+   *
+   * - Bounded: one owner-scoped `listByOwner`, then at most
+   *   `DELETED_DEPENDENT_RESCAN_LIMIT` provider reads, only for dependents.
+   *   Unrelated tasks are never read.
+   * - Idempotent: a reconciled dependent no longer names the deleted task, so
+   *   repeated polls (or a concurrent poll and `softDelete`) skip it. A
+   *   concurrent commit wins the `localVersion` compare-and-set and the loser
+   *   adopts it without journaling.
+   * - Durable: a dependent left unreconciled after a failure still names the
+   *   deleted task, which stays in `/tasks/deleted`, so the next poll retries.
+   *   If the trash is emptied first, the next null-cursor scan (the periodic
+   *   reconciler) re-reads every mapped task and reconciles it there.
+   */
+  async #reconcileDeletedDependents(
+    ownerId: Id,
+    client: VikunjaClient,
+    deletedExternalIds: ReadonlySet<string>,
+  ): Promise<void> {
+    if (deletedExternalIds.size === 0) return;
+    let budget = DELETED_DEPENDENT_RESCAN_LIMIT;
+    for (const candidate of await this.#mappings.listByOwner(ownerId)) {
+      if (budget === 0) return;
+      if (
+        candidate.entityType !== 'task' ||
+        candidate.deletedAt !== undefined ||
+        !namesAnyOf(candidate, deletedExternalIds)
+      ) {
+        continue;
+      }
+      // The listing is a snapshot; a concurrent writer may have reconciled or
+      // deleted this dependent since.
+      const mapping = await this.#mappings.get('task', candidate.entityId);
+      if (
+        mapping === null ||
+        mapping.ownerId !== ownerId ||
+        mapping.deletedAt !== undefined ||
+        !namesAnyOf(mapping, deletedExternalIds)
+      ) {
+        continue;
+      }
+      budget -= 1;
+      let current: { readonly data: VikunjaTask; readonly etag: string | null };
+      try {
+        current = await client.getTask(mapping.externalId);
+      } catch (error) {
+        if (error instanceof NotFoundError) continue;
+        throw error;
+      }
+      await this.#commitReconciled(ownerId, mapping, current.data, current.etag);
+    }
   }
 
   /**

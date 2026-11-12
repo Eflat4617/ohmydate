@@ -669,4 +669,108 @@ if (baseUrl === undefined || baseUrl.length === 0) {
     });
   });
 
+  describe('Vikunja deleted dependency (live, FU-81)', () => {
+    test('own and remote deletes surface each dependent once with the dependency dropped', async () => {
+      const [user] = await users();
+      const clock = new FakeClock(epochMsToInstant(Date.UTC(2026, 0, 1)));
+      const ids = createSeededIdGenerator(20261181, clock);
+      const ownerId = ids.next();
+      const projectId = ids.next();
+      const mappings = new InMemoryMappingStore();
+      const remoteProject = await user.client.createProject('FU-81 deleted dependency');
+      const remoteTaskIds: string[] = [];
+      const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      try {
+        await mappings.put({
+          provider: 'vikunja',
+          entityType: 'project',
+          entityId: projectId,
+          externalId: String(remoteProject.id),
+          ownerId,
+          localVersion: 1 as Version,
+          createdAt: clock.now(),
+          updatedAt: clock.now(),
+        });
+        const repo = new VikunjaTaskRepository({
+          clients: new Map<Id, VikunjaClient>([[ownerId, user.client]]),
+          mappings,
+          plannerFields: new InMemoryPlannerFieldStore(),
+          clock,
+          ids,
+        });
+        const create = async (title: string, dependsOn: readonly Id[] = []) => {
+          const task = await repo.create(
+            ownerId,
+            { projectId, title, dependsOn: [...dependsOn] },
+            `fu81-${title}`,
+          );
+          remoteTaskIds.push(task.external?.[0]?.externalId as string);
+          return task;
+        };
+        const versions = async (taskId: Id): Promise<Version[]> =>
+          (await repo.listChangedSince(ownerId, null)).changes
+            .filter((change) => change.id === taskId)
+            .map((change) => change.version);
+        const idsOf = (changes: readonly { readonly id: Id }[]) =>
+          changes.map((change) => change.id);
+
+        const ownDependency = await create('Own dependency');
+        const ownDependent = await create('Own dependent', [ownDependency.id]);
+        const remoteDependency = await create('Remote dependency');
+        const remoteDependent = await create('Remote dependent', [remoteDependency.id]);
+        // Let the FU-73 relation touches land, then move the remote watermark
+        // past the dependents: Vikunja's delete does not touch them, so only
+        // the adapter's reverse edges can surface their dependency change.
+        await pause(2_100);
+        const unrelated = await create('Unrelated');
+        const baseline = await repo.listChangedSince(ownerId, null);
+
+        // Own delete through the adapter.
+        await repo.softDelete(ownerId, ownDependency.id, ownDependency.version);
+        const ownLoaded = await repo.get(ownerId, ownDependent.id);
+        expect(ownLoaded?.dependsOn).toEqual([]);
+        expect(ownLoaded?.version).toBe(2);
+        const afterOwn = await repo.listChangedSince(ownerId, baseline.cursor);
+        expect(idsOf(afterOwn.changes)).toEqual([ownDependency.id, ownDependent.id]);
+        expect(afterOwn.changes[0]?.deletedAt).toBeDefined();
+        expect(afterOwn.changes[1]).toEqual({ id: ownDependent.id, version: 2 });
+
+        // Remote delete by another Vikunja client.
+        await user.client.deleteTask(remoteDependency.external?.[0]?.externalId as string);
+        const afterRemote = await repo.listChangedSince(ownerId, afterOwn.cursor);
+        expect(idsOf(afterRemote.changes)).toEqual([remoteDependency.id, remoteDependent.id]);
+        expect(afterRemote.changes[0]?.deletedAt).toBeDefined();
+        expect(afterRemote.changes[1]).toEqual({ id: remoteDependent.id, version: 2 });
+        const remoteLoaded = await repo.get(ownerId, remoteDependent.id);
+        expect(remoteLoaded?.dependsOn).toEqual([]);
+        expect(remoteLoaded?.version).toBe(2);
+
+        // Repeated polls are idempotent and never bump an unrelated task.
+        const drained = await repo.listChangedSince(ownerId, afterRemote.cursor);
+        expect(drained.changes).toEqual([]);
+        expect(await versions(ownDependent.id)).toEqual([1, 2]);
+        expect(await versions(remoteDependent.id)).toEqual([1, 2]);
+        expect(await versions(unrelated.id)).toEqual([1]);
+        await expect(
+          repo.update(ownerId, remoteDependent.id, { title: 'stale' }, 1 as Version),
+        ).rejects.toBeInstanceOf(VersionConflictError);
+        const written = await repo.update(
+          ownerId,
+          remoteDependent.id,
+          { title: 'Remote dependent 2' },
+          2 as Version,
+        );
+        expect(written.version).toBe(3);
+      } finally {
+        for (const externalId of remoteTaskIds) {
+          await user.client.deleteTask(externalId).catch(() => undefined);
+          await user.client.permanentDeleteTask(externalId).catch(() => undefined);
+        }
+        await user.client.deleteProject(String(remoteProject.id)).catch(() => undefined);
+        await user.client
+          .permanentDeleteProject(String(remoteProject.id))
+          .catch(() => undefined);
+      }
+    }, 30_000);
+  });
 }
