@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 13:17 | 통합 전체 E2E 2bd9e4d(FU-71 포함) **exit 0, 31 passed (7.1m)** — E2E-5R UI 잠금 경로 포함 | scratchpad int-e2e-2bd9e4d.log | orchestrator |
 | 2026-11-12 13:13 | FU-85 done 347d86f (Opus; ci·e2e 31/31 첫 실행 통과, mutation 5종으로 새 테스트 효과 확인). FU-85R 시작: Fable 5.2 xhigh ctx_3cc490a88b3b. FU-85 워커 release. **FU-86 시작**: Opus 5.5 xhigh ctx_0797b6236873 (worktree fu-86-block-lock-ux, base 2bd9e4d 이후) | packets/FU-85R.md, packets/FU-86.md | orchestrator |
 | 2026-11-12 13:13 | 통합 CI 2bd9e4d(FU-71 포함) **exit 0** 1회 통과: root 2152 passed/29 skipped, web 511+164, boundaries 530/0, build-smoke OK. 전체 E2E 백그라운드. GU-1-PKG 전체 ci 허가 | scratchpad int-ci-2bd9e4d.log | orchestrator |
 | 2026-11-12 13:05 | **FU-71 merged 2bd9e4d** (FU-71R APPROVE, Fable xhigh; 리뷰어 race probe: lock vs 재계획 승인 24회 교차, 5xx·deadlock 0, 잠긴 블록 이동 0). LOW 4건 → FU-86(GU-1 전, Opus). 통합 CI 백그라운드 실행(FU-85 전체 suite와 합쳐 2개) | reviews/FU-71R.md | orchestrator |
