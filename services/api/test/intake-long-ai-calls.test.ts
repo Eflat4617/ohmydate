@@ -252,7 +252,8 @@ async function decompositionSpend(ctx: TestContext, ownerId: Id) {
     .selectFrom('llm_spend')
     .select(['state', 'settle_reason', 'reserved_usd', 'actual_usd'])
     .where('owner_id', '=', ownerId)
-    .where('purpose', '=', 'decomposition@v1')
+    // FU-89: the ledger purpose is the prompt key the service sends.
+    .where('purpose', '=', 'decomposition@v3')
     .execute();
 }
 

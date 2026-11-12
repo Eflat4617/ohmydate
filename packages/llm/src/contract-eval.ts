@@ -11,6 +11,11 @@
  * at most the single repair); `invalid` (exit 1) when any answered call stayed
  * schema-invalid; otherwise `inconclusive` (exit 3) for operational errors or a
  * budget stop (the remaining calls are `not_run`).
+ *
+ * FU-89: for inputs that carry `outputLanguage` (type_detection@v2,
+ * decomposition@v3/v4) each valid answer is also judged for its language
+ * (`languageChecked` / `languageMismatched`, counts only). That check is a
+ * script heuristic for Korean and English and never changes the verdict.
  */
 
 import type { BudgetGuard } from './budget.js';
@@ -67,49 +72,71 @@ function taskDocuments(index: number): string[] {
   ];
 }
 
-/**
- * Benign synthetic input per registered prompt key, shaped like the production
- * inputs (services/api intake builders) where a production caller exists.
- */
-export const CONTRACT_SMOKE_INPUTS: Readonly<Record<string, (index: number) => unknown>> = {
-  'type_detection@v1': (index) => ({
+function detectionInput(index: number): Record<string, unknown> {
+  return {
     configVersion: 'intake-agent-config@1',
     knownFields: ['deliverable', 'title'],
     task: { estimatedScope: 'medium' },
     candidates: [],
     documents: taskDocuments(index),
-  }),
-  'decomposition@v1': (index) => ({
+  };
+}
+
+function decompositionInput(index: number): Record<string, unknown> {
+  return {
     configVersion: 'intake-agent-config@1',
     task: { estimatedScope: 'medium', dueAt: '2026-12-01T00:00:00.000Z', currentProgress: 0 },
     template: null,
     documents: taskDocuments(index),
-  }),
-  'decomposition@v2': (index) => {
-    const entry = task(index);
-    const context = buildNoteContext({
-      ownerId: OWNER,
-      query: `${entry.title} ${entry.deliverable}`,
-      documents: [
-        {
-          id: NOTE_ID,
-          ownerId: OWNER,
-          title: 'Background',
-          bodyMd: entry.note,
-          llmAllowed: true,
-          version: 1,
-          updatedAt: '2026-11-12T00:00:00.000Z',
-        },
-      ],
-    });
-    return {
-      configVersion: 'intake-agent-config@1',
-      task: { estimatedScope: 'medium', dueAt: '2026-12-01T00:00:00.000Z', currentProgress: 0 },
-      template: null,
-      documents: taskDocuments(index),
-      notes: context.blocks,
-    };
-  },
+  };
+}
+
+function groundedDecompositionInput(index: number): Record<string, unknown> {
+  const entry = task(index);
+  const context = buildNoteContext({
+    ownerId: OWNER,
+    query: `${entry.title} ${entry.deliverable}`,
+    documents: [
+      {
+        id: NOTE_ID,
+        ownerId: OWNER,
+        title: 'Background',
+        bodyMd: entry.note,
+        llmAllowed: true,
+        version: 1,
+        updatedAt: '2026-11-12T00:00:00.000Z',
+      },
+    ],
+  });
+  return { ...decompositionInput(index), notes: context.blocks };
+}
+
+/**
+ * FU-89: requested output language per call. The tasks alternate English and
+ * Korean, so the first runs cover an English task answered in Korean, a Korean
+ * task in Korean and an English task in English.
+ */
+export function smokeOutputLanguage(index: number): 'ko-KR' | 'en' {
+  return index % 3 === 2 ? 'en' : 'ko-KR';
+}
+
+/** `outputLanguage` right after `configVersion`, where the API intake builders put it. */
+function withOutputLanguage(input: Record<string, unknown>, index: number): Record<string, unknown> {
+  return { configVersion: input['configVersion'], outputLanguage: smokeOutputLanguage(index), ...input };
+}
+
+/**
+ * Benign synthetic input per registered prompt key, shaped like the production
+ * inputs (services/api intake builders) where a production caller exists. The
+ * FU-89 versions carry `outputLanguage`; the older versions keep their inputs.
+ */
+export const CONTRACT_SMOKE_INPUTS: Readonly<Record<string, (index: number) => unknown>> = {
+  'type_detection@v1': (index) => detectionInput(index),
+  'type_detection@v2': (index) => withOutputLanguage(detectionInput(index), index),
+  'decomposition@v1': (index) => decompositionInput(index),
+  'decomposition@v2': (index) => groundedDecompositionInput(index),
+  'decomposition@v3': (index) => withOutputLanguage(decompositionInput(index), index),
+  'decomposition@v4': (index) => withOutputLanguage(groundedDecompositionInput(index), index),
   'questions@v1': (index) => ({
     configVersion: 'intake-agent-config@1',
     knownFields: ['title', 'deliverable'],
@@ -133,12 +160,53 @@ export const CONTRACT_SMOKE_INPUTS: Readonly<Record<string, (index: number) => u
   }),
 };
 
+/** User-facing strings of a schema-valid output (FU-89 language check). */
+export function userFacingStrings(schemaId: string, output: unknown): string[] {
+  const value = (output ?? {}) as Record<string, unknown>;
+  const list = (key: string): unknown[] => (Array.isArray(value[key]) ? (value[key] as unknown[]) : []);
+  const strings: unknown[] = [];
+  if (schemaId === 'llm.type_detection.v1') strings.push(...list('reasons'));
+  if (schemaId === 'llm.decomposition.v1' || schemaId === 'llm.decomposition.v2') {
+    for (const step of list('steps') as Record<string, unknown>[]) {
+      strings.push(step['title'], step['deliverable'], step['doneCriteria']);
+    }
+    strings.push(...list('assumptions'), ...list('questionsRemaining'));
+    for (const item of list('evidence') as Record<string, unknown>[]) strings.push(item['statement']);
+  }
+  return strings.filter((entry): entry is string => typeof entry === 'string');
+}
+
+/**
+ * FU-89, informational only (never part of the verdict): does the output read
+ * as `outputLanguage`? Judged on the whole output by dominant script, so a
+ * quoted title in another script does not flip it. A Hangul syllable counts as
+ * three Latin letters. `null` when there is nothing to judge or the language is
+ * neither Korean nor English.
+ */
+export function matchesOutputLanguage(schemaId: string, output: unknown, outputLanguage: string): boolean | null {
+  const primary = outputLanguage.split('-')[0];
+  if (primary !== 'ko' && primary !== 'en') return null;
+  const text = userFacingStrings(schemaId, output).join('\n');
+  const hangul = (text.match(/\p{Script=Hangul}/gu) ?? []).length;
+  const latin = (text.match(/\p{Script=Latin}/gu) ?? []).length;
+  if (hangul + latin === 0) return null;
+  const koreanDominant = hangul * 3 >= latin;
+  return primary === 'ko' ? koreanDominant : !koreanDominant;
+}
+
+function requestedLanguage(input: unknown): string | undefined {
+  const value = (input as Record<string, unknown> | null)?.['outputLanguage'];
+  return typeof value === 'string' ? value : undefined;
+}
+
 export type ContractCallOutcome =
   | {
       readonly status: 'valid';
       readonly prompt: string;
       readonly attempts: number;
       readonly repairs: number;
+      /** FU-89: `null` when the input sets no `outputLanguage` or it cannot be judged. */
+      readonly languageMatch?: boolean | null;
       readonly inputTokens: number;
       readonly outputTokens: number;
       readonly latencyMs: number;
@@ -171,6 +239,10 @@ export interface PromptContractStats {
   readonly latencyMsP50: number | null;
   readonly latencyMsMax: number | null;
   readonly errorCodes: Readonly<Record<string, number>>;
+  /** FU-89 (informational): valid answers judged against `outputLanguage`. */
+  readonly languageChecked: number;
+  /** FU-89 (informational): judged answers not written in `outputLanguage`. */
+  readonly languageMismatched: number;
 }
 
 export type ContractVerdict = 'pass' | 'invalid' | 'inconclusive';
@@ -203,6 +275,9 @@ export function summarizeContractOutcomes(outcomes: readonly ContractCallOutcome
     for (const call of calls) if (call.status === 'error') errorCodes[call.errorCode] = (errorCodes[call.errorCode] ?? 0) + 1;
     const valid = calls.filter((call) => call.status === 'valid').length;
     const latencies = calls.flatMap((call) => ('latencyMs' in call ? [call.latencyMs] : []));
+    const judged = calls.flatMap((call) =>
+      call.status === 'valid' && typeof call.languageMatch === 'boolean' ? [call.languageMatch] : [],
+    );
     return {
       prompt,
       schemaId: schemaIdForPrompt(promptId, version),
@@ -219,6 +294,8 @@ export function summarizeContractOutcomes(outcomes: readonly ContractCallOutcome
       latencyMsP50: median(latencies),
       latencyMsMax: latencies.length === 0 ? null : Math.max(...latencies),
       errorCodes,
+      languageChecked: judged.length,
+      languageMismatched: judged.filter((match) => !match).length,
     };
   });
   const total = (key: 'valid' | 'invalid' | 'errored' | 'notRun'): number =>
@@ -268,14 +345,17 @@ export async function runContractSmoke(input: {
         continue;
       }
       const started = now();
+      const callInput = build(index);
+      const schemaId = schemaIdForPrompt(promptId, version);
+      const language = requestedLanguage(callInput);
       try {
         const result = await runStructured(
           input.port,
           {
             promptId,
             version,
-            input: build(index),
-            schemaId: schemaIdForPrompt(promptId, version),
+            input: callInput,
+            schemaId,
             ownerId: OWNER,
             sessionKey: `contract-${prompt}-${index}`,
           },
@@ -286,6 +366,7 @@ export async function runContractSmoke(input: {
           prompt,
           attempts: result.attempts,
           repairs: result.repairs,
+          languageMatch: language === undefined ? null : matchesOutputLanguage(schemaId, result.output, language),
           inputTokens: result.usage.inputTokens,
           outputTokens: result.usage.outputTokens,
           latencyMs: Math.max(0, now() - started),

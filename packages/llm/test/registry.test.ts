@@ -1,8 +1,10 @@
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Ajv } from 'ajv';
 import { SCHEMA_SOURCES } from '../src/schemas.generated.js';
 import {
+  PROMPT_SCHEMA_IDS,
   SCHEMA_IDS,
   getPrompt,
   hasPrompt,
@@ -115,10 +117,13 @@ test('prompt files are available through the pure registry', () => {
   expect(keys).toEqual([
     'decomposition@v1',
     'decomposition@v2',
+    'decomposition@v3',
+    'decomposition@v4',
     'layout_suggestion@v1',
     'questions@v1',
     'replan_explanation@v1',
     'type_detection@v1',
+    'type_detection@v2',
   ]);
   expect(hasPrompt('decomposition', 'v1')).toBe(true);
   expect(getPrompt('type_detection', 'v1')).toContain('<untrusted_document>');
@@ -133,6 +138,90 @@ test('prompt registry matches the checked-in markdown files', () => {
   }
   const v2 = readFileSync(join(PROMPT_DIR, 'decomposition', 'v2.md'), 'utf8');
   expect(getPrompt('decomposition', 'v2')).toBe(v2);
+  // Every checked-in file, including the FU-89 versions, is registered verbatim.
+  const files = readdirSync(PROMPT_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .flatMap((dir) =>
+      readdirSync(join(PROMPT_DIR, dir.name))
+        .filter((file) => file.endsWith('.md'))
+        .map((file) => ({ id: dir.name, version: file.slice(0, -3) })),
+    );
+  expect(files.map((file) => `${file.id}@${file.version}`).sort()).toEqual([...listPromptKeys()]);
+  for (const file of files) {
+    expect(getPrompt(file.id, file.version)).toBe(readFileSync(join(PROMPT_DIR, file.id, `${file.version}.md`), 'utf8'));
+  }
+});
+
+/**
+ * FU-89: released prompt versions are never edited in place. SHA-256 of each
+ * released file (and of its registered text) as of the FU-89 base commit 02129fe.
+ */
+const RELEASED_PROMPT_SHA256: Readonly<Record<string, string>> = {
+  'decomposition@v1': '8e18ea3c3c9ac9fa489c37d77659bfb882233757e79ca4ff1309c0180516e701',
+  'decomposition@v2': '2525c09a8ef8af108a7528088b80c004e17a05be441211a7a51860cb55780d73',
+  'layout_suggestion@v1': 'fc19c06a22b039f2ae753e082f4658187df47745fcc7a742057304893d2583c9',
+  'questions@v1': '180c51134a34b7263a705434f1cbe8b4497c81acb09570259961d2eab7dd6499',
+  'replan_explanation@v1': '2724c66019c0640704a7b247c80340e7dc134ed5e716cc9488be3309d48c0ff2',
+  'type_detection@v1': 'ab713e45d7d9b9ff228788e3662a996fb557b62df2fb96d51a12fe7f6c601a46',
+};
+
+const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
+
+test('released prompt versions are unchanged byte for byte (FU-89)', () => {
+  for (const [key, digest] of Object.entries(RELEASED_PROMPT_SHA256)) {
+    const [id, version] = key.split('@') as [string, string];
+    expect({ key, file: sha256(readFileSync(join(PROMPT_DIR, id, `${version}.md`), 'utf8')) }).toEqual({ key, file: digest });
+    expect({ key, registered: sha256(getPrompt(id, version)) }).toEqual({ key, registered: digest });
+  }
+});
+
+/** FU-89 output-language versions and the version they extend. */
+const LANGUAGE_VERSIONS = [
+  { key: 'type_detection@v2', extends: 'type_detection@v1', schemaId: 'llm.type_detection.v1', fields: ['`reasons`'] },
+  {
+    key: 'decomposition@v3',
+    extends: 'decomposition@v1',
+    schemaId: 'llm.decomposition.v1',
+    fields: ['`title`', '`deliverable`', '`doneCriteria`', '`assumptions`', '`questionsRemaining`'],
+  },
+  {
+    key: 'decomposition@v4',
+    extends: 'decomposition@v2',
+    schemaId: 'llm.decomposition.v2',
+    fields: ['`title`', '`deliverable`', '`doneCriteria`', '`assumptions`', '`questionsRemaining`', '`statement`'],
+  },
+] as const;
+
+test.each(LANGUAGE_VERSIONS)('$key states the output-language rule and keeps the $schemaId contract', (entry) => {
+  const [id, version] = entry.key.split('@') as [string, string];
+  const [, baseVersion] = entry.extends.split('@') as [string, string];
+  const text = getPrompt(id, version);
+  expect(text).toContain('# Output language');
+  expect(text).toContain('`outputLanguage` is a BCP-47 language tag');
+  for (const field of entry.fields) expect({ field, stated: text.includes(field) }).toEqual({ field, stated: true });
+  expect(text).toContain('never\n  translate them');
+  expect(text).toContain('Do not translate quoted user content');
+  // Same output schema as the version it extends; the rules of that version are kept.
+  expect(PROMPT_SCHEMA_IDS[entry.key]).toBe(entry.schemaId);
+  expect(PROMPT_SCHEMA_IDS[entry.extends]).toBe(entry.schemaId);
+  expect(text).toContain(`\`${entry.schemaId}\``);
+  const baseRules = getPrompt(id, baseVersion)
+    .split('\n')
+    .filter((line) => line.startsWith('- ') && !line.includes('Return JSON'));
+  for (const rule of baseRules) expect({ rule, kept: text.includes(rule) }).toEqual({ rule, kept: true });
+});
+
+test('the released versions carry no output-language rule (negative)', () => {
+  for (const key of Object.keys(RELEASED_PROMPT_SHA256)) {
+    const [id, version] = key.split('@') as [string, string];
+    expect({ key, rule: getPrompt(id, version).includes('outputLanguage') }).toEqual({ key, rule: false });
+  }
+});
+
+test('every registered prompt has exactly one explicit output schema', () => {
+  expect(Object.keys(PROMPT_SCHEMA_IDS).sort()).toEqual([...listPromptKeys()]);
+  for (const schemaId of Object.values(PROMPT_SCHEMA_IDS)) expect(hasSchema(schemaId)).toBe(true);
+  expect(Object.isFrozen(PROMPT_SCHEMA_IDS)).toBe(true);
 });
 
 test('layout suggestion accepts the canonical 07 §2.1 ids plus scalar props', () => {

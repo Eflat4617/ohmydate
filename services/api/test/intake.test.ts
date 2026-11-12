@@ -10,6 +10,7 @@ import {
   buildDecompositionLlmInput,
   buildDetectionLlmInput,
 } from '../src/application/intake/intake-service.js';
+import { resolveOutputLanguage } from '../src/application/intake/output-language.js';
 import {
   authHeaders,
   createTestContext,
@@ -19,6 +20,9 @@ import {
   type TestContext,
   type TestSession,
 } from './support/test-context.js';
+
+/** FU-89: seeded test users keep the DB default locale `en`, so intake LLM calls send `en`. */
+const SEEDED_LANGUAGE = resolveOutputLanguage('en');
 
 const hasDatabaseEnv = hasDatabase;
 
@@ -136,7 +140,7 @@ function actionHeaders(session: TestSession, version: number): Record<string, st
 
 describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
   test('a failed repair persists the accumulated usage of the charged detection attempt', async () => {
-    const detectionInput = buildDetectionLlmInput(readyInput, []);
+    const detectionInput = buildDetectionLlmInput(readyInput, [], SEEDED_LANGUAGE);
     const invalid = { classification: 'maybe' };
     const errors = validateOutput('llm.type_detection.v1', invalid).errors;
     // M6-01 fix round 1: the repair input repeats the rendered output contract.
@@ -186,9 +190,9 @@ describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
   });
 
   test('scenario A: new type detection, decomposition, draft edit, idempotent approval', async () => {
-    const detectionInput = buildDetectionLlmInput(readyInput, []);
+    const detectionInput = buildDetectionLlmInput(readyInput, [], SEEDED_LANGUAGE);
     const answerInput: IntakeInput = { ...readyInput, priority: 2 };
-    const decompositionInput = buildDecompositionLlmInput(answerInput, undefined);
+    const decompositionInput = buildDecompositionLlmInput(answerInput, undefined, SEEDED_LANGUAGE);
     const llm = new FakeLlm([
       {
         promptId: 'type_detection',
@@ -423,7 +427,7 @@ describe.skipIf(!hasDatabaseEnv)('intake sessions', () => {
   });
 
   test('schema failure is repaired once and falls back to manual mode', async () => {
-    const detectionInput = buildDetectionLlmInput({ title: 'Write a poem', deliverable: 'Write a poem' }, []);
+    const detectionInput = buildDetectionLlmInput({ title: 'Write a poem', deliverable: 'Write a poem' }, [], SEEDED_LANGUAGE);
     const invalidOutput = { classification: 'bogus', confidence: 2 };
     // M6-01 fix round 1: the repair input repeats the rendered output contract.
     const repairInput = appendValidationErrors(

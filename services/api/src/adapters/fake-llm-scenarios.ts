@@ -16,18 +16,22 @@ import {
  * FU-76's `ScriptedFakeLlm` wraps (app.ts `fakeLlmFor`). It lets the real-API E2E suite drive the note-grounded intake
  * pipeline end to end without a provider:
  *
- * - `type_detection@v1` answers a schema-valid "new" classification so the
+ * Requests are matched by output schema id, not by prompt version (FU-89), so
+ * a prompt version that keeps the schema (type_detection@v1/v2,
+ * decomposition@v2/v4) gets the same answer:
+ *
+ * - `llm.type_detection.v1` answers a schema-valid "new" classification so the
  *   session is not forced into manual mode before decomposition (no reasons:
  *   the deterministic detection keeps deciding);
- * - `decomposition@v2` (note-grounded) builds a schema-valid draft from the
+ * - `llm.decomposition.v2` (note-grounded) builds a schema-valid draft from the
  *   REQUEST INPUT: steps from the intake title, one `fact` evidence item that
  *   cites the first `<untrusted_document>` note block actually sent, one
  *   `inference` item that carries a planted link, and one item with a forged
  *   (never sent) reference. The real grounded sanitiser then strips the forged
  *   reference (`hallucinated_ref`) and the link (`[link removed]`).
  *
- * Every other prompt (including the ungrounded `decomposition@v1`) keeps the
- * default `FakeLlm` behaviour: no fixture, `LlmUnavailable`, manual draft.
+ * Every other schema (including the ungrounded `llm.decomposition.v1`) keeps
+ * the default `FakeLlm` behaviour: no fixture, `LlmUnavailable`, manual draft.
  * With `LLM_FAKE_SCENARIO_OWNERS` the scenario answers only those owners, so
  * every other E2E suite keeps exactly the plain fake. Nothing here retains
  * prompt input.
@@ -174,6 +178,9 @@ export function groundedDecompositionOutput(input: unknown): unknown {
 }
 
 const TYPE_DETECTION_OUTPUT = { classification: 'new', confidence: 0.5, reasons: [] } as const;
+/** FU-89: schema ids, stable across prompt versions that keep the output shape. */
+const TYPE_DETECTION_SCHEMA_ID = 'llm.type_detection.v1';
+const GROUNDED_DECOMPOSITION_SCHEMA_ID = 'llm.decomposition.v2';
 
 function respond(output: unknown): LlmCompleteResponse {
   return {
@@ -207,11 +214,11 @@ export class E2eGroundedFakeLlm implements LlmPort {
 
   async complete(request: LlmCompleteRequest): Promise<LlmCompleteResponse> {
     if (!this.#inScope(request)) return this.#fallback.complete(request);
-    if (request.promptId === 'type_detection' && request.version === 'v1') {
+    if (request.schemaId === TYPE_DETECTION_SCHEMA_ID) {
       request.onDispatch?.();
       return respond({ ...TYPE_DETECTION_OUTPUT, reasons: [] });
     }
-    if (request.promptId === 'decomposition' && request.version === 'v2') {
+    if (request.schemaId === GROUNDED_DECOMPOSITION_SCHEMA_ID) {
       // Simulated provider boundary: the note sections "leave" here.
       request.onDispatch?.();
       return respond(groundedDecompositionOutput(request.input));

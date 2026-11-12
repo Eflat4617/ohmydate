@@ -28,6 +28,11 @@
  * Exit codes: 0 pass (every call schema-valid), 1 invalid (an answered call stayed
  * schema-invalid after the repair), 3 inconclusive (operational errors or budget stop),
  * 2 setup error.
+ *
+ * FU-89: the output-language versions (type_detection@v2, decomposition@v3/v4) also
+ * report `languageChecked` / `languageMismatched` per prompt (counts only; informational,
+ * not part of the exit code). To smoke only those: CONTRACT_LIVE_PROMPTS=
+ * type_detection@v2,decomposition@v3,decomposition@v4.
  */
 
 import { readFileSync, statSync, writeFileSync } from 'node:fs';

@@ -1794,6 +1794,8 @@ export function createRuntime(options: {
     llmProvider: options.config.llmProvider,
     budgetGuard: options.budgetGuard,
     promptLimits: llmPromptLimits(options.config),
+    // FU-89: generated text follows the owner's locale (ko-KR when missing/invalid).
+    ownerLocales: { localeOf: async (ownerId) => (await options.users.get(ownerId))?.locale ?? null },
   });
   const todayStore = new PgTodayStore({
     db: options.db,

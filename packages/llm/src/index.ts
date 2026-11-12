@@ -125,6 +125,7 @@ export {
 } from './privacy.js';
 
 export {
+  PROMPT_SCHEMA_IDS,
   exampleForPattern,
   exampleForSchema,
   renderOutputContract,

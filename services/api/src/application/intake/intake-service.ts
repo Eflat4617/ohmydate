@@ -56,6 +56,7 @@ import {
   redact,
   runStructured,
   sanitizeGroundedDecomposition,
+  schemaIdForPrompt,
   DEFAULT_NOTE_CONTEXT_LIMITS,
   type RunStructuredResult,
   type BudgetGuard,
@@ -85,6 +86,8 @@ import {
   type AiRunHandle,
 } from './ai-runs.js';
 import { detectTypeDeterministic } from './detection.js';
+import { manualDraft } from './manual-draft.js';
+import { resolveOutputLanguage, type OutputLanguage } from './output-language.js';
 import { IntakeApprovalOwnershipLostError, IntakeError } from './intake-error.js';
 import type { NoteContextSource } from '../notes/ports.js';
 import {
@@ -98,6 +101,7 @@ import {
   type IntakeSessionRecord,
   type IntakeSessionRepository,
   type IntakeSessionUpdate,
+  type OwnerLocaleSource,
   type TaskTemplateRepository,
 } from './ports.js';
 
@@ -105,13 +109,23 @@ function isPgForeignKeyViolation(error: unknown): boolean {
   return error instanceof Error && (error as { code?: string }).code === '23503';
 }
 
-const TYPE_DETECTION_PROMPT = { promptId: 'type_detection', version: 'v1' } as const;
-const DECOMPOSITION_PROMPT = { promptId: 'decomposition', version: 'v1' } as const;
+/**
+ * FU-89: the output-language versions (v1 / v2 rules plus "write every
+ * user-facing string in `outputLanguage`"). The output schemas are unchanged:
+ * type_detection@v2 -> llm.type_detection.v1, decomposition@v3 ->
+ * llm.decomposition.v1, decomposition@v4 -> llm.decomposition.v2
+ * (`PROMPT_SCHEMA_IDS` in @ohmydate/llm). agent_run records these keys.
+ */
+export const TYPE_DETECTION_PROMPT = { promptId: 'type_detection', version: 'v2' } as const;
+export const DECOMPOSITION_PROMPT = { promptId: 'decomposition', version: 'v3' } as const;
 /** M6-01: note-grounded decomposition, used only when note sections are sent. */
-const GROUNDED_DECOMPOSITION_PROMPT = { promptId: 'decomposition', version: 'v2' } as const;
-const TYPE_DETECTION_SCHEMA = 'llm.type_detection.v1';
-const DECOMPOSITION_SCHEMA = 'llm.decomposition.v1';
-const GROUNDED_DECOMPOSITION_SCHEMA = 'llm.decomposition.v2';
+export const GROUNDED_DECOMPOSITION_PROMPT = { promptId: 'decomposition', version: 'v4' } as const;
+const TYPE_DETECTION_SCHEMA = schemaIdForPrompt(TYPE_DETECTION_PROMPT.promptId, TYPE_DETECTION_PROMPT.version);
+const DECOMPOSITION_SCHEMA = schemaIdForPrompt(DECOMPOSITION_PROMPT.promptId, DECOMPOSITION_PROMPT.version);
+const GROUNDED_DECOMPOSITION_SCHEMA = schemaIdForPrompt(
+  GROUNDED_DECOMPOSITION_PROMPT.promptId,
+  GROUNDED_DECOMPOSITION_PROMPT.version,
+);
 
 const DRAFT_STATES: ReadonlySet<IntakeState> = new Set([
   'decomposition',
@@ -149,6 +163,11 @@ export interface IntakeServiceOptions {
   readonly promptLimits?: PromptLimitOverrides;
   /** FU-76: in-process registry of in-flight AI runs (tests may share one). */
   readonly aiRuns?: IntakeAiRunRegistry;
+  /**
+   * FU-89: the owner's `locale` setting, read before each LLM call and manual
+   * draft (`outputLanguage`). Omitted, or a missing/invalid locale -> ko-KR.
+   */
+  readonly ownerLocales?: OwnerLocaleSource;
 }
 
 /** FU-76: the in-flight AI run of one intake request. */
@@ -287,10 +306,14 @@ function templateDocuments(
   return documents;
 }
 
-/** Exported so tests can register the exact FakeLlm fixture input. */
+/**
+ * Exported so tests can register the exact FakeLlm fixture input.
+ * `outputLanguage` (FU-89) is the resolved owner locale, never intake text.
+ */
 export function buildDetectionLlmInput(
   input: IntakeInput,
   templates: readonly TaskTemplate[],
+  outputLanguage: OutputLanguage,
 ): LlmInputBundle {
   const report: Record<string, number> = {};
   const documents = [
@@ -300,6 +323,7 @@ export function buildDetectionLlmInput(
   return {
     input: {
       configVersion: INTAKE_AGENT_CONFIG.version,
+      outputLanguage,
       knownFields: Object.keys(input).sort(),
       task: redactedStructuredTask(input, report),
       candidates: templates.map((template) => templateStructured(template)),
@@ -311,12 +335,14 @@ export function buildDetectionLlmInput(
 
 /**
  * Exported so tests can register the exact FakeLlm fixture input. `notes` (the
- * fenced, redacted note sections) is present only for note-grounded calls, so
- * the v1 input stays byte-identical when no note is linked.
+ * fenced, redacted note sections) is present only for note-grounded calls
+ * (decomposition@v4); without a linked note the input is the decomposition@v3
+ * one. `outputLanguage` (FU-89) is the resolved owner locale, never intake text.
  */
 export function buildDecompositionLlmInput(
   input: IntakeInput,
   template: TaskTemplate | undefined,
+  outputLanguage: OutputLanguage,
   notes?: NoteContextResult,
 ): LlmInputBundle {
   const report: Record<string, number> = {};
@@ -332,6 +358,7 @@ export function buildDecompositionLlmInput(
   return {
     input: {
       configVersion: INTAKE_AGENT_CONFIG.version,
+      outputLanguage,
       task: redactedStructuredTask(input, report),
       template: template === undefined ? null : templateStructured(template),
       documents,
@@ -465,61 +492,6 @@ export function editedEstimateKeys(
   return [...edited].sort();
 }
 
-function estimateForScope(scope: IntakeInput['estimatedScope']): {
-  p50Minutes: number;
-  p90Minutes: number;
-} {
-  switch (scope) {
-    case 'small':
-      return { p50Minutes: 90, p90Minutes: 150 };
-    case 'large':
-      return { p50Minutes: 240, p90Minutes: 480 };
-    case 'medium':
-    default:
-      return { p50Minutes: 180, p90Minutes: 300 };
-  }
-}
-
-function manualDraft(input: IntakeInput, assumptions: readonly string[]): DecompositionDraftDto {
-  const work = estimateForScope(input.estimatedScope);
-  return {
-    steps: [
-      {
-        key: 's1',
-        title: 'Prepare the workspace and inputs',
-        deliverable: 'Inputs collected and the workspace is ready',
-        doneCriteria: 'Every prerequisite is available',
-        kind: 'prep',
-        estimate: { p50Minutes: 30, p90Minutes: 60 },
-        dependsOn: [],
-        splittable: false,
-      },
-      {
-        key: 's2',
-        title: truncate(input.title, 120),
-        deliverable: truncate(input.deliverable ?? input.title, 300),
-        doneCriteria: 'Deliverable reviewed against the stated requirements',
-        kind: 'work',
-        estimate: work,
-        dependsOn: ['s1'],
-        splittable: (input.estimatedScope ?? 'medium') !== 'small',
-      },
-      {
-        key: 's3',
-        title: 'Review against done criteria',
-        deliverable: 'Reviewed deliverable',
-        doneCriteria: 'Review notes resolved or recorded',
-        kind: 'review',
-        estimate: { p50Minutes: 30, p90Minutes: 60 },
-        dependsOn: ['s2'],
-        splittable: false,
-      },
-    ],
-    assumptions: [...assumptions],
-    questionsRemaining: [],
-  };
-}
-
 function topoSortSteps(steps: readonly DecompositionStep[]): DecompositionStep[] {
   const remaining = [...steps];
   const known = new Set<string>();
@@ -554,6 +526,7 @@ export class IntakeService {
   readonly #promptLimits: PromptLimitOverrides | undefined;
   readonly #aiRuns: IntakeAiRunRegistry;
   readonly #aiRequestBoundMs: number;
+  readonly #ownerLocales: OwnerLocaleSource | undefined;
 
   constructor(options: IntakeServiceOptions) {
     this.#clock = options.clock;
@@ -574,6 +547,13 @@ export class IntakeService {
     this.#promptLimits = options.promptLimits;
     this.#aiRuns = options.aiRuns ?? new IntakeAiRunRegistry();
     this.#aiRequestBoundMs = intakeAiRequestBoundMs(this.#promptLimits);
+    this.#ownerLocales = options.ownerLocales;
+  }
+
+  /** FU-89: the owner's locale as `outputLanguage` (ko-KR when missing or invalid). */
+  async #outputLanguage(ownerId: Id): Promise<OutputLanguage> {
+    if (this.#ownerLocales === undefined) return resolveOutputLanguage(undefined);
+    return resolveOutputLanguage(await this.#ownerLocales.localeOf(ownerId));
   }
 
   /** FU-76: effective server bound of one intake AI request (orphan threshold). */
@@ -1603,7 +1583,7 @@ export class IntakeService {
   ): Promise<DetectionLlmOutput> {
     const llm = this.#llm;
     if (llm === null) throw new LlmUnavailable('no LLM provider configured');
-    const bundle = buildDetectionLlmInput(input, templates);
+    const bundle = buildDetectionLlmInput(input, templates, await this.#outputLanguage(ownerId));
     const promptIdVersion = `${TYPE_DETECTION_PROMPT.promptId}@${TYPE_DETECTION_PROMPT.version}`;
     // FU-76: the run exists (pending) before the call, so a crash leaves a row
     // the startup sweep can cancel instead of an unaccounted call.
@@ -1670,7 +1650,7 @@ export class IntakeService {
     );
 
     if (session.manual || this.#llm === null) {
-      const draft = manualDraft(session.input, assumptionText);
+      const draft = manualDraft(session.input, assumptionText, await this.#outputLanguage(session.ownerId));
       await this.#saveManualDraft(session.ownerId, session.id, draft);
       if (!session.manual) {
         return this.#sessions.update(
@@ -1688,12 +1668,13 @@ export class IntakeService {
       );
     }
 
+    const outputLanguage = await this.#outputLanguage(session.ownerId);
     const template =
       session.templateId === undefined
         ? undefined
         : (await this.#templates.get(session.ownerId, session.templateId)) ?? undefined;
     const noteContext = await this.#noteContext(session);
-    const bundle = buildDecompositionLlmInput(session.input, template, noteContext);
+    const bundle = buildDecompositionLlmInput(session.input, template, outputLanguage, noteContext);
     const prompt = noteContext === undefined ? DECOMPOSITION_PROMPT : GROUNDED_DECOMPOSITION_PROMPT;
     const schemaId =
       noteContext === undefined ? DECOMPOSITION_SCHEMA : GROUNDED_DECOMPOSITION_SCHEMA;
@@ -1758,7 +1739,7 @@ export class IntakeService {
           session.version,
         );
       }
-      const draft = manualDraft(session.input, assumptionText);
+      const draft = manualDraft(session.input, assumptionText, outputLanguage);
       const updated = await this.#saveManualDraft(session.ownerId, session.id, draft, session);
       if (error instanceof BudgetExceeded) throw IntakeError.budgetExceeded(error.message);
       return updated;
@@ -1858,7 +1839,7 @@ export class IntakeService {
   /**
    * M6-01: notes linked to the session goal that may be sent (live,
    * llm_allowed, same owner), reduced to ranked, redacted, fenced sections.
-   * `undefined` keeps the ungrounded decomposition@v1 path byte-identical.
+   * `undefined` keeps the ungrounded decomposition@v3 input (no `notes` key).
    */
   async #noteContext(session: IntakeSessionRecord): Promise<NoteContextResult | undefined> {
     if (this.#notes === undefined || session.goalId === undefined) return undefined;

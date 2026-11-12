@@ -16,7 +16,14 @@ import {
   validateOutput,
   type FakeLlmResponse,
 } from '../src/index.js';
-import { CONTRACT_SMOKE_INPUTS, runContractSmoke, summarizeContractOutcomes } from '../src/contract-eval.js';
+import {
+  CONTRACT_SMOKE_INPUTS,
+  matchesOutputLanguage,
+  runContractSmoke,
+  smokeOutputLanguage,
+  summarizeContractOutcomes,
+  userFacingStrings,
+} from '../src/contract-eval.js';
 
 const RUNS = 2;
 
@@ -58,6 +65,96 @@ describe('contract smoke inputs', () => {
         expect({ prompt, redactions: redact(text).report }).toEqual({ prompt, redactions: [] });
       }
     }
+  });
+});
+
+describe('FU-89 output-language inputs', () => {
+  const LANGUAGE_KEYS = [
+    ['type_detection@v2', 'type_detection@v1'],
+    ['decomposition@v3', 'decomposition@v1'],
+    ['decomposition@v4', 'decomposition@v2'],
+  ] as const;
+
+  test.each(LANGUAGE_KEYS)('%s sends the %s input plus outputLanguage right after configVersion', (key, base) => {
+    for (let index = 0; index < 6; index += 1) {
+      const input = (CONTRACT_SMOKE_INPUTS[key] as (i: number) => Record<string, unknown>)(index);
+      const previous = (CONTRACT_SMOKE_INPUTS[base] as (i: number) => Record<string, unknown>)(index);
+      expect(Object.keys(input).slice(0, 2)).toEqual(['configVersion', 'outputLanguage']);
+      expect(input['outputLanguage']).toBe(smokeOutputLanguage(index));
+      const rest = Object.fromEntries(Object.entries(input).filter(([name]) => name !== 'outputLanguage'));
+      expect(rest).toEqual(previous);
+    }
+  });
+
+  test('the runs cover an English task in Korean, a Korean task in Korean and English output', () => {
+    expect([0, 1, 2, 3, 4, 5].map(smokeOutputLanguage)).toEqual(['ko-KR', 'ko-KR', 'en', 'ko-KR', 'ko-KR', 'en']);
+  });
+
+  test('the older versions never carry outputLanguage (negative)', () => {
+    for (const key of ['type_detection@v1', 'decomposition@v1', 'decomposition@v2', 'questions@v1']) {
+      expect(JSON.stringify((CONTRACT_SMOKE_INPUTS[key] as (i: number) => unknown)(0))).not.toContain('outputLanguage');
+    }
+  });
+
+  test('the language check judges the whole output by dominant script', () => {
+    const draft = (title: string, statement?: string) => ({
+      steps: [{ key: 's1', title, deliverable: '', doneCriteria: '', kind: 'work' }],
+      assumptions: [],
+      questionsRemaining: [],
+      ...(statement === undefined ? {} : { evidence: [{ statement }] }),
+    });
+    expect(matchesOutputLanguage('llm.decomposition.v1', draft('학회 발표 자료 준비'), 'ko-KR')).toBe(true);
+    expect(matchesOutputLanguage('llm.decomposition.v1', draft('Prepare the slides'), 'ko-KR')).toBe(false);
+    expect(matchesOutputLanguage('llm.decomposition.v1', draft('Prepare the slides'), 'en')).toBe(true);
+    // A quoted Korean title inside an English draft keeps it English.
+    expect(matchesOutputLanguage('llm.decomposition.v1', draft('Draft the outline for 학회 발표'), 'en')).toBe(true);
+    expect(matchesOutputLanguage('llm.decomposition.v1', draft('발표 자료 준비하기'), 'en-US')).toBe(false);
+    expect(matchesOutputLanguage('llm.decomposition.v2', draft('Q3', '노트에 적힌 마감일'), 'ko')).toBe(true);
+    expect(matchesOutputLanguage('llm.type_detection.v1', { reasons: ['새 유형'] }, 'ko-KR')).toBe(true);
+    // Nothing to judge, or a language the heuristic does not cover.
+    expect(matchesOutputLanguage('llm.type_detection.v1', { reasons: [] }, 'ko-KR')).toBeNull();
+    expect(matchesOutputLanguage('llm.decomposition.v1', draft('Préparer'), 'fr')).toBeNull();
+    expect(userFacingStrings('llm.layout_suggestion.v1', { reason: 'x' })).toEqual([]);
+  });
+
+  test('language counts are reported per prompt and never change the verdict', async () => {
+    const korean = {
+      steps: [
+        { key: 's1', title: '자료 모으기', deliverable: '자료 목록', doneCriteria: '모두 모음', kind: 'prep', estimate: { p50Minutes: 30, p90Minutes: 60 }, dependsOn: [], splittable: false },
+        { key: 's2', title: '검토하기', deliverable: '검토 결과', doneCriteria: '검토 완료', kind: 'review', estimate: { p50Minutes: 30, p90Minutes: 60 }, dependsOn: ['s1'], splittable: false },
+      ],
+      assumptions: [],
+      questionsRemaining: [],
+    };
+    const port = new FakeLlm();
+    for (let index = 0; index < 3; index += 1) {
+      const build = (key: string): unknown => (CONTRACT_SMOKE_INPUTS[key] as (i: number) => unknown)(index);
+      port.addFixture({ promptId: 'decomposition', input: build('decomposition@v1'), response: { output: exampleForSchema('llm.decomposition.v1') } });
+      port.addFixture({ promptId: 'decomposition', input: build('decomposition@v3'), response: { output: korean } });
+    }
+    const summary = await runContractSmoke({
+      port,
+      guard: guard(),
+      runsPerPrompt: 3,
+      promptKeys: ['decomposition@v1', 'decomposition@v3'],
+    });
+    expect(summary).toMatchObject({ verdict: 'pass', exitCode: 0 });
+    // v1 sends no outputLanguage: nothing judged. v3 runs ko-KR, ko-KR, en.
+    expect(summary.prompts.find((stats) => stats.prompt === 'decomposition@v1')).toMatchObject({
+      languageChecked: 0,
+      languageMismatched: 0,
+    });
+    expect(summary.prompts.find((stats) => stats.prompt === 'decomposition@v3')).toMatchObject({
+      schemaId: 'llm.decomposition.v1',
+      valid: 3,
+      languageChecked: 3,
+      languageMismatched: 1,
+    });
+    expect(port.calls.filter((call) => call.version === 'v3').map((call) => call.schemaId)).toEqual([
+      'llm.decomposition.v1',
+      'llm.decomposition.v1',
+      'llm.decomposition.v1',
+    ]);
   });
 });
 
