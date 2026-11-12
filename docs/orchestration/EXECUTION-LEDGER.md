@@ -19,6 +19,9 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 15:30 | FU-89 done 96d9bd9 (Opus; type_detection@v2·decomposition@v3/v4, 기존 버전 SHA 고정, outputLanguage=소유자 locale 정제, ko 수동 초안; e2e-6 통과). FU-89R Fable ctx_8961b11bd9e1 시작 + 병행으로 coordinator live contract(v2/v3/v4 ×3)·injection(v4, ko-KR) eval 실행 | msg_1890c4caf4a2 | orchestrator |
+| 2026-11-12 15:30 | FU-90 워커가 OpenCode 권한 프롬프트(deploy/local/local.env 읽기 — *.env 보호 규칙에 걸림, 비밀 아님)에서 대기 → coordinator가 'Allow once'로 해제 | msg_stop_f8de54f7… | orchestrator |
+| 2026-11-12 15:30 | 통합 전체 E2E 06e686c **exit 0, 31 passed (8.0m)** | scratchpad int-e2e-06e686c.log | orchestrator |
 | 2026-11-12 15:24 | **GU-1 실제 로컬 스택 구축**(통합 worktree): local:secrets(deploy/secrets/local, coordinator 미열람) + local:stack up → ohmydate-local postgres healthy 127.0.0.1:55442, vikunja 200 127.0.0.1:3466. 계정 생성(local:setup)은 사용자가 직접 | — | orchestrator |
 | 2026-11-12 15:24 | 사용자 '좀더 빨리' → 속도 조치: (1) 워커는 전체 ci/e2e 생략(패키지·대상 테스트 + typecheck/lint/boundaries만), 전체 suite는 coordinator가 병합 묶음에 1회; (2) 승인 브랜치 묶음 병합; (3) GU-1 실제 스택 선행 구축 | 사용자 메시지, msg_69e6df6881d0 등 5건 | orchestrator |
 | 2026-11-12 15:22 | 통합 CI 06e686c(FU-85+FU-64+68+GU-1-PKG) **exit 0 첫 실행**(load ~16, 전원 '균형'): root 2212 passed/30 skipped, web 521+164, boundaries 559/0, build-smoke OK → e8134a8·1478e5a의 보류 판정 해소. 전체 E2E 백그라운드 | scratchpad int-ci-06e686c.log | orchestrator |
