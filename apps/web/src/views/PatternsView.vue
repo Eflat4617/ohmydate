@@ -23,7 +23,7 @@ import { t, tp } from '../i18n';
 import { browserTimeZone, formatDate, formatDuration, formatNumber } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
 import { confidenceText, groupDimensionLabel, ratioText, stepKindLabel } from '../i18n/replan';
-import { runOwnerBound } from '../session/ownerBound';
+import { runOwnerBound, type OwnerSteps } from '../session/ownerBound';
 import { captureOwnerBinding } from '../session/ownerEpoch';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
@@ -130,9 +130,10 @@ const resetBusy = ref(false);
 const resetError = ref<string | null>(null);
 const summaryHeading = ref<HTMLElement | null>(null);
 
-async function announce(message: string): Promise<void> {
+/** Announce politely. A generator: its own wait is fenced like the task's (delegate with `yield*`). */
+function* announce(message: string): OwnerSteps<void> {
   announcement.value = '';
-  await nextTick();
+  yield nextTick();
   announcement.value = message;
 }
 
@@ -151,20 +152,19 @@ async function toggle(item: EstimationProfileItem, include: boolean): Promise<vo
   const scope = `feedback:${item.feedbackId}`;
   const action = actions.begin(scope, { excluded }, samePayload, item.version);
   await runOwnerBound(
-    async (owner) => {
+    function* (owner) {
       try {
-        await owner.wait(
+        yield* owner.wait(
           plannerClient.patchEstimationFeedback(item.feedbackId, excluded, action.key, item.version, owner.signal),
         );
         actions.settle(scope, action);
-        await owner.wait(profileQuery.refetch());
-        await owner.wait(announce(excluded ? t('patterns.excludedDone') : t('patterns.includedDone')));
+        yield* owner.wait(profileQuery.refetch());
+        yield* announce(excluded ? t('patterns.excludedDone') : t('patterns.includedDone'));
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         // M5-03R-1 M1: keep the key unless the server stored a final result.
         if (isStoredFinalResult(cause)) actions.settle(scope, action);
         if (cause instanceof ApiError && cause.status === 412) {
-          await owner.wait(profileQuery.refetch());
+          yield* owner.wait(profileQuery.refetch());
           errorText.value = t('patterns.toggleConflict');
         } else {
           errorText.value = errorMessage(cause, t('patterns.toggleError'));
@@ -209,18 +209,17 @@ async function confirmReset(): Promise<void> {
   const scope = `estimation:reset:${target.scope}:${target.templateId ?? ''}`;
   const action = actions.begin(scope, target, samePayload);
   await runOwnerBound(
-    async (owner) => {
+    function* (owner) {
       try {
-        const refreshed = await owner.wait(plannerClient.resetEstimation(action.payload, action.key, owner.signal));
+        const refreshed = yield* owner.wait(plannerClient.resetEstimation(action.payload, action.key, owner.signal));
         actions.settle(scope, action);
         queryClient.setQueryData(profileKey.value, refreshed);
         resetTarget.value = null;
         visibleCount.value = PAGE_SIZE;
-        await owner.wait(announce(t('patterns.resetDone')));
-        await owner.wait(nextTick());
+        yield* announce(t('patterns.resetDone'));
+        yield* owner.wait(nextTick());
         summaryHeading.value?.focus();
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         // M5-03R-1 M1: keep the key unless the server stored a final result.
         if (isStoredFinalResult(cause)) actions.settle(scope, action);
         resetError.value = errorMessage(cause, t('patterns.resetError'));

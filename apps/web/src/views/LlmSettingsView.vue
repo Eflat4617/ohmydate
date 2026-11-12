@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { runOwnerBound } from '../session/ownerBound';
 import { useAuthStore } from '../stores/auth';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
@@ -39,28 +40,43 @@ onMounted(async () => {
   syncBudget();
 });
 
+// Owner isolation (ADR-023): the settings belong to whoever asked. As
+// owner-bound tasks, a request the owner change aborted shows no error and
+// re-enables nothing for the next user.
 async function setConsent(granted: boolean): Promise<void> {
   busy.value = true;
   error.value = null;
-  try {
-    await auth.setLlmConsent(granted);
-  } catch {
-    error.value = t('llm.settings.updateError');
-  } finally {
-    busy.value = false;
-  }
+  await runOwnerBound(
+    function* (owner) {
+      yield* owner.wait(auth.setLlmConsent(granted));
+    },
+    {
+      onError: () => {
+        error.value = t('llm.settings.updateError');
+      },
+      onSettled: () => {
+        busy.value = false;
+      },
+    },
+  );
 }
 
 async function saveBudget(): Promise<void> {
   busy.value = true;
   error.value = null;
-  try {
-    await auth.setLlmBudget(dailyUsd.value, monthlyUsd.value);
-  } catch {
-    error.value = t('llm.settings.budgetError');
-  } finally {
-    busy.value = false;
-  }
+  await runOwnerBound(
+    function* (owner) {
+      yield* owner.wait(auth.setLlmBudget(dailyUsd.value, monthlyUsd.value));
+    },
+    {
+      onError: () => {
+        error.value = t('llm.settings.budgetError');
+      },
+      onSettled: () => {
+        busy.value = false;
+      },
+    },
+  );
 }
 </script>
 

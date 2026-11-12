@@ -16,22 +16,36 @@ import { ANONYMOUS_OWNER } from './ownerStorage';
  * cache, toast or navigate. Each screen used to guard this by hand with a
  * check after each await; a missing check was found in review four times.
  *
- * `runOwnerBound` is the one way to write such a function:
- * - the OwnerBinding is captured when it is called, before the first await;
- * - the task awaits through the scope (`await owner.wait(…)`), which never
- *   resumes for a stale owner — it rejects with OwnerChangedError as soon as
- *   the owner changes;
- * - a `catch` inside the task starts with `owner.rethrowIfStale(cause)`, so a
- *   stale failure is never handled (shown, retried) as a real one;
- * - cleanup goes in `onSettled`, not `finally`: a `finally` block would also
- *   run for the stale owner;
- * - `owner.signal` cancels the requests, `owner.binding` is what storage
- *   writes take;
- * - when the owner changed, the task's result and its failure are dropped:
- *   neither `onError` nor `onSettled` runs, and the outcome is `stale`.
+ * `runOwnerBound` is the one way to write such a function. The task is a
+ * GENERATOR, not an async function, and that is the point:
  *
- * ESLint rule owner-isolation/bound-await enforces the three "inside the
- * task" rules, so they cannot be forgotten on the next screen.
+ *   await runOwnerBound(function* (owner) {
+ *     const saved = yield* owner.wait(api.save(input, owner.signal));
+ *     draft.value = saved;                      // only ever runs for this owner
+ *     yield* announce(t('saved'));              // a helper is a generator too
+ *   });
+ *
+ * - The OwnerBinding is captured when `runOwnerBound` is called, before
+ *   anything is awaited.
+ * - Every `yield` hands control to the runner. When what was yielded settles,
+ *   the runner checks the binding and resumes the task IN THE SAME SYNCHRONOUS
+ *   TURN. The check is therefore made when the code after the wait is about to
+ *   run — not when the awaited promise resolved, which is a microtask earlier
+ *   and leaves room for the owner to change in between (FU-77R-1 H1). No line
+ *   of a task can run for a stale owner; there is nothing to remember to call.
+ * - `await` does not exist inside a generator, so the unfenced form cannot be
+ *   written by mistake, and the compiler rejects an async function as a task.
+ * - A stale task is abandoned where it waits: its `catch` and `finally` blocks
+ *   do not run, neither do `onError` / `onSettled`, and the outcome is `stale`.
+ * - A helper that awaits and then writes (announce, focus, refresh) must be a
+ *   generator delegated with `yield*`; its waits then go through the same
+ *   runner. An async helper called from a task is fenced only at its end.
+ * - `owner.signal` cancels the requests, `owner.binding` is what storage
+ *   writes take.
+ *
+ * ESLint rule owner-isolation/bound-task covers what the compiler cannot:
+ * async helpers called from a task, and effects placed after
+ * `await runOwnerBound(…)` in the function that started it.
  */
 
 /** Work outlived the owner it started for; whatever it produced must be dropped. */
@@ -89,6 +103,42 @@ export async function collectPages<T>(
   return { items, found: null };
 }
 
+/**
+ * The steps of an owner-bound task: a generator that yields what it waits
+ * for. `yield* owner.wait(promise)` gives the awaited value its type.
+ */
+export type OwnerSteps<T> = Generator<unknown, T, unknown>;
+
+/** What `runOwnerBound` runs. A generator function — an async function does not type-check. */
+export type OwnerTask<T> = (owner: OwnerScope) => OwnerSteps<T>;
+
+/**
+ * Wait for `pending` inside an owner-bound task or helper:
+ * `const value = yield* waitStep(promise)`. Same as `owner.wait`, for helper
+ * generators that take no scope.
+ */
+export function* waitStep<T>(pending: PromiseLike<T> | T): OwnerSteps<T> {
+  return (yield pending) as T;
+}
+
+function* pagesSteps<T>(
+  binding: OwnerBinding,
+  fetchPage: (cursor: string | undefined, signal: AbortSignal) => Promise<OwnerPage<T>>,
+  options: CollectPagesOptions<T>,
+): OwnerSteps<{ items: T[]; found: T | null }> {
+  const items: T[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < (options.maxPages ?? MAX_LOOKUP_PAGES); page += 1) {
+    const result = yield* waitStep(fetchPage(cursor, binding.signal));
+    items.push(...result.items);
+    const found = options.until === undefined ? undefined : result.items.find(options.until);
+    if (found !== undefined) return { items, found };
+    if (result.nextCursor === null) break;
+    cursor = result.nextCursor;
+  }
+  return { items, found: null };
+}
+
 /** What a bound task works with. One scope = one owner, for the task's whole life. */
 export interface OwnerScope {
   /** Pass to storage writers (session/ownerStorage.ts) and to anything that takes a binding. */
@@ -100,25 +150,44 @@ export interface OwnerScope {
   /** Throws OwnerChangedError when the owner changed. */
   assertCurrent(): void;
   /**
-   * First line of every `catch` in a bound task: a failure that is (or was
-   * caused by) the owner change is thrown on, so the handler below it only
-   * ever sees a real failure of the current owner's action.
+   * `const value = yield* owner.wait(pending)`: wait for this owner only. The
+   * task resumes with the value (or the failure) if the owner is still current
+   * at that moment, and never resumes otherwise — also when `pending` never
+   * settles or ignores the signal.
    */
-  rethrowIfStale(cause: unknown): void;
-  /**
-   * Await `pending` for this owner only: resolves or rejects like it while the
-   * owner is current, rejects with OwnerChangedError as soon as it is not —
-   * also when `pending` never settles or ignores the signal.
-   */
-  wait<T>(pending: PromiseLike<T> | T): Promise<T>;
-  /** `collectPages` under this scope's binding. */
+  wait<T>(pending: PromiseLike<T> | T): OwnerSteps<T>;
+  /** `yield* owner.pages(…)`: follow `nextCursor` under this owner, its signal on every request. */
   pages<T>(
     fetchPage: (cursor: string | undefined, signal: AbortSignal) => Promise<OwnerPage<T>>,
     options?: CollectPagesOptions<T>,
-  ): Promise<{ items: T[]; found: T | null }>;
+  ): OwnerSteps<{ items: T[]; found: T | null }>;
 }
 
-function waitFor<T>(binding: OwnerBinding, pending: PromiseLike<T> | T): Promise<T> {
+/**
+ * Test seam for the owner-switch harness: the instants at which an owner
+ * change is hardest on a bound task. Production never installs a probe.
+ */
+export interface OwnerBoundProbe {
+  /** A bound task started to wait; the work it waits for is under way. */
+  waiting(): void;
+  /** What it waited for settled while its owner was current; the task has not resumed yet. */
+  settled(): void;
+  /** A bound task finished for its owner; whoever awaits it has not resumed yet. */
+  finished(): void;
+}
+
+let probe: OwnerBoundProbe | null = null;
+
+export function probeOwnerBound(next: OwnerBoundProbe | null): void {
+  probe = next;
+}
+
+/**
+ * Settles like `pending` while the owner is current; rejects with
+ * OwnerChangedError as soon as it is not. This only stops the WAIT early —
+ * whether the task may go on is decided by the runner when it resumes.
+ */
+function settleFor<T>(binding: OwnerBinding, pending: PromiseLike<T> | T): Promise<T> {
   const source = Promise.resolve(pending);
   if (!isOwnerBindingCurrent(binding)) {
     // Nobody is left to hear a late failure of the abandoned work.
@@ -137,13 +206,18 @@ function waitFor<T>(binding: OwnerBinding, pending: PromiseLike<T> | T): Promise
       if (settled) return;
       settled = true;
       binding.signal.removeEventListener('abort', onAbort);
-      if (isOwnerBindingCurrent(binding)) deliver();
-      else reject(new OwnerChangedError());
+      if (!isOwnerBindingCurrent(binding)) {
+        reject(new OwnerChangedError());
+        return;
+      }
+      deliver();
+      probe?.settled();
     };
     source.then(
       (value) => finish(() => resolve(value)),
       (cause: unknown) => finish(() => reject(cause)),
     );
+    probe?.waiting();
   });
 }
 
@@ -154,12 +228,8 @@ export function ownerScopeOf(binding: OwnerBinding): OwnerScope {
     signal: binding.signal,
     isCurrent: () => isOwnerBindingCurrent(binding),
     assertCurrent: () => assertOwnerCurrent(binding),
-    rethrowIfStale(cause) {
-      if (cause instanceof OwnerChangedError) throw cause;
-      assertOwnerCurrent(binding);
-    },
-    wait: (pending) => waitFor(binding, pending),
-    pages: (fetchPage, options) => collectPages(binding, fetchPage, options),
+    wait: waitStep,
+    pages: (fetchPage, options = {}) => pagesSteps(binding, fetchPage, options),
   };
 }
 
@@ -185,35 +255,65 @@ export interface OwnerBoundOptions {
 
 const STALE = { status: 'stale' } as const;
 
+function isGenerator(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { next?: unknown }).next === 'function' &&
+    typeof (value as { [Symbol.iterator]?: unknown })[Symbol.iterator] === 'function'
+  );
+}
+
 /**
- * Run `task` for the owner who is signed in right now. See the module comment;
- * in short: await only through `owner.wait(…)`, write only with
- * `owner.binding`, and put what must happen afterwards in the task or in
- * `onError` / `onSettled` — code after `await runOwnerBound(…)` must first
- * check `outcome.status`.
+ * Run `task` for the owner who is signed in right now. See the module comment.
+ *
+ * The outcome is handed to the caller a microtask after the task's last line,
+ * so the function that awaits `runOwnerBound` must not act on it: put what has
+ * to happen in the task (or in `onError` / `onSettled`, which run in the task's
+ * last turn) and only return or map the outcome afterwards.
  */
 export async function runOwnerBound<T>(
-  task: (owner: OwnerScope) => Promise<T> | T,
+  task: OwnerTask<T>,
   options: OwnerBoundOptions = {},
 ): Promise<OwnerBoundOutcome<T>> {
-  // Synchronous: an async function runs to its first await in the caller's turn.
+  // Synchronous up to the first wait: an async function runs to its first
+  // await in the caller's turn, and so does the task's first stretch of code.
   const binding = options.binding ?? captureOwnerBinding();
   if (!isOwnerBindingCurrent(binding)) return STALE;
   let outcome: OwnerBoundOutcome<T>;
   try {
-    const value = await task(ownerScopeOf(binding));
-    if (!isOwnerBindingCurrent(binding)) return STALE;
-    outcome = { status: 'done', value };
+    const steps = task(ownerScopeOf(binding));
+    let step = steps.next();
+    while (step.done !== true) {
+      if (isGenerator(step.value)) {
+        throw new TypeError('An owner-bound task yielded a generator: delegate to a helper with `yield*`.');
+      }
+      let resume: () => IteratorResult<unknown, T>;
+      try {
+        const value = await settleFor(binding, step.value);
+        resume = () => steps.next(value);
+      } catch (cause) {
+        resume = () => steps.throw(cause);
+      }
+      // The turn in which the task goes on. The owner is checked HERE, and the
+      // task's next stretch of code runs before this turn ends, so nothing can
+      // change the owner in between. A stale task is abandoned as it stands.
+      if (!isOwnerBindingCurrent(binding)) return STALE;
+      step = resume();
+    }
+    outcome = { status: 'done', value: step.value };
   } catch (cause) {
     if (!isOwnerBindingCurrent(binding) || cause instanceof OwnerChangedError) return STALE;
     if (options.onError === undefined) {
       options.onSettled?.();
+      probe?.finished();
       throw cause;
     }
     options.onError(cause);
     outcome = { status: 'failed', cause };
   }
   options.onSettled?.();
+  probe?.finished();
   return outcome;
 }
 

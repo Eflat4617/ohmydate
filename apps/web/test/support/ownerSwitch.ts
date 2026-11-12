@@ -17,6 +17,7 @@ import {
   ownerState,
   resetPageSealForTests,
 } from '../../src/session/ownerEpoch';
+import { probeOwnerBound } from '../../src/session/ownerBound';
 import { createOwnerQueryClient } from '../../src/session/ownerQuery';
 import { OWNER_STORAGE_MANIFEST } from '../../src/session/ownerStorage';
 import { useAuthStore } from '../../src/stores/auth';
@@ -63,6 +64,8 @@ export interface RequestRecord {
   readonly era: 'before' | 'after';
 }
 
+export type BoundEventKind = 'waiting' | 'settled' | 'finished';
+
 export interface HoldMatch {
   readonly method?: string;
   /** Substring of the URL path, or a pattern for it. */
@@ -74,8 +77,13 @@ export interface HeldResponses {
   readonly count: number;
   /** Resolves once `count` responses have arrived from the server and are held. */
   arrived(count?: number): Promise<void>;
-  /** Deliver every held response (and stop holding new ones). */
-  release(): void;
+  /**
+   * Stop holding. By default every held response is delivered, even though the
+   * owner change aborted its request (the worst case for code that expects
+   * success). `{ as: 'aborted' }` does what a real fetch does instead: a
+   * request whose signal was aborted meanwhile rejects with AbortError.
+   */
+  release(options?: { readonly as?: 'response' | 'aborted' }): void;
 }
 
 export interface LeakReport {
@@ -84,8 +92,8 @@ export interface LeakReport {
   /** Focus journal records filed under B. */
   readonly journal: number;
   readonly toasts: readonly string[];
-  /** `from -> to` when the route moved after the switch. */
-  readonly navigation: string | null;
+  /** Navigations started after the switch (`push` / `replace`) that went through. One started before it may still complete. */
+  readonly navigation: readonly string[];
   /** Live-region texts (status, alert, aria-live) that appeared after the switch. */
   readonly announcements: readonly string[];
   /** Modal dialogs opened after the switch. */
@@ -130,6 +138,24 @@ export interface OwnerSwitchStage {
    * at each network await of a continuation in turn.
    */
   holdNth(index: number): HeldResponses;
+  /**
+   * Switch the owner at the `index`-th suspension point of an owner-bound
+   * task from now on (session/ownerBound.ts), counted per kind:
+   * - `waiting`: right after a task began to wait — the owner changes while
+   *   that wait (a request, a helper's own await, a browser prompt) is pending;
+   * - `settled`: what it waited for has just settled for the current owner —
+   *   the owner changes before the task resumes;
+   * - `finished`: a bound task has just finished — the owner changes before
+   *   whoever awaits it resumes.
+   * `fired` tells whether that point was reached.
+   */
+  switchAtBoundEvent(kind: BoundEventKind, index: number): { readonly fired: boolean };
+  /** Suspension points of owner-bound tasks seen since the stage was created. */
+  boundEvents(): Readonly<Record<BoundEventKind, number>>;
+  /** True once the owner was switched (by `switchOwner` or an armed bound event). */
+  readonly switched: boolean;
+  /** Resolves when the owner is switched. */
+  whenSwitched(): Promise<void>;
   /** Start counting requests without holding any (a discovery run). */
   markActionStart(): void;
   /** Requests sent since `markActionStart()` / `holdNth()`. */
@@ -141,6 +167,8 @@ export interface OwnerSwitchStage {
    * answered, so whatever appears later came from A's held response.
    */
   switchOwner(options?: { via?: 'reset' | 'adopt' }): Promise<void>;
+  /** The same, synchronously and without waiting for the screen to settle (to place the change in a precise turn). */
+  switchOwnerNow(options?: { via?: 'reset' | 'adopt' }): void;
   settle(): Promise<void>;
   /**
    * What this screen shows on an owner switch when nothing is in flight (its
@@ -167,6 +195,7 @@ interface Hold {
   readonly gate: Promise<void>;
   /** Held by position (`holdNth`), not by pattern. */
   byPosition: boolean;
+  deliverAs: 'response' | 'aborted';
 }
 
 function newHold(match: HoldMatch): Hold {
@@ -174,7 +203,7 @@ function newHold(match: HoldMatch): Hold {
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
-  return { match, count: 0, released: false, release, gate, byPosition: false };
+  return { match, count: 0, released: false, release, gate, byPosition: false, deliverAs: 'response' };
 }
 
 function handleOf(hold: Hold, label: string): HeldResponses {
@@ -185,7 +214,8 @@ function handleOf(hold: Hold, label: string): HeldResponses {
     async arrived(count = 1) {
       await vi.waitFor(() => expect(hold.count, `held ${label}`).toBeGreaterThanOrEqual(count), { timeout: 3_000 });
     },
-    release() {
+    release(options = {}) {
+      hold.deliverAs = options.as ?? 'response';
       hold.released = true;
       hold.release();
     },
@@ -233,6 +263,7 @@ function dialogCount(): number {
 }
 
 export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
+  probeOwnerBound(null);
   // A fresh mock server for every stage: one test may build several in a row.
   server.resetHandlers();
   resetMockDb();
@@ -251,6 +282,22 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
   const router = createRouter({ history: createMemoryHistory(), routes });
   const queryClient = createOwnerQueryClient();
   const toasts = useToastStore(pinia);
+  // A navigation belongs to whoever started it: record the calls, not the moment the route changes.
+  const lateNavigations: string[] = [];
+  for (const method of ['push', 'replace'] as const) {
+    const navigate = router[method].bind(router);
+    router[method] = (to) => {
+      const late = switched;
+      const result = navigate(to);
+      // A navigation a guard refused (the page seal) did not happen.
+      if (late) {
+        void result.then((failure) => {
+          if (failure === undefined) lateNavigations.push(`${method} ${typeof to === 'string' ? to : JSON.stringify(to)}`);
+        });
+      }
+      return result;
+    };
+  }
   const wrappers: VueWrapper[] = [];
   const requests: RequestRecord[] = [];
   const holds: Hold[] = [];
@@ -276,6 +323,8 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
     const request = input instanceof Request ? input : new Request(input, init);
     const method = request.method.toUpperCase();
     const path = new URL(request.url).pathname;
+    // As a real fetch: a request whose signal is already aborted is never sent.
+    if (request.signal.aborted) throw new DOMException('The operation was aborted.', 'AbortError');
     requests.push({ method, path, era: switched ? 'after' : 'before' });
     // B's server never answers within the test: anything that shows up after
     // the switch can only have come from A's held response.
@@ -300,6 +349,9 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
     });
     hold.count += 1;
     await hold.gate;
+    if (hold.deliverAs === 'aborted' && request.signal.aborted) {
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }
     return detached;
   });
 
@@ -321,6 +373,35 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
       else await new Promise((resolve) => setTimeout(resolve, 0));
     }
     await nextTick();
+  }
+
+  const boundSeen: Record<BoundEventKind, number> = { waiting: 0, settled: 0, finished: 0 };
+  // Until a test arms a switch, the stage only counts the suspension points.
+  probeOwnerBound({
+    waiting: () => void (boundSeen.waiting += 1),
+    settled: () => void (boundSeen.settled += 1),
+    finished: () => void (boundSeen.finished += 1),
+  });
+  let announceSwitch: () => void = () => {};
+  const switchedSignal = new Promise<void>((resolve) => {
+    announceSwitch = resolve;
+  });
+
+  function switchNow(via: 'reset' | 'adopt'): void {
+    if (switched) throw new Error('the owner was already switched');
+    // Taken before the switch: cancelling A's requests resumes A's
+    // continuations at once, and what they do then counts as well.
+    baseline = snapshot();
+    switched = true;
+    if (via === 'adopt') {
+      adoptActiveOwner(OWNER_B, 'storage');
+    } else {
+      // Another tab signed in as B: it wrote the pointer, this page hears of it.
+      localStorage.setItem(OWNER_STORAGE_KEY, OWNER_B);
+      ownerChanged(ownerA, OWNER_B, 'storage');
+    }
+    expect(ownerState.ownerId.value).toBe(OWNER_B);
+    announceSwitch();
   }
 
   function snapshot(): NonNullable<typeof baseline> {
@@ -352,7 +433,6 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
     if (baseline === null) throw new Error('switchOwner() was not called');
     const before = baseline;
     const keys = storageKeys();
-    const route = router.currentRoute.value.fullPath;
     // What A's own screen already showed before the switch is not a leak; a
     // marker counts when it turns up afterwards, anywhere B could see it.
     const screen = document.body.textContent ?? '';
@@ -366,7 +446,7 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
       storage: keys.filter((key) => key.endsWith(`:${OWNER_B}`) || !isDeclaredKey(key)),
       journal: journalForB,
       toasts: toasts.toasts.map((toast) => toast.message),
-      navigation: route === before.route ? null : `${before.route} -> ${route}`,
+      navigation: [...lateNavigations],
       announcements: liveTexts().filter(
         (text) => !before.live.includes(text) && !expected.live.includes(text) && !LOAD_STATE.test(text),
       ),
@@ -455,20 +535,49 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
     },
 
     async switchOwner(options = {}) {
-      if (switched) throw new Error('the owner was already switched');
-      // Taken before the switch: cancelling A's requests resumes A's
-      // continuations at once, and what they do then counts as well.
-      baseline = snapshot();
-      switched = true;
-      if (options.via === 'adopt') {
-        adoptActiveOwner(OWNER_B, 'storage');
-      } else {
-        // Another tab signed in as B: it wrote the pointer, this page hears of it.
-        localStorage.setItem(OWNER_STORAGE_KEY, OWNER_B);
-        ownerChanged(ownerA, OWNER_B, 'storage');
-      }
-      expect(ownerState.ownerId.value).toBe(OWNER_B);
+      switchNow(options.via ?? 'reset');
       await settle();
+    },
+
+    switchOwnerNow(options = {}) {
+      switchNow(options.via ?? 'reset');
+    },
+
+    switchAtBoundEvent(kind, index) {
+      const armed = { fired: false };
+      const seen: Record<BoundEventKind, number> = { waiting: 0, settled: 0, finished: 0 };
+      const at = (event: BoundEventKind, change: () => void): void => {
+        const ordinal = seen[event];
+        seen[event] += 1;
+        if (switched || event !== kind || ordinal !== index) return;
+        armed.fired = true;
+        change();
+      };
+      probeOwnerBound({
+        // The task is still in the synchronous run that started the wait; the
+        // owner changes as soon as it has suspended.
+        waiting: () => at('waiting', () => queueMicrotask(() => switchNow('reset'))),
+        // Called inside the promise reaction that settled the wait, so the
+        // change lands before the task's continuation (the next microtask).
+        settled: () => at('settled', () => switchNow('reset')),
+        // The task's last turn is still running. Its caller resumes in the
+        // microtask after next; the change is queued in between, after the
+        // screen has rendered what the task did for its own owner.
+        finished: () => at('finished', () => queueMicrotask(() => switchNow('reset'))),
+      });
+      return armed;
+    },
+
+    boundEvents() {
+      return { ...boundSeen };
+    },
+
+    get switched() {
+      return switched;
+    },
+
+    whenSwitched() {
+      return switchedSignal;
     },
 
     async settle() {
@@ -496,7 +605,7 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
         storage: [],
         journal: 0,
         toasts: [],
-        navigation: null,
+        navigation: [],
         announcements: [],
         dialogs: 0,
         cache: [],
@@ -532,6 +641,7 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
         hold.release();
       }
       for (const wrapper of wrappers.splice(0)) wrapper.unmount();
+      probeOwnerBound(null);
       interception.mockRestore();
       queryClient.clear();
       document.body.innerHTML = '';
@@ -574,10 +684,23 @@ export interface OwnerSwitchCase {
   readonly afterwards?: (stage: OwnerSwitchStage) => Promise<void>;
   /** Text that only A's held response carries; it must reach nothing B can see. */
   readonly markers?: readonly string[];
+  /** The action is meant to end in an error notice (a conflict, a refusal). Otherwise the control run forbids one. */
+  readonly expectsAlert?: boolean;
 }
 
-async function arrange(testCase: OwnerSwitchCase): Promise<{ stage: OwnerSwitchStage; wrapper: VueWrapper }> {
+function alertTexts(): string[] {
+  return [...document.body.querySelectorAll('[role="alert"]')]
+    .map((node) => (node.textContent ?? '').replace(/\s+/g, ' ').trim())
+    .filter((text) => text.length > 0);
+}
+
+async function arrange(
+  testCase: OwnerSwitchCase,
+  /** Runs before anything mounts (an armed owner switch must see every wait from the start). */
+  prepare?: (stage: OwnerSwitchStage) => void,
+): Promise<{ stage: OwnerSwitchStage; wrapper: VueWrapper }> {
   const stage = await createOwnerSwitchStage();
+  prepare?.(stage);
   await testCase.seed?.(stage);
   let wrapper: VueWrapper;
   if (testCase.mount !== undefined) {
@@ -587,7 +710,8 @@ async function arrange(testCase: OwnerSwitchCase): Promise<{ stage: OwnerSwitchS
     const path = typeof testCase.path === 'function' ? await testCase.path(stage) : testCase.path;
     wrapper = await stage.mountView(path, { frame: testCase.frame === true });
   }
-  await testCase.ready(wrapper, stage);
+  // An armed switch may fire while the screen is still getting ready.
+  await Promise.race([testCase.ready(wrapper, stage), stage.whenSwitched()]);
   await stage.settle();
   return { stage, wrapper };
 }
@@ -624,6 +748,7 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
     it('control: the action takes effect for the owner who started it', async () => {
       const arranged = await arrange(testCase);
       stage = arranged.stage;
+      const alertsBefore = alertTexts();
       const held = testCase.hold === undefined ? null : stage.hold(testCase.hold);
       if (held === null) stage.watchEffects();
       await testCase.act(arranged.wrapper, stage);
@@ -634,6 +759,11 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
       }
       await testCase.afterwards?.(stage);
       await stage.expectEffect();
+      await stage.settle();
+      // The effect must be the action succeeding, not an error notice about it.
+      if (testCase.expectsAlert !== true) {
+        expect(alertTexts().filter((text) => !alertsBefore.includes(text))).toEqual([]);
+      }
     });
 
     it('switch: released after another user signed in, it reaches nothing of theirs', async () => {
@@ -661,7 +791,7 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
     // re-read, then a refresh). The switch above lands on the first await; this
     // one finds every request the action leads to and switches the owner
     // while each of them is pending, in turn.
-    it('switch at every network await of the action: nothing reaches the next user', async () => {
+    it('switch at every network await of the action, in every order: nothing reaches the next user', async () => {
       if (testCase.hold === undefined) return;
       const onSwitch = await idleReference();
       const discovery = await arrange(testCase);
@@ -684,24 +814,93 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
       expect(total, 'the action sent no request').toBeGreaterThan(0);
 
       for (let index = 0; index < total; index += 1) {
-        const arranged = await arrange(testCase);
-        stage = arranged.stage;
-        stage.expectOnSwitch(onSwitch);
-        const held = stage.holdNth(index);
-        await testCase.act(arranged.wrapper, stage);
-        await held.arrived();
-        const pending = stage.requestsSinceMark()[index];
-        await stage.switchOwner();
-        held.release();
-        await stage.settle();
-        await testCase.afterwards?.(stage);
-        await stage.settle();
-        stage.expectNoLeak(
-          testCase.markers,
-          `owner switched while request #${index} (${pending?.method} ${pending?.path}) was pending`,
+        for (const order of REQUEST_ORDERS) {
+          const arranged = await arrange(testCase);
+          stage = arranged.stage;
+          stage.expectOnSwitch(onSwitch);
+          const held = stage.holdNth(index);
+          await testCase.act(arranged.wrapper, stage);
+          await held.arrived();
+          const pending = stage.requestsSinceMark()[index];
+          if (order === 'answered, then switched') {
+            // The answer is handed over first; the owner changes in the very
+            // next microtask, before the code that awaits it has resumed.
+            const switching = stage;
+            held.release();
+            queueMicrotask(() => switching.switchOwnerNow());
+          } else {
+            await stage.switchOwner();
+            held.release({ as: order === 'switched, then aborted' ? 'aborted' : 'response' });
+          }
+          await stage.settle();
+          await testCase.afterwards?.(stage);
+          await stage.settle();
+          stage.expectNoLeak(
+            testCase.markers,
+            `request #${index} (${pending?.method} ${pending?.path}): ${order}`,
+          );
+          await stage.dispose();
+          stage = null;
+        }
+      }
+    });
+
+    // The same for every suspension point of the owner-bound tasks the action
+    // runs (session/ownerBound.ts) — network or not: a helper's nextTick, a
+    // cache refresh, a browser permission prompt. Each point is tried in both
+    // orders: the owner changes while the wait is pending, and the owner
+    // changes right after the wait settled but before the task resumes (the
+    // microtask gap of FU-77R-1 H1); and once more right after each task
+    // finished, before whoever awaits it resumes.
+    it('switch at every owner-bound suspension point, in both orders: nothing reaches the next user', async () => {
+      const onSwitch = await idleReference();
+      const discovery = await arrange(testCase);
+      stage = discovery.stage;
+      const declared = testCase.hold;
+      stage.markActionStart();
+      // Points reached while the screen was only getting ready are not part
+      // of the action (a switch there is the request-level test's business).
+      const before = stage.boundEvents();
+      await testCase.act(discovery.wrapper, stage);
+      if (declared !== undefined) {
+        const sent = stage;
+        await vi.waitFor(
+          () => expect(sent.requestsSinceMark().some((request) => matches(declared, request.method, request.path))).toBe(true),
+          { timeout: 3_000 },
         );
-        await stage.dispose();
-        stage = null;
+      }
+      await stage.settle();
+      await testCase.afterwards?.(stage);
+      await stage.settle();
+      const seen = stage.boundEvents();
+      await stage.dispose();
+      stage = null;
+
+      for (const kind of BOUND_EVENT_KINDS) {
+        const last = Math.min(seen[kind], before[kind] + MAX_EXPLORED_AWAITS);
+        for (let index = before[kind]; index < last; index += 1) {
+          let armed = { fired: false };
+          const arranged = await arrange(testCase, (created) => {
+            armed = created.switchAtBoundEvent(kind, index);
+          });
+          stage = arranged.stage;
+          stage.expectOnSwitch(onSwitch);
+          const reached = armed;
+          const context = `owner switched ${BOUND_EVENT_LABEL[kind]} (#${index} of ${seen[kind]})`;
+          try {
+            await testCase.act(arranged.wrapper, stage);
+          } catch (cause) {
+            // The switch can fire while the screen gets ready; its controls may be gone by now.
+            if (!stage.switched) throw cause;
+          }
+          await vi.waitFor(() => expect(reached.fired, context).toBe(true), { timeout: 3_000 });
+          await stage.settle();
+          await testCase.afterwards?.(stage);
+          await stage.settle();
+          stage.expectNoLeak(testCase.markers, context);
+          await stage.dispose();
+          stage = null;
+        }
       }
     });
   });
@@ -709,3 +908,21 @@ export function sweepOwnerSwitch(testCase: OwnerSwitchCase): void {
 
 /** Upper bound on the requests explored per case (a polling screen never stops sending). */
 const MAX_EXPLORED_AWAITS = 8;
+
+/**
+ * The orders in which a pending request and an owner change can meet:
+ * - the owner changes, then the answer arrives anyway (a transport that does
+ *   not honour the abort — the worst case for code that expects success);
+ * - the owner changes, and the request fails as aborted (what a real fetch
+ *   does — the worst case for code that reports failures);
+ * - the answer arrives, and the owner changes before the code that awaits it
+ *   has resumed.
+ */
+const REQUEST_ORDERS = ['switched, then answered late', 'switched, then aborted', 'answered, then switched'] as const;
+
+const BOUND_EVENT_KINDS: readonly BoundEventKind[] = ['waiting', 'settled', 'finished'];
+const BOUND_EVENT_LABEL: Record<BoundEventKind, string> = {
+  waiting: 'while an owner-bound wait was pending',
+  settled: 'right after an owner-bound wait settled, before the task resumed',
+  finished: 'right after an owner-bound task finished, before its caller resumed',
+};

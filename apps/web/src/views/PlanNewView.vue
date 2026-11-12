@@ -140,13 +140,12 @@ async function generate(): Promise<void> {
   const action = actions.begin(scopeKey, input, (left, right) => JSON.stringify(left) === JSON.stringify(right));
   // Owner isolation (ADR-023): the new plan opens only for the owner who asked for it.
   await runOwnerBound(
-    async (owner) => {
+    function* (owner) {
       try {
-        const plan = await owner.wait(plannerClient.createPlan(input, action.key));
+        const plan = yield* owner.wait(plannerClient.createPlan(input, action.key));
         actions.settle(scopeKey, action);
-        await owner.wait(router.push({ name: 'plan', params: { id: plan.id } }));
+        yield* owner.wait(router.push({ name: 'plan', params: { id: plan.id } }));
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         error.value = errorMessage(cause, t('planNew.generateError'));
       }
     },

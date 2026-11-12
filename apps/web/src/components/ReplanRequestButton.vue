@@ -36,13 +36,13 @@ const { busy, error, hint, request } = useReplanRequest();
 // Owner isolation (ADR-023): the toast and the navigation belong to the
 // owner who asked; after a user switch the new proposal opens for nobody.
 async function submit(): Promise<void> {
-  await runOwnerBound(async (owner) => {
-    const created = await owner.wait(request(props.planId));
+  await runOwnerBound(function* (owner) {
+    const created = yield* owner.wait(request(props.planId));
     if (created === null) return;
     toast.show(t('replan.requested'));
-    await owner.wait(queryClient.invalidateQueries({ queryKey: ['replan-proposals'] }));
+    yield* owner.wait(queryClient.invalidateQueries({ queryKey: ['replan-proposals'] }));
     emit('created', created);
-    if (router !== null) await owner.wait(router.push(`/replan/${created.id}`));
+    if (router !== null) yield* owner.wait(router.push(`/replan/${created.id}`));
   });
 }
 </script>

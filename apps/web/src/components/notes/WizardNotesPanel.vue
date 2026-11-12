@@ -5,7 +5,7 @@ import { ActionStore, isStoredFinalResult, plannerClient, type ContextDocument }
 import { isApiStatus, keyOwner, noteKeys, ownerFenced, publishNote, retryFenced, useLinkedNotes, useOwnerKey } from '../../composables/notes';
 import { t } from '../../i18n';
 import { errorMessage } from '../../i18n/problem';
-import { ownerKeyOf, runOwnerBound } from '../../session/ownerBound';
+import { ownerKeyOf, runOwnerBound, type OwnerSteps } from '../../session/ownerBound';
 import UiBadge from '../ui/UiBadge.vue';
 import UiBanner from '../ui/UiBanner.vue';
 import UiButton from '../ui/UiButton.vue';
@@ -68,9 +68,10 @@ const candidatesQuery = useQuery({
 });
 const candidates = computed(() => candidatesQuery.data.value?.items ?? []);
 
-async function announce(message: string): Promise<void> {
+/** Announce politely. A generator: its own wait is fenced like the task's (delegate with `yield*`). */
+function* announce(message: string): OwnerSteps<void> {
   announcement.value = '';
-  await nextTick();
+  yield nextTick();
   announcement.value = message;
 }
 
@@ -82,17 +83,16 @@ async function link(note: ContextDocument): Promise<void> {
   busyId.value = note.id;
   pickerError.value = null;
   await runOwnerBound(
-    async (bound) => {
+    function* (bound) {
       try {
-        const updated = await bound.wait(plannerClient.linkDocument(note.id, payload, action.key, note.version, bound.signal));
+        const updated = yield* bound.wait(plannerClient.linkDocument(note.id, payload, action.key, note.version, bound.signal));
         actions.settle(scope, action);
-        await bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), updated));
-        await bound.wait(announce(t('notes.wizard.linked', { title: updated.title })));
+        yield* bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), updated));
+        yield* announce(t('notes.wizard.linked', { title: updated.title }));
       } catch (cause) {
-        bound.rethrowIfStale(cause);
         if (isStoredFinalResult(cause)) actions.settle(scope, action);
         // 412: the note changed elsewhere; the refreshed list carries its new version.
-        if (isApiStatus(cause, 412)) await bound.wait(candidatesQuery.refetch());
+        if (isApiStatus(cause, 412)) yield* bound.wait(candidatesQuery.refetch());
         pickerError.value = isApiStatus(cause, 422) ? t('notes.links.duplicate') : errorMessage(cause, t('notes.wizard.error'));
       }
     },
@@ -112,16 +112,15 @@ async function unlink(note: ContextDocument): Promise<void> {
   busyId.value = note.id;
   error.value = null;
   await runOwnerBound(
-    async (bound) => {
+    function* (bound) {
       try {
-        const updated = await bound.wait(plannerClient.unlinkDocument(note.id, target.id, action.key, note.version, bound.signal));
+        const updated = yield* bound.wait(plannerClient.unlinkDocument(note.id, target.id, action.key, note.version, bound.signal));
         actions.settle(scope, action);
-        await bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), updated));
-        await bound.wait(announce(t('notes.wizard.unlinked', { title: updated.title })));
+        yield* bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), updated));
+        yield* announce(t('notes.wizard.unlinked', { title: updated.title }));
       } catch (cause) {
-        bound.rethrowIfStale(cause);
         if (isStoredFinalResult(cause)) actions.settle(scope, action);
-        if (isApiStatus(cause, 412)) await bound.wait(linkedQuery.refetch());
+        if (isApiStatus(cause, 412)) yield* bound.wait(linkedQuery.refetch());
         error.value = errorMessage(cause, t('notes.wizard.error'));
       }
     },

@@ -11,7 +11,7 @@ import {
 import { isApiStatus, useLinkTargets } from '../../composables/notes';
 import { t } from '../../i18n';
 import { errorMessage } from '../../i18n/problem';
-import { runOwnerBound, type OwnerScope } from '../../session/ownerBound';
+import { runOwnerBound, type OwnerScope, type OwnerSteps } from '../../session/ownerBound';
 import UiBadge from '../ui/UiBadge.vue';
 import UiBanner from '../ui/UiBanner.vue';
 import UiButton from '../ui/UiButton.vue';
@@ -63,9 +63,10 @@ function targetRoute(link: DocumentLink): string | null {
   return null;
 }
 
-async function announce(message: string): Promise<void> {
+/** Announce politely. A generator: its own wait is fenced like the task's (delegate with `yield*`). */
+function* announce(message: string): OwnerSteps<void> {
   announcement.value = '';
-  await nextTick();
+  yield nextTick();
   announcement.value = message;
 }
 
@@ -76,12 +77,11 @@ function failure(cause: unknown): string {
 }
 
 /** 412: the note moved on elsewhere; hand the server version to the editor to judge. */
-async function reportStale(bound: OwnerScope, noteId: string): Promise<void> {
+function* reportStale(owner: OwnerScope, noteId: string): OwnerSteps<void> {
   try {
-    const latest = await bound.wait(plannerClient.getDocument(noteId, bound.signal));
+    const latest = yield* owner.wait(plannerClient.getDocument(noteId, owner.signal));
     emit('stale', latest);
-  } catch (cause) {
-    bound.rethrowIfStale(cause);
+  } catch {
     // The conflict message below still tells the user to retry.
   }
 }
@@ -101,21 +101,20 @@ async function addLink(link: DocumentLinkCreate): Promise<void> {
   busy.value = true;
   pickerError.value = null;
   await runOwnerBound(
-    async (bound) => {
+    function* (bound) {
       try {
-        const updated = await bound.wait(plannerClient.linkDocument(note.id, action.payload, action.key, note.version, bound.signal));
+        const updated = yield* bound.wait(plannerClient.linkDocument(note.id, action.payload, action.key, note.version, bound.signal));
         actions.settle(scope, action);
         pickerOpen.value = false;
         emit('updated', updated);
-        await bound.wait(announce(t('notes.links.linked', { target: targetName(link) })));
+        yield* announce(t('notes.links.linked', { target: targetName(link) }));
       } catch (cause) {
-        bound.rethrowIfStale(cause);
         if (isStoredFinalResult(cause)) actions.settle(scope, action);
         if (isApiStatus(cause, 412)) {
           // The picker closes: the editor may need its own conflict dialog now.
           pickerOpen.value = false;
           error.value = t('notes.links.conflict');
-          await bound.wait(reportStale(bound, note.id));
+          yield* reportStale(bound, note.id);
         } else {
           pickerError.value = failure(cause);
         }
@@ -138,20 +137,19 @@ async function removeLink(link: DocumentLink): Promise<void> {
   error.value = null;
   const name = targetName(link);
   await runOwnerBound(
-    async (bound) => {
+    function* (bound) {
       try {
-        const updated = await bound.wait(plannerClient.unlinkDocument(note.id, link.id, action.key, note.version, bound.signal));
+        const updated = yield* bound.wait(plannerClient.unlinkDocument(note.id, link.id, action.key, note.version, bound.signal));
         actions.settle(scope, action);
         emit('updated', updated);
-        await bound.wait(announce(t('notes.links.unlinked', { target: name })));
-        await bound.wait(nextTick());
+        yield* announce(t('notes.links.unlinked', { target: name }));
+        yield* bound.wait(nextTick());
         (addButton.value?.$el as HTMLElement | undefined)?.focus();
       } catch (cause) {
-        bound.rethrowIfStale(cause);
         if (isStoredFinalResult(cause)) actions.settle(scope, action);
         if (isApiStatus(cause, 412)) {
           error.value = t('notes.links.conflict');
-          await bound.wait(reportStale(bound, note.id));
+          yield* reportStale(bound, note.id);
         } else {
           error.value = failure(cause);
         }

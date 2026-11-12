@@ -448,8 +448,8 @@ async function submitReview(review: SessionReviewRequest): Promise<void> {
   // screen, not to either owner's storage. reviewSession takes no AbortSignal;
   // `owner.wait` stops waiting for it instead (the request itself completes).
   await runOwnerBound(
-    async (owner) => {
-      if (sessions.pendingCount > 0) await owner.wait(syncPending());
+    function* (owner) {
+      if (sessions.pendingCount > 0) yield* owner.wait(syncPending());
       const ready = session.value;
       if (ready === null) return;
       reviewBusy.value = true;
@@ -457,7 +457,7 @@ async function submitReview(review: SessionReviewRequest): Promise<void> {
       const scope = `focus:review:${ready.id}`;
       try {
         const action = actions.begin(scope, review, (left, right) => JSON.stringify(left) === JSON.stringify(right), ready.version);
-        const result = await owner.wait(plannerClient.reviewSession(ready.id, action.payload, action.key, ready.version));
+        const result = yield* owner.wait(plannerClient.reviewSession(ready.id, action.payload, action.key, ready.version));
         actions.settle(scope, action);
         feedback.value = result;
         // The layout's review prompt only counts sessions without a review; the
@@ -465,7 +465,6 @@ async function submitReview(review: SessionReviewRequest): Promise<void> {
         markSessionReviewed(owner.binding, ready.id);
         toast.show(t('focus.reviewSaved'));
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         reviewError.value = errorMessage(cause, t('focus.reviewFailed'));
       }
     },

@@ -113,22 +113,31 @@ describe('lint: storage through an alias of the browser global (FU-77R-1 H2)', (
   }, 30_000);
 });
 
-describe('lint: owner-isolation/bound-await', () => {
-  it('flags a bare await, an unguarded catch and a finally inside runOwnerBound, and in an OwnerScope helper (negative)', async () => {
+describe('lint: owner-isolation/bound-task', () => {
+  it('flags an async task, effects after the awaited outcome (also chained) and an async helper inside a task (negative)', async () => {
     const messages = await lintAs('src/views/boundTask.ts', fixture('boundTask.ts'));
     expect(messages.map((message) => [message.rule, message.id, message.line])).toEqual([
-      ['owner-isolation/bound-await', 'unbound', 12],
-      ['owner-isolation/bound-await', 'unguardedCatch', 14],
-      ['owner-isolation/bound-await', 'noFinally', 17],
-      ['owner-isolation/bound-await', 'unbound', 26],
+      ['owner-isolation/bound-task', 'notGenerator', 17],
+      ['owner-isolation/bound-task', 'afterOutcome', 21],
+      ['owner-isolation/bound-task', 'asyncHelper', 28],
+      ['owner-isolation/bound-task', 'afterOutcome', 36],
     ]);
   }, 30_000);
 
-  it('accepts the correct form: owner.wait, rethrowIfStale first, cleanup in onSettled', async () => {
+  it('accepts the correct form: a generator task, a delegated generator helper, the outcome only mapped', async () => {
     const source = fixture('boundTask.ts');
-    const right = source.slice(source.indexOf('export async function right'));
-    const header = source.slice(0, source.indexOf('export async function wrong'));
+    const right = source.slice(source.indexOf('function* announceSteps'));
+    const header = source.slice(0, source.indexOf('async function announce'));
     const messages = await lintAs('src/views/boundTaskRight.ts', header + right);
-    expect(messages.filter((message) => message.rule === 'owner-isolation/bound-await')).toEqual([]);
+    expect(messages.filter((message) => message.rule === 'owner-isolation/bound-task')).toEqual([]);
+  }, 30_000);
+
+  it('the same in a .vue script block (negative)', async () => {
+    const source = fixture('boundTask.ts')
+      .replace("'../../../src/session/ownerBound'", "'../session/ownerBound'")
+      .replace(/^export /gm, '');
+    const vue = `<script setup lang="ts">\n${source}</script>\n<template><p /></template>\n`;
+    const messages = await lintAs('src/views/BoundTask.vue', vue);
+    expect(messages.map((message) => message.id)).toEqual(['notGenerator', 'afterOutcome', 'asyncHelper', 'afterOutcome']);
   }, 30_000);
 });

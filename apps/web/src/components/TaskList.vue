@@ -95,25 +95,31 @@ async function saveEdit(task: Task): Promise<void> {
     cancelEdit();
     return;
   }
-  try {
-    const updated = await rename(task, title);
-    if (updated !== null) {
-      cancelEdit();
-      emit('refresh');
+  // Owner isolation (ADR-023): what follows the task action runs as an
+  // owner-bound task, so it only ever continues for the user who started it.
+  await runOwnerBound(function* (owner) {
+    try {
+      const updated = yield* owner.wait(rename(task, title));
+      if (updated !== null) {
+        cancelEdit();
+        emit('refresh');
+      }
+    } catch {
+      // `error` already carries a user-facing message; keep the draft editable.
     }
-  } catch {
-    // `error` already carries a user-facing message; keep the draft editable.
-  }
+  });
 }
 
 async function onComplete(task: Task): Promise<void> {
   if (interactiveDisabled.value) return;
-  try {
-    const updated = await complete(task);
-    if (updated !== null) emit('refresh');
-  } catch {
-    // `error` already carries a user-facing message.
-  }
+  await runOwnerBound(function* (owner) {
+    try {
+      const updated = yield* owner.wait(complete(task));
+      if (updated !== null) emit('refresh');
+    } catch {
+      // `error` already carries a user-facing message.
+    }
+  });
 }
 
 function onRemove(task: Task): void {
@@ -154,18 +160,17 @@ function cancelAllDeletes(reason: string): void {
 
 async function commitDelete(task: Task, binding: OwnerBinding): Promise<void> {
   await runOwnerBound(
-    async (owner) => {
+    function* (owner) {
       if (!offline.online || props.disabled) {
         unhide(task.id);
         toast.show(t('taskList.deleteCancelledDisabled'));
         return;
       }
       try {
-        const deleted = await owner.wait(remove(task));
+        const deleted = yield* owner.wait(remove(task));
         if (deleted) emit('refresh');
         else unhide(task.id);
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         unhide(task.id);
         toast.show(t('taskList.deleteFailed'), { tone: 'error' });
       }
@@ -188,28 +193,32 @@ async function onOverwrite(): Promise<void> {
     current !== null && current.operation === 'rename' && editingId.value === current.taskId
       ? draft.value
       : null;
-  try {
-    await overwrite(currentDraft);
-    if (conflict.value === null) {
-      cancelEdit();
-      emit('refresh');
+  await runOwnerBound(function* (owner) {
+    try {
+      yield* owner.wait(overwrite(currentDraft));
+      if (conflict.value === null) {
+        cancelEdit();
+        emit('refresh');
+      }
+    } catch {
+      // `error` already carries a user-facing message; conflict state is kept.
     }
-  } catch {
-    // `error` already carries a user-facing message; conflict state is kept.
-  }
+  });
 }
 
 async function onReload(): Promise<void> {
   if (busy.value) return;
-  try {
-    await reload();
-    if (conflict.value === null) {
-      cancelEdit();
-      emit('refresh');
+  await runOwnerBound(function* (owner) {
+    try {
+      yield* owner.wait(reload());
+      if (conflict.value === null) {
+        cancelEdit();
+        emit('refresh');
+      }
+    } catch {
+      toast.show(t('taskList.reloadFailed'), { tone: 'error' });
     }
-  } catch {
-    toast.show(t('taskList.reloadFailed'), { tone: 'error' });
-  }
+  });
 }
 
 function onCancelConflict(): void {

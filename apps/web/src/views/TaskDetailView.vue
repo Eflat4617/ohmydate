@@ -97,31 +97,29 @@ async function promote(): Promise<void> {
   promoteError.value = null;
   // Owner isolation (ADR-023): cache, toast and navigation only for the owner who promoted.
   await runOwnerBound(
-    async (bound) => {
+    function* (bound) {
       try {
-        const note = await bound.wait(plannerClient.promoteTaskDescription(current.id, action.key, current.version, bound.signal));
+        const note = yield* bound.wait(plannerClient.promoteTaskDescription(current.id, action.key, current.version, bound.signal));
         actions.settle(scope, action);
-        await bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), note));
+        yield* bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), note));
         toast.show(t('notes.promote.done'));
-        await bound.wait(router.push(`/notes/${note.id}`));
+        yield* bound.wait(router.push(`/notes/${note.id}`));
       } catch (cause) {
-        bound.rethrowIfStale(cause);
         if (isStoredFinalResult(cause)) actions.settle(scope, action);
         if (isApiStatus(cause, 409)) {
           try {
-            const existing = await bound.wait(findPromotedNote(current.id, bound.binding));
+            const existing = yield* bound.wait(findPromotedNote(current.id, bound.binding));
             if (existing === null) {
               promoteError.value = t('notes.promote.existsMissing');
               return;
             }
             toast.show(t('notes.promote.exists'));
-            await bound.wait(router.push(`/notes/${existing.id}`));
+            yield* bound.wait(router.push(`/notes/${existing.id}`));
           } catch (lookup) {
-            bound.rethrowIfStale(lookup);
             promoteError.value = errorMessage(lookup, t('notes.promote.existsMissing'));
           }
         } else if (isApiStatus(cause, 412)) {
-          await bound.wait(taskQuery.refetch());
+          yield* bound.wait(taskQuery.refetch());
           promoteError.value = t('notes.promote.conflict');
         } else if (isApiStatus(cause, 422)) {
           promoteError.value = t('notes.promote.empty');

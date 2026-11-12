@@ -25,7 +25,7 @@ import {
 } from '../domain/draftValidation';
 import { useOfflineStore } from '../stores/offline';
 import { useAuthStore } from '../stores/auth';
-import { runOwnerBound, type OwnerScope } from '../session/ownerBound';
+import { runOwnerBound, waitStep, type OwnerSteps } from '../session/ownerBound';
 import {
   captureOwnerBinding,
   isOwnerBindingCurrent,
@@ -248,17 +248,21 @@ function applySession(updated: IntakeSession): void {
   if (updated.manual && updated.error === undefined) llmIssue.value = null;
 }
 
+/** Re-read the session inside an owner-bound task (delegate with `yield*`). A failed read answers null. */
+function* refreshSessionSteps(): OwnerSteps<IntakeSession | null> {
+  if (sessionId.value.length === 0) return null;
+  try {
+    const fresh = yield* waitStep(plannerClient.getIntakeSession(sessionId.value, { fresh: true }));
+    queryClient.setQueryData(['intake', fresh.id], fresh);
+    return fresh;
+  } catch {
+    return null;
+  }
+}
+
 /** Re-read the session for the current owner; a read that outlives the owner caches nothing. */
 async function refreshSession(): Promise<IntakeSession | null> {
-  if (sessionId.value.length === 0) return null;
-  const outcome = await runOwnerBound(
-    async (owner) => {
-      const fresh = await owner.wait(plannerClient.getIntakeSession(sessionId.value, { fresh: true }));
-      queryClient.setQueryData(['intake', fresh.id], fresh);
-      return fresh;
-    },
-    { onError: () => undefined },
-  );
+  const outcome = await runOwnerBound(refreshSessionSteps);
   return outcome.status === 'done' ? outcome.value : null;
 }
 
@@ -698,24 +702,27 @@ function handleError(cause: unknown): void {
 }
 
 /**
- * Every non-AI wizard mutation goes through here, under the owner who started
- * it (ADR-023). If the signed-in user changes meanwhile the answer is dropped:
- * the caller gets `undefined`, exactly as for a failure, and shows nothing.
+ * Every non-AI wizard mutation goes through here, as steps of an owner-bound
+ * task (ADR-023): the handler runs `runOwnerBound(function* () { … yield*
+ * run(…) … })`, so the request and everything the handler does with its
+ * answer continue only for the owner who started it. A failure is shown and
+ * answers `undefined`.
  */
-async function run<T>(operation: (owner: OwnerScope) => Promise<T>): Promise<T | undefined> {
+function* run<T>(steps: () => OwnerSteps<T>): OwnerSteps<T | undefined> {
   if (!offline.mutationsEnabled) {
     mutationError.value = t('wizard.offlineMutation');
     return undefined;
   }
   busyCount.value += 1;
   mutationError.value = null;
-  const outcome = await runOwnerBound(async (owner) => owner.wait(operation(owner)), {
-    onError: handleError,
-    onSettled: () => {
-      busyCount.value -= 1;
-    },
-  });
-  return outcome.status === 'done' ? outcome.value : undefined;
+  try {
+    return yield* steps();
+  } catch (cause) {
+    handleError(cause);
+    return undefined;
+  } finally {
+    busyCount.value -= 1;
+  }
 }
 
 function toInstant(value: string): string | undefined {
@@ -843,12 +850,14 @@ async function enterManual(): Promise<void> {
   if (current === null) return;
   const scope = `intake:${current.id}:manual`;
   const action = actions.begin(scope, { manual: true }, samePayload, current.version);
-  const updated = await run(() =>
-    plannerClient.enterManualIntakeMode(current.id, action.key, current.version),
-  );
-  if (updated === undefined) return;
-  actions.settle(scope, action);
-  applySession(updated);
+  await runOwnerBound(function* () {
+    const updated = yield* run(() =>
+      waitStep(plannerClient.enterManualIntakeMode(current.id, action.key, current.version)),
+    );
+    if (updated === undefined) return;
+    actions.settle(scope, action);
+    applySession(updated);
+  });
 }
 
 async function sessionAction(action: 'pause' | 'resume' | 'cancel'): Promise<void> {
@@ -856,18 +865,20 @@ async function sessionAction(action: 'pause' | 'resume' | 'cancel'): Promise<voi
   if (current === null) return;
   const scope = `intake:${current.id}:${action}`;
   const token = actions.begin(scope, { action }, samePayload, current.version);
-  const updated = await run(() => {
-    if (action === 'pause') {
-      return plannerClient.pauseIntakeSession(current.id, token.key, current.version);
-    }
-    if (action === 'resume') {
-      return plannerClient.resumeIntakeSession(current.id, token.key, current.version);
-    }
-    return plannerClient.cancelIntakeSession(current.id, token.key, current.version);
+  await runOwnerBound(function* () {
+    const updated = yield* run(() => {
+      if (action === 'pause') {
+        return waitStep(plannerClient.pauseIntakeSession(current.id, token.key, current.version));
+      }
+      if (action === 'resume') {
+        return waitStep(plannerClient.resumeIntakeSession(current.id, token.key, current.version));
+      }
+      return waitStep(plannerClient.cancelIntakeSession(current.id, token.key, current.version));
+    });
+    if (updated === undefined) return;
+    actions.settle(scope, token);
+    applySession(updated);
   });
-  if (updated === undefined) return;
-  actions.settle(scope, token);
-  applySession(updated);
 }
 
 function issuesFor(step: DecompositionStep): readonly DraftIssue[] {
@@ -921,7 +932,8 @@ function removeStep(index: number): void {
     }));
 }
 
-async function persistDraft(): Promise<boolean> {
+/** Save the edited draft, as steps of an owner-bound task. True when the server has it. */
+function* persistDraftSteps(): OwnerSteps<boolean> {
   const current = session.value;
   if (current === null || draft.value === null) return false;
   if (!draftValidation.value.valid) {
@@ -936,67 +948,66 @@ async function persistDraft(): Promise<boolean> {
   };
   const scope = `intake:${current.id}:draft`;
   const action = actions.begin(scope, patch, samePayload, current.version);
-  const updated = await run(() =>
-    plannerClient.updateIntakeDraft(current.id, patch, action.key, current.version),
+  const updated = yield* run(() =>
+    waitStep(plannerClient.updateIntakeDraft(current.id, patch, action.key, current.version)),
   );
   if (updated === undefined) return false;
   actions.settle(scope, action);
   draft.value = cloneDraft(updated);
   draftConflict.value = false;
-  await refreshSession();
+  yield* refreshSessionSteps();
   return true;
 }
 
 async function saveDraft(): Promise<void> {
-  const saved = await persistDraft();
-  if (saved) mutationError.value = null;
+  await runOwnerBound(function* () {
+    const saved = yield* persistDraftSteps();
+    if (saved) mutationError.value = null;
+  });
 }
 
 async function approve(): Promise<void> {
   if (busy.value) return;
   // One owner for the whole chain (save the draft, then approve it): a user
   // switch in between must not send the approval with the next user's session.
-  await runOwnerBound(async (owner) => {
-    const saved = await owner.wait(persistDraft());
+  await runOwnerBound(function* () {
+    const saved = yield* persistDraftSteps();
     if (!saved) return;
     const current = session.value;
     if (current === null || current.state !== 'decomposition') {
-      await owner.wait(refreshSession());
+      yield* refreshSessionSteps();
       return;
     }
     const scope = `intake:${current.id}:approve`;
     const action = actions.begin(scope, { id: current.id }, samePayload, current.version);
-    const updated = await owner.wait(
-      run(async (bound: OwnerScope) => {
-        for (let attempt = 0; ; attempt += 1) {
-          // The view may have been disposed, or the connection may have dropped
-          // during Retry-After. Never send the delayed request offline; leaving the
-          // action unsettled preserves the same idempotency key for the next retry.
-          if (disposed) return undefined;
-          if (!offline.mutationsEnabled) {
-            mutationError.value = t('wizard.approveOffline');
-            return undefined;
-          }
-          try {
-            return await bound.wait(plannerClient.approveIntakeDraft(current.id, action.key, current.version));
-          } catch (cause) {
-            bound.rethrowIfStale(cause);
-            if (
-              cause instanceof ApiError &&
-              cause.status === 409 &&
-              cause.code === 'approval_in_progress' &&
-              attempt < 5
-            ) {
-              const seconds = Math.max(cause.retryAfterSeconds ?? 1, 0);
-              liveMessage.value = t('wizard.approveRetrying', { seconds });
-              await bound.wait(delay(seconds * 1_000));
-              continue;
-            }
-            throw cause;
-          }
+    const updated = yield* run(function* () {
+      for (let attempt = 0; ; attempt += 1) {
+        // The view may have been disposed, or the connection may have dropped
+        // during Retry-After. Never send the delayed request offline; leaving the
+        // action unsettled preserves the same idempotency key for the next retry.
+        if (disposed) return undefined;
+        if (!offline.mutationsEnabled) {
+          mutationError.value = t('wizard.approveOffline');
+          return undefined;
         }
-      }),
-    );
+        try {
+          return yield* waitStep(plannerClient.approveIntakeDraft(current.id, action.key, current.version));
+        } catch (cause) {
+          if (
+            cause instanceof ApiError &&
+            cause.status === 409 &&
+            cause.code === 'approval_in_progress' &&
+            attempt < 5
+          ) {
+            const seconds = Math.max(cause.retryAfterSeconds ?? 1, 0);
+            liveMessage.value = t('wizard.approveRetrying', { seconds });
+            yield delay(seconds * 1_000);
+            continue;
+          }
+          throw cause;
+        }
+      }
+    });
     if (updated === undefined) return;
     actions.settle(scope, action);
     applySession(updated);
@@ -1004,10 +1015,12 @@ async function approve(): Promise<void> {
 }
 
 async function reloadDraft(): Promise<void> {
-  const fresh = await refreshSession();
-  if (fresh?.draft !== undefined) draft.value = cloneDraft(fresh.draft);
-  draftConflict.value = false;
-  mutationError.value = null;
+  await runOwnerBound(function* () {
+    const fresh = yield* refreshSessionSteps();
+    if (fresh?.draft !== undefined) draft.value = cloneDraft(fresh.draft);
+    draftConflict.value = false;
+    mutationError.value = null;
+  });
 }
 
 function retry(): void {

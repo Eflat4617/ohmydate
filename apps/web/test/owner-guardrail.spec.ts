@@ -3,14 +3,14 @@ import { QueryClient, useQueryClient } from '@tanstack/vue-query';
 import { createPinia } from 'pinia';
 import { defineComponent, h } from 'vue';
 import { createMemoryHistory, createRouter, useRouter } from 'vue-router';
-import { plannerClient } from '../src/api';
+import { newActionId, plannerClient } from '../src/api';
 import { AI_WAIT_STORAGE_PREFIX, LEGACY_AI_WAIT_STORAGE_KEY, aiWaitStorageKey } from '../src/composables/useAiWait';
 import { acknowledgeRisk, isRiskAcknowledged } from '../src/layout/localSignals';
 import { layoutPrefsKey, writeLayoutPrefs } from '../src/layout/prefs';
 import { refuseNavigationWhenSealed, routes } from '../src/router';
 import { IndexedDbSessionJournal } from '../src/session/journal';
 import { OWNER_STORAGE_KEY } from '../src/session/owner';
-import { OwnerChangedError, collectPages, runOwnerBound } from '../src/session/ownerBound';
+import { OwnerChangedError, collectPages, runOwnerBound, waitStep, type OwnerSteps } from '../src/session/ownerBound';
 import {
   adoptActiveOwner,
   captureOwnerBinding,
@@ -250,10 +250,20 @@ describe('owner-scoped query client', () => {
 });
 
 describe('runOwnerBound — one owner for a continuation’s whole life', () => {
-  it('done: returns the value and runs onSettled', async () => {
+  it('done: returns the value and runs onSettled; the first stretch runs in the caller’s turn', async () => {
     const settled = vi.fn();
-    const outcome = await runOwnerBound(async (owner) => `for ${String(owner.ownerId)}`, { onSettled: settled });
-    expect(outcome).toEqual({ status: 'done', value: `for ${OWNER_A}` });
+    const order: string[] = [];
+    const running = runOwnerBound(
+      function* (owner) {
+        order.push('task started');
+        yield* owner.wait(Promise.resolve());
+        return `for ${String(owner.ownerId)}`;
+      },
+      { onSettled: settled },
+    );
+    order.push('caller went on');
+    expect(order).toEqual(['task started', 'caller went on']);
+    expect(await running).toEqual({ status: 'done', value: `for ${OWNER_A}` });
     expect(settled).toHaveBeenCalledTimes(1);
   });
 
@@ -261,42 +271,57 @@ describe('runOwnerBound — one owner for a continuation’s whole life', () => 
     const boom = new Error('boom');
     const onError = vi.fn();
     const settled = vi.fn();
-    const outcome = await runOwnerBound(
-      async () => {
-        throw boom;
-      },
-      { onError, onSettled: settled },
-    );
-    expect(outcome).toEqual({ status: 'failed', cause: boom });
+    const failing = function* (): OwnerSteps<void> {
+      yield* waitStep(Promise.resolve());
+      throw boom;
+    };
+    expect(await runOwnerBound(failing, { onError, onSettled: settled })).toEqual({ status: 'failed', cause: boom });
     expect(onError).toHaveBeenCalledWith(boom);
-    await expect(
-      runOwnerBound(
-        async () => {
-          throw boom;
-        },
-        { onSettled: settled },
-      ),
-    ).rejects.toBe(boom);
+    await expect(runOwnerBound(failing, { onSettled: settled })).rejects.toBe(boom);
     expect(settled).toHaveBeenCalledTimes(2);
   });
 
-  it('stale: the owner changed while it waited — nothing after the await runs, no handler is called (negative)', async () => {
+  it('a failure of the awaited work is thrown into the task, where a catch handles it', async () => {
+    const real = new Error('412');
+    const seen: unknown[] = [];
+    const outcome = await runOwnerBound(function* (owner) {
+      try {
+        yield* owner.wait(Promise.reject(real));
+      } catch (cause) {
+        seen.push(cause);
+        return 'handled';
+      }
+      return 'not reached';
+    });
+    expect(outcome).toEqual({ status: 'done', value: 'handled' });
+    expect(seen).toEqual([real]);
+  });
+
+  it('stale: the owner changed while it waited — the task never resumes: no later line, no catch, no finally, no handler (negative)', async () => {
     const held = gate<string>();
-    const after = vi.fn();
+    const ran: string[] = [];
     const onError = vi.fn();
     const settled = vi.fn();
     const running = runOwnerBound(
-      async (owner) => {
-        const value = await owner.wait(held.promise);
-        after(value);
-        return value;
+      function* (owner) {
+        try {
+          const value = yield* owner.wait(held.promise);
+          ran.push(`after the wait: ${value}`);
+          return value;
+        } catch {
+          ran.push('catch');
+          return 'caught';
+        } finally {
+          ran.push('finally');
+        }
       },
       { onError, onSettled: settled },
     );
     adoptActiveOwner(OWNER_B, 'storage');
     held.release('A-private');
     expect(await running).toEqual({ status: 'stale' });
-    expect(after).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(ran).toEqual([]);
     expect(onError).not.toHaveBeenCalled();
     expect(settled).not.toHaveBeenCalled();
   });
@@ -304,8 +329,8 @@ describe('runOwnerBound — one owner for a continuation’s whole life', () => 
   it('stale: stops waiting at once even if the awaited work never settles or fails later', async () => {
     const never = new Promise<string>(() => {});
     const late = gate<string>();
-    const first = runOwnerBound(async (owner) => owner.wait(never));
-    const second = runOwnerBound(async (owner) => owner.wait(late.promise), { onError: vi.fn() });
+    const first = runOwnerBound((owner) => owner.wait(never));
+    const second = runOwnerBound((owner) => owner.wait(late.promise), { onError: vi.fn() });
     adoptActiveOwner(OWNER_B, 'storage');
     expect(await first).toEqual({ status: 'stale' });
     expect(await second).toEqual({ status: 'stale' });
@@ -314,49 +339,61 @@ describe('runOwnerBound — one owner for a continuation’s whole life', () => 
     await Promise.resolve();
   });
 
-  it('a stale result is dropped even when the task ignored the scope, and a stale failure is not an error', async () => {
+  it('a stale failure is not an error: the aborted request’s rejection reaches neither the task nor onError', async () => {
     const held = gate<string>();
     const onError = vi.fn();
-    const running = runOwnerBound(async () => held.promise, { onError });
+    const caught = vi.fn();
+    const running = runOwnerBound(
+      function* (owner) {
+        try {
+          return yield* owner.wait(held.promise);
+        } catch (cause) {
+          caught(cause);
+          throw cause;
+        }
+      },
+      { onError },
+    );
     adoptActiveOwner(OWNER_B, 'storage');
     held.fail(new TypeError('Failed to fetch'));
     expect(await running).toEqual({ status: 'stale' });
+    expect(caught).not.toHaveBeenCalled();
     expect(onError).not.toHaveBeenCalled();
   });
 
   it('runs nothing under a binding that is already stale (a timer that fires for the previous owner)', async () => {
     const binding = captureOwnerBinding();
     adoptActiveOwner(OWNER_B, 'storage');
-    const task = vi.fn();
+    const task = vi.fn(function* (): OwnerSteps<string> {
+      yield* waitStep(Promise.resolve());
+      return 'ran';
+    });
     expect(await runOwnerBound(task, { binding })).toEqual({ status: 'stale' });
     expect(task).not.toHaveBeenCalled();
     // Control: the same call under the current owner runs.
-    expect(await runOwnerBound(() => 'ran')).toEqual({ status: 'done', value: 'ran' });
+    expect(await runOwnerBound(task)).toEqual({ status: 'done', value: 'ran' });
   });
 
-  it('rethrowIfStale lets a catch see only real failures of the current owner', async () => {
-    const real = new Error('412');
-    const seen: unknown[] = [];
-    await runOwnerBound(async (owner) => {
-      try {
-        await owner.wait(Promise.reject(real));
-      } catch (cause) {
-        owner.rethrowIfStale(cause);
-        seen.push(cause);
-      }
-    });
-    const held = gate();
-    const running = runOwnerBound(async (owner) => {
-      try {
-        await owner.wait(held.promise);
-      } catch (cause) {
-        owner.rethrowIfStale(cause);
-        seen.push(cause);
-      }
+  it('a raw `yield` is fenced like owner.wait, and yielding a generator instead of delegating is an error', async () => {
+    const held = gate<string>();
+    const after = vi.fn();
+    const running = runOwnerBound(function* () {
+      const value = yield held.promise;
+      after(value);
     });
     adoptActiveOwner(OWNER_B, 'storage');
+    held.release('A-private');
     expect(await running).toEqual({ status: 'stale' });
-    expect(seen).toEqual([real]);
+    expect(after).not.toHaveBeenCalled();
+
+    function* helper(): OwnerSteps<void> {
+      yield Promise.resolve();
+    }
+    await expect(
+      runOwnerBound(function* () {
+        yield helper();
+      }),
+    ).rejects.toThrow(/delegate to a helper with `yield\*`/);
   });
 
   it('pages: follows cursors under one binding and stops before the next page once the owner changed', async () => {
@@ -371,6 +408,18 @@ describe('runOwnerBound — one owner for a continuation’s whole life', () => 
     expect(all).toEqual({ status: 'done', value: { items: ['page-1', 'page-2', 'page-3'], found: null } });
     expect(calls).toEqual([undefined, 'c1', 'c2']);
 
+    let scoped = 0;
+    const stopped = await runOwnerBound((owner) =>
+      owner.pages<string>(async () => {
+        scoped += 1;
+        adoptActiveOwner(OWNER_B, 'storage');
+        return { items: ['A-page'], nextCursor: 'more' };
+      }),
+    );
+    expect(stopped).toEqual({ status: 'stale' });
+    expect(scoped).toBe(1);
+
+    adoptActiveOwner(OWNER_A, 'storage');
     let fetched = 0;
     const binding = captureOwnerBinding();
     const lookup = collectPages<string>(binding, async () => {
@@ -432,12 +481,102 @@ describe('the seal makes even unfenced code inert (and the harness sees unfenced
     expect(leaks.storage).toEqual([layoutPrefsKey(OWNER_B)]);
     expect(leaks.cache).toEqual(['["availability"]']);
     expect(leaks.toasts).toEqual(['saved for whoever is signed in now']);
-    expect(leaks.navigation).toBe('/inbox -> /today');
+    expect(leaks.navigation).toEqual(['push /today']);
     expect(() => stage?.expectNoLeak()).toThrow();
   });
 
   it('with the seal (as in production) the same code reaches nothing', async () => {
     stage = await switchWhileHeld(true);
     stage.expectNoLeak();
+  });
+});
+
+describe('the harness sees each way a request and an owner change can meet (unfenced code)', () => {
+  let stage: OwnerSwitchStage | null = null;
+
+  afterEach(async () => {
+    await stage?.dispose();
+    stage = null;
+  });
+
+  /** A plain async handler: no binding, a toast on success and on failure. */
+  const Plain = defineComponent({
+    setup() {
+      const toast = useToastStore();
+      async function act(): Promise<void> {
+        try {
+          await plannerClient.getAvailability({ fresh: true });
+          toast.show('saved', { duration: 0 });
+        } catch {
+          toast.show('could not save', { duration: 0 });
+        }
+      }
+      return () => h('button', { onClick: () => void act() }, 'go');
+    },
+  });
+
+  /** The same as an owner-bound task. */
+  const Bound = defineComponent({
+    setup() {
+      const toast = useToastStore();
+      function act(): Promise<unknown> {
+        return runOwnerBound(function* (owner) {
+          try {
+            yield* owner.wait(plannerClient.getAvailability({ fresh: true }));
+            toast.show('saved', { duration: 0 });
+          } catch {
+            toast.show('could not save', { duration: 0 });
+          }
+        });
+      }
+      return () => h('button', { onClick: () => void act() }, 'go');
+    },
+  });
+
+  async function meet(component: typeof Plain, order: 'late' | 'aborted' | 'gap'): Promise<readonly string[]> {
+    const created = await createOwnerSwitchStage();
+    stage = created;
+    const wrapper = created.mount(component);
+    const held = created.hold({ method: 'GET', path: '/availability' });
+    await wrapper.get('button').trigger('click');
+    await held.arrived();
+    if (order === 'gap') {
+      held.release();
+      queueMicrotask(() => created.switchOwnerNow());
+    } else {
+      await created.switchOwner();
+      held.release({ as: order === 'aborted' ? 'aborted' : 'response' });
+    }
+    await created.settle();
+    const toasts = created.leaks().toasts;
+    await created.dispose();
+    stage = null;
+    return toasts;
+  }
+
+  it('unfenced: a late answer, an aborted request and an answer followed by the switch each leak a toast (negative)', async () => {
+    expect(await meet(Plain, 'late')).toEqual(['saved']);
+    expect(await meet(Plain, 'aborted')).toEqual(['could not save']);
+    expect(await meet(Plain, 'gap')).toEqual(['saved']);
+  });
+
+  it('owner-bound: none of the three orders reaches the next user', async () => {
+    expect(await meet(Bound, 'late')).toEqual([]);
+    expect(await meet(Bound, 'aborted')).toEqual([]);
+    expect(await meet(Bound, 'gap')).toEqual([]);
+  });
+
+  it('the transport does not send a request whose owner changed before it left (no signal parameter needed)', async () => {
+    const created = await createOwnerSwitchStage();
+    stage = created;
+    // The client method is called for A; the owner changes in the next
+    // microtask, before openapi-fetch has reached fetch().
+    const pending = plannerClient.createCommitment(
+      { title: 'A-private', startAt: '2026-11-20T01:00:00.000Z', endAt: '2026-11-20T02:00:00.000Z', timeZone: 'UTC' },
+      newActionId('commitment'),
+    );
+    queueMicrotask(() => created.switchOwnerNow());
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(created.requests.filter((request) => request.method === 'POST')).toEqual([]);
   });
 });

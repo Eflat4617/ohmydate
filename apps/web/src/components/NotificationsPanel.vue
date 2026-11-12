@@ -67,11 +67,16 @@ function openProposal(event: MouseEvent, path: string): void {
 
 async function onDismiss(item: PlannerNotification): Promise<void> {
   busyId.value = item.id;
-  try {
-    await dismiss(item);
-  } finally {
-    busyId.value = null;
-  }
+  await runOwnerBound(
+    function* (owner) {
+      yield* owner.wait(dismiss(item));
+    },
+    {
+      onSettled: () => {
+        busyId.value = null;
+      },
+    },
+  );
 }
 
 function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
@@ -91,9 +96,9 @@ async function enablePush(): Promise<void> {
   pushBusy.value = true;
   pushStatus.value = 'idle';
   await runOwnerBound(
-    async (owner) => {
+    function* (owner) {
       try {
-        const permission = await owner.wait(Notification.requestPermission());
+        const permission = yield* owner.wait(Notification.requestPermission());
         if (permission !== 'granted') {
           pushStatus.value = 'denied';
           return;
@@ -102,12 +107,12 @@ async function enablePush(): Promise<void> {
           pushStatus.value = 'idle';
           return;
         }
-        const registration = await owner.wait(navigator.serviceWorker.ready);
-        const existing = await owner.wait(registration.pushManager.getSubscription());
+        const registration = yield* owner.wait(navigator.serviceWorker.ready);
+        const existing = yield* owner.wait(registration.pushManager.getSubscription());
         const key = import.meta.env.VITE_VAPID_PUBLIC_KEY;
         const subscription =
           existing ??
-          (await owner.wait(
+          (yield* owner.wait(
             registration.pushManager.subscribe({
               userVisibleOnly: true,
               ...(typeof key === 'string' && key.length > 0
@@ -122,7 +127,7 @@ async function enablePush(): Promise<void> {
           pushStatus.value = 'unavailable';
           return;
         }
-        await owner.wait(
+        yield* owner.wait(
           plannerClient.createPushSubscription(
             { endpoint: subscription.endpoint, keys: { p256dh, auth }, deviceLabel: 'Browser' },
             uuidV7Key(),
@@ -130,7 +135,6 @@ async function enablePush(): Promise<void> {
         );
         pushStatus.value = 'enabled';
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         pushStatus.value = 'unavailable';
       }
     },

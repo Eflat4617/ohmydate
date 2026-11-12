@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { ActionStore, findInboxProject, plannerClient, type Task } from '../api';
 import { useTaskActions } from '../composables/useTaskActions';
+import { runOwnerBound } from '../session/ownerBound';
 import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
 import QuickAddForm from '../components/QuickAddForm.vue';
@@ -69,16 +70,21 @@ watch(
   },
 );
 
+// Owner isolation (ADR-023): clearing the form and refreshing the lists is
+// part of the action, so it runs as an owner-bound task — after a user switch
+// the form of the next user is not touched.
 async function addTask(title: string): Promise<void> {
   if (!offline.mutationsEnabled) return;
-  try {
-    await create(title);
-    quickAdd.value?.clear();
-    await queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    await queryClient.invalidateQueries({ queryKey: ['projects'] });
-  } catch {
-    // `createError` carries the user-facing message and the form keeps its text.
-  }
+  await runOwnerBound(function* (owner) {
+    try {
+      yield* owner.wait(create(title));
+      quickAdd.value?.clear();
+      yield* owner.wait(queryClient.invalidateQueries({ queryKey: ['tasks'] }));
+      yield* owner.wait(queryClient.invalidateQueries({ queryKey: ['projects'] }));
+    } catch {
+      // `createError` carries the user-facing message and the form keeps its text.
+    }
+  });
 }
 
 async function refresh(): Promise<void> {

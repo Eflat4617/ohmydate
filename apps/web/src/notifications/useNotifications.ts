@@ -62,9 +62,9 @@ export function useNotifications(options: NotificationsOptions = {}) {
     loading.value = true;
     error.value = null;
     await runOwnerBound(
-      async (owner) => {
+      function* (owner) {
         try {
-          const page = await owner.wait(client.listNotifications({ limit: 50 }));
+          const page = yield* owner.wait(client.listNotifications({ limit: 50 }));
           items.value = page.items;
           for (const item of page.items) {
             if (item.state !== 'sent') continue;
@@ -75,7 +75,6 @@ export function useNotifications(options: NotificationsOptions = {}) {
           }
           delay = baseDelay;
         } catch (cause) {
-          owner.rethrowIfStale(cause);
           error.value = errorMessage(cause, t('notifications.loadFailed'));
           delay = Math.min(delay * 2, maxDelay);
         }
@@ -103,8 +102,8 @@ export function useNotifications(options: NotificationsOptions = {}) {
       return false;
     }
     const outcome = await runOwnerBound(
-      async (owner) => {
-        const updated = await owner.wait(client.dismissNotification(item.id, uuidV7Key(), item.version));
+      function* (owner) {
+        const updated = yield* owner.wait(client.dismissNotification(item.id, uuidV7Key(), item.version));
         items.value = items.value.map((current) => (current.id === updated.id ? updated : current));
       },
       {

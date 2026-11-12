@@ -31,8 +31,8 @@ import { useMediaQuery } from '../../composables/useMediaQuery';
 import { t } from '../../i18n';
 import { browserTimeZone, formatDateTime, formatNumber } from '../../i18n/format';
 import { errorMessage } from '../../i18n/problem';
-import { runOwnerBound, type OwnerScope } from '../../session/ownerBound';
-import { captureOwnerBinding, isOwnerBindingCurrent, ownerState } from '../../session/ownerEpoch';
+import { runOwnerBound, type OwnerScope, type OwnerSteps } from '../../session/ownerBound';
+import { ownerState } from '../../session/ownerEpoch';
 import { useAuthStore } from '../../stores/auth';
 import { useOfflineStore } from '../../stores/offline';
 import UiBadge from '../ui/UiBadge.vue';
@@ -231,9 +231,10 @@ onBeforeUnmount(() => {
   if (typeof window !== 'undefined') window.removeEventListener('beforeunload', unloadGuard);
 });
 
-async function announce(message: string): Promise<void> {
+/** Announce politely. A generator: its own wait is fenced like the task's (delegate with `yield*`). */
+function* announce(message: string): OwnerSteps<void> {
   statusText.value = '';
-  await nextTick();
+  yield nextTick();
   statusText.value = message;
 }
 
@@ -251,8 +252,8 @@ function patchFor(current: ContextDocument): ContextDocumentPatch {
   return patch;
 }
 
-async function focusFirstInvalid(): Promise<void> {
-  await nextTick();
+function* focusFirstInvalid(): OwnerSteps<void> {
+  yield nextTick();
   if (titleError.value !== null) titleInput.value?.focus();
   else if (bodyOver.value > 0) bodyInput.value?.focus();
 }
@@ -262,14 +263,9 @@ async function focusFirstInvalid(): Promise<void> {
  * (nothing editable changed there), adopt it and report `true` so the save is
  * sent once more against it; otherwise open the conflict dialog (M6-03R-1 M1).
  */
-async function resolveSaveConflict(
-  noteId: string,
-  binding: ReturnType<typeof captureOwnerBinding>,
-  allowRebase: boolean,
-): Promise<boolean> {
+function* resolveSaveConflict(bound: OwnerScope, noteId: string, allowRebase: boolean): OwnerSteps<boolean> {
   try {
-    const latest = await plannerClient.getDocument(noteId, binding.signal);
-    if (!isOwnerBindingCurrent(binding)) return false;
+    const latest = yield* bound.wait(plannerClient.getDocument(noteId, bound.signal));
     const current = base.value;
     if (
       allowRebase &&
@@ -279,14 +275,13 @@ async function resolveSaveConflict(
       sameEditable(fieldsOf(latest), fieldsOf(current))
     ) {
       base.value = latest;
-      void publishNote(queryClient, owner.value, latest);
+      void publishNote(queryClient, ownerKeyOf(bound.ownerId), latest);
       return true;
     }
     conflictError.value = null;
     conflict.value = { server: latest };
     return false;
   } catch (cause) {
-    if (!isOwnerBindingCurrent(binding)) return false;
     if (isApiStatus(cause, 404)) notFound.value = true;
     else saveError.value = errorMessage(cause, t('notes.editor.saveError'));
     return false;
@@ -294,22 +289,24 @@ async function resolveSaveConflict(
 }
 
 /** Form submit / Ctrl+S (never receives the event as an option). */
-function save(): Promise<void> {
-  return saveNote(false);
+async function save(): Promise<void> {
+  // Owner isolation (ADR-023): the whole save — the announcements, the
+  // request, the cache update, a retry after a link-only change — is one
+  // owner-bound task. After a user switch none of it continues.
+  await runOwnerBound((bound) => saveNote(bound, false));
 }
 
-async function saveNote(retried: boolean): Promise<void> {
+function* saveNote(bound: OwnerScope, retried: boolean): OwnerSteps<void> {
   attempted.value = true;
   if (!valid.value) {
-    await focusFirstInvalid();
+    yield* focusFirstInvalid();
     return;
   }
   if (!canSave.value) return;
-  const binding = captureOwnerBinding();
   const current = base.value;
   saving.value = true;
   saveError.value = null;
-  await announce(t('notes.editor.saving'));
+  yield* announce(t('notes.editor.saving'));
   if (current === null) {
     const payload: ContextDocumentCreate = {
       title: fields.title.trim(),
@@ -322,22 +319,19 @@ async function saveNote(retried: boolean): Promise<void> {
     const action = actions.begin(scope, payload, samePayload);
     const sent: Fields = { ...fields };
     try {
-      const created = await plannerClient.createDocument(action.payload, action.key, binding.signal);
+      const created = yield* bound.wait(plannerClient.createDocument(action.payload, action.key, bound.signal));
       actions.settle(scope, action);
-      if (!isOwnerBindingCurrent(binding)) return;
       // Text typed while the request was in flight stays; the rest follows the server.
       const merged = rebaseFields({ ...fields }, sent, fieldsOf(created));
       base.value = created;
       Object.assign(fields, merged);
-      await publishNote(queryClient, owner.value, created);
-      if (!isOwnerBindingCurrent(binding)) return;
-      await announce(t('notes.editor.created'));
+      yield* bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), created));
+      yield* announce(t('notes.editor.created'));
       emit('created', created);
     } catch (cause) {
       if (isStoredFinalResult(cause)) actions.settle(scope, action);
-      if (!isOwnerBindingCurrent(binding)) return;
       saveError.value = errorMessage(cause, t('notes.editor.saveError'));
-      await announce(t('notes.editor.saveError'));
+      yield* announce(t('notes.editor.saveError'));
     } finally {
       saving.value = false;
     }
@@ -348,7 +342,7 @@ async function saveNote(retried: boolean): Promise<void> {
   if (Object.keys(patch).length === 0) {
     saving.value = false;
     Object.assign(fields, fieldsOf(current));
-    await announce(t('notes.editor.clean', { version: current.version }));
+    yield* announce(t('notes.editor.clean', { version: current.version }));
     return;
   }
   const scope = `note:${current.id}:patch`;
@@ -356,33 +350,32 @@ async function saveNote(retried: boolean): Promise<void> {
   const sent: Fields = { ...fields };
   let rebased = false;
   try {
-    const updated = await plannerClient.updateDocument(current.id, action.payload, action.key, current.version, binding.signal);
+    const updated = yield* bound.wait(
+      plannerClient.updateDocument(current.id, action.payload, action.key, current.version, bound.signal),
+    );
     actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
     // Text typed while the request was in flight stays; the rest follows the server.
     const merged = rebaseFields({ ...fields }, sent, fieldsOf(updated));
     base.value = updated;
     Object.assign(fields, merged);
-    await publishNote(queryClient, owner.value, updated);
-    if (!isOwnerBindingCurrent(binding)) return;
-    await announce(t('notes.editor.saved', { version: updated.version }));
+    yield* bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), updated));
+    yield* announce(t('notes.editor.saved', { version: updated.version }));
   } catch (cause) {
     if (isStoredFinalResult(cause)) actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
     if (isApiStatus(cause, 412)) {
-      rebased = await resolveSaveConflict(current.id, binding, !retried);
+      rebased = yield* resolveSaveConflict(bound, current.id, !retried);
       statusText.value = '';
     } else if (isApiStatus(cause, 404)) {
       notFound.value = true;
     } else {
       saveError.value = errorMessage(cause, t('notes.editor.saveError'));
-      await announce(t('notes.editor.saveError'));
+      yield* announce(t('notes.editor.saveError'));
     }
   } finally {
     saving.value = false;
   }
   // A link-only change elsewhere: send the same edit once more against the new version.
-  if (rebased && isOwnerBindingCurrent(binding)) await saveNote(true);
+  if (rebased) yield* saveNote(bound, true);
 }
 
 function sameEditable(left: Fields, right: Fields): boolean {
@@ -427,12 +420,12 @@ function onLinksUpdated(note: ContextDocument): void {
 async function reloadFromConflict(): Promise<void> {
   const current = conflict.value;
   if (current === null) return;
-  await runOwnerBound(async (bound) => {
+  await runOwnerBound(function* (bound) {
     load(current.server);
     conflict.value = null;
     attempted.value = false;
-    await bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), current.server));
-    await bound.wait(announce(t('notes.conflict.reloaded')));
+    yield* bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), current.server));
+    yield* announce(t('notes.conflict.reloaded'));
   });
 }
 
@@ -455,19 +448,18 @@ async function copyFromConflict(): Promise<void> {
   conflictBusy.value = true;
   conflictError.value = null;
   await runOwnerBound(
-    async (bound) => {
+    function* (bound) {
       try {
-        const created = await bound.wait(plannerClient.createDocument(action.payload, action.key, bound.signal));
+        const created = yield* bound.wait(plannerClient.createDocument(action.payload, action.key, bound.signal));
         actions.settle(scope, action);
         const server = conflict.value?.server;
         conflict.value = null;
         // The original note now shows the server version; my text lives in the copy.
         if (server !== undefined) load(server);
-        await bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), created));
-        await bound.wait(announce(t('notes.conflict.copied')));
+        yield* bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), created));
+        yield* announce(t('notes.conflict.copied'));
         emit('copied', created);
       } catch (cause) {
-        bound.rethrowIfStale(cause);
         if (isStoredFinalResult(cause)) actions.settle(scope, action);
         conflictError.value = errorMessage(cause, t('notes.editor.saveError'));
       }
@@ -499,23 +491,21 @@ async function confirmDelete(): Promise<void> {
   deleting.value = true;
   deleteError.value = null;
   await runOwnerBound(
-    async (bound) => {
+    function* (bound) {
       try {
-        await bound.wait(plannerClient.deleteDocument(current.id, action.key, current.version, bound.signal));
+        yield* bound.wait(plannerClient.deleteDocument(current.id, action.key, current.version, bound.signal));
         actions.settle(scope, action);
-        await bound.wait(finishDelete(bound, current));
+        yield* finishDelete(bound, current);
       } catch (cause) {
-        bound.rethrowIfStale(cause);
         if (isStoredFinalResult(cause)) actions.settle(scope, action);
         if (isApiStatus(cause, 404)) {
-          await bound.wait(finishDelete(bound, current));
+          yield* finishDelete(bound, current);
         } else if (isApiStatus(cause, 412)) {
           deleteError.value = t('notes.editor.deleteConflict');
           try {
-            const latest = await bound.wait(plannerClient.getDocument(current.id, bound.signal));
+            const latest = yield* bound.wait(plannerClient.getDocument(current.id, bound.signal));
             if (!dirty.value) load(latest);
           } catch (lookup) {
-            bound.rethrowIfStale(lookup);
             // The message above already asks the user to check and retry.
           }
         } else {
@@ -536,11 +526,11 @@ async function confirmDelete(): Promise<void> {
  * invalidation can outlive that owner (M6-03R2): it is awaited through the
  * owner scope, so a stale owner gets no `deleted` toast or navigation.
  */
-async function finishDelete(bound: OwnerScope, current: ContextDocument): Promise<void> {
+function* finishDelete(bound: OwnerScope, current: ContextDocument): OwnerSteps<void> {
   deleteOpen.value = false;
   base.value = null;
   Object.assign(fields, DEFAULTS);
-  await bound.wait(forgetNote(queryClient, ownerKeyOf(bound.ownerId), current.id));
+  yield* bound.wait(forgetNote(queryClient, ownerKeyOf(bound.ownerId), current.id));
   emit('deleted', current.title);
 }
 

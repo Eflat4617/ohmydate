@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { bindRequestOwnerSignal } from '../api';
 import { OWNER_STORAGE_KEY, readActiveOwnerId, writeActiveOwnerId } from './owner';
 import { sessionJournal } from './journal';
 import { bindOwnerAuthority, clearSlotsOnOwnerChange } from './ownerStorage';
@@ -171,6 +172,11 @@ export function adoptActiveOwner(
   notifyOwnerChange(nextOwnerId, previous, reason);
   return true;
 }
+
+// Every API request carries the signal of the owner who started it (ADR-023
+// §1): an owner change aborts what is in flight and keeps what was started but
+// not yet sent from being sent with the next user's session.
+bindRequestOwnerSignal(currentOwnerSignal);
 
 // ownerStorage decides staleness and the seal through this module, without
 // importing it (it sits below, so the active-owner pointer can be read here).

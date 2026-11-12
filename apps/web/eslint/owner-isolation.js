@@ -1,6 +1,7 @@
 // Owner-isolation lint support (ADR-023 guardrail, FU-77). Plain ESLint, no
 // extra dependency: a processor that hands the <script> blocks of a .vue file
-// to the TypeScript parser, and one rule for owner-bound continuations.
+// to the TypeScript parser, a rule for browser storage and a rule for
+// owner-bound tasks.
 import { parse } from 'vue/compiler-sfc';
 
 /** Storage globals only session/ownerStorage.ts may touch. */
@@ -110,131 +111,129 @@ export const vueScriptProcessor = {
 
 const offsetsByFile = new Map();
 
-/** `(owner: OwnerScope, …) => …`: a helper that runs inside someone's bound task. */
-function takesOwnerScope(node) {
-  const annotation = node.params[0]?.typeAnnotation?.typeAnnotation;
-  return (
-    annotation !== undefined &&
-    annotation.type === 'TSTypeReference' &&
-    annotation.typeName.type === 'Identifier' &&
-    annotation.typeName.name === 'OwnerScope'
-  );
-}
-
-/** The function given to `runOwnerBound(…)`, or any function whose first parameter is an OwnerScope. */
-function isBoundTask(node) {
-  if (takesOwnerScope(node)) return true;
-  const parent = node.parent;
-  if (parent === undefined || parent === null || parent.type !== 'CallExpression') return false;
-  if (parent.arguments[0] !== node) return false;
-  const callee = parent.callee;
+function isRunOwnerBound(node) {
+  if (node === null || node === undefined || node.type !== 'CallExpression') return false;
+  const callee = node.callee;
   if (callee.type === 'Identifier') return callee.name === 'runOwnerBound';
   return callee.type === 'MemberExpression' && !callee.computed && callee.property.name === 'runOwnerBound';
 }
 
+const isFunction = (node) =>
+  node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression' || node.type === 'ArrowFunctionExpression';
+
+/** The declaration a name resolves to, looking outwards from `scope`. */
+function definitionOf(scope, name) {
+  for (let current = scope; current !== null; current = current.upper) {
+    const variable = current.set.get(name);
+    if (variable !== undefined) return variable.defs[0]?.node ?? null;
+  }
+  return null;
+}
+
+/** `async function f` or `const f = async () => …` declared in this file. */
+function isLocalAsyncFunction(definition) {
+  if (definition === null) return false;
+  if (definition.type === 'FunctionDeclaration') return definition.async === true;
+  if (definition.type !== 'VariableDeclarator' || definition.init === null) return false;
+  return isFunction(definition.init) && definition.init.async === true;
+}
+
 /**
- * Inside the task given to `runOwnerBound` (and inside any helper that takes
- * an `OwnerScope` as its first parameter):
- * - every `await` goes through the owner scope (`owner.wait(…)`,
- *   `owner.pages(…)`), which refuses to resume a continuation whose owner
- *   changed — so no line after an await can run for the wrong user;
- * - every `catch` starts with `owner.rethrowIfStale(cause)`, so the failure
- *   of a stale owner's request is not shown or retried as a real one;
- * - there is no `finally` (it would run for the stale owner too): cleanup
- *   goes in the `onSettled` option.
- * These are the checks a hand-written fence forgets.
+ * What the compiler cannot say about owner-bound tasks (session/ownerBound.ts).
+ * A task is a generator: the runner checks the owner in the very turn that
+ * resumes it, so no line of it runs for a stale owner, and `await` cannot be
+ * written in it at all. Three mistakes remain possible:
+ *
+ * - `notGenerator`: an async function given to runOwnerBound (TypeScript
+ *   rejects it too; this also covers untyped code).
+ * - `asyncHelper`: a task or helper generator that calls an async function
+ *   declared in the same file. The helper's own awaits are not fenced: what it
+ *   does after them (announce, focus, cache) can run for the next user. Make
+ *   it a generator and delegate with `yield*`.
+ * - `afterOutcome`: effects after `await runOwnerBound(…)` (or chained with
+ *   `.then`) in the function that started the task. That function resumes a
+ *   microtask after the task's last line, when the owner may have changed.
+ *   What must follow belongs in the task, or in onError / onSettled.
  */
-const boundAwait = {
+const boundTask = {
   meta: {
     type: 'problem',
-    docs: { description: 'keep a runOwnerBound task from acting for a stale owner' },
+    docs: { description: 'keep owner-bound tasks and their callers from acting for a stale owner' },
     schema: [],
     messages: {
-      unbound:
-        'Inside runOwnerBound, await through the owner scope: `await {{name}}.wait(…)`. A bare await resumes even after the signed-in user changed (ADR-023).',
-      noScope:
-        'This runOwnerBound task awaits but takes no owner scope. Declare it (`async (owner) => …`) and use `await owner.wait(…)`.',
-      unguardedCatch:
-        'Inside runOwnerBound, a catch must start with `{{name}}.rethrowIfStale({{param}})`: otherwise the failure of a request the owner change aborted is handled as a real error (ADR-023).',
-      noFinally:
-        'Inside runOwnerBound, do not use `finally`: it also runs after the signed-in user changed. Put the cleanup in the `onSettled` option.',
+      notGenerator:
+        'An owner-bound task is a generator (`function* (owner) { … yield* owner.wait(…) … }`), not an async function: an await resumes without the owner being checked (ADR-023).',
+      asyncHelper:
+        '`{{name}}` is an async function: inside an owner-bound task its own awaits are not fenced. Make it a generator (`function* {{name}}(…)`) and delegate with `yield* {{name}}(…)` (ADR-023).',
+      afterOutcome:
+        'Nothing may follow `await runOwnerBound(…)` but returning or mapping its outcome: this function resumes after the owner may have changed. Move it into the task, or into onError / onSettled (ADR-023).',
     },
   },
   create(context) {
-    // One entry per enclosing function: the scope parameter name of the
-    // nearest runOwnerBound task ('' when it declared none), or null outside.
+    // One entry per enclosing function.
     const stack = [];
-    const current = () => (stack.length === 0 ? null : stack[stack.length - 1]);
+    const top = () => stack[stack.length - 1];
 
     function enter(node) {
-      if (!isBoundTask(node)) {
-        stack.push(current());
-        return;
-      }
-      const first = node.params[0];
-      stack.push(first !== undefined && first.type === 'Identifier' ? first.name : '');
+      stack.push({ node, generator: node.generator === true, awaitedTaskEnd: null });
     }
 
-    function check(node, awaited) {
-      const name = current();
-      if (name === null) return;
-      if (name === '') {
-        context.report({ node, messageId: 'noScope' });
-        return;
-      }
-      const viaScope =
-        awaited !== null &&
-        awaited.type === 'CallExpression' &&
-        awaited.callee.type === 'MemberExpression' &&
-        awaited.callee.object.type === 'Identifier' &&
-        awaited.callee.object.name === name;
-      if (!viaScope) context.report({ node, messageId: 'unbound', data: { name } });
-    }
-
-    function checkCatch(node) {
-      const name = current();
-      if (name === null) return;
-      const param = node.param !== null && node.param.type === 'Identifier' ? node.param.name : null;
-      const first = node.body.body[0];
-      const guarded =
-        name !== '' &&
-        param !== null &&
-        first !== undefined &&
-        first.type === 'ExpressionStatement' &&
-        first.expression.type === 'CallExpression' &&
-        first.expression.callee.type === 'MemberExpression' &&
-        first.expression.callee.object.type === 'Identifier' &&
-        first.expression.callee.object.name === name &&
-        first.expression.callee.property.name === 'rethrowIfStale' &&
-        first.expression.arguments[0]?.type === 'Identifier' &&
-        first.expression.arguments[0].name === param;
-      if (!guarded) {
-        context.report({
-          node,
-          messageId: 'unguardedCatch',
-          data: { name: name === '' ? 'owner' : name, param: param ?? 'cause' },
-        });
-      }
+    function isOutcomeAwait(node) {
+      return node.type === 'AwaitExpression' && isRunOwnerBound(node.argument);
     }
 
     return {
-      CatchClause: checkCatch,
-      'TryStatement[finalizer]': (node) => {
-        if (current() !== null) context.report({ node: node.finalizer, messageId: 'noFinally' });
-      },
       FunctionDeclaration: enter,
       FunctionExpression: enter,
       ArrowFunctionExpression: enter,
       'FunctionDeclaration:exit': () => stack.pop(),
       'FunctionExpression:exit': () => stack.pop(),
       'ArrowFunctionExpression:exit': () => stack.pop(),
-      AwaitExpression: (node) => check(node, node.argument),
-      'ForOfStatement[await=true]': (node) => check(node, null),
+
+      CallExpression(node) {
+        if (isRunOwnerBound(node)) {
+          const task = node.arguments[0];
+          if (task !== undefined && isFunction(task) && task.async === true) {
+            context.report({ node: task, messageId: 'notGenerator' });
+          }
+          const parent = node.parent;
+          if (
+            parent.type === 'MemberExpression' &&
+            parent.object === node &&
+            !parent.computed &&
+            /^(then|finally|catch)$/.test(parent.property.name)
+          ) {
+            context.report({ node: parent.property, messageId: 'afterOutcome' });
+          }
+          return;
+        }
+        const current = top();
+        if (current === undefined || !current.generator || node.callee.type !== 'Identifier') return;
+        const definition = definitionOf(context.sourceCode.getScope(node), node.callee.name);
+        if (isLocalAsyncFunction(definition)) {
+          context.report({ node: node.callee, messageId: 'asyncHelper', data: { name: node.callee.name } });
+        }
+      },
+
+      AwaitExpression(node) {
+        const current = top();
+        if (current !== undefined && isOutcomeAwait(node) && current.awaitedTaskEnd === null) {
+          current.awaitedTaskEnd = node.range[1];
+        }
+      },
+
+      ExpressionStatement(node) {
+        const current = top();
+        if (current === undefined || current.awaitedTaskEnd === null) return;
+        if (node.range[0] < current.awaitedTaskEnd) return;
+        if (isOutcomeAwait(node.expression)) return;
+        context.report({ node, messageId: 'afterOutcome' });
+      },
     };
   },
 };
 
 export const ownerIsolationPlugin = {
   meta: { name: 'ohmydate-owner-isolation', version: '1.0.0' },
-  rules: { 'bound-await': boundAwait, 'no-raw-storage': noRawStorage },
+  rules: { 'bound-task': boundTask, 'no-raw-storage': noRawStorage },
 };

@@ -176,8 +176,8 @@ const canSave = computed(
 // started them. If the signed-in user changed meanwhile, nothing is cached,
 // announced or shown.
 async function reload(): Promise<void> {
-  await runOwnerBound(async (owner) => {
-    const fresh = await owner.wait(plannerClient.getAvailability({ fresh: true }));
+  await runOwnerBound(function* (owner) {
+    const fresh = yield* owner.wait(plannerClient.getAvailability({ fresh: true }));
     queryClient.setQueryData(['availability'], fresh);
     if (!dirty.value) draft.value = cloneAvailability(fresh);
   });
@@ -193,23 +193,22 @@ async function save(): Promise<void> {
   const scope = 'availability:put';
   const action = actions.begin(scope, payload, (left, right) => JSON.stringify(left) === JSON.stringify(right), local.version);
   await runOwnerBound(
-    async (owner) => {
+    function* (owner) {
       try {
-        const updated = await owner.wait(plannerClient.putAvailability(payload, action.key, local.version));
+        const updated = yield* owner.wait(plannerClient.putAvailability(payload, action.key, local.version));
         actions.settle(scope, action);
         draft.value = cloneAvailability(updated);
         dirty.value = false;
         queryClient.setQueryData(['availability'], updated);
         message.value = t('availability.savedMessage', { version: updated.version });
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         if (cause instanceof ApiError && cause.status === 412) {
-          const server = await owner.wait(plannerClient.getAvailability({ fresh: true }));
+          const server = yield* owner.wait(plannerClient.getAvailability({ fresh: true }));
           queryClient.setQueryData(['availability'], server);
           conflict.value = { server, local: cloneAvailability(draft.value ?? local) };
           message.value = '';
           error.value = null;
-          await owner.wait(nextTick());
+          yield* owner.wait(nextTick());
           conflictHeading.value?.focus();
           return;
         }

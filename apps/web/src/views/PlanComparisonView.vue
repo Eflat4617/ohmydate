@@ -265,9 +265,9 @@ async function runPreview(): Promise<void> {
   // Owner isolation (ADR-023): preview, approve and regenerate run under the
   // owner who started them; after a user switch their answers change nothing.
   await runOwnerBound(
-    async (owner) => {
+    function* (owner) {
       try {
-        const result = await owner.wait(
+        const result = yield* owner.wait(
           plannerClient.previewCandidateEdit(activePlan.id, candidate.id, blocks, action.key, activePlan.version),
         );
         if (token !== previewToken) return;
@@ -275,7 +275,6 @@ async function runPreview(): Promise<void> {
         blockErrors.value = {};
         approveViolations.value = [];
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         if (token !== previewToken) return;
         if (cause instanceof ApiError) {
           if (cause.status === 422 && cause.code === 'validation_failed') {
@@ -350,9 +349,9 @@ async function approve(): Promise<void> {
     activePlan.availabilityVersion,
   );
   await runOwnerBound(
-    async (owner) => {
+    function* (owner) {
       try {
-        const version = await owner.wait(
+        const version = yield* owner.wait(
           plannerClient.approveCandidate(activePlan.id, candidate.id, action.key, activePlan.availabilityVersion, edited),
         );
         actions.settle(scope, action);
@@ -360,16 +359,15 @@ async function approve(): Promise<void> {
         dirty.value = false;
         stale.value = false;
         message.value = t('plan.approvedMessage', { seq: version.seq });
-        await owner.wait(Promise.all([planQuery.refetch(), approvedBlocksQuery.refetch()]));
+        yield* owner.wait(Promise.all([planQuery.refetch(), approvedBlocksQuery.refetch()]));
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         if (cause instanceof ApiError) {
           if (cause.status === 412 && cause.code === 'availability_changed') {
             actions.settle(scope, action);
             stale.value = true;
             message.value = '';
             actionError.value = null;
-            await owner.wait(planQuery.refetch());
+            yield* owner.wait(planQuery.refetch());
             return;
           }
           if (cause.status === 422 && cause.code === 'constraint_violation') {
@@ -405,9 +403,9 @@ async function regenerate(): Promise<void> {
   const scope = `plan:${activePlan.id}:regenerate`;
   const action = actions.begin(scope, { planId: activePlan.id }, (left, right) => left.planId === right.planId, activePlan.version);
   await runOwnerBound(
-    async (owner) => {
+    function* (owner) {
       try {
-        const updated = await owner.wait(plannerClient.regeneratePlan(activePlan.id, action.key, activePlan.version));
+        const updated = yield* owner.wait(plannerClient.regeneratePlan(activePlan.id, action.key, activePlan.version));
         actions.settle(scope, action);
         queryClient.setQueryData(['plan', activePlan.id], updated);
         stale.value = false;
@@ -415,10 +413,9 @@ async function regenerate(): Promise<void> {
         message.value = t('plan.regenerated');
         resetDraft();
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         actionError.value = errorMessage(cause, t('plan.regenerateError'));
         if (cause instanceof ApiError && cause.status === 412) {
-          await owner.wait(planQuery.refetch());
+          yield* owner.wait(planQuery.refetch());
         }
       }
     },

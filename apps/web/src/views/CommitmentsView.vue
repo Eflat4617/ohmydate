@@ -35,7 +35,7 @@ import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { t } from '../i18n';
 import { formatDateTimeRange } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
-import { runOwnerBound } from '../session/ownerBound';
+import { runOwnerBound, type OwnerSteps } from '../session/ownerBound';
 
 const offline = useOfflineStore();
 const queryClient = useQueryClient();
@@ -161,9 +161,14 @@ function edit(commitment: Commitment): void {
   void nextTick().then(() => formHeading.value?.focus());
 }
 
+function* refreshSteps(): OwnerSteps<void> {
+  yield queryClient.invalidateQueries({ queryKey: ['commitments'] });
+  yield queryClient.invalidateQueries({ queryKey: ['availability'] });
+}
+
+/** The retry button. Inside a task, delegate to `refreshSteps` instead. */
 async function refresh(): Promise<void> {
-  await queryClient.invalidateQueries({ queryKey: ['commitments'] });
-  await queryClient.invalidateQueries({ queryKey: ['availability'] });
+  await runOwnerBound(refreshSteps);
 }
 
 // Owner isolation (ADR-023): save and remove run under the owner who started
@@ -188,7 +193,7 @@ async function save(): Promise<void> {
   error.value = null;
   message.value = '';
   await runOwnerBound(
-    async (owner) => {
+    function* (owner) {
       try {
         if (form.id === null) {
           const input: CommitmentCreate = {
@@ -200,7 +205,7 @@ async function save(): Promise<void> {
           };
           const scope = 'commitment:create';
           const action = actions.begin(scope, input, (left, right) => JSON.stringify(left) === JSON.stringify(right));
-          await owner.wait(plannerClient.createCommitment(input, action.key));
+          yield* owner.wait(plannerClient.createCommitment(input, action.key));
           actions.settle(scope, action);
           message.value = t('commitments.created');
         } else {
@@ -213,14 +218,13 @@ async function save(): Promise<void> {
           };
           const scope = `commitment:${form.id}:update`;
           const action = actions.begin(scope, patch, (left, right) => JSON.stringify(left) === JSON.stringify(right));
-          await owner.wait(plannerClient.updateCommitment(form.id, patch, action.key));
+          yield* owner.wait(plannerClient.updateCommitment(form.id, patch, action.key));
           actions.settle(scope, action);
           message.value = t('commitments.updated');
         }
         resetForm();
-        await owner.wait(refresh());
+        yield* refreshSteps();
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         error.value =
           cause instanceof ApiError && cause.status === 412
             ? t('commitments.changedElsewhere')
@@ -240,17 +244,16 @@ async function remove(commitment: Commitment): Promise<void> {
   busy.value = true;
   error.value = null;
   await runOwnerBound(
-    async (owner) => {
+    function* (owner) {
       try {
         const scope = `commitment:${commitment.id}:delete`;
         const action = actions.begin(scope, { id: commitment.id }, (left, right) => left.id === right.id);
-        await owner.wait(plannerClient.deleteCommitment(commitment.id, action.key));
+        yield* owner.wait(plannerClient.deleteCommitment(commitment.id, action.key));
         actions.settle(scope, action);
         if (form.id === commitment.id) resetForm();
         message.value = t('commitments.deleted');
-        await owner.wait(refresh());
+        yield* refreshSteps();
       } catch (cause) {
-        owner.rethrowIfStale(cause);
         error.value = errorMessage(cause, t('commitments.deleteError'));
       }
     },
