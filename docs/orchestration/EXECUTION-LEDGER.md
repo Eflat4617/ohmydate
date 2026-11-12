@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 13:03 | FU-64-68R **REQUEST_CHANGES** (Fable xhigh, 1라운드): Required MEDIUM 3건 — 2,000행 창 밖 feedback PATCH가 커밋 후 404, 창 문서화 누락(05 §6), scheduler '전수' 테스트가 diversity_distinct·bound-only 미검증. allowed path 밖 apps/web/src/mocks/planning-engine.ts는 coordinator가 승인. 수정 라운드 FU-64-68F: DeepSeek ctx_8e60a0f94531 (기존 worktree, 05 §6 허용 추가, LOW 3건 포함) | reviews/FU-64-68R.md | orchestrator |
 | 2026-11-12 13:00 | 정정: 바로 아래 '13:20'·'13:28' 두 행의 시각은 추정 오기 — 실제 기록 시각은 12:5x(이 행 이전). FU-85 전체 suite 실행 허가(현재 전체 suite 실행 1개) | msg_1823986001b8 | orchestrator |
 | 2026-11-12 13:28 | 통합 전체 E2E 0ce42a2 **exit 0, 31 passed (6.5m)** — FU-56의 새 E2E-5 단언 포함 | scratchpad int-e2e-0ce42a2.log | orchestrator |
 | 2026-11-12 13:20 | 통합 CI 0ce42a2(FU-81+FU-56) **exit 0** 1회 통과: root 2142 passed/29 skipped, web 502+156, boundaries 0, build-smoke OK. 전체 E2E 백그라운드 실행 | scratchpad int-ci-0ce42a2.log | orchestrator |
