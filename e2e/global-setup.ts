@@ -374,6 +374,7 @@ export default async function globalSetup(): Promise<void> {
     const plansFixture = await createVikunjaFixture(vikunjaUrl, 'plans');
     const replanFixture = await createVikunjaFixture(vikunjaUrl, 'replan');
     const layoutFixture = await createVikunjaFixture(vikunjaUrl, 'layout');
+    const notesFixture = await createVikunjaFixture(vikunjaUrl, 'notes');
     // FU-76 E2E-AI: own owner whose (fake) AI answers slowly, so the wizard's
     // wait state, cancel and reload-resume run against the real API.
     const aiWaitFixture = await createVikunjaFixture(vikunjaUrl, 'aiwait');
@@ -383,6 +384,7 @@ export default async function globalSetup(): Promise<void> {
     await createPlannerOwner(databaseUrl, plansFixture, 'VIKUNJA_TOKEN_OWNER_E2E_PLANS');
     await createPlannerOwner(databaseUrl, replanFixture, 'VIKUNJA_TOKEN_OWNER_E2E_REPLAN');
     await createPlannerOwner(databaseUrl, layoutFixture, 'VIKUNJA_TOKEN_OWNER_E2E_LAYOUT');
+    const notesOwnerId = await createPlannerOwner(databaseUrl, notesFixture, 'VIKUNJA_TOKEN_OWNER_E2E_NOTES');
     const aiWaitOwnerId = await createPlannerOwner(
       databaseUrl,
       aiWaitFixture,
@@ -404,12 +406,19 @@ export default async function globalSetup(): Promise<void> {
         VIKUNJA_TOKEN_OWNER_E2E_PLANS: plansFixture.token,
         VIKUNJA_TOKEN_OWNER_E2E_REPLAN: replanFixture.token,
         VIKUNJA_TOKEN_OWNER_E2E_LAYOUT: layoutFixture.token,
+        VIKUNJA_TOKEN_OWNER_E2E_NOTES: notesFixture.token,
         VIKUNJA_TOKEN_OWNER_E2E_AIWAIT: aiWaitFixture.token,
         PORT: String(apiPort),
         HOST: '127.0.0.1',
         LOG_LEVEL: 'warn',
         PUSH_KEY_FILE: pushKeyFile,
         LLM_PROVIDER: 'fake',
+        // M6-03 E2E-6: deterministic note-grounded decomposition through the real
+        // pipeline (type detection answered; grounded v2 cites the sent note block,
+        // plus a forged ref and a planted link the sanitiser strips). E2E only, and
+        // only for the notes owner: every other suite keeps the plain fake.
+        LLM_FAKE_SCENARIO: 'e2e-grounded',
+        LLM_FAKE_SCENARIO_OWNERS: notesOwnerId,
         // Fake-only knob: just the AI-wait owner gets 5 s scripted answers;
         // every other owner keeps the immediate manual-mode fallback.
         LLM_FAKE_SCRIPTED_OWNERS: aiWaitOwnerId,
@@ -473,6 +482,8 @@ export default async function globalSetup(): Promise<void> {
       replanPassword: replanFixture.password,
       layoutEmail: layoutFixture.email,
       layoutPassword: layoutFixture.password,
+      notesEmail: notesFixture.email,
+      notesPassword: notesFixture.password,
       aiWaitEmail: aiWaitFixture.email,
       aiWaitPassword: aiWaitFixture.password,
       aiWaitOwnerId,

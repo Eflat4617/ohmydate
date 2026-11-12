@@ -81,7 +81,7 @@ export class AuthService {
    * knob is set (rejected in production).
    */
   resetLoginRateLimit(): void {
-    this.#rateLimiter.reset?.();
+    this.#rateLimiter.reset();
   }
 
   async me(userId: Id): Promise<UserRecord> {

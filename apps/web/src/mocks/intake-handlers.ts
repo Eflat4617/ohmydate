@@ -42,6 +42,7 @@ import {
   type MockDb,
   type MockIntakeSession,
 } from './db';
+import { mockGroundedEvidence } from './notes';
 
 const INTAKE_ACTIONS = ['answer', 'skip', 'idk'] as const;
 
@@ -185,10 +186,14 @@ function buildDraft(session: MockIntakeSession, db: MockDb): DecompositionDraft 
     questionsRemaining: [],
   };
   const validated = validateDecomposition(candidate);
+  const draftSteps = cloneSteps(validated.draft.steps);
+  // M6-03: notes linked to the session goal with llmAllowed ground the draft.
+  const grounded = mockGroundedEvidence(db, session.goalId, draftSteps.map((step) => step.key));
   return {
-    steps: cloneSteps(validated.draft.steps),
+    steps: draftSteps,
     assumptions: [...validated.draft.assumptions],
     questionsRemaining: [...validated.draft.questionsRemaining],
+    ...(grounded === null ? {} : { evidence: grounded.evidence }),
   };
 }
 
@@ -395,11 +400,17 @@ export function createIntakeHandlers(db: MockDb) {
           'description must be a string of at most 4000 characters',
         );
       }
+      const goalId = typeof body?.goalId === 'string' ? body.goalId : createUuidV7();
+      if (body?.goalId !== undefined && !db.notes.goals.has(goalId)) {
+        return rememberDomainResult(db, token, 422, 'validation_failed', 'goal not found for this owner');
+      }
+      db.notes.goals.set(goalId, title.trim());
       const now = new Date().toISOString();
       const detected = detectType(db, input as IntakeInput);
       const session: MockIntakeSession = {
         id: createUuidV7(),
         ownerId: db.user.id,
+        goalId,
         state: 'type_detection',
         input: input as IntakeInput,
         detectedType: {
@@ -615,10 +626,16 @@ export function createIntakeHandlers(db: MockDb) {
           validated.issues.map((issue) => issue.message).join('; '),
         );
       }
+      const evidence = session.draft.evidence;
+      const keys = new Set(validated.draft.steps.map((step) => step.key));
       session.draft = {
         steps: cloneSteps(validated.draft.steps),
         assumptions: [...validated.draft.assumptions],
         questionsRemaining: [...validated.draft.questionsRemaining],
+        // Server-produced only; a step edit re-filters its step keys (08 §2.7).
+        ...(evidence === undefined
+          ? {}
+          : { evidence: evidence.map((item) => ({ ...item, stepKeys: item.stepKeys.filter((key) => keys.has(key)) })) }),
       };
       touch(session);
       remember(db, token, 200, session.draft, { ETag: etag(session.version) });

@@ -114,7 +114,9 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     const plan = await createPlanFromGoal(page, state, goal.goalId, { nowMs: apiNowMs });
     // The first block carries the notification (right after the API's now);
     // the other three sit on the simulated local day the browser shows.
-    const edited = editableBlocksForSimulatedToday(plan, apiNowMs, simulatedDayMs);
+    // Re-read the clock here: goal/plan creation can be slow, and the carrier
+    // must still be in the notification window when it is approved.
+    const edited = editableBlocksForSimulatedToday(plan, clock.nowMs(), simulatedDayMs);
     const approved = await approveCandidateWithBlocks(page, state, plan, edited);
     expect(approved.blocks.length).toBeGreaterThanOrEqual(2);
     const notifyBlock = approved.blocks[0];

@@ -5,6 +5,7 @@ import {
   MAX_OUTPUT_TOKENS_CEILING,
   type PromptLimitOverrides,
 } from '@ohmydate/llm';
+import { isLlmFakeScenario, type LlmFakeScenario } from './adapters/fake-llm-scenarios.js';
 
 export interface LoginRateLimitConfig {
   readonly limit: number;
@@ -92,6 +93,17 @@ export interface AppConfig {
    * falls through to a paid provider; `deepseek` must be explicit.
    */
   readonly llmProvider: LlmProviderKind;
+  /**
+   * E2E-only deterministic fake scenario (env `LLM_FAKE_SCENARIO`, M6-03).
+   * Only valid with `llmProvider: 'fake'`; refused under NODE_ENV=production.
+   * `null` (default) keeps the plain fixture-less FakeLlm.
+   */
+  readonly llmFakeScenario: LlmFakeScenario | null;
+  /**
+   * Owners the fake scenario answers (env `LLM_FAKE_SCENARIO_OWNERS`, comma-
+   * separated ids); empty = every owner. Other owners get the plain fake.
+   */
+  readonly llmFakeScenarioOwners: readonly string[];
   /** ADR-022 OpenCode Go gateway (OpenAI-compatible). */
   readonly llmBaseUrl: string;
   readonly llmModel: string;
@@ -202,6 +214,8 @@ export const defaultConfig: AppConfig = {
   loginRateLimit: { limit: 5, windowMs: 60_000 },
   logLevel: 'info',
   llmProvider: 'fake',
+  llmFakeScenario: null,
+  llmFakeScenarioOwners: [],
   llmBaseUrl: DEFAULT_LLM_BASE_URL,
   llmModel: DEFAULT_LLM_MODEL,
   llmReasoningEffort: DEFAULT_LLM_REASONING_EFFORT,
@@ -254,6 +268,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('VIKUNJA_RECONCILE_INTERVAL_MS must be a non-negative integer');
   }
   const llmProvider = parseLlmProvider(env['LLM_PROVIDER']);
+  const llmFakeScenario = parseLlmFakeScenario(env['LLM_FAKE_SCENARIO']);
+  const llmFakeScenarioOwners = parseLlmFakeScenarioOwners(llmFakeScenario, env['LLM_FAKE_SCENARIO_OWNERS']);
   const llmApiKeyFile = parseApiKeyFile(llmProvider, env['LLM_API_KEY_FILE']);
   const llmSessionHeader = parseSessionHeader(env['LLM_SESSION_HEADER']);
   const llmSessionSecretFile = parseSessionSecretFile(
@@ -270,6 +286,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databaseUrl,
     vikunjaSecretsDir: env['VIKUNJA_SECRETS_DIR'] ?? null,
     llmProvider,
+    llmFakeScenario,
+    llmFakeScenarioOwners,
     llmBaseUrl: env['LLM_BASE_URL'] ?? DEFAULT_LLM_BASE_URL,
     llmModel: env['LLM_MODEL'] ?? DEFAULT_LLM_MODEL,
     llmReasoningEffort: env['LLM_REASONING_EFFORT'] ?? DEFAULT_LLM_REASONING_EFFORT,
@@ -338,11 +356,13 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
 /** A fake-only test knob: its env name and whether this configuration sets it. */
 export type FakeKnob = readonly [name: string, set: boolean];
 
-/** The fake-only knobs this configuration knows about (FU-76 scripted slow owners). */
+/** The fake-only knobs this configuration knows about (FU-76 scripted owners, M6-03 scenario). */
 export function fakeKnobsOf(config: AppConfig): FakeKnob[] {
   return [
     ['LLM_FAKE_SCRIPTED_OWNERS', config.llmFakeScriptedOwners.length > 0],
     ['LLM_FAKE_LATENCY_MS', config.llmFakeLatencyMs > 0],
+    ['LLM_FAKE_SCENARIO', config.llmFakeScenario !== null],
+    ['LLM_FAKE_SCENARIO_OWNERS', config.llmFakeScenarioOwners.length > 0],
     ['E2E_RESET_LOGIN_RATE_LIMIT', config.e2eResetLoginRateLimit],
   ];
 }
@@ -360,7 +380,8 @@ export function assertFakeKnobsAllowed(config: AppConfig, extra: readonly FakeKn
     if (config.llmProvider !== 'fake') {
       throw new Error(`${name} is only allowed with LLM_PROVIDER=fake`);
     }
-    if (config.nodeEnv === 'production') {
+    // Normalised: ` Production ` is production too.
+    if (config.nodeEnv?.trim().toLowerCase() === 'production') {
       throw new Error(`${name} is a test-only fake knob and is rejected when NODE_ENV=production`);
     }
   }
@@ -373,6 +394,35 @@ function parseLlmProvider(raw: string | undefined): LlmProviderKind {
     throw new Error(`LLM_PROVIDER must be "fake" or "deepseek", got "${value}"`);
   }
   return value;
+}
+
+/**
+ * M6-03: E2E-only fake scenario name. An unknown name fails closed here; the
+ * fake-provider and production rules are the shared `assertFakeKnobsAllowed`
+ * guard's (env and programmatic configs alike).
+ */
+export function parseLlmFakeScenario(raw: string | undefined): LlmFakeScenario | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const value = raw.trim();
+  if (!isLlmFakeScenario(value)) {
+    throw new Error(`LLM_FAKE_SCENARIO must be "e2e-grounded", got "${value}"`);
+  }
+  return value;
+}
+
+const OWNER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function parseLlmFakeScenarioOwners(
+  scenario: LlmFakeScenario | null,
+  raw: string | undefined,
+): readonly string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  if (scenario === null) throw new Error('LLM_FAKE_SCENARIO_OWNERS requires LLM_FAKE_SCENARIO');
+  const owners = raw.split(',').map((value) => value.trim()).filter((value) => value.length > 0);
+  if (owners.some((owner) => !OWNER_ID.test(owner))) {
+    throw new Error('LLM_FAKE_SCENARIO_OWNERS must be comma-separated owner ids');
+  }
+  return owners;
 }
 
 function parseSessionHeader(raw: string | undefined): 'auto' | 'off' {

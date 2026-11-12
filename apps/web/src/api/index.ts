@@ -79,6 +79,19 @@ export {
   type EstimationProfileGroup,
   type EstimationProfileItem,
   type EstimationReset,
+  type ContextDocument,
+  type ContextDocumentCreate,
+  type ContextDocumentPatch,
+  type ContextDocumentPage,
+  type DocumentLink,
+  type DocumentLinkCreate,
+  type DocumentListOptions,
+  type DocumentTargetKind,
+  type NoteSensitivity,
+  type NoteAiUsage,
+  type NoteAiUsagePage,
+  type NoteAiUsageStatus,
+  type DecompositionEvidence,
 } from './client';
 export { ApiError, apiErrorFromPayload, apiErrorFromResponse, parseProblem, type ApiErrorCode, type Problem, type ProblemCode } from './errors';
 export { findInboxProject } from './inbox';

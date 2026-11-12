@@ -267,8 +267,8 @@ registry → renderer`:
   `/focus/:id`, every other mode at `/today`.
 - **Registry (`src/layout/registry.ts`).** Page components are the routed
   view (`TodayPlan`, `FocusTimer`, `PlanningWorkspace`, `NotesWorkspace`).
-  Panels: `NextUp`, `RelatedNotes` (empty state until M6-03 fills it),
-  `CurrentTaskCard`, `DeadlineRiskPanel`, `ReviewPrompt`, `ActiveSessionCard`.
+  Panels: `NextUp`, `RelatedNotes` (M6-03, see below), `CurrentTaskCard`,
+  `DeadlineRiskPanel`, `ReviewPrompt`, `ActiveSessionCard`.
 - **Renderer (`AdaptiveFrame`).** One CSS grid with stable keys; the page
   keeps one key, so a switch never remounts it. Below 1280px the regions
   stack (primary first, then the two context regions side by side from
@@ -289,6 +289,84 @@ registry → renderer`:
   only at the lowest priority (fixture-tested). The web does not request any
   yet.
 
+## Notes (M6-03)
+
+Notes are planner-owned Markdown (07 §3.5, §7; 08 §2.7). They are never
+synced to the task tool.
+
+- **Workspace (`/notes`, `/notes/new`, `/notes/:id`, page `NotesWorkspace`).**
+  One view: a list with server search (`q`, prefix match per word), *더 보기*
+  paging and empty / no-results / loading / error / offline states, beside the
+  editor from 1024px. Below 1024px the list and the open note are separate
+  steps, with *노트 목록으로*. Notes pages use the frame's stacked variant
+  (like planning), so the context panels sit below the page. *노트* is in
+  the rail (Daily group) and the More sheet.
+- **Editor.** Title, Markdown body with *편집 / 미리보기 / 나란히* (side by
+  side only from 1024px; a radio group, keyboard-native), a code-point counter
+  against 65,536 (an over-long body cannot be saved), sensitivity *P2 일반
+  노트 (기본) / P1 개인 일정 정보*, and the *AI에 보내기 허용* switch. It is
+  off by default and says what is sent (related sections of a linked plan, at
+  most 6 KB per call) and that masking is best-effort, with a warning for P1
+  notes. Saves send `If-Match` (note version) and a UUIDv7
+  `Idempotency-Key`. A 412 opens an `alertdialog` with *서버 내용 불러오기* /
+  *내 내용을 사본으로 저장* / *계속 편집*. Delete is a soft delete behind an
+  `alertdialog` whose focus starts on *취소*. Leaving with unsaved changes
+  asks first. Ctrl/⌘+S saves, and the save state is announced in a polite
+  live region.
+- **Safe preview (`components/notes/markdown.ts`).** markdown-it 15.0.3
+  (MIT, pinned) only parses (`html`, `linkify` and `typographer` off). The
+  token stream becomes Vue VNodes through an allowlist; there is no `v-html`
+  or `innerHTML`. Raw HTML stays visible text. A link is its text, then the
+  address as text. Only `http:`, `https:` and `mailto:` addresses also get a
+  separate *열기* link (`target="_blank"`, `rel="noopener noreferrer
+  nofollow"`, `referrerpolicy="no-referrer"`), and any other scheme is marked
+  *열 수 없는 주소*. Images are never loaded: alt text and address are shown
+  as text, so a tracking pixel cannot report a read. Headings move two levels
+  down. Past markdown-it's nesting limit, which would silently drop text, the
+  note is shown verbatim.
+- **Links (연결 대상).** A project/task picker (a `dialog` with a radio
+  list, already-linked targets disabled). Goal links come
+  from the planning wizard, because goals have no list endpoint. Link and
+  unlink pin `If-Match` to the note version. The editor advances its edit
+  base silently only when the newer version changed links or the version
+  alone. If title, body, sensitivity or the AI opt-in changed there while I
+  have unsaved edits, the reload / keep-mine-as-copy dialog opens instead
+  (M6-03R-1 M1). That holds for a link/unlink 412 and for a save 412. A save
+  412 caused only by a link change rebases and is sent once more, with a new
+  If-Match and so a new Idempotency-Key.
+- **AI 근거 사용 이력.** Per note: purpose, status, time, section count and
+  hashes, bytes, note version, and *이후 수정됨* when the note changed since.
+  The sent text is never stored, so it is never shown.
+- **Project 노트 탭.** `/projects/:id?tab=notes`: an ARIA tablist (arrow
+  keys, Home/End, roving tabindex) and *이 프로젝트에 새 노트*
+  (`/notes/new?link=project:<id>`).
+- **Task detail (`/tasks/:id`).** Opened from a task's title. Shows the
+  provider description as text only (an inert `DOMParser` document, tags
+  dropped), the linked notes, *이 작업에 새 노트*, and *설명을 노트로 승격*
+  (`If-Match` on the task version). A 409 opens the note promoted earlier,
+  found by following `nextCursor` across the task's notes (M6-03R-1 M2);
+  a 412 refreshes the task; a 422 means there is no description.
+- **Planning wizard.** *이 계획에 참고할 노트* links notes to the session's
+  goal (the only thing decomposition grounds on). Its badges say which notes
+  may be sent (*AI 전송 허용* / *AI에 보내지 않음*). The draft step lists
+  `evidence` as *사실* / *추론* (an icon and a solid or dashed edge, never
+  colour alone), with the statement as quoted plain text, the source note
+  title, *구간 #hash*, the note time, *그 뒤 노트가 수정됐어요*, the related
+  steps and *노트 열기*. The draft PATCH never sends evidence back.
+- **RelatedNotes{limit}.** Notes linked to the current work, newest first,
+  at most `limit`, titles only. The current work is, in order: the
+  focus/running session's task and its project; the planning session's goal;
+  the open note's targets (that note excluded); and on Today, the next
+  block's task and its project.
+- **Owner scope (ADR-023, M6-03R-1 H1).** Every cache key starts with the
+  owner id, and every lookup runs in `ownerFenced` (`composables/notes.ts`).
+  That means one OwnerBinding for the whole lookup, all pages included, with
+  its AbortSignal on every request. The key's owner must be the bound owner,
+  and the binding is re-checked after every await, both before the next page
+  and before anything is returned (and so cached). A stale lookup throws
+  `OwnerChangedError` and nothing of it is kept or retried. Every write
+  captures the binding and drops its continuation after an owner change.
+
 ## Evidence
 
 `before/` was captured at the base commit and `after/` on the UI-POLISH
@@ -305,7 +383,18 @@ node scripts/ui-screenshots.mjs --label after-ko --only 14-today
 node scripts/ui-screenshots.mjs --label m5-03 --flows replan,patterns
 # M6-02 layout modes (34–41) into m6-02/
 node scripts/ui-screenshots.mjs --label m6-02 --flows adaptive
+# M6-03 notes screens (42–51) into m6-03/
+node scripts/ui-screenshots.mjs --label m6-03 --flows notes
 ```
+
+`m6-03/` holds the notes screens: the list (42, light/dark; on desktop beside
+an open note), the editor with the side-by-side preview (43, light/dark, full
+page with links and AI usage), the link picker (44), the AI usage history
+(45), the 412 conflict dialog (46), the delete confirmation (47), the
+project notes tab (48), the task detail with *설명을 노트로 승격* (49), the
+wizard's reference notes with fact/inference evidence (50, light/dark, full)
+and RelatedNotes in the focus layout (51, mock seed
+`window.__OHMYDATE_MOCK__ = { notes: 'focus' }`).
 
 `m6-02/` holds one capture per layout mode: overview (34, light/dark, full),
 focus right after *집중 시작* with the undo toast (35, light/dark), the undone
@@ -336,6 +425,7 @@ on any overflow. Results are in `<label>/sweep-report.json`:
 | after-ko | 130 | 0 | none (Korean copy, same screens; the 360px checks pass with the longer Korean labels) |
 | m5-03 | 72 | 0 | none (M5-03 screens only: `--flows replan,patterns`) |
 | m6-02 | 48 | 0 | none (M6-02 layout modes only: `--flows adaptive`) |
+| m6-03 | 60 | 0 | none (M6-03 notes screens only: `--flows notes`) |
 
 The real API is covered too. `e2e/tests/e2e-a11y-screens.spec.ts` runs the
 same axe tags against PostgreSQL + Vikunja on the screens E2E-1..4 do not
@@ -345,4 +435,8 @@ More sheet). At both widths the spec also runs Focus, switches calm mode on,
 completes and reviews the session without leaving calm mode, and checks that
 *Back to Today* and the navigation are visible at each step. The spec waits for finite entrance animations to end
 before each scan, because a sheet that is still fading in reports false
-contrast failures.
+contrast failures. `e2e/tests/e2e-6-notes.spec.ts` (M6-03) scans the notes
+screens on the real stack at 1280×860 and 390×844: the empty list, the new
+note, the preview, the link picker, the wizard's note picker and draft
+evidence, a note with AI usage, the focus layout with RelatedNotes, search,
+the delete confirmation, the project notes tab and the task detail.

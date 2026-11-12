@@ -64,6 +64,12 @@ function newTask(): void {
             </RouterLink>
           </li>
           <li>
+            <RouterLink to="/notes" class="nav-link">
+              <UiIcon name="note" class="nav-link-icon" />
+              <span class="nav-link-label">{{ t('nav.notes') }}</span>
+            </RouterLink>
+          </li>
+          <li>
             <button type="button" class="nav-link nav-link-button" @click="ui.openNotifications">
               <UiIcon name="bell" class="nav-link-icon" />
               <span class="nav-link-label">{{ t('nav.notifications') }}</span>

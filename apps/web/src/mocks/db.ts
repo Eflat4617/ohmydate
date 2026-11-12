@@ -22,6 +22,7 @@ import type {
   WorkSession,
 } from '../api/client';
 import { seedEstimationProfile } from './replan-seed';
+import { createNotesState, type MockNotesState } from './notes-seed';
 
 export interface StoredResponse {
   readonly hash: string;
@@ -76,6 +77,8 @@ export interface MockDb {
   replanSuppressions: Map<string, number>;
   /** "내 패턴" profile (learned by default). */
   estimation: EstimationProfile;
+  /** M6-03: notes, their AI usage history and the goals intake sessions created. */
+  notes: MockNotesState;
   idempotency: Map<string, StoredResponse>;
   pendingIdempotency: Set<string>;
   authenticated: boolean;
@@ -372,6 +375,7 @@ export function createMockDb(): MockDb {
       taskOne: TODAY_TASK_ONE_ID,
       taskTwo: TODAY_TASK_TWO_ID,
     }),
+    notes: createNotesState({ ownerId: USER_ID, projectId: SAMPLE_PROJECT_ID, createdAt, uuid: createUuidV7 }),
     idempotency: new Map(),
     pendingIdempotency: new Set(),
     authenticated: true,
@@ -421,6 +425,7 @@ export function resetMockDb(): void {
   mockDb.replanProposals = fresh.replanProposals;
   mockDb.replanSuppressions = fresh.replanSuppressions;
   mockDb.estimation = fresh.estimation;
+  mockDb.notes = fresh.notes;
   mockDb.idempotency = fresh.idempotency;
   mockDb.pendingIdempotency = fresh.pendingIdempotency;
   mockDb.authenticated = fresh.authenticated;

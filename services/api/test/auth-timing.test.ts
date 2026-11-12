@@ -45,7 +45,7 @@ function makeService(overrides: {
     touch: vi.fn(),
     delete: vi.fn(),
   } as unknown as SessionStore;
-  const rateLimiter: LoginRateLimiter = { consume: () => true };
+  const rateLimiter: LoginRateLimiter = { consume: () => true, reset: () => undefined };
   const service = new AuthService({
     users,
     hasher,
