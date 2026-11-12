@@ -11,7 +11,8 @@ import type {
   Export,
 } from '../api/client';
 import type { ProblemCode } from '../api/errors';
-import { createUuidV7, type MockDb } from './db';
+import { layoutClock } from '../layout/clock';
+import { createUuidV7, todayScheduleBlock, type MockDb } from './db';
 import {
   etag,
   json,
@@ -332,16 +333,7 @@ export function createDailyHandlers(db: MockDb) {
       }
       const planVersionId = '01900000-0000-7000-8000-0000000000d1';
       const items: ScheduleBlock[] = [
-        ...db.today.blocks.map((block) => ({
-          id: block.id,
-          planVersionId,
-          taskId: block.taskId,
-          startAt: block.startAt,
-          endAt: block.endAt,
-          locked: false,
-          status: block.status,
-          version: 1,
-        })),
+        ...db.today.blocks.map((block) => todayScheduleBlock(db, block, planVersionId)),
         ...db.extraScheduleBlocks,
       ]
         .filter((block) => Date.parse(block.startAt) < toMs && Date.parse(block.endAt) > fromMs)
@@ -352,6 +344,48 @@ export function createDailyHandlers(db: MockDb) {
         return new HttpResponse(null, { status: 304, headers: { ETag: current } });
       }
       return json({ items, nextCursor: null }, 200, { ETag: current });
+    }),
+
+    // FU-71: POST /schedule-blocks/{id}:lock|:unlock (pg-planning-store setBlockLock).
+    http.post(/\/api\/v1\/schedule-blocks\/([^/:]+):(lock|unlock)$/, async ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
+      const raw = await request.text();
+      const token = parseIdempotency(db, request, raw);
+      if (token instanceof Response) return token;
+      const match = /\/schedule-blocks\/([^/:]+):(lock|unlock)$/.exec(new URL(request.url).pathname);
+      const blockId = match?.[1] === undefined ? '' : decodeURIComponent(match[1]);
+      const locked = match?.[2] === 'lock';
+      const todayBlock = db.today.blocks.find((block) => block.id === blockId);
+      const extraIndex = db.extraScheduleBlocks.findIndex((block) => block.id === blockId);
+      const current =
+        todayBlock !== undefined
+          ? todayScheduleBlock(db, todayBlock, '01900000-0000-7000-8000-0000000000d1')
+          : db.extraScheduleBlocks[extraIndex];
+      if (current === undefined) return problem(404, 'not_found', 'Schedule block not found');
+      const ifMatch = parseNumericIfMatch(request);
+      if (ifMatch instanceof Response) return ifMatch;
+      // 412 is not stored (08 §1): the retry with the fresh version may reuse the key.
+      if (ifMatch.version !== current.version) {
+        return problem(412, 'version_conflict', `The block is at version ${current.version}`);
+      }
+      if (current.status !== 'planned' || Date.parse(current.startAt) < layoutClock().now()) {
+        return rememberDomainResult(db, token, 409, 'illegal_transition', 'Only a planned block that has not started can change', 'State conflict');
+      }
+      let saved: ScheduleBlock = current;
+      if (current.locked !== locked) {
+        saved = { ...current, locked, version: current.version + 1 };
+        if (todayBlock !== undefined) {
+          db.todayBlockLocks.set(blockId, { locked, version: saved.version });
+        } else {
+          db.extraScheduleBlocks = db.extraScheduleBlocks.map((block, index) => (index === extraIndex ? saved : block));
+        }
+        // The plan revision covers lock state (Today.version follows it).
+        db.today = { ...db.today, version: db.today.version + 1 };
+        db.todayRevision += 1;
+      }
+      const tag = etag(saved.version);
+      remember(db, token, 200, saved, { ETag: tag });
+      return json(saved, 200, { ETag: tag });
     }),
 
     http.post(/\/api\/v1\/sessions$/, async ({ request }) => {

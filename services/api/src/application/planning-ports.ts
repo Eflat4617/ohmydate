@@ -13,6 +13,7 @@ import type {
   PlanHorizon,
   PlanScope,
   PlanVersionDto,
+  ScheduleBlockDto,
   Violation,
 } from '@ohmydate/contracts';
 import type { Id, Instant } from '@ohmydate/domain';
@@ -51,6 +52,15 @@ export interface ScheduleBlockWindowQuery {
   readonly cursorId?: Id;
   /** Maximum rows to return; callers ask for `pageSize + 1` to detect more. */
   readonly limit: number;
+}
+
+/** FU-71: set `schedule_block.locked` on one approved block (08 §2.5). */
+export interface BlockLockRequest {
+  readonly blockId: Id;
+  readonly locked: boolean;
+  /** `If-Match: W/"<block.version>"`. */
+  readonly expectedVersion: number;
+  readonly now: Instant;
 }
 
 export interface ActivePlanRevision {
@@ -168,6 +178,12 @@ export interface PlanningStore extends EstimateRepository {
   ): Promise<readonly ApprovedBlock[]>;
   /** The owner's active approved plan (most recently updated), if any. */
   getActivePlan(ownerId: Id): Promise<ActivePlanRevision | null>;
+  /**
+   * FU-71: lock or unlock one planned, not-yet-started block of an active plan
+   * (06 §7). Never moves the block. A change bumps the block version and the
+   * plan revision; a block already in the requested state is returned as-is.
+   */
+  setBlockLock(ownerId: Id, request: BlockLockRequest): Promise<ScheduleBlockDto>;
   approve(
     ownerId: Id,
     planId: Id,

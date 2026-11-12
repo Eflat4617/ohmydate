@@ -264,6 +264,19 @@ export const ko = {
     approving: '승인하는 중…',
   },
 
+  blockLock: {
+    lock: '블록 고정',
+    unlock: '고정 해제',
+    locked: '고정됨',
+    lockedToast: '블록을 고정했어요. 재계획해도 이 블록은 옮기지 않아요.',
+    unlockedToast: '고정을 풀었어요. 다음 재계획에서 이 블록을 옮길 수 있어요.',
+    stale: '이 블록이 다른 곳에서 바뀌었어요. 최신 일정을 다시 불러왔어요.',
+    notLockable: '이미 시작했거나 끝난 블록은 고정을 바꿀 수 없어요. 최신 일정을 다시 불러왔어요.',
+    error: '블록 고정을 바꾸지 못했어요.',
+    editingHint: '일정안을 편집하는 동안에는 고정을 바꿀 수 없어요. 확정하거나 편집을 되돌린 뒤에 바꿔 주세요.',
+    readOnlyHint: '고정은 오늘 화면이나 일정안 비교 화면의 확정된 일정에서 바꿀 수 있어요.',
+  },
+
   replan: {
     title: '재계획 제안',
     lede: '일정이 어긋나면 최소한만 고친 새 일정을 제안해요. 승인하기 전에는 아무것도 바뀌지 않아요.',
@@ -348,7 +361,6 @@ export const ko = {
     after: '이후',
     lockedTitle: '고정된 블록 (바뀌지 않아요)',
     lockedList: '고정된 블록 목록',
-    locked: '고정됨',
     unchanged: plural({ other: '그 밖의 블록 {count}개는 그대로예요.' }),
     proposedTitle: '제안된 블록',
     proposedList: '제안된 블록 목록',

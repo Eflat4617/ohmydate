@@ -1045,6 +1045,37 @@ export class PlannerClient {
     return data;
   }
 
+  /**
+   * FU-71: `POST /schedule-blocks/{id}:lock` / `:unlock`. If-Match is the
+   * block version (ScheduleBlock.version); the answer is the block with its
+   * new version. A change also moves the plan revision (Today.version).
+   */
+  async setScheduleBlockLock(
+    blockId: string,
+    locked: boolean,
+    idempotencyKey: string,
+    expectedVersion: number,
+    signal?: AbortSignal,
+  ): Promise<ScheduleBlock> {
+    const init = {
+      params: {
+        path: { id: blockId },
+        header: {
+          'If-Match': etagForVersion(expectedVersion),
+          'Idempotency-Key': idempotencyKey,
+        },
+      },
+      ...(signal === undefined ? {} : { signal }),
+    };
+    const { data, error, response } = locked
+      ? await this.client.POST('/schedule-blocks/{id}:lock', init)
+      : await this.client.POST('/schedule-blocks/{id}:unlock', init);
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty schedule block response');
+    this.remember(`schedule-block:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
   async createSession(
     input: SessionCreate,
     idempotencyKey: string,

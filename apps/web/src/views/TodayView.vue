@@ -12,6 +12,7 @@ import {
   type TodayProposal,
   type Violation,
 } from '../api';
+import BlockLockToggle from '../components/BlockLockToggle.vue';
 import ProposalPreview from '../components/ProposalPreview.vue';
 import ReplanBanner from '../components/ReplanBanner.vue';
 import ReplanRequestButton from '../components/ReplanRequestButton.vue';
@@ -37,6 +38,7 @@ import { useSessionStore } from '../stores/session';
 import { useToastStore } from '../stores/toast';
 import { focusClientId } from '../session/clientId';
 import { useLatestReplanPlan } from '../composables/useLatestReplanPlan';
+import { isBlockLockable, useBlockLock, type LockableBlock } from '../composables/useBlockLock';
 import {
   captureOwnerBinding,
   isOwnerBindingCurrent,
@@ -132,11 +134,20 @@ watch(
   { immediate: true },
 );
 
-const blocks = computed<TodayBlock[]>(() => {
+/**
+ * A Today block plus its approved row (FU-71): `lock` is null until
+ * `GET /schedule-blocks` has the block, so the lock toggle only ever sends the
+ * version the server reported.
+ */
+type TodayCardBlock = TodayBlock & { readonly lock: LockableBlock | null };
+
+const blocks = computed<TodayCardBlock[]>(() => {
   const current = today.value;
   if (current === null) return [];
   const schedule = scheduleQuery.data.value;
-  if (schedule === undefined || scheduleQuery.isError.value) return current.blocks;
+  if (schedule === undefined || scheduleQuery.isError.value) {
+    return current.blocks.map((block) => ({ ...block, lock: null }));
+  }
   const enrichment = new Map(
     schedule.items
       .filter((block) => block.status !== 'superseded')
@@ -145,12 +156,19 @@ const blocks = computed<TodayBlock[]>(() => {
   return current.blocks.map((block) => {
     const approved = enrichment.get(block.id);
     return approved === undefined
-      ? block
+      ? { ...block, lock: null }
       : {
           ...block,
           startAt: approved.startAt,
           endAt: approved.endAt,
           status: approved.status,
+          lock: {
+            id: approved.id,
+            locked: approved.locked,
+            version: approved.version,
+            status: approved.status,
+            startAt: approved.startAt,
+          },
         };
   });
 });
@@ -204,6 +222,24 @@ const isLoading = computed(
 );
 const isError = computed(() => todayQuery.isError.value);
 const readOnly = computed(() => !offline.mutationsEnabled);
+
+// FU-71: a lock moves the plan revision (Today.version), so both reads refresh.
+const {
+  displayLocked,
+  isPending: lockPending,
+  toggle: toggleLock,
+  error: lockError,
+} = useBlockLock({
+  refresh: () => Promise.all([todayQuery.refetch(), scheduleQuery.refetch()]),
+});
+
+function blockLocked(block: TodayCardBlock): boolean {
+  return block.lock !== null && displayLocked(block.lock);
+}
+
+function canToggleLock(block: TodayCardBlock): boolean {
+  return block.lock !== null && isBlockLockable(block.lock, now.value);
+}
 
 const error = ref<string | null>(null);
 const startingBlockId = ref<string | null>(null);
@@ -481,6 +517,7 @@ function resumeActive(): void {
     </UiBanner>
 
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
+    <UiBanner v-if="lockError" tone="error" role="alert" class="block-lock-error">{{ lockError }}</UiBanner>
     <ReplanBanner />
     <UiBanner v-if="resumeOffer && activeSession" tone="info" inline class="resume-banner">
       <span>{{ t('today.alreadyRunning') }}</span>
@@ -599,12 +636,21 @@ function resumeActive(): void {
               >
                 {{ startingBlockId === block.id ? t('today.starting') : t('today.startFocus') }}
               </UiButton>
-              <UiButton icon="shrink" :disabled="readOnly || busy" @click="openShrink(block)">
+              <!-- A locked block cannot be shrunk or moved (422 otherwise, 06 §7). -->
+              <UiButton icon="shrink" :disabled="readOnly || busy || blockLocked(block)" @click="openShrink(block)">
                 {{ t('today.shrink') }}
               </UiButton>
-              <UiButton icon="reschedule" :disabled="readOnly || busy" @click="reschedule(block)">
+              <UiButton icon="reschedule" :disabled="readOnly || busy || blockLocked(block)" @click="reschedule(block)">
                 {{ t('today.reschedule') }}
               </UiButton>
+              <BlockLockToggle
+                v-if="block.lock && canToggleLock(block)"
+                :locked="displayLocked(block.lock)"
+                :pending="lockPending(block.id)"
+                :disabled="readOnly"
+                @toggle="toggleLock(block.lock)"
+              />
+              <BlockLockToggle v-else-if="block.lock" read-only :locked="block.lock.locked" />
             </div>
           </UiCard>
         </ul>

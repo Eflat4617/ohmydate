@@ -64,6 +64,7 @@ import {
   type SessionIdParams,
   type SessionListQuery,
   type SessionReviewRequest,
+  type ScheduleBlockIdParams,
   type ScheduleBlockListQuery,
   type TodayAcceptRequest,
   type TodayQuery,
@@ -933,6 +934,24 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       };
     });
 
+  const blockLockAction =
+    (locked: boolean) => async (request: FastifyRequest, reply: FastifyReply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const params = request.params as ScheduleBlockIdParams;
+        const block = await runtime.planning.setBlockLock(
+          auth.userId,
+          params.id as Id,
+          locked,
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: block,
+          headers: { ETag: etagForVersion(block.version) },
+        };
+      });
+
   const reviewSession = async (request: FastifyRequest, reply: FastifyReply) =>
     runIdempotent(runtime, request, reply, async () => {
       const auth = currentAuth(request);
@@ -1211,6 +1230,8 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
       return reply.code(200).header('ETag', etag).send(page);
     },
+    lockScheduleBlock: blockLockAction(true),
+    unlockScheduleBlock: blockLockAction(false),
     pauseSession: sessionAction('pause'),
     resumeSession: sessionAction('resume'),
     completeSession: sessionAction('complete'),

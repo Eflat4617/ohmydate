@@ -205,6 +205,16 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     optionalHeaders: ['If-None-Match'],
     statuses: [200, 304, 400, 401, 422],
   },
+  lockScheduleBlock: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
+  unlockScheduleBlock: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
+  },
   acceptToday: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
@@ -500,6 +510,8 @@ test('route table covers today, session, notification and export endpoints from 
     'DELETE /push-subscriptions/{id}',
     'POST /exports',
     'GET /exports/{id}',
+    'POST /schedule-blocks/{id}:lock',
+    'POST /schedule-blocks/{id}:unlock',
   ]) {
     expect({ expected, present: keys.has(expected) }).toEqual({ expected, present: true });
   }
@@ -649,6 +661,8 @@ test('existing-resource mutations require both If-Match and Idempotency-Key', ()
     'completeSession',
     'reviewSession',
     'dismissNotification',
+    'lockScheduleBlock',
+    'unlockScheduleBlock',
     'deletePushSubscription',
     'approveReplanProposal',
     'rejectReplanProposal',

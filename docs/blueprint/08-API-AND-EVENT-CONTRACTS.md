@@ -100,6 +100,20 @@
 | POST /sessions | `{taskId, blockId?, clientStartedAt}` 201 Idem, 409 active_session_exists |
 | POST /sessions/{id}:pause / :resume / :complete | Idem(이벤트별 키), If-Match |
 | POST /sessions/{id}/review | `{outcome, reasonChips[], note?}` → EstimationFeedback 생성 |
+| GET /schedule-blocks?from&to&cursor&limit | 확정된 활성 블록(겹치는 구간, 366일 이하) `Page<ScheduleBlock>` (FU-51) |
+| POST /schedule-blocks/{id}:lock · :unlock | 블록 고정/고정 해제 → ScheduleBlock 200 (FU-71, §2.5.1) |
+
+#### 2.5.1 블록 고정 (FU-71, 2026-11-12)
+고정된 블록은 재계획·다시 만들기·Today 동작이 옮기지 않는다(06 §7, M5-02R-1 H1). 사용자는 `:lock`/`:unlock` 액션 POST로 이 상태를 바꾼다(PATCH `locked` 필드 대신 기존 `:action` 규약을 택함).
+
+| 항목 | 규칙 |
+|---|---|
+| 헤더 | `If-Match: W/"<ScheduleBlock.version>"`(블록 version; 누락 428, 불일치 412 `version_conflict`) + `Idempotency-Key`(같은 키 재전송은 저장된 응답 재생, 같은 키로 다른 동작은 422 `idempotency_mismatch`). 본문 없음 |
+| 대상 | 소유자의 블록만(남의 블록·없는 블록·삭제된 일정안의 블록은 404). 활성 일정안의 `status=planned`이고 아직 시작하지 않은(`startAt ≥ now`, 06 §7.1) 블록만 바꿀 수 있다. 시작한 블록(이력)·`done`/`skipped`/`moved`/`superseded` 블록·활성이 아닌 일정안의 블록은 409 `illegal_transition`(멱등 기록에 저장) |
+| 효과 | 블록 시각은 바뀌지 않는다. 상태가 바뀌면 블록 `version` +1, 일정안 revision(`plan.version` = `Today.version`, 일정안 ETag) +1 — 이전 revision에 묶인 Today 동작·미리보기·Today 제안 승인은 412(경합 시 409)가 되어 다시 읽어야 한다. `plan.updated_at`은 바꾸지 않는다(활성 일정안 선택 순서). 이미 요청한 상태면 그대로 200(버전·revision 불변, 감사 기록 없음) |
+| 감사 | `audit_event{actor:'user', action:'schedule_block.locked' 또는 'schedule_block.unlocked', entity:'schedule_block', entity_id, diff_summary:{planId, locked, version}}` — id와 상태만, 제목 없음 |
+| 이후 | 고정: 다음 재계획 후보에 그 블록이 없고 승인 시 같은 행·시각으로 남는다. 해제: 다음 재계획이 그 블록을 옮길 수 있다(후보가 대체하는 미래 블록에 포함). 고정을 바꾸기 전에 만든 재계획 제안은 승인 TX가 잠금 상태를 다시 읽어 검증한다: 그 뒤 고정한 블록을 옮기는 후보, 그 뒤 고정을 푼 블록을 빼먹는 후보 모두 422 `constraint_violation`(블록은 그대로) |
+| 웹 | Today 카드와 일정안 비교의 "확정된 일정"에 토글("블록 고정"/"고정 해제", `aria-pressed`), 재계획 제안 화면은 읽기 전용 배지. 낙관적 표시는 `runOwnerBound` 작업 안에서만, 412/409면 다시 읽는다 |
 
 ### 2.6 Replanning (M5)
 GET /replan-proposals?state=pending · POST /replan-proposals/{id}:approve (If-Match, Idem) · POST /replan-proposals/{id}:reject `{reason?}` (24h 억제)

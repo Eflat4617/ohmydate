@@ -34,6 +34,7 @@ import {
   PlanVersionSchema,
   PreviewEditRequestSchema,
   PreviewEditResponseSchema,
+  ScheduleBlockIdParamsSchema,
   ScheduleBlockListQuerySchema,
   ScheduleBlockPageSchema,
   ScheduleBlockSchema,
@@ -736,6 +737,10 @@ export const planningRoutes: readonly RouteDefinition[] = [
  * `POST /today/proposals/{id}:approve` is the write that creates a plan
  * version, mirroring the planning approval flow.
  */
+/** Shared rules of `POST /schedule-blocks/{id}:lock` and `:unlock` (FU-71, 08 §2.5). */
+const BLOCK_LOCK_RULES =
+  'If-Match is the block version W/"<ScheduleBlock.version>". Only a planned block of an active plan that has not started yet (startAt >= now) can be locked or unlocked; a started, done, skipped, moved or superseded block (or a block of a non-active plan) is 409 illegal_transition. The block times never change. A change increments the block version and the plan revision (Plan.version = Today.version), so Today actions, plan previews and Today proposals pinned to the previous revision answer 412/409 and must be refreshed. Repeating the call on a block that already has the requested state returns it unchanged. Unknown or foreign blocks are 404.';
+
 export const dailyRoutes: readonly RouteDefinition[] = [
   {
     method: 'get',
@@ -854,6 +859,34 @@ export const dailyRoutes: readonly RouteDefinition[] = [
       200: { description: 'Schedule block page', schema: ScheduleBlockPageSchema },
       304: { description: 'Not modified' },
       ...problems(400, 401, 422),
+    },
+  },
+  {
+    method: 'post',
+    path: '/schedule-blocks/{id}:lock',
+    operationId: 'lockScheduleBlock',
+    summary: 'Lock an approved future block so replanning never moves it (FU-71)',
+    description:
+      `${BLOCK_LOCK_RULES} A locked block is kept as-is by replan, regenerate and Today actions (06 §7).`,
+    params: ScheduleBlockIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      200: { description: 'Locked schedule block', schema: ScheduleBlockSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/schedule-blocks/{id}:unlock',
+    operationId: 'unlockScheduleBlock',
+    summary: 'Unlock an approved future block so the next replan may move it (FU-71)',
+    description:
+      `${BLOCK_LOCK_RULES} An unlocked block is movable by the next replan.`,
+    params: ScheduleBlockIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      200: { description: 'Unlocked schedule block', schema: ScheduleBlockSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
     },
   },
   {
@@ -1324,6 +1357,7 @@ export const schemaRegistry = {
   ScheduleBlock: ScheduleBlockSchema,
   ScheduleBlockListQuery: ScheduleBlockListQuerySchema,
   ScheduleBlockPage: ScheduleBlockPageSchema,
+  ScheduleBlockIdParams: ScheduleBlockIdParamsSchema,
   PlanVersion: PlanVersionSchema,
   TodayRisk: TodayRiskSchema,
   TodayBlock: TodayBlockSchema,

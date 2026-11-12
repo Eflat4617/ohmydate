@@ -11,6 +11,7 @@ import {
   type Task,
   type Violation,
 } from '../api';
+import BlockLockToggle from '../components/BlockLockToggle.vue';
 import ExplanationList from '../components/ExplanationList.vue';
 import ReplanRequestButton from '../components/ReplanRequestButton.vue';
 import UiBadge from '../components/ui/UiBadge.vue';
@@ -554,11 +555,12 @@ function closeConflict(): void {
               <h3 class="h3">{{ t('replan.lockedTitle') }}</h3>
               <ul class="replan-locked-list" :aria-label="t('replan.lockedList')">
                 <li v-for="block in diff.locked" :key="block.id" :data-block-id="block.id" data-locked>
-                  <UiBadge tone="outline"><UiIcon name="lock" :size="14" />{{ t('replan.locked') }}</UiBadge>
+                  <BlockLockToggle read-only :locked="true" />
                   <span class="replan-change-title">{{ titleOf(block.taskId) }}</span>
                   <span class="tabular muted">{{ range(block) }}</span>
                 </li>
               </ul>
+              <p class="field-help block-lock-hint">{{ t('blockLock.readOnlyHint') }}</p>
             </div>
             <p v-if="diff.unchangedCount > 0" class="muted replan-unchanged">
               {{ tp('replan.unchanged', diff.unchangedCount) }}

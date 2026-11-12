@@ -1792,6 +1792,17 @@
   font-weight: var(--weight-medium);
 }
 
+/* FU-71: block lock toggle (Today cards, approved schedule). */
+.block-lock-toggle--on {
+  border-color: var(--color-accent);
+  color: var(--color-accent-text);
+  background: var(--color-accent-soft);
+}
+
+.block-lock-hint {
+  margin: 0;
+}
+
 .approved-panel .kv-list {
   margin-block: var(--space-2);
 }
