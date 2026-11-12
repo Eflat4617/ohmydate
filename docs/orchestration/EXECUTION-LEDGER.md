@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 15:13 | 사용자 결정: 배터리 무시하고 평소대로 진행('무시하고 그냥 해 중간에 interrupt 하는 일이 있어도'). 중단 시 재개 절차로 복구. 보류했던 통합 CI 재실행, 전체 suite 동시 2개 이하 규칙만 유지 | 사용자 메시지 | user |
 | 2026-11-12 15:12 | FU-86R **REQUEST_CHANGES** (Fable; Required MEDIUM: 'saving' 안내가 레이아웃을 35.6 px(390 px에서 55.2 px) 밀어 두 번째 클릭이 옆 행 토글을 누름 — 실제 브라우저 재현). FU-86F 수정 1라운드: Opus 5.5 xhigh ctx_b9b698aedd78 (LOW 2건 포함, 브라우저 bounding-box 회귀 검사 요구) | reviews/FU-86R.md | orchestrator |
 | 2026-11-12 15:12 | 호스트 성능 원인 확인: 노트북이 배터리(42%) + power-saver(platform quiet)로 CPU 평균 ~0.76 GHz(최대 4.6 GHz) — 반복된 부하 timeout의 주원인. 사용자가 '균형'으로 전환. 배터리 15%까지 약 25–50분 예상 → 충전기 연결 권고, 전체 suite 동시 실행 최소화 | 사용자 메시지, /sys power_supply | orchestrator |
 | 2026-11-12 15:09 | 통합 CI 1478e5a(FU-85+FU-64+68) exit 1: 7건 모두 부하 timeout 계열(generate.property, http-timeouts×3, production-timeouts×2, FU-64 perf gate 200 ms — FU-88 대상), load 최고 21.6(FU-89/FU-88 착수 + 리뷰어 2). 판정 보류 — 리뷰어 종료 후 조용한 시점에 재실행. 부하 민감 테스트 문제는 FU-65/67/80/88 계열 | scratchpad int-ci-1478e5a.log | orchestrator |
