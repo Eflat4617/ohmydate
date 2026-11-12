@@ -105,6 +105,7 @@
     - 리스너 지연이 10 s를 넘거나 relation 응답이 유실되면 phantom bump가 1회 생길 수 있다.
   - **스키마:** 변경 없음. `external_updated_at`이 provider `updated`보다 최대 약 11 s 앞설 수 있다.
   - 후속: FU-83(테스트 보강), FU-81(삭제 시 의존 task 재조회).
+- **개정 (FU-81, 2026-11-12) — 삭제된 task의 의존 task:** Vikunja는 task 삭제 시 그 task에 의존하던 task들의 `blocked` 관계를 지우면서 의존 task의 `updated`/ETag를 바꾸지 않는다(실측). 어댑터는 각 mapping의 내용 지문에 기록된 관계(역방향 간선)로 의존 task를 찾아 다시 읽고 `#commitReconciled`로 한 번만 반영한다 — 자기 softDelete 직후(최선 노력)와 `/tasks/deleted`에 나타난 owner task마다 poll에서. owner 범위, 호출당 최대 50회 읽기(나머지는 다음 poll로 이월, 휴지통에 있는 동안 유실 없음), poll 반복에 멱등, 실패한 읽기는 재시도. 의존 task의 version은 1회 증가(내용 변경). 남은 위험·후속은 FU-84(읽을 수 없는 의존 task의 예산 소모, eager 경로 시간 제한, 프로젝트 삭제·복원).
 - **계약 테스트 영향:** `VersionConflict` 테스트는 InMemory/Native는 "항상 감지", Vikunja는 "순차 시나리오에서 감지"로 구분 표기(동일 스위트, capability flag `strictConcurrency`).
 - **Native 전환 트리거 강화:** 실제 사용에서 lost-update 1건 이상 관측 시 M7 앞당김 검토.
 
