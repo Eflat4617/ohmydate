@@ -1,5 +1,6 @@
 import {
   DIVERSITY_NOTE_CODES,
+  DiversityNoteItemsSchema,
   EXPLANATION_CODES,
   EXPLANATION_PARAM_TOKEN_PATTERN,
   type DiversityNoteItem,
@@ -22,8 +23,8 @@ const DIVERSITY_CODES: ReadonlySet<string> = new Set(DIVERSITY_NOTE_CODES);
 const PARAM_KEY = /^[a-z][A-Za-z0-9]{0,39}$/;
 const PARAM_TOKEN = new RegExp(EXPLANATION_PARAM_TOKEN_PATTERN);
 const MAX_PARAMS = 12;
-/** Contract `DiversityNoteItemsSchema` maxItems. */
-const MAX_DIVERSITY_ITEMS = 10;
+/** FU-88: the item cap comes from the contract schema, not a local literal. */
+const MAX_DIVERSITY_ITEMS = DiversityNoteItemsSchema.maxItems ?? 0;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);

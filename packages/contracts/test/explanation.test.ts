@@ -7,10 +7,14 @@ import {
   validate as validatePlan,
   type ScheduleInput,
 } from '@ohmydate/scheduler';
+// FU-88: the scheduler keeps its own bounded-note constant; compare it with the
+// contract schema rather than trusting two literals to stay in sync.
+import { MAX_DIVERSITY_NOTE_LENGTH as SCHEDULER_MAX_DIVERSITY_NOTE_LENGTH } from '../../scheduler/src/generate.js';
 import {
   API_VIOLATION_MESSAGE_CODES,
   DIVERSITY_NOTE_CODES,
   DiversityNoteItemSchema,
+  DiversityNoteItemsSchema,
   EXPLANATION_CODES,
   ExplanationItemSchema,
   GENERATOR_EXPLANATION_CODES,
@@ -100,6 +104,16 @@ describe('explanation code contract (FU-62)', () => {
     }
     expect(sorted(DIVERSITY_NOTE_CODES)).toEqual(sorted(SCHEDULER_DIVERSITY_NOTE_CODES));
     expect(new Set(DIVERSITY_NOTE_CODES).size).toBe(DIVERSITY_NOTE_CODES.length);
+  });
+
+  it('ties the diversity note length and item caps to the contract (FU-88)', () => {
+    const note = PlanCandidateSchema.properties['diversityNote'] as
+      | { readonly maxLength?: number }
+      | undefined;
+    expect(note?.maxLength).toBe(500);
+    expect(note?.maxLength).toBe(SCHEDULER_MAX_DIVERSITY_NOTE_LENGTH);
+    // The API parses at `DiversityNoteItemsSchema.maxItems` (no local literal).
+    expect(DiversityNoteItemsSchema.maxItems).toBe(10);
   });
 
   it('registers ExplanationItem and DiversityNoteItem as OpenAPI components', () => {

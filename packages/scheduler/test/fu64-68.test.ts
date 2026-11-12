@@ -128,14 +128,14 @@ const REPLAN_BOUND_INPUT = input({
 });
 
 const MULTI_REPLAN_INPUT = input({
-  horizon: { start: '2026-11-09T00:00:00Z', end: '2026-11-23T00:00:00Z' },
+  horizon: { start: '2026-11-09T00:00:00Z', end: '2026-11-12T00:00:00Z' },
   availability: ([1, 2, 3, 4, 5, 6, 7] as const).map((weekday) => ({
     weekday,
     startLocal: '00:00',
     endLocal: '24:00',
     kind: 'work' as const,
   })),
-  tasks: Array.from({ length: 5 }, (_, index) => ({
+  tasks: Array.from({ length: 4 }, (_, index) => ({
     id: `T${index}`,
     estimate: { p50Min: 150 + 30 * index, p90Min: 150 + 30 * index },
     splittable: true,
@@ -144,12 +144,16 @@ const MULTI_REPLAN_INPUT = input({
     priority: 1,
     dependsOn: [],
   })),
-  existingBlocks: Array.from({ length: 5 }, (_, index) => ({
+  existingBlocks: Array.from({ length: 4 }, (_, index) => ({
     taskId: `T${index}`,
     start: `2026-11-09T0${index}:00:00Z`,
     end: `2026-11-09T0${index}:30:00Z`,
   })),
 });
+
+// FU-88: one generate() result is shared by both tests instead of paying the
+// replan cost twice.
+const MULTI_REPLAN_RESULT = generate(MULTI_REPLAN_INPUT);
 
 describe('diversity note codes (FU-68)', () => {
   it('publishes a duplicate-free closed code list', () => {
@@ -167,7 +171,7 @@ describe('diversity note codes (FU-68)', () => {
       ...goldenInputs().map((fixture) => generate(fixture)),
       generate(input()),
       generate(REPLAN_BOUND_INPUT),
-      generate(MULTI_REPLAN_INPUT),
+      MULTI_REPLAN_RESULT,
     ];
     for (const result of results) {
       expectCodedDiversityNote(result);
@@ -176,7 +180,7 @@ describe('diversity note codes (FU-68)', () => {
     }
     expect(seen.has('diversity_dropped') || seen.has('diversity_distinct')).toBe(true);
     expect(seen.has('replan_bound_exceeded')).toBe(true);
-  }, 30_000);
+  });
 
   it('reaches each of the three codes on its own fixture', () => {
     // A history with no replan bounds produces the plain diversity sentence.
@@ -185,7 +189,7 @@ describe('diversity note codes (FU-68)', () => {
     expectCodedDiversityNote(dropped);
 
     // A multi-task replan keeps three genuinely distinct policy plans.
-    const distinct = generate(MULTI_REPLAN_INPUT);
+    const distinct = MULTI_REPLAN_RESULT;
     expect(distinct.diversityNoteItems?.map((item) => item.code)).toEqual([
       'diversity_distinct',
       'replan_bound_exceeded',
@@ -198,7 +202,7 @@ describe('diversity note codes (FU-68)', () => {
     expect(bounded.diversityNoteItems?.map((item) => item.code)).toEqual(['replan_bound_exceeded']);
     expect(bounded.diversityNote).toMatch(/^Replan change bound exceeded:/);
     expectCodedDiversityNote(bounded);
-  }, 30_000);
+  });
 
   it('caps a joined note at 500 characters and drops text with its item', () => {
     const baseNote = '3 distinct plans from 3 policy candidates (pairwise distance >= 0.15).';
@@ -240,6 +244,19 @@ describe('diversity note codes (FU-68)', () => {
     );
     expect(legacy.note).toBe(`base note ${boundText(31)}`);
     expect(legacy.items).toEqual([]);
+
+    // FU-88: all-or-nothing — one unpaired kept line drops every item, so the
+    // client shows the full English note instead of a partial coded one.
+    const mixed = appendBoundDiversityLines(
+      'base note',
+      [],
+      new Map<string, DiversityNoteItem | undefined>([
+        [boundText(31), undefined],
+        [boundText(33), boundItem(33)],
+      ]),
+    );
+    expect(mixed.note).toBe(`base note ${boundText(31)} ${boundText(33)}`);
+    expect(mixed.items).toEqual([]);
   });
 
   it('detects a missing or mislabelled item (negative)', () => {

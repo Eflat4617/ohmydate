@@ -146,7 +146,7 @@ S1 조기 완료, S2 일일 분산(분산 최소), S3 선호 시간대 적합, S
 
 **다양성 노트 코드 (2026-11-12 확정, FU-68)**
 
-`diversityNote`(영문)는 로그·호환용으로 유지하고, 같은 문장을 `PlanCandidate.diversityNoteItems = { code, params }[]`로도 보낸다. 항목 순서는 노트 문장 순서와 같고 공백으로 이어 붙이면 원문이 된다. `replan_bound_exceeded`는 위 생성기 표의 코드·params를 그대로 재사용한다(별도 행을 두지 않는다). FU-68 이전에 저장된 행은 `diversityNoteItems`가 없고 클라이언트는 원문을 보여 준다.
+`diversityNote`(영문)는 로그·호환용으로 유지하고, 같은 문장을 `PlanCandidate.diversityNoteItems = { code, params }[]`로도 보낸다. 항목 순서는 노트 문장 순서와 같고 공백으로 이어 붙이면 원문이 된다. `replan_bound_exceeded`는 위 생성기 표의 코드·params를 그대로 재사용한다(별도 행을 두지 않는다). FU-68 이전에 저장된 행은 `diversityNoteItems`가 없고 클라이언트는 원문을 보여 준다. 500자를 넘게 만드는 bound 문장은 note와 items에서 함께 생략한다.
 
 | 코드 | params | 영문 원문(요지) |
 |---|---|---|
