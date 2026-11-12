@@ -106,3 +106,7 @@
 | FU-96 | GU-1 사용자 버그 | 비분할 단계가 H6 한도(breakAfterMin/maxDailyFocusMin)보다 길면 배치 불가 → 선행 체인 전체 0블록. 스케줄링 시 자동 분할 + 설명 코드 + 선행 막힘 사유 | HIGH | DONE 416402c (focus_blocked는 이 체인 모양에서 여전히 일부 미배치 — 기존 동작, 후속 후보) |
 | FU-97 | GU-1 사용자 피드백 | 가용시간 주간 그리드(월–일×30분) 편집기, off-grid 규칙 보존, WeekCalendar에 '쉼' 표시 | MEDIUM | DONE ae8f42d (후속 후보: 설정의 '하루 끝' type=time 24:00 표시) |
 | FU-98 | GU-1 사용자 피드백 | /plans/new 작업 선택을 프로젝트별 묶음 + 모두 선택(삼상태), 위저드 '일정안 만들기'가 projectId로 미리 선택 | MEDIUM | DONE 0d0a444 (goal 단위 묶음; 승인 시 Vikunja 프로젝트 생성은 후속 후보) |
+| FU-99 | UI-REDESIGN (Impeccable 마감 리뷰 Fix 1) | 한글 글꼴 파일 동봉 여부: 지금은 설치된 글꼴(Pretendard 없으면 Noto Sans CJK KR)에 의존. Pretendard Variable woff2(OFL-1.1) 로컬 동봉을 권고 — AGENTS.md 라이선스 규칙상 사용자 결정 필요 | MEDIUM | 사용자 결정 대기 |
+| FU-100 | UI-REDESIGN (Hallmark 마감 리뷰) | 오늘 화면에서 '다음 일정' 패널이 바로 위 블록 목록과 같은 내용을 반복(레이아웃 정책 overview=NextUp, 재디자인 전부터 동일). 블록 목록이 보일 때는 패널을 빼도록 ui-policy 변경 검토 | LOW | 사용자 결정 |
+| FU-101 | UI-REDESIGN | 레일이 `/notes/:id`에서 '노트'를 현재 항목으로 표시하지 않음(형제 라우트, 재디자인 전부터 동일) | LOW | 다음 web 작업 |
+| FU-102 | UI-REDESIGN | sloplint gate 50이 제목 안의 `t('…')` 호출을 줄바꿈 안 되는 단어로 읽어 43건 FAIL로 보고(규칙은 base.css에 있음, 렌더 검사 넘침 0). 도구 한계로 기록 | LOW | 기록만 |

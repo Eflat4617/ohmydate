@@ -9,6 +9,7 @@ OhMyDate: 적응형 AI 개인 플래너. 기준 명세 `ORCA_ADAPTIVE_PLANNER_MA
 - `packages/scheduler`: 순수 함수, 결정론(시드), validator는 생성기와 별도 구현.
 - `services/api`: Fastify. 라우트 → application use-case → domain/ports. 라우트에서 DB 직접 접근 금지.
 - `apps/web`: Vue 3 `<script setup lang="ts">`, Pinia, Vue Query. `v-html` 금지(sanitize 컴포넌트만).
+  화면은 `apps/web/DESIGN.md`(2026-11-13 재디자인, 텐미닛 플래너)와 `apps/web/docs/ui-polish/README.md`의 규칙을 따른다: 색·글꼴은 `tokens.css`에만, 카드·그림자·알약 배지 없음, 화면당 채워진 버튼 하나.
 - `upstream/vikunja`: AGPL 구역. 다른 코드에서 import·복사 금지. 수정은 `PATCHES.md` 기록.
 
 ## 규칙
@@ -23,7 +24,9 @@ OhMyDate: 적응형 AI 개인 플래너. 기준 명세 `ORCA_ADAPTIVE_PLANNER_MA
 - 의존성 추가 시 라이선스 확인(MIT/Apache-2.0/BSD/ISC 외는 리뷰 필요).
 
 ## 명령 (M1-01 이후 확정)
-`corepack pnpm ci` = typecheck + lint + test + check:boundaries.
+`corepack pnpm run ci` = typecheck + lint + test + check:api-client + check:boundaries + build smoke.
+`run`을 빼면 안 된다: pnpm 12에서 `pnpm ci`는 node_modules를 지우고 다시 설치하는 내장 명령이다.
+DB가 필요한 테스트는 `DATABASE_URL`(planner_test)과 `VIKUNJA_URL`이 없으면 건너뛴다.
 
 ## Dev infrastructure (orchestrator-managed; workers must not run docker/sudo)
 - PostgreSQL 18: `127.0.0.1:55432`, user `ohmydate`, password `ohmydate-dev-only`, DBs `planner`, `planner_test`, `vikunja` (Vikunja-owned; never write).
