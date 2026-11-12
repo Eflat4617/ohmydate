@@ -200,6 +200,18 @@ const lockDisabled = computed(() => !offline.mutationsEnabled || dirty.value || 
 // moved), and a preview sent meanwhile would race the lock on the revision.
 // The window is one request plus its re-read; no edit is dropped silently.
 const calendarEditable = computed(() => offline.mutationsEnabled && !approving.value && !lockSaving.value);
+// FU-86F: the reason is shown (and announced) only to someone it concerns —
+// after an edit was actually held during the lock — and over the calendar, so
+// it never moves the page. A lock pressed while nobody edits stays silent here.
+const lockHoldShown = ref(false);
+
+function noticeLockHold(): void {
+  if (lockSaving.value) lockHoldShown.value = true;
+}
+
+watch(lockSaving, (saving) => {
+  if (!saving) lockHoldShown.value = false;
+});
 
 function resetDraft(): void {
   draftBlocks.value = selectedCandidate.value?.blocks.map((block) => ({ ...block })) ?? [];
@@ -333,7 +345,10 @@ async function runPreview(): Promise<void> {
 }
 
 function onBlocksUpdated(next: PlanBlock[]): void {
-  if (!calendarEditable.value) return;
+  if (!calendarEditable.value) {
+    noticeLockHold();
+    return;
+  }
   draftBlocks.value = next;
   dirty.value = true;
 }
@@ -606,25 +621,35 @@ onUnmounted(() => {
           <li><span class="legend-swatch legend-swatch--block" aria-hidden="true"></span>{{ t('plan.legendBlock') }}</li>
         </ul>
 
-        <!-- Always rendered (a live region must exist before its text changes). -->
-        <p id="plan-lock-saving-note" class="field-help block-lock-saving" role="status" aria-live="polite">{{
-          lockSaving ? t('blockLock.savingHint') : ''
-        }}</p>
-
-        <WeekCalendar
-          :blocks="draftBlocks"
-          :time-zone="timeZone"
-          :week-start="weekStart"
-          :availability="availabilityQuery.data.value ?? null"
-          :commitment-occurrences="commitmentOccurrences"
-          :commitment-names="commitmentNames"
-          :task-names="taskNames"
-          :editable="calendarEditable"
-          :selected-index="null"
-          :error-indexes="errorIndexes"
-          :block-described-by="lockSaving ? 'plan-lock-saving-note' : undefined"
-          @update:blocks="onBlocksUpdated"
-        />
+        <div class="calendar-frame">
+          <WeekCalendar
+            :blocks="draftBlocks"
+            :time-zone="timeZone"
+            :week-start="weekStart"
+            :availability="availabilityQuery.data.value ?? null"
+            :commitment-occurrences="commitmentOccurrences"
+            :commitment-names="commitmentNames"
+            :task-names="taskNames"
+            :editable="calendarEditable"
+            :selected-index="null"
+            :error-indexes="errorIndexes"
+            :block-described-by="lockHoldShown ? 'plan-lock-saving-note' : undefined"
+            @update:blocks="onBlocksUpdated"
+            @edit-blocked="noticeLockHold"
+          />
+          <!-- Always rendered (a live region must exist before its text changes);
+               it floats over the calendar, so showing it moves nothing (FU-86F). -->
+          <p
+            id="plan-lock-saving-note"
+            class="block-lock-saving"
+            :class="{ 'block-lock-saving--shown': lockHoldShown }"
+            role="status"
+            aria-live="polite"
+          >
+            <UiIcon v-if="lockHoldShown" name="info" :size="16" />
+            <span>{{ lockHoldShown ? t('blockLock.savingHint') : '' }}</span>
+          </p>
+        </div>
 
         <p class="calendar-hint">
           <UiIcon name="info" :size="16" />

@@ -1803,18 +1803,65 @@
   margin: 0;
 }
 
-/* FU-86: why calendar edits wait for a lock request. A live region, so it
-   stays in the accessibility tree; empty, it takes no room in the column. */
-.block-lock-saving {
-  margin: 0;
+/* FU-86F: why a calendar edit is held while a lock request is out. The note
+   floats over the calendar's lower edge (out of flow in every state), so
+   showing it never moves the calendar or the approved schedule below it.
+   `isolation` keeps the calendar's sticky-header z-indexes and the note's own
+   inside the frame. */
+.calendar-frame {
+  position: relative;
+  isolation: isolate;
 }
 
-.block-lock-saving:empty {
+.block-lock-saving {
   position: absolute;
+  right: 0;
+  bottom: var(--space-3);
+  left: 0;
+  z-index: 6;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: calc(100% - 2 * var(--space-3));
+  margin: 0 auto;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-2);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  pointer-events: none;
+}
+
+.block-lock-saving .icon {
+  flex: none;
+  margin-top: 0.15rem;
+}
+
+/* Idle: an empty live region, kept in the accessibility tree but not painted. */
+.block-lock-saving:not(.block-lock-saving--shown) {
   width: 1px;
   height: 1px;
+  padding: 0;
   overflow: hidden;
-  clip: rect(0, 0, 0, 0);
+  border: 0;
+  box-shadow: none;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.block-lock-saving--shown {
+  animation: block-lock-saving-in var(--duration-base) var(--ease-out);
+}
+
+@keyframes block-lock-saving-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-1));
+  }
 }
 
 .approved-panel .kv-list {

@@ -1,3 +1,4 @@
+import { focusManager } from '@tanstack/vue-query';
 import { mount, type DOMWrapper, type VueWrapper } from '@vue/test-utils';
 import { http, HttpResponse } from 'msw';
 import { createPinia } from 'pinia';
@@ -84,6 +85,14 @@ function describedText(root: Pick<VueWrapper, 'find'>, element: Pick<DOMWrapper<
       return target.exists() ? target.text().replace(/\s+/g, ' ').trim() : `<missing ${id}>`;
     })
     .join(' ');
+}
+
+/** A pointer drag on a calendar block: press at `fromY`, move to `toY`, release (1 px = 1 min). */
+function pointerDrag(block: DOMWrapper<Element> | undefined, fromY: number, toY: number): void {
+  if (block === undefined) throw new Error('calendar block missing');
+  block.element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientY: fromY }));
+  window.dispatchEvent(new PointerEvent('pointermove', { clientY: toY }));
+  window.dispatchEvent(new PointerEvent('pointerup', { clientY: toY }));
 }
 
 const NETWORK_ERROR = '서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.';
@@ -423,6 +432,43 @@ describe('useBlockLock guards', () => {
     expect(refresh).not.toHaveBeenCalled();
     wrapper.unmount();
   });
+
+  it('FU-86F: a lost answer re-reads the screen, and stays pending until that re-read is in', async () => {
+    const pinia = createPinia();
+    let finishRefresh: () => void = () => {};
+    const refresh = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+    let lock: ReturnType<typeof useBlockLock> | undefined;
+    const Harness = defineComponent({
+      setup() {
+        lock = useBlockLock({ refresh });
+        return () => null;
+      },
+    });
+    const wrapper = mount(Harness, { global: { plugins: [pinia] } });
+    server.use(http.post(LOCK_PATH, () => HttpResponse.error()));
+    const done = lock?.toggle({
+      id: TODAY_BLOCK_ONE_ID,
+      locked: false,
+      version: 1,
+      status: 'planned',
+      startAt: '2026-11-14T10:00:00.000Z',
+    });
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(lock?.error.value).toBe(NETWORK_ERROR);
+    // Still held: the plan page keeps its calendar locked until the revision is known.
+    expect(lock?.isPending(TODAY_BLOCK_ONE_ID)).toBe(true);
+    expect(lock?.anyPending.value).toBe(true);
+    finishRefresh();
+    await done;
+    expect(lock?.anyPending.value).toBe(false);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
 });
 
 describe('Plan comparison: lock an approved block', () => {
@@ -560,6 +606,110 @@ describe('Plan comparison: lock an approved block', () => {
     expect(wrapper.text()).toContain('편집한 블록');
     expect(rowToggle(wrapper).attributes('disabled')).toBeDefined();
     wrapper.unmount();
+  });
+
+  it('FU-86F: while a lock is out the calendar itself refuses edits (no resize handle, a pointer drag emits nothing); only a held edit shows the reason', async () => {
+    const wrapper = await mountPlan();
+    await vi.waitFor(() => expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0));
+    const calendar = wrapper.findComponent(WeekCalendar);
+    const note = wrapper.get('#plan-lock-saving-note');
+    // Editable before the lock: every block has its resize handle (positive control).
+    expect(wrapper.findAll('.calendar-resize')).toHaveLength(wrapper.findAll('.calendar-block').length);
+    const before = calendarLabels(wrapper);
+
+    const held = holdLockRequests(lockMovesPlanRevision);
+    await rowToggle(wrapper).trigger('click');
+    await vi.waitFor(() => expect(held.seen).toHaveLength(1));
+    // The calendar's own state, independent of the page's guard.
+    expect(calendar.props('editable')).toBe(false);
+    expect(wrapper.findAll('.calendar-resize')).toHaveLength(0);
+    // Pressing a toggle alone says nothing about the calendar: nobody is editing it (negative).
+    expect(note.text()).toBe('');
+    expect(note.classes()).not.toContain('block-lock-saving--shown');
+    for (const block of wrapper.findAll('.calendar-block')) {
+      expect(block.attributes('aria-describedby')).toBeUndefined();
+    }
+
+    // pointerdown + pointermove on a block: the calendar emits no change at all.
+    pointerDrag(wrapper.findAll('.calendar-block')[0], 0, 30);
+    await settle();
+    expect(calendar.emitted('update:blocks')).toBeUndefined();
+    expect(calendarLabels(wrapper)).toEqual(before);
+    expect(wrapper.text()).not.toContain('편집한 블록');
+    // That held press is what shows (and announces) the reason, over the calendar.
+    expect(calendar.emitted('edit-blocked')).toEqual([[0]]);
+    expect(note.text()).toBe(SAVING_HINT);
+    expect(note.attributes('role')).toBe('status');
+    expect(note.classes()).toContain('block-lock-saving--shown');
+    expect(note.element.parentElement?.classList.contains('calendar-frame')).toBe(true);
+    for (const block of wrapper.findAll('.calendar-block')) {
+      expect(block.attributes('aria-describedby')).toBe('plan-lock-saving-note');
+    }
+
+    held.release();
+    await vi.waitFor(() => expect(rowToggle(wrapper).attributes('disabled')).toBeUndefined());
+    expect(note.text()).toBe('');
+    expect(note.classes()).not.toContain('block-lock-saving--shown');
+    // Editable again: the handles are back and the same drag edits the draft.
+    expect(calendar.props('editable')).toBe(true);
+    expect(wrapper.findAll('.calendar-resize').length).toBeGreaterThan(0);
+    pointerDrag(wrapper.findAll('.calendar-block')[0], 0, 30);
+    await vi.waitFor(() => expect(wrapper.text()).toContain('편집한 블록'));
+    expect(calendar.emitted('update:blocks')).toHaveLength(1);
+    expect(calendarLabels(wrapper)).not.toEqual(before);
+    wrapper.unmount();
+  });
+
+  it('FU-86F: a lock whose answer is lost re-reads the plan before the calendar is released; an edit then goes with the new revision', async () => {
+    const wrapper = await mountPlan();
+    const planId = shown?.id ?? '';
+    const versionBefore = mockDb.plans.get(planId)?.version ?? -1;
+    await vi.waitFor(() => expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0));
+    const before = calendarLabels(wrapper);
+    const previews: Array<string | null> = [];
+    server.use(
+      http.post(/\/candidates\/[^/]+:preview-edit$/, ({ request }) => {
+        previews.push(request.headers.get('If-Match'));
+        return undefined;
+      }),
+      // The server applies the lock (the block and the plan revision move), then the answer is lost.
+      http.post(LOCK_PATH, () => {
+        mockDb.todayBlockLocks.set(TODAY_BLOCK_ONE_ID, { locked: true, version: 2 });
+        lockMovesPlanRevision();
+        return HttpResponse.error();
+      }),
+    );
+    const planReads = vi.spyOn(plannerClient, 'getPlan');
+
+    await rowToggle(wrapper).trigger('click');
+    await waitForText(wrapper, NETWORK_ERROR);
+    expect(wrapper.get('.block-lock-error').attributes('role')).toBe('alert');
+    // Released only after the re-read: the server's lock, the plan at its new revision, a clean draft.
+    await vi.waitFor(() => expect(rowToggle(wrapper).attributes('disabled')).toBeUndefined());
+    expect(planReads).toHaveBeenCalled();
+    expect(mockDb.plans.get(planId)?.version).toBe(versionBefore + 1);
+    expect(rowToggle(wrapper).attributes('aria-pressed')).toBe('true');
+    expect(rowToggle(wrapper).attributes('data-block-lock')).toBe('locked');
+    expect(wrapper.text()).toContain('생성된 블록');
+    expect(calendarLabels(wrapper)).toEqual(before);
+
+    // An edit now previews against the new revision — no 412 (negative) — and is kept.
+    await wrapper.findAll('.calendar-block')[0]?.trigger('keydown', { key: 'ArrowDown' });
+    await vi.waitFor(() => expect(previews).toEqual([`W/"${versionBefore + 1}"`]));
+    await settle();
+    expect(wrapper.text()).toContain('편집한 블록');
+    expect(wrapper.text()).not.toContain('다른 곳에서 먼저 바뀌었어요.');
+    // A later re-read (window focus) finds the same revision: the edit stays.
+    const readsBefore = planReads.mock.calls.length;
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await vi.waitFor(() => expect(planReads.mock.calls.length).toBeGreaterThan(readsBefore));
+    await settle();
+    expect(wrapper.text()).toContain('편집한 블록');
+    expect(calendarLabels(wrapper)).not.toEqual(before);
+    wrapper.unmount();
+    focusManager.setFocused(undefined);
+    planReads.mockRestore();
   });
 
   it('FU-86: the approved-schedule toggles keep one name and are described by their row title and time', async () => {

@@ -51,6 +51,12 @@ const props = withDefaults(
 const emit = defineEmits<{
   select: [index: number];
   'update:blocks': [blocks: PlanBlock[]];
+  /**
+   * An edit was tried while `editable` is false (a press on a block, an
+   * arrow key on it, or a drag still under way): nothing changed. The screen
+   * decides whether to say why (FU-86F: a lock request is out).
+   */
+  'edit-blocked': [index: number];
 }>();
 
 const MINUTE_PX = 1;
@@ -264,6 +270,12 @@ let drag: DragState | null = null;
 
 function commitDrag(event: PointerEvent): void {
   if (drag === null) return;
+  // Editing was turned off while the drag was under way: the blocks stay as
+  // they are (later moves apply again once editing is back).
+  if (!props.editable) {
+    emit('edit-blocked', drag.index);
+    return;
+  }
   const delta = Math.round((event.clientY - drag.startY) / MINUTE_PX / GRID_MINUTES) * GRID_MINUTES;
   if (delta === 0) return;
   const block = props.blocks[drag.index];
@@ -292,7 +304,10 @@ function pointerUp(): void {
 }
 
 function pointerDown(event: PointerEvent, index: number, mode: 'move' | 'resize'): void {
-  if (!props.editable) return;
+  if (!props.editable) {
+    emit('edit-blocked', index);
+    return;
+  }
   const block = props.blocks[index];
   if (block === undefined) return;
   event.preventDefault();
@@ -309,8 +324,11 @@ function pointerDown(event: PointerEvent, index: number, mode: 'move' | 'resize'
 }
 
 function onBlockKeydown(event: KeyboardEvent, index: number): void {
-  if (!props.editable) return;
   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+  if (!props.editable) {
+    emit('edit-blocked', index);
+    return;
+  }
   const direction = event.key === 'ArrowDown' ? 1 : -1;
   const delta = direction * GRID_MINUTES * 60_000;
   const block = props.blocks[index];
