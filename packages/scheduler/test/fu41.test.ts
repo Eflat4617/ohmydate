@@ -776,18 +776,46 @@ interface MultiSessionSpec {
   commitmentUnits: number;
 }
 
+/**
+ * FU-66: default 300 runs (the minimum the property asserts) keeps this test
+ * under 30 s on a quiet host. SCHED_PROPERTY_HEAVY=1 restores the original
+ * 600-run depth for on-demand verification; CI never sets it.
+ */
+function multiSessionRuns(): number {
+  return process.env.SCHED_PROPERTY_HEAVY === '1' ? 600 : 300;
+}
+
+const MULTI_SESSION_RUNS = multiSessionRuns();
+
+/**
+ * FU-66: only emit shapes that a session split can actually satisfy, so
+ * fast-check spends its runs on replan checks instead of discarded infeasible
+ * fresh plans. With minSessionMin 30, a maxSessionMin of 30 requires a
+ * multiple of 30 minutes; 45-minute sessions can absorb any 60-90 minute task.
+ * Every zone/window/policy/dependency/max-session combination is retained.
+ */
+const multiSessionTaskSpec = fc.oneof(
+  fc.record({
+    durationUnits: fc.constantFrom(12, 18),
+    maxUnits: fc.constant(6),
+    priority: fc.integer({ min: 1, max: 4 }),
+    dependency: fc.boolean(),
+  }),
+  fc.record({
+    durationUnits: fc.integer({ min: 12, max: 18 }),
+    maxUnits: fc.constant(9),
+    priority: fc.integer({ min: 1, max: 4 }),
+    dependency: fc.boolean(),
+  }),
+);
+
 const multiSessionSpecArb = fc.record({
   timeZone: fc.constantFrom(...ODD_OFFSET_ZONES),
   window: fc.constantFrom(...WINDOWS),
-  tasks: fc.array(
-    fc.record({
-      durationUnits: fc.integer({ min: 12, max: 18 }),
-      maxUnits: fc.constantFrom(6, 9),
-      priority: fc.integer({ min: 1, max: 4 }),
-      dependency: fc.boolean(),
-    }),
-    { minLength: 2, maxLength: 4 },
-  ),
+  tasks: fc.array(multiSessionTaskSpec, {
+    minLength: 2,
+    maxLength: 4,
+  }),
   policy: fc.constantFrom<'front_loaded' | 'balanced' | 'focus_blocked'>(
     'front_loaded',
     'balanced',
@@ -926,7 +954,7 @@ describe('FU-41 forced multi-session replans', () => {
           affectedExisting * 2 + 2,
         );
       }),
-      { numRuns: 600 },
+      { numRuns: MULTI_SESSION_RUNS },
     );
     expect(comparisons).toBeGreaterThanOrEqual(300);
   }, 180000);
