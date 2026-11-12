@@ -1230,6 +1230,110 @@
   font-weight: var(--weight-medium);
 }
 
+/* FU-98: the picker groups tasks by the plan (goal) that created them. */
+.picker-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.picker-group {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.picker-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+}
+
+/* A plain-looking disclosure: undo the primitive button's centring and nowrap. */
+.picker-group-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.picker-group-toggle:hover {
+  background: var(--color-surface-hover);
+}
+
+.picker-group-toggle > .icon {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.picker-group-chevron {
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.picker-group-toggle[aria-expanded='true'] .picker-group-chevron {
+  transform: rotate(90deg);
+}
+
+.picker-group-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.picker-group-title {
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.picker-group-meta {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.picker-group-all {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.picker-group-all:hover {
+  background: var(--color-surface-hover);
+}
+
+.picker-group .task-picker {
+  max-height: none;
+  margin: 0;
+  padding: var(--space-1);
+  border-top: 1px solid var(--color-border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-group-chevron {
+    transition: none;
+  }
+}
+
 .scope-list {
   gap: var(--space-1);
   padding-left: var(--space-5);

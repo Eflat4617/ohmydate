@@ -81,13 +81,14 @@ export const MAX_LOOKUP_PAGES = 5;
  * for and after it arrives, with the binding's signal on every request. A
  * lookup whose owner changed throws OwnerChangedError — no page fetched with
  * the next user's credentials is ever merged into the previous user's list
- * (M6-03R-1 H1).
+ * (M6-03R-1 H1). `truncated` is true when `maxPages` ran out while the list
+ * still had a next page, so a caller can say the list is partial (FU-98).
  */
 export async function collectPages<T>(
   binding: OwnerBinding,
   fetchPage: (cursor: string | undefined, signal: AbortSignal) => Promise<OwnerPage<T>>,
   options: CollectPagesOptions<T> = {},
-): Promise<{ items: T[]; found: T | null }> {
+): Promise<{ items: T[]; found: T | null; truncated: boolean }> {
   const items: T[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < (options.maxPages ?? MAX_LOOKUP_PAGES); page += 1) {
@@ -96,11 +97,12 @@ export async function collectPages<T>(
     assertOwnerCurrent(binding);
     items.push(...result.items);
     const found = options.until === undefined ? undefined : result.items.find(options.until);
-    if (found !== undefined) return { items, found };
-    if (result.nextCursor === null) break;
+    if (found !== undefined) return { items, found, truncated: false };
+    if (result.nextCursor === null) return { items, found: null, truncated: false };
     cursor = result.nextCursor;
   }
-  return { items, found: null };
+  // FU-98: the page bound was reached while the list still had a next page.
+  return { items, found: null, truncated: true };
 }
 
 /**

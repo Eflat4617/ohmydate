@@ -161,6 +161,13 @@ describe('planning wizard scenario A (new type)', () => {
     expect(mockDb.tasks.size).toBe(before + 4);
     expect(mockDb.intakeSessions.size).toBe(1);
 
+    // FU-98: the approved plan is one folder for the plan picker — GET /goals
+    // lists its goal first with exactly the tasks this approval created.
+    const goals = await plannerClient.listGoals();
+    expect(goals.items[0]?.id).toBe(approved?.goalId);
+    expect(goals.items[0]?.taskIds).toEqual(approved?.createdTaskIds);
+    expect(goals.items[0]?.taskIds).toHaveLength(4);
+
     wrapper.unmount();
   });
 

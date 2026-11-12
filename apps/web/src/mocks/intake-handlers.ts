@@ -365,8 +365,47 @@ function createTasksForDraft(db: MockDb, session: MockIntakeSession): void {
   session.createdTaskIds = created.map((task) => task.id);
 }
 
+/** Epoch used for a goal no mock session refers to (sorts last). */
+const GOAL_FALLBACK_CREATED_AT = '2026-01-01T00:00:00.000Z';
+
+/**
+ * FU-98: GET /goals. A goal's createdAt is its first session's; taskIds are
+ * the tasks its approvals created, in step order (as the API's ledger read).
+ */
+function listMockGoals(db: MockDb, url: URL): Response {
+  const limit = Number(url.searchParams.get('limit') ?? '50');
+  const cursor = url.searchParams.get('cursor');
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return problem(422, 'validation_failed', 'limit must be 1-100');
+  }
+  const sessions = [...db.intakeSessions.values()].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
+  const goals = [...db.notes.goals.entries()].map(([id, title]) => {
+    const own = sessions.filter((session) => session.goalId === id);
+    const taskIds = [...new Set(own.flatMap((session) => session.createdTaskIds ?? []))];
+    return {
+      id,
+      title,
+      status: 'active' as const,
+      createdAt: own[0]?.createdAt ?? GOAL_FALLBACK_CREATED_AT,
+      taskIds,
+    };
+  });
+  const key = (goal: { createdAt: string; id: string }) => `${goal.createdAt}|${goal.id}`;
+  goals.sort((left, right) => key(right).localeCompare(key(left)));
+  const after = cursor === null ? goals : goals.filter((goal) => key(goal).localeCompare(cursor) < 0);
+  const page = after.slice(0, limit);
+  const last = page[page.length - 1];
+  return json({ items: page, nextCursor: after.length > limit && last !== undefined ? key(last) : null });
+}
+
 export function createIntakeHandlers(db: MockDb) {
   return [
+    http.get('*/api/v1/goals', ({ request }) => {
+      if (!db.authenticated) return unauthenticated();
+      return listMockGoals(db, new URL(request.url));
+    }),
     http.post('*/api/v1/intake-sessions', async ({ request }) => {
       if (!db.authenticated) return unauthenticated();
       const raw = await request.text();

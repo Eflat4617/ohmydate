@@ -42,7 +42,9 @@ import type {
   ApprovedBlock,
   BlockLockRequest,
   EstimateRecord,
+  GoalSummaryRecord,
   GoalTasks,
+  GoalWindowQuery,
   NewCandidate,
   NewPlan,
   PlanningStore,
@@ -571,6 +573,81 @@ export class PgPlanningStore implements PlanningStore {
       goalExists: true,
       taskIds: [...new Set(rows.map((row) => row.task_id as Id))],
     };
+  }
+
+  async listGoals(ownerId: Id, query: GoalWindowQuery): Promise<readonly GoalSummaryRecord[]> {
+    // created_at has microsecond precision; the cursor carries milliseconds.
+    // Ordering and comparing on the millisecond-truncated value keeps the
+    // keyset exact (a row sharing the cursor's millisecond is never skipped).
+    const createdMs = sql<Date>`date_trunc('milliseconds', goal.created_at)`;
+    let builder = this.#db
+      .selectFrom('goal')
+      .select(['goal.id', 'goal.title', 'goal.status', createdMs.as('created_ms')])
+      .where('goal.owner_id', '=', ownerId)
+      .where('goal.deleted_at', 'is', null);
+    if (query.cursorCreatedAt !== undefined && query.cursorId !== undefined) {
+      const cursorCreated = new Date(instantToEpochMs(query.cursorCreatedAt));
+      const cursorId = query.cursorId as string;
+      builder = builder.where((eb) =>
+        eb.or([
+          eb(createdMs, '<', cursorCreated),
+          eb.and([eb(createdMs, '=', cursorCreated), eb('goal.id', '<', cursorId)]),
+        ]),
+      );
+    }
+    const goals = await builder
+      .orderBy(createdMs, 'desc')
+      .orderBy('goal.id', 'desc')
+      .limit(query.limit)
+      .execute();
+    if (goals.length === 0) return [];
+    // One query for every goal of the page (no N+1): the same ledger rows
+    // resolveGoalTasks reads, owner-scoped through intake_session.
+    const steps = await this.#db
+      .selectFrom('intake_session')
+      .innerJoin('intake_approval_step', 'intake_approval_step.session_id', 'intake_session.id')
+      .select([
+        'intake_session.goal_id',
+        'intake_session.created_at as session_created_at',
+        'intake_session.id as session_id',
+        'intake_approval_step.step_key',
+        'intake_approval_step.task_id',
+      ])
+      .where('intake_session.owner_id', '=', ownerId)
+      .where(
+        'intake_session.goal_id',
+        'in',
+        goals.map((goal) => goal.id),
+      )
+      .where('intake_approval_step.state', '=', 'created')
+      .where('intake_approval_step.task_id', 'is not', null)
+      .execute();
+    const stepNumber = (key: string): number => {
+      const value = Number.parseInt(key.slice(1), 10);
+      return Number.isFinite(value) ? value : Number.MAX_SAFE_INTEGER;
+    };
+    const sessionMs = (value: Date | string): number => instantToEpochMs(toInstant(value));
+    // Step order within a session (s1, s2, … s12), sessions oldest first.
+    steps.sort(
+      (left, right) =>
+        sessionMs(left.session_created_at) - sessionMs(right.session_created_at) ||
+        left.session_id.localeCompare(right.session_id) ||
+        stepNumber(left.step_key) - stepNumber(right.step_key),
+    );
+    const taskIdsByGoal = new Map<string, Id[]>();
+    for (const step of steps) {
+      if (step.goal_id === null || step.task_id === null) continue;
+      const list = taskIdsByGoal.get(step.goal_id) ?? [];
+      if (!list.includes(step.task_id as Id)) list.push(step.task_id as Id);
+      taskIdsByGoal.set(step.goal_id, list);
+    }
+    return goals.map((goal) => ({
+      id: goal.id as Id,
+      title: goal.title,
+      status: goal.status,
+      createdAt: toInstant(goal.created_ms),
+      taskIds: taskIdsByGoal.get(goal.id) ?? [],
+    }));
   }
 
   async listActiveBlocks(ownerId: Id): Promise<readonly ApprovedBlock[]> {

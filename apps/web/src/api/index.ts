@@ -17,6 +17,7 @@ export {
   type CommitmentCreate,
   type CommitmentOccurrence,
   type CommitmentPatch,
+  type GoalSummary,
   type Page,
   type Plan,
   type PlanBlock,

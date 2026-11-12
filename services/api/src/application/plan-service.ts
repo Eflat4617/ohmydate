@@ -7,6 +7,9 @@ import type {
   CommitmentListQuery,
   CommitmentPage,
   CommitmentPatch,
+  GoalListQuery,
+  GoalPage,
+  GoalStatusName,
   Plan,
   PlanBlock,
   PlanCreate,
@@ -598,6 +601,43 @@ export class PlanService {
         blocks.length > limit
           ? `${page[page.length - 1]?.startAt ?? ''}|${page[page.length - 1]?.id ?? ''}`
           : null,
+    };
+  }
+
+  /**
+   * FU-98: the owner's planning goals, newest first, each with the tasks its
+   * approval created (the `{ goalId }` scope's task set). The cursor is
+   * `createdAt|id` of the last goal of the previous page; limit defaults to 50.
+   */
+  async listGoals(ownerId: Id, query: GoalListQuery): Promise<GoalPage> {
+    const limit = query.limit ?? 50;
+    let cursor: { createdMs: number; id: string } | undefined;
+    if (query.cursor !== undefined) {
+      const split = query.cursor.indexOf('|');
+      const createdMs = split <= 0 ? Number.NaN : Date.parse(query.cursor.slice(0, split));
+      const id = split <= 0 ? '' : query.cursor.slice(split + 1);
+      if (!Number.isFinite(createdMs) || !isUuidV7(id)) {
+        throw new ValidationFailedError([{ path: '/cursor', message: 'invalid goal cursor' }]);
+      }
+      cursor = { createdMs, id };
+    }
+    const goals = await this.#store.listGoals(ownerId, {
+      ...(cursor === undefined
+        ? {}
+        : { cursorCreatedAt: epochMsToInstant(cursor.createdMs), cursorId: cursor.id as Id }),
+      limit: limit + 1,
+    });
+    const page = goals.slice(0, limit);
+    const last = page[page.length - 1];
+    return {
+      items: page.map((goal) => ({
+        id: goal.id,
+        title: goal.title,
+        status: goal.status as GoalStatusName,
+        createdAt: goal.createdAt,
+        taskIds: [...goal.taskIds],
+      })),
+      nextCursor: goals.length > limit && last !== undefined ? `${last.createdAt}|${last.id}` : null,
     };
   }
 

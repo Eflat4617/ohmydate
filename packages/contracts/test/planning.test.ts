@@ -14,6 +14,9 @@ import {
   CommitmentCreateSchema,
   CommitmentListQuerySchema,
   CommitmentSchema,
+  GOAL_STATUSES,
+  GoalListQuerySchema,
+  GoalPageSchema,
   MAX_HORIZON_DAYS as CONTRACT_HORIZON_DAYS,
   PLAN_POLICIES,
   PlanCandidateSchema,
@@ -301,4 +304,28 @@ test('plan carries the persisted horizon and time zone', () => {
   expect(
     validate({ ...plan, horizon: { start: plan.horizon.end, end: plan.horizon.start } }),
   ).toBe(true);
+});
+
+test('goal page (FU-98) carries each goal with its approved task ids', () => {
+  const validate = compile(GoalPageSchema);
+  const goal = {
+    id: ID,
+    title: '논문 초안',
+    status: 'active',
+    createdAt: '2026-11-11T00:00:00.123Z',
+    taskIds: [OTHER_ID],
+  };
+  expect([...GOAL_STATUSES]).toEqual(['active', 'completed', 'archived']);
+  expect(validate({ items: [goal, { ...goal, id: OTHER_ID, taskIds: [] }], nextCursor: null })).toBe(true);
+  expect(validate({ items: [], nextCursor: '2026-11-11T00:00:00.123Z|' + ID })).toBe(true);
+  // Negatives: unknown status, a non-UUIDv7 task id, a missing taskIds, extra fields.
+  expect(validate({ items: [{ ...goal, status: 'deleted' }], nextCursor: null })).toBe(false);
+  expect(validate({ items: [{ ...goal, taskIds: ['not-a-uuid'] }], nextCursor: null })).toBe(false);
+  expect(validate({ items: [{ ...goal, taskIds: undefined }], nextCursor: null })).toBe(false);
+  expect(validate({ items: [{ ...goal, ownerId: ID }], nextCursor: null })).toBe(false);
+
+  const validateQuery = compile(GoalListQuerySchema);
+  expect(validateQuery({ limit: 100 })).toBe(true);
+  expect(validateQuery({ limit: 101 })).toBe(false);
+  expect(validateQuery({ cursor: '' })).toBe(false);
 });

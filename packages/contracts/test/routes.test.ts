@@ -200,6 +200,11 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     optionalHeaders: ['If-None-Match'],
     statuses: [200, 304, 400, 401, 422],
   },
+  listGoals: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 422],
+  },
   listScheduleBlocks: {
     requiredHeaders: [],
     optionalHeaders: ['If-None-Match'],
@@ -477,6 +482,7 @@ test('route table covers availability, commitment and planning endpoints from 08
   for (const expected of [
     'POST /plans',
     'GET /plans/{id}',
+    'GET /goals',
     'POST /plans/{id}/candidates/{cid}:preview-edit',
     'POST /plans/{id}/candidates/{cid}:approve',
     'POST /plans/{id}:regenerate',

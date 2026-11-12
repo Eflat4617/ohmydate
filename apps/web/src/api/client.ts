@@ -8,6 +8,8 @@ export type TaskCreate = components['schemas']['TaskCreate'];
 export type TaskPatch = components['schemas']['TaskPatch'];
 export type TaskStatus = Task['status'];
 export type Project = components['schemas']['Project'];
+/** FU-98: a planning goal (one wizard session) with the tasks its approval created. */
+export type GoalSummary = components['schemas']['GoalSummary'];
 export type User = components['schemas']['User'];
 export type Today = components['schemas']['Today'];
 export type TodayBlock = components['schemas']['TodayBlock'];
@@ -294,6 +296,17 @@ export class PlannerClient {
     for (const project of data.items) {
       this.remember(`project:${project.id}`, project.version);
     }
+    return data;
+  }
+
+  /** FU-98: the owner's planning goals, newest first, with their approved task ids. */
+  async listGoals(options: { cursor?: string; limit?: number; signal?: AbortSignal } = {}): Promise<Page<GoalSummary>> {
+    const { data, error, response } = await this.client.GET('/goals', {
+      params: { query: pageQuery(options) },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty goal page');
     return data;
   }
 
