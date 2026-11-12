@@ -19,9 +19,9 @@ export const test = base.extend<{ resetLoginRateLimit: void }>({
       const response = await request.post(
         `${state.apiUrl}/api/v1/__e2e__/reset-login-rate-limit`,
       );
-      if (!response.ok) {
+      if (response.status() !== 204) {
         throw new Error(
-          `E2E login-rate-limit reset -> ${response.status}; is E2E_RESET_LOGIN_RATE_LIMIT=1 set?`,
+          `E2E login-rate-limit reset -> ${response.status()}; is E2E_RESET_LOGIN_RATE_LIMIT=1 set?`,
         );
       }
       await use();

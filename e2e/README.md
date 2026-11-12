@@ -92,10 +92,10 @@ helper across UTC midnight, the New York spring-forward and the fall-back.
 
 **Client/server skew (known and intentional).** The browser context runs on the
 simulated local morning while the API stays on its own clock (real time, or the
-`E2E_FAKE_NOW` offset). The browser can therefore be 3–27 h ahead of the API.
+`E2E_FAKE_NOW` offset). The browser can therefore be about 3 h to just under 28 h ahead of the API (nearly 28 h across a fall-back day).
 `SessionService` clamps `clientStartedAt` and every pause/resume/complete
-client timestamp to `apiNow + FORWARD_CLOCK_TOLERANCE_MS` (2 minutes), so the
-session starts at the API's now and elapsed-time values are clamped rather than
+client timestamp to `apiNow + FORWARD_CLOCK_TOLERANCE_MS` (2 minutes), so a future-dated
+session start is recorded as API now + 2 minutes and elapsed-time values are clamped rather than
 trusted. E2E-4's focus assertions only depend on the clamped-safe properties
 (state, version, no negative durations), which is why they remain valid on this
 path. Shifting the API to the same morning is optional and not required for the
