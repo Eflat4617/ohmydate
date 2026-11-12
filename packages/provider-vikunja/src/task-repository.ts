@@ -111,6 +111,101 @@ function contentFingerprint(
   });
 }
 
+/**
+ * FU-73: Vikunja v2.8.0 touches the base task's `updated` column (and with it
+ * the second-precision ETag) from an asynchronous event listener *after* a
+ * relation create/delete response has returned. Measured live: 10-60 ms on an
+ * idle host, longer under load; the task on the other side of the relation is
+ * not touched. When the touch lands in a later second than the adapter's last
+ * read, the ETag moves although nothing the planner maps changed. That used to
+ * surface as a phantom version bump on the next poll, and the next write at the
+ * version the adapter had just returned got a 412.
+ *
+ * After its own relation writes the adapter therefore raises the mapping's
+ * `externalUpdatedAt` to an accounted-for watermark: the provider-clock time of
+ * the relation write plus this grace (never the planner clock). An observation
+ * whose content fingerprint is unchanged and whose `updated` is still before
+ * the watermark is the adapter's own touch and is adopted without a bump.
+ * Content changes always bump. ETag-only changes at or after the watermark bump
+ * as before. Mappings without an adapter relation write keep
+ * `externalUpdatedAt` equal to the observed `updated`, so their behaviour is
+ * unchanged.
+ */
+const SELF_TOUCH_GRACE_MS = 10_000;
+
+function latestInstant(...values: readonly (Instant | undefined)[]): Instant | undefined {
+  let latest: Instant | undefined;
+  for (const value of values) {
+    if (value === undefined) continue;
+    if (latest === undefined || Date.parse(value) > Date.parse(latest)) latest = value;
+  }
+  return latest;
+}
+
+/**
+ * Accounted-for watermark after the adapter's own relation writes (FU-73).
+ * Provider time only: the write times Vikunja reported, falling back to the
+ * newest observed `updated` when it reported none.
+ */
+function selfTouchWatermark(
+  writeTimes: readonly (Instant | undefined)[],
+  observedUpdatedAt: Instant | undefined,
+): Instant | undefined {
+  const base = latestInstant(...writeTimes, observedUpdatedAt);
+  return base === undefined
+    ? undefined
+    : epochMsToInstant(Date.parse(base) + SELF_TOUCH_GRACE_MS);
+}
+
+interface RemoteObservation {
+  readonly fingerprint: string;
+  readonly updatedAt: Instant | undefined;
+  /** The mapped provider content differs from the mapping baseline. */
+  readonly contentChanged: boolean;
+  /** The ETag moved and the move is not the adapter's own relation touch. */
+  readonly etagChanged: boolean;
+  /** No ETag was sent and `updated` moved without being accounted for. */
+  readonly updatedChanged: boolean;
+}
+
+/**
+ * Compares a provider observation with the mapping baseline. The ETag is
+ * authoritative when both sides have one. The content fingerprint catches
+ * same-second writes that reuse an ETag. A missing local baseline is treated as
+ * unknown, so the first reconciliation after a failed create follow-up adopts
+ * the observed ETag without inventing a version bump (FU-17). An ETag move with
+ * unchanged content whose `updated` is still before the accounted-for
+ * watermark is the adapter's own asynchronous relation touch (FU-73).
+ */
+function observeRemote(
+  mapping: ExternalMapping,
+  remote: VikunjaTask,
+  etag: string | null,
+): RemoteObservation {
+  const fingerprint = contentFingerprint(remote);
+  const updatedAt = normalizeRemoteInstant(remote.updated);
+  const contentChanged =
+    mapping.contentFingerprint !== undefined && mapping.contentFingerprint !== fingerprint;
+  const ownTouch =
+    mapping.contentFingerprint !== undefined &&
+    !contentChanged &&
+    updatedAt !== undefined &&
+    mapping.externalUpdatedAt !== undefined &&
+    Date.parse(updatedAt) < Date.parse(mapping.externalUpdatedAt);
+  const etagChanged =
+    !ownTouch &&
+    mapping.externalEtag !== undefined &&
+    etag !== null &&
+    etag !== mapping.externalEtag;
+  const updatedChanged =
+    !ownTouch &&
+    mapping.externalUpdatedAt !== undefined &&
+    etag === null &&
+    updatedAt !== undefined &&
+    mapping.externalUpdatedAt !== updatedAt;
+  return { fingerprint, updatedAt, contentChanged, etagChanged, updatedChanged };
+}
+
 export interface VikunjaTaskRepositoryOptions {
   readonly clients: ReadonlyMap<Id, VikunjaClient>;
   readonly mappings?: MappingStore;
@@ -276,6 +371,13 @@ export class VikunjaTaskRepository implements TaskRepository {
     }
 
     const remoteUpdatedAt = normalizeRemoteInstant(remote.updated);
+    // FU-73: the relation writes below touch `updated` asynchronously. Account
+    // for them before the first write, so a poll inside the create window
+    // cannot adopt the pre-touch ETag as the final baseline.
+    const baselineUpdatedAt =
+      normalized.dependsOn.length > 0
+        ? selfTouchWatermark([], remoteUpdatedAt)
+        : remoteUpdatedAt;
     const mapping: ExternalMapping = {
       provider: 'vikunja',
       entityType: 'task',
@@ -283,7 +385,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       externalId: String(remote.id),
       ownerId,
       ...(etag === null ? {} : { externalEtag: etag }),
-      ...(remoteUpdatedAt === undefined ? {} : { externalUpdatedAt: remoteUpdatedAt }),
+      ...(baselineUpdatedAt === undefined ? {} : { externalUpdatedAt: baselineUpdatedAt }),
       contentFingerprint: contentFingerprint(remote),
       ...(followUpFailed ? { needsReconcile: true } : {}),
       localVersion: 1 as Version,
@@ -302,13 +404,16 @@ export class VikunjaTaskRepository implements TaskRepository {
     await this.#plannerFields.putTask(id, fields);
 
     const dependencyExternalIds: string[] = [];
+    const relationWriteTimes: (Instant | undefined)[] = [];
     try {
       for (const dependencyId of normalized.dependsOn) {
         const dependency = await this.#requireMapping(ownerId, 'task', dependencyId);
-        await client.createRelation(
-          mapping.externalId,
-          dependency.externalId,
-          DEPENDENCY_RELATION_KIND,
+        relationWriteTimes.push(
+          await client.createRelation(
+            mapping.externalId,
+            dependency.externalId,
+            DEPENDENCY_RELATION_KIND,
+          ),
         );
         dependencyExternalIds.push(dependency.externalId);
       }
@@ -335,10 +440,20 @@ export class VikunjaTaskRepository implements TaskRepository {
     // produced a phantom v2 (FU-14R HIGH). This also covers followUpFailed,
     // where `remote` is the POST body and the next GET will include the
     // relations created below.
+    //
+    // The ETag stays the pre-relation one: Vikunja touches `updated` for every
+    // relation write asynchronously (FU-73), so no read here could be relied on
+    // to see the final ETag. The watermark accounts for those touches instead,
+    // based on the provider time of the last relation write.
     if (dependencyExternalIds.length > 0) {
       const targetFingerprint = contentFingerprint(remote, dependencyExternalIds);
+      const watermark = latestInstant(
+        mapping.externalUpdatedAt,
+        selfTouchWatermark(relationWriteTimes, remoteUpdatedAt),
+      );
       const withRelations: ExternalMapping = {
         ...mapping,
+        ...(watermark === undefined ? {} : { externalUpdatedAt: watermark }),
         contentFingerprint: targetFingerprint,
       };
       const committed = await this.#putWithPrecondition(
@@ -347,11 +462,7 @@ export class VikunjaTaskRepository implements TaskRepository {
         targetFingerprint,
       );
       if (committed.fresh) {
-        await this.#appendJournal(
-          ownerId,
-          committed.mapping,
-          committed.mapping.externalUpdatedAt ?? now,
-        );
+        await this.#appendJournal(ownerId, committed.mapping, remoteUpdatedAt ?? now);
       }
       return this.#toTask(
         ownerId,
@@ -362,7 +473,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       );
     }
 
-    await this.#appendJournal(ownerId, mapping, mapping.externalUpdatedAt ?? now);
+    await this.#appendJournal(ownerId, mapping, remoteUpdatedAt ?? now);
     return this.#toTask(ownerId, mapping, remote, fields, normalized.dependsOn);
   }
 
@@ -397,9 +508,12 @@ export class VikunjaTaskRepository implements TaskRepository {
         String(task.id),
       ),
     );
+    const relationWriteTimes: (Instant | undefined)[] = [];
     for (const externalId of dependencyExternalIds) {
       if (present.has(externalId)) continue;
-      await client.createRelation(String(full.id), externalId, DEPENDENCY_RELATION_KIND);
+      relationWriteTimes.push(
+        await client.createRelation(String(full.id), externalId, DEPENDENCY_RELATION_KIND),
+      );
     }
     if (dependencyExternalIds.length > 0) {
       // Refresh so the persisted fingerprint reflects the relations just
@@ -415,6 +529,12 @@ export class VikunjaTaskRepository implements TaskRepository {
 
     const now = this.#clock.now();
     const remoteUpdatedAt = normalizeRemoteInstant(full.updated);
+    // FU-73: the refresh above can precede the asynchronous `updated` touch of
+    // the relation writes (this attempt's, or a just-failed earlier attempt's).
+    const baselineUpdatedAt =
+      dependencyExternalIds.length > 0
+        ? selfTouchWatermark(relationWriteTimes, remoteUpdatedAt)
+        : remoteUpdatedAt;
     const mapping: ExternalMapping = {
       provider: 'vikunja',
       entityType: 'task',
@@ -422,7 +542,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       externalId: String(full.id),
       ownerId,
       ...(etag === null ? {} : { externalEtag: etag }),
-      ...(remoteUpdatedAt === undefined ? {} : { externalUpdatedAt: remoteUpdatedAt }),
+      ...(baselineUpdatedAt === undefined ? {} : { externalUpdatedAt: baselineUpdatedAt }),
       contentFingerprint: contentFingerprint(full, dependencyExternalIds),
       localVersion: 1 as Version,
       createdAt: now,
@@ -437,7 +557,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       dependsOn: [...normalized.dependsOn],
     };
     await this.#plannerFields.putTask(id, fields);
-    await this.#appendJournal(ownerId, mapping, mapping.externalUpdatedAt ?? now);
+    await this.#appendJournal(ownerId, mapping, remoteUpdatedAt ?? now);
     return this.#toTask(ownerId, mapping, full, fields, normalized.dependsOn);
   }
 
@@ -629,6 +749,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     };
 
     let remoteWriteApplied = false;
+    const relationWriteTimes: (Instant | undefined)[] = [];
     try {
       if (Object.keys(body).length > 0) {
         await client.patchTask(mapping.externalId, body);
@@ -639,8 +760,9 @@ export class VikunjaTaskRepository implements TaskRepository {
         mapping.externalId,
         currentDependencies,
         desiredDependencies,
-        () => {
+        (at) => {
           remoteWriteApplied = true;
+          relationWriteTimes.push(at);
         },
       );
     } catch (error) {
@@ -648,7 +770,10 @@ export class VikunjaTaskRepository implements TaskRepository {
       // response was lost. Anything else (4xx validation/conflict) is a
       // definitive non-application unless an earlier write already succeeded.
       if (error instanceof ProviderUnavailableError || remoteWriteApplied) {
-        await this.#markNeedsReconcile(mapping);
+        await this.#markNeedsReconcile(
+          mapping,
+          selfTouchWatermark(relationWriteTimes, undefined),
+        );
       }
       throw error;
     }
@@ -659,17 +784,29 @@ export class VikunjaTaskRepository implements TaskRepository {
     } catch (error) {
       // The PATCH/relation write may already be visible upstream. Never commit
       // staged planner fields; force a reconciliation on the next read.
-      await this.#markNeedsReconcile(mapping);
+      await this.#markNeedsReconcile(
+        mapping,
+        selfTouchWatermark(relationWriteTimes, undefined),
+      );
       throw error;
     }
 
     const now = this.#clock.now();
     const latestUpdatedAt = normalizeRemoteInstant(latest.data.updated);
     const targetFingerprint = contentFingerprint(latest.data);
+    // FU-73: the final read can precede the asynchronous `updated` touch of the
+    // relation writes above; an earlier write's watermark is kept as well.
+    const watermark = latestInstant(
+      mapping.externalUpdatedAt,
+      latestUpdatedAt,
+      relationWriteTimes.length > 0
+        ? selfTouchWatermark(relationWriteTimes, latestUpdatedAt)
+        : undefined,
+    );
     const updated: ExternalMapping = {
       ...mapping,
       ...(latest.etag === null ? {} : { externalEtag: latest.etag }),
-      ...(latestUpdatedAt === undefined ? {} : { externalUpdatedAt: latestUpdatedAt }),
+      ...(watermark === undefined ? {} : { externalUpdatedAt: watermark }),
       contentFingerprint: targetFingerprint,
       localVersion: (mapping.localVersion + 1) as Version,
       updatedAt: now,
@@ -683,11 +820,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     );
     await this.#plannerFields.putTask(id, nextFields);
     if (committed.fresh) {
-      await this.#appendJournal(
-        ownerId,
-        committed.mapping,
-        committed.mapping.externalUpdatedAt ?? now,
-      );
+      await this.#appendJournal(ownerId, committed.mapping, latestUpdatedAt ?? now);
     }
     return this.#toTask(
       ownerId,
@@ -799,10 +932,12 @@ export class VikunjaTaskRepository implements TaskRepository {
     const latestUpdatedAt = normalizeRemoteInstant(latest.data.updated);
     const base = withoutPending(mapping);
     const targetFingerprint = contentFingerprint(latest.data);
+    // Keep an earlier relation write's FU-73 watermark if it is still ahead.
+    const watermark = latestInstant(mapping.externalUpdatedAt, latestUpdatedAt);
     const updated: ExternalMapping = {
       ...base,
       ...(latest.etag === null ? {} : { externalEtag: latest.etag }),
-      ...(latestUpdatedAt === undefined ? {} : { externalUpdatedAt: latestUpdatedAt }),
+      ...(watermark === undefined ? {} : { externalUpdatedAt: watermark }),
       contentFingerprint: targetFingerprint,
       localVersion: (mapping.localVersion + 1) as Version,
       updatedAt: now,
@@ -833,7 +968,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     await this.#appendJournal(
       ownerId,
       committed.mapping,
-      committed.mapping.externalUpdatedAt ?? now,
+      latestUpdatedAt ?? now,
       undefined,
       dueAtBefore ?? now,
     );
@@ -1104,12 +1239,16 @@ export class VikunjaTaskRepository implements TaskRepository {
     return ids;
   }
 
+  /**
+   * `onApplied` receives the provider-clock time of each relation write (FU-73:
+   * Vikunja touches the base task's `updated` asynchronously afterwards).
+   */
   async #applyDependencyDiff(
     client: VikunjaClient,
     externalTaskId: string,
     current: readonly Id[],
     desired: readonly Id[],
-    onApplied: () => void,
+    onApplied: (at: Instant | undefined) => void,
   ): Promise<void> {
     const currentSet = new Set(current);
     const desiredSet = new Set(desired);
@@ -1117,23 +1256,25 @@ export class VikunjaTaskRepository implements TaskRepository {
       if (desiredSet.has(dependencyId)) continue;
       const mapping = await this.#mappings.get('task', dependencyId);
       if (mapping === null) continue;
-      await client.deleteRelation(
-        externalTaskId,
-        DEPENDENCY_RELATION_KIND,
-        mapping.externalId,
+      onApplied(
+        await client.deleteRelation(
+          externalTaskId,
+          DEPENDENCY_RELATION_KIND,
+          mapping.externalId,
+        ),
       );
-      onApplied();
     }
     for (const dependencyId of desired) {
       if (currentSet.has(dependencyId)) continue;
       const mapping = await this.#mappings.get('task', dependencyId);
       if (mapping === null) throw new NotFoundError('task', dependencyId);
-      await client.createRelation(
-        externalTaskId,
-        mapping.externalId,
-        DEPENDENCY_RELATION_KIND,
+      onApplied(
+        await client.createRelation(
+          externalTaskId,
+          mapping.externalId,
+          DEPENDENCY_RELATION_KIND,
+        ),
       );
-      onApplied();
     }
   }
 
@@ -1250,10 +1391,20 @@ export class VikunjaTaskRepository implements TaskRepository {
     }
   }
 
-  async #markNeedsReconcile(mapping: ExternalMapping): Promise<void> {
+  /**
+   * `watermark` accounts for the asynchronous `updated` touch of relation writes
+   * that were applied before the failure (FU-73), so the reconciliation that
+   * follows cannot settle on a pre-touch ETag.
+   */
+  async #markNeedsReconcile(mapping: ExternalMapping, watermark?: Instant): Promise<void> {
+    const externalUpdatedAt = latestInstant(mapping.externalUpdatedAt, watermark);
     try {
       await this.#mappings.put(
-        { ...mapping, needsReconcile: true },
+        {
+          ...mapping,
+          ...(externalUpdatedAt === undefined ? {} : { externalUpdatedAt }),
+          needsReconcile: true,
+        },
         { expectedLocalVersion: mapping.localVersion },
       );
     } catch (error) {
@@ -1281,25 +1432,17 @@ export class VikunjaTaskRepository implements TaskRepository {
   }
 
   /**
-   * True when the provider content no longer matches what the mapping recorded.
-   * The ETag is authoritative when both sides have one; the content fingerprint
-   * catches same-second writes that reuse an ETag. A missing local baseline is
-   * treated as unknown so the first reconciliation after a failed create
-   * follow-up adopts the observed ETag without inventing a version bump.
+   * True when the provider state no longer matches what the mapping recorded
+   * (see `observeRemote`; the adapter's own FU-73 relation touch does not
+   * count).
    */
   #remoteChanged(
     mapping: ExternalMapping,
     remote: VikunjaTask,
     etag: string | null,
   ): boolean {
-    const etagChanged =
-      mapping.externalEtag !== undefined &&
-      etag !== null &&
-      etag !== mapping.externalEtag;
-    const fingerprintChanged =
-      mapping.contentFingerprint !== undefined &&
-      mapping.contentFingerprint !== contentFingerprint(remote);
-    return etagChanged || fingerprintChanged;
+    const observation = observeRemote(mapping, remote, etag);
+    return observation.etagChanged || observation.contentChanged;
   }
 
   async #commitReconciled(
@@ -1308,7 +1451,6 @@ export class VikunjaTaskRepository implements TaskRepository {
     remote: VikunjaTask,
     etag: string | null,
   ): Promise<ExternalMapping> {
-    const updatedAt = normalizeRemoteInstant(remote.updated);
     const pending = mapping.pendingCompletion;
     const remoteDueAt = normalizeRemoteInstant(remote.due_date);
     const completed =
@@ -1317,20 +1459,16 @@ export class VikunjaTaskRepository implements TaskRepository {
         (pending.dueAtBefore !== undefined &&
           remoteDueAt !== undefined &&
           Date.parse(remoteDueAt) > Date.parse(pending.dueAtBefore)));
-    const fingerprint = contentFingerprint(remote);
-    const etagChanged =
-      mapping.externalEtag !== undefined &&
-      etag !== null &&
-      etag !== mapping.externalEtag;
-    const updatedChanged =
-      mapping.externalUpdatedAt !== undefined &&
-      etag === null &&
-      updatedAt !== undefined &&
-      mapping.externalUpdatedAt !== updatedAt;
-    const fingerprintChanged =
-      mapping.contentFingerprint !== undefined &&
-      mapping.contentFingerprint !== fingerprint;
-    const changed = etagChanged || updatedChanged || completed || fingerprintChanged;
+    const observation = observeRemote(mapping, remote, etag);
+    const { fingerprint, updatedAt } = observation;
+    const changed =
+      observation.etagChanged ||
+      observation.updatedChanged ||
+      completed ||
+      observation.contentChanged;
+    // FU-73: never lower an accounted-for watermark that is still ahead of the
+    // observation; an own relation touch may not have landed yet.
+    const watermark = latestInstant(mapping.externalUpdatedAt, updatedAt);
     const now = this.#clock.now();
 
     if (!changed) {
@@ -1341,7 +1479,7 @@ export class VikunjaTaskRepository implements TaskRepository {
       const settled: ExternalMapping = {
         ...withoutPending(mapping),
         ...(etag === null ? {} : { externalEtag: etag }),
-        ...(updatedAt === undefined ? {} : { externalUpdatedAt: updatedAt }),
+        ...(watermark === undefined ? {} : { externalUpdatedAt: watermark }),
         contentFingerprint: fingerprint,
         needsReconcile: false,
       };
@@ -1372,7 +1510,7 @@ export class VikunjaTaskRepository implements TaskRepository {
     const updated: ExternalMapping = {
       ...base,
       ...(etag === null ? {} : { externalEtag: etag }),
-      ...(updatedAt === undefined ? {} : { externalUpdatedAt: updatedAt }),
+      ...(watermark === undefined ? {} : { externalUpdatedAt: watermark }),
       contentFingerprint: fingerprint,
       localVersion: (mapping.localVersion + 1) as Version,
       updatedAt: now,

@@ -25,6 +25,13 @@ export interface ExternalMapping {
   readonly externalId: string;
   readonly ownerId: Id;
   readonly externalEtag?: string;
+  /**
+   * Accounted-for provider `updated` watermark. Normally the `updated` value
+   * last observed. After the adapter's own relation writes it is raised to the
+   * provider write time plus a short grace, because Vikunja touches `updated`
+   * asynchronously after those writes. An unchanged-content ETag move before
+   * this instant is therefore not a remote change (FU-73). It never decreases.
+   */
   readonly externalUpdatedAt?: Instant;
   /**
    * Fingerprint of the provider-visible content this mapping was last

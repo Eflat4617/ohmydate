@@ -3,8 +3,10 @@ import {
   NotFoundError,
   ProviderUnavailableError,
   ValidationFailedError,
+  type Instant,
   type ValidationIssue,
 } from '@ohmydate/domain';
+import { normalizeRemoteInstant } from './time.js';
 
 /**
  * Minimal typed client for the Vikunja v2.8.0 endpoints used by the planner.
@@ -109,6 +111,19 @@ export interface ResponseEnvelope<T> {
   readonly data: T;
   readonly etag: string | null;
   readonly status: number;
+  /**
+   * Raw `Date` response header: the provider clock when it answered. Used to
+   * bound asynchronous provider side effects of a write (FU-73).
+   */
+  readonly date?: string | null;
+}
+
+/** `POST /tasks/{task}/relations` response (`created` is the provider clock). */
+interface VikunjaTaskRelation {
+  readonly task_id?: number;
+  readonly other_task_id?: number;
+  readonly relation_kind?: string;
+  readonly created?: string;
 }
 
 export interface RequestOptions {
@@ -492,29 +507,37 @@ export class VikunjaClient {
     return this.#listAll((page, perPage) => this.listProjects(page, perPage));
   }
 
+  /**
+   * Resolves to the provider-clock time of the write when Vikunja reports one
+   * (the relation's `created`, else the `Date` header). Vikunja touches the base
+   * task's `updated` asynchronously after this call returns (FU-73).
+   */
   async createRelation(
     externalTaskId: string,
     otherTaskId: string,
     relationKind: string,
-  ): Promise<void> {
-    await this.request<unknown>(
+  ): Promise<Instant | undefined> {
+    const { data, date } = await this.request<VikunjaTaskRelation | undefined>(
       'POST',
       `/tasks/${encodeURIComponent(externalTaskId)}/relations`,
       { body: { other_task_id: Number(otherTaskId), relation_kind: relationKind } },
     );
+    return normalizeRemoteInstant(data?.created) ?? normalizeRemoteInstant(date ?? undefined);
   }
 
+  /** Resolves to the provider-clock time of the write (`Date` header), if any. */
   async deleteRelation(
     externalTaskId: string,
     relationKind: string,
     otherTaskId: string,
-  ): Promise<void> {
-    await this.request<unknown>(
+  ): Promise<Instant | undefined> {
+    const { date } = await this.request<unknown>(
       'DELETE',
       `/tasks/${encodeURIComponent(externalTaskId)}/relations/${encodeURIComponent(
         relationKind,
       )}/${encodeURIComponent(otherTaskId)}`,
     );
+    return normalizeRemoteInstant(date ?? undefined);
   }
 
   async request<T>(
@@ -644,6 +667,7 @@ export class VikunjaClient {
         data: undefined as T,
         etag: response.headers.get('etag'),
         status: response.status,
+        date: response.headers.get('date'),
       };
     }
 
@@ -662,6 +686,7 @@ export class VikunjaClient {
         data: data as T,
         etag: response.headers.get('etag'),
         status: response.status,
+        date: response.headers.get('date'),
       };
     }
 
