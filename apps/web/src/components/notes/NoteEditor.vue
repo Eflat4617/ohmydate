@@ -31,6 +31,7 @@ import { useMediaQuery } from '../../composables/useMediaQuery';
 import { t } from '../../i18n';
 import { browserTimeZone, formatDateTime, formatNumber } from '../../i18n/format';
 import { errorMessage } from '../../i18n/problem';
+import { maskedKindsText } from '../../i18n/redaction';
 import { runOwnerBound, type OwnerScope, type OwnerSteps } from '../../session/ownerBound';
 import { ownerState } from '../../session/ownerEpoch';
 import { useAuthStore } from '../../stores/auth';
@@ -692,7 +693,7 @@ defineExpose({ isDirty: () => dirty.value, focusTitle });
             <span>{{ t('notes.editor.llm.label') }}</span>
           </label>
           <p :id="`${uid}-llm-help`" class="field-help">{{ t('notes.editor.llm.help') }}</p>
-          <p :id="`${uid}-llm-mask`" class="field-help">{{ t('notes.editor.llm.masking') }}</p>
+          <p :id="`${uid}-llm-mask`" class="field-help">{{ t('notes.editor.llm.masking', { kinds: maskedKindsText() }) }}</p>
           <p :id="`${uid}-llm-state`" class="note-llm-state" :class="{ 'note-llm-state--on': fields.llmAllowed }">
             <UiIcon :name="fields.llmAllowed ? 'ai' : 'shield'" :size="16" />
             {{ fields.llmAllowed ? t('notes.editor.llm.on') : t('notes.editor.llm.off') }}

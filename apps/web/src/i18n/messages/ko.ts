@@ -766,7 +766,8 @@ export const ko = {
       llm: {
         label: 'AI에 보내기 허용',
         help: '기본값은 꺼짐이에요. 켜면 이 노트가 연결된 계획을 AI가 단계로 나눌 때, 계획과 관련 있는 구간 일부(한 번에 최대 6KB)가 AI 공급자에게 전송될 수 있어요. 무엇을 보냈는지는 아래 AI 근거 사용 이력에 남아요.',
-        masking: '이메일·전화번호·주민등록번호·API 키처럼 보이는 값은 가려서 보내지만, 모든 개인정보를 완벽하게 가리지는 못해요.',
+        // {kinds}: the same masked-kind list as llm.disclosure.maskingValue (FU-91).
+        masking: '{kinds}처럼 보이는 값은 가려서 보내지만, 모든 개인정보를 완벽하게 가리지는 못해요.',
         on: '이 노트는 연결된 계획의 단계 초안을 만들 때 AI에 전송될 수 있어요.',
         off: '이 노트는 AI에 보내지 않아요.',
         sensitiveWarn: 'P1 개인 일정 정보예요. 꼭 필요할 때만 켜 주세요.',
@@ -1027,9 +1028,19 @@ export const ko = {
       provider: '제공자',
       providerValue: '{provider} 게이트웨이 ({model} · {modelId})',
       data: '보내는 데이터',
-      dataValue: '계획 마법사에 입력한 내용(제목·마감·설명·질문 답변)과 지금 단계에 필요한 작업 단계 정보만 보내요.',
+      // FU-91: also the AI-allowed notes linked to the plan (M6-03), as the GU-1 guide states.
+      dataValue: '계획 마법사에 입력한 내용(제목·마감·설명·질문 답변), 지금 단계에 필요한 작업 단계 정보, 그리고 ‘AI에 보내기 허용’을 켜고 이 계획에 연결한 노트의 관련 구간 일부만 보내요.',
       masking: '마스킹은 최선 노력이에요',
-      maskingValue: '이메일·전화번호·계좌번호 형식은 가려서 보내지만, 이름·주소·계좌번호 등이 반드시 지워진다고 보장하지는 않아요.',
+      // {kinds} is built from MASKED_KINDS (i18n/redaction.ts), the mirror of
+      // RedactionKind in packages/llm/src/privacy.ts. Never name a kind here
+      // that privacy.ts does not mask (FU-91: account numbers are not masked).
+      maskingValue: '보내기 전에 {kinds}처럼 보이는 값을 자동으로 가려요. 형식을 바꿔 쓴 값은 놓칠 수 있고, 이름·주소·계좌번호 같은 다른 개인정보는 가리지 않아요.',
+      kinds: {
+        email: '이메일',
+        phone: '전화번호',
+        rrn: '주민등록번호',
+        api_key: 'API 키',
+      },
       revoke: '언제든 철회 가능',
       revokeValue: 'AI 설정에서 바로 끌 수 있어요. 동의하지 않으면 직접 작성 모드로 동작하고 AI를 호출하지 않아요.',
     },
@@ -1042,7 +1053,7 @@ export const ko = {
     },
     settings: {
       title: 'AI 설정',
-      lede: 'AI 계획 도움은 {provider} 게이트웨이를 거쳐 {model}({modelId})을 써요. 요청에는 계획 마법사 입력과 지금 단계에 필요한 작업 단계 정보만 담겨요.',
+      lede: 'AI 계획 도움은 {provider} 게이트웨이를 거쳐 {model}({modelId})을 써요. 요청에는 계획 마법사 입력, 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 계획에 연결한 노트의 관련 구간 일부만 담겨요.',
       noConsentTitle: 'AI 동의가 필요 없어요',
       noConsentBody: '이 빌드는 AI 없이 동작하는 결정형 플래너를 쓰기 때문에 AI 동의가 필요 없어요.',
       consentLegend: '동의',
@@ -1429,7 +1440,6 @@ export const ko = {
     resume: '재개',
     cancel: '취소',
     stepper: '계획 단계',
-    comingSoon: '곧 지원',
     steps: {
       1: '기본정보',
       2: '유형 확인',
@@ -1553,7 +1563,9 @@ export const ko = {
     newStep: '새 단계',
     step5: '초안 승인 완료',
     step5Body: '단계 초안을 승인해서 작업을 만들었어요.',
-    nextMilestone: '다음 단계: 일정안(곧 지원)',
+    nextMilestone: '다음 단계: 만든 작업으로 일정안 후보를 만들어 비교하고 확정해요.',
+    // FU-91: the same words as the nav entry (nav.newPlan) that opens /plans/new.
+    makePlan: '일정안 만들기',
     viewInbox: '인박스에서 만든 작업 보기',
     viewProjects: '프로젝트 보기',
     titleRequired: '제목을 입력해 주세요.',

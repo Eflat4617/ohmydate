@@ -24,6 +24,7 @@ function testRouter() {
     routes: [
       { path: '/inbox', name: 'inbox', component: Stub },
       { path: '/projects', name: 'projects', component: Stub },
+      { path: '/plans/new', name: 'plans-new', component: Stub },
       { path: '/plan/new', name: 'plan-new', component: PlanningWizardView },
       {
         path: '/plan/:sessionId',
@@ -112,6 +113,10 @@ describe('planning wizard scenario A (new type)', () => {
   it('collects basics, never re-asks provided fields, shows assumptions, approves a draft, and links to created work', async () => {
     const { wrapper } = await mountWizard();
     expect(wrapper.text()).toContain('1단계 · 기본정보');
+    // FU-91: the stepper no longer says 일정안 is coming soon.
+    // (File upload really is not supported yet; its field label still says so.)
+    expect(wrapper.get('.wizard-stepper').text()).toContain('일정안');
+    expect(wrapper.get('.wizard-stepper').text()).not.toContain('곧 지원');
 
     await wrapper.get('#wizard-title').setValue('논문 요약');
     await wrapper.get('#wizard-due').setValue('2026-11-30T18:00');
@@ -142,7 +147,15 @@ describe('planning wizard scenario A (new type)', () => {
       expect(wrapper.text()).toContain('초안 승인 완료');
     });
 
-    expect(wrapper.text()).toContain('다음 단계: 일정안(곧 지원)');
+    // FU-91: step 5 leads to the real 일정안 flow, scoped to this plan's goal.
+    expect(wrapper.text()).toContain('다음 단계: 만든 작업으로 일정안 후보를 만들어 비교하고 확정해요.');
+    expect(wrapper.text()).not.toContain('곧 지원');
+    const approved = [...mockDb.intakeSessions.values()][0];
+    expect(approved?.goalId).toBeDefined();
+    const makePlan = wrapper.get('[data-testid="wizard-make-plan"]');
+    expect(makePlan.text()).toBe('일정안 만들기');
+    expect(makePlan.attributes('href')).toBe(`/plans/new?goalId=${approved?.goalId ?? ''}`);
+    expect(makePlan.classes()).toContain('btn--primary');
     expect(wrapper.find('a[href="/inbox"]').exists()).toBe(true);
     expect(wrapper.find('a[href="/projects"]').exists()).toBe(true);
     expect(mockDb.tasks.size).toBe(before + 4);

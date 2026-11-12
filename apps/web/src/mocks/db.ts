@@ -259,7 +259,8 @@ export function createMockDb(): MockDb {
     id: USER_ID,
     email: 'planner@example.test',
     timeZone: 'Asia/Seoul',
-    locale: 'en',
+    // FU-91: like the live GU-1 owner (FU-89R), so the mock's Korean AI reasons match it.
+    locale: 'ko-KR',
     llmProvider: 'fake',
     version: 1,
     createdAt,

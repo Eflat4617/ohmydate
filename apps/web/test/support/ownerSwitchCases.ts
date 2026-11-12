@@ -1,5 +1,6 @@
 import type { VueWrapper } from '@vue/test-utils';
 import { HttpResponse, http } from 'msw';
+import { defineComponent, h, onUnmounted } from 'vue';
 import {
   newActionId,
   plannerClient,
@@ -9,6 +10,7 @@ import {
   type User,
   type WorkSession,
 } from '../../src/api';
+import LlmConsentDialog from '../../src/components/LlmConsentDialog.vue';
 import NotificationsPanel from '../../src/components/NotificationsPanel.vue';
 import WizardNotesPanel from '../../src/components/notes/WizardNotesPanel.vue';
 import { setLayoutClock } from '../../src/layout/clock';
@@ -25,6 +27,7 @@ import { REPLAN_PENDING_ID, seedReplanScenario } from '../../src/mocks/replan';
 import { FEEDBACK_IDS } from '../../src/mocks/replan-seed';
 import { server } from '../../src/mocks/server';
 import { useAuthStore } from '../../src/stores/auth';
+import { useLlmConsentStore } from '../../src/stores/llmConsent';
 import { useSessionStore } from '../../src/stores/session';
 import { buttonInElement, dialogByTitle, setValue } from '../m6-03-notes-utils';
 import { IN_REVIEW_WINDOW, startedSession, useTestClock } from '../m6-layout-utils';
@@ -55,6 +58,15 @@ export function buttonByText(wrapper: VueWrapper, label: string) {
   if (found === undefined) throw new Error(`button not found: ${label}`);
   return found;
 }
+
+/** The consent dialog exactly as AppShell hosts it (FU-91). */
+const ConsentHost = defineComponent({
+  setup() {
+    const consent = useLlmConsentStore();
+    onUnmounted(consent.attachHost());
+    return () => h(LlmConsentDialog, { open: consent.open, onClose: () => consent.closed() });
+  },
+});
 
 export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
@@ -579,6 +591,35 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     hold: { method: 'PATCH', path: '/me/settings' },
     act: async (wrapper) => {
       await buttonByText(wrapper, 'AI 계획 도움 켜기').trigger('click');
+    },
+  },
+  {
+    // FU-91: the consent dialog as AppShell hosts it. Its answer closes the
+    // dialog and records the session-scoped dismissal marker; neither may
+    // land for the next user.
+    name: 'AI consent dialog: answer 직접 작성 (session dismissal marker)',
+    covers: ['src/stores/llmConsent.ts', 'src/components/LlmConsentDialog.vue'],
+    seed: async (stage) => {
+      mockDb.user = { ...mockDb.user, llmProvider: 'deepseek' };
+      await useAuthStore(stage.pinia).loadCurrent();
+      server.use(
+        http.patch('*/api/v1/me/settings', () => {
+          const next: User = {
+            ...mockDb.user,
+            version: mockDb.user.version + 1,
+            llm: { consent: { granted: false, at: '2026-11-12T09:30:00.000Z', provider: 'deepseek' } },
+          };
+          return HttpResponse.json(next as unknown as Record<string, unknown>, { headers: { ETag: `W/"${next.version}"` } });
+        }),
+      );
+    },
+    mount: (stage) => stage.mount(ConsentHost),
+    ready: async () => {
+      await until(() => expect(dialogByTitle('AI 계획 도움을 쓸까요?')).toBeDefined());
+    },
+    hold: { method: 'PATCH', path: '/me/settings' },
+    act: async () => {
+      buttonInElement(dialogByTitle('AI 계획 도움을 쓸까요?'), '직접 작성 모드로 쓰기').click();
     },
   },
   {

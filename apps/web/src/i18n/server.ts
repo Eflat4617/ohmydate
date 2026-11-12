@@ -1,13 +1,15 @@
 import type { IntakeField } from '../api';
 import { formatDuration, formatPercent } from './format';
-import { t, type PlainKey } from './index';
+import { intlLocale, t, type PlainKey } from './index';
 
 /**
  * Korean text for codes and fixed strings that the server sends inside
  * otherwise free-form fields (Today risk reasons, type-detection reasons,
  * conservative intake assumptions, plan block errors, plan diversity notes).
  * Unknown values are returned unchanged with `translated: false`, so callers
- * can mark them `lang="en"` instead of hiding information.
+ * can mark them `lang="en"` instead of hiding information. Type-detection
+ * reasons also carry the AI's own wording in the owner's language (FU-89), so
+ * they take their `lang` from `detectionReasonLang` instead (FU-91).
  */
 
 export interface ServerText {
@@ -59,6 +61,57 @@ export function detectionReasonText(reason: string): ServerText | null {
   if (reason === 'user_rejected_similarity') return ko(t('wizard.detection.userRejected'));
   if (reason === 'manual_mode') return ko(t('wizard.detection.manualMode'));
   return raw(reason);
+}
+
+/** A server code (`no_similar_template`, `some_score=0.5`): snake_case, never prose. */
+const LEGACY_CODE = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?:[=:].*)?$/;
+const NOT_A_LANGUAGE: ReadonlySet<string> = new Set(['und', 'zxx', 'mul', 'mis']);
+/** What the API's resolved tag can look like (`OUTPUT_LANGUAGE_PATTERN`): `ko`, `zh-Hant-TW`, `es-419`. */
+const OUTPUT_LANGUAGE = /^[a-z]{2,3}(?:-[A-Z][a-z]{3})?(?:-(?:[A-Z]{2}|[0-9]{3}))?$/;
+const LANGUAGE_NAMES = new Intl.DisplayNames(['en'], { type: 'language', fallback: 'none' });
+
+/**
+ * The language the AI writes in for this owner, mirroring the API's
+ * `resolveOutputLanguage` (services/api/src/application/intake/output-language.ts,
+ * FU-89): `language[-Script][-REGION]` of a well-formed locale whose language
+ * is known, else Korean (`ko-KR`). `undefined` when that is the UI's own
+ * language, so the text simply inherits the page's `lang`.
+ */
+export function ownerTextLang(locale: string | null | undefined): string | undefined {
+  if (typeof locale !== 'string') return undefined;
+  const trimmed = locale.trim();
+  if (trimmed.length < 2 || trimmed.length > 35) return undefined;
+  try {
+    const [canonical] = Intl.getCanonicalLocales(trimmed.replaceAll('_', '-'));
+    if (canonical === undefined) return undefined;
+    const parsed = new Intl.Locale(canonical);
+    const language: string | undefined = parsed.language;
+    if (language === undefined || language.length === 0 || NOT_A_LANGUAGE.has(language)) return undefined;
+    if (LANGUAGE_NAMES.of(language) === undefined) return undefined;
+    const tag = [language, parsed.script, parsed.region].filter((part) => part !== undefined).join('-');
+    if (!OUTPUT_LANGUAGE.test(tag)) return undefined;
+    if (language === new Intl.Locale(intlLocale()).language) return undefined;
+    return tag;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The `lang` attribute of a type-detection reason (FU-91). Codes this client
+ * translates inherit the page language. An untranslated server code is the
+ * legacy English fallback and is marked `en`. Anything else is the AI's own
+ * wording, which follows the owner's locale (FU-89), so it carries that
+ * locale (or nothing when it is the UI language).
+ */
+export function detectionReasonLang(
+  reason: string,
+  text: ServerText,
+  ownerLocale: string | null | undefined,
+): string | undefined {
+  if (text.translated) return undefined;
+  if (LEGACY_CODE.test(reason)) return 'en';
+  return ownerTextLang(ownerLocale);
 }
 
 /**
