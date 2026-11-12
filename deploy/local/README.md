@@ -6,6 +6,8 @@ Vikunja on 3466, API on 3100, web on 5180. All persistent state lives in named
 Docker volumes (`pgdata`, `vikunja-files`), so `sudo docker compose` never
 creates root-owned host directories and `HOME` does not matter.
 
+User guide (Korean, install → daily use → feedback): [docs/user/GU-1-사용안내.md](../../docs/user/GU-1-사용안내.md)
+
 ## Prerequisites
 
 - Node >= 24 and `corepack pnpm` from the repo root.
