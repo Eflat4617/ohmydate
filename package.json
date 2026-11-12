@@ -15,6 +15,13 @@
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "e2e": "playwright test -c e2e/playwright.config.ts",
     "smoke:build": "node scripts/ci/build-smoke.mjs",
+    "local:secrets": "node scripts/local/secrets.mjs init",
+    "local:stack": "node scripts/local/compose.mjs",
+    "local:setup": "node scripts/local/setup.mjs",
+    "local:start": "node scripts/local/start.mjs",
+    "local:stop": "node scripts/local/stop.mjs",
+    "local:status": "node scripts/local/status.mjs",
+    "test:local": "OHMYDATE_LOCAL_SMOKE=1 vitest run --config scripts/local/vitest.config.mjs",
     "ci": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:api-client && pnpm run check:boundaries && node scripts/ci/build-smoke.mjs --required"
   },
   "devDependencies": {
