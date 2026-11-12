@@ -1,4 +1,4 @@
-import { computed, type ComputedRef } from 'vue';
+import { computed } from 'vue';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/vue-query';
 import {
   ApiError,
@@ -7,11 +7,19 @@ import {
   type DocumentLink,
   type DocumentTargetKind,
   type IntakeSession,
-  type Page,
   type Project,
   type Task,
 } from '../api';
-import { captureOwnerBinding, isOwnerBindingCurrent, ownerState, type OwnerBinding } from '../session/ownerEpoch';
+import type { OwnerBinding } from '../session/ownerEpoch';
+import {
+  MAX_LOOKUP_PAGES,
+  OwnerChangedError,
+  assertOwnerCurrent,
+  collectPages,
+  ownerFenced,
+  ownerKeyOf,
+  useOwnerKey,
+} from '../session/ownerBound';
 
 /**
  * Shared notes plumbing (M6-03). Owner isolation (ADR-023, M6-03R-1 H1):
@@ -22,77 +30,17 @@ import { captureOwnerBinding, isOwnerBindingCurrent, ownerState, type OwnerBindi
  *   be the bound owner, and the binding is re-checked after every await —
  *   before the next page is fetched and before anything is returned (and so
  *   cached). A stale lookup throws `OwnerChangedError`: nothing of it is kept.
+ *
+ * The fence itself is the app-wide primitive in session/ownerBound.ts
+ * (FU-77); it is re-exported here for the notes screens.
  */
+export { MAX_LOOKUP_PAGES, OwnerChangedError, assertOwnerCurrent, collectPages, ownerFenced, ownerKeyOf, useOwnerKey };
 
 export const NOTE_BODY_MAX = 65_536;
 export const NOTE_TITLE_MAX = 200;
 export const NOTE_PAGE_SIZE = 20;
 /** Notes shown in a "linked to this" list (project tab, task detail, wizard). */
 export const LINKED_NOTES_LIMIT = 50;
-/** Page bound for whole-list lookups (link targets, promoted-note search). */
-export const MAX_LOOKUP_PAGES = 5;
-const ANONYMOUS = 'anonymous';
-
-/** Cache-key owner: the same source the OwnerBinding is captured from. */
-export function ownerKeyOf(ownerId: string | null): string {
-  return ownerId ?? ANONYMOUS;
-}
-
-export function useOwnerKey(): ComputedRef<string> {
-  return computed(() => ownerKeyOf(ownerState.ownerId.value));
-}
-
-/** A lookup outlived the owner it started for; its result must be dropped. */
-export class OwnerChangedError extends Error {
-  constructor() {
-    super('owner changed during the request');
-    this.name = 'OwnerChangedError';
-  }
-}
-
-export function assertOwnerCurrent(binding: OwnerBinding): void {
-  if (!isOwnerBindingCurrent(binding)) throw new OwnerChangedError();
-}
-
-/**
- * Run one lookup for `owner` (the owner in its cache key) under one binding.
- * Refuses to start for another owner, and refuses to return once the owner
- * changed — also when the request itself failed because the binding aborted it.
- */
-export async function ownerFenced<T>(owner: string, run: (binding: OwnerBinding) => Promise<T>): Promise<T> {
-  const binding = captureOwnerBinding();
-  if (ownerKeyOf(binding.ownerId) !== owner) throw new OwnerChangedError();
-  let result: T;
-  try {
-    result = await run(binding);
-  } catch (cause) {
-    assertOwnerCurrent(binding);
-    throw cause;
-  }
-  assertOwnerCurrent(binding);
-  return result;
-}
-
-/** Follow `nextCursor` under one binding, checking it before every page and after it arrives. */
-export async function collectPages<T>(
-  binding: OwnerBinding,
-  fetchPage: (cursor: string | undefined, signal: AbortSignal) => Promise<Page<T>>,
-  options: { maxPages?: number; until?: (item: T) => boolean } = {},
-): Promise<{ items: T[]; found: T | null }> {
-  const items: T[] = [];
-  let cursor: string | undefined;
-  for (let page = 0; page < (options.maxPages ?? MAX_LOOKUP_PAGES); page += 1) {
-    assertOwnerCurrent(binding);
-    const result = await fetchPage(cursor, binding.signal);
-    assertOwnerCurrent(binding);
-    items.push(...result.items);
-    const found = options.until === undefined ? undefined : result.items.find(options.until);
-    if (found !== undefined) return { items, found };
-    if (result.nextCursor === null) break;
-    cursor = result.nextCursor;
-  }
-  return { items, found: null };
-}
 
 /** The owner a notes/task cache key belongs to (second key segment). */
 export function keyOwner(queryKey: readonly unknown[]): string {

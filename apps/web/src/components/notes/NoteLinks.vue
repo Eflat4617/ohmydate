@@ -11,7 +11,7 @@ import {
 import { isApiStatus, useLinkTargets } from '../../composables/notes';
 import { t } from '../../i18n';
 import { errorMessage } from '../../i18n/problem';
-import { captureOwnerBinding, isOwnerBindingCurrent } from '../../session/ownerEpoch';
+import { runOwnerBound, type OwnerScope, type OwnerSteps } from '../../session/ownerBound';
 import UiBadge from '../ui/UiBadge.vue';
 import UiBanner from '../ui/UiBanner.vue';
 import UiButton from '../ui/UiButton.vue';
@@ -63,9 +63,10 @@ function targetRoute(link: DocumentLink): string | null {
   return null;
 }
 
-async function announce(message: string): Promise<void> {
+/** Announce politely. A generator: its own wait is fenced like the task's (delegate with `yield*`). */
+function* announce(message: string): OwnerSteps<void> {
   announcement.value = '';
-  await nextTick();
+  yield nextTick();
   announcement.value = message;
 }
 
@@ -76,10 +77,10 @@ function failure(cause: unknown): string {
 }
 
 /** 412: the note moved on elsewhere; hand the server version to the editor to judge. */
-async function reportStale(noteId: string, binding: ReturnType<typeof captureOwnerBinding>): Promise<void> {
+function* reportStale(owner: OwnerScope, noteId: string): OwnerSteps<void> {
   try {
-    const latest = await plannerClient.getDocument(noteId, binding.signal);
-    if (isOwnerBindingCurrent(binding)) emit('stale', latest);
+    const latest = yield* owner.wait(plannerClient.getDocument(noteId, owner.signal));
+    emit('stale', latest);
   } catch {
     // The conflict message below still tells the user to retry.
   }
@@ -95,63 +96,71 @@ function openPicker(): void {
 async function addLink(link: DocumentLinkCreate): Promise<void> {
   const note = props.note;
   if (note === null || busy.value || props.disabled) return;
-  const binding = captureOwnerBinding();
   const scope = `note:${note.id}:link`;
   const action = actions.begin(scope, link, (left, right) => left.targetKind === right.targetKind && left.targetId === right.targetId, note.version);
   busy.value = true;
   pickerError.value = null;
-  try {
-    const updated = await plannerClient.linkDocument(note.id, action.payload, action.key, note.version, binding.signal);
-    actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    pickerOpen.value = false;
-    emit('updated', updated);
-    await announce(t('notes.links.linked', { target: targetName(link) }));
-  } catch (cause) {
-    if (isStoredFinalResult(cause)) actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    if (isApiStatus(cause, 412)) {
-      // The picker closes: the editor may need its own conflict dialog now.
-      pickerOpen.value = false;
-      error.value = t('notes.links.conflict');
-      await reportStale(note.id, binding);
-    } else {
-      pickerError.value = failure(cause);
-    }
-  } finally {
-    busy.value = false;
-  }
+  await runOwnerBound(
+    function* (bound) {
+      try {
+        const updated = yield* bound.wait(plannerClient.linkDocument(note.id, action.payload, action.key, note.version, bound.signal));
+        actions.settle(scope, action);
+        pickerOpen.value = false;
+        emit('updated', updated);
+        yield* announce(t('notes.links.linked', { target: targetName(link) }));
+      } catch (cause) {
+        if (isStoredFinalResult(cause)) actions.settle(scope, action);
+        if (isApiStatus(cause, 412)) {
+          // The picker closes: the editor may need its own conflict dialog now.
+          pickerOpen.value = false;
+          error.value = t('notes.links.conflict');
+          yield* reportStale(bound, note.id);
+        } else {
+          pickerError.value = failure(cause);
+        }
+      }
+    },
+    {
+      onSettled: () => {
+        busy.value = false;
+      },
+    },
+  );
 }
 
 async function removeLink(link: DocumentLink): Promise<void> {
   const note = props.note;
   if (note === null || busy.value || props.disabled) return;
-  const binding = captureOwnerBinding();
   const scope = `note:${note.id}:unlink:${link.id}`;
   const action = actions.begin(scope, { linkId: link.id }, (left, right) => left.linkId === right.linkId, note.version);
   busy.value = true;
   error.value = null;
   const name = targetName(link);
-  try {
-    const updated = await plannerClient.unlinkDocument(note.id, link.id, action.key, note.version, binding.signal);
-    actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    emit('updated', updated);
-    await announce(t('notes.links.unlinked', { target: name }));
-    await nextTick();
-    (addButton.value?.$el as HTMLElement | undefined)?.focus();
-  } catch (cause) {
-    if (isStoredFinalResult(cause)) actions.settle(scope, action);
-    if (!isOwnerBindingCurrent(binding)) return;
-    if (isApiStatus(cause, 412)) {
-      error.value = t('notes.links.conflict');
-      await reportStale(note.id, binding);
-    } else {
-      error.value = failure(cause);
-    }
-  } finally {
-    busy.value = false;
-  }
+  await runOwnerBound(
+    function* (bound) {
+      try {
+        const updated = yield* bound.wait(plannerClient.unlinkDocument(note.id, link.id, action.key, note.version, bound.signal));
+        actions.settle(scope, action);
+        emit('updated', updated);
+        yield* announce(t('notes.links.unlinked', { target: name }));
+        yield* bound.wait(nextTick());
+        (addButton.value?.$el as HTMLElement | undefined)?.focus();
+      } catch (cause) {
+        if (isStoredFinalResult(cause)) actions.settle(scope, action);
+        if (isApiStatus(cause, 412)) {
+          error.value = t('notes.links.conflict');
+          yield* reportStale(bound, note.id);
+        } else {
+          error.value = failure(cause);
+        }
+      }
+    },
+    {
+      onSettled: () => {
+        busy.value = false;
+      },
+    },
+  );
 }
 </script>
 

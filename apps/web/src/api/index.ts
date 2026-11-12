@@ -2,6 +2,7 @@ export {
   PlannerClient,
   availabilityEtagForVersion,
   availabilityVersionFromEtag,
+  bindRequestOwnerSignal,
   createPlannerClient,
   etagForVersion,
   plannerClient,

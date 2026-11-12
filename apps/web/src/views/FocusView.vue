@@ -32,6 +32,7 @@ import {
   sendFocusEvent,
 } from '../session/focusQueue';
 import { sessionJournal, type FocusEventKind } from '../session/journal';
+import { runOwnerBound } from '../session/ownerBound';
 import {
   captureOwnerBinding,
   isOwnerBindingCurrent,
@@ -442,39 +443,37 @@ async function submitReview(review: SessionReviewRequest): Promise<void> {
     reviewError.value = t('focus.reviewOffline');
     return;
   }
-  // ADR-023: bind to the owner before the first await. A continuation that
-  // resumes after a user switch writes nothing — not to the screen, not to
-  // either owner's storage. reviewSession takes no AbortSignal, so the owner
-  // signal cancels the wait instead (the request itself still completes).
-  const binding = captureOwnerBinding();
-  if (sessions.pendingCount > 0) {
-    await syncPending();
-    if (!isOwnerBindingCurrent(binding)) return;
-  }
-  const ready = session.value;
-  if (ready === null) return;
-  reviewBusy.value = true;
-  reviewError.value = null;
-  const scope = `focus:review:${ready.id}`;
-  try {
-    const action = actions.begin(scope, review, (left, right) => JSON.stringify(left) === JSON.stringify(right), ready.version);
-    const result = await abortable(
-      plannerClient.reviewSession(ready.id, action.payload, action.key, ready.version),
-      binding.signal,
-    );
-    if (result === undefined || !isOwnerBindingCurrent(binding)) return;
-    actions.settle(scope, action);
-    feedback.value = result;
-    // The layout's review prompt only counts sessions without a review; the
-    // id goes into the namespace of the owner who submitted it.
-    markSessionReviewed(binding, ready.id);
-    toast.show(t('focus.reviewSaved'));
-  } catch (cause) {
-    if (!isOwnerBindingCurrent(binding)) return;
-    reviewError.value = errorMessage(cause, t('focus.reviewFailed'));
-  } finally {
-    if (isOwnerBindingCurrent(binding)) reviewBusy.value = false;
-  }
+  // ADR-023: the submission runs under the owner who started it. A
+  // continuation that resumes after a user switch writes nothing — not to the
+  // screen, not to either owner's storage. reviewSession takes no AbortSignal;
+  // `owner.wait` stops waiting for it instead (the request itself completes).
+  await runOwnerBound(
+    function* (owner) {
+      if (sessions.pendingCount > 0) yield* owner.wait(syncPending());
+      const ready = session.value;
+      if (ready === null) return;
+      reviewBusy.value = true;
+      reviewError.value = null;
+      const scope = `focus:review:${ready.id}`;
+      try {
+        const action = actions.begin(scope, review, (left, right) => JSON.stringify(left) === JSON.stringify(right), ready.version);
+        const result = yield* owner.wait(plannerClient.reviewSession(ready.id, action.payload, action.key, ready.version));
+        actions.settle(scope, action);
+        feedback.value = result;
+        // The layout's review prompt only counts sessions without a review; the
+        // id goes into the namespace of the owner who submitted it.
+        markSessionReviewed(owner.binding, ready.id);
+        toast.show(t('focus.reviewSaved'));
+      } catch (cause) {
+        reviewError.value = errorMessage(cause, t('focus.reviewFailed'));
+      }
+    },
+    {
+      onSettled: () => {
+        reviewBusy.value = false;
+      },
+    },
+  );
 }
 
 function onKeydown(event: KeyboardEvent): void {

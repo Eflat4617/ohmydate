@@ -30,6 +30,7 @@ import {
   formatDuration,
 } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
+import { runOwnerBound } from '../session/ownerBound';
 import { blockErrorText, diversityNoteText, type ServerText } from '../i18n/server';
 import {
   addDaysToDate,
@@ -261,44 +262,49 @@ async function runPreview(): Promise<void> {
   const blocks = draftBlocks.value.map((block) => ({ ...block }));
   const scope = `plan:${activePlan.id}:${candidate.id}:preview`;
   const action = actions.begin(scope, { blocks }, (left, right) => JSON.stringify(left) === JSON.stringify(right), activePlan.version);
-  try {
-    const result = await plannerClient.previewCandidateEdit(
-      activePlan.id,
-      candidate.id,
-      blocks,
-      action.key,
-      activePlan.version,
-    );
-    if (token !== previewToken) return;
-    previewResult.value = result;
-    blockErrors.value = {};
-    approveViolations.value = [];
-  } catch (cause) {
-    if (token !== previewToken) return;
-    if (cause instanceof ApiError) {
-      if (cause.status === 422 && cause.code === 'validation_failed') {
-        blockErrors.value = mapProblemErrors(cause.problem?.errors);
-        previewResult.value = null;
-        previewError.value =
-          Object.keys(blockErrors.value).length === 0 ? errorMessage(cause) : null;
-      } else if (cause.status === 422 && cause.code === 'constraint_violation') {
-        previewResult.value = {
-          feasible: false,
-          violations: cause.problem?.violations ?? [],
-          deficitMin: 0,
-        };
+  // Owner isolation (ADR-023): preview, approve and regenerate run under the
+  // owner who started them; after a user switch their answers change nothing.
+  await runOwnerBound(
+    function* (owner) {
+      try {
+        const result = yield* owner.wait(
+          plannerClient.previewCandidateEdit(activePlan.id, candidate.id, blocks, action.key, activePlan.version),
+        );
+        if (token !== previewToken) return;
+        previewResult.value = result;
         blockErrors.value = {};
-      } else {
-        previewResult.value = null;
-        previewError.value = errorMessage(cause);
+        approveViolations.value = [];
+      } catch (cause) {
+        if (token !== previewToken) return;
+        if (cause instanceof ApiError) {
+          if (cause.status === 422 && cause.code === 'validation_failed') {
+            blockErrors.value = mapProblemErrors(cause.problem?.errors);
+            previewResult.value = null;
+            previewError.value =
+              Object.keys(blockErrors.value).length === 0 ? errorMessage(cause) : null;
+          } else if (cause.status === 422 && cause.code === 'constraint_violation') {
+            previewResult.value = {
+              feasible: false,
+              violations: cause.problem?.violations ?? [],
+              deficitMin: 0,
+            };
+            blockErrors.value = {};
+          } else {
+            previewResult.value = null;
+            previewError.value = errorMessage(cause);
+          }
+        } else {
+          previewResult.value = null;
+          previewError.value = errorMessage(cause, t('plan.validateError'));
+        }
       }
-    } else {
-      previewResult.value = null;
-      previewError.value = errorMessage(cause, t('plan.validateError'));
-    }
-  } finally {
-    if (token === previewToken) previewing.value = false;
-  }
+    },
+    {
+      onSettled: () => {
+        if (token === previewToken) previewing.value = false;
+      },
+    },
+  );
 }
 
 function onBlocksUpdated(next: PlanBlock[]): void {
@@ -342,48 +348,51 @@ async function approve(): Promise<void> {
     (left, right) => JSON.stringify(left) === JSON.stringify(right),
     activePlan.availabilityVersion,
   );
-  try {
-    const version = await plannerClient.approveCandidate(
-      activePlan.id,
-      candidate.id,
-      action.key,
-      activePlan.availabilityVersion,
-      edited,
-    );
-    actions.settle(scope, action);
-    approvedVersion.value = version;
-    dirty.value = false;
-    stale.value = false;
-    message.value = t('plan.approvedMessage', { seq: version.seq });
-    await Promise.all([planQuery.refetch(), approvedBlocksQuery.refetch()]);
-  } catch (cause) {
-    if (cause instanceof ApiError) {
-      if (cause.status === 412 && cause.code === 'availability_changed') {
+  await runOwnerBound(
+    function* (owner) {
+      try {
+        const version = yield* owner.wait(
+          plannerClient.approveCandidate(activePlan.id, candidate.id, action.key, activePlan.availabilityVersion, edited),
+        );
         actions.settle(scope, action);
-        stale.value = true;
-        message.value = '';
-        actionError.value = null;
-        await planQuery.refetch();
-        return;
+        approvedVersion.value = version;
+        dirty.value = false;
+        stale.value = false;
+        message.value = t('plan.approvedMessage', { seq: version.seq });
+        yield* owner.wait(Promise.all([planQuery.refetch(), approvedBlocksQuery.refetch()]));
+      } catch (cause) {
+        if (cause instanceof ApiError) {
+          if (cause.status === 412 && cause.code === 'availability_changed') {
+            actions.settle(scope, action);
+            stale.value = true;
+            message.value = '';
+            actionError.value = null;
+            yield* owner.wait(planQuery.refetch());
+            return;
+          }
+          if (cause.status === 422 && cause.code === 'constraint_violation') {
+            approveViolations.value = cause.problem?.violations ?? [];
+            actionError.value = errorMessage(cause);
+            return;
+          }
+          if (cause.status === 422 && cause.code === 'validation_failed') {
+            blockErrors.value = mapProblemErrors(cause.problem?.errors);
+            actionError.value =
+              Object.keys(blockErrors.value).length === 0 ? errorMessage(cause) : t('plan.outsidePlan');
+            return;
+          }
+          actionError.value = errorMessage(cause);
+        } else {
+          actionError.value = errorMessage(cause, t('plan.approveError'));
+        }
       }
-      if (cause.status === 422 && cause.code === 'constraint_violation') {
-        approveViolations.value = cause.problem?.violations ?? [];
-        actionError.value = errorMessage(cause);
-        return;
-      }
-      if (cause.status === 422 && cause.code === 'validation_failed') {
-        blockErrors.value = mapProblemErrors(cause.problem?.errors);
-        actionError.value =
-          Object.keys(blockErrors.value).length === 0 ? errorMessage(cause) : t('plan.outsidePlan');
-        return;
-      }
-      actionError.value = errorMessage(cause);
-    } else {
-      actionError.value = errorMessage(cause, t('plan.approveError'));
-    }
-  } finally {
-    approving.value = false;
-  }
+    },
+    {
+      onSettled: () => {
+        approving.value = false;
+      },
+    },
+  );
 }
 
 async function regenerate(): Promise<void> {
@@ -393,22 +402,29 @@ async function regenerate(): Promise<void> {
   actionError.value = null;
   const scope = `plan:${activePlan.id}:regenerate`;
   const action = actions.begin(scope, { planId: activePlan.id }, (left, right) => left.planId === right.planId, activePlan.version);
-  try {
-    const updated = await plannerClient.regeneratePlan(activePlan.id, action.key, activePlan.version);
-    actions.settle(scope, action);
-    queryClient.setQueryData(['plan', activePlan.id], updated);
-    stale.value = false;
-    approvedVersion.value = null;
-    message.value = t('plan.regenerated');
-    resetDraft();
-  } catch (cause) {
-    actionError.value = errorMessage(cause, t('plan.regenerateError'));
-    if (cause instanceof ApiError && cause.status === 412) {
-      await planQuery.refetch();
-    }
-  } finally {
-    regenerating.value = false;
-  }
+  await runOwnerBound(
+    function* (owner) {
+      try {
+        const updated = yield* owner.wait(plannerClient.regeneratePlan(activePlan.id, action.key, activePlan.version));
+        actions.settle(scope, action);
+        queryClient.setQueryData(['plan', activePlan.id], updated);
+        stale.value = false;
+        approvedVersion.value = null;
+        message.value = t('plan.regenerated');
+        resetDraft();
+      } catch (cause) {
+        actionError.value = errorMessage(cause, t('plan.regenerateError'));
+        if (cause instanceof ApiError && cause.status === 412) {
+          yield* owner.wait(planQuery.refetch());
+        }
+      }
+    },
+    {
+      onSettled: () => {
+        regenerating.value = false;
+      },
+    },
+  );
 }
 
 function goToToday(): void {

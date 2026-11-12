@@ -125,6 +125,42 @@ export function availabilityVersionFromEtag(etag: string | null): number | undef
   return match === null ? undefined : Number(match[1]);
 }
 
+/**
+ * Owner abort (ADR-023 §1: an owner change stops every request of the previous
+ * owner). The session layer registers where to get the signal of whoever is
+ * signed in; the API layer itself knows nothing about owners.
+ */
+let requestOwnerSignal: (() => AbortSignal) | null = null;
+
+export function bindRequestOwnerSignal(source: (() => AbortSignal) | null): void {
+  requestOwnerSignal = source;
+}
+
+function anySignal(signals: readonly AbortSignal[]): AbortSignal {
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([...signals]);
+  const controller = new AbortController();
+  for (const signal of signals) {
+    if (signal.aborted) controller.abort(signal.reason);
+    else signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  }
+  return controller.signal;
+}
+
+/**
+ * Runs synchronously inside the client method call (openapi-fetch calls the
+ * first `onRequest` before its first await), so the signal is the one of the
+ * owner who started the request. If the owner changes before the request is
+ * actually sent — the send happens a few microtasks later — it is never sent;
+ * if it is in flight, it is aborted. A method needs no `signal` parameter for
+ * this.
+ */
+const ownerAbortMiddleware: Middleware = {
+  onRequest({ request }) {
+    if (requestOwnerSignal === null) return request;
+    return new Request(request, { signal: anySignal([request.signal, requestOwnerSignal()]) });
+  },
+};
+
 function readCookie(name: string): string | undefined {
   if (typeof document === 'undefined') return undefined;
   const prefix = `${name}=`;
@@ -185,6 +221,8 @@ export class PlannerClient {
       credentials: 'include',
       fetch: fetchImpl,
     });
+    // First, so that it runs in the caller's turn (see ownerAbortMiddleware).
+    this.client.use(ownerAbortMiddleware);
     this.client.use(csrfMiddleware);
   }
 

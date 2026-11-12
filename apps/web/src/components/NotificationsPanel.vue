@@ -3,6 +3,7 @@ import { inject, onMounted, ref } from 'vue';
 import { routerKey } from 'vue-router';
 import { plannerClient, uuidV7Key, type Notification as PlannerNotification } from '../api';
 import { notificationLabel, useNotifications } from '../notifications/useNotifications';
+import { runOwnerBound } from '../session/ownerBound';
 import { useOfflineStore } from '../stores/offline';
 import { useAuthStore } from '../stores/auth';
 import { t } from '../i18n';
@@ -66,11 +67,16 @@ function openProposal(event: MouseEvent, path: string): void {
 
 async function onDismiss(item: PlannerNotification): Promise<void> {
   busyId.value = item.id;
-  try {
-    await dismiss(item);
-  } finally {
-    busyId.value = null;
-  }
+  await runOwnerBound(
+    function* (owner) {
+      yield* owner.wait(dismiss(item));
+    },
+    {
+      onSettled: () => {
+        busyId.value = null;
+      },
+    },
+  );
 }
 
 function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
@@ -82,48 +88,62 @@ function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
+// Owner isolation (ADR-023): the permission prompt can stay open for a long
+// time. If the signed-in user changes meanwhile, this browser must not be
+// registered for push under the next user's account.
 async function enablePush(): Promise<void> {
   if (!pushSupported.value || pushBusy.value || !offline.online) return;
   pushBusy.value = true;
   pushStatus.value = 'idle';
-  try {
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') {
-      pushStatus.value = 'denied';
-      return;
-    }
-    if (!offline.online) {
-      pushStatus.value = 'idle';
-      return;
-    }
-    const registration = await navigator.serviceWorker.ready;
-    const existing = await registration.pushManager.getSubscription();
-    const key = import.meta.env.VITE_VAPID_PUBLIC_KEY;
-    const subscription =
-      existing ??
-      (await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        ...(typeof key === 'string' && key.length > 0
-          ? { applicationServerKey: base64UrlToBytes(key) }
-          : {}),
-      }));
-    const json = subscription.toJSON();
-    const p256dh = json.keys?.p256dh;
-    const auth = json.keys?.auth;
-    if (typeof p256dh !== 'string' || typeof auth !== 'string') {
-      pushStatus.value = 'unavailable';
-      return;
-    }
-    await plannerClient.createPushSubscription(
-      { endpoint: subscription.endpoint, keys: { p256dh, auth }, deviceLabel: 'Browser' },
-      uuidV7Key(),
-    );
-    pushStatus.value = 'enabled';
-  } catch {
-    pushStatus.value = 'unavailable';
-  } finally {
-    pushBusy.value = false;
-  }
+  await runOwnerBound(
+    function* (owner) {
+      try {
+        const permission = yield* owner.wait(Notification.requestPermission());
+        if (permission !== 'granted') {
+          pushStatus.value = 'denied';
+          return;
+        }
+        if (!offline.online) {
+          pushStatus.value = 'idle';
+          return;
+        }
+        const registration = yield* owner.wait(navigator.serviceWorker.ready);
+        const existing = yield* owner.wait(registration.pushManager.getSubscription());
+        const key = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+        const subscription =
+          existing ??
+          (yield* owner.wait(
+            registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              ...(typeof key === 'string' && key.length > 0
+                ? { applicationServerKey: base64UrlToBytes(key) }
+                : {}),
+            }),
+          ));
+        const json = subscription.toJSON();
+        const p256dh = json.keys?.p256dh;
+        const auth = json.keys?.auth;
+        if (typeof p256dh !== 'string' || typeof auth !== 'string') {
+          pushStatus.value = 'unavailable';
+          return;
+        }
+        yield* owner.wait(
+          plannerClient.createPushSubscription(
+            { endpoint: subscription.endpoint, keys: { p256dh, auth }, deviceLabel: 'Browser' },
+            uuidV7Key(),
+          ),
+        );
+        pushStatus.value = 'enabled';
+      } catch (cause) {
+        pushStatus.value = 'unavailable';
+      }
+    },
+    {
+      onSettled: () => {
+        pushBusy.value = false;
+      },
+    },
+  );
 }
 
 </script>

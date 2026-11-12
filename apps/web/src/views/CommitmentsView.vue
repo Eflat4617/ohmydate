@@ -35,6 +35,7 @@ import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { t } from '../i18n';
 import { formatDateTimeRange } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
+import { runOwnerBound, type OwnerSteps } from '../session/ownerBound';
 
 const offline = useOfflineStore();
 const queryClient = useQueryClient();
@@ -160,18 +161,27 @@ function edit(commitment: Commitment): void {
   void nextTick().then(() => formHeading.value?.focus());
 }
 
-async function refresh(): Promise<void> {
-  await queryClient.invalidateQueries({ queryKey: ['commitments'] });
-  await queryClient.invalidateQueries({ queryKey: ['availability'] });
+function* refreshSteps(): OwnerSteps<void> {
+  yield queryClient.invalidateQueries({ queryKey: ['commitments'] });
+  yield queryClient.invalidateQueries({ queryKey: ['availability'] });
 }
 
+/** The retry button. Inside a task, delegate to `refreshSteps` instead. */
+async function refresh(): Promise<void> {
+  await runOwnerBound(refreshSteps);
+}
+
+// Owner isolation (ADR-023): save and remove run under the owner who started
+// them. If the signed-in user changed meanwhile, nothing is announced, reset
+// or refetched.
 async function save(): Promise<void> {
   if (!offline.mutationsEnabled || busy.value) return;
-  if (previewSource.value === null) {
+  const source = previewSource.value;
+  if (source === null) {
     error.value = t('commitments.invalidTimes');
     return;
   }
-  if (Date.parse(previewSource.value.endAt) <= Date.parse(previewSource.value.startAt)) {
+  if (Date.parse(source.endAt) <= Date.parse(source.startAt)) {
     error.value = t('commitments.endAfterStart');
     return;
   }
@@ -182,63 +192,77 @@ async function save(): Promise<void> {
   busy.value = true;
   error.value = null;
   message.value = '';
-  try {
-    if (form.id === null) {
-      const input: CommitmentCreate = {
-        title: form.title.trim(),
-        startAt: previewSource.value.startAt,
-        endAt: previewSource.value.endAt,
-        timeZone: form.timeZone,
-        ...(form.rrule.trim().length === 0 ? {} : { rrule: form.rrule.trim() }),
-      };
-      const scope = 'commitment:create';
-      const action = actions.begin(scope, input, (left, right) => JSON.stringify(left) === JSON.stringify(right));
-      await plannerClient.createCommitment(input, action.key);
-      actions.settle(scope, action);
-      message.value = t('commitments.created');
-    } else {
-      const patch: CommitmentPatch = {
-        title: form.title.trim(),
-        startAt: previewSource.value.startAt,
-        endAt: previewSource.value.endAt,
-        timeZone: form.timeZone,
-        rrule: form.rrule.trim().length === 0 ? null : form.rrule.trim(),
-      };
-      const scope = `commitment:${form.id}:update`;
-      const action = actions.begin(scope, patch, (left, right) => JSON.stringify(left) === JSON.stringify(right));
-      await plannerClient.updateCommitment(form.id, patch, action.key);
-      actions.settle(scope, action);
-      message.value = t('commitments.updated');
-    }
-    resetForm();
-    await refresh();
-  } catch (cause) {
-    error.value =
-      cause instanceof ApiError && cause.status === 412
-        ? t('commitments.changedElsewhere')
-        : errorMessage(cause, t('commitments.saveError'));
-  } finally {
-    busy.value = false;
-  }
+  await runOwnerBound(
+    function* (owner) {
+      try {
+        if (form.id === null) {
+          const input: CommitmentCreate = {
+            title: form.title.trim(),
+            startAt: source.startAt,
+            endAt: source.endAt,
+            timeZone: form.timeZone,
+            ...(form.rrule.trim().length === 0 ? {} : { rrule: form.rrule.trim() }),
+          };
+          const scope = 'commitment:create';
+          const action = actions.begin(scope, input, (left, right) => JSON.stringify(left) === JSON.stringify(right));
+          yield* owner.wait(plannerClient.createCommitment(input, action.key));
+          actions.settle(scope, action);
+          message.value = t('commitments.created');
+        } else {
+          const patch: CommitmentPatch = {
+            title: form.title.trim(),
+            startAt: source.startAt,
+            endAt: source.endAt,
+            timeZone: form.timeZone,
+            rrule: form.rrule.trim().length === 0 ? null : form.rrule.trim(),
+          };
+          const scope = `commitment:${form.id}:update`;
+          const action = actions.begin(scope, patch, (left, right) => JSON.stringify(left) === JSON.stringify(right));
+          yield* owner.wait(plannerClient.updateCommitment(form.id, patch, action.key));
+          actions.settle(scope, action);
+          message.value = t('commitments.updated');
+        }
+        resetForm();
+        yield* refreshSteps();
+      } catch (cause) {
+        error.value =
+          cause instanceof ApiError && cause.status === 412
+            ? t('commitments.changedElsewhere')
+            : errorMessage(cause, t('commitments.saveError'));
+      }
+    },
+    {
+      onSettled: () => {
+        busy.value = false;
+      },
+    },
+  );
 }
 
 async function remove(commitment: Commitment): Promise<void> {
   if (!offline.mutationsEnabled || busy.value) return;
   busy.value = true;
   error.value = null;
-  try {
-    const scope = `commitment:${commitment.id}:delete`;
-    const action = actions.begin(scope, { id: commitment.id }, (left, right) => left.id === right.id);
-    await plannerClient.deleteCommitment(commitment.id, action.key);
-    actions.settle(scope, action);
-    if (form.id === commitment.id) resetForm();
-    message.value = t('commitments.deleted');
-    await refresh();
-  } catch (cause) {
-    error.value = errorMessage(cause, t('commitments.deleteError'));
-  } finally {
-    busy.value = false;
-  }
+  await runOwnerBound(
+    function* (owner) {
+      try {
+        const scope = `commitment:${commitment.id}:delete`;
+        const action = actions.begin(scope, { id: commitment.id }, (left, right) => left.id === right.id);
+        yield* owner.wait(plannerClient.deleteCommitment(commitment.id, action.key));
+        actions.settle(scope, action);
+        if (form.id === commitment.id) resetForm();
+        message.value = t('commitments.deleted');
+        yield* refreshSteps();
+      } catch (cause) {
+        error.value = errorMessage(cause, t('commitments.deleteError'));
+      }
+    },
+    {
+      onSettled: () => {
+        busy.value = false;
+      },
+    },
+  );
 }
 
 function setFrom(value: string): void {

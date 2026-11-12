@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
+import { createRouter, createWebHistory, type RouteRecordRaw, type Router } from 'vue-router';
 import AvailabilityView from './views/AvailabilityView.vue';
 import CommitmentsView from './views/CommitmentsView.vue';
 import FocusView from './views/FocusView.vue';
@@ -16,6 +16,7 @@ import ReplanListView from './views/ReplanListView.vue';
 import ReplanProposalView from './views/ReplanProposalView.vue';
 import TaskDetailView from './views/TaskDetailView.vue';
 import TodayView from './views/TodayView.vue';
+import { currentOwnerId, isPageSealed } from './session/ownerEpoch';
 
 const NotesView = () => import('./views/NotesView.vue');
 
@@ -52,3 +53,57 @@ export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
 });
+
+/**
+ * ADR-023 guardrail: a page that is being hard-reset for another user does
+ * not navigate any more. The reload itself picks the next location
+ * (session/ownerEpoch.ts), so a late continuation cannot move the new user.
+ */
+export function refuseNavigationWhenSealed(target: Router): void {
+  target.beforeEach(() => !isPageSealed());
+}
+
+/**
+ * A navigation belongs to the user who started it (ADR-023 guardrail). It is
+ * asynchronous — guards, lazily loaded screens — so one that user A starts can
+ * otherwise complete after user B signed in, and leave B on A's address. The
+ * owner is noted when `push` / `replace` is CALLED (in the caller's turn) and
+ * checked again right before the navigation is confirmed.
+ *
+ * Owner ids are compared, not epochs: a navigation that began before the
+ * owner was known (the first one, while `/me` is still loading) is allowed to
+ * finish for the owner it turns out to be.
+ */
+export function bindNavigationsToOwner(target: Router): void {
+  // Owners of push/replace calls whose navigation has not reached a guard yet.
+  const started: (string | null)[] = [];
+  const owners = new WeakMap<object, string | null>();
+  for (const method of ['push', 'replace'] as const) {
+    const navigate = target[method].bind(target);
+    target[method] = (to) => {
+      const owner = currentOwnerId();
+      started.push(owner);
+      const result = navigate(to);
+      // A navigation that never reached a guard (a duplicate) must not leave its entry behind.
+      const forget = (): void => {
+        const index = started.indexOf(owner);
+        if (index !== -1) started.splice(index, 1);
+      };
+      void result.then(forget, forget);
+      return result;
+    };
+  }
+  target.beforeEach((to) => {
+    // A redirect continues the navigation it came from; history moves (back,
+    // forward, the first load) start here.
+    const inherited = to.redirectedFrom === undefined ? undefined : owners.get(to.redirectedFrom);
+    owners.set(to, inherited !== undefined ? inherited : started.length > 0 ? (started.shift() ?? null) : currentOwnerId());
+  });
+  target.beforeResolve((to) => {
+    const owner = owners.get(to);
+    return owner === undefined || owner === null || owner === currentOwnerId();
+  });
+}
+
+refuseNavigationWhenSealed(router);
+bindNavigationsToOwner(router);

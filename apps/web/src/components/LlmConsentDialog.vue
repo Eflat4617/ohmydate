@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { runOwnerBound } from '../session/ownerBound';
 import { useAuthStore } from '../stores/auth';
 import UiBanner from './ui/UiBanner.vue';
 import UiButton from './ui/UiButton.vue';
@@ -23,30 +24,39 @@ watch(
   { immediate: true },
 );
 
+// Owner isolation (ADR-023): owner-bound tasks, so a request the owner change
+// aborted neither shows an error nor closes the next user's dialog.
 async function grant(): Promise<void> {
   busy.value = true;
   error.value = null;
-  try {
-    await auth.setLlmConsent(true);
-    emit('close');
-  } catch {
-    error.value = t('llm.consent.error');
-  } finally {
-    busy.value = false;
-  }
+  await runOwnerBound(
+    function* (owner) {
+      yield* owner.wait(auth.setLlmConsent(true));
+      emit('close');
+    },
+    {
+      onError: () => {
+        error.value = t('llm.consent.error');
+      },
+      onSettled: () => {
+        busy.value = false;
+      },
+    },
+  );
 }
 
 async function manualMode(): Promise<void> {
   busy.value = true;
   error.value = null;
-  try {
-    await auth.setLlmConsent(false);
-  } catch {
-    // Falling through to manual mode is still safe if the record cannot save.
-  } finally {
+  await runOwnerBound(function* (owner) {
+    try {
+      yield* owner.wait(auth.setLlmConsent(false));
+    } catch {
+      // Falling through to manual mode is still safe if the record cannot save.
+    }
     busy.value = false;
     emit('close');
-  }
+  });
 }
 </script>
 

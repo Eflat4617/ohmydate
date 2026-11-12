@@ -8,6 +8,7 @@ import {
 } from '../api';
 import { t } from '../i18n';
 import { errorMessage, UserFacingError } from '../i18n/problem';
+import { OwnerChangedError, runOwnerBound, type OwnerScope, type OwnerSteps, type OwnerTask } from '../session/ownerBound';
 
 export type ConflictOperation = 'rename' | 'complete' | 'delete';
 
@@ -87,23 +88,32 @@ export function useTaskActions(
     throw failure;
   }
 
-  async function mutate<T>(operation: () => Promise<T>): Promise<T> {
+  /**
+   * Every task mutation runs under the owner who started it (ADR-023), as an
+   * owner-bound task: if the signed-in user changes meanwhile it is abandoned
+   * where it waits — no conflict dialog, no error text — and the caller gets
+   * OwnerChangedError instead of the previous user's task.
+   */
+  async function mutate<T>(operation: OwnerTask<T>): Promise<T> {
     assertOnline();
     pendingCount.value += 1;
     error.value = null;
-    try {
-      return await operation();
-    } catch (cause) {
-      error.value = errorMessage(cause);
-      throw cause;
-    } finally {
-      pendingCount.value -= 1;
-    }
+    const outcome = await runOwnerBound(operation, {
+      onError: (cause) => {
+        error.value = errorMessage(cause);
+      },
+      onSettled: () => {
+        pendingCount.value -= 1;
+      },
+    });
+    if (outcome.status === 'done') return outcome.value;
+    if (outcome.status === 'failed') throw outcome.cause;
+    throw new OwnerChangedError();
   }
 
-  async function fetchLatest(taskId: string): Promise<Task | null> {
+  function* fetchLatest(owner: OwnerScope, taskId: string): OwnerSteps<Task | null> {
     try {
-      return await client.getTask(taskId, { fresh: true });
+      return yield* owner.wait(client.getTask(taskId, { fresh: true }));
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 404) return null;
       throw cause;
@@ -115,8 +125,8 @@ export function useTaskActions(
     if (action !== undefined) actions.settle(scope, action);
   }
 
-  async function refreshConflict(current: TaskConflict, scope: string): Promise<void> {
-    const server = await fetchLatest(current.taskId);
+  function* refreshConflict(owner: OwnerScope, current: TaskConflict, scope: string): OwnerSteps<void> {
+    const server = yield* fetchLatest(owner, current.taskId);
     if (server === null) {
       settleCurrent(scope);
       conflict.value = null;
@@ -126,16 +136,16 @@ export function useTaskActions(
   }
 
   async function create(title: string, scope = 'task:create:inbox'): Promise<Task> {
-    return mutate(async () => {
+    return mutate(function* (owner) {
       const action = actions.begin(scope, { title }, (left, right) => left.title === right.title);
-      const task = await client.createTask({ title: action.payload.title }, action.key);
+      const task = yield* owner.wait(client.createTask({ title: action.payload.title }, action.key));
       actions.settle(scope, action);
       return task;
     });
   }
 
   async function rename(task: Task, title: string): Promise<Task | null> {
-    return mutate(async () => {
+    return mutate(function* (owner) {
       const scope = `task:${task.id}:rename`;
       const action = actions.begin<RenamePayload>(
         scope,
@@ -144,18 +154,18 @@ export function useTaskActions(
         task.version,
       );
       try {
-        const updated = await client.updateTask(
+        const updated = yield* owner.wait(client.updateTask(
           task.id,
           { title: action.payload.title },
           action.key,
           task.version,
-        );
+        ));
         actions.settle(scope, action);
         conflict.value = null;
         return updated;
       } catch (cause) {
         if (isVersionConflict(cause)) {
-          const server = await fetchLatest(task.id);
+          const server = yield* fetchLatest(owner, task.id);
           if (server === null) {
             settleCurrent(scope);
             return null;
@@ -174,7 +184,7 @@ export function useTaskActions(
   }
 
   async function complete(task: Task): Promise<Task | null> {
-    return mutate(async () => {
+    return mutate(function* (owner) {
       const scope = `task:${task.id}:complete`;
       const action = actions.begin<IntentPayload>(
         scope,
@@ -183,13 +193,13 @@ export function useTaskActions(
         task.version,
       );
       try {
-        const updated = await client.completeTask(task.id, action.key, task.version);
+        const updated = yield* owner.wait(client.completeTask(task.id, action.key, task.version));
         actions.settle(scope, action);
         conflict.value = null;
         return updated;
       } catch (cause) {
         if (isVersionConflict(cause)) {
-          const server = await fetchLatest(task.id);
+          const server = yield* fetchLatest(owner, task.id);
           if (server === null) {
             settleCurrent(scope);
             return null;
@@ -208,7 +218,7 @@ export function useTaskActions(
   }
 
   async function remove(task: Task, actionId?: string): Promise<boolean> {
-    return mutate(async () => {
+    return mutate(function* (owner) {
       const scope = actionId ?? `task:${task.id}:delete`;
       const action = actions.begin<IntentPayload>(
         scope,
@@ -217,13 +227,13 @@ export function useTaskActions(
         task.version,
       );
       try {
-        await client.deleteTask(task.id, action.key, task.version);
+        yield* owner.wait(client.deleteTask(task.id, action.key, task.version));
         actions.settle(scope, action);
         conflict.value = null;
         return true;
       } catch (cause) {
         if (isVersionConflict(cause)) {
-          const server = await fetchLatest(task.id);
+          const server = yield* fetchLatest(owner, task.id);
           if (server === null) {
             settleCurrent(scope);
             return true;
@@ -244,9 +254,9 @@ export function useTaskActions(
   async function overwrite(title?: string | null): Promise<Task | null> {
     const current = conflict.value;
     if (current === null) return null;
-    return mutate(async () => {
+    return mutate(function* (owner) {
       const scope = scopeFor(current);
-      const fresh = await fetchLatest(current.taskId);
+      const fresh = yield* fetchLatest(owner, current.taskId);
       if (fresh === null) {
         settleCurrent(scope);
         conflict.value = null;
@@ -261,13 +271,13 @@ export function useTaskActions(
           fresh.version,
         );
         try {
-          await client.deleteTask(current.taskId, action.key, fresh.version);
+          yield* owner.wait(client.deleteTask(current.taskId, action.key, fresh.version));
           actions.settle(scope, action);
           conflict.value = null;
           return null;
         } catch (cause) {
           if (isVersionConflict(cause)) {
-            await refreshConflict(current, scope);
+            yield* refreshConflict(owner, current, scope);
             return null;
           }
           throw cause;
@@ -293,18 +303,18 @@ export function useTaskActions(
           fresh.version,
         );
         try {
-          const updated = await client.updateTask(
+          const updated = yield* owner.wait(client.updateTask(
             current.taskId,
             { title: action.payload.title },
             action.key,
             fresh.version,
-          );
+          ));
           actions.settle(scope, action);
           conflict.value = null;
           return updated;
         } catch (cause) {
           if (isVersionConflict(cause)) {
-            await refreshConflict(current, scope);
+            yield* refreshConflict(owner, current, scope);
             return null;
           }
           throw cause;
@@ -318,13 +328,13 @@ export function useTaskActions(
         fresh.version,
       );
       try {
-        const updated = await client.completeTask(current.taskId, action.key, fresh.version);
+        const updated = yield* owner.wait(client.completeTask(current.taskId, action.key, fresh.version));
         actions.settle(scope, action);
         conflict.value = null;
         return updated;
       } catch (cause) {
         if (isVersionConflict(cause)) {
-          await refreshConflict(current, scope);
+          yield* refreshConflict(owner, current, scope);
           return null;
         }
         throw cause;
@@ -336,10 +346,13 @@ export function useTaskActions(
     const current = conflict.value;
     if (current === null) return null;
     const scope = scopeFor(current);
-    const fresh = await fetchLatest(current.taskId);
-    settleCurrent(scope);
-    conflict.value = null;
-    return fresh;
+    const outcome = await runOwnerBound(function* (owner) {
+      const fresh = yield* fetchLatest(owner, current.taskId);
+      settleCurrent(scope);
+      conflict.value = null;
+      return fresh;
+    });
+    return outcome.status === 'done' ? outcome.value : null;
   }
 
   function dismissConflict(options: { keepAction?: boolean } = {}): void {

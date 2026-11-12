@@ -18,6 +18,7 @@ import { t, tp } from '../i18n';
 import { browserTimeZone, formatDateTime } from '../i18n/format';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
+import { runOwnerBound, type OwnerSteps } from '../session/ownerBound';
 import { useToastStore } from '../stores/toast';
 
 /**
@@ -187,14 +188,18 @@ onBeforeRouteLeave(() => {
   return confirmLeave();
 });
 
-async function navigateInternally(path: string, replace = false): Promise<void> {
+/** A navigation this screen makes itself (no "unsaved changes" question), as steps of an owner-bound task. */
+function* navigateSteps(path: string, replace = false): OwnerSteps<void> {
   internalNavigation = true;
   try {
-    if (replace) await router.replace(path);
-    else await router.push(path);
+    yield replace ? router.replace(path) : router.push(path);
   } finally {
     internalNavigation = false;
   }
+}
+
+async function navigateInternally(path: string, replace = false): Promise<void> {
+  await runOwnerBound(() => navigateSteps(path, replace));
 }
 
 function onCreated(note: ContextDocument): void {
@@ -207,11 +212,15 @@ function onCopied(note: ContextDocument): void {
   void navigateInternally(`/notes/${note.id}`);
 }
 
+// Runs for the owner who deleted the note (the editor emits `deleted` from its
+// own owner-bound task); the focus move after the navigation is fenced too.
 async function onDeleted(): Promise<void> {
-  toast.show(t('notes.editor.deleted'));
-  await navigateInternally('/notes');
-  await nextTick();
-  searchEl.value?.focus();
+  await runOwnerBound(function* (owner) {
+    toast.show(t('notes.editor.deleted'));
+    yield* navigateSteps('/notes');
+    yield* owner.wait(nextTick());
+    searchEl.value?.focus();
+  });
 }
 
 function summaryOf(note: ContextDocument): string {

@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
+import { isPageSealed, onActiveOwnerChange } from '../session/ownerEpoch';
 
 export interface ToastAction {
   readonly label: string;
@@ -25,12 +26,21 @@ export interface ToastOptions {
 let counter = 0;
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
+/**
+ * Owner isolation (ADR-023 guardrail): a toast belongs to the user who was
+ * signed in when it appeared. Every toast is removed on an owner change, and a
+ * page that is being hard-reset shows no new one — so a late continuation of
+ * the previous user's action cannot tell the next user anything.
+ */
 export const useToastStore = defineStore('toast', () => {
   const toasts = ref<Toast[]>([]);
+
+  onActiveOwnerChange(() => clear());
 
   function show(message: string, options: ToastOptions = {}): string {
     counter += 1;
     const id = `toast-${counter}`;
+    if (isPageSealed()) return id;
     const toast: Toast = {
       id,
       message,

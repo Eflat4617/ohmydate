@@ -18,6 +18,7 @@ import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { policyLabel } from '../domain/plan';
 import { t, tp } from '../i18n';
 import { errorMessage } from '../i18n/problem';
+import { runOwnerBound } from '../session/ownerBound';
 
 const route = useRoute();
 const router = useRouter();
@@ -137,15 +138,23 @@ async function generate(): Promise<void> {
   };
   const scopeKey = 'plan:create';
   const action = actions.begin(scopeKey, input, (left, right) => JSON.stringify(left) === JSON.stringify(right));
-  try {
-    const plan = await plannerClient.createPlan(input, action.key);
-    actions.settle(scopeKey, action);
-    await router.push({ name: 'plan', params: { id: plan.id } });
-  } catch (cause) {
-    error.value = errorMessage(cause, t('planNew.generateError'));
-  } finally {
-    busy.value = false;
-  }
+  // Owner isolation (ADR-023): the new plan opens only for the owner who asked for it.
+  await runOwnerBound(
+    function* (owner) {
+      try {
+        const plan = yield* owner.wait(plannerClient.createPlan(input, action.key));
+        actions.settle(scopeKey, action);
+        yield* owner.wait(router.push({ name: 'plan', params: { id: plan.id } }));
+      } catch (cause) {
+        error.value = errorMessage(cause, t('planNew.generateError'));
+      }
+    },
+    {
+      onSettled: () => {
+        busy.value = false;
+      },
+    },
+  );
 }
 </script>
 
