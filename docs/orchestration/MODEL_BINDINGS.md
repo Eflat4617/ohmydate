@@ -95,3 +95,10 @@
 ## 11. 오케스트레이터 effort = xhigh (2026-11-12 02:20, 사용자 변경)
 - 사용자가 `/effort xhigh` 실행 → 세션 env `CLAUDE_EFFORT=xhigh`, Orca 프로필 settings.json `modelSettings.claude-opus-5-5.effortLevel = "xhigh"`(새 세션 기본값). 이전 값 medium.
 - 재시작 시 Orca가 `CLAUDE_EFFORT`를 다른 값으로 넘기면 우선할 수 있음 → 재시작 직후 env 확인, 다르면 사용자에게 보고.
+
+## 12. Sol 주간 한도 소진 후 리뷰어 = Fable 5.2 xhigh (2026-11-12 09:30, 사용자 지시)
+- 사용자: "곧 gpt 주간한도가 다 차는데, 그 이후에 검토나 리뷰를 해야한다면 페이블 xhigh로 돌려서 대체해"
+- Sol(gpt-6.1-sol) 한도 소진 시 리뷰는 `--agent claude --model claude-fable-5-2 --effort xhigh`로 대체(§7의 Opus 대체보다 우선).
+- 예외(계열 분리 유지): 구현자가 Fable인 작업(FU-77 등)은 Fable이 자기 작업을 리뷰하지 않도록 Opus 5.5 xhigh로 리뷰하고 원장에 사유 기록.
+- 리뷰 요청서는 동일 형식(REVIEW VERDICT, 읽기 전용). 확인: `claude -p --model claude-fable-5-2 --effort xhigh` → FABLE_OK.
+- Sol 한도가 다시 풀리면 Sol medium으로 복귀.
