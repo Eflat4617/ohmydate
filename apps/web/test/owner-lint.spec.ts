@@ -114,19 +114,20 @@ describe('lint: storage through an alias of the browser global (FU-77R-1 H2)', (
 });
 
 describe('lint: owner-isolation/bound-task', () => {
-  it('flags an async task, effects after the awaited outcome (also chained) and an async helper inside a task (negative)', async () => {
+  it('flags an async task, effects after the awaited outcome (also chained), an async helper inside a task and an undelegated generator (negative)', async () => {
     const messages = await lintAs('src/views/boundTask.ts', fixture('boundTask.ts'));
     expect(messages.map((message) => [message.rule, message.id, message.line])).toEqual([
       ['owner-isolation/bound-task', 'notGenerator', 17],
       ['owner-isolation/bound-task', 'afterOutcome', 21],
       ['owner-isolation/bound-task', 'asyncHelper', 28],
       ['owner-isolation/bound-task', 'afterOutcome', 36],
+      ['owner-isolation/bound-task', 'notDelegated', 46],
     ]);
   }, 30_000);
 
   it('accepts the correct form: a generator task, a delegated generator helper, the outcome only mapped', async () => {
     const source = fixture('boundTask.ts');
-    const right = source.slice(source.indexOf('function* announceSteps'));
+    const right = source.slice(source.indexOf('function* announceSteps')).replace(/export function wrongCall[\s\S]*?\n}\n/, '');
     const header = source.slice(0, source.indexOf('async function announce'));
     const messages = await lintAs('src/views/boundTaskRight.ts', header + right);
     expect(messages.filter((message) => message.rule === 'owner-isolation/bound-task')).toEqual([]);
@@ -138,6 +139,12 @@ describe('lint: owner-isolation/bound-task', () => {
       .replace(/^export /gm, '');
     const vue = `<script setup lang="ts">\n${source}</script>\n<template><p /></template>\n`;
     const messages = await lintAs('src/views/BoundTask.vue', vue);
-    expect(messages.map((message) => message.id)).toEqual(['notGenerator', 'afterOutcome', 'asyncHelper', 'afterOutcome']);
+    expect(messages.map((message) => message.id)).toEqual([
+      'notGenerator',
+      'afterOutcome',
+      'asyncHelper',
+      'afterOutcome',
+      'notDelegated',
+    ]);
   }, 30_000);
 });

@@ -41,6 +41,11 @@ function* announceSteps(text: string): OwnerSteps<void> {
   show(text);
 }
 
+export function wrongCall(): void {
+  // 5. a generator helper called like a function: none of it runs
+  announceSteps('saved');
+}
+
 export async function right(): Promise<boolean> {
   const outcome = await runOwnerBound(
     function* (owner) {

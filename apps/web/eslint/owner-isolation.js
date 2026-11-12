@@ -121,11 +121,14 @@ function isRunOwnerBound(node) {
 const isFunction = (node) =>
   node.type === 'FunctionDeclaration' || node.type === 'FunctionExpression' || node.type === 'ArrowFunctionExpression';
 
-/** The declaration a name resolves to, looking outwards from `scope`. */
+/** The function or variable declaration a name resolves to, looking outwards from `scope` (a parameter is neither). */
 function definitionOf(scope, name) {
   for (let current = scope; current !== null; current = current.upper) {
     const variable = current.set.get(name);
-    if (variable !== undefined) return variable.defs[0]?.node ?? null;
+    if (variable === undefined) continue;
+    const definition = variable.defs[0];
+    if (definition === undefined) return null;
+    return definition.type === 'FunctionName' || definition.type === 'Variable' ? definition.node : null;
   }
   return null;
 }
@@ -136,6 +139,22 @@ function isLocalAsyncFunction(definition) {
   if (definition.type === 'FunctionDeclaration') return definition.async === true;
   if (definition.type !== 'VariableDeclarator' || definition.init === null) return false;
   return isFunction(definition.init) && definition.init.async === true;
+}
+
+/** `function* f` or `const f = function* () …` declared in this file. */
+function isLocalGenerator(definition) {
+  if (definition === null) return false;
+  if (definition.type === 'FunctionDeclaration') return definition.generator === true;
+  if (definition.type !== 'VariableDeclarator' || definition.init === null) return false;
+  return isFunction(definition.init) && definition.init.generator === true;
+}
+
+/** `yield* f()`, or handing the steps on: `return f()`, `() => f()`. */
+function isDelegated(call) {
+  const parent = call.parent;
+  if (parent.type === 'YieldExpression') return parent.delegate === true;
+  if (parent.type === 'ReturnStatement') return true;
+  return parent.type === 'ArrowFunctionExpression' && parent.body === call;
 }
 
 /**
@@ -150,6 +169,9 @@ function isLocalAsyncFunction(definition) {
  *   declared in the same file. The helper's own awaits are not fenced: what it
  *   does after them (announce, focus, cache) can run for the next user. Make
  *   it a generator and delegate with `yield*`.
+ * - `notDelegated`: a helper generator called like a function. Calling a
+ *   generator runs none of it; it has to be delegated with `yield*` (or its
+ *   steps returned to runOwnerBound).
  * - `afterOutcome`: effects after `await runOwnerBound(…)` (or chained with
  *   `.then`) in the function that started the task. That function resumes a
  *   microtask after the task's last line, when the owner may have changed.
@@ -165,6 +187,8 @@ const boundTask = {
         'An owner-bound task is a generator (`function* (owner) { … yield* owner.wait(…) … }`), not an async function: an await resumes without the owner being checked (ADR-023).',
       asyncHelper:
         '`{{name}}` is an async function: inside an owner-bound task its own awaits are not fenced. Make it a generator (`function* {{name}}(…)`) and delegate with `yield* {{name}}(…)` (ADR-023).',
+      notDelegated:
+        '`{{name}}` is a generator: calling it like a function runs none of it. Delegate with `yield* {{name}}(…)` inside an owner-bound task, or run it with `runOwnerBound(() => {{name}}(…))`.',
       afterOutcome:
         'Nothing may follow `await runOwnerBound(…)` but returning or mapping its outcome: this function resumes after the owner may have changed. Move it into the task, or into onError / onSettled (ADR-023).',
     },
@@ -207,10 +231,13 @@ const boundTask = {
           }
           return;
         }
-        const current = top();
-        if (current === undefined || !current.generator || node.callee.type !== 'Identifier') return;
+        if (node.callee.type !== 'Identifier') return;
         const definition = definitionOf(context.sourceCode.getScope(node), node.callee.name);
-        if (isLocalAsyncFunction(definition)) {
+        if (isLocalGenerator(definition) && !isDelegated(node)) {
+          context.report({ node: node.callee, messageId: 'notDelegated', data: { name: node.callee.name } });
+        }
+        const current = top();
+        if (current !== undefined && current.generator && isLocalAsyncFunction(definition)) {
           context.report({ node: node.callee, messageId: 'asyncHelper', data: { name: node.callee.name } });
         }
       },
