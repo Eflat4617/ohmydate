@@ -190,6 +190,21 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await page.goto(`${state.webUrl}/settings/availability`);
         await expect(page.getByRole('heading', { name: '가용 시간', level: 1 })).toBeVisible();
         await expect(page.getByRole('button', { name: '가용 시간 저장' })).toBeVisible();
+        // FU-97 weekly grid: continuous 00:00–24:00 rules (seeded above) show the
+        // early hours by themselves and fill every cell; the row editor stays
+        // reachable as "시간 직접 입력".
+        await expect(page.getByRole('grid', { name: '주간 가용 시간 표' })).toBeVisible();
+        await expect(page.getByRole('gridcell', { name: '월요일 00:00~00:30, 작업' })).toBeVisible();
+        await expect(page.getByRole('columnheader', { name: '일요일 합계 24시간' })).toBeAttached();
+        await expect(page.locator('details[data-direct-entry] > summary')).toHaveText('시간 직접 입력');
+        if (viewport === PHONE) {
+          // The grid scrolls inside its frame; the page itself never scrolls sideways.
+          const widths = await page.evaluate(() => ({
+            page: document.documentElement.scrollWidth,
+            viewport: window.innerWidth,
+          }));
+          expect(widths.page).toBeLessThanOrEqual(widths.viewport);
+        }
         await expectAccessible(page, `availability ${size}`);
       });
 

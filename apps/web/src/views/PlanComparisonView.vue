@@ -624,6 +624,7 @@ onUnmounted(() => {
         <ul class="calendar-legend" :aria-label="t('plan.legend')">
           <li><span class="legend-swatch legend-swatch--availability" aria-hidden="true"></span>{{ t('plan.legendAvailable') }}</li>
           <li><span class="legend-swatch legend-swatch--focus" aria-hidden="true"></span>{{ t('plan.legendFocus') }}</li>
+          <li><span class="legend-swatch legend-swatch--off" aria-hidden="true"></span>{{ t('plan.legendOff') }}</li>
           <li><span class="legend-swatch legend-swatch--commitment" aria-hidden="true"></span>{{ t('plan.legendCommitment') }}</li>
           <li><span class="legend-swatch legend-swatch--block" aria-hidden="true"></span>{{ t('plan.legendBlock') }}</li>
         </ul>

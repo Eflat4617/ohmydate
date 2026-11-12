@@ -54,6 +54,16 @@
   --color-cal-block: var(--color-accent);
   --color-on-cal-block: var(--color-on-accent);
   --color-cal-grid: color-mix(in srgb, var(--color-border) 75%, transparent);
+  /* Date exception "쉼": warm hatch + label, drawn even on rule-less days. */
+  --color-cal-off: color-mix(in srgb, var(--color-warn) 9%, transparent);
+  --color-cal-off-stripe: color-mix(in srgb, var(--color-warn) 24%, transparent);
+  --color-cal-off-edge: color-mix(in srgb, var(--color-warn) 55%, transparent);
+
+  /* Weekly availability editor cells (work solid, focus darker + hatch). */
+  --color-avail-work: color-mix(in srgb, var(--color-accent) 22%, var(--color-surface));
+  --color-avail-focus: color-mix(in srgb, var(--color-accent) 42%, var(--color-surface));
+  --color-avail-focus-stripe: color-mix(in srgb, var(--color-accent) 62%, var(--color-surface));
+  --color-avail-cell-edge: color-mix(in srgb, var(--color-accent) 55%, var(--color-surface));
 
   /* ── Focus ring ─────────────────────────────────────────────────── */
   --color-focus: #2563d4;
@@ -185,6 +195,11 @@
     --color-cal-availability: color-mix(in srgb, var(--color-accent) 8%, transparent);
     --color-cal-focus-window: color-mix(in srgb, var(--color-accent) 15%, transparent);
     --color-cal-commitment-stripe: color-mix(in srgb, var(--color-text-muted) 14%, transparent);
+    --color-cal-off: color-mix(in srgb, var(--color-warn) 8%, transparent);
+    --color-cal-off-stripe: color-mix(in srgb, var(--color-warn) 20%, transparent);
+    --color-avail-work: color-mix(in srgb, var(--color-accent) 20%, var(--color-surface));
+    --color-avail-focus: color-mix(in srgb, var(--color-accent) 36%, var(--color-surface));
+    --color-avail-focus-stripe: color-mix(in srgb, var(--color-accent) 52%, var(--color-surface));
 
     --color-focus: #8db8ff;
 
