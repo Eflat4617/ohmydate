@@ -1,74 +1,36 @@
 #!/usr/bin/env node
 // Stop only the local API/web processes started by scripts/local/start.mjs.
-// Never touches docker or the database.
-import { readFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+// A PID is signalled only when its start time and marker still match, so a
+// foreign or recycled PID is never touched. Never touches docker or the DB.
 import {
   createContext,
   fail,
   isEntryPoint,
   log,
   parseFlags,
-  processAlive,
 } from './common.mjs';
+import { inspectProcess, removePidRecord, stopRecord } from './pid.mjs';
 
-const STOP_TIMEOUT_MS = 15_000;
-
-function readPid(runDir, name) {
-  try {
-    const raw = readFileSync(join(runDir, `${name}.pid`), 'utf8').trim();
-    const pid = Number.parseInt(raw, 10);
-    return Number.isInteger(pid) ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-function signal(pid, name) {
-  try {
-    process.kill(-pid, name);
-    return true;
-  } catch {
-    try {
-      process.kill(pid, name);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
-async function stopProcess(pid, timeoutMs) {
-  if (!processAlive(pid)) return 'already-stopped';
-  signal(pid, 'SIGTERM');
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!processAlive(pid)) return 'terminated';
-    await delay(100);
-  }
-  signal(pid, 'SIGKILL');
-  const killDeadline = Date.now() + 2_000;
-  while (Date.now() < killDeadline) {
-    if (!processAlive(pid)) return 'killed';
-    await delay(100);
-  }
-  return 'still-running';
-}
+const STOP_TIMEOUT_MS = 20_000;
 
 export async function stopLocal(options = {}) {
   const context = options.context ?? createContext(options.env ?? process.env);
   const timeoutMs = options.timeoutMs ?? STOP_TIMEOUT_MS;
   const results = [];
   for (const name of ['api', 'web']) {
-    const pidFile = join(context.runDir, `${name}.pid`);
-    const pid = readPid(context.runDir, name);
-    if (pid === null) {
+    const inspection = await inspectProcess(context.runDir, name);
+    if (inspection.status === 'missing') {
       results.push({ name, status: 'not-running', pid: null });
       continue;
     }
-    const status = await stopProcess(pid, timeoutMs);
-    if (status !== 'still-running') rmSync(pidFile, { force: true });
+    const pid = typeof inspection.record?.pid === 'number' ? inspection.record.pid : null;
+    if (inspection.status !== 'running') {
+      await removePidRecord(context.runDir, name);
+      results.push({ name, status: 'stale', pid });
+      continue;
+    }
+    const status = await stopRecord(inspection.record, timeoutMs);
+    if (status !== 'still-running') await removePidRecord(context.runDir, name);
     results.push({ name, status, pid });
   }
   return results;
@@ -85,6 +47,8 @@ async function main() {
     const label = result.name === 'api' ? 'API' : '웹';
     if (result.status === 'not-running') {
       log(`${label}: 실행 중이 아닙니다.`);
+    } else if (result.status === 'stale') {
+      log(`${label}: 오래된 PID 파일을 지웠습니다 (pid ${String(result.pid)}, 신호를 보내지 않음).`);
     } else if (result.status === 'still-running') {
       log(`${label}: 종료하지 못했습니다 (pid ${String(result.pid)}).`);
     } else {

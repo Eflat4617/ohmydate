@@ -81,8 +81,8 @@ test.skipIf(!enabled)(
 
     const env = {
       ...process.env,
-      DATABASE_URL: databaseUrl,
-      VIKUNJA_URL: vikunjaUrl,
+      OHMYDATE_LOCAL_DATABASE_URL: databaseUrl,
+      OHMYDATE_LOCAL_VIKUNJA_URL: vikunjaUrl,
       OHMYDATE_LOCAL_SECRETS_DIR: secretsDir,
       OHMYDATE_LOCAL_RUN_DIR: runDir,
       OHMYDATE_LOCAL_LOG_DIR: logDir,
@@ -100,6 +100,8 @@ test.skipIf(!enabled)(
 
       const setup = await runScript('setup.mjs', env);
       expect(setup.code, setup.stderr).toBe(0);
+      expect(setup.stdout).toContain('대상: PostgreSQL');
+      expect(setup.stdout).not.toContain('test-password');
 
       const start = await runScript('start.mjs', env, ['--fake-llm']);
       expect(start.code, start.stderr).toBe(0);
@@ -118,6 +120,7 @@ test.skipIf(!enabled)(
       const status = await runScript('status.mjs', env);
       expect(status.code, status.stderr).toBe(0);
       expect(status.stdout).toContain('로컬 상태 요약');
+      expect(status.stdout).toContain('대상: PostgreSQL');
       expect(status.stdout).toContain('모든 항목이 정상입니다.');
 
       const tokenBefore = await readFile(join(secretsDir, 'vikunja-tokens.json'), 'utf8');
@@ -132,6 +135,28 @@ test.skipIf(!enabled)(
       expect(secondSetup.code, secondSetup.stderr).toBe(0);
       const tokenAfter = await readFile(join(secretsDir, 'vikunja-tokens.json'), 'utf8');
       expect(tokenAfter).toBe(tokenBefore);
+
+      const rotate = await runScript('setup.mjs', env, ['--rotate-token']);
+      expect(rotate.code, rotate.stderr).toBe(0);
+      expect(rotate.stdout).toContain('local:stop 후 local:start 로 재시작하세요');
+      const tokenRotated = await readFile(join(secretsDir, 'vikunja-tokens.json'), 'utf8');
+      expect(tokenRotated).not.toBe(tokenBefore);
+
+      const oldToken = Object.values(JSON.parse(tokenBefore))[0];
+      const newToken = Object.values(JSON.parse(tokenRotated))[0];
+      expect(typeof oldToken).toBe('string');
+      expect(typeof newToken).toBe('string');
+      expect(newToken).not.toBe(oldToken);
+      const oldStatus = await globalThis.fetch(
+        `${vikunjaUrl.replace(/\/+$/u, '')}/api/v2/user`,
+        { headers: { authorization: `Bearer ${oldToken}` } },
+      );
+      const newStatus = await globalThis.fetch(
+        `${vikunjaUrl.replace(/\/+$/u, '')}/api/v2/user`,
+        { headers: { authorization: `Bearer ${newToken}` } },
+      );
+      expect(oldStatus.status).toBe(401);
+      expect(newStatus.status).toBe(200);
 
       const counts = await databaseCounts(databaseUrl, email);
       expect(counts).toEqual({ users: 1, owners: 1 });

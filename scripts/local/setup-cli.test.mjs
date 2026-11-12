@@ -30,8 +30,8 @@ function runSetup(dir, extra = {}) {
       OHMYDATE_LOCAL_HEALTH_TIMEOUT_MS: '300',
       OHMYDATE_LOCAL_EMAIL: 'local-test@example.invalid',
       OHMYDATE_LOCAL_PASSWORD: 'local-test-password',
-      DATABASE_URL: 'postgres://ohmydate:wrong@127.0.0.1:1/planner',
-      VIKUNJA_URL: 'http://127.0.0.1:1',
+      OHMYDATE_LOCAL_DATABASE_URL: 'postgres://ohmydate:wrong@127.0.0.1:1/planner',
+      OHMYDATE_LOCAL_VIKUNJA_URL: 'http://127.0.0.1:1',
       ...extra,
     },
   });
@@ -43,12 +43,10 @@ describe('setup CLI negatives', () => {
     const result = runSetup(dir);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('먼저 coordinator가 deploy/local 스택을 올려야 합니다');
-    expect(result.stderr).toContain(
-      'docker compose --env-file deploy/local/local.env -f deploy/local/compose.yaml up -d',
-    );
+    expect(result.stderr).toContain('corepack pnpm local:stack up');
     // Secrets init still ran first and is safe to repeat.
     expect((await readdir(dir)).sort()).toEqual(
-      ['llm-session-secret', 'push.key', 'stack.env'].sort(),
+      ['llm-session-secret', 'postgres.env', 'push.key', 'vikunja.env'].sort(),
     );
   });
 

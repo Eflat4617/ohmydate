@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import {
   createContext,
   databaseUrl,
+  describeTarget,
   fail,
   isEntryPoint,
   log,
@@ -17,7 +18,7 @@ import {
   repoRoot,
   warn,
 } from './common.mjs';
-import { collectCredentials } from './prompt.mjs';
+import { collectCredentials, resolveLocale, resolveTimeZone } from './prompt.mjs';
 import { initSecrets } from './secrets.mjs';
 import {
   ensureMigrations,
@@ -67,6 +68,11 @@ function usernameFor(email) {
 async function vikunjaUserId(vikunjaUrl, jwt) {
   const me = await vikunjaRequest(vikunjaUrl, '/user', { token: jwt });
   return me.status === 200 && typeof me.json?.id === 'number' ? me.json.id : null;
+}
+
+async function tokenIsAlive(vikunjaUrl, token) {
+  const me = await vikunjaRequest(vikunjaUrl, '/user', { token });
+  return me.status === 200;
 }
 
 async function ensureVikunjaUser(vikunjaUrl, email, password) {
@@ -145,7 +151,19 @@ async function createVikunjaToken(vikunjaUrl, jwt, expiresAt) {
   ) {
     throw new Error(`Vikunja API 토큰 생성에 실패했습니다 (HTTP ${String(created.status)}).`);
   }
-  return created.json.token;
+  return {
+    token: created.json.token,
+    id: typeof created.json.id === 'number' ? created.json.id : null,
+  };
+}
+
+async function deleteVikunjaToken(vikunjaUrl, jwt, id) {
+  if (typeof id !== 'number') return false;
+  const removed = await vikunjaRequest(vikunjaUrl, `/tokens/${String(id)}`, {
+    method: 'DELETE',
+    token: jwt,
+  });
+  return removed.status === 200 || removed.status === 204;
 }
 
 function resolveTsx() {
@@ -156,11 +174,14 @@ function resolveTsx() {
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
 
-function createPlannerUser(databaseUrlValue, email, password) {
+function createPlannerUser(databaseUrlValue, email, password, options = {}) {
   const tsx = resolveTsx();
   const script = join(repoRoot, 'services/api/src/cli/create-user.ts');
   const command = tsx ?? process.execPath;
-  const args = tsx === null ? ['--experimental-strip-types', script, email] : [script, email];
+  const baseArgs = tsx === null ? ['--experimental-strip-types', script, email] : [script, email];
+  const args = [...baseArgs];
+  if (options.timeZone !== undefined) args.push('--time-zone', options.timeZone);
+  if (options.locale !== undefined) args.push('--locale', options.locale);
   const result = spawnSync(command, args, {
     cwd: repoRoot,
     input: `${password}\n`,
@@ -181,13 +202,18 @@ function createPlannerUser(databaseUrlValue, email, password) {
   return match[1];
 }
 
-async function readOptionalJson(path) {
+/** Fixed Korean message; never include JSON.parse text (it can quote content). */
+export function malformedFileMessage(path) {
+  return `${path} 형식이 올바르지 않습니다. 파일을 지우고 local:setup 을 다시 실행하세요.`;
+}
+
+export async function readOptionalJson(path) {
   if (!existsSync(path)) return { parsed: null, text: null };
   const text = await readFile(path, 'utf8');
   try {
     return { parsed: readJsonObject(text), text };
   } catch {
-    throw new Error(`${path} 이(가) 올바른 JSON 이 아닙니다. 파일을 지우고 다시 실행하세요.`);
+    throw new Error(malformedFileMessage(path));
   }
 }
 
@@ -195,8 +221,10 @@ async function main() {
   const { flags, values } = parseFlags(process.argv.slice(2));
   if (flags.has('help')) {
     console.log(
-      'usage: node scripts/local/setup.mjs [--rotate-token] [--email <email>]\n' +
-        'env: OHMYDATE_LOCAL_EMAIL, OHMYDATE_LOCAL_PASSWORD, OHMYDATE_LOCAL_SECRETS_DIR',
+      'usage: node scripts/local/setup.mjs [--rotate-token] [--email <email>] ' +
+        '[--time-zone <IANA>] [--locale <locale>]\n' +
+        'env: OHMYDATE_LOCAL_EMAIL, OHMYDATE_LOCAL_PASSWORD, OHMYDATE_LOCAL_SECRETS_DIR, ' +
+        'OHMYDATE_LOCAL_DATABASE_URL, OHMYDATE_LOCAL_VIKUNJA_URL',
     );
     return;
   }
@@ -208,11 +236,21 @@ async function main() {
   log(`비밀 디렉터리 준비 완료: ${secrets.secretsDir}`);
   if (secrets.created.length > 0) log(`새 비밀 파일: ${secrets.created.join(', ')}`);
 
-  const credentials = await collectCredentials(env, values);
-  const dbUrl = databaseUrl(context, env);
+  // Only validate env-provided credentials before the stack check; an
+  // interactive password prompt must wait until the stack is known healthy.
+  const envEmail = values.get('email') ?? env.OHMYDATE_LOCAL_EMAIL;
+  let credentials =
+    envEmail !== undefined && env.OHMYDATE_LOCAL_PASSWORD !== undefined
+      ? await collectCredentials(env, values)
+      : null;
+
+  const dbUrl = databaseUrl(context);
+  log(describeTarget(context, dbUrl));
 
   log('스택 상태를 확인하는 중입니다...');
   await waitForStack(dbUrl, context.vikunjaUrl);
+
+  credentials = credentials ?? (await collectCredentials(env, values));
 
   log('planner 마이그레이션을 적용하는 중입니다...');
   const migrationOutput = ensureMigrations(dbUrl);
@@ -225,6 +263,23 @@ async function main() {
     credentials.password,
   );
   const inboxId = await ensureInbox(context.vikunjaUrl, vikunja.jwt);
+  if (vikunja.userId === null) {
+    throw new Error('Vikunja 사용자 id 를 확인하지 못했습니다.');
+  }
+
+  // C2: new users get the machine's IANA zone (Korean prompt allows a change)
+  // and ko-KR. Existing users are never modified by a re-run.
+  let timeZone;
+  let locale;
+  if (existingUser === null) {
+    timeZone = await resolveTimeZone(env, values);
+    locale = resolveLocale(env, values);
+  }
+
+  const ownerId =
+    existingUser?.id ??
+    createPlannerUser(dbUrl, credentials.email, credentials.password, { timeZone, locale });
+  await upsertOwnerAccount(dbUrl, ownerId, vikunja.userId);
 
   const tokenFile = await readOptionalJson(context.tokenFile);
   const existingTokens = tokenMapOf(tokenFile.parsed);
@@ -234,51 +289,79 @@ async function main() {
       ? metaFile.parsed
       : {};
 
-  const existingOwnerId = existingUser?.id ?? null;
-  let token =
-    existingOwnerId === null ? null : (existingTokens[existingOwnerId] ?? null);
+  const previousToken = existingTokens[ownerId] ?? null;
+  const previousTokenId = metadata[ownerId]?.tokenId ?? null;
+  let expiresAt = metadata[ownerId]?.expiresAt ?? null;
+  const retainedTokenAlive =
+    previousToken === null ? false : await tokenIsAlive(context.vikunjaUrl, previousToken);
+
+  let token = previousToken;
+  let tokenId = previousTokenId;
   let tokenCreated = false;
-  let expiresAt =
-    existingOwnerId === null ? null : (metadata[existingOwnerId]?.expiresAt ?? null);
-
-  if (token === null || rotateToken) {
+  let rotated = false;
+  if (token === null || rotateToken || !retainedTokenAlive) {
     expiresAt = tokenExpiry();
-    token = await createVikunjaToken(context.vikunjaUrl, vikunja.jwt, expiresAt);
+    const created = await createVikunjaToken(context.vikunjaUrl, vikunja.jwt, expiresAt);
+    token = created.token;
+    tokenId = created.id;
     tokenCreated = true;
+    rotated = previousToken !== null;
   }
-
-  const ownerId =
-    existingOwnerId ?? createPlannerUser(dbUrl, credentials.email, credentials.password);
 
   const mergedTokens = { ...existingTokens, [ownerId]: token };
-  if (tokenCreated || tokenFile.text === null) {
-    await writeTokenFile(context.tokenFile, mergedTokens);
-  }
   const mergedMetadata = {
     ...metadata,
     [ownerId]: {
       expiresAt,
       vikunjaUserId: vikunja.userId,
+      tokenId,
       updatedAt: new Date().toISOString(),
     },
   };
-  if (tokenCreated || metadata[ownerId] === undefined) {
-    await writeTokenMetadata(context.tokenMetaFile, mergedMetadata);
+  try {
+    if (tokenCreated || tokenFile.text === null) {
+      await writeTokenFile(context.tokenFile, mergedTokens);
+    }
+    if (tokenCreated || metadata[ownerId] === undefined) {
+      await writeTokenMetadata(context.tokenMetaFile, mergedMetadata);
+    }
+  } catch (error) {
+    // The new token is not recorded anywhere yet; revoke it instead of
+    // leaving an unrecorded 365-day token behind.
+    if (tokenId !== null) {
+      await deleteVikunjaToken(context.vikunjaUrl, vikunja.jwt, tokenId).catch(() => undefined);
+    }
+    throw new Error(
+      'Vikunja 토큰 파일을 저장하지 못했습니다. 파일 권한과 디스크 공간을 확인한 뒤 다시 실행하세요.',
+      { cause: error },
+    );
   }
-  if (vikunja.userId === null) {
-    throw new Error('Vikunja 사용자 id 를 확인하지 못했습니다.');
+
+  if (rotated && previousTokenId !== null && previousTokenId !== tokenId) {
+    const removed = await deleteVikunjaToken(
+      context.vikunjaUrl,
+      vikunja.jwt,
+      previousTokenId,
+    ).catch(() => false);
+    if (!removed) warn('이전 Vikunja 토큰을 삭제하지 못했습니다 (이미 만료되었거나 직접 삭제 필요).');
   }
-  await upsertOwnerAccount(dbUrl, ownerId, vikunja.userId);
 
   log('설정 완료');
   log(` - 이메일: ${credentials.email}`);
   log(` - planner owner id: ${ownerId}`);
   log(` - Vikunja 사용자: ${vikunja.username} (id ${String(vikunja.userId)})`);
   log(` - Inbox 프로젝트 id: ${String(inboxId)}`);
-  log(` - API 토큰: ${tokenCreated ? '새로 발급' : '기존 토큰 유지'} (만료 ${expiresAt ?? '알 수 없음'})`);
+  if (timeZone !== undefined) log(` - 시간대: ${timeZone} · locale: ${locale}`);
+  log(
+    ` - API 토큰: ${tokenCreated ? (retainedTokenAlive ? '새로 발급 (교체)' : '새로 발급') : '기존 토큰 유지'} ` +
+      `(만료 ${expiresAt ?? '알 수 없음'})`,
+  );
   log('다음 명령: corepack pnpm local:start');
+  if (tokenCreated) {
+    log('로컬 앱이 이미 실행 중이라면 local:stop 후 local:start 로 재시작하세요.');
+  }
   if (secrets.created.length > 0) {
-    warn('스택이 아직 없다면 coordinator가 `corepack pnpm local:setup` 1회 후 compose 명령을 실행해야 합니다.');
+    warn('스택이 아직 없다면 coordinator가 `corepack pnpm local:secrets` 1회 후 `local:stack up` 을 실행해야 합니다.');
   }
 }
 

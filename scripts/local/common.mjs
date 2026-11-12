@@ -72,6 +72,9 @@ export function createContext(env = process.env) {
   const secretsDir = resolveFromRepo(env.OHMYDATE_LOCAL_SECRETS_DIR ?? 'deploy/secrets/local');
   const runDir = resolveFromRepo(env.OHMYDATE_LOCAL_RUN_DIR ?? '.local/run');
   const logDir = resolveFromRepo(env.OHMYDATE_LOCAL_LOG_DIR ?? '.local/logs');
+  const stackStateFile = resolveFromRepo(
+    env.OHMYDATE_LOCAL_STACK_STATE_FILE ?? '.local/stack.state.json',
+  );
   const ports = {
     postgres: Number.parseInt(
       env.OHMYDATE_LOCAL_POSTGRES_PORT ?? settings.POSTGRES_PORT ?? LOCAL_ENV_DEFAULTS.POSTGRES_PORT,
@@ -90,10 +93,14 @@ export function createContext(env = process.env) {
       10,
     ),
   };
-  const vikunjaUrl = env.VIKUNJA_URL ?? `http://127.0.0.1:${String(ports.vikunja)}`;
+  const vikunjaUrl =
+    env.OHMYDATE_LOCAL_VIKUNJA_URL ?? `http://127.0.0.1:${String(ports.vikunja)}`;
+  const databaseUrlOverride = env.OHMYDATE_LOCAL_DATABASE_URL ?? null;
   const apiUrl = `http://127.0.0.1:${String(ports.api)}`;
   const webUrl = `http://127.0.0.1:${String(ports.web)}`;
-  const stackEnvPath = join(secretsDir, 'stack.env');
+  const postgresEnvPath = join(secretsDir, 'postgres.env');
+  const vikunjaEnvPath = join(secretsDir, 'vikunja.env');
+  const legacyStackEnvPath = join(secretsDir, 'stack.env');
   const pushKeyFile = join(secretsDir, 'push.key');
   const sessionSecretFile = join(secretsDir, 'llm-session-secret');
   const tokenFile = join(secretsDir, 'vikunja-tokens.json');
@@ -108,29 +115,37 @@ export function createContext(env = process.env) {
     logDir,
     ports,
     vikunjaUrl,
+    databaseUrlOverride,
     apiUrl,
     webUrl,
-    stackEnvPath,
+    postgresEnvPath,
+    vikunjaEnvPath,
+    legacyStackEnvPath,
     pushKeyFile,
     sessionSecretFile,
     tokenFile,
     tokenMetaFile,
     keyFile,
+    stackStateFile,
   };
 }
 
 export function readStackEnv(context) {
-  return readEnvFile(context.stackEnvPath);
+  const current = readEnvFile(context.postgresEnvPath);
+  if (current.POSTGRES_PASSWORD !== undefined) return current;
+  return readEnvFile(context.legacyStackEnvPath);
 }
 
-export function databaseUrl(context, env = process.env) {
-  if (env.DATABASE_URL !== undefined && env.DATABASE_URL.length > 0) return env.DATABASE_URL;
+export function databaseUrl(context) {
+  if (context.databaseUrlOverride !== null && context.databaseUrlOverride.length > 0) {
+    return context.databaseUrlOverride;
+  }
   const stack = readStackEnv(context);
   const password = stack.POSTGRES_PASSWORD;
   if (password === undefined || password.length === 0) {
     throw new Error(
-      'deploy/secrets/local/stack.env 에 POSTGRES_PASSWORD 가 없습니다. ' +
-        '먼저 `corepack pnpm local:setup` 을 실행해 비밀 파일을 만드세요.',
+      'deploy/secrets/local/postgres.env 에 POSTGRES_PASSWORD 가 없습니다. ' +
+        '먼저 `corepack pnpm local:secrets` 을 실행해 비밀 파일을 만드세요.',
     );
   }
   const url = new URL(`postgres://ohmydate@127.0.0.1:${String(context.ports.postgres)}/planner`);
@@ -140,10 +155,10 @@ export function databaseUrl(context, env = process.env) {
 
 export const STACK_DOWN_MESSAGE =
   '먼저 coordinator가 deploy/local 스택을 올려야 합니다. ' +
-  `정확한 명령: cd ${repoRoot} && docker compose --env-file deploy/local/local.env -f deploy/local/compose.yaml up -d`;
+  `정확한 명령: cd ${repoRoot} && corepack pnpm local:stack up`;
 
 export function composeCommand() {
-  return `cd ${repoRoot} && docker compose --env-file deploy/local/local.env -f deploy/local/compose.yaml up -d`;
+  return `cd ${repoRoot} && corepack pnpm local:stack up`;
 }
 
 export function parseFlags(argv) {
@@ -237,6 +252,64 @@ export function processAlive(pid) {
   } catch {
     return false;
   }
+}
+
+/** host:port/db of a PostgreSQL URL, never the password or query string. */
+export function describeDatabaseUrl(databaseUrl) {
+  try {
+    const url = new URL(databaseUrl);
+    const database = url.pathname.replace(/^\/+/u, '') || '(default)';
+    return `${url.hostname}:${url.port || '5432'}/${database}`;
+  } catch {
+    return '알 수 없는 대상';
+  }
+}
+
+export function describeTarget(context, databaseUrl) {
+  return (
+    `대상: PostgreSQL ${describeDatabaseUrl(databaseUrl)} · ` +
+    `Vikunja ${context.vikunjaUrl}`
+  );
+}
+
+/**
+ * Coordinator C4: children get an allowlisted environment instead of the
+ * whole parent environment. Unrelated shell secrets never reach the API/web.
+ */
+const ENV_ALLOWLIST = new Set([
+  'PATH',
+  'HOME',
+  'TMPDIR',
+  'TEMP',
+  'TMP',
+  'LANG',
+  'LANGUAGE',
+  'LC_ALL',
+  'LC_CTYPE',
+  'LC_MESSAGES',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'PWD',
+  'TERM',
+  'NODE_OPTIONS',
+  'NODE_EXTRA_CA_CERTS',
+  'XDG_CACHE_HOME',
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'XDG_RUNTIME_DIR',
+]);
+const ENV_PREFIXES = ['npm_', 'NPM_CONFIG_', 'PNPM_', 'COREPACK_', 'VITE_'];
+
+export function childProcessEnv(base = process.env) {
+  const env = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (value === undefined) continue;
+    if (ENV_ALLOWLIST.has(key) || ENV_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      env[key] = value;
+    }
+  }
+  return env;
 }
 
 export async function waitForHttp(url, options = {}) {

@@ -3,8 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
 import {
+  childProcessEnv,
   createContext,
   databaseUrl,
+  describeDatabaseUrl,
   parseEnvText,
   parseFlags,
   readEnvFile,
@@ -65,7 +67,7 @@ describe('env and argv parsing', () => {
       OHMYDATE_LOCAL_VIKUNJA_PORT: '13466',
       OHMYDATE_LOCAL_API_PORT: '13100',
       OHMYDATE_LOCAL_WEB_PORT: '15180',
-      VIKUNJA_URL: 'http://127.0.0.1:9999',
+      OHMYDATE_LOCAL_VIKUNJA_URL: 'http://127.0.0.1:9999',
     });
     expect(overridden.ports).toEqual({
       postgres: 15542,
@@ -77,28 +79,56 @@ describe('env and argv parsing', () => {
     expect(overridden.vikunjaUrl).toBe('http://127.0.0.1:9999');
   });
 
-  test('databaseUrl prefers DATABASE_URL, otherwise builds from stack.env', async () => {
+  test('ambient DATABASE_URL / VIKUNJA_URL never redirect the local target', async () => {
     const dir = await tempDir();
-    const context = createContext({ OHMYDATE_LOCAL_SECRETS_DIR: dir });
-    expect(databaseUrl(context, { DATABASE_URL: 'postgres://override/db' })).toBe(
-      'postgres://override/db',
-    );
+    const context = createContext({
+      OHMYDATE_LOCAL_SECRETS_DIR: dir,
+      DATABASE_URL: 'postgres://ohmydate:secret@127.0.0.1:55432/planner_test',
+      VIKUNJA_URL: 'http://127.0.0.1:3456',
+    });
+    expect(context.vikunjaUrl).toBe('http://127.0.0.1:3466');
+    expect(context.databaseUrlOverride).toBeNull();
 
-    await writeFile(
-      join(dir, 'stack.env'),
-      'POSTGRES_PASSWORD=p%40ss word\n',
-      { mode: 0o600 },
-    );
-    const built = databaseUrl(context, {});
+    await writeFile(join(dir, 'postgres.env'), 'POSTGRES_PASSWORD=p%40ss word\n', {
+      mode: 0o600,
+    });
+    const built = databaseUrl(context, {
+      DATABASE_URL: 'postgres://ohmydate:secret@127.0.0.1:55432/planner_test',
+    });
     expect(built).toContain('ohmydate:');
     expect(built).toContain('@127.0.0.1:55442/planner');
     expect(built).toContain('p%40ss%20word');
+    expect(built).not.toContain('planner_test');
+
+    const dedicated = createContext({
+      OHMYDATE_LOCAL_SECRETS_DIR: dir,
+      OHMYDATE_LOCAL_DATABASE_URL: 'postgres://override/db',
+      OHMYDATE_LOCAL_VIKUNJA_URL: 'http://127.0.0.1:9999',
+    });
+    expect(databaseUrl(dedicated, {})).toBe('postgres://override/db');
+    expect(dedicated.vikunjaUrl).toBe('http://127.0.0.1:9999');
   });
 
-  test('stack-down message names the exact compose command', () => {
+  test('describeDatabaseUrl prints host:port/db without the password', () => {
+    expect(
+      describeDatabaseUrl('postgres://ohmydate:hunter2@127.0.0.1:55442/planner?x=1'),
+    ).toBe('127.0.0.1:55442/planner');
+    expect(describeDatabaseUrl('not a url')).toBe('알 수 없는 대상');
+  });
+
+  test('childProcessEnv allows only the documented allowlist', () => {
+    const env = childProcessEnv({
+      PATH: '/bin',
+      HOME: '/home/user',
+      DATABASE_URL: 'postgres://secret',
+      UNRELATED_TOKEN: 'secret',
+      npm_execpath: '/pnpm.js',
+    });
+    expect(env).toEqual({ PATH: '/bin', HOME: '/home/user', npm_execpath: '/pnpm.js' });
+  });
+
+  test('stack-down message names the exact local:stack command', () => {
     expect(STACK_DOWN_MESSAGE).toContain('먼저 coordinator가 deploy/local 스택을 올려야 합니다');
-    expect(STACK_DOWN_MESSAGE).toContain(
-      'docker compose --env-file deploy/local/local.env -f deploy/local/compose.yaml up -d',
-    );
+    expect(STACK_DOWN_MESSAGE).toContain('corepack pnpm local:stack up');
   });
 });

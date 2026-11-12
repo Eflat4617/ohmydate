@@ -9,15 +9,17 @@ import {
   openSync,
   readFileSync,
   readdirSync,
-  renameSync,
   rmSync,
   statSync,
 } from 'node:fs';
 import { chmod, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import {
+  childProcessEnv,
   createContext,
   databaseUrl,
+  describeTarget,
   ensureDir,
   fail,
   fileExists,
@@ -29,15 +31,24 @@ import {
   repoRoot,
   runPnpm,
   STACK_DOWN_MESSAGE,
-  waitForHttp,
   warn,
 } from './common.mjs';
+import {
+  createMarker,
+  inspectProcess,
+  removePidRecord,
+  stopRecord,
+  writePidRecord,
+  PROCESS_MARKER_ENV,
+} from './pid.mjs';
 import { checkMigrationsCurrent, checkStack } from './stack.mjs';
 
 export const BUILD_OUTPUTS = {
   api: join(repoRoot, 'services/api/dist/main.js'),
   web: join(repoRoot, 'apps/web/dist/index.html'),
 };
+
+export const BUILD_STAMP_PATH = join(repoRoot, '.local', 'build.stamp.json');
 
 function newestMtime(path) {
   let newest = 0;
@@ -56,7 +67,7 @@ function packageDirs() {
     .filter((path) => statSync(path, { throwIfNoEntry: false })?.isDirectory() === true);
 }
 
-function apiSources() {
+export function apiSources() {
   const sources = [
     join(repoRoot, 'services/api/src'),
     join(repoRoot, 'services/api/tsconfig.build.json'),
@@ -69,23 +80,63 @@ function apiSources() {
   return sources;
 }
 
-function webSources() {
-  return [
+export function webSources() {
+  const sources = [
     join(repoRoot, 'apps/web/src'),
+    join(repoRoot, 'apps/web/public'),
     join(repoRoot, 'apps/web/index.html'),
     join(repoRoot, 'apps/web/vite.config.ts'),
     join(repoRoot, 'apps/web/package.json'),
     join(repoRoot, 'tsconfig.base.json'),
+    // Bundled from source by Vite, so changes must rebuild the web output.
+    join(repoRoot, 'packages/ui-policy/src'),
+    join(repoRoot, 'packages/ui-policy/package.json'),
   ];
+  return sources;
 }
 
-export function needsBuild(kind) {
-  const output = BUILD_OUTPUTS[kind];
+export function readBuildStamp(path = BUILD_STAMP_PATH) {
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8'));
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function writeBuildStamp(kind, path = BUILD_STAMP_PATH, now = Date.now()) {
+  const current = readBuildStamp(path) ?? {};
+  const next = { ...current, [kind]: now, updatedAt: new Date(now).toISOString() };
+  await ensureDir(dirname(path), 0o700);
+  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  await chmod(path, 0o600);
+  return next;
+}
+
+export function buildMark(stamp = readBuildStamp()) {
+  if (stamp === null) return null;
+  return `${String(stamp.api ?? 0)}:${String(stamp.web ?? 0)}`;
+}
+
+export function needsBuild(kind, options = {}) {
+  const output = options.output ?? BUILD_OUTPUTS[kind];
+  const sources =
+    options.sources ?? (kind === 'api' ? apiSources() : webSources());
+  const stampPath = options.stampPath ?? BUILD_STAMP_PATH;
   const outputInfo = statSync(output, { throwIfNoEntry: false });
   if (outputInfo === undefined) return true;
-  const sources = kind === 'api' ? apiSources() : webSources();
-  const newest = Math.max(...sources.map((path) => newestMtime(path)));
-  return newest > outputInfo.mtimeMs;
+  // A stamp is written only after the whole build succeeds, so an interrupted
+  // build (API dist written, workspace deps missing) is still stale.
+  const stamp = readBuildStamp(stampPath);
+  const reference =
+    stamp !== null && typeof stamp[kind] === 'number' ? stamp[kind] : options.legacyReference;
+  if (reference === undefined) return true;
+  if (newestMtimeOf(sources) > reference) return true;
+  return false;
+}
+
+export function newestMtimeOf(sources) {
+  return Math.max(...sources.map((path) => newestMtime(path)));
 }
 
 export function checkLlmKeyFile(path, fsApi = {}) {
@@ -109,8 +160,10 @@ export function checkLlmKeyFile(path, fsApi = {}) {
   }
   if (mode !== null && (mode & 0o077) !== 0) {
     return {
-      ok: true,
-      warning: `LLM API 키 파일 권한이 ${mode.toString(8)} 입니다. chmod 600 ${path} 를 권장합니다.`,
+      ok: false,
+      message:
+        `LLM API 키 파일 권한이 ${mode.toString(8)} 입니다. group/world 접근을 막아야 합니다. ` +
+        `정확한 명령: chmod 600 ${path}`,
     };
   }
   return { ok: true, warning: null };
@@ -126,7 +179,10 @@ export async function runPreflight(options = {}) {
   const checkKeyFn = deps.checkLlmKeyFile ?? checkLlmKeyFile;
 
   const missing = [];
-  if (!fileExists(context.stackEnvPath)) missing.push('stack.env');
+  if (!fileExists(context.postgresEnvPath) && !fileExists(context.legacyStackEnvPath)) {
+    missing.push('postgres.env');
+  }
+  if (!fileExists(context.vikunjaEnvPath)) missing.push('vikunja.env');
   if (!fileExists(context.pushKeyFile)) missing.push('push.key');
   if (!fileExists(context.sessionSecretFile)) missing.push('llm-session-secret');
   if (!fileExists(context.tokenFile)) missing.push('vikunja-tokens.json');
@@ -144,6 +200,11 @@ export async function runPreflight(options = {}) {
     dbUrl = databaseUrl(context, env);
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
+  }
+
+  if (!fakeLlm) {
+    const key = checkKeyFn(context.keyFile);
+    if (!key.ok) return { ok: false, message: key.message };
   }
 
   const health = await checkStackFn(dbUrl, context.vikunjaUrl);
@@ -167,47 +228,26 @@ export async function runPreflight(options = {}) {
   const warnings = [];
   if (!fakeLlm) {
     const key = checkKeyFn(context.keyFile);
-    if (!key.ok) return { ok: false, message: key.message };
-    if (key.warning !== null) warnings.push(key.warning);
+    if (key.warning !== null && key.warning !== undefined) warnings.push(key.warning);
   }
 
   return { ok: true, databaseUrl: dbUrl, warnings };
 }
 
-function childEnv() {
-  const env = { ...process.env };
-  delete env.OHMYDATE_LOCAL_EMAIL;
-  delete env.OHMYDATE_LOCAL_PASSWORD;
-  return env;
-}
-
-function readPid(runDir, name) {
-  try {
-    const raw = readFileSync(join(runDir, `${name}.pid`), 'utf8').trim();
-    const pid = Number.parseInt(raw, 10);
-    return Number.isInteger(pid) ? pid : null;
-  } catch {
-    return null;
-  }
-}
-
-async function writePid(runDir, name, pid) {
-  await writeFile(join(runDir, `${name}.pid`), `${String(pid)}\n`, { mode: 0o600 });
-  await chmod(join(runDir, `${name}.pid`), 0o600);
-}
-
-function rotateLog(logDir, name) {
+async function rotateLogFile(logDir, name) {
   const path = join(logDir, `${name}.log`);
   if (!fileExists(path)) return path;
   const previous = `${path}.1`;
   rmSync(previous, { force: true });
-  renameSync(path, previous);
+  const { rename } = await import('node:fs/promises');
+  await rename(path, previous);
   return path;
 }
 
-function spawnDetached(name, command, args, env, logDir) {
-  const logPath = rotateLog(logDir, name);
-  const fd = openSync(logPath, 'a');
+async function spawnDetached(name, command, args, env, logDir) {
+  const logPath = await rotateLogFile(logDir, name);
+  const fd = openSync(logPath, 'a', 0o600);
+  await chmod(logPath, 0o600).catch(() => undefined);
   const child = spawn(command, args, {
     cwd: repoRoot,
     detached: true,
@@ -226,7 +266,7 @@ function apiEnvironment(context, preflight, options) {
   const fakeLlm = options.fakeLlm === true;
   const provider = fakeLlm ? 'fake' : (env.LLM_PROVIDER ?? settings.LLM_PROVIDER);
   return {
-    ...childEnv(),
+    ...childProcessEnv(env),
     HOST: '127.0.0.1',
     PORT: String(context.ports.api),
     NODE_ENV: fakeLlm ? 'development' : (env.NODE_ENV ?? settings.NODE_ENV ?? 'production'),
@@ -245,7 +285,58 @@ function apiEnvironment(context, preflight, options) {
     LLM_DAILY_BUDGET_USD: env.LLM_DAILY_BUDGET_USD ?? settings.LLM_DAILY_BUDGET_USD,
     LLM_MONTHLY_BUDGET_USD: env.LLM_MONTHLY_BUDGET_USD ?? settings.LLM_MONTHLY_BUDGET_USD,
     LOG_LEVEL: env.LOG_LEVEL ?? 'info',
+    [PROCESS_MARKER_ENV]: options.marker,
   };
+}
+
+function webEnvironment(context, marker) {
+  return {
+    ...childProcessEnv(),
+    OHMYDATE_API_PROXY_TARGET: context.apiUrl,
+    VITE_MOCK: '0',
+    [PROCESS_MARKER_ENV]: marker,
+  };
+}
+
+function lastLogLine(path) {
+  try {
+    const text = readFileSync(path, 'utf8').trimEnd();
+    const lines = text.split(/\r?\n/u);
+    return lines[lines.length - 1] ?? '(로그 없음)';
+  } catch {
+    return '(로그 없음)';
+  }
+}
+
+async function waitForHttpOrExit(url, pid, logPath, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError = 'no response';
+  while (Date.now() < deadline) {
+    if (pid !== null && !processAlive(pid)) {
+      throw new Error(
+        `프로세스가 응답 전에 종료되었습니다 (pid ${String(pid)}). 마지막 로그: ${lastLogLine(logPath)}`,
+      );
+    }
+    try {
+      const response = await globalThis.fetch(url);
+      if (response.status === 200) return response;
+      lastError = `HTTP ${String(response.status)}`;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await delay(200);
+  }
+  throw new Error(`${url} 응답을 기다리다 시간 초과했습니다 (${lastError})`);
+}
+
+async function cleanupStarted(context, names, timeoutMs = 5_000) {
+  for (const name of names) {
+    const inspection = await inspectProcess(context.runDir, name);
+    if (inspection.status === 'running') {
+      await stopRecord(inspection.record, timeoutMs);
+    }
+    await removePidRecord(context.runDir, name);
+  }
 }
 
 async function main() {
@@ -253,7 +344,8 @@ async function main() {
   if (flags.has('help')) {
     console.log(
       'usage: node scripts/local/start.mjs [--rebuild] [--fake-llm]\n' +
-        'env: OHMYDATE_LOCAL_API_PORT, OHMYDATE_LOCAL_WEB_PORT, DATABASE_URL, VIKUNJA_URL',
+        'env: OHMYDATE_LOCAL_API_PORT, OHMYDATE_LOCAL_WEB_PORT, ' +
+        'OHMYDATE_LOCAL_DATABASE_URL, OHMYDATE_LOCAL_VIKUNJA_URL',
     );
     return;
   }
@@ -266,71 +358,132 @@ async function main() {
   if (!preflight.ok) throw new Error(preflight.message);
   for (const warning of preflight.warnings) warn(warning);
 
-  if (forceRebuild || needsBuild('api')) {
+  log(describeTarget(context, preflight.databaseUrl));
+  log(
+    `실행 모드: NODE_ENV=${fakeLlm ? 'development' : (env.NODE_ENV ?? context.settings.NODE_ENV ?? 'production')}, ` +
+      `LLM_PROVIDER=${fakeLlm ? 'fake' : (env.LLM_PROVIDER ?? context.settings.LLM_PROVIDER)}`,
+  );
+
+  const apiState = await inspectProcess(context.runDir, 'api');
+  const webState = await inspectProcess(context.runDir, 'web');
+  for (const [name, state] of [
+    ['api', apiState],
+    ['web', webState],
+  ]) {
+    if (state.status !== 'running') await removePidRecord(context.runDir, name);
+  }
+
+  const apiStale = forceRebuild || needsBuild('api');
+  const webStale = forceRebuild || needsBuild('web');
+  if (apiState.status === 'running' && apiStale) {
+    throw new Error(
+      'API가 이미 실행 중인데 빌드가 필요합니다. `corepack pnpm local:stop` 후 다시 `local:start` 하세요.',
+    );
+  }
+  if (webState.status === 'running' && webStale) {
+    throw new Error(
+      '웹이 이미 실행 중인데 빌드가 필요합니다. `corepack pnpm local:stop` 후 다시 `local:start` 하세요.',
+    );
+  }
+
+  if (apiStale) {
     log('API 빌드 중...');
     runPnpm(['--filter', '@ohmydate/api', 'build']);
+    await writeBuildStamp('api');
   }
-  if (forceRebuild || needsBuild('web')) {
+  if (webStale) {
     log('웹 빌드 중...');
     runPnpm(['--filter', '@ohmydate/web', 'build']);
+    await writeBuildStamp('web');
+  }
+
+  const stamp = readBuildStamp() ?? {};
+  for (const [name, state] of [
+    ['api', apiState],
+    ['web', webState],
+  ]) {
+    const expected = stamp[name] ?? null;
+    if (state.status === 'running' && (state.record?.buildStamp ?? null) !== expected) {
+      throw new Error(
+        `${name} 프로세스가 현재 빌드보다 오래되었습니다. ` +
+          '`corepack pnpm local:stop` 후 다시 `local:start` 하세요.',
+      );
+    }
   }
 
   await ensureDir(context.runDir, 0o700);
   await ensureDir(context.logDir, 0o700);
 
-  let apiPid = readPid(context.runDir, 'api');
-  if (apiPid !== null && processAlive(apiPid)) {
-    log(`API가 이미 실행 중입니다 (pid ${String(apiPid)}).`);
-  } else {
-    apiPid = spawnDetached(
-      'api',
-      process.execPath,
-      [join(repoRoot, 'services/api/dist/main.js')],
-      apiEnvironment(context, preflight, { env, fakeLlm }),
-      context.logDir,
-    );
-    await writePid(context.runDir, 'api', apiPid);
-  }
-
-  let webPid = readPid(context.runDir, 'web');
-  if (webPid !== null && processAlive(webPid)) {
-    log(`웹이 이미 실행 중입니다 (pid ${String(webPid)}).`);
-  } else {
-    const invocation = pnpmInvocation([
-      '--filter',
-      '@ohmydate/web',
-      'exec',
-      'vite',
-      'preview',
-      '--host',
-      '127.0.0.1',
-      '--port',
-      String(context.ports.web),
-      '--strictPort',
-    ]);
-    webPid = spawnDetached(
-      'web',
-      invocation.command,
-      invocation.args,
-      {
-        ...childEnv(),
-        OHMYDATE_API_PROXY_TARGET: context.apiUrl,
-        VITE_MOCK: '0',
-      },
-      context.logDir,
-    );
-    await writePid(context.runDir, 'web', webPid);
-  }
-
+  const started = [];
+  let apiPid = apiState.status === 'running' ? apiState.record.pid : null;
+  let webPid = webState.status === 'running' ? webState.record.pid : null;
   try {
-    await waitForHttp(`${context.apiUrl}/healthz`, { timeoutMs: 60_000 });
-    await waitForHttp(`${context.webUrl}/`, { timeoutMs: 60_000 });
+    if (apiPid !== null) {
+      log(`API가 이미 실행 중입니다 (pid ${String(apiPid)}).`);
+    } else {
+      const marker = createMarker();
+      apiPid = await spawnDetached(
+        'api',
+        process.execPath,
+        [join(repoRoot, 'services/api/dist/main.js')],
+        apiEnvironment(context, preflight, { env, fakeLlm, marker }),
+        context.logDir,
+      );
+      started.push('api');
+      await writePidRecord(context.runDir, 'api', apiPid, marker, { buildStamp: stamp.api ?? null });
+    }
+
+    if (webPid !== null) {
+      log(`웹이 이미 실행 중입니다 (pid ${String(webPid)}).`);
+    } else {
+      const invocation = pnpmInvocation([
+        '--filter',
+        '@ohmydate/web',
+        'exec',
+        'vite',
+        'preview',
+        '--host',
+        '127.0.0.1',
+        '--port',
+        String(context.ports.web),
+        '--strictPort',
+      ]);
+      const marker = createMarker();
+      webPid = await spawnDetached(
+        'web',
+        invocation.command,
+        invocation.args,
+        webEnvironment(context, marker),
+        context.logDir,
+      );
+      started.push('web');
+      await writePidRecord(context.runDir, 'web', webPid, marker, { buildStamp: stamp.web ?? null });
+    }
+
+    try {
+      await waitForHttpOrExit(
+        `${context.apiUrl}/healthz`,
+        apiPid,
+        join(context.logDir, 'api.log'),
+        60_000,
+      );
+      await waitForHttpOrExit(
+        `${context.webUrl}/`,
+        webPid,
+        join(context.logDir, 'web.log'),
+        60_000,
+      );
+    } catch (error) {
+      await cleanupStarted(context, started);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `${message} 로그: ${context.logDir}/api.log, ${context.logDir}/web.log`,
+        { cause: error },
+      );
+    }
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `${message} 로그: ${context.logDir}/api.log, ${context.logDir}/web.log`,
-      { cause: error },
-    );
+    await cleanupStarted(context, started);
+    throw error;
   }
 
   log(`OhMyDate 로컬 실행 준비 완료: ${context.webUrl}/`);

@@ -17,13 +17,19 @@ afterEach(async () => {
 async function contextWithSecrets() {
   const dir = await mkdtemp(join(tmpdir(), 'ohmydate-local-preflight-'));
   tempDirs.push(dir);
-  for (const name of ['stack.env', 'push.key', 'llm-session-secret', 'vikunja-tokens.json']) {
+  for (const name of [
+    'postgres.env',
+    'vikunja.env',
+    'push.key',
+    'llm-session-secret',
+    'vikunja-tokens.json',
+  ]) {
     await writeFile(join(dir, name), 'test-only\n', { mode: 0o600 });
   }
   return createContext({
     ...process.env,
     OHMYDATE_LOCAL_SECRETS_DIR: dir,
-    DATABASE_URL: 'postgres://test/test',
+    OHMYDATE_LOCAL_DATABASE_URL: 'postgres://test/test',
   });
 }
 
@@ -45,13 +51,14 @@ describe('start preflight', () => {
     ]);
   });
 
-  test('warns when the key file mode is wider than 0600', () => {
+  test('refuses a group/world-readable key file with the exact chmod command', () => {
     const result = checkLlmKeyFile('/key', {
       access: () => undefined,
       stat: () => ({ mode: 0o100644 }),
     });
-    expect(result.ok).toBe(true);
-    expect(result.warning).toContain('chmod 600');
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('chmod 600 /key');
+    expect(result.message).toContain('LLM API 키 파일 권한이 644');
   });
 
   test('missing key file is a Korean refusal', () => {
@@ -69,7 +76,7 @@ describe('start preflight', () => {
     const context = await contextWithSecrets();
     const result = await runPreflight({
       context,
-      env: { DATABASE_URL: 'postgres://test/test' },
+      env: {},
       deps: {
         checkStack: async () => ({ database: false, vikunja: false, ok: false }),
         checkMigrationsCurrent: async () => ({ current: true }),
@@ -78,7 +85,7 @@ describe('start preflight', () => {
     });
     expect(result.ok).toBe(false);
     expect(result.message).toContain('먼저 coordinator가 deploy/local 스택을 올려야 합니다');
-    expect(result.message).toContain('docker compose');
+    expect(result.message).toContain('local:stack up');
   });
 
   test('refuses stale migrations, and refuses a missing key unless --fake-llm', async () => {
@@ -86,12 +93,9 @@ describe('start preflight', () => {
     const deps = {
       checkStack: async () => ({ database: true, vikunja: true, ok: true }),
       checkMigrationsCurrent: async () => ({ current: false, detail: 'pending=0015' }),
-      checkLlmKeyFile: () => ({
-        ok: false,
-        message: 'LLM API 키 파일이 없습니다: /repo/deepseek_api_key.txt',
-      }),
+      checkLlmKeyFile: () => ({ ok: true, warning: null }),
     };
-    const env = { DATABASE_URL: 'postgres://test/test' };
+    const env = {};
 
     const stale = await runPreflight({ context, env, deps });
     expect(stale.ok).toBe(false);
@@ -100,6 +104,10 @@ describe('start preflight', () => {
     const currentDeps = {
       ...deps,
       checkMigrationsCurrent: async () => ({ current: true }),
+      checkLlmKeyFile: () => ({
+        ok: false,
+        message: 'LLM API 키 파일이 없습니다: /repo/deepseek_api_key.txt',
+      }),
     };
     const missingKey = await runPreflight({ context, env, deps: currentDeps });
     expect(missingKey.ok).toBe(false);
@@ -115,9 +123,9 @@ describe('start preflight', () => {
     const context = createContext({
       ...process.env,
       OHMYDATE_LOCAL_SECRETS_DIR: dir,
-      DATABASE_URL: 'postgres://test/test',
+      OHMYDATE_LOCAL_DATABASE_URL: 'postgres://test/test',
     });
-    const result = await runPreflight({ context, env: { DATABASE_URL: 'postgres://test/test' } });
+    const result = await runPreflight({ context, env: {} });
     expect(result.ok).toBe(false);
     expect(result.message).toContain('로컬 비밀 파일이 없습니다');
     expect(result.message).toContain('corepack pnpm local:setup');

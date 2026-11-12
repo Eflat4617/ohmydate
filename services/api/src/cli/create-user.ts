@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { hash } from '@node-rs/argon2';
 import {
   createUuidV7Generator,
+  isIanaTimeZone,
   type Clock,
   type Instant,
 } from '@ohmydate/domain';
@@ -22,14 +23,78 @@ async function readStdin(): Promise<string> {
 }
 
 function usage(): string {
-  return 'usage: create-user <email> (password read from stdin)';
+  return (
+    'usage: create-user <email> [--time-zone <IANA>] [--locale <locale>] ' +
+    '(password read from stdin)'
+  );
+}
+
+const LOCALE_PATTERN = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/u;
+
+export interface CreateUserArgs {
+  readonly email: string;
+  readonly timeZone?: string;
+  readonly locale?: string;
+}
+
+function optionValue(argv: readonly string[], index: number, name: string): [string, number] {
+  const inline = argv[index];
+  const separator = inline?.indexOf('=') ?? -1;
+  if (separator > 2) {
+    const value = inline?.slice(separator + 1) ?? '';
+    if (value.length === 0) throw new Error(`${name} requires a value`);
+    return [value, index];
+  }
+  const next = argv[index + 1];
+  if (next === undefined || next.startsWith('--')) {
+    throw new Error(`${name} requires a value`);
+  }
+  return [next, index + 1];
+}
+
+export function parseCreateUserArgs(argv: readonly string[]): CreateUserArgs {
+  let email: string | undefined;
+  let timeZone: string | undefined;
+  let locale: string | undefined;
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === undefined) continue;
+    if (arg === '--time-zone' || arg.startsWith('--time-zone=')) {
+      const [value, consumed] = optionValue(argv, index, '--time-zone');
+      timeZone = value;
+      index = consumed;
+    } else if (arg === '--locale' || arg.startsWith('--locale=')) {
+      const [value, consumed] = optionValue(argv, index, '--locale');
+      locale = value;
+      index = consumed;
+    } else if (arg.startsWith('--')) {
+      throw new Error(`unknown option: ${arg}`);
+    } else if (email === undefined) {
+      email = arg;
+    } else {
+      throw new Error(`unexpected argument: ${arg}`);
+    }
+  }
+  if (email === undefined || email.trim() === '') throw new Error(usage());
+  if (timeZone !== undefined && !isIanaTimeZone(timeZone)) {
+    throw new Error(`invalid IANA time zone: ${timeZone}`);
+  }
+  if (
+    locale !== undefined &&
+    (locale.length < 2 || locale.length > 35 || !LOCALE_PATTERN.test(locale))
+  ) {
+    throw new Error(`invalid locale: ${locale}`);
+  }
+  return {
+    email,
+    ...(timeZone === undefined ? {} : { timeZone }),
+    ...(locale === undefined ? {} : { locale }),
+  };
 }
 
 async function main(): Promise<void> {
-  const email = process.argv[2];
-  if (email === undefined || email.trim() === '') {
-    throw new Error(usage());
-  }
+  const args = parseCreateUserArgs(process.argv.slice(2));
+  const email = args.email;
 
   const databaseUrl = process.env['DATABASE_URL'];
   if (databaseUrl === undefined || databaseUrl === '') {
@@ -54,6 +119,8 @@ async function main(): Promise<void> {
       id: ids.next(),
       email: normalizeEmail(email),
       passwordHash: await hash(password),
+      ...(args.timeZone === undefined ? {} : { timeZone: args.timeZone }),
+      ...(args.locale === undefined ? {} : { locale: args.locale }),
     });
     console.log(`created user ${created.email} (${created.id})`);
   } finally {

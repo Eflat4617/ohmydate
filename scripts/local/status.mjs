@@ -4,12 +4,14 @@ import { readFileSync } from 'node:fs';
 import {
   createContext,
   databaseUrl,
+  describeTarget,
   fail,
   fileExists,
   fileMode,
   isEntryPoint,
   log,
   parseFlags,
+  warn,
 } from './common.mjs';
 import { checkMigrationsCurrent, checkStack } from './stack.mjs';
 import { readJsonObject, tokenMapOf } from './vikunja-token.mjs';
@@ -29,10 +31,12 @@ async function httpStatus(url, options = {}) {
 }
 
 function readTokens(path) {
+  if (!fileExists(path)) return { tokens: {}, malformed: false };
   try {
-    return { tokens: tokenMapOf(readJsonObject(readFileSync(path, 'utf8'))), error: null };
-  } catch (error) {
-    return { tokens: {}, error: error instanceof Error ? error.message : String(error) };
+    return { tokens: tokenMapOf(readJsonObject(readFileSync(path, 'utf8'))), malformed: false };
+  } catch {
+    // Never echo JSON.parse's text: V8 quotes a fragment of the file.
+    return { tokens: {}, malformed: true };
   }
 }
 
@@ -75,6 +79,7 @@ async function main() {
   }
 
   if (dbUrl !== null) {
+    log(` ${describeTarget(context, dbUrl)}`);
     const stack = await checkStack(dbUrl, context.vikunjaUrl);
     if (stack.ok) {
       log(' - 스택: 정상 (PostgreSQL, Vikunja)');
@@ -99,12 +104,14 @@ async function main() {
     }
   }
 
-  const missingSecrets = [
-    context.stackEnvPath,
+  const secretFiles = [
+    context.postgresEnvPath,
+    context.vikunjaEnvPath,
     context.pushKeyFile,
     context.sessionSecretFile,
     context.tokenFile,
-  ]
+  ];
+  const missingSecrets = secretFiles
     .filter((path) => !fileExists(path))
     .map((path) => path.slice(context.secretsDir.length + 1));
   if (missingSecrets.length === 0) {
@@ -112,6 +119,13 @@ async function main() {
   } else {
     failures.push('secrets');
     log(` - 비밀 파일: 누락 (${missingSecrets.join(', ')})`);
+    if (fileExists(context.stackStateFile)) {
+      warn(
+        '비밀 디렉터리가 없지만 ohmydate-local 스택/볼륨이 존재합니다. ' +
+          '비밀 디렉터리와 볼륨은 한 쌍이므로 함께 백업해야 하며, ' +
+          '지금은 DB에 다시 접속할 수 없습니다.',
+      );
+    }
   }
 
   if (fileExists(context.keyFile)) {
@@ -129,9 +143,9 @@ async function main() {
 
   const tokenData = readTokens(context.tokenFile);
   const owners = Object.keys(tokenData.tokens);
-  if (tokenData.error !== null) {
+  if (tokenData.malformed) {
     failures.push('token');
-    log(` - Vikunja 토큰: 파일을 읽지 못했습니다 (${tokenData.error})`);
+    log(' - Vikunja 토큰: 파일을 읽지 못했습니다 (형식 오류). 파일을 지우고 local:setup 을 다시 실행하세요.');
   } else if (owners.length === 0) {
     failures.push('token');
     log(' - Vikunja 토큰: 없음');

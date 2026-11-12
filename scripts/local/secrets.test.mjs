@@ -35,17 +35,23 @@ describe('secrets init', () => {
     const result = await initSecrets({ context: contextFor(dir) });
 
     expect((await modeOf(dir))).toBe(0o700);
-    expect(result.created.sort()).toEqual(['llm-session-secret', 'push.key', 'stack.env']);
+    expect(result.created.sort()).toEqual([
+      'llm-session-secret',
+      'postgres.env',
+      'push.key',
+      'vikunja.env',
+    ]);
 
-    for (const name of ['stack.env', 'push.key', 'llm-session-secret']) {
+    for (const name of ['postgres.env', 'vikunja.env', 'push.key', 'llm-session-secret']) {
       expect(await modeOf(join(dir, name))).toBe(0o600);
     }
 
-    const stack = parseEnvText(await readFile(join(dir, 'stack.env'), 'utf8'));
-    expect(stack.POSTGRES_PASSWORD.length).toBeGreaterThanOrEqual(32);
-    expect(stack.POSTGRES_PASSWORD).toBe(stack.VIKUNJA_DATABASE_PASSWORD);
-    expect(stack.VIKUNJA_SERVICE_SECRET.length).toBeGreaterThanOrEqual(32);
-    expect(stack.VIKUNJA_SERVICE_SECRET).not.toBe(stack.POSTGRES_PASSWORD);
+    const postgres = parseEnvText(await readFile(join(dir, 'postgres.env'), 'utf8'));
+    const vikunja = parseEnvText(await readFile(join(dir, 'vikunja.env'), 'utf8'));
+    expect(postgres.POSTGRES_PASSWORD.length).toBeGreaterThanOrEqual(32);
+    expect(postgres.POSTGRES_PASSWORD).toBe(vikunja.VIKUNJA_DATABASE_PASSWORD);
+    expect(vikunja.VIKUNJA_SERVICE_SECRET.length).toBeGreaterThanOrEqual(32);
+    expect(vikunja.VIKUNJA_SERVICE_SECRET).not.toBe(postgres.POSTGRES_PASSWORD);
 
     const pushKey = (await readFile(join(dir, 'push.key'), 'utf8')).trim();
     const sessionSecret = (await readFile(join(dir, 'llm-session-secret'), 'utf8')).trim();
@@ -56,11 +62,11 @@ describe('secrets init', () => {
 
   test('never overwrites an existing file and is idempotent', async () => {
     const dir = await tempDir();
-    const stackPath = join(dir, 'stack.env');
+    const stackPath = join(dir, 'postgres.env');
     await writeFile(stackPath, 'MARKER=keep\n', { mode: 0o600 });
 
     const first = await initSecrets({ context: contextFor(dir) });
-    expect(first.existing).toContain('stack.env');
+    expect(first.existing).toContain('postgres.env');
     expect(await readFile(stackPath, 'utf8')).toBe('MARKER=keep\n');
 
     const before = {
@@ -85,8 +91,8 @@ describe('secrets init', () => {
     expect(first.status).toBe(0);
 
     const values = [
-      parseEnvText(await readFile(join(dir, 'stack.env'), 'utf8')).POSTGRES_PASSWORD,
-      parseEnvText(await readFile(join(dir, 'stack.env'), 'utf8')).VIKUNJA_SERVICE_SECRET,
+      parseEnvText(await readFile(join(dir, 'postgres.env'), 'utf8')).POSTGRES_PASSWORD,
+      parseEnvText(await readFile(join(dir, 'vikunja.env'), 'utf8')).VIKUNJA_SERVICE_SECRET,
       (await readFile(join(dir, 'push.key'), 'utf8')).trim(),
       (await readFile(join(dir, 'llm-session-secret'), 'utf8')).trim(),
     ];
@@ -96,10 +102,10 @@ describe('secrets init', () => {
       expect(output).not.toContain(value);
     }
 
-    const stackBefore = await readFile(join(dir, 'stack.env'), 'utf8');
+    const stackBefore = await readFile(join(dir, 'postgres.env'), 'utf8');
     const second = spawnSync(process.execPath, [script, 'init'], { env, encoding: 'utf8' });
     expect(second.status).toBe(0);
-    expect(await readFile(join(dir, 'stack.env'), 'utf8')).toBe(stackBefore);
+    expect(await readFile(join(dir, 'postgres.env'), 'utf8')).toBe(stackBefore);
     for (const value of values) {
       expect(`${second.stdout}${second.stderr}`).not.toContain(value);
     }

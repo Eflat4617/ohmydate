@@ -1,8 +1,10 @@
-# GU-1 local-only stack (127.0.0.1). Start it with the coordinator:
-#   corepack pnpm local:setup   # first run creates deploy/secrets/local/stack.env
-#   docker compose --env-file deploy/local/local.env -f deploy/local/compose.yaml up -d
-# Secrets (Postgres/Vikunja passwords, VIKUNJA_SERVICE_SECRET) come only from
-# deploy/secrets/local/stack.env via env_file. Never commit that file.
+# GU-1 local-only stack (127.0.0.1). Start it through the wrapper, which uses
+# absolute paths and sudo so cwd/HOME do not matter:
+#   corepack pnpm local:secrets   # first run creates deploy/secrets/local/*.env
+#   corepack pnpm local:stack up
+# Secrets come only from deploy/secrets/local/{postgres,vikunja}.env via
+# env_file. Never commit those files. All state is in named volumes, so
+# `sudo docker compose` cannot create root-owned host directories.
 name: ohmydate-local
 
 services:
@@ -10,7 +12,7 @@ services:
     restart: unless-stopped
     image: postgres:18@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
     env_file:
-      - ../secrets/local/stack.env
+      - ../secrets/local/postgres.env
     environment:
       POSTGRES_USER: ohmydate
       POSTGRES_DB: planner
@@ -25,7 +27,7 @@ services:
     image: postgres:18@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
     depends_on: { postgres: { condition: service_healthy } }
     env_file:
-      - ../secrets/local/stack.env
+      - ../secrets/local/postgres.env
     entrypoint:
       - sh
       - -c
@@ -42,18 +44,18 @@ services:
       postgres: { condition: service_healthy }
       vikunja-db-init: { condition: service_completed_successfully }
     env_file:
-      - ../secrets/local/stack.env
+      - ../secrets/local/vikunja.env
     environment:
-      VIKUNJA_SERVICE_PUBLICURL: http://127.0.0.1:3466/
+      VIKUNJA_SERVICE_PUBLICURL: http://127.0.0.1:${VIKUNJA_PORT:-3466}/
       VIKUNJA_SERVICE_ENABLEREGISTRATION: "true"
       # Local-only registration (127.0.0.1). Synthetic/local user only.
-      VIKUNJA_RATELIMIT_NOAUTHLIMIT: "1000"
       VIKUNJA_DATABASE_TYPE: postgres
       VIKUNJA_DATABASE_HOST: postgres
       VIKUNJA_DATABASE_USER: ohmydate
       VIKUNJA_DATABASE_DATABASE: vikunja
     ports: ["127.0.0.1:${VIKUNJA_PORT:-3466}:3456"]
-    volumes: ["${HOME}/.local/share/ohmydate-local/vikunja-files:/app/vikunja/files"]
+    volumes: ["vikunja-files:/app/vikunja/files"]
 
 volumes:
   pgdata: {}
+  vikunja-files: {}
