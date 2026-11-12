@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
+import { IDENTITY_REVALIDATION_TIMEOUT_MS, useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
 import { useSessionStore } from '../stores/session';
@@ -14,6 +14,8 @@ import NotificationsPanel from './NotificationsPanel.vue';
 import SearchDialog from './SearchDialog.vue';
 import ToastHost from './ToastHost.vue';
 import BrandMark from './BrandMark.vue';
+import UiBanner from './ui/UiBanner.vue';
+import UiButton from './ui/UiButton.vue';
 import UiSpinner from './ui/UiSpinner.vue';
 import { calmMode } from '../composables/useCalmMode';
 import { t } from '../i18n';
@@ -39,7 +41,7 @@ async function revalidateIdentity(): Promise<void> {
   if (!auth.confirmed || revalidating) return;
   revalidating = true;
   try {
-    await auth.loadCurrent();
+    await auth.loadCurrent({ timeoutMs: IDENTITY_REVALIDATION_TIMEOUT_MS });
   } finally {
     revalidating = false;
   }
@@ -156,6 +158,20 @@ onUnmounted(() => {
       <NavRail />
       <div class="app-main">
         <OfflineBanner />
+        <UiBanner
+          v-if="auth.revalidationState === 'failed'"
+          tone="offline"
+          class="identity-revalidation-banner"
+          role="status"
+          aria-live="polite"
+        >
+          {{ t('revalidation.failed') }}
+          <template #actions>
+            <UiButton size="sm" @click="revalidateIdentity">
+              {{ t('revalidation.retry') }}
+            </UiButton>
+          </template>
+        </UiBanner>
         <main id="main-content" tabindex="-1" class="app-content">
           <slot />
         </main>

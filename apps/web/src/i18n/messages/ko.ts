@@ -88,6 +88,11 @@ export const ko = {
     banner: '오프라인이에요. 저장해 둔 데이터를 보여 드리고 있어요. 다시 연결되면 편집할 수 있어요.',
   },
 
+  revalidation: {
+    failed: '로그인 상태를 다시 확인하지 못했어요. 지금 화면과 저장된 내용은 그대로 두었어요.',
+    retry: '다시 확인',
+  },
+
   toast: {
     dismiss: '메시지 닫기: {message}',
   },

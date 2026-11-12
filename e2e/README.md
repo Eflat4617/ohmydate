@@ -113,6 +113,26 @@ when `NODE_ENV=production` or the provider is not `fake`), and
 Playwright test therefore starts with a clean window and cannot inherit a 429
 from an earlier spec; the production limiter is unchanged.
 
+## E2E-5 automatic cross-tab reset (FU-56)
+
+`tests/e2e-5-owner-reset.spec.ts` keeps the explicit reload/bootstrap check and
+adds an automatic one: tab 1 is signed in as owner A with A-only settings, a
+task and a cached Focus session; tab 2 signs in as B in the same browser
+context. Tab 1 resets itself from the `storage` event (the app triggers the
+hard reload; the test never calls `page.reload`) and shows B. The spec then
+checks real session state from tab 1: `GET /me` returns B, the `sid` cookie
+was replaced, the active-owner pointer is B, B's Focus namespace is empty, A's
+namespace is preserved but not rendered, and A's task title is absent from the
+DOM and from B's task list. Signing out in tab 2 makes tab 1 return to the
+login screen and `GET /me` answer 401, still without a test-driven reload.
+
+**Lock fallback scope.** When the Web Locks API is unavailable, Focus replay
+falls back to an in-tab mutex plus a `BroadcastChannel` notice
+(`apps/web/src/session/ownerLock.ts`). The channel tells other tabs that a lock
+was taken or released; it does not exclude them. It is an in-tab fallback, not
+distributed exclusion, and the ADR-023 hard reset plus per-owner namespaces —
+not the channel — are what keep owners apart.
+
 ## E2E-5R replan (M5-03)
 
 `tests/e2e-5r-replan.spec.ts` uses its own planner/Vikunja owner (`replan`

@@ -19,6 +19,21 @@ import { apiErrorMessage, UserFacingError } from '../i18n/problem';
 
 export type AuthBootstrapState = 'pending' | 'ready' | 'anonymous' | 'error';
 
+/**
+ * How long a focus/visibility identity revalidation may hold its answer (FU-56).
+ * A hanging `/me` must not leave the tab believing the next focus check is
+ * still in flight: the wait is bounded and the confirmed owner is kept.
+ */
+export const IDENTITY_REVALIDATION_TIMEOUT_MS = 10_000;
+
+/** Why a revalidation that started from a confirmed session ended badly. */
+export type IdentityRevalidationState = 'idle' | 'pending' | 'failed';
+
+export interface LoadCurrentOptions {
+  /** Abort the `/me` confirmation after this many milliseconds. */
+  readonly timeoutMs?: number;
+}
+
 function ownerChangedError(): Error {
   return new UserFacingError(t('errors.ownerChanged'));
 }
@@ -33,6 +48,37 @@ function loginErrorMessage(cause: unknown): string {
   return t('login.failed');
 }
 
+function combinedSignal(first: AbortSignal, second: AbortSignal): AbortSignal {
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([first, second]);
+  const controller = new AbortController();
+  for (const signal of [first, second]) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+      break;
+    }
+    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
+  }
+  return controller.signal;
+}
+
+/** Bound a confirmation request without ending the owner's session (FU-56). */
+function boundedSignal(
+  ownerSignal: AbortSignal,
+  timeoutMs: number,
+): { signal: AbortSignal; dispose: () => void } {
+  const timeout = new AbortController();
+  const timer = setTimeout(() => {
+    timeout.abort(new DOMException('identity revalidation timed out', 'TimeoutError'));
+  }, timeoutMs);
+  (timer as unknown as { unref?: () => void }).unref?.();
+  return {
+    signal: combinedSignal(ownerSignal, timeout.signal),
+    dispose: () => {
+      clearTimeout(timer);
+    },
+  };
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const ownerId = ownerState.ownerId;
   const epoch = ownerState.epoch;
@@ -40,6 +86,7 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
   const confirmed = ref(false);
   const bootstrapState = ref<AuthBootstrapState>('pending');
+  const revalidationState = ref<IdentityRevalidationState>('idle');
   const loading = ref(false);
   const error = ref<string | null>(null);
   let bootstrapPromise: Promise<User | null> | null = null;
@@ -48,6 +95,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null;
     confirmed.value = false;
     bootstrapState.value = 'pending';
+    revalidationState.value = 'idle';
     error.value = null;
   });
 
@@ -59,33 +107,45 @@ export const useAuthStore = defineStore('auth', () => {
     sessionJournal.setOwner(current.id);
   }
 
-  async function loadCurrent(): Promise<User | null> {
+  async function loadCurrent(options: LoadCurrentOptions = {}): Promise<User | null> {
     const binding = captureOwnerBinding();
     const wasConfirmed = confirmed.value;
     bootstrapState.value = 'pending';
+    if (wasConfirmed) revalidationState.value = 'pending';
+    const bounded =
+      options.timeoutMs === undefined ? null : boundedSignal(binding.signal, options.timeoutMs);
     try {
-      const current = await plannerClient.getMe(binding.signal);
+      const current = await plannerClient.getMe(bounded?.signal ?? binding.signal);
       if (!isOwnerBindingCurrent(binding)) return null;
       const stored = ownerState.ownerId.value;
       if (stored !== null && stored !== current.id) {
         ownerChanged(stored, current.id, 'me-mismatch');
         confirmOwner(current);
+        revalidationState.value = 'idle';
         return current;
       }
       if (stored === null) adoptActiveOwner(current.id, 'bootstrap');
       confirmOwner(current);
+      revalidationState.value = 'idle';
       return current;
     } catch (cause) {
       if (!isOwnerBindingCurrent(binding)) return null;
       const unauthenticated =
         cause instanceof ApiError && (cause.status === 401 || cause.status === 403);
       if (wasConfirmed && !unauthenticated) {
+        // A network error, a timeout or a 5xx from the identity check is not an
+        // owner change: keep the confirmed owner and its data, and surface a
+        // retry notice instead of wiping the screen (FU-56).
         bootstrapState.value = 'ready';
+        revalidationState.value = 'failed';
         return user.value;
       }
+      revalidationState.value = 'idle';
       confirmed.value = false;
       bootstrapState.value = unauthenticated ? 'anonymous' : 'error';
       return null;
+    } finally {
+      bounded?.dispose();
     }
   }
 
@@ -101,6 +161,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email: string, password: string): Promise<User> {
     loading.value = true;
     error.value = null;
+    revalidationState.value = 'idle';
     invalidateOwnerEpoch();
     try {
       await plannerClient.login(email, password);
@@ -123,6 +184,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       await plannerClient.logout();
     } finally {
+      revalidationState.value = 'idle';
       ownerChanged(ownerState.ownerId.value, null, 'logout');
       user.value = null;
       confirmed.value = false;
@@ -176,6 +238,7 @@ export const useAuthStore = defineStore('auth', () => {
     resetPending,
     confirmed,
     bootstrapState,
+    revalidationState,
     loading,
     error,
     loadCurrent,
