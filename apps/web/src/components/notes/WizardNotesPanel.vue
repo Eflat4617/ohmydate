@@ -144,7 +144,7 @@ function openPicker(): void {
 <template>
   <UiCard class="wizard-notes" :aria-labelledby="`${uid}-title`" data-wizard-notes>
     <header class="note-section-header">
-      <h2 :id="`${uid}-title`" class="card-title"><UiIcon name="note" :size="20" />{{ t('notes.wizard.title') }}</h2>
+      <h2 :id="`${uid}-title`" class="card-title">{{ t('notes.wizard.title') }}</h2>
       <UiButton size="sm" icon="link" :disabled="disabled" data-wizard-notes-add @click="openPicker">{{ t('notes.wizard.add') }}</UiButton>
     </header>
     <p class="muted">{{ t('notes.wizard.lede') }}</p>
@@ -167,7 +167,7 @@ function openPicker(): void {
       <li v-for="note in linked" :key="note.id" class="wizard-note" :data-wizard-note="note.id">
         <div class="wizard-note-main">
           <RouterLink :to="`/notes/${note.id}`" class="wizard-note-title">{{ note.title }}</RouterLink>
-          <UiBadge v-if="note.llmAllowed" tone="accent" dot>{{ t('notes.wizard.allowed') }}</UiBadge>
+          <UiBadge v-if="note.llmAllowed" tone="info">{{ t('notes.wizard.allowed') }}</UiBadge>
           <UiBadge v-else tone="neutral">{{ t('notes.wizard.notAllowed') }}</UiBadge>
         </div>
         <p v-if="!note.llmAllowed" class="field-help">{{ t('notes.wizard.notAllowedHelp') }}</p>
@@ -186,8 +186,10 @@ function openPicker(): void {
 
     <UiDialog v-if="pickerOpen" :labelledby="`${uid}-picker-title`" :describedby="`${uid}-picker-lede`" class="wizard-note-picker" @close="pickerOpen = false">
       <header class="dialog-header">
-        <h2 :id="`${uid}-picker-title`" class="dialog-title">{{ t('notes.wizard.pickerTitle') }}</h2>
-        <p :id="`${uid}-picker-lede`" class="muted">{{ t('notes.wizard.pickerLede') }}</p>
+        <div class="dialog-heading">
+          <h2 :id="`${uid}-picker-title`" class="dialog-title">{{ t('notes.wizard.pickerTitle') }}</h2>
+          <p :id="`${uid}-picker-lede`" class="muted">{{ t('notes.wizard.pickerLede') }}</p>
+        </div>
       </header>
       <div class="field">
         <label :for="`${uid}-picker-search`" class="field-label">{{ t('notes.wizard.searchLabel') }}</label>
@@ -203,7 +205,7 @@ function openPicker(): void {
       <ul v-else class="wizard-picker-list">
         <li v-for="note in candidates" :key="note.id" class="wizard-picker-item" :data-wizard-candidate="note.id">
           <span class="wizard-picker-title">{{ note.title }}</span>
-          <UiBadge v-if="note.llmAllowed" tone="accent">{{ t('notes.wizard.allowed') }}</UiBadge>
+          <UiBadge v-if="note.llmAllowed" tone="info">{{ t('notes.wizard.allowed') }}</UiBadge>
           <UiBadge v-else tone="neutral">{{ t('notes.wizard.notAllowed') }}</UiBadge>
           <UiBadge v-if="linkedIds.has(note.id)" tone="outline">{{ t('notes.wizard.alreadyLinked') }}</UiBadge>
           <UiButton
@@ -223,7 +225,7 @@ function openPicker(): void {
         <RouterLink :to="`/notes/new?link=goal:${goalId}`" class="btn btn--ghost btn--sm">
           <UiIcon name="plus" :size="16" /><span>{{ t('notes.wizard.newNote') }}</span>
         </RouterLink>
-        <UiButton variant="primary" @click="pickerOpen = false">{{ t('notes.wizard.close') }}</UiButton>
+        <UiButton @click="pickerOpen = false">{{ t('notes.wizard.close') }}</UiButton>
       </div>
     </UiDialog>
   </UiCard>

@@ -1227,7 +1227,7 @@ const planLink = computed(() =>
       <p class="loading-row"><UiSpinner /> {{ t('wizard.loading') }}</p>
     </UiCard>
 
-    <UiBanner v-else-if="!isNew && sessionQuery.isError.value" tone="error" class="wizard-card error-panel">
+    <UiBanner v-else-if="!isNew && sessionQuery.isError.value" tone="error" class="error-panel">
       <p class="error-text" role="alert">{{ t('wizard.loadError') }}</p>
       <template #actions>
         <UiButton size="sm" icon="sync" @click="retry">{{ t('common.retry') }}</UiButton>
@@ -1310,25 +1310,22 @@ const planLink = computed(() =>
       </header>
       <div class="similar-card" role="group" aria-labelledby="similar-heading">
         <div class="similar-card-head">
-          <span class="dialog-icon"><UiIcon name="plan" :size="22" /></span>
-          <div>
-            <h3 id="similar-heading">{{ t('wizard.similarTitle') }}</h3>
-            <p>
-              <I18nT keypath="wizard.similarBody">
-                <template #template><strong>{{ templateName }}</strong></template>
-                <template #confidence><strong>{{ confidenceLabel }}</strong></template>
-              </I18nT>
-            </p>
-          </div>
+          <h3 id="similar-heading">{{ t('wizard.similarTitle') }}</h3>
+          <p>
+            <I18nT keypath="wizard.similarBody">
+              <template #template><strong>{{ templateName }}</strong></template>
+              <template #confidence><strong>{{ confidenceLabel }}</strong></template>
+            </I18nT>
+          </p>
         </div>
-        <div class="confidence-meter" aria-hidden="true">
-          <span class="confidence-meter-fill" :style="{ width: `${confidencePercent}%` }"></span>
+        <div class="meter confidence-meter" :style="{ '--value': confidencePercent / 100 }" aria-hidden="true">
+          <span class="meter-fill confidence-meter-fill"></span>
         </div>
         <ul class="reason-list" :aria-label="t('wizard.reasons')">
           <li
             v-for="reason in detectedReasons"
             :key="reason.key"
-            class="chip badge--accent"
+            class="chip"
             :lang="reason.lang"
           >
             {{ reason.text }}
@@ -1438,7 +1435,7 @@ const planLink = computed(() =>
 
     <UiCard
       v-else-if="currentStep === 4"
-      class="wizard-card"
+      class="wizard-card wizard-card--draft"
       aria-labelledby="step4-heading"
     >
       <header class="wizard-card-header">
@@ -1454,13 +1451,19 @@ const planLink = computed(() =>
       </UiBanner>
 
       <template v-if="draft !== null">
+        <div class="draft-step-cols" aria-hidden="true">
+          <span></span>
+          <span>{{ t('wizard.stepTitle') }}</span>
+          <span>{{ t('wizard.deliverable') }}</span>
+          <span>{{ t('wizard.doneCriteria') }}</span>
+          <span>{{ t('wizard.kind') }}</span>
+          <span>{{ t('wizard.p50') }}</span>
+          <span>{{ t('wizard.p90') }}</span>
+        </div>
         <ol class="draft-step-list">
           <li v-for="(step, index) in draft.steps" :key="step.key" class="draft-step-card">
             <header class="draft-step-head">
               <h3><span class="draft-step-index" aria-hidden="true">{{ index + 1 }}</span>{{ step.key }}</h3>
-              <UiBadge :tone="step.kind === 'review' || step.kind === 'buffer' ? 'info' : 'neutral'">
-                {{ stepKindLabel(step.kind) }}
-              </UiBadge>
             </header>
 
             <UiField :id="`step-title-${step.key}`" :label="t('wizard.stepTitle')">
@@ -1609,8 +1612,9 @@ const planLink = computed(() =>
       class="wizard-card wizard-card--center"
       aria-labelledby="step5-heading"
     >
-      <span class="success-mark" aria-hidden="true"><UiIcon name="check" :size="28" /></span>
-      <h2 id="step5-heading">{{ t('wizard.step5') }}</h2>
+      <h2 id="step5-heading">
+        <span class="success-mark" aria-hidden="true"><UiIcon name="check" :size="20" /></span>{{ t('wizard.step5') }}
+      </h2>
       <p>{{ t('wizard.step5Body') }}</p>
       <p class="next-milestone">{{ t('wizard.nextMilestone') }}</p>
       <div class="card-actions">

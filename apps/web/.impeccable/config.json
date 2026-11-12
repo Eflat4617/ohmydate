@@ -1,0 +1,35 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/assigned.html"
+        ],
+        "createdAt": "2026-11-12T18:51:22.569Z",
+        "reason": "model decided: a spent decision-round sketch, never shipped; the built screens set their own padding"
+      },
+      {
+        "rule": "cramped-padding",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/model-pick.html"
+        ],
+        "createdAt": "2026-11-12T18:51:22.583Z",
+        "reason": "model decided: a spent decision-round sketch, never shipped; the built screens set their own padding"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "*",
+        "files": [
+          ".impeccable/mocks/decision/assigned.html"
+        ],
+        "createdAt": "2026-11-12T19:41:45.356Z",
+        "reason": "model decided: the unchosen decision-round sketch, never shipped; its font belongs to a direction the user did not pick"
+      }
+    ]
+  }
+}

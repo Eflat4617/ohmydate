@@ -96,8 +96,8 @@ function tone(item: ReplanProposal) {
               </span>
               <span class="replan-item-body">{{ reasonLabel(item.trigger.reason) }}</span>
               <span class="replan-item-meta muted">
-                {{ tp('replan.changedCount', item.candidate.changedBlocks) }} ·
-                {{ t('replan.expiresAt', { time: formatDateTime(item.expiresAt, timeZone) }) }}
+                <span class="tabular">{{ tp('replan.changedCount', item.candidate.changedBlocks) }}</span>
+                <span class="tabular">{{ t('replan.expiresAt', { time: formatDateTime(item.expiresAt, timeZone) }) }}</span>
               </span>
               <UiIcon name="chevron-right" class="replan-item-chevron" />
             </RouterLink>
@@ -119,7 +119,7 @@ function tone(item: ReplanProposal) {
                 <UiBadge :tone="tone(item)" dot>{{ proposalStateLabel(item.state) }}</UiBadge>
               </span>
               <span class="replan-item-meta muted">
-                {{ t('replan.createdAt', { time: formatDateTime(item.createdAt, timeZone) }) }}
+                <span class="tabular">{{ t('replan.createdAt', { time: formatDateTime(item.createdAt, timeZone) }) }}</span>
               </span>
               <UiIcon name="chevron-right" class="replan-item-chevron" />
             </RouterLink>

@@ -15,7 +15,6 @@ import { runOwnerBound, type OwnerScope, type OwnerSteps } from '../../session/o
 import UiBadge from '../ui/UiBadge.vue';
 import UiBanner from '../ui/UiBanner.vue';
 import UiButton from '../ui/UiButton.vue';
-import UiIcon from '../ui/UiIcon.vue';
 import LinkPickerDialog from './LinkPickerDialog.vue';
 
 /**
@@ -167,7 +166,7 @@ async function removeLink(link: DocumentLink): Promise<void> {
 <template>
   <section class="note-section note-links" :aria-labelledby="headingId" data-note-links>
     <header class="note-section-header">
-      <h3 :id="headingId" class="note-section-title"><UiIcon name="link" :size="18" />{{ t('notes.links.title') }}</h3>
+      <h3 :id="headingId" class="note-section-title">{{ t('notes.links.title') }}</h3>
       <UiButton
         ref="addButton"
         size="sm"

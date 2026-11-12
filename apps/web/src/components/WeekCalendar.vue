@@ -37,6 +37,8 @@ const props = withDefaults(
     errorIndexes?: number[];
     /** Id of a note on every block, e.g. why the blocks cannot be edited right now. */
     blockDescribedBy?: string | undefined;
+    /** Presentational: when this changes (another candidate was picked), reopen on its first block. */
+    scrollKey?: string | null;
   }>(),
   {
     availability: null,
@@ -46,6 +48,7 @@ const props = withDefaults(
     editable: false,
     selectedIndex: null,
     errorIndexes: () => [],
+    scrollKey: null,
   },
 );
 
@@ -274,8 +277,11 @@ onMounted(() => {
   void nextTick(scrollToWorkingHours);
 });
 
+// Reopen when the week changes, when another candidate is picked, and when
+// the week first gets blocks (they often arrive after mount). Moving or
+// resizing a block keeps the count, so an edit never moves the scroller.
 watch(
-  () => props.weekStart,
+  [() => props.weekStart, () => props.scrollKey, () => positionedBlocks.value.length > 0],
   () => {
     void nextTick(scrollToWorkingHours);
   },

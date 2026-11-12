@@ -1,0 +1,954 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-13T00:00:00Z",
+  "title": "Design System: OhMyDate",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "oklch(99% 0.004 215)",
+        "tonalRamp": [
+          "oklch(15% 0.002 215)",
+          "oklch(27% 0.003 215)",
+          "oklch(39% 0.004 215)",
+          "oklch(51% 0.004 215)",
+          "oklch(63% 0.004 215)",
+          "oklch(75% 0.003 215)",
+          "oklch(86% 0.002 215)",
+          "oklch(95% 0.001 215)"
+        ],
+        "darkScheme": "paper-dark"
+      },
+      "paper-2": {
+        "role": "neutral",
+        "displayName": "Paper Well",
+        "canonical": "oklch(96.8% 0.007 215)",
+        "tonalRamp": [
+          "oklch(15% 0.003 215)",
+          "oklch(27% 0.005 215)",
+          "oklch(39% 0.006 215)",
+          "oklch(51% 0.007 215)",
+          "oklch(63% 0.007 215)",
+          "oklch(75% 0.006 215)",
+          "oklch(86% 0.004 215)",
+          "oklch(95% 0.002 215)"
+        ],
+        "darkScheme": "paper-2-dark"
+      },
+      "paper-3": {
+        "role": "neutral",
+        "displayName": "Paper Pressed",
+        "canonical": "oklch(94% 0.011 215)",
+        "tonalRamp": [
+          "oklch(15% 0.005 215)",
+          "oklch(27% 0.008 215)",
+          "oklch(39% 0.01 215)",
+          "oklch(51% 0.011 215)",
+          "oklch(63% 0.011 215)",
+          "oklch(75% 0.009 215)",
+          "oklch(86% 0.007 215)",
+          "oklch(95% 0.004 215)"
+        ],
+        "darkScheme": "paper-3-dark"
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Grid Rule",
+        "canonical": "oklch(86% 0.02 215)",
+        "tonalRamp": [
+          "oklch(15% 0.009 215)",
+          "oklch(27% 0.014 215)",
+          "oklch(39% 0.018 215)",
+          "oklch(51% 0.02 215)",
+          "oklch(63% 0.02 215)",
+          "oklch(75% 0.017 215)",
+          "oklch(86% 0.012 215)",
+          "oklch(95% 0.007 215)"
+        ],
+        "darkScheme": "rule-dark"
+      },
+      "rule-2": {
+        "role": "neutral",
+        "displayName": "Minor Rule",
+        "canonical": "oklch(92.5% 0.012 215)",
+        "tonalRamp": [
+          "oklch(15% 0.005 215)",
+          "oklch(27% 0.008 215)",
+          "oklch(39% 0.011 215)",
+          "oklch(51% 0.012 215)",
+          "oklch(63% 0.012 215)",
+          "oklch(75% 0.01 215)",
+          "oklch(86% 0.007 215)",
+          "oklch(95% 0.004 215)"
+        ],
+        "darkScheme": "rule-2-dark"
+      },
+      "edge": {
+        "role": "neutral",
+        "displayName": "Control Edge",
+        "canonical": "oklch(56% 0.024 235)",
+        "tonalRamp": [
+          "oklch(15% 0.011 235)",
+          "oklch(27% 0.017 235)",
+          "oklch(39% 0.022 235)",
+          "oklch(51% 0.024 235)",
+          "oklch(63% 0.024 235)",
+          "oklch(75% 0.02 235)",
+          "oklch(86% 0.014 235)",
+          "oklch(95% 0.008 235)"
+        ],
+        "darkScheme": "edge-dark"
+      },
+      "ink": {
+        "role": "primary",
+        "displayName": "Pen-Black Ink",
+        "canonical": "oklch(21% 0.012 255)",
+        "tonalRamp": [
+          "oklch(15% 0.005 255)",
+          "oklch(27% 0.008 255)",
+          "oklch(39% 0.011 255)",
+          "oklch(51% 0.012 255)",
+          "oklch(63% 0.012 255)",
+          "oklch(75% 0.01 255)",
+          "oklch(86% 0.007 255)",
+          "oklch(95% 0.004 255)"
+        ],
+        "darkScheme": "ink-dark"
+      },
+      "ink-2": {
+        "role": "primary",
+        "displayName": "Running Ink",
+        "canonical": "oklch(30% 0.014 255)",
+        "tonalRamp": [
+          "oklch(15% 0.006 255)",
+          "oklch(27% 0.01 255)",
+          "oklch(39% 0.013 255)",
+          "oklch(51% 0.014 255)",
+          "oklch(63% 0.014 255)",
+          "oklch(75% 0.012 255)",
+          "oklch(86% 0.008 255)",
+          "oklch(95% 0.005 255)"
+        ],
+        "darkScheme": "ink-2-dark"
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Ink",
+        "canonical": "oklch(46% 0.022 240)",
+        "tonalRamp": [
+          "oklch(15% 0.01 240)",
+          "oklch(27% 0.015 240)",
+          "oklch(39% 0.02 240)",
+          "oklch(51% 0.022 240)",
+          "oklch(63% 0.022 240)",
+          "oklch(75% 0.019 240)",
+          "oklch(86% 0.013 240)",
+          "oklch(95% 0.008 240)"
+        ],
+        "darkScheme": "muted-dark"
+      },
+      "on-ink": {
+        "role": "neutral",
+        "displayName": "Paper On Ink",
+        "canonical": "oklch(99% 0.004 215)",
+        "tonalRamp": [
+          "oklch(15% 0.002 215)",
+          "oklch(27% 0.003 215)",
+          "oklch(39% 0.004 215)",
+          "oklch(51% 0.004 215)",
+          "oklch(63% 0.004 215)",
+          "oklch(75% 0.003 215)",
+          "oklch(86% 0.002 215)",
+          "oklch(95% 0.001 215)"
+        ],
+        "darkScheme": "on-ink-dark"
+      },
+      "hl-yellow": {
+        "role": "primary",
+        "displayName": "Yellow Highlighter",
+        "canonical": "oklch(91% 0.175 100)",
+        "tonalRamp": [
+          "oklch(15% 0.079 100)",
+          "oklch(27% 0.122 100)",
+          "oklch(39% 0.158 100)",
+          "oklch(51% 0.175 100)",
+          "oklch(63% 0.175 100)",
+          "oklch(75% 0.149 100)",
+          "oklch(86% 0.105 100)",
+          "oklch(95% 0.061 100)"
+        ],
+        "darkScheme": "hl-yellow-dark"
+      },
+      "hl-mint": {
+        "role": "secondary",
+        "displayName": "Mint Highlighter",
+        "canonical": "oklch(84% 0.105 170)",
+        "tonalRamp": [
+          "oklch(15% 0.047 170)",
+          "oklch(27% 0.073 170)",
+          "oklch(39% 0.095 170)",
+          "oklch(51% 0.105 170)",
+          "oklch(63% 0.105 170)",
+          "oklch(75% 0.089 170)",
+          "oklch(86% 0.063 170)",
+          "oklch(95% 0.037 170)"
+        ],
+        "darkScheme": "hl-mint-dark"
+      },
+      "hl-pink": {
+        "role": "secondary",
+        "displayName": "Pink Highlighter",
+        "canonical": "oklch(79% 0.125 0)",
+        "tonalRamp": [
+          "oklch(15% 0.056 0)",
+          "oklch(27% 0.087 0)",
+          "oklch(39% 0.113 0)",
+          "oklch(51% 0.125 0)",
+          "oklch(63% 0.125 0)",
+          "oklch(75% 0.106 0)",
+          "oklch(86% 0.075 0)",
+          "oklch(95% 0.044 0)"
+        ],
+        "darkScheme": "hl-pink-dark"
+      },
+      "hl-sky": {
+        "role": "secondary",
+        "displayName": "Sky Highlighter",
+        "canonical": "oklch(84% 0.085 235)",
+        "tonalRamp": [
+          "oklch(15% 0.038 235)",
+          "oklch(27% 0.059 235)",
+          "oklch(39% 0.077 235)",
+          "oklch(51% 0.085 235)",
+          "oklch(63% 0.085 235)",
+          "oklch(75% 0.072 235)",
+          "oklch(86% 0.051 235)",
+          "oklch(95% 0.03 235)"
+        ],
+        "darkScheme": "hl-sky-dark"
+      },
+      "hl-lilac": {
+        "role": "tertiary",
+        "displayName": "Lilac Highlighter",
+        "canonical": "oklch(81% 0.095 295)",
+        "tonalRamp": [
+          "oklch(15% 0.043 295)",
+          "oklch(27% 0.066 295)",
+          "oklch(39% 0.086 295)",
+          "oklch(51% 0.095 295)",
+          "oklch(63% 0.095 295)",
+          "oklch(75% 0.081 295)",
+          "oklch(86% 0.057 295)",
+          "oklch(95% 0.033 295)"
+        ],
+        "darkScheme": "hl-lilac-dark"
+      },
+      "hl-orange": {
+        "role": "tertiary",
+        "displayName": "Orange Highlighter",
+        "canonical": "oklch(83% 0.125 65)",
+        "tonalRamp": [
+          "oklch(15% 0.056 65)",
+          "oklch(27% 0.087 65)",
+          "oklch(39% 0.113 65)",
+          "oklch(51% 0.125 65)",
+          "oklch(63% 0.125 65)",
+          "oklch(75% 0.106 65)",
+          "oklch(86% 0.075 65)",
+          "oklch(95% 0.044 65)"
+        ],
+        "darkScheme": "hl-orange-dark"
+      },
+      "on-hl": {
+        "role": "neutral",
+        "displayName": "On-Highlighter Ink",
+        "canonical": "oklch(21% 0.012 255)",
+        "tonalRamp": [
+          "oklch(15% 0.005 255)",
+          "oklch(27% 0.008 255)",
+          "oklch(39% 0.011 255)",
+          "oklch(51% 0.012 255)",
+          "oklch(63% 0.012 255)",
+          "oklch(75% 0.01 255)",
+          "oklch(86% 0.007 255)",
+          "oklch(95% 0.004 255)"
+        ]
+      },
+      "on-hl-muted": {
+        "role": "neutral",
+        "displayName": "On-Highlighter Muted Ink",
+        "canonical": "oklch(33% 0.02 250)",
+        "tonalRamp": [
+          "oklch(15% 0.009 250)",
+          "oklch(27% 0.014 250)",
+          "oklch(39% 0.018 250)",
+          "oklch(51% 0.02 250)",
+          "oklch(63% 0.02 250)",
+          "oklch(75% 0.017 250)",
+          "oklch(86% 0.012 250)",
+          "oklch(95% 0.007 250)"
+        ]
+      },
+      "pen-red": {
+        "role": "tertiary",
+        "displayName": "Red Pen",
+        "canonical": "oklch(50% 0.2 25)",
+        "tonalRamp": [
+          "oklch(15% 0.09 25)",
+          "oklch(27% 0.14 25)",
+          "oklch(39% 0.18 25)",
+          "oklch(51% 0.2 25)",
+          "oklch(63% 0.2 25)",
+          "oklch(75% 0.17 25)",
+          "oklch(86% 0.12 25)",
+          "oklch(95% 0.07 25)"
+        ],
+        "darkScheme": "pen-red-dark"
+      },
+      "pen-red-2": {
+        "role": "tertiary",
+        "displayName": "Red Pen Pressed",
+        "canonical": "oklch(43% 0.18 25)",
+        "tonalRamp": [
+          "oklch(15% 0.081 25)",
+          "oklch(27% 0.126 25)",
+          "oklch(39% 0.162 25)",
+          "oklch(51% 0.18 25)",
+          "oklch(63% 0.18 25)",
+          "oklch(75% 0.153 25)",
+          "oklch(86% 0.108 25)",
+          "oklch(95% 0.063 25)"
+        ],
+        "darkScheme": "pen-red-2-dark"
+      },
+      "pen-blue": {
+        "role": "tertiary",
+        "displayName": "Blue Pen",
+        "canonical": "oklch(45% 0.17 262)",
+        "tonalRamp": [
+          "oklch(15% 0.077 262)",
+          "oklch(27% 0.119 262)",
+          "oklch(39% 0.153 262)",
+          "oklch(51% 0.17 262)",
+          "oklch(63% 0.17 262)",
+          "oklch(75% 0.145 262)",
+          "oklch(86% 0.102 262)",
+          "oklch(95% 0.059 262)"
+        ],
+        "darkScheme": "pen-blue-dark"
+      },
+      "paper-dark": {
+        "role": "neutral",
+        "displayName": "Paper (dark scheme)",
+        "canonical": "oklch(19% 0.01 240)",
+        "tonalRamp": [
+          "oklch(15% 0.005 240)",
+          "oklch(27% 0.007 240)",
+          "oklch(39% 0.009 240)",
+          "oklch(51% 0.01 240)",
+          "oklch(63% 0.01 240)",
+          "oklch(75% 0.009 240)",
+          "oklch(86% 0.006 240)",
+          "oklch(95% 0.003 240)"
+        ]
+      },
+      "paper-2-dark": {
+        "role": "neutral",
+        "displayName": "Paper Well (dark scheme)",
+        "canonical": "oklch(22.5% 0.012 240)",
+        "tonalRamp": [
+          "oklch(15% 0.005 240)",
+          "oklch(27% 0.008 240)",
+          "oklch(39% 0.011 240)",
+          "oklch(51% 0.012 240)",
+          "oklch(63% 0.012 240)",
+          "oklch(75% 0.01 240)",
+          "oklch(86% 0.007 240)",
+          "oklch(95% 0.004 240)"
+        ]
+      },
+      "paper-3-dark": {
+        "role": "neutral",
+        "displayName": "Paper Pressed (dark scheme)",
+        "canonical": "oklch(26.5% 0.014 240)",
+        "tonalRamp": [
+          "oklch(15% 0.006 240)",
+          "oklch(27% 0.01 240)",
+          "oklch(39% 0.013 240)",
+          "oklch(51% 0.014 240)",
+          "oklch(63% 0.014 240)",
+          "oklch(75% 0.012 240)",
+          "oklch(86% 0.008 240)",
+          "oklch(95% 0.005 240)"
+        ]
+      },
+      "rule-dark": {
+        "role": "neutral",
+        "displayName": "Grid Rule (dark scheme)",
+        "canonical": "oklch(34% 0.018 235)",
+        "tonalRamp": [
+          "oklch(15% 0.008 235)",
+          "oklch(27% 0.013 235)",
+          "oklch(39% 0.016 235)",
+          "oklch(51% 0.018 235)",
+          "oklch(63% 0.018 235)",
+          "oklch(75% 0.015 235)",
+          "oklch(86% 0.011 235)",
+          "oklch(95% 0.006 235)"
+        ]
+      },
+      "rule-2-dark": {
+        "role": "neutral",
+        "displayName": "Minor Rule (dark scheme)",
+        "canonical": "oklch(27% 0.014 235)",
+        "tonalRamp": [
+          "oklch(15% 0.006 235)",
+          "oklch(27% 0.01 235)",
+          "oklch(39% 0.013 235)",
+          "oklch(51% 0.014 235)",
+          "oklch(63% 0.014 235)",
+          "oklch(75% 0.012 235)",
+          "oklch(86% 0.008 235)",
+          "oklch(95% 0.005 235)"
+        ]
+      },
+      "edge-dark": {
+        "role": "neutral",
+        "displayName": "Control Edge (dark scheme)",
+        "canonical": "oklch(60% 0.022 235)",
+        "tonalRamp": [
+          "oklch(15% 0.01 235)",
+          "oklch(27% 0.015 235)",
+          "oklch(39% 0.02 235)",
+          "oklch(51% 0.022 235)",
+          "oklch(63% 0.022 235)",
+          "oklch(75% 0.019 235)",
+          "oklch(86% 0.013 235)",
+          "oklch(95% 0.008 235)"
+        ]
+      },
+      "ink-dark": {
+        "role": "primary",
+        "displayName": "Pen-Black Ink (dark scheme)",
+        "canonical": "oklch(95% 0.006 220)",
+        "tonalRamp": [
+          "oklch(15% 0.003 220)",
+          "oklch(27% 0.004 220)",
+          "oklch(39% 0.005 220)",
+          "oklch(51% 0.006 220)",
+          "oklch(63% 0.006 220)",
+          "oklch(75% 0.005 220)",
+          "oklch(86% 0.004 220)",
+          "oklch(95% 0.002 220)"
+        ]
+      },
+      "ink-2-dark": {
+        "role": "primary",
+        "displayName": "Running Ink (dark scheme)",
+        "canonical": "oklch(88% 0.008 220)",
+        "tonalRamp": [
+          "oklch(15% 0.004 220)",
+          "oklch(27% 0.006 220)",
+          "oklch(39% 0.007 220)",
+          "oklch(51% 0.008 220)",
+          "oklch(63% 0.008 220)",
+          "oklch(75% 0.007 220)",
+          "oklch(86% 0.005 220)",
+          "oklch(95% 0.003 220)"
+        ]
+      },
+      "muted-dark": {
+        "role": "neutral",
+        "displayName": "Muted Ink (dark scheme)",
+        "canonical": "oklch(71% 0.016 230)",
+        "tonalRamp": [
+          "oklch(15% 0.007 230)",
+          "oklch(27% 0.011 230)",
+          "oklch(39% 0.014 230)",
+          "oklch(51% 0.016 230)",
+          "oklch(63% 0.016 230)",
+          "oklch(75% 0.014 230)",
+          "oklch(86% 0.01 230)",
+          "oklch(95% 0.006 230)"
+        ]
+      },
+      "on-ink-dark": {
+        "role": "neutral",
+        "displayName": "Paper On Ink (dark scheme)",
+        "canonical": "oklch(19% 0.01 240)",
+        "tonalRamp": [
+          "oklch(15% 0.005 240)",
+          "oklch(27% 0.007 240)",
+          "oklch(39% 0.009 240)",
+          "oklch(51% 0.01 240)",
+          "oklch(63% 0.01 240)",
+          "oklch(75% 0.009 240)",
+          "oklch(86% 0.006 240)",
+          "oklch(95% 0.003 240)"
+        ]
+      },
+      "hl-yellow-dark": {
+        "role": "primary",
+        "displayName": "Yellow Highlighter (dark scheme)",
+        "canonical": "oklch(86% 0.15 100)",
+        "tonalRamp": [
+          "oklch(15% 0.068 100)",
+          "oklch(27% 0.105 100)",
+          "oklch(39% 0.135 100)",
+          "oklch(51% 0.15 100)",
+          "oklch(63% 0.15 100)",
+          "oklch(75% 0.128 100)",
+          "oklch(86% 0.09 100)",
+          "oklch(95% 0.052 100)"
+        ]
+      },
+      "hl-mint-dark": {
+        "role": "secondary",
+        "displayName": "Mint Highlighter (dark scheme)",
+        "canonical": "oklch(78% 0.1 170)",
+        "tonalRamp": [
+          "oklch(15% 0.045 170)",
+          "oklch(27% 0.07 170)",
+          "oklch(39% 0.09 170)",
+          "oklch(51% 0.1 170)",
+          "oklch(63% 0.1 170)",
+          "oklch(75% 0.085 170)",
+          "oklch(86% 0.06 170)",
+          "oklch(95% 0.035 170)"
+        ]
+      },
+      "hl-pink-dark": {
+        "role": "secondary",
+        "displayName": "Pink Highlighter (dark scheme)",
+        "canonical": "oklch(74% 0.125 0)",
+        "tonalRamp": [
+          "oklch(15% 0.056 0)",
+          "oklch(27% 0.087 0)",
+          "oklch(39% 0.113 0)",
+          "oklch(51% 0.125 0)",
+          "oklch(63% 0.125 0)",
+          "oklch(75% 0.106 0)",
+          "oklch(86% 0.075 0)",
+          "oklch(95% 0.044 0)"
+        ]
+      },
+      "hl-sky-dark": {
+        "role": "secondary",
+        "displayName": "Sky Highlighter (dark scheme)",
+        "canonical": "oklch(78% 0.085 235)",
+        "tonalRamp": [
+          "oklch(15% 0.038 235)",
+          "oklch(27% 0.059 235)",
+          "oklch(39% 0.077 235)",
+          "oklch(51% 0.085 235)",
+          "oklch(63% 0.085 235)",
+          "oklch(75% 0.072 235)",
+          "oklch(86% 0.051 235)",
+          "oklch(95% 0.03 235)"
+        ]
+      },
+      "hl-lilac-dark": {
+        "role": "tertiary",
+        "displayName": "Lilac Highlighter (dark scheme)",
+        "canonical": "oklch(75% 0.095 295)",
+        "tonalRamp": [
+          "oklch(15% 0.043 295)",
+          "oklch(27% 0.066 295)",
+          "oklch(39% 0.086 295)",
+          "oklch(51% 0.095 295)",
+          "oklch(63% 0.095 295)",
+          "oklch(75% 0.081 295)",
+          "oklch(86% 0.057 295)",
+          "oklch(95% 0.033 295)"
+        ]
+      },
+      "hl-orange-dark": {
+        "role": "tertiary",
+        "displayName": "Orange Highlighter (dark scheme)",
+        "canonical": "oklch(78% 0.12 65)",
+        "tonalRamp": [
+          "oklch(15% 0.054 65)",
+          "oklch(27% 0.084 65)",
+          "oklch(39% 0.108 65)",
+          "oklch(51% 0.12 65)",
+          "oklch(63% 0.12 65)",
+          "oklch(75% 0.102 65)",
+          "oklch(86% 0.072 65)",
+          "oklch(95% 0.042 65)"
+        ]
+      },
+      "pen-red-dark": {
+        "role": "tertiary",
+        "displayName": "Red Pen (dark scheme)",
+        "canonical": "oklch(73% 0.15 25)",
+        "tonalRamp": [
+          "oklch(15% 0.068 25)",
+          "oklch(27% 0.105 25)",
+          "oklch(39% 0.135 25)",
+          "oklch(51% 0.15 25)",
+          "oklch(63% 0.15 25)",
+          "oklch(75% 0.128 25)",
+          "oklch(86% 0.09 25)",
+          "oklch(95% 0.052 25)"
+        ]
+      },
+      "pen-red-2-dark": {
+        "role": "tertiary",
+        "displayName": "Red Pen Pressed (dark scheme)",
+        "canonical": "oklch(79% 0.13 25)",
+        "tonalRamp": [
+          "oklch(15% 0.059 25)",
+          "oklch(27% 0.091 25)",
+          "oklch(39% 0.117 25)",
+          "oklch(51% 0.13 25)",
+          "oklch(63% 0.13 25)",
+          "oklch(75% 0.111 25)",
+          "oklch(86% 0.078 25)",
+          "oklch(95% 0.045 25)"
+        ]
+      },
+      "pen-blue-dark": {
+        "role": "tertiary",
+        "displayName": "Blue Pen (dark scheme)",
+        "canonical": "oklch(77% 0.11 262)",
+        "tonalRamp": [
+          "oklch(15% 0.05 262)",
+          "oklch(27% 0.077 262)",
+          "oklch(39% 0.099 262)",
+          "oklch(51% 0.11 262)",
+          "oklch(63% 0.11 262)",
+          "oklch(75% 0.093 262)",
+          "oklch(86% 0.066 262)",
+          "oklch(95% 0.038 262)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "The focus timer only. 4.5rem, 7.5rem from 1280px wide; in calm mode 4.5rem, 9rem from 640px, 11rem from 1280px; 30px once the session is complete."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "The page's h1, on the 2px ink rule."
+      },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "A number over its muted label (계획, 여유, 블록)."
+      },
+      "title-lg": {
+        "displayName": "Title Large",
+        "purpose": "The next block's title, the task in hand on Focus, dialog titles, the wordmark."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Section headings, settings legends, block titles (at weight 600)."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Running text, fields, nav items. 16px below 1024px."
+      },
+      "body-sm": {
+        "displayName": "Body Small",
+        "purpose": "Buttons (weight 600), banners, tables, meta lines. 15px below 1024px."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, badges, choice boxes; at 400 and muted for help text and figure labels."
+      },
+      "grid-label": {
+        "displayName": "Grid Label",
+        "purpose": "Labels inside dense time grids and the bottom nav. Not for running text."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Code only: an RRULE, a raw-input field, inline code and plain source in a note."
+      }
+    },
+    "shadows": [],
+    "edges": [
+      {
+        "name": "rule-hair",
+        "value": "1px",
+        "purpose": "Hairlines between rows, grid lines, field edges."
+      },
+      {
+        "name": "rule-pen",
+        "value": "1.5px",
+        "purpose": "A pen-drawn box: buttons, checkboxes, dialogs, the boxed danger badge."
+      },
+      {
+        "name": "rule-bar",
+        "value": "2px",
+        "purpose": "The ink rule under a heading, the now line, the top of a sheet."
+      },
+      {
+        "name": "focus-ring",
+        "value": "2px solid var(--pen-blue), offset 2px",
+        "purpose": "Keyboard focus on every control; drawn 1px inside on fields."
+      }
+    ],
+    "motion": [
+      {
+        "name": "duration-fast",
+        "value": "120ms",
+        "purpose": "Colour and edge changes on controls, the button press."
+      },
+      {
+        "name": "duration-base",
+        "value": "180ms",
+        "purpose": "The highlighter stroke, the scrim, a layout switch."
+      },
+      {
+        "name": "duration-slow",
+        "value": "260ms",
+        "purpose": "Dialogs, sheets and toasts arriving; the meter fill."
+      },
+      {
+        "name": "ease-standard",
+        "value": "cubic-bezier(0.2, 0, 0, 1)",
+        "purpose": "Default easing for control transitions."
+      },
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The highlighter stroke and anything arriving."
+      },
+      {
+        "name": "hl-draw",
+        "value": "@keyframes hl-draw { from { background-size: 0% 100%; } }",
+        "purpose": "A highlighter stroke drawn from the left when something becomes current or selected."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "all duration tokens 0ms; spinner, skeleton and AI wait run stopped",
+        "purpose": "prefers-reduced-motion removes every movement."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone-narrow",
+        "value": "480px"
+      },
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "rail",
+        "value": "1024px"
+      },
+      {
+        "name": "context-column",
+        "value": "1280px"
+      },
+      {
+        "name": "wide",
+        "value": "1440px"
+      }
+    ],
+    "layout": [
+      {
+        "name": "nav-width",
+        "value": "13.5rem"
+      },
+      {
+        "name": "bottom-nav-height",
+        "value": "3.5rem"
+      },
+      {
+        "name": "content-max",
+        "value": "46rem"
+      },
+      {
+        "name": "content-wide",
+        "value": "80rem"
+      },
+      {
+        "name": "tt-row",
+        "value": "2rem",
+        "purpose": "One hour of any time grid: six ten-minute cells."
+      },
+      {
+        "name": "control-height",
+        "value": "2.25rem"
+      },
+      {
+        "name": "control-height-sm",
+        "value": "1.875rem"
+      },
+      {
+        "name": "control-height-lg",
+        "value": "2.75rem"
+      },
+      {
+        "name": "hit-target",
+        "value": "2.75rem",
+        "purpose": "Minimum control size on coarse pointers."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one ink-filled control on a page or dialog: the next thing to do. Inert, it steps back to an outline.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">집중 시작</button> <button class=\"ds-btn ds-btn-primary\" disabled>집중 시작</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; min-height: 2.25rem; padding: 0 0.75rem; border: 1.5px solid var(--color-ink); border-radius: 4px; background: transparent; color: var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.875rem; font-weight: 600; line-height: 1.2; white-space: nowrap; cursor: pointer; transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), border-color 120ms cubic-bezier(0.2, 0, 0, 1), transform 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-btn:hover { background: var(--color-paper-2); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 2px solid var(--pen-blue); outline-offset: 2px; } .ds-btn-primary { background: var(--color-ink); color: var(--color-on-ink); } .ds-btn-primary:hover { background: var(--color-ink-2); border-color: var(--color-ink-2); } .ds-btn-primary:disabled { background: transparent; color: var(--color-ink); border-color: var(--color-edge); opacity: 0.55; cursor: not-allowed; transform: none; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "The default button: a pen-drawn box. Every action that is not the primary one.",
+      "html": "<button class=\"ds-btn\">축소</button> <button class=\"ds-btn\">재배치</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; min-height: 2.25rem; padding: 0 0.75rem; border: 1.5px solid var(--color-ink); border-radius: 4px; background: transparent; color: var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.875rem; font-weight: 600; line-height: 1.2; white-space: nowrap; cursor: pointer; transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), border-color 120ms cubic-bezier(0.2, 0, 0, 1), transform 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-btn:hover { background: var(--color-paper-2); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 2px solid var(--pen-blue); outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost and Danger Buttons",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Ghost drops the edge for a tertiary action; danger is filled in red pen for a destructive one.",
+      "html": "<button class=\"ds-btn ds-btn-ghost\">블록 고정</button> <button class=\"ds-btn ds-btn-danger\">삭제</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; min-height: 2.25rem; padding: 0 0.75rem; border: 1.5px solid var(--color-ink); border-radius: 4px; background: transparent; color: var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.875rem; font-weight: 600; line-height: 1.2; white-space: nowrap; cursor: pointer; transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), border-color 120ms cubic-bezier(0.2, 0, 0, 1), transform 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-btn:hover { background: var(--color-paper-2); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 2px solid var(--pen-blue); outline-offset: 2px; } .ds-btn-ghost { border-color: transparent; } .ds-btn-danger { background: var(--pen-red); border-color: var(--pen-red); color: var(--color-on-ink); } .ds-btn-danger:hover { background: var(--pen-red-2); border-color: var(--pen-red-2); }"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "A text field with its label above. Field, select and textarea share this box.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">작업 이름</span><input class=\"ds-input\" type=\"text\" value=\"연구 노트 요약\"><span class=\"ds-field-help\">짧게 적어요.</span></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 0.25rem; max-width: 20rem; font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); } .ds-field-label { color: var(--color-ink); font-size: 0.8125rem; font-weight: 600; line-height: 1.4; } .ds-field-help { color: var(--color-muted); font-size: 0.8125rem; line-height: 1.4; } .ds-input { min-height: 2.25rem; padding: 0.25rem 0.625rem; border: 1px solid var(--color-edge); border-radius: 4px; background: var(--color-paper); color: var(--color-ink); font: inherit; font-size: 0.9375rem; line-height: 1.4; transition: border-color 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-input:hover { border-color: var(--color-ink); } .ds-input:focus-visible { border-color: var(--color-ink); outline: 2px solid var(--pen-blue); outline-offset: -1px; }"
+    },
+    {
+      "name": "Badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "A state is a highlighted word with square ends. Danger is written in red pen and boxed, not highlighted.",
+      "html": "<span class=\"ds-badge\">대기</span> <span class=\"ds-badge ds-badge-accent\">다음 차례</span> <span class=\"ds-badge ds-badge-ok\">저장됨</span> <span class=\"ds-badge ds-badge-warn\">위험도: 보통</span> <span class=\"ds-badge ds-badge-info\">제안</span> <span class=\"ds-badge ds-badge-danger\">마감 초과</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; min-height: 1.375rem; padding: 0 0.375rem; background: var(--color-paper-3); color: var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.8125rem; font-weight: 600; line-height: 1.3; white-space: nowrap; font-variant-numeric: tabular-nums; } .ds-badge-accent { background: var(--hl-yellow); color: var(--color-on-hl); } .ds-badge-ok { background: var(--hl-mint); color: var(--color-on-hl); } .ds-badge-warn { background: var(--hl-pink); color: var(--color-on-hl); } .ds-badge-info { background: var(--hl-sky); color: var(--color-on-hl); } .ds-badge-danger { background: transparent; color: var(--pen-red); box-shadow: inset 0 0 0 1.5px var(--pen-red); }"
+    },
+    {
+      "name": "Choice Box",
+      "kind": "chip",
+      "refersTo": "choice-chip",
+      "description": "A radio or checkbox drawn as a selectable box. Picked means highlighted yellow.",
+      "html": "<label class=\"ds-choice\"><input type=\"radio\" name=\"ds-outcome\" checked>끝냈어요</label> <label class=\"ds-choice\"><input type=\"radio\" name=\"ds-outcome\">일부만</label> <label class=\"ds-choice\"><input type=\"radio\" name=\"ds-outcome\">못 했어요</label>",
+      "css": ".ds-choice { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 1.875rem; padding: 0 0.625rem; border: 1px solid var(--color-edge); border-radius: 4px; background: var(--color-paper); color: var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.8125rem; font-weight: 500; cursor: pointer; transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), border-color 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-choice:hover { border-color: var(--color-ink); } .ds-choice:has(input:checked) { border-color: var(--color-on-hl); background: var(--hl-yellow); color: var(--color-on-hl); font-weight: 600; } .ds-choice:has(input:focus-visible) { outline: 2px solid var(--pen-blue); outline-offset: 2px; } .ds-choice input { appearance: none; display: inline-grid; place-content: center; width: 1.125rem; height: 1.125rem; margin: 0; border: 1.5px solid var(--color-on-hl); border-radius: 50%; background: transparent; } .ds-choice input::before { content: ''; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--color-on-hl); transform: scale(0); } .ds-choice input:checked::before { transform: scale(1); }"
+    },
+    {
+      "name": "Section",
+      "kind": "card",
+      "description": "What replaces a card: a heading over a 2px ink rule, then ruled rows. No edge, no fill, no shadow.",
+      "html": "<section class=\"ds-section\"><h2 class=\"ds-section-head\">다음 일정</h2><ul class=\"ds-rows\"><li><strong>연구 노트 요약</strong><span>오후 7:00~8:30 · 1시간 30분</span></li><li><strong>발표 개요 초안</strong><span>오후 9:00~9:40 · 40분</span></li></ul></section>",
+      "css": ".ds-section { display: flex; flex-direction: column; max-width: 22rem; color: var(--color-ink-2); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); } .ds-section-head { margin: 0; padding-bottom: 0.5rem; border-bottom: 2px solid var(--color-ink); color: var(--color-ink); font-size: 1.0625rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.25; } .ds-rows { margin: 0; padding: 0; list-style: none; } .ds-rows li { display: flex; flex-direction: column; padding: 0.75rem 0; border-bottom: 1px solid var(--color-rule); } .ds-rows strong { color: var(--color-ink); font-size: 0.9375rem; font-weight: 600; } .ds-rows span { color: var(--color-muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Navigation Item",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "The rail is a list of words. The current item is heavy, with a yellow stroke behind its label that draws from the left.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link ds-nav-link-active\" href=\"#\"><span class=\"ds-nav-label\">오늘</span><kbd class=\"ds-kbd\">t</kbd></a><a class=\"ds-nav-link\" href=\"#\"><span class=\"ds-nav-label\">인박스</span></a><a class=\"ds-nav-link\" href=\"#\"><span class=\"ds-nav-label\">프로젝트</span></a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; width: 12rem; font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); } .ds-nav-link { display: flex; align-items: center; gap: 0.625rem; min-height: 2rem; padding: 0 0.5rem; border-radius: 4px; color: var(--color-ink-2); font-size: 0.9375rem; text-decoration: none; transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-nav-link:hover { background: var(--color-paper-2); } .ds-nav-link:focus-visible { outline: 2px solid var(--pen-blue); outline-offset: 2px; } .ds-nav-label { position: relative; z-index: 0; } .ds-nav-label::before { content: ''; position: absolute; inset: 0.05em -0.25rem; z-index: -1; background: var(--hl-yellow); transform: scaleX(0); transform-origin: left center; transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-nav-link-active { font-weight: 800; } .ds-nav-link-active .ds-nav-label { color: var(--color-on-hl); } .ds-nav-link-active .ds-nav-label::before, .ds-nav-link:active .ds-nav-label::before { transform: scaleX(1); } .ds-kbd { display: inline-grid; place-items: center; min-width: 1.5em; height: 1.5em; margin-left: auto; padding: 0 0.3em; border: 1px solid var(--color-edge); border-radius: 2px; color: var(--color-muted); font: inherit; font-size: 0.75em; font-weight: 500; line-height: 1; }"
+    },
+    {
+      "name": "Banner",
+      "kind": "custom",
+      "refersTo": "banner",
+      "description": "A highlighted line across the page. An error is boxed in red pen on the paper itself.",
+      "html": "<div class=\"ds-banner\"><strong>일정안이 준비됐어요</strong><span>세 가지를 비교하고 하나를 골라요.</span></div><div class=\"ds-banner ds-banner-error\"><strong>저장하지 못했어요</strong><span>잠시 뒤에 다시 해 보세요.</span></div>",
+      "css": ".ds-banner { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; padding: 0.5rem 0.75rem; border: 1.5px solid transparent; border-radius: 2px; background: var(--hl-sky); color: var(--color-on-hl); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.875rem; line-height: 1.4; } .ds-banner strong { font-weight: 800; } .ds-banner-error { background: var(--color-paper); border-color: var(--pen-red); color: var(--color-ink); } .ds-banner-error strong { color: var(--pen-red); }"
+    },
+    {
+      "name": "Time Cells",
+      "kind": "custom",
+      "refersTo": "timetable-row",
+      "description": "The signature: an hour is a 2rem row of six ten-minute cells, and planned time is highlighter over the cells with the grid lines drawn on top. The meter under it is the same device for focus progress.",
+      "html": "<div class=\"ds-tt\"><div class=\"ds-tt-row ds-tt-now\"><span class=\"ds-tt-hour\"><span>오후 6시</span></span><span class=\"ds-tt-cells\"><span class=\"ds-tt-elapsed\"></span></span></div><div class=\"ds-tt-row\"><span class=\"ds-tt-hour\"><span>오후 7시</span></span><span class=\"ds-tt-cells\"><span class=\"ds-tt-run\" style=\"--from:0;--to:1\"></span></span></div><div class=\"ds-tt-row\"><span class=\"ds-tt-hour\"><span>오후 8시</span></span><span class=\"ds-tt-cells\"><span class=\"ds-tt-run\" style=\"--from:0;--to:0.5\"></span></span></div><div class=\"ds-tt-row\"><span class=\"ds-tt-hour\"><span>오후 9시</span></span><span class=\"ds-tt-cells\"><span class=\"ds-tt-run ds-tt-run-lilac\" style=\"--from:0;--to:0.6667\"></span></span></div></div><div class=\"ds-meter\" style=\"--value:0.4;--cells:9\"><span class=\"ds-meter-fill\"></span></div>",
+      "css": ".ds-tt { width: 22rem; border-left: 1px solid var(--color-rule); border-top: 2px solid var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); } .ds-tt-row { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); height: 2rem; border-bottom: 1px solid var(--color-rule); } .ds-tt-hour { display: flex; align-items: center; justify-content: flex-end; padding-right: 0.5rem; border-right: 1px solid var(--color-rule); color: var(--color-muted); font-size: 0.8125rem; white-space: nowrap; } .ds-tt-now .ds-tt-hour span { padding: 0 0.25rem; background: var(--hl-yellow); color: var(--color-on-hl); font-weight: 600; } .ds-tt-cells { position: relative; display: block; border-right: 1px solid var(--color-rule); } .ds-tt-cells::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(to right, transparent 0, transparent calc(100% / 6 - 1px), var(--color-rule-2) calc(100% / 6 - 1px), var(--color-rule-2) calc(100% / 6)); pointer-events: none; } .ds-tt-run { position: absolute; inset-block: 0; left: calc(var(--from) * 100%); width: calc((var(--to) - var(--from)) * 100%); background: var(--hl-yellow); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--hl-yellow) 50%, var(--color-on-hl)); } .ds-tt-run-lilac { background: var(--hl-lilac); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--hl-lilac) 50%, var(--color-on-hl)); } .ds-tt-elapsed { position: absolute; inset-block: 0; left: 0; width: 66%; background: var(--color-paper-2); border-right: 2px solid var(--color-ink); } .ds-meter { position: relative; display: block; width: 22rem; height: 2rem; margin-top: 1rem; overflow: hidden; border: 1px solid var(--color-edge); background: var(--color-paper); } .ds-meter-fill { position: absolute; inset: 0; background: var(--hl-yellow); transform: scaleX(var(--value, 0)); transform-origin: left center; transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-meter:hover .ds-meter-fill { transform: scaleX(calc(var(--value, 0) + 1 / var(--cells))); } .ds-meter::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(to right, transparent 0, transparent calc(100% / var(--cells) - 1px), var(--color-edge) calc(100% / var(--cells) - 1px), var(--color-edge) calc(100% / var(--cells))); opacity: 0.45; pointer-events: none; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Ten-Minute Planner Page",
+    "overview": "OhMyDate looks like a page from a Korean ten-minute study planner (텐미닛 플래너). The ground is cool white paper. Structure is drawn, not built: a ruled grid in two weights, a 2px ink rule under every heading, hairlines between rows. Text is pen-black ink. State and planned time are marked the way a student marks them, with a highlighter over the word or over the cells. Two coloured pens do the rest: red for danger, blue for links and the focus ring.\n\nNothing floats and nothing is boxed for its own sake. There are no cards, no shadows and no pills. What used to be a card is a section of the page: a heading over a 2px ink rule, then ruled rows. What used to be a pill is a highlighted word with square ends. The density is that of a worksheet: 15px running text, 36px controls, 32px hour rows.\n\nEach kind of screen looks like its job. Today is a block list beside the day's time table. Focus is one large timer over a strip of ten-minute cells. Planning screens are worksheets and ruled tables. Settings are plain forms whose legends sit on the 2px rule. The scheme follows the operating system, light or dark, and ink on a highlighter stays dark in both.",
+    "keyCharacteristics": [
+      "Cool white paper, a ruled grid in two weights, pen-black ink.",
+      "A section is a heading over a 2px ink rule; a state is a highlighted word.",
+      "Six highlighters carry state and time; a red pen and a blue pen carry danger and links.",
+      "Time is drawn as ten-minute cells that fill with highlighter.",
+      "One installed Korean sans, four weights, a fixed type scale.",
+      "Flat: no shadows, no cards, no pills, corners of 0 to 6px.",
+      "Motion only when a state changes."
+    ],
+    "rules": [
+      {
+        "name": "The Highlighter Is A Fill Rule",
+        "body": "A highlighter colour is only ever a background. Text, icons, edges and rules are ink or pen. Text on any highlighter is `on-hl` in both colour schemes; a highlighted region re-points the ink, muted, edge, link and focus tokens to their on-highlighter values so everything inside it stays dark.",
+        "section": "colors"
+      },
+      {
+        "name": "The Yellow Means Now Rule",
+        "body": "Yellow marks what is current, next, selected or on, and it is the single-series fill of planned time (the focus meter, the week calendar's blocks). It never means ok, caution or information; those are mint, pink and sky.",
+        "section": "colors"
+      },
+      {
+        "name": "The Danger Is Written Rule",
+        "body": "Danger is red pen, not a highlighter: red text, a red box drawn around the message, or a red filled button. There is no red highlighter.",
+        "section": "colors"
+      },
+      {
+        "name": "The Second Signal Rule",
+        "body": "No meaning rides on hue alone. A state is a word; 집중 paint carries upright lines; a commitment and a 쉼 exception are striped; offline is dashed pencil.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Face Rule",
+        "body": "One family, four weights. A new role is a size and a weight from the scale, not a second typeface. The mono face is for code only.",
+        "section": "typography"
+      },
+      {
+        "name": "The Aligned Numbers Rule",
+        "body": "Times, durations, counts and the timer use tabular numerals so they line up in a column.",
+        "section": "typography"
+      },
+      {
+        "name": "The Whole Word Rule",
+        "body": "Hangul words do not break mid-word (`word-break: keep-all`); long ids and URLs may wrap anywhere. Headings balance their lines.",
+        "section": "typography"
+      },
+      {
+        "name": "The No Shadow Rule",
+        "body": "Nothing casts a shadow, at rest or on hover. If a surface must separate from the page, draw its edge in ink.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do take every colour, size, edge and duration from `src/styles/tokens.css`. Stylesheets outside it contain no raw colour.",
+      "Do open a section with a heading over a 2px ink rule and separate its rows with 1px hairlines.",
+      "Do show a state as a highlighted word with square ends, and write danger in red pen.",
+      "Do set text on any highlighter in `--color-on-hl` (or `--color-on-hl-muted`), in both colour schemes.",
+      "Do keep one ink-filled control per page or dialog, the next thing to do; other actions are outlines or ghosts. The shell's own 새 작업 is the one standing exception.",
+      "Do draw any new view of time on the shared module: 2rem per hour, six ten-minute cells, highlighter over the cells with the grid lines on top.",
+      "Do give every colour-coded mark a second signal: a word, a stripe, a line pattern or a dash.",
+      "Do keep controls at 44px or more on coarse pointers and keep the 2px blue-pen focus ring visible.",
+      "Do check any new text or edge pair against the contrast table before adding a token."
+    ],
+    "donts": [
+      "Don't add a card: no bordered, filled or shadowed box around a section.",
+      "Don't add a shadow of any kind. Separate a surface with an ink edge.",
+      "Don't round a badge or a button into a pill. Corners stop at 6px, and only radios are round.",
+      "Don't use a highlighter as a text, icon or border colour.",
+      "Don't use yellow for ok, caution or information, and don't use blue for anything but links and the focus ring.",
+      "Don't add a second typeface, a shipped font file or a network font. Mono is for code only.",
+      "Don't set a size or weight outside the scale (12, 13, 14, 15, 17, 20, 26, 30px; 400, 500, 600, 800), and don't set text in capitals or add letter-spacing beyond the heading's -0.02em.",
+      "Don't animate anything that is not a change of state: no entrance choreography, no hover lifts, no decorative loops.",
+      "Don't centre the page in the window; it starts at the left margin beside the rail."
+    ]
+  }
+}

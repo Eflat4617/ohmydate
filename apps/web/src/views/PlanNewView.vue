@@ -326,9 +326,10 @@ async function generate(): Promise<void> {
                     <span class="picker-group-text">
                       <span :id="`${groupDomId(group)}-title`" class="picker-group-title">{{ groupTitle(group) }}</span>
                       <span class="picker-group-meta">
-                        {{ tp('planNew.groupCount', group.tasks.length) }}<template
-                          v-if="selectedCount(group, selected) > 0"
-                        > · {{ tp('planNew.groupSelected', selectedCount(group, selected)) }}</template>
+                        <span>{{ tp('planNew.groupCount', group.tasks.length) }}</span>
+                        <span v-if="selectedCount(group, selected) > 0" class="picker-group-selected">{{
+                          tp('planNew.groupSelected', selectedCount(group, selected))
+                        }}</span>
                       </span>
                     </span>
                   </button>

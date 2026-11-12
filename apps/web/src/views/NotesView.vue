@@ -239,7 +239,7 @@ function summaryOf(note: ContextDocument): string {
         <UiBadge v-if="!offline.mutationsEnabled" tone="offline" dot class="chip--offline" role="status">
           {{ t('common.readOnlyOffline') }}
         </UiBadge>
-        <RouterLink to="/notes/new" class="btn btn--primary" data-note-new>
+        <RouterLink to="/notes/new" class="btn" :class="hasSelection ? 'btn--secondary' : 'btn--primary'" data-note-new>
           <UiIcon name="plus" :size="18" />
           <span>{{ t('notes.newNote') }}</span>
         </RouterLink>
@@ -250,7 +250,7 @@ function summaryOf(note: ContextDocument): string {
 
     <div class="notes-layout" :class="{ 'notes-layout--detail': hasSelection }">
       <section class="notes-list-pane" aria-labelledby="notes-list-title" data-notes-list>
-        <h2 id="notes-list-title" class="notes-pane-title">{{ t('notes.listTitle') }}</h2>
+        <h2 id="notes-list-title" class="notes-pane-title visually-hidden">{{ t('notes.listTitle') }}</h2>
         <form class="notes-search" role="search" @submit.prevent="submitSearch">
           <label for="notes-search" class="field-label">{{ t('notes.search.label') }}</label>
           <div class="notes-search-row">
@@ -310,7 +310,7 @@ function summaryOf(note: ContextDocument): string {
                 <span v-if="summaryOf(note)" class="note-list-summary">{{ summaryOf(note) }}</span>
                 <span class="note-list-meta">
                   <time :datetime="note.updatedAt" class="tabular">{{ t('notes.updated', { time: formatDateTime(note.updatedAt, timeZone) }) }}</time>
-                  <UiBadge v-if="note.llmAllowed" tone="accent">{{ t('notes.badges.aiAllowed') }}</UiBadge>
+                  <UiBadge v-if="note.llmAllowed" tone="info">{{ t('notes.badges.aiAllowed') }}</UiBadge>
                   <UiBadge v-if="note.sensitivity === 'P1'" tone="warn">{{ t('notes.badges.sensitive') }}</UiBadge>
                   <UiBadge v-if="note.source === 'task_description'" tone="outline">{{ t('notes.badges.promoted') }}</UiBadge>
                   <UiBadge v-if="note.links.length > 0" tone="neutral">{{ tp('notes.badges.links', note.links.length) }}</UiBadge>

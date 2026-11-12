@@ -228,6 +228,11 @@ export const ko = {
     acceptPlan: '오늘 계획 수락',
     blockList: '오늘의 블록',
     nextUp: '다음 차례',
+    timetable: '타임테이블',
+    timetableUnit: '한 칸은 10분',
+    timetableLabel: plural({
+      other: '오늘 블록 {count}개를 10분 칸에 칠한 표',
+    }),
     blockRisk: '블록 위험도',
     startFocus: '집중 시작',
     starting: '시작하는 중…',

@@ -1,0 +1,34 @@
+[
+ {
+  "mode": "redesign",
+  "depth": "full",
+  "scope": "app",
+  "shape": "app screen",
+  "theme": "custom",
+  "idea": "a page from a Korean ten-minute study planner: time is drawn as cells and planned time is highlighted",
+  "vibe": "white paper, ruled grid, pen and highlighters",
+  "axes": "light/grotesk-sans/chromatic-yellow",
+  "posture": "full palette",
+  "genre": "editorial",
+  "hero": "none (app screens)",
+  "nav": "the shell kept: left rail of words from 1024px, bottom nav below",
+  "footer": "none",
+  "imagery": "none; the product itself",
+  "photos": [],
+  "entry": "src/styles.css",
+  "fingerprint": "app/rail/ruled-sections/tables/cells/no-cards",
+  "sections": [
+   "오늘: block list beside the ten-minute time table",
+   "집중: timer over ten-minute cells",
+   "일정안 비교: one table of three candidates over the week grid",
+   "가용 시간: the paintable week grid beside its settings",
+   "계획 마법사: draft steps as table rows",
+   "인박스: ruled checklist",
+   "노트: index beside a writing page"
+  ],
+  "signature": "the ten-minute time table",
+  "waived": [],
+  "prompt": "Rebuild the UI of the OhMyDate planner so it does not read as AI-made (user chose the direction from sketches)",
+  "date": "2026-11-12"
+ }
+]

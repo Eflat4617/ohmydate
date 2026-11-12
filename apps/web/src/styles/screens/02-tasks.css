@@ -1,0 +1,253 @@
+/* ── Quick add & task list: a ruled checklist ──────────────────────── */
+/* Quick add is a writing line: the 2px ink rule under it is the field. */
+.quick-add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.quick-add-label {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.quick-add-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-1-5);
+  border-bottom: var(--rule-bar) solid var(--color-ink);
+}
+
+.quick-add-row:has(.quick-add-input:focus-visible) {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.quick-add-icon {
+  flex: none;
+  color: var(--color-ink);
+}
+
+.quick-add-input,
+.quick-add-input:hover:not(:disabled),
+.quick-add-input:focus-visible,
+.quick-add-input:disabled {
+  flex: 1;
+  padding-inline: 0;
+  border-color: transparent;
+  background: transparent;
+  outline: none;
+}
+
+.quick-add-input {
+  font-size: var(--text-lg);
+}
+
+/* Read-only (offline): the line is pencilled. */
+.quick-add--disabled .quick-add-row {
+  border-bottom-style: dashed;
+  border-bottom-color: var(--color-edge);
+}
+
+.quick-add--disabled .quick-add-icon {
+  color: var(--color-muted);
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* One task, one line: mark, title, status, and the actions at the row's end. */
+.task-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  min-height: 2.75rem;
+  padding: var(--space-1) 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.task-item--editing {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-paper-2);
+}
+
+/* A small pen box: empty while open, inked and ticked when done. */
+.task-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 0.8125rem;
+  height: 0.8125rem;
+  border: var(--rule-pen) solid var(--color-edge);
+  border-radius: var(--radius-xs);
+  color: var(--color-on-ink);
+}
+
+.task-mark--done {
+  border-color: var(--color-ink);
+  background: var(--color-ink);
+}
+
+/* An open task shows no box: an empty one would look like a checkbox to click.
+   Finishing a task is the 완료 action at the end of the row. */
+.task-mark:not(.task-mark--done) {
+  display: none;
+}
+
+.task-main {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--space-0-5) var(--space-4);
+  min-width: 0;
+}
+
+.task-title {
+  color: var(--color-ink);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.task-title-link {
+  text-decoration: none;
+}
+
+.task-title-link:hover {
+  text-decoration: underline;
+}
+
+/* "To do" is the resting state, so it is written plainly; the other two
+   are marked (sky for in progress, mint for done). */
+.task-status[data-status='todo'] {
+  --badge-bg: transparent;
+
+  padding: 0;
+  color: var(--color-muted);
+  font-weight: var(--weight-regular);
+}
+
+.task-item--done .task-title {
+  color: var(--color-muted);
+  text-decoration: line-through;
+}
+
+.task-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.task-actions .btn {
+  min-width: var(--control-height-sm);
+  padding-inline: var(--space-1-5);
+}
+
+/* Deleting stands apart from finishing. */
+.task-action--delete {
+  margin-left: var(--space-3);
+}
+
+.inline-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+}
+
+.inline-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.inline-edit-row input {
+  flex: 1 1 14rem;
+}
+
+.inline-edit-actions {
+  display: flex;
+  gap: var(--space-1-5);
+}
+
+/* A phone has room for the icons only; the names stay for assistive tech. */
+@media (max-width: 639px) {
+  .task-main {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
+
+  .task-action--delete {
+    margin-left: var(--space-1);
+  }
+
+  .task-actions .task-action-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+@media (pointer: coarse) {
+  .task-actions .btn {
+    min-width: var(--hit-target);
+  }
+}
+
+.list-loading,
+.error-panel {
+  width: 100%;
+}
+
+/* ── Projects: an index of names ───────────────────────────────────── */
+.project-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.project-link {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2-5);
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: var(--space-1) 0;
+  color: var(--color-ink);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+
+.project-link:hover .project-title {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.project-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  color: var(--color-muted);
+}
+
+.project-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.project-chevron {
+  flex: none;
+  color: var(--color-muted);
+}

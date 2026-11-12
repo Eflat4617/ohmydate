@@ -283,7 +283,7 @@ async function confirmReset(): Promise<void> {
         </UiCard>
 
         <UiCard v-if="coldStart" class="patterns-cold" variant="sunken" aria-labelledby="patterns-cold-title" data-cold-start>
-          <h2 id="patterns-cold-title" class="card-title"><UiIcon name="leaf" :size="18" /> {{ t('patterns.coldTitle') }}</h2>
+          <h2 id="patterns-cold-title" class="card-title">{{ t('patterns.coldTitle') }}</h2>
           <p>{{ t('patterns.coldBody') }}</p>
           <p class="muted">{{ t('patterns.coldNext') }}</p>
         </UiCard>
@@ -301,16 +301,16 @@ async function confirmReset(): Promise<void> {
       <section class="patterns-groups" aria-labelledby="patterns-groups-title">
         <div class="section-head">
           <h2 id="patterns-groups-title" class="h2">{{ t('patterns.groupsTitle') }}</h2>
-          <p class="muted">{{ t('patterns.groupsLede') }}</p>
         </div>
+        <p class="muted patterns-section-lede">{{ t('patterns.groupsLede') }}</p>
         <ul v-if="groups.length > 0" class="patterns-group-list">
           <UiCard v-for="group in groups" :key="group.key" as="li" compact class="patterns-group" :data-group="group.key">
             <div class="patterns-group-head">
               <h3 class="h3">{{ groupTitle(group) }}</h3>
-              <span class="chip-row">
-                <UiBadge>{{ tp('patterns.sampleCount', group.sampleCount) }}</UiBadge>
-                <UiBadge tone="info">{{ t('patterns.confidence') }} {{ confidenceText(group.confidence) }}</UiBadge>
-              </span>
+              <p class="patterns-group-meta muted">
+                <span class="tabular">{{ tp('patterns.sampleCount', group.sampleCount) }}</span>
+                <span class="tabular">{{ t('patterns.confidence') }} {{ confidenceText(group.confidence) }}</span>
+              </p>
             </div>
             <dl class="patterns-ratios">
               <div class="stat">
@@ -330,7 +330,7 @@ async function confirmReset(): Promise<void> {
                 <dd class="stat-value">{{ ratioText(group.stats.p90Ratio) }}</dd>
               </div>
             </dl>
-            <p class="field-help">
+            <p class="field-help patterns-group-help">
               {{ t('patterns.groupMethod', { dimension: groupDimensionLabel(group), k: profile.shrinkageK }) }}
             </p>
             <div v-if="group.dimension === 'template' && group.templateId" class="card-footer">
@@ -352,8 +352,8 @@ async function confirmReset(): Promise<void> {
       <section class="patterns-feedback" aria-labelledby="patterns-feedback-title">
         <div class="section-head">
           <h2 id="patterns-feedback-title" class="h2">{{ t('patterns.feedbackTitle') }}</h2>
-          <p class="muted">{{ t('patterns.feedbackLede') }}</p>
         </div>
+        <p class="muted patterns-section-lede">{{ t('patterns.feedbackLede') }}</p>
         <ul v-if="visibleItems.length > 0" class="patterns-items" :aria-label="t('patterns.feedbackList')">
           <li
             v-for="item in visibleItems"
@@ -377,6 +377,7 @@ async function confirmReset(): Promise<void> {
               <input
                 type="checkbox"
                 role="switch"
+                class="switch"
                 :checked="!item.excluded"
                 :disabled="readOnly || busyId !== null"
                 :aria-label="t('patterns.includeAria', { title: itemTitle(item), date: itemDate(item) })"
@@ -394,7 +395,7 @@ async function confirmReset(): Promise<void> {
             {{ t('patterns.showMore') }}
           </UiButton>
           <UiButton
-            variant="danger"
+            variant="danger-ghost"
             icon="trash"
             :disabled="readOnly || items.length === 0"
             data-reset-all

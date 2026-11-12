@@ -53,10 +53,11 @@ function unlock(): void {
           {{ autoSwitch ? t('layout.settings.autoOnStatus') : t('layout.settings.autoOffStatus') }}
         </UiBadge>
       </div>
-      <label class="layout-switch">
+      <label class="switch-row">
         <input
           type="checkbox"
           role="switch"
+          class="switch"
           :checked="autoSwitch"
           aria-describedby="layout-auto-help"
           data-layout-auto

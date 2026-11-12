@@ -69,7 +69,7 @@ function stepLabel(key: string): string {
 
 <template>
   <section class="wizard-evidence" :aria-labelledby="`${uid}-title`" data-wizard-evidence>
-    <h3 :id="`${uid}-title`" class="wizard-evidence-title"><UiIcon name="note" :size="18" />{{ t('notes.evidence.title') }}</h3>
+    <h3 :id="`${uid}-title`" class="wizard-evidence-title">{{ t('notes.evidence.title') }}</h3>
     <p class="muted">{{ t('notes.evidence.lede') }}</p>
     <p class="field-help">{{ t('notes.evidence.legend') }}</p>
     <p v-if="evidence.length === 0" class="muted" data-evidence-none>{{ t('notes.evidence.none') }}</p>

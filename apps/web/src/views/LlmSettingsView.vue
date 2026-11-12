@@ -105,15 +105,15 @@ async function saveBudget(): Promise<void> {
       <template v-else>
         <fieldset class="settings-group">
           <legend>{{ t('llm.settings.consentLegend') }}</legend>
-          <div class="settings-status">
-            <UiBadge :tone="consent?.granted ? 'success' : 'neutral'" dot size="lg">
+          <div class="llm-consent-state">
+            <UiBadge :tone="consent?.granted ? 'success' : 'neutral'" size="lg">
               {{ consent?.granted ? t('llm.settings.on') : t('llm.settings.off') }}
             </UiBadge>
+            <p v-if="consent?.granted">
+              {{ t('llm.settings.onBody', { at: consentAt, provider: consent.provider }) }}
+            </p>
+            <p v-else>{{ t('llm.settings.offBody') }}</p>
           </div>
-          <p v-if="consent?.granted">
-            {{ t('llm.settings.onBody', { at: consentAt, provider: consent.provider }) }}
-          </p>
-          <p v-else>{{ t('llm.settings.offBody') }}</p>
           <LlmDisclosure />
           <div class="settings-actions">
             <UiButton

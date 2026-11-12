@@ -20,7 +20,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--color-text-muted);
+  color: var(--color-muted);
 }
 
 .app-main {
@@ -28,7 +28,7 @@
   flex-direction: column;
   gap: var(--space-4);
   min-width: 0;
-  padding: var(--space-5) var(--space-4) var(--space-10);
+  padding: var(--space-4) var(--space-4) var(--space-10);
 }
 
 .app-content {
@@ -44,28 +44,29 @@
 .identity-revalidation-banner {
   width: 100%;
   max-width: var(--content-wide);
-  margin-inline: auto;
 }
 
-/* Brand mark */
+/* Brand mark: six ten-minute cells, four of them highlighted. */
 .brand-mark {
   flex: none;
 }
 
-.brand-mark-bg {
-  fill: var(--color-accent);
+.brand-mark-fill {
+  fill: var(--hl-yellow);
 }
 
-.brand-mark-sun,
+.brand-mark-box,
 .brand-mark-line {
   fill: none;
-  stroke: var(--color-on-accent);
-  stroke-linecap: round;
-  stroke-width: 2.2;
+  stroke: var(--color-ink);
 }
 
-.brand-mark-line--soft {
-  opacity: 0.55;
+.brand-mark-box {
+  stroke-width: 2;
+}
+
+.brand-mark-line {
+  stroke-width: 1.25;
 }
 
 /* ── Navigation rail ───────────────────────────────────────────────── */
@@ -76,22 +77,19 @@
 .nav-brand {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-1) var(--space-2);
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
   border-radius: var(--radius-md);
-  color: var(--color-text);
-  font-size: var(--text-lg);
+  color: var(--color-ink);
+  font-size: var(--text-xl);
   font-weight: var(--weight-bold);
   letter-spacing: var(--tracking-tight);
+  line-height: 1.2;
   text-decoration: none;
 }
 
 .nav-new-task {
-  justify-content: flex-start;
-}
-
-.nav-new-task kbd {
-  margin-left: auto;
+  justify-content: space-between;
 }
 
 .nav-groups {
@@ -103,22 +101,18 @@
 .nav-group {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-0-5);
 }
 
 .nav-group-label {
-  padding: 0 var(--space-3);
-  color: var(--color-text-subtle);
+  padding: 0 var(--space-2);
+  color: var(--color-muted);
   font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
 }
 
 .nav-links {
   display: flex;
   flex-direction: column;
-  gap: var(--space-0-5);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -127,40 +121,51 @@
 .nav-link {
   --btn-bg: transparent;
   --btn-border: transparent;
-  --btn-bg-hover: var(--color-surface-hover);
   --btn-border-hover: transparent;
 
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  justify-content: flex-start;
+  gap: var(--space-2-5);
   width: 100%;
-  min-height: 2.5rem;
-  padding: var(--space-2) var(--space-3);
+  min-height: 2rem;
+  padding: 0 var(--space-2);
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-text);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
+  color: var(--color-ink-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-regular);
   text-align: left;
   text-decoration: none;
-  transition:
-    background-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
+  transition: background-color var(--duration-fast) var(--ease-standard);
 }
 
 .nav-link:hover {
-  background: var(--color-surface-hover);
+  background: var(--color-paper-2);
 }
 
 .nav-link-icon {
   flex: none;
-  color: var(--color-text-muted);
+  color: var(--color-muted);
 }
 
+/* The label is the thing that gets highlighted, so it hugs its text. */
 .nav-link-label {
-  flex: 1;
+  position: relative;
+  z-index: 0;
   min-width: 0;
+}
+
+.nav-link-label::before {
+  content: '';
+  position: absolute;
+  inset: 0.05em calc(-1 * var(--space-1));
+  z-index: -1;
+  background: var(--hl-yellow);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--duration-base) var(--ease-out);
 }
 
 .nav-link kbd {
@@ -168,26 +173,35 @@
 }
 
 .nav-link.router-link-active {
-  background: var(--color-accent-soft);
-  color: var(--color-accent-text);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-bold);
+}
+
+.nav-link.router-link-active .nav-link-label {
+  color: var(--color-on-hl);
+}
+
+.nav-link.router-link-active .nav-link-label::before {
+  transform: scaleX(1);
 }
 
 .nav-link.router-link-active .nav-link-icon {
-  color: var(--color-accent-text);
+  color: var(--color-ink);
+}
+
+.nav-link.router-link-active kbd {
+  font-weight: var(--weight-medium);
 }
 
 .nav-link--quiet {
-  color: var(--color-text-muted);
+  color: var(--color-muted);
 }
 
 .nav-secondary {
   display: flex;
   flex-direction: column;
-  gap: var(--space-0-5);
   margin-top: auto;
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+  border-top: var(--rule-hair) solid var(--color-rule);
 }
 
 /* ── Bottom navigation (phones & tablets) ──────────────────────────── */
@@ -200,9 +214,8 @@
   align-items: center;
   height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
   padding: 0 var(--space-2) env(safe-area-inset-bottom);
-  border-top: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
-  backdrop-filter: saturate(1.4) blur(12px);
+  border-top: var(--rule-pen) solid var(--color-ink);
+  background: var(--color-paper);
 }
 
 .bottom-nav-item {
@@ -217,57 +230,53 @@
   justify-content: center;
   gap: var(--space-0-5);
   min-width: 0;
-  min-height: 3.25rem;
+  min-height: var(--hit-target);
   padding: var(--space-1);
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
+  color: var(--color-muted);
+  font-size: var(--text-2xs);
   font-weight: var(--weight-medium);
   line-height: 1.2;
   text-decoration: none;
 }
 
-.bottom-nav-item .icon {
-  padding: 2px 14px;
-  box-sizing: content-box;
-  border-radius: var(--radius-pill);
-  transition: background-color var(--duration-fast) var(--ease-standard);
+.bottom-nav-item > span {
+  padding: 0 var(--space-1);
 }
 
 .bottom-nav-item.router-link-active {
-  color: var(--color-accent-text);
-  font-weight: var(--weight-semibold);
+  color: var(--color-ink);
+  font-weight: var(--weight-bold);
 }
 
-.bottom-nav-item.router-link-active .icon {
-  background: var(--color-accent-soft);
+.bottom-nav-item.router-link-active > span {
+  background: var(--hl-yellow);
+  color: var(--color-on-hl);
 }
 
 .bottom-nav-add {
-  --btn-bg: var(--color-accent);
-  --btn-fg: var(--color-on-accent);
-  --btn-border: var(--color-accent);
-  --btn-bg-hover: var(--color-accent-hover);
-  --btn-border-hover: var(--color-accent-hover);
+  --btn-bg: var(--color-ink);
+  --btn-fg: var(--color-on-ink);
+  --btn-border: var(--color-ink);
+  --btn-bg-hover: var(--color-ink-2);
+  --btn-border-hover: var(--color-ink-2);
 
   justify-self: center;
-  width: 3.25rem;
+  width: var(--hit-target);
   min-width: 0;
-  height: 3.25rem;
+  height: var(--hit-target);
   padding: 0;
-  border-radius: 50%;
-  box-shadow: var(--shadow-2);
 }
 
+/* The More sheet keeps its icons and takes touch-sized rows. */
 .more-sheet .nav-link {
-  min-height: var(--control-height);
-  font-size: var(--text-md);
+  min-height: var(--hit-target);
 }
 
 .more-links {
-  gap: var(--space-1);
+  gap: 0;
 }
 
 /* ── Calm mode (Focus): the shell steps back ───────────────────────── */
@@ -281,25 +290,28 @@
 }
 
 /* ── Page frame ────────────────────────────────────────────────────── */
+/* A page starts at the left margin, like a planner page; it is not centred. */
 .page {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
   width: 100%;
   max-width: var(--content-max);
-  margin-inline: auto;
 }
 
 .page--wide {
   max-width: var(--content-wide);
 }
 
+/* The head of a page sits on a 2px ink rule. */
 .page-header {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: var(--space-3) var(--space-4);
+  gap: var(--space-2) var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: var(--rule-bar) solid var(--color-ink);
 }
 
 .page-heading {
@@ -315,7 +327,7 @@
 
 .page-lede {
   max-width: 40rem;
-  color: var(--color-text-muted);
+  color: var(--color-muted);
 }
 
 .page-actions {
@@ -326,7 +338,7 @@
 }
 
 .breadcrumb {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
 }
 
 .breadcrumb a {
@@ -334,19 +346,23 @@
   align-items: center;
   gap: var(--space-1);
   min-height: 1.75rem;
-  color: var(--color-text-muted);
-  font-weight: var(--weight-medium);
+  color: var(--color-muted);
   text-decoration: none;
 }
 
 .breadcrumb a:hover {
-  color: var(--color-text);
+  color: var(--color-ink);
+  text-decoration: underline;
 }
 
+/* "Saved": a word marked in mint. */
 .status-note {
-  color: var(--color-success);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-medium);
+  align-self: flex-start;
+  padding: 0 var(--space-1-5);
+  background: var(--hl-mint);
+  color: var(--color-on-hl);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
 }
 
 .form-actions {
@@ -359,14 +375,13 @@
 .card-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: var(--space-2);
 }
 
 @media (min-width: 640px) {
   .app-main {
     gap: var(--space-5);
-    padding: var(--space-8) var(--space-8) var(--space-12);
+    padding: var(--space-6) var(--space-6) var(--space-12);
   }
 
   .page {
@@ -384,17 +399,34 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .app-main {
+    grid-column: 2;
+    padding: var(--space-8) var(--space-8) var(--space-16);
+  }
+
+  .app-shell--calm .app-main {
+    grid-column: 1;
+  }
+
+  /* The rail is fixed to the left edge and scrolls on its own; the page
+     scrolls beside it, so a sticky head in the page never meets it. */
   .nav-rail {
-    position: sticky;
-    top: 0;
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
     display: flex;
     flex-direction: column;
     gap: var(--space-5);
-    height: 100dvh;
+    width: var(--nav-width);
     overflow-y: auto;
-    padding: var(--space-5) var(--space-3) var(--space-4);
-    border-right: 1px solid var(--color-border);
-    background: color-mix(in srgb, var(--color-surface) 65%, var(--color-bg));
+    padding: var(--space-6) var(--space-3) var(--space-4);
+    border-right: var(--rule-hair) solid var(--color-rule);
+    background: var(--color-paper);
+  }
+
+  /* The rail is a list of words; icons stay for the phone's More sheet. */
+  .nav-rail .nav-link-icon {
+    display: none;
   }
 
   .bottom-nav {
@@ -402,19 +434,20 @@
   }
 }
 
-@media (min-width: 1280px) {
-  .app-main {
-    padding: var(--space-10) var(--space-12) var(--space-16);
+@media (pointer: coarse) and (min-width: 1024px) {
+  .nav-link {
+    min-height: var(--hit-target);
   }
 }
 
 /* ── Adaptive layout frame (M6-02, 07 §2) ──────────────────────────────
    One grid, three regions, stable keys. Below 1280px the regions stack
-   (primary first); from 1280px the workspace shows primary · secondary ·
-   tertiary side by side next to the rail. Planning pages own wide grids
-   of their own, so their context regions sit below the page. Only opacity
-   animates (a transform would trap Focus calm mode's fixed overlay), and
-   reduced motion turns it off. */
+   (primary first, then the two context regions side by side from 640px).
+   From 1280px the workspace shows the page beside one context column that
+   holds secondary over tertiary. Today brings its own second column (the
+   day timetable), so its context regions sit in a row under its block list
+   (03-today.css). Planning pages own wide grids, so theirs sit below too.
+   A layout switch fades in (opacity only), and reduced motion turns it off. */
 .adaptive-frame {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -422,16 +455,17 @@
     'primary'
     'secondary'
     'tertiary';
-  gap: var(--space-5);
+  gap: var(--space-6);
   align-items: start;
   width: 100%;
   min-width: 0;
+  max-width: var(--content-wide);
 }
 
 .adaptive-region {
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-6);
   min-width: 0;
 }
 
@@ -451,6 +485,8 @@
   grid-area: tertiary;
 }
 
+/* A layout switch fades its panels in (07 §2.3). Only opacity animates: a
+   transform would trap Focus calm mode's fixed overlay. */
 .adaptive-item {
   min-width: 0;
   animation: adaptive-item-in var(--duration-base) var(--ease-out);
@@ -472,12 +508,6 @@
 .app-shell--calm .adaptive-region:not(.adaptive-region--primary),
 .app-shell--calm .adaptive-item:not(.adaptive-item--FocusTimer) {
   display: none;
-}
-
-/* Planning pages centre themselves; keep their context row to the same measure. */
-.adaptive-frame--stacked {
-  max-width: var(--content-wide);
-  margin-inline: auto;
 }
 
 @media (min-width: 640px) {
@@ -503,53 +533,22 @@
 }
 
 @media (min-width: 1280px) {
-  .app-main:has(.adaptive-frame--columns) {
-    padding-inline: var(--space-8);
-  }
-
-  .adaptive-frame--columns {
-    grid-template-columns: minmax(0, 1fr) 13rem 13rem;
-    grid-template-areas: 'primary secondary tertiary';
-    gap: var(--space-6);
-  }
-
-  .adaptive-frame--columns.adaptive-frame--no-secondary {
-    grid-template-columns: minmax(0, 1fr) 16rem;
-    grid-template-areas: 'primary tertiary';
-  }
-
-  .adaptive-frame--columns.adaptive-frame--no-tertiary {
-    grid-template-columns: minmax(0, 1fr) 16rem;
-    grid-template-areas: 'primary secondary';
-  }
-
-  .adaptive-frame--columns .adaptive-region--secondary,
-  .adaptive-frame--columns .adaptive-region--tertiary {
-    position: sticky;
-    top: var(--space-8);
-  }
-
-  /* The frame provides the columns now; Today's own aside stacks. */
-  .adaptive-frame--columns .today-layout {
+  .adaptive-frame--columns:not(:has(.today-page)) {
+    grid-template-columns: minmax(0, 1fr) 17rem;
     grid-template-areas:
-      'summary'
-      'list';
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-5);
+      'primary secondary'
+      'primary tertiary';
+    grid-template-rows: auto 1fr;
+    column-gap: var(--space-8);
   }
 
-  .adaptive-frame--columns .today-summary {
-    position: static;
+  .adaptive-frame--columns.adaptive-frame--no-secondary:not(:has(.today-page)) {
+    grid-template-areas: 'primary tertiary';
+    grid-template-rows: auto;
   }
 
-  /* The timer shares the row with two panels; calm mode still goes big. */
-  .adaptive-frame--columns .focus-timer {
-    font-size: clamp(3.5rem, 1rem + 4.5vw, 6rem);
-  }
-}
-
-@media (min-width: 1440px) {
-  .adaptive-frame--columns {
-    grid-template-columns: minmax(0, 1fr) 16rem 16rem;
+  .adaptive-frame--columns.adaptive-frame--no-tertiary:not(:has(.today-page)) {
+    grid-template-areas: 'primary secondary';
+    grid-template-rows: auto;
   }
 }

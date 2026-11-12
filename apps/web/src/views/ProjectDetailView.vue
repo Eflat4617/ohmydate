@@ -109,8 +109,7 @@ const notes = computed(() => notesQuery.data.value?.items ?? []);
         @click="selectTab(item)"
         @keydown="onTabKeydown"
       >
-        <UiIcon :name="item === 'tasks' ? 'check-circle' : 'note'" :size="18" />
-        {{ t(`projects.tabs.${item}`) }}
+        <span class="tab-label">{{ t(`projects.tabs.${item}`) }}</span>
       </button>
     </div>
 

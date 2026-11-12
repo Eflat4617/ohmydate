@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue';
 import UiButton from '../ui/UiButton.vue';
-import UiIcon from '../ui/UiIcon.vue';
 import { focusContextFor } from '../../composables/focusContext';
 import { t, tp } from '../../i18n';
 import { useLayoutContext } from '../../layout/context';
@@ -37,7 +36,6 @@ function skip(): void {
 <template>
   <section class="layout-panel layout-panel--accent" :aria-labelledby="headingId" data-panel="review-prompt">
     <h2 :id="headingId" class="layout-panel-title">
-      <UiIcon name="check-circle" :size="18" />
       <span>{{ count > 0 ? t('layout.review.title') : t('layout.review.none') }}</span>
     </h2>
     <template v-if="count > 0">

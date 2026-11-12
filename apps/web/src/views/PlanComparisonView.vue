@@ -89,7 +89,14 @@ watch(
   plan,
   (value) => {
     if (value === null || weekInitialized.value) return;
-    weekStart.value = startOfWeek(localParts(value.horizon.start, value.timeZone).date);
+    // Presentational: open on the week of the first planned block of the
+    // candidate shown first (a plan often starts later than its horizon,
+    // and an empty first week hides what is being compared), else on the
+    // horizon's first week.
+    const firstBlockStart = (value.candidates[0]?.blocks ?? [])
+      .map((block) => block.startAt)
+      .sort()[0];
+    weekStart.value = startOfWeek(localParts(firstBlockStart ?? value.horizon.start, value.timeZone).date);
     weekInitialized.value = true;
   },
   { immediate: true },
@@ -530,7 +537,7 @@ onUnmounted(() => {
 
     <div v-if="planQuery.isLoading.value">
       <p class="visually-hidden" role="status">{{ t('plan.loading') }}</p>
-      <div class="candidate-grid"><UiSkeleton variant="card" :count="3" :lines="4" /></div>
+      <div class="candidate-grid candidate-grid--loading"><UiSkeleton variant="card" :count="3" :lines="4" /></div>
     </div>
     <UiBanner v-else-if="planQuery.isError.value || plan === null" tone="error" class="error-panel">
       <p class="error-text" role="alert">{{ t('plan.loadError') }}</p>
@@ -560,9 +567,7 @@ onUnmounted(() => {
           >
             <span class="candidate-heading">
               <span class="candidate-policy">{{ policyLabel(candidate.policy) }}</span>
-              <span v-if="candidate.feasible" class="badge badge--ok">
-                <span class="badge-dot" aria-hidden="true"></span>{{ t('plan.feasible') }}
-              </span>
+              <span v-if="candidate.feasible" class="badge badge--ok">{{ t('plan.feasible') }}</span>
               <span v-else class="badge badge--danger">
                 {{ t('plan.infeasible', { deficit: formatDuration(candidate.deficitMin) }) }}
               </span>
@@ -601,13 +606,14 @@ onUnmounted(() => {
 
       <section v-if="selectedCandidate" class="calendar-panel" aria-labelledby="calendar-title">
         <div class="calendar-toolbar">
-          <div>
+          <div class="calendar-heading">
             <h2 id="calendar-title" ref="calendarHeading" class="h2" tabindex="-1">
               {{ t('plan.weekView', { range: weekLabel }) }}
             </h2>
-            <p class="muted">
-              {{ policyLabel(selectedCandidate.policy) }} ·
-              {{ dirty ? t('plan.editedBlocks') : t('plan.generatedBlocks') }} · {{ timeZone }}
+            <p class="calendar-meta">
+              <span class="calendar-meta-policy">{{ policyLabel(selectedCandidate.policy) }}</span>
+              <span>{{ dirty ? t('plan.editedBlocks') : t('plan.generatedBlocks') }}</span>
+              <span>{{ timeZone }}</span>
             </p>
           </div>
           <div class="calendar-nav">
@@ -642,6 +648,7 @@ onUnmounted(() => {
             :selected-index="null"
             :error-indexes="errorIndexes"
             :block-described-by="lockHoldShown ? 'plan-lock-saving-note' : undefined"
+            :scroll-key="selectedCandidateId"
             @update:blocks="onBlocksUpdated"
             @edit-blocked="noticeLockHold"
           />

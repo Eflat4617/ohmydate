@@ -584,13 +584,29 @@ defineExpose({ isDirty: () => dirty.value, focusTitle });
         <div class="note-editor-status">
           <UiBadge :tone="statusBadge.tone" dot data-note-status>{{ statusBadge.text }}</UiBadge>
         </div>
+        <div class="note-editor-actions">
+          <UiButton
+            v-if="base !== null"
+            variant="danger-ghost"
+            icon="trash"
+            class="danger"
+            :disabled="readOnly || saving || deleting"
+            data-note-delete
+            @click="openDelete"
+          >
+            {{ t('notes.editor.delete') }}
+          </UiButton>
+          <UiButton type="submit" variant="primary" icon="check" :busy="saving" :disabled="!canSave" data-note-save>
+            {{ saving ? t('notes.editor.saving') : base === null ? t('notes.editor.create') : t('notes.editor.save') }}
+          </UiButton>
+        </div>
       </header>
       <p class="visually-hidden" role="status" aria-live="polite" aria-atomic="true" data-note-live>{{ statusText }}</p>
-      <UiBanner v-if="readOnly" tone="offline" role="status">{{ t('notes.editor.readOnly') }}</UiBanner>
+      <p v-if="readOnly" class="visually-hidden" role="status">{{ t('notes.editor.readOnly') }}</p>
       <UiBanner v-if="sourceText" tone="info">{{ sourceText }}</UiBanner>
       <UiBanner v-if="saveError" tone="error" role="alert" data-note-error>{{ saveError }}</UiBanner>
 
-      <div class="field" :class="{ 'field--invalid': titleError }">
+      <div class="field note-title-field" :class="{ 'field--invalid': titleError }">
         <label :for="`${uid}-title`" class="field-label">{{ t('notes.editor.titleLabel') }}</label>
         <input
           :id="`${uid}-title`"
@@ -681,11 +697,12 @@ defineExpose({ isDirty: () => dirty.value, focusTitle });
         </fieldset>
 
         <div class="note-llm" data-note-llm>
-          <label class="layout-switch">
+          <label class="switch-row">
             <input
               v-model="fields.llmAllowed"
               type="checkbox"
               role="switch"
+              class="switch"
               :disabled="readOnly"
               :aria-describedby="`${uid}-llm-help ${uid}-llm-mask ${uid}-llm-state`"
               data-note-llm-toggle
@@ -704,22 +721,6 @@ defineExpose({ isDirty: () => dirty.value, focusTitle });
         </div>
       </div>
 
-      <div class="note-editor-actions">
-        <UiButton
-          v-if="base !== null"
-          variant="danger-ghost"
-          icon="trash"
-          class="danger"
-          :disabled="readOnly || saving || deleting"
-          data-note-delete
-          @click="openDelete"
-        >
-          {{ t('notes.editor.delete') }}
-        </UiButton>
-        <UiButton type="submit" variant="primary" icon="check" :busy="saving" :disabled="!canSave" data-note-save>
-          {{ saving ? t('notes.editor.saving') : base === null ? t('notes.editor.create') : t('notes.editor.save') }}
-        </UiButton>
-      </div>
       <p v-if="base" class="muted note-meta tabular">
         {{ t('notes.editor.meta', { created: formatDateTime(base.createdAt, timeZone), updated: formatDateTime(base.updatedAt, timeZone) }) }}
       </p>

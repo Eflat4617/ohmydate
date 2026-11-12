@@ -25,12 +25,11 @@ import UiBanner from './ui/UiBanner.vue';
       </dd>
       <dt>{{ t('llm.disclosure.data') }}</dt>
       <dd>{{ t('llm.disclosure.dataValue') }}</dd>
+      <dt>{{ t('llm.disclosure.revoke') }}</dt>
+      <dd>{{ t('llm.disclosure.revokeValue') }}</dd>
     </dl>
     <UiBanner tone="warn" :title="t('llm.disclosure.masking')">
       {{ t('llm.disclosure.maskingValue', { kinds: maskedKindsText() }) }}
     </UiBanner>
-    <p class="muted">
-      <strong>{{ t('llm.disclosure.revoke') }}</strong> · {{ t('llm.disclosure.revokeValue') }}
-    </p>
   </div>
 </template>

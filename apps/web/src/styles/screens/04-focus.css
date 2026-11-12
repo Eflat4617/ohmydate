@@ -1,0 +1,304 @@
+/* ── Proposal preview ──────────────────────────────────────────────────
+   A dialog that lists what a shrink or a move would do: ruled rows, the
+   title on the left and its new time on the right. */
+.proposal-blocks {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border-top: var(--rule-bar) solid var(--color-ink);
+  list-style: none;
+}
+
+.proposal-blocks li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-2) 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.proposal-title {
+  color: var(--color-ink);
+  font-weight: var(--weight-semibold);
+}
+
+.proposal-time {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-3);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+}
+
+.proposal-duration {
+  color: var(--color-muted);
+}
+
+.proposal-meta {
+  font-size: var(--text-xs);
+}
+
+/* ── Focus ─────────────────────────────────────────────────────────────
+   One large thing: the timer. Under it the planned time as ten-minute
+   cells that fill with highlighter while the session runs. */
+.focus-page {
+  max-width: 44rem;
+}
+
+.focus-header {
+  align-items: center;
+}
+
+.focus-header .page-heading {
+  flex-flow: row wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+
+.focus-state {
+  margin: 0;
+}
+
+.focus-offline {
+  align-self: flex-start;
+}
+
+.focus-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding-top: var(--space-2);
+}
+
+.focus-task {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-width: 100%;
+}
+
+.focus-task-title {
+  color: var(--color-ink);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-snug);
+}
+
+/* The task in hand is the one marked in yellow. */
+.focus-task-title-text {
+  padding: 0 var(--space-1);
+  margin-left: calc(-1 * var(--space-1));
+  background: var(--hl-yellow);
+  color: var(--color-on-hl);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.focus-page--completed .focus-task-title-text {
+  padding: 0;
+  margin-left: 0;
+  background: none;
+  color: inherit;
+}
+
+.focus-task-meta {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.focus-timer {
+  --focus-timer-size: var(--text-display);
+
+  color: var(--color-ink);
+  font-size: var(--focus-timer-size);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-tight);
+  line-height: 1;
+}
+
+.focus-page--paused .focus-timer {
+  color: var(--color-muted);
+}
+
+/* Done: the timer steps back to a figure, and the review form leads. */
+.focus-page--completed .focus-timer {
+  --focus-timer-size: var(--text-3xl);
+}
+
+.focus-page--completed .focus-stage {
+  gap: var(--space-3);
+}
+
+.focus-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  width: 100%;
+}
+
+/* One cell is ten minutes, as tall as an hour row of the day time table. */
+.focus-progress-track {
+  height: var(--tt-row);
+}
+
+.focus-page--completed .focus-progress-fill {
+  background: var(--hl-mint);
+}
+
+.focus-progress-caption {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.focus-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.focus-timer-shortcut {
+  color: var(--color-muted);
+}
+
+/* Sync: a quiet line; offline is pencil, a conflict is marked in pink. */
+.focus-sync-status {
+  max-width: 100%;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.focus-sync-status--offline {
+  padding: var(--space-1) var(--space-2);
+  border: var(--rule-hair) dashed var(--color-edge);
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+}
+
+.focus-sync-status--conflict {
+  padding: var(--space-1) var(--space-2);
+  background: var(--hl-pink);
+  color: var(--color-on-hl);
+}
+
+/* Calm mode: the Focus page owns the whole viewport, and the timer and its
+   cells sit in the middle of it. */
+.focus-page--calm {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-calm);
+  max-width: none;
+  margin: 0;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-5) var(--space-10);
+  background: var(--color-paper);
+}
+
+.focus-page--calm > * {
+  width: 100%;
+  max-width: 44rem;
+  margin-inline: auto;
+}
+
+.focus-page--calm .focus-header {
+  border-bottom-color: transparent;
+}
+
+.focus-page--calm .focus-header h1 {
+  color: var(--color-muted);
+  font-size: var(--text-lg);
+}
+
+.focus-page--calm .focus-back,
+.focus-page--calm .focus-timer-shortcut {
+  display: none;
+}
+
+.focus-page--calm .focus-stage {
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
+  text-align: center;
+}
+
+.focus-page--calm .focus-task {
+  align-items: center;
+}
+
+.focus-page--calm .focus-actions {
+  justify-content: center;
+}
+
+/* Calm mode sets the timer at the calm display size (tokens.css grows it
+   with the screen). */
+@media (min-width: 640px) {
+  .focus-page--calm .focus-timer {
+    --focus-timer-size: var(--text-display-calm);
+  }
+}
+
+/* ── Review sheet ──────────────────────────────────────────────────────
+   A short form under the finished timer. */
+.review-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding-top: var(--space-2);
+}
+
+.review-sheet-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--rule-bar) solid var(--color-ink);
+}
+
+.review-outcomes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.review-outcomes > legend {
+  grid-column: 1 / -1;
+}
+
+.choice-chip--tile {
+  justify-content: center;
+  min-height: var(--control-height-lg);
+  font-size: var(--text-md);
+}
+
+.review-note-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.review-count {
+  align-self: flex-end;
+}
+
+.review-submit {
+  align-self: flex-start;
+}
+
+.estimation-feedback h3 {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+}
+
+@media (max-width: 639px) {
+  .review-submit {
+    align-self: stretch;
+  }
+}

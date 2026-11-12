@@ -43,7 +43,7 @@ const target = computed(() => (pending.value.length === 1 && first.value !== nul
   >
     <p>{{ t('replan.bannerBody', { reason: reasonLabel(first.trigger.reason) }) }}</p>
     <template #actions>
-      <RouterLink class="btn btn--primary btn--sm" :to="target">
+      <RouterLink class="btn btn--secondary btn--sm" :to="target">
         {{ pending.length === 1 ? t('replan.bannerOpen') : t('replan.bannerOpenAll') }}
       </RouterLink>
     </template>

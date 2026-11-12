@@ -3,7 +3,6 @@ import { computed } from 'vue';
 import type { Today, TodayProposal, Violation } from '../api';
 import { t } from '../i18n';
 import { formatCivilDate, formatDuration, formatTimeRange, minutesBetween } from '../i18n/format';
-import UiBadge from './ui/UiBadge.vue';
 import UiBanner from './ui/UiBanner.vue';
 import UiButton from './ui/UiButton.vue';
 import UiDialog from './ui/UiDialog.vue';
@@ -61,8 +60,8 @@ const availabilityVersion = computed<number | undefined>(() => {
       <li v-for="block in proposal.blocks" :key="block.blockId">
         <span class="proposal-title">{{ titleFor[block.taskId] ?? t('proposal.fallbackBlock') }}</span>
         <span class="proposal-time tabular">
-          {{ formatTimeRange(block.startAt, block.endAt, proposal.timeZone) }}
-          <UiBadge>{{ formatDuration(minutesBetween(block.startAt, block.endAt)) }}</UiBadge>
+          <span>{{ formatTimeRange(block.startAt, block.endAt, proposal.timeZone) }}</span>
+          <span class="proposal-duration">{{ formatDuration(minutesBetween(block.startAt, block.endAt)) }}</span>
         </span>
       </li>
     </ul>

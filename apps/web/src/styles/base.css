@@ -9,6 +9,12 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  scrollbar-color: var(--color-rule) var(--color-paper);
+}
+
+html,
+body {
+  overflow-x: clip;
 }
 
 html,
@@ -19,22 +25,25 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-sans);
+  background: var(--color-paper);
+  color: var(--color-ink-2);
+  font-family: var(--font-body);
   font-size: var(--text-md);
   line-height: var(--leading-normal);
-  font-synthesis-weight: none;
+  font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  caret-color: var(--color-ink);
   /* Keep Hangul words intact; long tokens (ids, URLs) still wrap. */
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
 
+/* Selecting text is highlighting it. */
 ::selection {
-  background: color-mix(in srgb, var(--color-accent) 24%, transparent);
+  background: var(--hl-yellow);
+  color: var(--color-on-hl);
 }
 
 h1,
@@ -53,23 +62,32 @@ h1,
 h2,
 h3,
 h4 {
+  min-width: 0;
+  color: var(--color-ink);
+  font-family: var(--font-display);
   line-height: var(--leading-tight);
   letter-spacing: var(--tracking-tight);
+  overflow-wrap: break-word;
   text-wrap: balance;
 }
 
 h1 {
-  font-size: var(--text-2xl);
+  font-size: var(--text-3xl);
   font-weight: var(--weight-bold);
 }
 
 h2 {
-  font-size: var(--text-xl);
-  font-weight: var(--weight-semibold);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
 }
 
 h3 {
   font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+h4 {
+  font-size: var(--text-sm);
   font-weight: var(--weight-semibold);
 }
 
@@ -78,7 +96,7 @@ p {
 }
 
 a {
-  color: var(--color-accent-text);
+  color: var(--color-link);
   text-decoration-thickness: 1px;
   text-underline-offset: 0.2em;
 }
@@ -88,11 +106,12 @@ a:hover {
 }
 
 strong {
+  color: var(--color-ink);
   font-weight: var(--weight-semibold);
 }
 
 small {
-  font-size: var(--text-sm);
+  font-size: var(--text-xs);
 }
 
 ul,
@@ -109,8 +128,15 @@ input,
 select,
 textarea {
   font: inherit;
-  color: inherit;
   letter-spacing: inherit;
+}
+
+/* Fields take the text colour around them; a button's colour is its own
+   (--btn-fg in primitives.css), so a bare <button> is never an accident. */
+input,
+select,
+textarea {
+  color: inherit;
 }
 
 img,
@@ -129,32 +155,47 @@ svg {
 }
 
 [tabindex='-1']:focus-visible {
-  outline-color: color-mix(in srgb, var(--color-focus) 55%, transparent);
+  outline-style: dotted;
 }
 
+/* A key cap is a small pen box. */
 kbd {
   display: inline-grid;
   place-items: center;
-  min-width: 1.4em;
-  height: 1.4em;
-  padding: 0 0.35em;
-  border: 1px solid var(--color-border-strong);
-  border-bottom-width: 2px;
+  min-width: 1.5em;
+  height: 1.5em;
+  padding: 0 0.3em;
+  border: var(--rule-hair) solid var(--color-edge);
   border-radius: var(--radius-xs);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.72em;
+  color: var(--color-muted);
+  font-family: var(--font-body);
+  font-size: 0.75em;
   font-weight: var(--weight-medium);
   line-height: 1;
   vertical-align: 0.1em;
 }
 
 hr {
-  height: 1px;
+  height: var(--rule-hair);
   margin: 0;
   border: 0;
-  background: var(--color-border);
+  background: var(--color-rule);
+}
+
+del {
+  color: var(--color-danger);
+  text-decoration-thickness: 1.5px;
+}
+
+ins {
+  background: var(--hl-yellow);
+  color: var(--color-on-hl);
+  text-decoration: none;
+}
+
+mark {
+  background: var(--hl-yellow);
+  color: var(--color-on-hl);
 }
 
 /* ── Utilities ─────────────────────────────────────────────────────── */
@@ -171,12 +212,9 @@ hr {
   border: 0;
 }
 
-.muted {
-  color: var(--color-text-muted);
-}
-
+.muted,
 .subtle {
-  color: var(--color-text-subtle);
+  color: var(--color-muted);
 }
 
 .danger,
@@ -191,7 +229,7 @@ hr {
 
 .mono {
   font-family: var(--font-mono);
-  font-size: 0.85em;
+  font-size: 0.9em;
 }
 
 .tabular {
@@ -225,39 +263,53 @@ hr {
   list-style: none;
 }
 
-.eyebrow {
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-}
-
 .section-title,
 .h2 {
+  color: var(--color-ink);
   font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
 }
 
 .h3 {
+  color: var(--color-ink);
   font-size: var(--text-md);
   font-weight: var(--weight-semibold);
 }
 
+/* A highlighter stroke behind a word or a line of text. */
+.hl {
+  background: var(--hl-yellow);
+  color: var(--color-on-hl);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+/* The one authored motion: a highlighter stroke drawn from the left when
+   something becomes current or selected. The stroke is a background, so on
+   text that wraps every line gets its own. Reduced motion ends it at once. */
+@keyframes hl-draw {
+  from {
+    background-size: 0% 100%;
+  }
+}
+
+/* Parked above the page with a transform, so it never widens the page. */
 .skip-link {
   position: absolute;
   top: var(--space-2);
-  left: -9999px;
+  left: var(--space-2);
   z-index: var(--z-toast);
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-md);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-2);
+  background: var(--color-ink);
+  color: var(--color-on-ink);
   font-weight: var(--weight-semibold);
+  transform: translateY(-300%);
 }
 
 .skip-link:focus {
-  left: var(--space-2);
+  transform: none;
 }
 
 .status-region:empty {

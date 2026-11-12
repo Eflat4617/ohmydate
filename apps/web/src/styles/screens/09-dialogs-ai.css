@@ -1,0 +1,55 @@
+/* ── Dialog header variants used by several screens ────────────────── */
+.dialog-header--start {
+  justify-content: flex-start;
+}
+
+.dialog-header--start .dialog-heading {
+  flex: 1;
+}
+
+/* ── AI disclosure (consent dialog + AI settings) ───────────────────── */
+/* What is sent, to whom, and how to stop it: three ruled rows, then the
+   one caution about masking. */
+.llm-disclosure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.llm-disclosure p {
+  margin: 0;
+}
+
+.llm-disclosure .kv-list {
+  gap: 0 var(--space-4);
+  border-top: var(--rule-hair) solid var(--color-rule);
+}
+
+.llm-disclosure .kv-list dt,
+.llm-disclosure .kv-list dd {
+  padding: var(--space-2) 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+@media (max-width: 479px) {
+  .llm-disclosure .kv-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .llm-disclosure .kv-list dt {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .llm-disclosure .kv-list dd {
+    padding-top: 0;
+  }
+}
+
+/* AI settings: the state of consent reads as one line. */
+.llm-consent-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}

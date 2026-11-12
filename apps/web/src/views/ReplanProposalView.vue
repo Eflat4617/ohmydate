@@ -179,10 +179,11 @@ const CHANGE_ICONS: Record<BlockChangeKind, IconName> = {
   added: 'plus',
   removed: 'close',
 };
-const CHANGE_TONES: Record<BlockChangeKind, 'info' | 'warn' | 'accent' | 'success' | 'danger'> = {
+// Yellow is kept for what is current or selected, so a longer block is plain.
+const CHANGE_TONES: Record<BlockChangeKind, 'info' | 'warn' | 'neutral' | 'success' | 'danger'> = {
   moved: 'info',
   shrunk: 'warn',
-  extended: 'accent',
+  extended: 'neutral',
   added: 'success',
   removed: 'danger',
 };
@@ -440,7 +441,14 @@ function closeConflict(): void {
 
     <template v-else>
       <div ref="stateRegion" class="replan-state" tabindex="-1">
-        <UiBanner v-if="!pending" tone="info" :title="t('replan.readOnly')" class="replan-readonly" data-readonly>
+        <UiBanner
+          v-if="!pending"
+          tone="offline"
+          icon="lock"
+          :title="t('replan.readOnly')"
+          class="replan-readonly"
+          data-readonly
+        >
           <p>{{ readOnlyBody }}</p>
           <template v-if="proposal.state === 'approved'" #actions>
             <RouterLink class="btn btn--primary btn--sm" to="/today">{{ t('replan.openToday') }}</RouterLink>
@@ -451,13 +459,13 @@ function closeConflict(): void {
 
       <div class="replan-layout">
         <UiCard class="replan-why" aria-labelledby="replan-why-title">
-          <h2 id="replan-why-title" class="card-title">{{ t('replan.why') }}</h2>
+          <div class="section-head">
+            <h2 id="replan-why-title" class="card-title">{{ t('replan.why') }}</h2>
+            <span class="badge badge--info replan-reason">{{ reasonLabel(proposal.trigger.reason) }}</span>
+          </div>
           <p>{{ triggerBody(proposal.trigger.kind) }}</p>
-          <ul class="chip-row" :aria-label="t('replan.why')">
-            <li class="chip badge--info">{{ reasonLabel(proposal.trigger.reason) }}</li>
-          </ul>
           <div v-if="affectedTitles.length > 0" class="replan-affected">
-            <h3 class="eyebrow">{{ t('replan.affected') }}</h3>
+            <h3 class="replan-affected-title">{{ t('replan.affected') }}</h3>
             <ul class="plain-list">
               <li v-for="entry in affectedTitles" :key="entry.taskId">{{ entry.title }}</li>
             </ul>
@@ -476,20 +484,20 @@ function closeConflict(): void {
 
         <UiCard class="replan-metrics" aria-labelledby="replan-metrics-title">
           <h2 id="replan-metrics-title" class="card-title">{{ t('replan.metricsTitle') }}</h2>
-          <table v-if="metricRows.length > 0" class="replan-metrics-table">
+          <table v-if="metricRows.length > 0" class="replan-metrics-table data-table">
             <caption class="visually-hidden">{{ t('replan.metricsTable') }}</caption>
             <thead>
               <tr>
                 <th scope="col">{{ t('replan.colMetric') }}</th>
-                <th scope="col">{{ t('replan.colNow') }}</th>
-                <th scope="col">{{ t('replan.colProposed') }}</th>
+                <th scope="col" class="num">{{ t('replan.colNow') }}</th>
+                <th scope="col" class="num">{{ t('replan.colProposed') }}</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="row in metricRows" :key="row.key" :data-metric="row.key">
                 <th scope="row">{{ row.label }}</th>
-                <td class="tabular">{{ row.now }}</td>
-                <td class="tabular">
+                <td class="tabular num">{{ row.now }}</td>
+                <td class="tabular num">
                   {{ row.proposed }}
                   <span v-if="row.delta" class="muted">({{ row.delta }})</span>
                 </td>
@@ -518,11 +526,11 @@ function closeConflict(): void {
           <template v-if="diff && before">
             <div class="section-head">
               <h2 id="replan-diff-title" class="h2">{{ t('replan.diffTitle') }}</h2>
-              <p class="muted">{{ t('replan.diffLede') }}</p>
-              <p class="subtle replan-snapshot-at">
+              <p class="subtle replan-snapshot-at tabular">
                 {{ t('replan.snapshotAt', { time: formatDateTime(before.capturedAt, timeZone) }) }}
               </p>
             </div>
+            <p class="muted replan-diff-lede">{{ t('replan.diffLede') }}</p>
             <ul v-if="diff.changes.length > 0" class="replan-changes" :aria-label="t('replan.diffList')">
               <li
                 v-for="(change, index) in diff.changes"

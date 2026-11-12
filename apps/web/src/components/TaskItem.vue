@@ -115,7 +115,7 @@ function onInput(event: Event): void {
     </template>
     <template v-else>
       <span class="task-mark" :class="{ 'task-mark--done': isDone }" aria-hidden="true">
-        <UiIcon v-if="isDone" name="check" :size="14" />
+        <UiIcon v-if="isDone" name="check" :size="10" />
       </span>
       <div class="task-main">
         <RouterLink v-if="hasRouter" :to="`/tasks/${task.id}`" class="task-title task-title-link" data-task-detail-link>
@@ -129,6 +129,7 @@ function onInput(event: Event): void {
           variant="ghost"
           size="sm"
           icon="edit"
+          class="task-action--edit"
           :aria-label="t('task.editAria', { title: task.title })"
           :disabled="locked"
           @click="emit('start-edit')"
@@ -139,6 +140,7 @@ function onInput(event: Event): void {
           variant="ghost"
           size="sm"
           icon="check"
+          class="task-action--complete"
           :aria-label="t('task.completeAria', { title: task.title })"
           :disabled="locked || isDone"
           @click="emit('complete')"
@@ -149,7 +151,7 @@ function onInput(event: Event): void {
           variant="danger-ghost"
           size="sm"
           icon="trash"
-          class="danger"
+          class="danger task-action--delete"
           :aria-label="t('task.deleteAria', { title: task.title })"
           :disabled="locked"
           @click="emit('remove')"

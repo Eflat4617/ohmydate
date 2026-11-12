@@ -52,7 +52,7 @@ const timeZone = computed(() => auth.user?.timeZone ?? browserTimeZone());
         <span v-if="noteSummary(note.title, note.bodyMd, 80)" class="linked-note-summary muted">{{ noteSummary(note.title, note.bodyMd, 80) }}</span>
         <span class="linked-note-meta">
           <time :datetime="note.updatedAt" class="tabular">{{ t('notes.updated', { time: formatDateTime(note.updatedAt, timeZone) }) }}</time>
-          <UiBadge v-if="note.llmAllowed" tone="accent">{{ t('notes.badges.aiAllowed') }}</UiBadge>
+          <UiBadge v-if="note.llmAllowed" tone="info">{{ t('notes.badges.aiAllowed') }}</UiBadge>
           <UiBadge v-if="note.source === 'task_description'" tone="outline">{{ t('notes.badges.promoted') }}</UiBadge>
         </span>
       </li>

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue';
-import UiIcon from '../ui/UiIcon.vue';
 import { focusContextFor } from '../../composables/focusContext';
 import { t } from '../../i18n';
 import { formatDuration, formatTimeRange, minutesBetween } from '../../i18n/format';
@@ -20,7 +19,6 @@ const context = computed(() => {
 <template>
   <section class="layout-panel" :aria-labelledby="headingId" data-panel="current-task">
     <h2 :id="headingId" class="layout-panel-title">
-      <UiIcon name="flag" :size="18" />
       <span>{{ t('layout.currentTask.title') }}</span>
     </h2>
     <template v-if="context">

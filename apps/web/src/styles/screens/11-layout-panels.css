@@ -1,0 +1,149 @@
+/* ── Adaptive layout panels (M6-02): ruled lists ───────────────────────
+   A panel is a heading on the 2px rule and a short list under it. No box.
+   The related-notes list is styled here too, under .layout-panel, so the
+   panel reads as one thing whatever the notes screens do with those names. */
+.layout-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.layout-panel-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--rule-bar) solid var(--color-ink);
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-snug);
+}
+
+.layout-panel-title svg {
+  flex: none;
+}
+
+/* Something is running or waiting for you: the heading is marked. */
+.layout-panel--accent .layout-panel-title > span,
+.layout-panel--warn .layout-panel-title > span {
+  padding: 0 var(--space-1);
+  color: var(--color-on-hl);
+}
+
+.layout-panel--accent .layout-panel-title > span {
+  background: var(--hl-yellow);
+}
+
+.layout-panel--warn .layout-panel-title > span {
+  background: var(--hl-pink);
+}
+
+.layout-panel-lede,
+.layout-panel-empty {
+  font-size: var(--text-sm);
+}
+
+.layout-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-top: var(--space-1);
+}
+
+.layout-panel-link {
+  align-self: flex-start;
+  font-size: var(--text-xs);
+}
+
+.layout-panel-action {
+  align-self: flex-start;
+}
+
+.layout-panel .empty-state {
+  padding: 0;
+}
+
+.layout-panel .empty-state-title {
+  font-size: var(--text-sm);
+}
+
+.layout-panel .empty-state-body {
+  font-size: var(--text-xs);
+}
+
+.layout-panel .layout-panel-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.layout-next-list,
+.layout-review-list,
+.layout-panel .layout-related-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.layout-next-item,
+.layout-review-item,
+.layout-panel .layout-related-item {
+  padding: var(--space-2) 0;
+  border: 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  border-radius: 0;
+  background: transparent;
+}
+
+.layout-next-list > :first-child,
+.layout-review-list > :first-child,
+.layout-panel .layout-related-list > :first-child {
+  padding-top: 0;
+}
+
+.layout-next-item,
+.layout-panel .layout-related-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.layout-next-title,
+.layout-current-title,
+.layout-review-title,
+.layout-panel .layout-related-title {
+  color: var(--color-ink);
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.layout-panel .layout-related-title {
+  text-decoration: none;
+}
+
+.layout-panel .layout-related-title:hover {
+  text-decoration: underline;
+}
+
+.layout-next-time,
+.layout-current-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2-5);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.layout-review-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}

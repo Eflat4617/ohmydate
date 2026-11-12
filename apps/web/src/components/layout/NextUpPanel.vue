@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue';
 import { useRoute } from 'vue-router';
-import UiIcon from '../ui/UiIcon.vue';
 import UiSkeleton from '../ui/UiSkeleton.vue';
 import { t } from '../../i18n';
 import { formatDuration, formatTimeRange, minutesBetween } from '../../i18n/format';
@@ -41,7 +40,6 @@ const onToday = computed(() => route.name === 'today');
 <template>
   <section class="layout-panel" :aria-labelledby="headingId" data-panel="next-up">
     <h2 :id="headingId" class="layout-panel-title">
-      <UiIcon name="clock" :size="18" />
       <span>{{ t('layout.nextUp.title') }}</span>
     </h2>
     <template v-if="isLoading && today === null">
@@ -52,8 +50,8 @@ const onToday = computed(() => route.name === 'today');
       <li v-for="block in upcoming" :key="block.id" class="layout-next-item">
         <span class="layout-next-title">{{ block.title }}</span>
         <span class="layout-next-time tabular">
-          {{ formatTimeRange(block.startAt, block.endAt, today.timeZone) }}
-          · {{ formatDuration(minutesBetween(block.startAt, block.endAt)) }}
+          <span>{{ formatTimeRange(block.startAt, block.endAt, today.timeZone) }}</span>
+          <span>{{ formatDuration(minutesBetween(block.startAt, block.endAt)) }}</span>
         </span>
       </li>
     </ol>

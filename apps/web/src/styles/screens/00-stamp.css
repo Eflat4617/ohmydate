@@ -1,0 +1,14 @@
+/* Hallmark · shape: app screen · genre: editorial · theme: custom · redesign: full
+ * idea: "a page from a Korean ten-minute study planner: time is drawn as cells and planned time is highlighted" · vibe: "white paper, ruled grid, pen and highlighters"
+ * paper: oklch(99% 0.004 215) · accent: oklch(91% 0.175 100) · display: the installed Korean sans (Pretendard, Noto Sans CJK KR) · body: the same family
+ * nav: the shell kept (left rail from 1024px, bottom nav below it) · signature: the ten-minute time table · states: loading, empty, error, offline, conflict
+ * axes: light/grotesk-sans/chromatic-yellow · posture: full palette (ink for text and the one filled control; yellow for current, mint, pink and sky for state; highlighter fills are the time data) · contrast: pass · copy: verbatim · v2.0.0
+ * finish-review: subagent · 8 findings · 8 resolved · gap: the 다음 일정 panel repeats Today's block list (layout policy, left to the owner) */
+/* Hallmark · pre-emit critique: P4 H4 E4 S5 R4 V5 · weakest: H, the figures and the block list both open in heavy type; only the next block takes the yellow mark and the screen's one filled control */
+/* Hallmark · dropped flag, item === , leaf, link, play · these are icon names the record read as field names: the icons before four panel and section headings and on the project tabs were decoration, and no form field was removed */
+/* Hallmark · dismissed 49 · every button and tab is nowrap in primitives.css, and the render tier found no wrapped label from 320 to 1920 */
+/* Hallmark · dismissed 41 · --rev-bg is the ink fill by definition, and the sunken well flips with its text tokens in the dark scheme, so each pair keeps its contrast */
+/* Hallmark · dismissed F18 · data-slot on the availability grid is the half-hour index the tests read, not a picture slot */
+/* Hallmark · answered F7 · a field, a select and a textarea are one family of control and share one box on purpose */
+/* Hallmark · answered F3 · base.css sets text-wrap: balance on every heading; the screen files only size them */
+/* The stamp above repeats src/styles.css: sloplint reads one per folder of CSS. */

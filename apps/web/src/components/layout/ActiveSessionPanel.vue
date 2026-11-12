@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue';
-import UiIcon from '../ui/UiIcon.vue';
 import { focusContextFor } from '../../composables/focusContext';
 import { t } from '../../i18n';
 import { useSessionStore } from '../../stores/session';
@@ -19,7 +18,6 @@ const title = computed(() => {
 <template>
   <section class="layout-panel layout-panel--accent" :aria-labelledby="headingId" data-panel="active-session">
     <h2 :id="headingId" class="layout-panel-title">
-      <UiIcon name="play" :size="18" />
       <span>{{ t('layout.activeSession.title') }}</span>
     </h2>
     <p class="layout-current-title">{{ title }}</p>

@@ -86,31 +86,33 @@ function submit(): void {
       </label>
     </fieldset>
 
-    <UiField id="review-note" :label="t('review.note')" class="review-note">
-      <template #default="{ describedby }">
-        <textarea
-          id="review-note"
-          v-model="note"
-          :maxlength="NOTE_MAX"
-          rows="3"
-          :aria-describedby="describedby ?? 'review-note-count'"
-          :disabled="disabled || busy"
-        />
-      </template>
-    </UiField>
-    <p id="review-note-count" class="subtle review-count">
-      <small>{{ t('review.count', { count: note.length, max: NOTE_MAX }) }}</small>
-    </p>
+    <div class="review-note-group">
+      <UiField id="review-note" :label="t('review.note')" class="review-note">
+        <template #default="{ describedby }">
+          <textarea
+            id="review-note"
+            v-model="note"
+            :maxlength="NOTE_MAX"
+            rows="3"
+            :aria-describedby="describedby ?? 'review-note-count'"
+            :disabled="disabled || busy"
+          />
+        </template>
+      </UiField>
+      <p id="review-note-count" class="subtle review-count tabular">
+        <small>{{ t('review.count', { count: note.length, max: NOTE_MAX }) }}</small>
+      </p>
+    </div>
 
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
 
-    <UiButton variant="primary" size="lg" block :disabled="disabled || busy" :busy="busy" @click="submit">
+    <UiButton variant="primary" size="lg" class="review-submit" :disabled="disabled || busy" :busy="busy" @click="submit">
       {{ busy ? t('review.submitting') : t('review.submit') }}
     </UiButton>
 
-    <div v-if="feedback" class="estimation-feedback" role="status">
-      <UiIcon name="check-circle" :size="20" class="estimation-feedback-icon" />
-      <div>
+    <div v-if="feedback" class="estimation-feedback banner banner--success" role="status">
+      <UiIcon name="check-circle" :size="18" class="estimation-feedback-icon banner-icon" />
+      <div class="banner-content">
         <h3>{{ t('review.feedbackTitle') }}</h3>
         <p>
           <I18nT keypath="review.feedback">

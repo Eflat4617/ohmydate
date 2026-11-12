@@ -332,8 +332,8 @@ function onFromChange(event: Event): void {
                 </UiBadge>
               </div>
               <span class="commitment-when tabular">
-                {{ formatOccurrence(commitment.startAt, commitment.endAt, commitment.timeZone) }} ·
-                {{ commitment.timeZone }}
+                <span>{{ formatOccurrence(commitment.startAt, commitment.endAt, commitment.timeZone) }}</span>
+                <span class="commitment-zone">{{ commitment.timeZone }}</span>
               </span>
               <span v-if="commitment.rrule" class="subtle commitment-rule">
                 {{ t('commitments.repeatRule', { rule: commitment.rrule }) }}

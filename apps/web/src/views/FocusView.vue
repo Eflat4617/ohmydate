@@ -124,6 +124,8 @@ const progressPercent = computed(() => {
   return Math.min(100, Math.round((displaySeconds.value / (planned * 60)) * 100));
 });
 const focusedMinutes = computed(() => Math.floor(displaySeconds.value / 60));
+// Presentational only: the progress meter is ruled into ten-minute cells.
+const progressCells = computed(() => Math.max(1, Math.ceil((plannedMinutes.value ?? 0) / 10)));
 
 function toggleCalm(): void {
   setCalmMode(!calmMode.value);
@@ -633,7 +635,9 @@ watch(
     <template v-if="session">
       <div class="focus-stage">
         <div class="focus-task">
-          <p class="focus-task-title">{{ context?.title ?? t('focus.fallbackTitle') }}</p>
+          <p class="focus-task-title">
+            <span class="focus-task-title-text">{{ context?.title ?? t('focus.fallbackTitle') }}</span>
+          </p>
           <p class="focus-task-meta">
             <template v-if="context">
               {{
@@ -665,8 +669,11 @@ watch(
         <p class="sr-only" aria-live="polite">{{ announcement }}</p>
 
         <div v-if="progressPercent !== null" class="focus-progress" aria-hidden="true">
-          <div class="focus-progress-track">
-            <div class="focus-progress-fill" :style="{ width: `${progressPercent}%` }"></div>
+          <div
+            class="focus-progress-track meter"
+            :style="{ '--value': progressPercent / 100, '--cells': progressCells }"
+          >
+            <div class="focus-progress-fill meter-fill"></div>
           </div>
           <p class="focus-progress-caption">
             {{

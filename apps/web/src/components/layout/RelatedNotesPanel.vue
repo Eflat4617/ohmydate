@@ -4,7 +4,6 @@ import { useRoute } from 'vue-router';
 import UiBadge from '../ui/UiBadge.vue';
 import UiButton from '../ui/UiButton.vue';
 import UiEmptyState from '../ui/UiEmptyState.vue';
-import UiIcon from '../ui/UiIcon.vue';
 import UiSkeleton from '../ui/UiSkeleton.vue';
 import { useRelatedNotes } from '../../composables/relatedNotes';
 import { t } from '../../i18n';
@@ -36,7 +35,6 @@ const onNotes = computed(() => typeof route.name === 'string' && route.name.star
 <template>
   <section class="layout-panel" :aria-labelledby="headingId" data-panel="related-notes">
     <h2 :id="headingId" class="layout-panel-title">
-      <UiIcon name="leaf" :size="18" />
       <span>{{ t('layout.relatedNotes.title') }}</span>
     </h2>
     <p v-if="contextLine" class="layout-panel-lede muted" data-related-context>{{ contextLine }}</p>

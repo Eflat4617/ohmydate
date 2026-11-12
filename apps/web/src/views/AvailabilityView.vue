@@ -305,22 +305,8 @@ function retry(): void {
       </template>
     </UiBanner>
 
-    <form v-else-if="draft" class="settings-form" @submit.prevent="save">
-      <fieldset class="settings-group">
-        <legend>{{ t('availability.timeZone') }}</legend>
-        <UiField id="availability-timezone" :label="t('availability.timeZoneLabel')" class="field--narrow">
-          <select
-            id="availability-timezone"
-            v-model="draft.timeZone"
-            :disabled="!offline.mutationsEnabled"
-            @change="markDirty"
-          >
-            <option v-for="zone in timeZones" :key="zone" :value="zone">{{ zone }}</option>
-          </select>
-        </UiField>
-      </fieldset>
-
-      <fieldset class="settings-group">
+    <form v-else-if="draft" class="settings-form availability-form" @submit.prevent="save">
+      <fieldset class="settings-group avail-section avail-section--rules">
         <legend>{{ t('availability.rules') }}</legend>
         <p class="muted">{{ t('availability.rulesLede') }}</p>
         <AvailabilityWeekGrid
@@ -412,7 +398,89 @@ function retry(): void {
         </details>
       </fieldset>
 
-      <fieldset class="settings-group">
+      <fieldset class="settings-group avail-section avail-section--zone">
+        <legend>{{ t('availability.timeZone') }}</legend>
+        <UiField id="availability-timezone" :label="t('availability.timeZoneLabel')" class="field--narrow">
+          <select
+            id="availability-timezone"
+            v-model="draft.timeZone"
+            :disabled="!offline.mutationsEnabled"
+            @change="markDirty"
+          >
+            <option v-for="zone in timeZones" :key="zone" :value="zone">{{ zone }}</option>
+          </select>
+        </UiField>
+      </fieldset>
+
+      <fieldset class="settings-group avail-section avail-section--prefs">
+        <legend>{{ t('availability.prefs') }}</legend>
+        <div class="prefs-grid">
+          <UiField id="pref-max-focus" :label="t('availability.maxDailyFocus')">
+            <input
+              id="pref-max-focus"
+              v-model.number="draft.prefs.maxDailyFocusMin"
+              type="number"
+              min="0"
+              step="5"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </UiField>
+          <UiField id="pref-break-after" :label="t('availability.breakAfter')">
+            <input
+              id="pref-break-after"
+              v-model.number="draft.prefs.breakAfterMin"
+              type="number"
+              min="0"
+              step="5"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </UiField>
+          <UiField id="pref-break" :label="t('availability.breakLength')">
+            <input
+              id="pref-break"
+              v-model.number="draft.prefs.breakMin"
+              type="number"
+              min="0"
+              step="5"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </UiField>
+          <UiField id="pref-day-start" :label="t('availability.dayStart')">
+            <input
+              id="pref-day-start"
+              v-model="draft.prefs.dayStartLocal"
+              type="time"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </UiField>
+          <UiField id="pref-day-end" :label="t('availability.dayEnd')">
+            <input
+              id="pref-day-end"
+              v-model="draft.prefs.dayEndLocal"
+              type="time"
+              :disabled="!offline.mutationsEnabled"
+              @input="markDirty"
+            />
+          </UiField>
+          <UiField id="pref-risk" :label="t('availability.riskLevel')">
+            <select
+              id="pref-risk"
+              v-model="draft.prefs.riskLevel"
+              :disabled="!offline.mutationsEnabled"
+              @change="markDirty"
+            >
+              <option value="p50">{{ t('availability.riskP50') }}</option>
+              <option value="p90">{{ t('availability.riskP90') }}</option>
+            </select>
+          </UiField>
+        </div>
+      </fieldset>
+
+      <fieldset class="settings-group avail-section avail-section--exceptions">
         <legend>{{ t('availability.exceptions') }}</legend>
         <p class="muted">{{ t('availability.exceptionsLede') }}</p>
         <UiEmptyState
@@ -495,74 +563,6 @@ function retry(): void {
           <UiButton icon="plus" size="sm" :disabled="!offline.mutationsEnabled" @click="addException">
             {{ t('availability.addException') }}
           </UiButton>
-        </div>
-      </fieldset>
-
-      <fieldset class="settings-group">
-        <legend>{{ t('availability.prefs') }}</legend>
-        <div class="prefs-grid">
-          <UiField id="pref-max-focus" :label="t('availability.maxDailyFocus')">
-            <input
-              id="pref-max-focus"
-              v-model.number="draft.prefs.maxDailyFocusMin"
-              type="number"
-              min="0"
-              step="5"
-              :disabled="!offline.mutationsEnabled"
-              @input="markDirty"
-            />
-          </UiField>
-          <UiField id="pref-break-after" :label="t('availability.breakAfter')">
-            <input
-              id="pref-break-after"
-              v-model.number="draft.prefs.breakAfterMin"
-              type="number"
-              min="0"
-              step="5"
-              :disabled="!offline.mutationsEnabled"
-              @input="markDirty"
-            />
-          </UiField>
-          <UiField id="pref-break" :label="t('availability.breakLength')">
-            <input
-              id="pref-break"
-              v-model.number="draft.prefs.breakMin"
-              type="number"
-              min="0"
-              step="5"
-              :disabled="!offline.mutationsEnabled"
-              @input="markDirty"
-            />
-          </UiField>
-          <UiField id="pref-day-start" :label="t('availability.dayStart')">
-            <input
-              id="pref-day-start"
-              v-model="draft.prefs.dayStartLocal"
-              type="time"
-              :disabled="!offline.mutationsEnabled"
-              @input="markDirty"
-            />
-          </UiField>
-          <UiField id="pref-day-end" :label="t('availability.dayEnd')">
-            <input
-              id="pref-day-end"
-              v-model="draft.prefs.dayEndLocal"
-              type="time"
-              :disabled="!offline.mutationsEnabled"
-              @input="markDirty"
-            />
-          </UiField>
-          <UiField id="pref-risk" :label="t('availability.riskLevel')">
-            <select
-              id="pref-risk"
-              v-model="draft.prefs.riskLevel"
-              :disabled="!offline.mutationsEnabled"
-              @change="markDirty"
-            >
-              <option value="p50">{{ t('availability.riskP50') }}</option>
-              <option value="p90">{{ t('availability.riskP90') }}</option>
-            </select>
-          </UiField>
         </div>
       </fieldset>
 

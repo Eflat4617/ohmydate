@@ -9,7 +9,6 @@ import { useAuthStore } from '../../stores/auth';
 import UiBadge from '../ui/UiBadge.vue';
 import UiBanner from '../ui/UiBanner.vue';
 import UiButton from '../ui/UiButton.vue';
-import UiIcon from '../ui/UiIcon.vue';
 import UiSkeleton from '../ui/UiSkeleton.vue';
 
 /**
@@ -67,7 +66,7 @@ function shortHash(hash: string): string {
 <template>
   <section class="note-section note-ai-usage" :aria-labelledby="headingId" data-note-ai-usage>
     <header class="note-section-header">
-      <h3 :id="headingId" class="note-section-title"><UiIcon name="ai" :size="18" />{{ t('notes.ai.title') }}</h3>
+      <h3 :id="headingId" class="note-section-title">{{ t('notes.ai.title') }}</h3>
     </header>
     <p class="muted">{{ t('notes.ai.lede') }}</p>
     <p v-if="documentId === null" class="muted">{{ t('notes.ai.saveFirst') }}</p>
@@ -92,14 +91,14 @@ function shortHash(hash: string): string {
           </div>
           <p class="note-ai-meta tabular">
             <time :datetime="item.createdAt">{{ formatDateTime(item.createdAt, timeZone) }}</time>
-            · {{ tp('notes.ai.sections', item.sectionHashes.length) }}
-            · {{ t('notes.ai.bytes', { size: sizeText(item.sentBytes) }) }}
-            · {{ t('notes.ai.version', { version: item.documentVersion }) }}
+            <span>{{ tp('notes.ai.sections', item.sectionHashes.length) }}</span>
+            <span>{{ t('notes.ai.bytes', { size: sizeText(item.sentBytes) }) }}</span>
+            <span>{{ t('notes.ai.version', { version: item.documentVersion }) }}</span>
           </p>
           <p v-if="item.stale" class="field-help">{{ t('notes.ai.staleHelp') }}</p>
-          <p class="note-ai-meta muted">
-            {{ t('notes.ai.model', { provider: item.provider, model: item.model }) }}
-            · <span class="tabular">{{ t('notes.ai.run', { id: item.agentRunId.slice(-8) }) }}</span>
+          <p class="note-ai-meta note-ai-meta--run muted">
+            <span>{{ t('notes.ai.model', { provider: item.provider, model: item.model }) }}</span>
+            <span class="tabular">{{ t('notes.ai.run', { id: item.agentRunId.slice(-8) }) }}</span>
           </p>
           <div class="note-ai-hashes">
             <span class="muted">{{ t('notes.ai.hashesLabel') }}</span>
