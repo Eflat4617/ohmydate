@@ -62,12 +62,11 @@ import {
   MAX_OCCURRENCES,
   parseRRule,
 } from './rrule.js';
+import { schedulingSessionBounds } from './session-bounds.js';
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
 const MAX_HORIZON_DAYS = 366;
-const DEFAULT_MIN_SESSION_MIN = 30;
-const DEFAULT_MAX_SESSION_MIN = 90;
 
 interface ResolvedScope {
   readonly goalId?: Id;
@@ -348,28 +347,24 @@ export function assembleScheduleInput(source: AssemblyInput): Assembled {
     const remainingMin = inPlanningSet
       ? Math.max(0, required - historyMinutes(source.activeBlocks, task.id, source.now))
       : blockMinutes(lockedBlocks, task.id);
-    // Non-splittable work is one block equal to the remaining requirement.
-    // Out-of-scope locked/history tasks are not re-placed; keep their bounds
-    // permissive so auditing the already-approved blocks cannot invent an H5.
-    const splittable = inPlanningSet ? task.splittable : true;
-    const minSessionMin = !inPlanningSet
-      ? 1
-      : splittable
-        ? (task.session?.minMinutes ?? DEFAULT_MIN_SESSION_MIN)
-        : remainingMin;
-    const maxSessionMin = !inPlanningSet
-      ? 100_000
-      : splittable
-        ? (task.session?.maxMinutes ?? DEFAULT_MAX_SESSION_MIN)
-        : remainingMin;
+    // Planning-set bounds come from the one shared mapping (FU-96): a
+    // non-splittable task is one block equal to the remaining requirement,
+    // unless that is longer than one H6-legal block, in which case it is
+    // auto-split for scheduling only. Out-of-scope locked/history tasks are
+    // not re-placed; keep their bounds permissive so auditing the
+    // already-approved blocks cannot invent an H5.
+    const bounds = inPlanningSet
+      ? schedulingSessionBounds(task, remainingMin, availability.prefs)
+      : { splittable: true, minSessionMin: 1, maxSessionMin: 100_000 };
     return {
       id: task.id,
       ...(task.dueAt === undefined ? {} : { dueAt: task.dueAt }),
       estimate: { p50Min: effective.p50Min, p90Min: effective.p90Min },
       remainingMin,
-      splittable,
-      minSessionMin,
-      maxSessionMin,
+      splittable: bounds.splittable,
+      minSessionMin: bounds.minSessionMin,
+      maxSessionMin: bounds.maxSessionMin,
+      ...(bounds.autoSplit === undefined ? {} : { autoSplit: bounds.autoSplit }),
       priority: task.priority,
       dependsOn: task.dependsOn.filter((dependency) => allTasks.has(dependency)),
     };
