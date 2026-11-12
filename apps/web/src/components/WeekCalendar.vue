@@ -12,6 +12,7 @@ import {
   weekDates,
   weekdayOfDate,
 } from '../domain/time';
+import { exceptionTimeText } from '../domain/availabilityExceptions';
 import { t } from '../i18n';
 import {
   formatCivilDate,
@@ -67,6 +68,13 @@ interface WindowBand {
   start: number;
   end: number;
   kind: string;
+}
+
+/** A date exception "쉼", drawn as its own labelled band (FU-97). */
+interface OffBand {
+  start: number;
+  end: number;
+  time: string;
 }
 
 interface PositionedBlock {
@@ -139,6 +147,29 @@ function windowsForDate(date: string): WindowBand[] {
   return windows
     .map((window) => ({ ...window, start: Math.max(0, window.start), end: Math.min(1440, window.end) }))
     .filter((window) => window.end > window.start);
+}
+
+/**
+ * The 쉼 exceptions of a date as bands: the exception's time range, or the
+ * whole day when it has no times. Drawn whether or not a weekly rule covers
+ * that day, so a day off on a rule-less weekend is still visible.
+ */
+function offBandsForDate(date: string): OffBand[] {
+  const availability = props.availability;
+  if (availability === null) return [];
+  const bands: OffBand[] = [];
+  for (const exception of availability.exceptions) {
+    if (exception.date !== date || exception.kind !== 'off') continue;
+    const hasStart = exception.startLocal !== undefined && exception.startLocal.length > 0;
+    const hasEnd = exception.endLocal !== undefined && exception.endLocal.length > 0;
+    const start = hasStart ? clockMinutes(exception.startLocal ?? '00:00') : 0;
+    const end = hasEnd ? clockMinutes(exception.endLocal ?? '24:00') : 24 * 60;
+    const from = Math.max(0, start);
+    const to = Math.min(1440, end);
+    if (to <= from) continue;
+    bands.push({ start: from, end: to, time: exceptionTimeText(exception) });
+  }
+  return bands.sort((left, right) => left.start - right.start);
 }
 
 function dateLabel(date: string): string {
@@ -368,6 +399,9 @@ defineExpose({ dates, positionedBlocks });
         >
           <span class="calendar-weekday">{{ formatCivilWeekday(date) }}</span>
           <span class="calendar-date">{{ formatCivilMonthDay(date) }}</span>
+          <span v-if="offBandsForDate(date).length > 0" class="calendar-day-off" data-day-off>
+            {{ t('calendar.off') }}
+          </span>
         </div>
 
         <div class="calendar-hour-rail" aria-hidden="true">
@@ -404,6 +438,17 @@ defineExpose({ dates, positionedBlocks });
             :style="{ top: `${window.start}px`, height: `${window.end - window.start}px` }"
             aria-hidden="true"
           ></div>
+          <div
+            v-for="(band, bandIndex) in offBandsForDate(date)"
+            :key="`off-${date}-${bandIndex}`"
+            class="calendar-off"
+            :style="{ top: `${band.start}px`, height: `${band.end - band.start}px` }"
+            data-off-band
+          >
+            <span class="calendar-off-label">
+              <strong>{{ t('calendar.off') }}</strong> {{ band.time }}
+            </span>
+          </div>
           <div
             v-for="(commitment, commitmentIndex) in commitmentsForDate(date)"
             :key="`commitment-${commitment.startAt}-${commitmentIndex}`"

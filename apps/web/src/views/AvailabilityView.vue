@@ -11,6 +11,10 @@ import {
   type AvailabilityRule,
 } from '../api';
 import { useOfflineStore } from '../stores/offline';
+import AvailabilityWeekGrid from '../components/AvailabilityWeekGrid.vue';
+import ClockInput from '../components/ClockInput.vue';
+import { DAY_MINUTES, WEEKDAYS, parseClock } from '../domain/availabilityGrid';
+import { exceptionSummary } from '../domain/availabilityExceptions';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -27,7 +31,8 @@ const offline = useOfflineStore();
 const queryClient = useQueryClient();
 const actions = new ActionStore();
 
-const WEEKDAYS = [1, 2, 3, 4, 5, 6, 7] as const;
+/** AvailabilityPut caps `rules` at 50 (packages/contracts). */
+const MAX_RULES = 50;
 
 const FALLBACK_ZONES = [
   'UTC',
@@ -82,27 +87,40 @@ function cloneAvailability(value: Availability): Availability {
   };
 }
 
+/** A typed time, or `undefined` when the field is empty. */
+function clockValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim() ?? '';
+  return trimmed.length === 0 ? undefined : trimmed;
+}
+
 function buildPayload(value: Availability): AvailabilityPut {
   return {
     timeZone: value.timeZone,
     rules: value.rules.map((rule) => ({
       weekday: rule.weekday,
-      startLocal: rule.startLocal,
-      endLocal: rule.endLocal,
+      startLocal: rule.startLocal.trim(),
+      endLocal: rule.endLocal.trim(),
       kind: rule.kind,
     })),
-    exceptions: value.exceptions.map((exception) => ({
-      date: exception.date,
-      kind: exception.kind,
-      ...(exception.startLocal === undefined || exception.startLocal.length === 0
-        ? {}
-        : { startLocal: exception.startLocal }),
-      ...(exception.endLocal === undefined || exception.endLocal.length === 0
-        ? {}
-        : { endLocal: exception.endLocal }),
-    })),
+    exceptions: value.exceptions.map((exception) => {
+      const startLocal = clockValue(exception.startLocal);
+      const endLocal = clockValue(exception.endLocal);
+      return {
+        date: exception.date,
+        kind: exception.kind,
+        ...(startLocal === undefined ? {} : { startLocal }),
+        ...(endLocal === undefined ? {} : { endLocal }),
+      };
+    }),
     prefs: { ...value.prefs },
   };
+}
+
+/** The weekly grid painted: it hands back the whole rules array (only the painted weekdays rewritten). */
+function updateRules(rules: AvailabilityRule[]): void {
+  if (draft.value === null || !offline.mutationsEnabled) return;
+  draft.value.rules = rules;
+  markDirty();
 }
 
 function markDirty(): void {
@@ -137,26 +155,42 @@ function removeException(index: number): void {
   markDirty();
 }
 
+/** Start and end as minutes, or `null` when either cannot be read (a start may not be 24:00). */
+function clockRange(startLocal: string, endLocal: string): { start: number; end: number } | null {
+  const start = parseClock(startLocal.trim());
+  const end = parseClock(endLocal.trim());
+  if (start === null || end === null || start >= DAY_MINUTES) return null;
+  return { start, end };
+}
+
 function ruleError(rule: AvailabilityRule, index: number): string | null {
-  if (rule.endLocal < rule.startLocal) return t('availability.ruleEndError', { index: index + 1 });
+  const range = clockRange(rule.startLocal, rule.endLocal);
+  if (range === null) return t('availability.ruleClockError', { index: index + 1 });
+  if (range.end <= range.start) return t('availability.ruleEndError', { index: index + 1 });
   return null;
 }
 
 function exceptionError(exception: AvailabilityException, index: number): string | null {
   if (exception.date.length === 0) return t('availability.exceptionDateError', { index: index + 1 });
-  if (
-    exception.startLocal !== undefined &&
-    exception.endLocal !== undefined &&
-    exception.endLocal <= exception.startLocal
-  ) {
-    return t('availability.exceptionEndError', { index: index + 1 });
+  const startLocal = clockValue(exception.startLocal);
+  const endLocal = clockValue(exception.endLocal);
+  if (startLocal === undefined && endLocal === undefined) return null;
+  // The scheduler ignores (and rejects) a window with only one end.
+  if (startLocal === undefined || endLocal === undefined) {
+    return t('availability.exceptionPartialError', { index: index + 1 });
   }
+  const range = clockRange(startLocal, endLocal);
+  if (range === null) return t('availability.exceptionClockError', { index: index + 1 });
+  if (range.end <= range.start) return t('availability.exceptionEndError', { index: index + 1 });
   return null;
 }
 
 const validationErrors = computed<string[]>(() => {
   if (draft.value === null) return [];
   const errors: string[] = [];
+  if (draft.value.rules.length > MAX_RULES) {
+    errors.push(t('availability.tooManyRules', { count: draft.value.rules.length }));
+  }
   draft.value.rules.forEach((rule, index) => {
     const failure = ruleError(rule, index);
     if (failure !== null) errors.push(failure);
@@ -289,83 +323,93 @@ function retry(): void {
       <fieldset class="settings-group">
         <legend>{{ t('availability.rules') }}</legend>
         <p class="muted">{{ t('availability.rulesLede') }}</p>
-        <div class="rule-table" role="table" :aria-label="t('availability.rulesTable')">
-          <div class="rule-row rule-head" role="row">
-            <span role="columnheader">{{ t('availability.colWeekday') }}</span>
-            <span role="columnheader">{{ t('availability.colStart') }}</span>
-            <span role="columnheader">{{ t('availability.colEnd') }}</span>
-            <span role="columnheader">{{ t('availability.colKind') }}</span>
-            <span role="columnheader"><span class="visually-hidden">{{ t('availability.colActions') }}</span></span>
+        <AvailabilityWeekGrid
+          :rules="draft.rules"
+          :readonly="!offline.mutationsEnabled"
+          @update:rules="updateRules"
+        />
+
+        <details class="avail-direct" data-direct-entry>
+          <summary>{{ t('availability.direct') }}</summary>
+          <p class="muted">{{ t('availability.directLede') }}</p>
+          <div class="rule-table" role="table" :aria-label="t('availability.rulesTable')">
+            <div class="rule-row rule-head" role="row">
+              <span role="columnheader">{{ t('availability.colWeekday') }}</span>
+              <span role="columnheader">{{ t('availability.colStart') }}</span>
+              <span role="columnheader">{{ t('availability.colEnd') }}</span>
+              <span role="columnheader">{{ t('availability.colKind') }}</span>
+              <span role="columnheader"><span class="visually-hidden">{{ t('availability.colActions') }}</span></span>
+            </div>
+            <div
+              v-for="(rule, index) in draft.rules"
+              :key="`rule-${index}`"
+              class="rule-row"
+              role="row"
+            >
+              <div role="cell" class="rule-cell rule-cell--weekday">
+                <label class="sr-only" :for="`rule-weekday-${index}`">{{ t('availability.ruleWeekday', { index: index + 1 }) }}</label>
+                <select
+                  :id="`rule-weekday-${index}`"
+                  v-model.number="rule.weekday"
+                  :disabled="!offline.mutationsEnabled"
+                  @change="markDirty"
+                >
+                  <option v-for="day in WEEKDAYS" :key="day" :value="day">{{ t(`availability.weekday.${day}`) }}</option>
+                </select>
+              </div>
+              <div role="cell" class="rule-cell">
+                <label class="sr-only" :for="`rule-start-${index}`">{{ t('availability.ruleStart', { index: index + 1 }) }}</label>
+                <ClockInput
+                  :id="`rule-start-${index}`"
+                  v-model="rule.startLocal"
+                  :disabled="!offline.mutationsEnabled"
+                  :invalid="ruleError(rule, index) !== null"
+                  @edited="markDirty"
+                />
+              </div>
+              <div role="cell" class="rule-cell">
+                <label class="sr-only" :for="`rule-end-${index}`">{{ t('availability.ruleEnd', { index: index + 1 }) }}</label>
+                <ClockInput
+                  :id="`rule-end-${index}`"
+                  v-model="rule.endLocal"
+                  :disabled="!offline.mutationsEnabled"
+                  :invalid="ruleError(rule, index) !== null"
+                  @edited="markDirty"
+                />
+              </div>
+              <div role="cell" class="rule-cell">
+                <label class="sr-only" :for="`rule-kind-${index}`">{{ t('availability.ruleKind', { index: index + 1 }) }}</label>
+                <select
+                  :id="`rule-kind-${index}`"
+                  v-model="rule.kind"
+                  :disabled="!offline.mutationsEnabled"
+                  @change="markDirty"
+                >
+                  <option value="work">{{ t('availability.kindWork') }}</option>
+                  <option value="focus">{{ t('availability.kindFocus') }}</option>
+                </select>
+              </div>
+              <div role="cell" class="rule-cell rule-cell--action">
+                <UiButton
+                  variant="danger-ghost"
+                  size="sm"
+                  icon="trash"
+                  class="link-button danger"
+                  :disabled="!offline.mutationsEnabled"
+                  @click="removeRule(index)"
+                >
+                  <span class="visually-hidden">{{ t('availability.ruleRemovePrefix', { index: index + 1 }) }}</span
+                  >{{ t('common.remove') }}
+                </UiButton>
+              </div>
+            </div>
           </div>
-          <div
-            v-for="(rule, index) in draft.rules"
-            :key="`rule-${index}`"
-            class="rule-row"
-            role="row"
-          >
-            <div role="cell" class="rule-cell rule-cell--weekday">
-              <label class="sr-only" :for="`rule-weekday-${index}`">{{ t('availability.ruleWeekday', { index: index + 1 }) }}</label>
-              <select
-                :id="`rule-weekday-${index}`"
-                v-model.number="rule.weekday"
-                :disabled="!offline.mutationsEnabled"
-                @change="markDirty"
-              >
-                <option v-for="day in WEEKDAYS" :key="day" :value="day">{{ t(`availability.weekday.${day}`) }}</option>
-              </select>
-            </div>
-            <div role="cell" class="rule-cell">
-              <label class="sr-only" :for="`rule-start-${index}`">{{ t('availability.ruleStart', { index: index + 1 }) }}</label>
-              <input
-                :id="`rule-start-${index}`"
-                v-model="rule.startLocal"
-                type="time"
-                :disabled="!offline.mutationsEnabled"
-                @input="markDirty"
-              />
-            </div>
-            <div role="cell" class="rule-cell">
-              <label class="sr-only" :for="`rule-end-${index}`">{{ t('availability.ruleEnd', { index: index + 1 }) }}</label>
-              <input
-                :id="`rule-end-${index}`"
-                v-model="rule.endLocal"
-                type="time"
-                :disabled="!offline.mutationsEnabled"
-                @input="markDirty"
-              />
-            </div>
-            <div role="cell" class="rule-cell">
-              <label class="sr-only" :for="`rule-kind-${index}`">{{ t('availability.ruleKind', { index: index + 1 }) }}</label>
-              <select
-                :id="`rule-kind-${index}`"
-                v-model="rule.kind"
-                :disabled="!offline.mutationsEnabled"
-                @change="markDirty"
-              >
-                <option value="work">{{ t('availability.kindWork') }}</option>
-                <option value="focus">{{ t('availability.kindFocus') }}</option>
-              </select>
-            </div>
-            <div role="cell" class="rule-cell rule-cell--action">
-              <UiButton
-                variant="danger-ghost"
-                size="sm"
-                icon="trash"
-                class="link-button danger"
-                :disabled="!offline.mutationsEnabled"
-                @click="removeRule(index)"
-              >
-                <span class="visually-hidden">{{ t('availability.ruleRemovePrefix', { index: index + 1 }) }}</span
-                >{{ t('common.remove') }}
-              </UiButton>
-            </div>
+          <div>
+            <UiButton icon="plus" size="sm" :disabled="!offline.mutationsEnabled" @click="addRule">
+              {{ t('availability.addRule') }}
+            </UiButton>
           </div>
-        </div>
-        <div>
-          <UiButton icon="plus" size="sm" :disabled="!offline.mutationsEnabled" @click="addRule">
-            {{ t('availability.addRule') }}
-          </UiButton>
-        </div>
+        </details>
       </fieldset>
 
       <fieldset class="settings-group">
@@ -380,62 +424,71 @@ function retry(): void {
         <div
           v-for="(exception, index) in draft.exceptions"
           :key="`exception-${index}`"
-          class="rule-row exception-row"
+          class="exception-item"
+          :class="`exception-item--${exception.kind}`"
+          role="group"
+          :aria-labelledby="`exception-summary-${index}`"
         >
-          <div class="rule-cell rule-cell--weekday">
-            <label class="sr-only" :for="`exception-date-${index}`">{{ t('availability.exceptionDate', { index: index + 1 }) }}</label>
-            <input
-              :id="`exception-date-${index}`"
-              v-model="exception.date"
-              type="date"
-              :disabled="!offline.mutationsEnabled"
-              @input="markDirty"
-            />
-          </div>
-          <div class="rule-cell">
-            <label class="sr-only" :for="`exception-kind-${index}`">{{ t('availability.exceptionKind', { index: index + 1 }) }}</label>
-            <select
-              :id="`exception-kind-${index}`"
-              v-model="exception.kind"
-              :disabled="!offline.mutationsEnabled"
-              @change="markDirty"
-            >
-              <option value="off">{{ t('availability.kindOff') }}</option>
-              <option value="extra">{{ t('availability.kindExtra') }}</option>
-            </select>
-          </div>
-          <div class="rule-cell">
-            <label class="sr-only" :for="`exception-start-${index}`">{{ t('availability.exceptionStart', { index: index + 1 }) }}</label>
-            <input
-              :id="`exception-start-${index}`"
-              v-model="exception.startLocal"
-              type="time"
-              :disabled="!offline.mutationsEnabled"
-              @input="markDirty"
-            />
-          </div>
-          <div class="rule-cell">
-            <label class="sr-only" :for="`exception-end-${index}`">{{ t('availability.exceptionEnd', { index: index + 1 }) }}</label>
-            <input
-              :id="`exception-end-${index}`"
-              v-model="exception.endLocal"
-              type="time"
-              :disabled="!offline.mutationsEnabled"
-              @input="markDirty"
-            />
-          </div>
-          <div class="rule-cell rule-cell--action">
-            <UiButton
-              variant="danger-ghost"
-              size="sm"
-              icon="trash"
-              class="link-button danger"
-              :disabled="!offline.mutationsEnabled"
-              @click="removeException(index)"
-            >
-              <span class="visually-hidden">{{ t('availability.exceptionRemovePrefix', { index: index + 1 }) }}</span
-              >{{ t('common.remove') }}
-            </UiButton>
+          <p :id="`exception-summary-${index}`" class="exception-summary" data-exception-summary>
+            <span class="exception-mark" :class="`exception-mark--${exception.kind}`" aria-hidden="true"></span>
+            <span>{{ exceptionSummary(exception) }}</span>
+          </p>
+          <div class="rule-row exception-row">
+            <div class="rule-cell rule-cell--weekday">
+              <label class="sr-only" :for="`exception-date-${index}`">{{ t('availability.exceptionDate', { index: index + 1 }) }}</label>
+              <input
+                :id="`exception-date-${index}`"
+                v-model="exception.date"
+                type="date"
+                :disabled="!offline.mutationsEnabled"
+                @input="markDirty"
+              />
+            </div>
+            <div class="rule-cell">
+              <label class="sr-only" :for="`exception-kind-${index}`">{{ t('availability.exceptionKind', { index: index + 1 }) }}</label>
+              <select
+                :id="`exception-kind-${index}`"
+                v-model="exception.kind"
+                :disabled="!offline.mutationsEnabled"
+                @change="markDirty"
+              >
+                <option value="off">{{ t('availability.kindOff') }}</option>
+                <option value="extra">{{ t('availability.kindExtra') }}</option>
+              </select>
+            </div>
+            <div class="rule-cell">
+              <label class="sr-only" :for="`exception-start-${index}`">{{ t('availability.exceptionStart', { index: index + 1 }) }}</label>
+              <ClockInput
+                :id="`exception-start-${index}`"
+                v-model="exception.startLocal"
+                :disabled="!offline.mutationsEnabled"
+                :invalid="exceptionError(exception, index) !== null && exception.date.length > 0"
+                @edited="markDirty"
+              />
+            </div>
+            <div class="rule-cell">
+              <label class="sr-only" :for="`exception-end-${index}`">{{ t('availability.exceptionEnd', { index: index + 1 }) }}</label>
+              <ClockInput
+                :id="`exception-end-${index}`"
+                v-model="exception.endLocal"
+                :disabled="!offline.mutationsEnabled"
+                :invalid="exceptionError(exception, index) !== null && exception.date.length > 0"
+                @edited="markDirty"
+              />
+            </div>
+            <div class="rule-cell rule-cell--action">
+              <UiButton
+                variant="danger-ghost"
+                size="sm"
+                icon="trash"
+                class="link-button danger"
+                :disabled="!offline.mutationsEnabled"
+                @click="removeException(index)"
+              >
+                <span class="visually-hidden">{{ t('availability.exceptionRemovePrefix', { index: index + 1 }) }}</span
+                >{{ t('common.remove') }}
+              </UiButton>
+            </div>
           </div>
         </div>
         <div>

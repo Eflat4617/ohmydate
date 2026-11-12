@@ -1481,6 +1481,15 @@
   );
 }
 
+.legend-swatch--off {
+  border: 1px solid var(--color-cal-off-edge);
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-cal-off-stripe) 0 3px,
+    var(--color-cal-off) 3px 6px
+  );
+}
+
 .legend-swatch--block {
   border-left: 3px solid color-mix(in srgb, var(--color-on-cal-block) 55%, var(--color-cal-block));
   background: var(--color-cal-block);
@@ -1588,6 +1597,48 @@
 
 .calendar-availability--focus {
   background: var(--color-cal-focus-window);
+}
+
+/* Date exception "쉼" (FU-97): hatched band + label, above availability. */
+.calendar-off {
+  position: absolute;
+  right: 0;
+  left: 0;
+  overflow: hidden;
+  border-top: 2px solid var(--color-cal-off-edge);
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-cal-off-stripe) 0 5px,
+    var(--color-cal-off) 5px 10px
+  );
+}
+
+.calendar-off-label {
+  display: inline-block;
+  max-width: calc(100% - var(--space-2));
+  margin: var(--space-0-5) var(--space-1);
+  overflow: hidden;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface);
+  color: var(--color-warn);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-day-off {
+  align-self: flex-start;
+  margin-top: var(--space-0-5);
+  padding: 0 var(--space-1-5);
+  border: 1px solid var(--color-cal-off-edge);
+  border-radius: var(--radius-pill);
+  background: var(--color-warn-soft);
+  color: var(--color-warn);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
 }
 
 .calendar-commitment {
@@ -1916,6 +1967,333 @@
   grid-template-columns: minmax(9rem, 1.3fr) minmax(6.5rem, 1fr) repeat(2, minmax(6.5rem, 1fr)) auto;
 }
 
+/* ── Weekly availability grid editor (FU-97) ───────────────────────── */
+.avail-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.avail-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.avail-brush > legend {
+  float: left;
+  width: 100%;
+}
+
+.avail-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.avail-range .btn[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+}
+
+.avail-range-note,
+.avail-hint {
+  font-size: var(--text-xs);
+}
+
+.avail-hint-touch {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .avail-hint-touch {
+    display: inline;
+  }
+}
+
+.avail-swatch {
+  display: inline-block;
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 1px solid var(--color-avail-cell-edge);
+  border-radius: var(--radius-xs);
+}
+
+.avail-swatch--work {
+  background: var(--color-avail-work);
+}
+
+.avail-swatch--focus {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-avail-focus-stripe) 0 2px,
+    var(--color-avail-focus) 2px 5px
+  );
+}
+
+.avail-swatch--erase {
+  border-style: dashed;
+  border-color: var(--color-border-control);
+  background: var(--color-surface);
+}
+
+/* Horizontal scroller (390 px): the time column stays put. */
+.avail-scroller {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overscroll-behavior-x: contain;
+}
+
+.avail-grid {
+  --avail-time-col: 3.25rem;
+  --avail-row-height: 1.5rem;
+
+  min-width: calc(var(--avail-time-col) + 7 * 3.25rem);
+  user-select: none;
+}
+
+.avail-row {
+  display: grid;
+  grid-template-columns: var(--avail-time-col) repeat(7, minmax(3.25rem, 1fr));
+}
+
+.avail-row--head {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.avail-corner,
+.avail-time {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.avail-dayhead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: var(--space-1-5) var(--space-1);
+  border-left: 1px solid var(--color-cal-grid);
+  background: var(--color-surface);
+}
+
+.avail-dayhead-name {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.avail-dayhead-total {
+  color: var(--color-text-muted);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-tight);
+  text-align: center;
+}
+
+.avail-time {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  height: var(--avail-row-height);
+  padding-right: var(--space-1-5);
+  color: var(--color-text-subtle);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  transform: translateY(-0.3em);
+}
+
+.avail-row--head + .avail-row .avail-time {
+  transform: none;
+}
+
+.avail-cell {
+  position: relative;
+  height: var(--avail-row-height);
+  overflow: hidden;
+  border-left: 1px solid var(--color-cal-grid);
+  border-top: 1px dashed color-mix(in srgb, var(--color-cal-grid) 60%, transparent);
+  background: var(--color-surface);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.avail-row--hour .avail-cell {
+  border-top: 1px solid var(--color-cal-grid);
+}
+
+.avail-cell:hover {
+  background-color: var(--color-surface-hover);
+}
+
+.avail-cell:focus-visible {
+  z-index: 1;
+  outline: var(--focus-ring);
+  outline-offset: -3px;
+}
+
+.avail-cell--work,
+.avail-cell--work:hover {
+  background: var(--color-avail-work);
+}
+
+.avail-cell--focus,
+.avail-cell--focus:hover {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-avail-focus-stripe) 0 3px,
+    var(--color-avail-focus) 3px 8px
+  );
+}
+
+/* Off-grid edge: only the covered minutes are filled, with a dotted edge. */
+.avail-cell--partial {
+  box-shadow: inset 0 0 0 1px var(--color-avail-cell-edge);
+}
+
+.avail-cell-fill {
+  position: absolute;
+  right: 0;
+  left: 0;
+  border-block: 1px dotted var(--color-accent);
+  background: var(--color-avail-work);
+}
+
+.avail-cell-fill--focus {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-avail-focus-stripe) 0 3px,
+    var(--color-avail-focus) 3px 8px
+  );
+}
+
+.avail-cell-label {
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  max-width: calc(100% - 4px);
+  overflow: hidden;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface);
+  color: var(--color-accent-text);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.avail-grid--readonly .avail-cell {
+  cursor: not-allowed;
+}
+
+.avail-week-total {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Desktop: the week fits; let the day heads stick while the page scrolls. */
+@media (min-width: 1024px) {
+  .avail-scroller {
+    overflow: visible;
+  }
+
+  .avail-row--head {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--color-surface);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+}
+
+/* "시간 직접 입력": the precise row editor, bound to the same rules. */
+.avail-direct {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.avail-direct > summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height-sm);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.avail-direct[open] > * + * {
+  margin-top: var(--space-3);
+}
+
+.clock-input {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Date exceptions: a readable summary line above each row's inputs. */
+.exception-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface-sunken) 35%, var(--color-surface));
+}
+
+.exception-item--off {
+  border-left: 3px solid var(--color-cal-off-edge);
+}
+
+.exception-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.exception-mark {
+  flex: none;
+  width: 1rem;
+  height: 0.75rem;
+  border-radius: var(--radius-xs);
+}
+
+.exception-mark--off {
+  border: 1px solid var(--color-cal-off-edge);
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-cal-off-stripe) 0 3px,
+    var(--color-cal-off) 3px 6px
+  );
+}
+
+.exception-mark--extra {
+  border: 1px solid var(--color-avail-cell-edge);
+  background: var(--color-avail-work);
+}
+
 .prefs-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
@@ -1953,6 +2331,13 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--color-surface-sunken) 45%, var(--color-surface));
+  }
+
+  /* The exception card is the item; its inputs row needs no second card. */
+  .exception-item .exception-row {
+    padding: 0;
+    border: 0;
+    background: none;
   }
 
   .rule-cell--weekday {

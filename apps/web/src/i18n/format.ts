@@ -253,6 +253,21 @@ export function formatDuration(minutes: number): string {
   return minutes < 0 ? `${MINUS_SIGN}${text}` : text;
 }
 
+/**
+ * Hours and minutes without rolling over into days: `4시간 30분`, `24시간`,
+ * `40시간 30분`, `0분` (weekly availability totals).
+ */
+export function formatHoursAndMinutes(minutes: number): string {
+  if (!Number.isFinite(minutes)) return '—';
+  const rounded = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(rounded / MINUTES_PER_HOUR);
+  const rest = rounded % MINUTES_PER_HOUR;
+  const parts: string[] = [];
+  if (hours > 0) parts.push(tp('duration.hour', hours));
+  if (rest > 0 || hours === 0) parts.push(tp('duration.minute', rest));
+  return parts.join(t('duration.separator'));
+}
+
 /** Like `formatDuration`, but positive values carry `+` (`+11일 10시간`). */
 export function formatSignedDuration(minutes: number): string {
   if (!Number.isFinite(minutes)) return '—';
