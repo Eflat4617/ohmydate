@@ -7,7 +7,7 @@ import { newActionId, plannerClient } from '../src/api';
 import { AI_WAIT_STORAGE_PREFIX, LEGACY_AI_WAIT_STORAGE_KEY, aiWaitStorageKey } from '../src/composables/useAiWait';
 import { acknowledgeRisk, isRiskAcknowledged } from '../src/layout/localSignals';
 import { layoutPrefsKey, writeLayoutPrefs } from '../src/layout/prefs';
-import { refuseNavigationWhenSealed, routes } from '../src/router';
+import { bindNavigationsToOwner, refuseNavigationWhenSealed, routes } from '../src/router';
 import { IndexedDbSessionJournal } from '../src/session/journal';
 import { OWNER_STORAGE_KEY } from '../src/session/owner';
 import { OwnerChangedError, collectPages, runOwnerBound, waitStep, type OwnerSteps } from '../src/session/ownerBound';
@@ -199,6 +199,97 @@ describe('page seal — a page being hard-reset cannot act for anyone', () => {
     ownerChanged(OWNER_A, OWNER_B, 'storage');
     await router.push('/notes');
     expect(router.currentRoute.value.path).toBe('/today');
+  });
+});
+
+describe('navigation belongs to the user who started it', () => {
+  const Page = defineComponent({ render: () => h('div') });
+
+  /** A router whose `/slow` screen loads only when the test lets it (a lazily loaded view). */
+  function slowRouter() {
+    const loading = gate<typeof Page>();
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/', component: Page },
+        { path: '/slow', component: () => loading.promise },
+        { path: '/old', redirect: '/slow' },
+        { path: '/other', component: Page },
+      ],
+    });
+    bindNavigationsToOwner(router);
+    return { router, loaded: () => loading.release(Page) };
+  }
+
+  it('a navigation A started does not complete after B signed in (negative); without a switch it does', async () => {
+    const first = slowRouter();
+    await first.router.push('/');
+    const leaving = first.router.push('/slow');
+    adoptActiveOwner(OWNER_B, 'storage');
+    first.loaded();
+    await leaving;
+    expect(first.router.currentRoute.value.path).toBe('/');
+
+    adoptActiveOwner(OWNER_A, 'storage');
+    const second = slowRouter();
+    await second.router.push('/');
+    const arriving = second.router.push('/slow');
+    second.loaded();
+    await arriving;
+    expect(second.router.currentRoute.value.path).toBe('/slow');
+  });
+
+  it('the owner is noted when push is called, not when the first guard runs a microtask later', async () => {
+    const { router, loaded } = slowRouter();
+    await router.push('/');
+    const leaving = router.push('/slow');
+    // Before any guard of this navigation has run.
+    queueMicrotask(() => adoptActiveOwner(OWNER_B, 'storage'));
+    loaded();
+    await leaving;
+    expect(router.currentRoute.value.path).toBe('/');
+    // What B starts afterwards goes through.
+    await router.push('/other');
+    expect(router.currentRoute.value.path).toBe('/other');
+  });
+
+  it('a redirect keeps the owner of the navigation it came from', async () => {
+    const { router, loaded } = slowRouter();
+    await router.push('/');
+    const leaving = router.push('/old');
+    adoptActiveOwner(OWNER_B, 'storage');
+    loaded();
+    await leaving;
+    expect(router.currentRoute.value.path).toBe('/');
+  });
+
+  it('single owner: a navigation that began before the owner was known, or before a re-login of the same user, completes', async () => {
+    adoptActiveOwner(null, 'storage');
+    const boot = slowRouter();
+    await boot.router.push('/');
+    const first = boot.router.push('/slow');
+    // /me answers while the first screen is still loading.
+    adoptActiveOwner(OWNER_A, 'bootstrap');
+    boot.loaded();
+    await first;
+    expect(boot.router.currentRoute.value.path).toBe('/slow');
+
+    const again = slowRouter();
+    await again.router.push('/');
+    const second = again.router.push('/slow');
+    invalidateOwnerEpoch();
+    again.loaded();
+    await second;
+    expect(again.router.currentRoute.value.path).toBe('/slow');
+  });
+
+  it('a duplicate navigation leaves nothing behind that could bind a later one to the wrong owner', async () => {
+    const { router } = slowRouter();
+    await router.push('/');
+    await router.push('/');
+    adoptActiveOwner(OWNER_B, 'storage');
+    await router.push('/other');
+    expect(router.currentRoute.value.path).toBe('/other');
   });
 });
 
@@ -484,7 +575,7 @@ describe('the seal makes even unfenced code inert (and the harness sees unfenced
     expect(leaks.storage).toEqual([layoutPrefsKey(OWNER_B)]);
     expect(leaks.cache).toEqual(['["availability"]']);
     expect(leaks.toasts).toEqual(['saved for whoever is signed in now']);
-    expect(leaks.navigation).toEqual(['push /today']);
+    expect(leaks.navigation).toBe('/inbox -> /today');
     expect(() => stage?.expectNoLeak()).toThrow();
   });
 

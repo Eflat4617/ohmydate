@@ -7,7 +7,7 @@ import App from '../../src/App.vue';
 import AdaptiveFrame from '../../src/components/layout/AdaptiveFrame.vue';
 import { mockDb, resetMockDb } from '../../src/mocks/db';
 import { server } from '../../src/mocks/server';
-import { routes } from '../../src/router';
+import { bindNavigationsToOwner, routes } from '../../src/router';
 import { sessionJournal } from '../../src/session/journal';
 import { OWNER_STORAGE_KEY } from '../../src/session/owner';
 import {
@@ -100,8 +100,8 @@ export interface LeakReport {
   /** Focus journal records filed under B. */
   readonly journal: number;
   readonly toasts: readonly string[];
-  /** Navigations started after the switch (`push` / `replace`) that went through. One started before it may still complete. */
-  readonly navigation: readonly string[];
+  /** `from -> to` when the route moved after the switch. */
+  readonly navigation: string | null;
   /** Live-region texts (status, alert, aria-live) that appeared after the switch. */
   readonly announcements: readonly string[];
   /** Modal dialogs opened after the switch. */
@@ -290,22 +290,8 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
   const router = createRouter({ history: createMemoryHistory(), routes });
   const queryClient = createOwnerQueryClient();
   const toasts = useToastStore(pinia);
-  // A navigation belongs to whoever started it: record the calls, not the moment the route changes.
-  const lateNavigations: string[] = [];
-  for (const method of ['push', 'replace'] as const) {
-    const navigate = router[method].bind(router);
-    router[method] = (to) => {
-      const late = switched;
-      const result = navigate(to);
-      // A navigation a guard refused (the page seal) did not happen.
-      if (late) {
-        void result.then((failure) => {
-          if (failure === undefined) lateNavigations.push(`${method} ${typeof to === 'string' ? to : JSON.stringify(to)}`);
-        });
-      }
-      return result;
-    };
-  }
+  // As in the app (src/router.ts): a navigation belongs to whoever started it.
+  bindNavigationsToOwner(router);
   const wrappers: VueWrapper[] = [];
   const requests: RequestRecord[] = [];
   const holds: Hold[] = [];
@@ -441,6 +427,7 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
     if (baseline === null) throw new Error('switchOwner() was not called');
     const before = baseline;
     const keys = storageKeys();
+    const route = router.currentRoute.value.fullPath;
     // What A's own screen already showed before the switch is not a leak; a
     // marker counts when it turns up afterwards, anywhere B could see it.
     const screen = document.body.textContent ?? '';
@@ -454,7 +441,7 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
       storage: keys.filter((key) => key.endsWith(`:${OWNER_B}`) || !isDeclaredKey(key)),
       journal: journalForB,
       toasts: toasts.toasts.map((toast) => toast.message),
-      navigation: [...lateNavigations],
+      navigation: route === before.route ? null : `${before.route} -> ${route}`,
       announcements: liveTexts().filter(
         (text) => !before.live.includes(text) && !expected.live.includes(text) && !LOAD_STATE.test(text),
       ),
@@ -613,7 +600,7 @@ export async function createOwnerSwitchStage(): Promise<OwnerSwitchStage> {
         storage: [],
         journal: 0,
         toasts: [],
-        navigation: [],
+        navigation: null,
         announcements: [],
         dialogs: 0,
         cache: [],

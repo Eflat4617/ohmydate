@@ -1,5 +1,5 @@
-import { readdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SEED_TASK_TITLE } from '../src/mocks/db';
 import { createOwnerSwitchStage, type OwnerSwitchStage, until } from './support/ownerSwitch';
@@ -16,7 +16,9 @@ import { OWNER_SWITCH_CASES, OWNER_SWITCH_SHARDS, buttonByText, inboxReady } fro
  * also runs without the switch, to show the action is not a no-op.
  *
  * The cases live in test/support/ownerSwitchCases.ts and run from the
- * owner-switch-sweep.shard-N.spec.ts files (in parallel). A new screen that
+ * owner-switch-sweep.shard-N.spec.ts files, in parallel with each other and —
+ * see the package's test script — after the rest of the suite, so that the
+ * sweep's CPU load cannot slow the timing-sensitive tests next to it. A new screen that
  * talks to the API must add a case there (or an exemption with a reason
  * here): the manifest test below fails until it does.
  */
@@ -54,8 +56,10 @@ const NEEDS_A_CASE = /\b[pP]lannerClient\b|\b(ownerSlot|deviceSlot|openDeviceDat
 const NOT_APP_CODE = /^src\/(api|mocks)\/|^src\/session\/ownerStorage\.ts$/;
 
 describe('sweep manifest', () => {
-  it('every case runs: one shard spec file per shard, no more and no fewer (negative)', () => {
+  it('every case runs: one shard spec file per shard, no more and no fewer, and the test script runs them (negative)', () => {
     const here = dirname(fileURLToPath(import.meta.url));
+    const script = (JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')) as { scripts: { test: string } }).scripts.test;
+    expect(script).toContain('vitest run test/owner-switch-sweep.shard-');
     const shardFiles = readdirSync(here).filter((name) => /^owner-switch-sweep\.shard-\d+\.spec\.ts$/.test(name));
     expect(shardFiles.sort()).toEqual(
       Array.from({ length: OWNER_SWITCH_SHARDS }, (_, index) => `owner-switch-sweep.shard-${index}.spec.ts`),
