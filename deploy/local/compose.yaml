@@ -37,12 +37,23 @@ services:
         psql -h postgres -U ohmydate -d planner -tc "SELECT 1 FROM pg_database WHERE datname='planner'" | grep -q 1 || psql -h postgres -U ohmydate -d planner -c 'CREATE DATABASE planner'
     restart: "no"
 
+  # A fresh named volume is root-owned (the image has no /app/vikunja/files to
+  # copy ownership from) and Vikunja runs as uid 1000 -> "storage validation
+  # failed: permission denied" crash loop. Fix ownership once, idempotently.
+  vikunja-files-init:
+    image: postgres:18@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
+    user: "0:0"
+    entrypoint: ["sh", "-c", "chown 1000:0 /files && chmod 0750 /files"]
+    volumes: ["vikunja-files:/files"]
+    restart: "no"
+
   vikunja:
     restart: unless-stopped
     image: vikunja/vikunja:2.8.0@sha256:35d937baf3b5d5803bed6b9e11d007448b7b536df9e4346dc35551e1072636c3
     depends_on:
       postgres: { condition: service_healthy }
       vikunja-db-init: { condition: service_completed_successfully }
+      vikunja-files-init: { condition: service_completed_successfully }
     env_file:
       - ../secrets/local/vikunja.env
     environment:
