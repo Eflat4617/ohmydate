@@ -25,6 +25,7 @@ import {
 } from '../domain/draftValidation';
 import { useOfflineStore } from '../stores/offline';
 import { useAuthStore } from '../stores/auth';
+import { useLlmConsentStore } from '../stores/llmConsent';
 import { runOwnerBound, waitStep, type OwnerSteps } from '../session/ownerBound';
 import {
   captureOwnerBinding,
@@ -55,7 +56,12 @@ import { t } from '../i18n';
 import I18nT from '../i18n/I18nT';
 import { formatPercent } from '../i18n/format';
 import { apiErrorMessage, errorMessage, problemMessage } from '../i18n/problem';
-import { assumptionValueText, detectionReasonText, type ServerText } from '../i18n/server';
+import {
+  assumptionValueText,
+  detectionReasonLang,
+  detectionReasonText,
+  type ServerText,
+} from '../i18n/server';
 import { isProblemCode } from '../api/errors';
 
 const props = defineProps<{ sessionId?: string }>();
@@ -65,6 +71,7 @@ const router = useRouter();
 const queryClient = useQueryClient();
 const offline = useOfflineStore();
 const auth = useAuthStore();
+const llmConsent = useLlmConsentStore();
 const actions = new ActionStore();
 
 const STEPS = [1, 2, 3, 4, 5] as const;
@@ -764,6 +771,15 @@ async function createSession(): Promise<void> {
   if (creating.value) return;
   mutationError.value = null;
   creating.value = true;
+  // FU-91: starting the wizard is an AI action. If the consent dialog was only
+  // dismissed (no answer recorded), it opens again here and the request waits
+  // for the answer, so it goes out as AI or as 직접 작성 accordingly.
+  const asked = captureOwnerBinding();
+  await llmConsent.askBeforeAi();
+  if (stale(asked)) {
+    creating.value = false;
+    return;
+  }
   const input = buildInput();
   const action = actions.begin('intake:create', input, samePayload);
   // FU-76: type detection waits for the AI; the record lets a reload replay
@@ -1057,7 +1073,9 @@ const confidencePercent = computed(() =>
 const detectedReasons = computed(() =>
   (session.value?.detectedType?.reasons ?? []).flatMap((reason) => {
     const text = detectionReasonText(reason);
-    return text === null ? [] : [{ key: reason, ...text }];
+    return text === null
+      ? []
+      : [{ key: reason, ...text, lang: detectionReasonLang(reason, text, auth.user?.locale) }];
   }),
 );
 const confidenceLabel = computed(() => formatPercent(confidencePercent.value / 100, 0));
@@ -1068,6 +1086,15 @@ const showNotesPanel = computed(
   () => goalId.value !== null && !terminal.value && currentStep.value >= 2 && currentStep.value <= 4,
 );
 const evidence = computed(() => session.value?.draft?.evidence);
+
+/**
+ * FU-91: after approval, 일정안 만들기 opens /plans/new scoped to this plan's
+ * goal (the approved steps are that goal's tasks, as E2E-4/E2E-6 plan them),
+ * or the plain task picker when the session has no goal.
+ */
+const planLink = computed(() =>
+  goalId.value === null ? { path: '/plans/new' } : { path: '/plans/new', query: { goalId: goalId.value } },
+);
 </script>
 
 <template>
@@ -1118,7 +1145,6 @@ const evidence = computed(() => session.value?.draft?.evidence);
             <template v-else>{{ index + 1 }}</template>
           </span>
           <span class="wizard-progress-label">{{ stepLabel(step) }}</span>
-          <span v-if="index === 4" class="wizard-progress-note">{{ t('wizard.comingSoon') }}</span>
         </li>
       </ol>
     </nav>
@@ -1303,7 +1329,7 @@ const evidence = computed(() => session.value?.draft?.evidence);
             v-for="reason in detectedReasons"
             :key="reason.key"
             class="chip badge--accent"
-            :lang="reason.translated ? undefined : 'en'"
+            :lang="reason.lang"
           >
             {{ reason.text }}
           </li>
@@ -1588,7 +1614,10 @@ const evidence = computed(() => session.value?.draft?.evidence);
       <p>{{ t('wizard.step5Body') }}</p>
       <p class="next-milestone">{{ t('wizard.nextMilestone') }}</p>
       <div class="card-actions">
-        <RouterLink class="btn btn--primary" to="/inbox">{{ t('wizard.viewInbox') }}</RouterLink>
+        <RouterLink class="btn btn--primary" :to="planLink" data-testid="wizard-make-plan">
+          <UiIcon name="compare" :size="16" />{{ t('wizard.makePlan') }}
+        </RouterLink>
+        <RouterLink class="btn btn--secondary" to="/inbox">{{ t('wizard.viewInbox') }}</RouterLink>
         <RouterLink class="btn btn--secondary" to="/projects">{{ t('wizard.viewProjects') }}</RouterLink>
       </div>
     </UiCard>

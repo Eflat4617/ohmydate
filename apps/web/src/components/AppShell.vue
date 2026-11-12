@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { IDENTITY_REVALIDATION_TIMEOUT_MS, useAuthStore } from '../stores/auth';
+import { useLlmConsentStore } from '../stores/llmConsent';
 import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
 import { useSessionStore } from '../stores/session';
@@ -26,13 +27,10 @@ const sessions = useSessionStore();
 const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
-const consentDismissed = ref(false);
-const consentOpen = computed(
-  () =>
-    !consentDismissed.value &&
-    auth.user?.llmProvider === 'deepseek' &&
-    auth.user.llm?.consent?.granted !== true,
-);
+// FU-91: when the consent dialog opens (once per session and owner, or when
+// an AI action asks for it) is decided by the llmConsent store.
+const llmConsent = useLlmConsentStore();
+const detachConsentHost = llmConsent.attachHost();
 
 let teardownOffline: (() => void) | null = null;
 let revalidation: Promise<void> | null = null;
@@ -193,6 +191,7 @@ onUnmounted(() => {
   window.removeEventListener('online', onBackOnline);
   document.removeEventListener('visibilitychange', onVisibilityChange);
   teardownOffline?.();
+  detachConsentHost();
 });
 </script>
 
@@ -233,6 +232,6 @@ onUnmounted(() => {
     <HelpDialog :open="ui.helpOpen" @close="ui.closeDialogs()" />
     <SearchDialog :open="ui.searchOpen" @close="ui.closeDialogs()" />
     <NotificationsPanel :open="ui.notificationsOpen" @close="ui.closeDialogs()" />
-    <LlmConsentDialog :open="consentOpen" @close="consentDismissed = true" />
+    <LlmConsentDialog :open="llmConsent.open" @close="llmConsent.closed()" />
   </template>
 </template>

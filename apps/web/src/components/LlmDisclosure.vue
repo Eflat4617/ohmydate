@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { t } from '../i18n';
+import { maskedKindsText } from '../i18n/redaction';
 import UiBanner from './ui/UiBanner.vue';
 
 /**
@@ -26,7 +27,7 @@ import UiBanner from './ui/UiBanner.vue';
       <dd>{{ t('llm.disclosure.dataValue') }}</dd>
     </dl>
     <UiBanner tone="warn" :title="t('llm.disclosure.masking')">
-      {{ t('llm.disclosure.maskingValue') }}
+      {{ t('llm.disclosure.maskingValue', { kinds: maskedKindsText() }) }}
     </UiBanner>
     <p class="muted">
       <strong>{{ t('llm.disclosure.revoke') }}</strong> · {{ t('llm.disclosure.revokeValue') }}

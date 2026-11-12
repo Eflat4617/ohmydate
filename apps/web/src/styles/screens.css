@@ -933,14 +933,8 @@
   color: var(--color-surface);
 }
 
-.wizard-progress-note {
-  color: var(--color-text-subtle);
-  font-size: var(--text-xs);
-}
-
 @media (max-width: 639px) {
-  .wizard-progress li:not(.wizard-progress--current) .wizard-progress-label,
-  .wizard-progress li:not(.wizard-progress--current) .wizard-progress-note {
+  .wizard-progress li:not(.wizard-progress--current) .wizard-progress-label {
     position: absolute;
     width: 1px;
     height: 1px;

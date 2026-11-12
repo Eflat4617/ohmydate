@@ -97,6 +97,13 @@ const OWNER_SLOTS = {
     onOwnerChange: 'clear',
     why: 'A pending wizard AI wait, resumed after a reload. It holds the user’s private input, so every owner’s record is removed on any owner change (FU-76R-1 H2).',
   },
+  llmConsentPrompt: {
+    area: 'session',
+    prefix: 'ohmydate.llm.consentPrompt',
+    staleWrites: 'drop',
+    onOwnerChange: 'clear',
+    why: 'That the owner closed the AI consent dialog in this browser session, so a reload does not reopen it (FU-91). A marker only; cleared on any owner change, so a new sign-in asks again.',
+  },
 } as const satisfies Record<string, OwnerSlotSpec>;
 
 interface DeviceSlotSpec {

@@ -45,6 +45,15 @@ async function grant(): Promise<void> {
   );
 }
 
+// FU-91: Escape (or any other dismissal) closes the dialog without recording an
+// answer. Consent stays undecided, so AI is still not called; the dialog does
+// not come back on a reload this session, but it does when the user starts an
+// AI action (stores/llmConsent.ts).
+function dismiss(): void {
+  if (busy.value) return;
+  emit('close');
+}
+
 async function manualMode(): Promise<void> {
   busy.value = true;
   error.value = null;
@@ -66,7 +75,7 @@ async function manualMode(): Promise<void> {
     labelledby="llm-consent-title"
     describedby="llm-consent-body"
     :dismissible="!busy"
-    @close="manualMode"
+    @close="dismiss"
   >
     <header class="dialog-header dialog-header--start">
       <span class="dialog-icon"><UiIcon name="shield" :size="22" /></span>
