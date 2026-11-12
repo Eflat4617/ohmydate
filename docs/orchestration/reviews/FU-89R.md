@@ -1,6 +1,6 @@
 # FU-89R (ctx_8961b11bd9e1, Fable 5.2 xhigh — Sol weekly limit; implementer Opus) — APPROVE
 
-Coordinator: live evals on 96d9bd9 — contract 9/9 valid, language 9/9 match, injection v4 ko-KR 20/20 evaluated, 0 followed (evals/2026-11-12-*-fu89.json). MEDIUM (GU-1 user locale must be ko-KR) is covered by GU-1-PKG setup (create-user --locale ko-KR); no live user exists yet at merge time.
+Coordinator: live evals on 96d9bd9 — contract 9/9 valid, language 9/9 match, injection v4 ko-KR 20/20 evaluated, 0 followed (evals/2026-11-12-*-fu89.json). MEDIUM (GU-1 user locale must be ko-KR) is covered by GU-1-PKG setup (create-user --locale ko-KR); the live GU-1 user (gu-1-live) was verified at merge time: 1 user, locale ko-KR, time zone Asia/Seoul.
 
 REVIEW VERDICT: APPROVE
 Reviewed: torgal/ohmydate...96d9bd9 (1 commit, Task trailer present). All 27 changed paths are inside ALLOWED PATHS plus the two approved extensions (routes.ts, fake-llm-scenarios.ts). None of the five HIGH triggers applies.
