@@ -13,6 +13,7 @@ import {
   type PreviewEditResponse,
   type Violation,
 } from '../api';
+import BlockLockToggle from '../components/BlockLockToggle.vue';
 import ExplanationList from '../components/ExplanationList.vue';
 import WeekCalendar from '../components/WeekCalendar.vue';
 import {
@@ -39,6 +40,8 @@ import {
   zonedWallClockToInstant,
 } from '../domain/time';
 import { useOfflineStore } from '../stores/offline';
+import { isBlockLockable, useBlockLock } from '../composables/useBlockLock';
+import { useLayoutNow } from '../layout/now';
 import ReplanRequestButton from '../components/ReplanRequestButton.vue';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
@@ -129,6 +132,18 @@ const approvedBlocks = computed(() => {
   );
 });
 
+// FU-71: lock/unlock approved blocks. A lock of this plan's block moves its
+// revision (plan.version), so the plan is re-read with the blocks.
+const now = useLayoutNow();
+const {
+  displayLocked,
+  isPending: lockPending,
+  toggle: toggleLock,
+  error: lockError,
+} = useBlockLock({
+  refresh: () => Promise.all([approvedBlocksQuery.refetch(), planQuery.refetch()]),
+});
+
 const taskNames = computed<Record<string, string>>(() => {
   const map: Record<string, string> = {};
   for (const task of tasksQuery.data.value?.items ?? []) map[task.id] = task.title;
@@ -175,6 +190,9 @@ const stale = ref(false);
 const approveViolations = ref<Violation[]>([]);
 const approvedVersion = ref<PlanVersion | null>(null);
 const calendarHeading = ref<HTMLElement | null>(null);
+// The plan re-read after a lock would reset unsaved candidate edits (the
+// revision changed), so locks wait until the draft is approved or reset.
+const lockDisabled = computed(() => !offline.mutationsEnabled || dirty.value || approving.value);
 
 function resetDraft(): void {
   draftBlocks.value = selectedCandidate.value?.blocks.map((block) => ({ ...block })) ?? [];
@@ -479,6 +497,7 @@ onUnmounted(() => {
     </UiBanner>
     <p class="status-region status-note" role="status" aria-live="polite">{{ message }}</p>
     <UiBanner v-if="actionError" tone="error" role="alert">{{ actionError }}</UiBanner>
+    <UiBanner v-if="lockError" tone="error" role="alert" class="block-lock-error">{{ lockError }}</UiBanner>
 
     <div v-if="planQuery.isLoading.value">
       <p class="visually-hidden" role="status">{{ t('plan.loading') }}</p>
@@ -605,6 +624,7 @@ onUnmounted(() => {
           aria-labelledby="approved-schedule-title"
         >
           <h3 id="approved-schedule-title" class="h3">{{ t('plan.approvedSchedule') }}</h3>
+          <p v-if="dirty" class="field-help block-lock-hint">{{ t('blockLock.editingHint') }}</p>
           <ul class="approved-schedule-list">
             <li
               v-for="block in approvedBlocks"
@@ -616,6 +636,14 @@ onUnmounted(() => {
               </span>
               <span class="approved-schedule-title">{{ taskNames[block.taskId] ?? block.taskId }}</span>
               <UiBadge class="chip" tone="success">{{ t(`plan.blockStatus.${block.status}`) }}</UiBadge>
+              <BlockLockToggle
+                v-if="isBlockLockable(block, now)"
+                :locked="displayLocked(block)"
+                :pending="lockPending(block.id)"
+                :disabled="lockDisabled"
+                @toggle="toggleLock(block)"
+              />
+              <BlockLockToggle v-else read-only :locked="block.locked" />
             </li>
           </ul>
         </section>

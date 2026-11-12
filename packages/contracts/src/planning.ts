@@ -405,6 +405,14 @@ export const ScheduleBlockPageSchema = pageSchema(ScheduleBlockSchema, {
   id: 'ScheduleBlockPage',
 });
 
+/** Path of `POST /schedule-blocks/{id}:lock` and `:unlock` (FU-71). */
+export const ScheduleBlockIdParamsSchema = Type.Object(
+  {
+    id: IdSchema,
+  },
+  { additionalProperties: false, $id: 'ScheduleBlockIdParams' },
+);
+
 export const PLAN_VERSION_CREATORS = ['user', 'replan'] as const;
 
 export type PlanVersionCreatorName = (typeof PLAN_VERSION_CREATORS)[number];
@@ -455,4 +463,5 @@ export type ApprovePlanRequest = Static<typeof ApprovePlanRequestSchema>;
 export type ScheduleBlockDto = Static<typeof ScheduleBlockSchema>;
 export type ScheduleBlockListQuery = Static<typeof ScheduleBlockListQuerySchema>;
 export type ScheduleBlockPage = Static<typeof ScheduleBlockPageSchema>;
+export type ScheduleBlockIdParams = Static<typeof ScheduleBlockIdParamsSchema>;
 export type PlanVersionDto = Static<typeof PlanVersionSchema>;

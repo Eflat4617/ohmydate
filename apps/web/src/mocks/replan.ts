@@ -21,6 +21,7 @@ import {
   TODAY_TASK_TWO_ID,
   USER_ID,
   createUuidV7,
+  todayScheduleBlock,
   type MockDb,
 } from './db';
 import {
@@ -118,16 +119,7 @@ function sortedProposals(db: MockDb): ReplanProposal[] {
 /** Current approved blocks the way `GET /schedule-blocks` reports them. */
 export function mockScheduleBlocks(db: MockDb): ScheduleBlock[] {
   return [
-    ...db.today.blocks.map((block) => ({
-      id: block.id,
-      planVersionId: MOCK_PLAN_VERSION_ID,
-      taskId: block.taskId,
-      startAt: block.startAt,
-      endAt: block.endAt,
-      locked: false,
-      status: block.status,
-      version: 1,
-    })),
+    ...db.today.blocks.map((block) => todayScheduleBlock(db, block, MOCK_PLAN_VERSION_ID)),
     ...db.extraScheduleBlocks,
   ];
 }
@@ -199,7 +191,9 @@ function applyCandidate(db: MockDb, proposal: ReplanProposal): PlanVersion {
       ? !tasks.has(block.taskId) || block.locked === true || Date.parse(block.startAt) < since
       : !replaced.has(block.id);
   const versionId = createUuidV7();
-  const todayBlocks: TodayBlock[] = db.today.blocks.filter((block) => keep({ ...block, locked: false }));
+  const todayBlocks: TodayBlock[] = db.today.blocks.filter((block) =>
+    keep({ ...block, locked: db.todayBlockLocks.get(block.id)?.locked ?? false }),
+  );
   const extra: ScheduleBlock[] = db.extraScheduleBlocks.filter((block) => keep(block));
   const inserted: ScheduleBlock[] = [];
   for (const block of proposal.candidate.blocks) {

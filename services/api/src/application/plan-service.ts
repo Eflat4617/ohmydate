@@ -475,6 +475,25 @@ export class PlanService {
     });
   }
 
+  /**
+   * FU-71: lock (`locked=true`) or unlock one approved block. Locking never
+   * changes its times; the scheduler keeps a locked block as an immutable
+   * lockedBlock, and an unlocked one is movable by the next replan (06 §7).
+   */
+  async setBlockLock(
+    ownerId: Id,
+    blockId: Id,
+    locked: boolean,
+    expectedVersion: number,
+  ): Promise<ScheduleBlockDto> {
+    return this.#store.setBlockLock(ownerId, {
+      blockId,
+      locked,
+      expectedVersion,
+      now: this.#clock.now(),
+    });
+  }
+
   async getPlan(ownerId: Id, id: Id): Promise<Plan> {
     const plan = await this.#store.getPlan(ownerId, id);
     if (plan === null) throw new NotFoundError('plan', id);

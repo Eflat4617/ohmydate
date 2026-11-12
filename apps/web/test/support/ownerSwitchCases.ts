@@ -201,6 +201,20 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
   },
   {
+    name: 'today: lock a block',
+    covers: ['src/views/TodayView.vue', 'src/composables/useBlockLock.ts'],
+    path: '/today',
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await todayReady(wrapper);
+      await until(() => expect(wrapper.findAll('.today-card')[0]?.find('[data-block-lock]').exists()).toBe(true));
+    },
+    hold: { method: 'POST', path: /\/schedule-blocks\/[^/]+:lock$/ },
+    act: async (wrapper) => {
+      await buttonByText(wrapper.findAll('.today-card')[0] as unknown as VueWrapper, '블록 고정').trigger('click');
+    },
+  },
+  {
     name: 'focus: save the session review',
     covers: ['src/views/FocusView.vue', 'src/layout/localSignals.ts'],
     path: async (stage) => `/focus/${(await finishedSession(stage)).id}`,
@@ -434,6 +448,22 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     hold: { method: 'POST', path: ':preview-edit' },
     act: async (wrapper) => {
       await wrapper.findAll('.calendar-block')[0]?.trigger('keydown', { key: 'ArrowDown' });
+    },
+  },
+  {
+    name: 'plans: lock an approved block',
+    covers: ['src/views/PlanComparisonView.vue', 'src/composables/useBlockLock.ts'],
+    path: async () => `/plans/${(await createPlan()).id}`,
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await planReady(wrapper);
+      await until(() =>
+        expect(wrapper.find(`[data-approved-block-id="${TODAY_BLOCK_ONE_ID}"] [data-block-lock]`).exists()).toBe(true),
+      );
+    },
+    hold: { method: 'POST', path: /\/schedule-blocks\/[^/]+:lock$/ },
+    act: async (wrapper) => {
+      await wrapper.get(`[data-approved-block-id="${TODAY_BLOCK_ONE_ID}"] [data-block-lock]`).trigger('click');
     },
   },
   {

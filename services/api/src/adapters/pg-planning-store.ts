@@ -40,6 +40,7 @@ import type {
   ActivePlanRevision,
   ApprovalSnapshot,
   ApprovedBlock,
+  BlockLockRequest,
   EstimateRecord,
   GoalTasks,
   NewCandidate,
@@ -656,6 +657,93 @@ export class PgPlanningStore implements PlanningStore {
       scope: parseScope(row.scope),
       availabilityVersion: row.availability_version,
     };
+  }
+
+  async setBlockLock(ownerId: Id, request: BlockLockRequest): Promise<ScheduleBlockDto> {
+    return this.#db.transaction().execute(async (trx) => {
+      const located = await trx
+        .selectFrom('schedule_block')
+        .innerJoin('plan_version', 'plan_version.id', 'schedule_block.plan_version_id')
+        .select(['plan_version.plan_id'])
+        .where('schedule_block.id', '=', request.blockId)
+        .where('schedule_block.owner_id', '=', ownerId)
+        .executeTakeFirst();
+      if (located === undefined) throw new NotFoundError('schedule block', request.blockId);
+      // Lock order of every approval TX (plan row, then its blocks): an
+      // approval racing this request either reads the new lock state after
+      // this commits, or this request re-reads the block it superseded.
+      const plan = await trx
+        .selectFrom('plan')
+        .select(['id', 'status', 'deleted_at'])
+        .where('id', '=', located.plan_id)
+        .where('owner_id', '=', ownerId)
+        .forUpdate()
+        .executeTakeFirst();
+      const block = await trx
+        .selectFrom('schedule_block')
+        .selectAll()
+        .where('id', '=', request.blockId)
+        .where('owner_id', '=', ownerId)
+        .forUpdate()
+        .executeTakeFirst();
+      // A deleted plan's blocks are not listed anywhere (GET /schedule-blocks).
+      if (plan === undefined || plan.deleted_at !== null || block === undefined) {
+        throw new NotFoundError('schedule block', request.blockId);
+      }
+      if (block.version !== request.expectedVersion) {
+        throw new VersionConflictError(request.expectedVersion as never, block.version as never);
+      }
+      if (plan.status !== 'active') {
+        throw new PlanConflictError('only blocks of an active plan can be locked or unlocked');
+      }
+      if (block.status !== 'planned') {
+        throw new PlanConflictError(`a ${block.status} block cannot be locked or unlocked`);
+      }
+      const now = new Date(instantToEpochMs(request.now));
+      // 06 §7.1: a block that started before now is history.
+      if (block.start_at.getTime() < now.getTime()) {
+        throw new PlanConflictError('a block that has already started cannot be locked or unlocked');
+      }
+      if (block.locked === request.locked) return this.#mapBlock(block);
+
+      const updated = await trx
+        .updateTable('schedule_block')
+        .set({ locked: request.locked, version: sql<number>`version + 1`, updated_at: now })
+        .where('id', '=', block.id)
+        .where('owner_id', '=', ownerId)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      // The plan revision (Today.version, plan ETag) covers lock state: Today
+      // proposals and previews computed before the change become stale.
+      // updated_at stays: it orders getActivePlan, and a lock must not change
+      // which plan Today shows.
+      await trx
+        .updateTable('plan')
+        .set({ version: sql<number>`version + 1` })
+        .where('id', '=', plan.id)
+        .where('owner_id', '=', ownerId)
+        .execute();
+      // Ids and the new state only: no task titles or other user text.
+      await trx
+        .insertInto('audit_event')
+        .values({
+          id: this.#ids.next(),
+          owner_id: ownerId,
+          actor: 'user',
+          action: request.locked ? 'schedule_block.locked' : 'schedule_block.unlocked',
+          entity: 'schedule_block',
+          entity_id: block.id,
+          diff_summary: jsonb({
+            planId: plan.id,
+            locked: request.locked,
+            version: updated.version,
+          } as unknown as JsonValue),
+          created_at: now,
+          updated_at: now,
+        })
+        .execute();
+      return this.#mapBlock(updated);
+    });
   }
 
   async approve(

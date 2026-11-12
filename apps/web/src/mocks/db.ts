@@ -64,6 +64,8 @@ export interface MockDb {
   today: Today;
   todayRevision: number;
   extraScheduleBlocks: ScheduleBlock[];
+  /** FU-71: lock state of Today blocks (they carry no lock/version of their own). */
+  todayBlockLocks: Map<string, { locked: boolean; version: number }>;
   proposals: Map<string, StoredProposal>;
   sessions: Map<string, WorkSession>;
   sessionClocks: Map<string, SessionClock>;
@@ -358,6 +360,7 @@ export function createMockDb(): MockDb {
     today: createToday(),
     todayRevision: 1,
     extraScheduleBlocks: [],
+    todayBlockLocks: new Map(),
     proposals: new Map(),
     sessions: new Map(),
     sessionClocks: new Map(),
@@ -385,6 +388,25 @@ export function createMockDb(): MockDb {
 }
 
 export const mockDb = createMockDb();
+
+/** The approved row of a Today block the way `GET /schedule-blocks` reports it. */
+export function todayScheduleBlock(
+  db: MockDb,
+  block: Today['blocks'][number],
+  planVersionId: string,
+): ScheduleBlock {
+  const lock = db.todayBlockLocks.get(block.id);
+  return {
+    id: block.id,
+    planVersionId,
+    taskId: block.taskId,
+    startAt: block.startAt,
+    endAt: block.endAt,
+    locked: lock?.locked ?? false,
+    status: block.status,
+    version: lock?.version ?? 1,
+  };
+}
 
 /** M6-02 screenshots: Today with a deadline risk (same reason codes as the API). */
 export function seedTodayRisk(db: MockDb): void {
@@ -415,6 +437,7 @@ export function resetMockDb(): void {
   mockDb.today = fresh.today;
   mockDb.todayRevision = fresh.todayRevision;
   mockDb.extraScheduleBlocks = fresh.extraScheduleBlocks;
+  mockDb.todayBlockLocks = fresh.todayBlockLocks;
   mockDb.proposals = fresh.proposals;
   mockDb.sessions = fresh.sessions;
   mockDb.sessionClocks = fresh.sessionClocks;

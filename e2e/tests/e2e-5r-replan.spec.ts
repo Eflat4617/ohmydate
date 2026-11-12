@@ -2,7 +2,6 @@ import AxeBuilder from '@axe-core/playwright';
 import { type Page } from '@playwright/test';
 import { expect, test } from '../helpers/test';
 import { login } from '../helpers/app';
-import { lockScheduleBlock } from '../helpers/db';
 import {
   answerIntakeWithSkip,
   apiFetch,
@@ -24,8 +23,9 @@ import { readState } from '../helpers/state';
  * E2E-5R (M5-03): replanning against the real API + Vikunja.
  *
  * 1. Approve a four-task plan (P50 = P90, so no deadline-risk trigger), lock
- *    the first block (fixture step: M5 has no lock endpoint) and add a
- *    commitment over the second block.
+ *    the first block in the UI (the plan page's approved schedule, FU-71:
+ *    `POST /schedule-blocks/{id}:lock`) and add a commitment over the second
+ *    block.
  * 2. The leader-only detection sweep (05 §11, every 5 min) creates exactly one
  *    commitment_conflict proposal; Today and the notifications surface it.
  * 3. Approving it in the UI moves only the overlapped block; the locked block
@@ -94,6 +94,48 @@ async function activeBlocks(page: Page, fromMs: number): Promise<ApprovedBlockDt
 
 function overlaps(left: { startAt: string; endAt: string }, right: { startAt: string; endAt: string }): boolean {
   return Date.parse(left.startAt) < Date.parse(right.endAt) && Date.parse(right.startAt) < Date.parse(left.endAt);
+}
+
+/**
+ * FU-71: lock a block the way a user does — the plan page's approved schedule,
+ * paging forward to the block's week when the plan starts in an earlier one.
+ */
+async function lockInUi(page: Page, planId: string, block: ApprovedBlockDto): Promise<void> {
+  const weekRead = () =>
+    page.waitForResponse(
+      (candidate) => candidate.request().method() === 'GET' && candidate.url().includes('/schedule-blocks?'),
+    );
+  let read = weekRead();
+  await page.goto(`${state.webUrl}/plans/${planId}`);
+  await expect(page.getByRole('heading', { name: '일정안 비교', level: 1 })).toBeVisible();
+  const row = page.locator(`[data-approved-block-id="${block.id}"]`);
+  for (let week = 0; week < 3; week += 1) {
+    await read;
+    const shown = await row.waitFor({ state: 'visible', timeout: 3_000 }).then(
+      () => true,
+      () => false,
+    );
+    if (shown) break;
+    read = weekRead();
+    await page.getByRole('button', { name: '다음 주' }).click();
+  }
+  await expect(row).toBeVisible();
+  const toggle = row.getByRole('button', { name: '블록 고정' });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  const response = page.waitForResponse(
+    (candidate) =>
+      candidate.request().method() === 'POST' && candidate.url().endsWith(`/schedule-blocks/${block.id}:lock`),
+  );
+  await toggle.focus();
+  await page.keyboard.press('Enter');
+  const locked = await response;
+  expect(locked.status()).toBe(200);
+  const headers = locked.request().headers();
+  expect(headers['if-match']).toBe(`W/"${block.version}"`);
+  expect(headers['idempotency-key']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  const unlock = row.getByRole('button', { name: '고정 해제' });
+  await expect(unlock).toHaveAttribute('aria-pressed', 'true');
+  await expect(unlock).toBeEnabled();
 }
 
 test.describe('E2E-5R — replan proposal flow (real API)', () => {
@@ -166,7 +208,12 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       lockedBlock = approvedBlocks[0];
       movedBlock = approvedBlocks[1];
       if (lockedBlock === undefined || movedBlock === undefined) throw new Error('approved blocks missing');
-      await lockScheduleBlock(state, lockedBlock.id);
+      await lockInUi(page, planId, lockedBlock);
+      // The API agrees: locked, same row, same times.
+      const stored = (await activeBlocks(page, startMs)).find((block) => block.id === lockedBlock?.id);
+      expect(stored?.locked).toBe(true);
+      expect(Date.parse(stored?.startAt ?? '')).toBe(Date.parse(lockedBlock.startAt));
+      expect(Date.parse(stored?.endAt ?? '')).toBe(Date.parse(lockedBlock.endAt));
     });
 
     await test.step('keep the next hours busy and add a commitment over the second block', async () => {
