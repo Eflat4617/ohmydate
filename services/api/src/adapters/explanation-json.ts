@@ -1,6 +1,8 @@
 import {
+  DIVERSITY_NOTE_CODES,
   EXPLANATION_CODES,
   EXPLANATION_PARAM_TOKEN_PATTERN,
+  type DiversityNoteItem,
   type ExplanationItem,
   type ExplanationParams,
 } from '@ohmydate/contracts';
@@ -16,9 +18,12 @@ import {
  */
 
 const CODES: ReadonlySet<string> = new Set(EXPLANATION_CODES);
+const DIVERSITY_CODES: ReadonlySet<string> = new Set(DIVERSITY_NOTE_CODES);
 const PARAM_KEY = /^[a-z][A-Za-z0-9]{0,39}$/;
 const PARAM_TOKEN = new RegExp(EXPLANATION_PARAM_TOKEN_PATTERN);
 const MAX_PARAMS = 12;
+/** Contract `DiversityNoteItemsSchema` maxItems. */
+const MAX_DIVERSITY_ITEMS = 10;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -63,8 +68,34 @@ export function parseExplanationItems(value: unknown, lineCount: number): Explan
   return items;
 }
 
+function parseDiversityItem(value: unknown): DiversityNoteItem | null {
+  if (!isRecord(value)) return null;
+  const code = value['code'];
+  if (typeof code !== 'string' || !DIVERSITY_CODES.has(code)) return null;
+  const params = parseParams(value['params']);
+  if (params === null) return null;
+  return { code: code as DiversityNoteItem['code'], params };
+}
+
+/** Validated diversity-note items, or `[]` when absent/legacy/all-or-nothing fails. */
+export function parseDiversityNoteItems(value: unknown): DiversityNoteItem[] {
+  if (!Array.isArray(value) || value.length === 0) return [];
+  if (value.length > MAX_DIVERSITY_ITEMS) return [];
+  const items: DiversityNoteItem[] = [];
+  for (const entry of value) {
+    const item = parseDiversityItem(entry);
+    if (item === null) return [];
+    items.push(item);
+  }
+  return items;
+}
+
 /** JSON copy of coded items for a jsonb payload. */
 export function explanationItemsJson(items: readonly ExplanationItem[]): unknown[] {
+  return items.map((item) => ({ code: item.code, params: { ...item.params } }));
+}
+
+export function diversityNoteItemsJson(items: readonly DiversityNoteItem[]): unknown[] {
   return items.map((item) => ({ code: item.code, params: { ...item.params } }));
 }
 
@@ -77,19 +108,33 @@ export function explanationItemsJson(items: readonly ExplanationItem[]): unknown
 export function candidateExplanationJson(
   explanation: readonly string[],
   items: readonly ExplanationItem[],
+  diversityNoteItems: readonly DiversityNoteItem[] = [],
 ): unknown[] {
-  return items.length === 0
-    ? [...explanation]
-    : [...explanation, { items: explanationItemsJson(items) }];
+  if (items.length === 0 && diversityNoteItems.length === 0) return [...explanation];
+  const coded: Record<string, unknown> = {};
+  if (items.length > 0) coded['items'] = explanationItemsJson(items);
+  if (diversityNoteItems.length > 0) {
+    coded['diversityNoteItems'] = diversityNoteItemsJson(diversityNoteItems);
+  }
+  return [...explanation, coded];
 }
 
 export function parseCandidateExplanation(value: unknown): {
   explanation: string[];
   explanationItems: ExplanationItem[];
+  diversityNoteItems: DiversityNoteItem[];
 } {
-  if (!Array.isArray(value)) return { explanation: [], explanationItems: [] };
+  if (!Array.isArray(value)) {
+    return { explanation: [], explanationItems: [], diversityNoteItems: [] };
+  }
   const explanation = value.filter((entry): entry is string => typeof entry === 'string');
+  // Keep accepting the pre-FU-68 single-key object and any future object that
+  // carries only diversity items.
   const coded = value.filter(isRecord);
-  const items = coded.length === 1 ? coded[0]?.['items'] : undefined;
-  return { explanation, explanationItems: parseExplanationItems(items, explanation.length) };
+  const envelope = coded.length === 1 ? coded[0] : undefined;
+  return {
+    explanation,
+    explanationItems: parseExplanationItems(envelope?.['items'], explanation.length),
+    diversityNoteItems: parseDiversityNoteItems(envelope?.['diversityNoteItems']),
+  };
 }

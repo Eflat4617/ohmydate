@@ -33,6 +33,7 @@ import {
 import { errorMessage } from '../i18n/problem';
 import { runOwnerBound } from '../session/ownerBound';
 import { blockErrorText, diversityNoteText, type ServerText } from '../i18n/server';
+import { diversityNoteItemsText, type DiversityNoteItem } from '../i18n/diversity';
 import {
   addDaysToDate,
   localParts,
@@ -456,7 +457,13 @@ const weekLabel = computed(() => {
   return formatCivilDateRange(first, last, { year: true });
 });
 
-function noteFor(note: string | undefined): ServerText | null {
+function noteFor(candidate: {
+  readonly diversityNote?: string | undefined;
+  readonly diversityNoteItems?: readonly DiversityNoteItem[] | undefined;
+}): ServerText | null {
+  const coded = diversityNoteItemsText(candidate.diversityNoteItems);
+  if (coded !== null) return { text: coded, translated: true };
+  const note = candidate.diversityNote;
   return note === undefined || note.length === 0 ? null : diversityNoteText(note);
 }
 
@@ -554,11 +561,11 @@ onUnmounted(() => {
               {{ t('plan.deficit', { deficit: formatDuration(candidate.deficitMin) }) }}
             </p>
             <p
-              v-if="noteFor(candidate.diversityNote)"
+              v-if="noteFor(candidate)"
               class="candidate-note"
-              :lang="noteFor(candidate.diversityNote)?.translated ? undefined : 'en'"
+              :lang="noteFor(candidate)?.translated ? undefined : 'en'"
             >
-              {{ noteFor(candidate.diversityNote)?.text }}
+              {{ noteFor(candidate)?.text }}
             </p>
           </button>
           <ExplanationList

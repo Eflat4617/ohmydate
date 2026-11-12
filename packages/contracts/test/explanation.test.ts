@@ -1,4 +1,5 @@
 import {
+  DIVERSITY_NOTE_CODES as SCHEDULER_DIVERSITY_NOTE_CODES,
   EXPLANATION_CODES as SCHEDULER_EXPLANATION_CODES,
   INPUT_ISSUE_MESSAGE_CODES as SCHEDULER_INPUT_CODES,
   VIOLATION_MESSAGE_CODES as SCHEDULER_VIOLATION_CODES,
@@ -8,6 +9,8 @@ import {
 } from '@ohmydate/scheduler';
 import {
   API_VIOLATION_MESSAGE_CODES,
+  DIVERSITY_NOTE_CODES,
+  DiversityNoteItemSchema,
   EXPLANATION_CODES,
   ExplanationItemSchema,
   GENERATOR_EXPLANATION_CODES,
@@ -95,10 +98,27 @@ describe('explanation code contract (FU-62)', () => {
     for (const code of API_VIOLATION_MESSAGE_CODES) {
       expect((SCHEDULER_EXPLANATION_CODES as readonly string[]).includes(code)).toBe(false);
     }
+    expect(sorted(DIVERSITY_NOTE_CODES)).toEqual(sorted(SCHEDULER_DIVERSITY_NOTE_CODES));
+    expect(new Set(DIVERSITY_NOTE_CODES).size).toBe(DIVERSITY_NOTE_CODES.length);
   });
 
-  it('registers ExplanationItem as an OpenAPI component', () => {
+  it('registers ExplanationItem and DiversityNoteItem as OpenAPI components', () => {
     expect(schemaRegistry.ExplanationItem).toBe(ExplanationItemSchema);
+    expect(schemaRegistry.DiversityNoteItem).toBe(DiversityNoteItemSchema);
+  });
+
+  it('accepts only coded diversity-note sentences (FU-68)', () => {
+    const check = compile(DiversityNoteItemSchema);
+    expect(check({ code: 'diversity_dropped', params: { kept: 2, total: 3, dropped: 1 } })).toBe(true);
+    expect(check({ code: 'diversity_distinct', params: { total: 3 } })).toBe(true);
+    expect(
+      check({
+        code: 'replan_bound_exceeded',
+        params: { changedBlocks: 7, bound: 4, affectedExistingBlocks: 1 },
+      }),
+    ).toBe(true);
+    expect(check({ code: 'diversity_dropped', params: { kept: 2, total: 3, dropped: 1, title: '보고서' } })).toBe(false);
+    expect(check({ code: 'free_text', params: {} })).toBe(false);
   });
 
   it('accepts numbers and opaque tokens as params and rejects free text (negative)', () => {
@@ -256,7 +276,10 @@ describe('06 §6.1 code tables (FU-62)', () => {
     expect(start).toBeGreaterThan(-1);
     const documented = rows.map((row) => row[1] ?? '');
     expect(new Set(documented).size).toBe(documented.length);
-    expect(sorted(documented)).toEqual(sorted(EXPLANATION_CODES));
+    // `replan_bound_exceeded` is documented once and reused by both the
+    // explanation table and diversity notes.
+    const expected = new Set<string>([...EXPLANATION_CODES, ...DIVERSITY_NOTE_CODES]);
+    expect(sorted(documented)).toEqual(sorted([...expected]));
   });
 
   it('labels each violation code with its H-kind', () => {

@@ -8,7 +8,7 @@ import {
   IfNoneMatchHeaderSchema,
 } from './common.js';
 import { ProblemSchema } from './problem.js';
-import { ExplanationItemSchema } from './explanation.js';
+import { DiversityNoteItemSchema, ExplanationItemSchema } from './explanation.js';
 import {
   ApprovePlanRequestSchema,
   AvailabilityExceptionSchema,
@@ -1293,6 +1293,7 @@ export const contractRoutes: readonly RouteDefinition[] = [
 export const schemaRegistry = {
   Problem: ProblemSchema,
   ExplanationItem: ExplanationItemSchema,
+  DiversityNoteItem: DiversityNoteItemSchema,
   ProjectCreate: ProjectCreateSchema,
   Project: ProjectSchema,
   ProjectPatch: ProjectPatchSchema,

@@ -1,5 +1,6 @@
 import type {
   Availability,
+  DiversityNoteItem,
   AvailabilityPut,
   Commitment,
   CommitmentCreate,
@@ -133,7 +134,11 @@ export function toContractViolations(
   }));
 }
 
-function mapCandidate(candidate: SchedulerCandidate): NewCandidate {
+function mapCandidate(
+  candidate: SchedulerCandidate,
+  diversityNote?: string | undefined,
+  diversityNoteItems?: readonly DiversityNoteItem[] | undefined,
+): NewCandidate {
   return {
     policy: candidate.policy,
     blocks: candidate.blocks.map(toPlanBlock),
@@ -143,9 +148,28 @@ function mapCandidate(candidate: SchedulerCandidate): NewCandidate {
     capacityDeficitMin: candidate.capacityDeficitMin,
     explanation: candidate.explanation,
     explanationItems: candidate.explanationItems,
+    ...(diversityNote === undefined ? {} : { diversityNote }),
+    ...(diversityNoteItems === undefined ? {} : { diversityNoteItems }),
     generatorVersion: candidate.generatorVersion,
     inputHash: candidate.inputHash,
   };
+}
+
+/**
+ * FU-68: the scheduler's plan-level diversity note belongs to the first
+ * candidate (the UI shows it once, above the comparison). The coded items
+ * travel with it.
+ */
+function mapCandidates(result: {
+  readonly candidates: readonly SchedulerCandidate[];
+  readonly diversityNote?: string | undefined;
+  readonly diversityNoteItems?: readonly DiversityNoteItem[] | undefined;
+}): NewCandidate[] {
+  return result.candidates.map((candidate, index) =>
+    index === 0
+      ? mapCandidate(candidate, result.diversityNote, result.diversityNoteItems)
+      : mapCandidate(candidate),
+  );
 }
 
 /**
@@ -471,7 +495,7 @@ export class PlanService {
       horizon,
       timeZone: availability.timeZone,
       availabilityVersion: availability.version,
-      candidates: result.candidates.map(mapCandidate),
+      candidates: mapCandidates(result),
     });
   }
 
@@ -740,7 +764,7 @@ export class PlanService {
       ownerId,
       planId,
       expectedVersion,
-      result.candidates.map(mapCandidate),
+      mapCandidates(result),
       availability.timeZone,
       availability.version,
     );

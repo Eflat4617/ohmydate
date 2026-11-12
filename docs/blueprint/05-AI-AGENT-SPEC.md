@@ -54,6 +54,7 @@ any ─► cancelled (사용자)     any ─► failed (복구 불가; 수동 �
 - 출력은 항상 구간(P50/P90) + `confidence` + `method` + 근거.
 - cold start: 템플릿 prior, 없으면 LLM 추정 × 1.3 보수계수 [가정], `confidence ≤ 0.3`.
 - 사용자 수동 보정/초기화: `POST /estimation/reset?scope=template|all`.
+- 학습 창: 소유자별로 `created_at, id` 기준 최신 2,000개 피드백 행만 분류한다(superseded·excluded 행 포함). 창 밖의 더 오래된 행은 그룹 통계에 기여하지 않으며, 어떤 템플릿의 표본이 모두 창 밖으로 밀려나면 해당 템플릿의 학습 `stats`는 지워지고 그 템플릿을 쓰는 열린 작업의 추정은 prior/base로 되돌아간다. 창 안의 결과는 무제한 계산과 사실상 같고, z-score만 마지막 비트(≤1e-12)에서 다를 수 있다.
 
 ## 7. JSON Schema (계약은 `packages/contracts/llm/*.schema.json`, Ajv strict)
 

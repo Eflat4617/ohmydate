@@ -144,6 +144,15 @@ S1 조기 완료, S2 일일 분산(분산 최소), S3 선호 시간대 적합, S
 | `h8_off_grid` | H8 | `taskId` | not aligned to the 5-minute grid |
 | `h8_end_before_start` | H8 | `taskId` | ends before it starts |
 
+**다양성 노트 코드 (2026-11-12 확정, FU-68)**
+
+`diversityNote`(영문)는 로그·호환용으로 유지하고, 같은 문장을 `PlanCandidate.diversityNoteItems = { code, params }[]`로도 보낸다. 항목 순서는 노트 문장 순서와 같고 공백으로 이어 붙이면 원문이 된다. `replan_bound_exceeded`는 위 생성기 표의 코드·params를 그대로 재사용한다(별도 행을 두지 않는다). FU-68 이전에 저장된 행은 `diversityNoteItems`가 없고 클라이언트는 원문을 보여 준다.
+
+| 코드 | params | 영문 원문(요지) |
+|---|---|---|
+| `diversity_dropped` | `kept`, `total`, `dropped` | N distinct plan(s) from M policy candidate(s); K candidate(s) dropped as too similar (distance < 0.15). |
+| `diversity_distinct` | `total` | N distinct plans from M policy candidates (pairwise distance >= 0.15). |
+
 - 코드 추가·삭제는 위 표, `codes.ts`, `explanation.ts`, 웹 ko 카탈로그(`explain.*`)를 함께 바꾸며 OpenAPI·웹 클라이언트를 재생성한다(테스트가 어긋남을 잡는다). 기존 코드의 의미·params 변경은 새 코드로 한다.
 
 ## 7. 재계획 (M5)

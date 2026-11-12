@@ -135,6 +135,20 @@ export type InputIssueMessageCode = keyof InputIssueParamMap;
 export type GeneratorExplanationCode = keyof GeneratorParamMap;
 export type ExplanationCode = keyof ExplanationParamMap;
 
+/**
+ * Diversity-note sentences (FU-68). `diversityNote` stays the English text;
+ * `diversityNoteItems` codes each sentence. The replan change-bound sentence
+ * appended to a note reuses the generator's `replan_bound_exceeded` params.
+ */
+export interface DiversityNoteParamMap {
+  diversity_dropped: { kept: number; total: number; dropped: number };
+  diversity_distinct: { total: number };
+  replan_bound_exceeded: GeneratorParamMap['replan_bound_exceeded'];
+}
+
+export type DiversityNoteCode = keyof DiversityNoteParamMap;
+export type DiversityNoteItem = CodedItem<DiversityNoteParamMap>;
+
 /** `{ code, params }` with the parameter shape of that code. */
 export type CodedItem<M> = { [C in keyof M]: { code: C; params: M[C] } }[keyof M];
 
@@ -237,6 +251,13 @@ export const EXPLANATION_CODES = Object.freeze([
   ...INPUT_ISSUE_MESSAGE_CODES,
   ...VIOLATION_MESSAGE_CODES,
 ] as ExplanationCode[]);
+
+/** Every diversity-note code in contract order. */
+export const DIVERSITY_NOTE_CODES = Object.freeze([
+  'diversity_dropped',
+  'diversity_distinct',
+  'replan_bound_exceeded',
+] as DiversityNoteCode[]);
 
 /** The coded item for a violation or input issue (same code and params). */
 export function itemFromMessage(

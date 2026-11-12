@@ -148,3 +148,34 @@ export const ExplanationItemsSchema = Type.Array(ExplanationItemSchema, { maxIte
 
 export type ExplanationParams = Static<typeof ExplanationParamsSchema>;
 export type ExplanationItem = Static<typeof ExplanationItemSchema>;
+
+/**
+ * Diversity-note codes (FU-68). `diversityNote` stays the English fallback for
+ * logs and legacy rows; `diversityNoteItems` is the closed coded form. The
+ * replan-bound sentence appended to a note reuses the generator code
+ * `replan_bound_exceeded`, so it appears in both arrays with the same params.
+ */
+export const DIVERSITY_NOTE_CODES = [
+  'diversity_dropped',
+  'diversity_distinct',
+  'replan_bound_exceeded',
+] as const;
+
+export type DiversityNoteCode = (typeof DIVERSITY_NOTE_CODES)[number];
+
+export const DiversityNoteCodeSchema = Type.Union(
+  DIVERSITY_NOTE_CODES.map((code) => Type.Literal(code)) as TLiteral<DiversityNoteCode>[],
+);
+
+/** One renderable diversity-note sentence: `{ code, params }`. */
+export const DiversityNoteItemSchema = Type.Object(
+  {
+    code: DiversityNoteCodeSchema,
+    params: ExplanationParamsSchema,
+  },
+  { additionalProperties: false, $id: 'DiversityNoteItem' },
+);
+
+export const DiversityNoteItemsSchema = Type.Array(DiversityNoteItemSchema, { maxItems: 10 });
+
+export type DiversityNoteItem = Static<typeof DiversityNoteItemSchema>;

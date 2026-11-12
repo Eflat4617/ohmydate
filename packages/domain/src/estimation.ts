@@ -291,18 +291,40 @@ export function classifySamples(samples: readonly EstimationSample[]): Classifie
   const logRatioOf = (sample: EstimationSample): number =>
     Math.log(sample.actualFocusMin / sample.estimatedP50);
 
-  const zScores = new Map<string, number>();
+  // Leave-one-out z-scores from per-group running sums: O(n) overall, not
+  // O(n^2) over the latest-per-task candidates.
+  interface GroupStats {
+    count: number;
+    sum: number;
+    sumSquares: number;
+  }
+  const groupStats = new Map<string, GroupStats>();
   for (const sample of candidates) {
     const group = referenceGroup(sample);
-    const others = candidates
-      .filter((other) => other.id !== sample.id && referenceGroup(other) === group)
-      .map(logRatioOf);
-    if (others.length < MIN_OUTLIER_REFERENCE) {
+    const value = logRatioOf(sample);
+    const stats = groupStats.get(group) ?? { count: 0, sum: 0, sumSquares: 0 };
+    stats.count += 1;
+    stats.sum += value;
+    stats.sumSquares += value * value;
+    groupStats.set(group, stats);
+  }
+  const zScores = new Map<string, number>();
+  for (const sample of candidates) {
+    const stats = groupStats.get(referenceGroup(sample));
+    const othersCount = (stats?.count ?? 0) - 1;
+    if (stats === undefined || othersCount < MIN_OUTLIER_REFERENCE) {
       zScores.set(sample.id, 0);
       continue;
     }
-    const spread = Math.max(stdDev(others), LOG_SPREAD_FLOOR);
-    zScores.set(sample.id, (logRatioOf(sample) - mean(others)) / spread);
+    const value = logRatioOf(sample);
+    const othersMean = (stats.sum - value) / othersCount;
+    const othersSumSquares = stats.sumSquares - value * value;
+    const variance = Math.max(
+      0,
+      (othersSumSquares - othersCount * othersMean * othersMean) / (othersCount - 1),
+    );
+    const spread = Math.max(Math.sqrt(variance), LOG_SPREAD_FLOOR);
+    zScores.set(sample.id, (value - othersMean) / spread);
   }
 
   return ordered.map((sample) => {
@@ -339,14 +361,11 @@ export interface GroupCorrection {
   readonly weight: number;
 }
 
-export function groupCorrection(
-  classified: readonly ClassifiedSample[],
+function correctionFromValues(
   key: string,
-  k: number = SHRINKAGE_K,
+  values: readonly number[],
+  k: number,
 ): GroupCorrection {
-  const values = classified
-    .filter((sample) => sample.counted && groupsOf(sample).includes(key))
-    .map((sample) => sample.logRatio as number);
   const n = values.length;
   const rawMean = mean(values);
   const spread = stdDev(values);
@@ -365,17 +384,39 @@ export function groupCorrection(
   };
 }
 
-/** All group corrections present in the samples (template, kind and all). */
+export function groupCorrection(
+  classified: readonly ClassifiedSample[],
+  key: string,
+  k: number = SHRINKAGE_K,
+): GroupCorrection {
+  const values = classified
+    .filter((sample) => sample.counted && groupsOf(sample).includes(key))
+    .map((sample) => sample.logRatio as number);
+  return correctionFromValues(key, values, k);
+}
+
+/**
+ * All group corrections present in the samples (template, kind and all), in
+ * one pass over the counted samples (linear, not one full scan per key).
+ */
 export function groupCorrections(
   classified: readonly ClassifiedSample[],
   k: number = SHRINKAGE_K,
 ): Map<string, GroupCorrection> {
-  const keys = new Set<string>();
+  const valuesByKey = new Map<string, number[]>();
   for (const sample of classified) {
-    for (const key of groupsOf(sample)) keys.add(key);
+    if (!sample.counted) continue;
+    const value = sample.logRatio as number;
+    for (const key of groupsOf(sample)) {
+      const values = valuesByKey.get(key);
+      if (values === undefined) valuesByKey.set(key, [value]);
+      else values.push(value);
+    }
   }
   const result = new Map<string, GroupCorrection>();
-  for (const key of [...keys].sort()) result.set(key, groupCorrection(classified, key, k));
+  for (const key of [...valuesByKey.keys()].sort()) {
+    result.set(key, correctionFromValues(key, valuesByKey.get(key) ?? [], k));
+  }
   return result;
 }
 

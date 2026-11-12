@@ -1273,6 +1273,7 @@ export class PgPlanningStore implements PlanningStore {
             candidateExplanationJson(
               candidate.explanation,
               candidate.explanationItems,
+              candidate.diversityNoteItems ?? [],
             ) as unknown as JsonValue,
           ),
           diversity_note: candidate.diversityNote ?? null,
@@ -1327,6 +1328,9 @@ export class PgPlanningStore implements PlanningStore {
       explanation: explanation.explanation,
       explanationItems: explanation.explanationItems,
       ...(row.diversity_note === null ? {} : { diversityNote: row.diversity_note }),
+      ...(explanation.diversityNoteItems.length === 0
+        ? {}
+        : { diversityNoteItems: explanation.diversityNoteItems }),
       generatorVersion: row.generator_version,
       inputHash: row.input_hash,
     };

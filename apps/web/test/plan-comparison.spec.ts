@@ -66,6 +66,9 @@ describe('plan comparison rendering', () => {
     first.feasible = false;
     first.deficitMin = 120;
     first.diversityNote = 'Only two distinct plans are possible with this availability.';
+    // Legacy row: the custom English note has no coded items, so the screen
+    // must keep showing the original text.
+    delete first.diversityNoteItems;
     first.explanation = ['Front-loads work before the first deadline.'];
     second.metrics.minSlackMin = 0.5;
     second.feasible = true;
@@ -79,6 +82,23 @@ describe('plan comparison rendering', () => {
     expect(wrapper.text()).toContain('작업 2시간을 배치하지 못했어요.');
     expect(wrapper.text()).toContain('Front-loads work before the first deadline.');
     expect(wrapper.text()).toContain('Only two distinct plans are possible');
+
+    wrapper.unmount();
+  });
+
+  it('prefers coded diversity note items over the English fallback (FU-68)', async () => {
+    const created = await createPlan();
+    const stored = mockDb.plans.get(created.id);
+    if (stored === undefined) throw new Error('plan was not stored');
+    ensureTwoCandidates(stored);
+    const first = stored.candidates[0]!;
+    first.diversityNote = '3 distinct plans from 3 policy candidates (pairwise distance >= 0.15).';
+    first.diversityNoteItems = [{ code: 'diversity_distinct', params: { total: 3 } }];
+
+    const wrapper = await mountPlan(created.id);
+
+    expect(wrapper.text()).toContain('후보 3개가 모두 서로 충분히 달라요.');
+    expect(wrapper.text()).not.toContain('3 distinct plans from 3 policy candidates');
 
     wrapper.unmount();
   });

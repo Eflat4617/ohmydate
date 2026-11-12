@@ -11,15 +11,16 @@ import {
 } from '@ohmydate/domain';
 import { sql, type Kysely, type Transaction } from 'kysely';
 import { jsonb, type Database, type JsonValue } from '../db/types.js';
-import type {
-  EstimatedTask,
-  EstimationMutation,
-  EstimationRefreshPlan,
-  EstimationSnapshot,
-  EstimationStore,
-  FeedbackRow,
-  StoredEstimate,
-  TaskEstimationContext,
+import {
+  MAX_LEARNING_FEEDBACK_ROWS,
+  type EstimatedTask,
+  type EstimationMutation,
+  type EstimationRefreshPlan,
+  type EstimationSnapshot,
+  type EstimationStore,
+  type FeedbackRow,
+  type StoredEstimate,
+  type TaskEstimationContext,
 } from '../application/estimation-service.js';
 
 type Db = Kysely<Database>;
@@ -107,7 +108,11 @@ export class PgEstimationStore implements EstimationStore {
       } else if (mutation?.kind === 'reset') {
         await this.#reset(trx, ownerId, mutation.templateId);
       }
-      const before = await this.#snapshot(trx, ownerId);
+      const before = await this.#snapshot(
+        trx,
+        ownerId,
+        mutation?.kind === 'exclude' ? mutation.feedbackId : undefined,
+      );
       const plan = compute(before);
       for (const update of plan.qualities) {
         // Automatic reclassification is not an owner edit: the row version
@@ -180,7 +185,14 @@ export class PgEstimationStore implements EstimationStore {
           .where(sql<boolean>`stats is distinct from ${JSON.stringify(stats)}::jsonb`)
           .execute();
       }
-      return this.#snapshot(trx, ownerId);
+      // FU-64 fix: carry the mutated row into the post-write snapshot too, so
+      // an excluded row that sits outside the learning window is still found
+      // by patchFeedback instead of committing the write and answering 404.
+      return this.#snapshot(
+        trx,
+        ownerId,
+        mutation?.kind === 'exclude' ? mutation.feedbackId : undefined,
+      );
     });
   }
 
@@ -280,14 +292,45 @@ export class PgEstimationStore implements EstimationStore {
       .execute();
   }
 
-  async #snapshot(db: Db | Trx, ownerId: Id): Promise<EstimationSnapshot> {
-    const feedbackRows = await db
+  async #snapshot(
+    db: Db | Trx,
+    ownerId: Id,
+    includeFeedbackId?: Id,
+  ): Promise<EstimationSnapshot> {
+    // FU-64: bound the classification window instead of scanning all of the
+    // owner's history. Newest-first LIMIT is served by
+    // estimation_feedback_owner_created_idx; the rows are re-sorted ascending
+    // so the classifier's "latest per task" rule sees the same order.
+    const windowRows = await db
       .selectFrom('estimation_feedback')
       .selectAll()
       .where('owner_id', '=', ownerId)
-      .orderBy('created_at', 'asc')
-      .orderBy('id', 'asc')
+      .orderBy('created_at', 'desc')
+      .orderBy('id', 'desc')
+      .limit(MAX_LEARNING_FEEDBACK_ROWS)
       .execute();
+    const feedbackRows = [...windowRows].reverse();
+    const seen = new Set(feedbackRows.map((row) => row.id));
+    let appendedTarget = false;
+    if (includeFeedbackId !== undefined && !seen.has(includeFeedbackId)) {
+      const target = await db
+        .selectFrom('estimation_feedback')
+        .selectAll()
+        .where('owner_id', '=', ownerId)
+        .where('id', '=', includeFeedbackId)
+        .executeTakeFirst();
+      if (target !== undefined) {
+        feedbackRows.push(target);
+        appendedTarget = true;
+      }
+    }
+    if (appendedTarget) {
+      feedbackRows.sort((a, b) => {
+        const aAt = toInstant(a.created_at);
+        const bAt = toInstant(b.created_at);
+        return aAt < bAt ? -1 : aAt > bAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+    }
     const feedback: FeedbackRow[] = feedbackRows.map((row) => ({
       id: row.id as Id,
       taskId: row.task_id as Id,

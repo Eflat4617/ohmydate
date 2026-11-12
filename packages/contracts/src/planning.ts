@@ -7,7 +7,7 @@ import {
   VersionSchema,
   pageSchema,
 } from './common.js';
-import { ExplanationItemsSchema } from './explanation.js';
+import { DiversityNoteItemsSchema, ExplanationItemsSchema } from './explanation.js';
 import { ViolationSchema } from './problem.js';
 
 const MINUTE_MAX = 100_000;
@@ -289,6 +289,8 @@ export const PlanCandidateSchema = Type.Object(
     /** FU-62: `explanationItems[i]` codes `explanation[i]`; `[]` for legacy rows. */
     explanationItems: Type.Optional(ExplanationItemsSchema),
     diversityNote: Type.Optional(Type.String({ maxLength: 500 })),
+    /** FU-68: coded form of `diversityNote`; `[]`/absent for legacy rows. */
+    diversityNoteItems: Type.Optional(DiversityNoteItemsSchema),
     generatorVersion: Type.String({ minLength: 1, maxLength: 100 }),
     inputHash: Type.String({ minLength: 1, maxLength: 200 }),
   },

@@ -26,7 +26,7 @@ import {
 import { POLICIES, POLICY_NAMES } from './policies.js';
 import { createPrng, type Prng } from './prng.js';
 import { canonicalJson, sha256Hex } from './hash.js';
-import { itemFromMessage, type ExplanationItem } from './codes.js';
+import { itemFromMessage, type DiversityNoteItem, type ExplanationItem } from './codes.js';
 
 export const GENERATOR_VERSION = 'm3-02.7';
 
@@ -43,6 +43,34 @@ const GAP_FIT_BUDGET = 512;
 
 /** Explanation prefix used when a replan exceeds its 06 §7 change bound. */
 const REPLAN_BOUND_PREFIX = 'Replan change bound exceeded:';
+
+/** Contract `PlanCandidate.diversityNote` maxLength (packages/contracts). */
+export const MAX_DIVERSITY_NOTE_LENGTH = 500;
+
+/**
+ * FU-68: append the replan-bound sentences without exceeding the contract's
+ * 500-character note limit. A sentence that would overflow is dropped
+ * together with its coded item, so text and items stay paired. A bound line
+ * without a coded item is still kept as English text (legacy fallback); only
+ * its item is missing.
+ */
+export function appendBoundDiversityLines(
+  baseNote: string | undefined,
+  baseItems: readonly DiversityNoteItem[],
+  boundLines: ReadonlyMap<string, DiversityNoteItem | undefined>,
+): { note: string | undefined; items: DiversityNoteItem[] } {
+  const parts = baseNote === undefined ? [] : [baseNote];
+  const items = [...baseItems];
+  let length = baseNote?.length ?? 0;
+  for (const [line, item] of boundLines) {
+    const added = (parts.length === 0 ? 0 : 1) + line.length;
+    if (length + added > MAX_DIVERSITY_NOTE_LENGTH) continue;
+    parts.push(line);
+    if (item !== undefined) items.push(item);
+    length += added;
+  }
+  return { note: parts.length === 0 ? undefined : parts.join(' '), items };
+}
 
 /** Generator heuristic reasons; each maps to a `heuristic_*` explanation code. */
 type HeuristicReason =
@@ -259,21 +287,25 @@ export function generate(
     ),
   );
   const result = finalize(candidates);
-  const boundNotes = [
-    ...new Set(
-      candidates.flatMap((candidate) =>
-        candidate.explanation.filter((line) =>
-          line.startsWith(REPLAN_BOUND_PREFIX),
-        ),
-      ),
-    ),
-  ];
-  if (boundNotes.length > 0) {
-    const note = boundNotes.join(' ');
-    result.diversityNote =
-      result.diversityNote === undefined
-        ? note
-        : `${result.diversityNote} ${note}`;
+  const boundLines = new Map<string, DiversityNoteItem | undefined>();
+  for (const candidate of candidates) {
+    candidate.explanation.forEach((line, index) => {
+      if (!line.startsWith(REPLAN_BOUND_PREFIX)) return;
+      const item = candidate.explanationItems[index];
+      boundLines.set(
+        line,
+        item !== undefined && item.code === 'replan_bound_exceeded' ? item : undefined,
+      );
+    });
+  }
+  if (boundLines.size > 0) {
+    const composed = appendBoundDiversityLines(
+      result.diversityNote,
+      result.diversityNoteItems ?? [],
+      boundLines,
+    );
+    if (composed.note !== undefined) result.diversityNote = composed.note;
+    if (composed.items.length > 0) result.diversityNoteItems = composed.items;
   }
   return result;
 }
@@ -3789,12 +3821,21 @@ function finalize(candidates: PlanCandidate[]): GenerateResult {
     return {
       candidates: kept,
       diversityNote: `${kept.length} distinct plan(s) from ${candidates.length} policy candidate(s); ${dropped} candidate(s) dropped as too similar (distance < 0.15).`,
+      diversityNoteItems: [
+        {
+          code: 'diversity_dropped',
+          params: { kept: kept.length, total: candidates.length, dropped },
+        },
+      ],
     };
   }
   if (candidates.length > 1) {
     return {
       candidates: kept,
       diversityNote: `${kept.length} distinct plans from ${candidates.length} policy candidates (pairwise distance >= 0.15).`,
+      diversityNoteItems: [
+        { code: 'diversity_distinct', params: { total: candidates.length } },
+      ],
     };
   }
   return { candidates: kept };
