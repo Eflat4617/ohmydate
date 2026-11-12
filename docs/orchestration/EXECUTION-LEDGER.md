@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 15:33 | 사용자 '지금 바로 써볼 수 없나' → **조기 사용 준비**: 전용 실행 worktree `gu-1-live`(torgal/gu-1-live, bbeaa49 = 06e686c+문서; coordinator CI의 dist 재빌드와 분리). 통합 worktree의 빈 스택(테이블 0개, 사용자 데이터 없음)은 볼륨·비밀 삭제 후 gu-1-live에서 재생성: local:secrets + local:stack up(postgres healthy, vikunja 200). 키는 원본을 가리키는 심볼릭 링크(내용 미열람, gitignore). 사용자가 local:setup/start 직접 실행. 이후 병합분은 coordinator가 gu-1-live에 ff-merge 후 재시작 안내 | — | orchestrator |
 | 2026-11-12 15:30 | FU-89 done 96d9bd9 (Opus; type_detection@v2·decomposition@v3/v4, 기존 버전 SHA 고정, outputLanguage=소유자 locale 정제, ko 수동 초안; e2e-6 통과). FU-89R Fable ctx_8961b11bd9e1 시작 + 병행으로 coordinator live contract(v2/v3/v4 ×3)·injection(v4, ko-KR) eval 실행 | msg_1890c4caf4a2 | orchestrator |
 | 2026-11-12 15:30 | FU-90 워커가 OpenCode 권한 프롬프트(deploy/local/local.env 읽기 — *.env 보호 규칙에 걸림, 비밀 아님)에서 대기 → coordinator가 'Allow once'로 해제 | msg_stop_f8de54f7… | orchestrator |
 | 2026-11-12 15:30 | 통합 전체 E2E 06e686c **exit 0, 31 passed (8.0m)** | scratchpad int-e2e-06e686c.log | orchestrator |
