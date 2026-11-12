@@ -93,6 +93,18 @@
   4. `complete`: `done:true` PATCH. 반복 작업은 M1에서 **planner 측 완료 이벤트를 SoR**로 기록하고 Vikunja의 재오픈 결과를 재조정으로 반영(테스트 케이스 추가).
   5. 오류 코드: Vikunja 숫자 코드 → planner `code` enum 매핑 테이블.
   6. API 토큰은 `/user/*` 불가 → 서비스 계정은 토큰(엔티티 작업) + 필요 시 JWT 부트스트랩.
+- **개정 (FU-73, 2026-11-12) — 어댑터 자신의 관계 쓰기로 인한 ETag 이동:**
+  - **실측:** Vikunja v2.8.0은 relation 생성·삭제 응답을 보낸 뒤 비동기 리스너가 10–60 ms 뒤에 기준 task의 `updated`와 ETag를 바꾼다. 상대 task와 task 삭제는 건드리지 않는다.
+  - **영향:** 이전에는 그 지연된 이동이 다음 초에 떨어지면 1(b)의 "ETag가 다르면 원격 변경"으로 판정되어 planner version이 올라갔다(phantom bump). 그러면 사용자의 첫 v1 쓰기가 412로 거부되었다.
+  - **결정:** `external_updated_at`을 **내려가지 않는 기준선**(accounted-for watermark)으로 쓴다.
+    - 어댑터 자신의 relation 쓰기 뒤에는 기준선을 provider 시각 + 10 s 여유로 올린다. provider 시각은 relation `created`, 없으면 `Date` 헤더, 없으면 관찰된 `updated` 순으로 쓰고, planner 시계는 쓰지 않는다.
+    - ETag만 바뀌고 매핑 지문(제목, 마커 제거 설명, done, dueAt, projectId, blocked 관계)이 같으며 원격 `updated`가 기준선보다 앞서면, 자기 쓰기로 보고 ETag만 채택한다. 이때 version은 올리지 않는다.
+    - 지문이 바뀌면 항상 VersionConflict 또는 version 증가로 처리한다. 기준선 이후의 ETag 단독 변경도 예전처럼 원격 변경이다.
+  - **허용한 위험:**
+    - 기준선 안(약 10 s)에서 일어난, 지문에 없는 필드(우선순위·라벨·댓글 등)의 원격 ETag 단독 변경은 흡수된다.
+    - 리스너 지연이 10 s를 넘거나 relation 응답이 유실되면 phantom bump가 1회 생길 수 있다.
+  - **스키마:** 변경 없음. `external_updated_at`이 provider `updated`보다 최대 약 11 s 앞설 수 있다.
+  - 후속: FU-83(테스트 보강), FU-81(삭제 시 의존 task 재조회).
 - **계약 테스트 영향:** `VersionConflict` 테스트는 InMemory/Native는 "항상 감지", Vikunja는 "순차 시나리오에서 감지"로 구분 표기(동일 스위트, capability flag `strictConcurrency`).
 - **Native 전환 트리거 강화:** 실제 사용에서 lost-update 1건 이상 관측 시 M7 앞당김 검토.
 
