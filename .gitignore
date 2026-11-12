@@ -15,3 +15,7 @@ test-results/
 *api_key*.txt
 *.key.txt
 deploy/secrets/
+deploy/secrets/local/
+
+# local run artifacts (PIDs, logs)
+.local/
