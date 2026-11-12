@@ -19,6 +19,8 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 19:12 | FU-90R **REQUEST_CHANGES**(Fable; MEDIUM 2: 외부 리스너가 API 포트를 점유해도 13회 중 9회 '준비 완료' — 1 s settle 경쟁, `--dry-run=<값>`이 sudo까지 감) → FU-90F DeepSeek ctx_652d886b17e7 | reviews/FU-90R.md | orchestrator |
+| 2026-11-12 19:12 | FU-91 done 6132937 (Opus; 마스킹 문구를 privacy.ts 종류에서 생성·고정, 곧 지원 제거, 동의창 닫기는 세션·소유자별 기억(결정 기록 안 함), 판별 이유 lang) → FU-91R Fable ctx_8da23fde2a6c. 병합 시 가이드 §4(Esc 의미·재표시)·알려진 이슈 갱신 필요(coordinator) | msg_5046ac3fd21c | orchestrator |
 | 2026-11-12 19:09 | 통합 CI cba3082(FU-89+가이드 포함) **exit 0 첫 실행**(root 2276/30 skipped, web 521+164, boundaries 562/0, build-smoke OK) + **E2E 31/31 (6.7m)** → gu-1-live ff 1598333 + install + local:start(재빌드, 실행 모드 production/deepseek, healthy). 사용자는 재로그인 후 새 계획부터 한국어 출력 | scratchpad int-*-cba3082.log | orchestrator |
 | 2026-11-12 18:58 | **FU-92 시작** Opus 5.5 xhigh ctx_aed9a24cd1a2 (PgSessionStore + 0015, 세션 id 해시 저장). 패킷 RULES 블록 누락(스크래치패드 초기화) → 메시지로 즉시 전달 + 패킷 수정 | packets/FU-92.md, msg_5b3c4d5bd8ee | orchestrator |
 | 2026-11-12 18:58 | 사용자 GU-1 시험 피드백: '계획 생성에서 영어 출력' → 실 DB 메타데이터 확인(내용 미열람): 사용자 intake 1건이 decomposition@v1·type_detection@v1로 실행, 초안 단계 11개 제목 전부 ASCII(영어), 목표 제목은 한글 → FU-89(@v3/v4 언어 규칙) 미배포가 원인. 통합 CI 통과 즉시 gu-1-live 갱신 예정. 기존 영어 초안은 수정하거나 새 intake로 재생성 필요 | 사용자 메시지 | orchestrator |
