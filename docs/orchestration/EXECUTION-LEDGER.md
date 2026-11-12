@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 19:32 | 묶음 통합 696ccd9(FU-86+FU-88+FU-91): CI exit 0(root 2284/30 skipped, web 551+168) + E2E 31/31 (6.5m). 실행 중 FU-92 병합으로 작업 트리 변경 → 최종 HEAD(FU-90 포함)에서 CI+E2E 재실행해 확정 예정 | scratchpad int-*-696ccd9.log | orchestrator |
 | 2026-11-12 19:31 | FU-90F done b11d645 (DeepSeek; 포트 사전 TCP 검사+준비 완료 직전 재확인, --dry-run=값 거부, 토큰 fingerprint, LOW 전부; test:local 78 passed). 추가 요구(시작 시 마이그레이션 자동 적용 + local:migrate) → 후속 dispatch ctx_2ce40b1f264a 진행 중 — FU-92 0015 때문에 gu-1-live 배포는 이것과 함께 | msg_d9cba2f7a372 | orchestrator |
 | 2026-11-12 19:31 | **FU-92 merged ba51313** (FU-92R focused APPROVE, Fable: 256-bit sid, 해시만 저장(CHECK), CSRF 동등, 교차 소유자 불가, 0015 추가 전용). LOW → FU-95. 가이드: 재시작 후 로그인 유지, 쿠키는 로그인 후 14일 | reviews/FU-92R.md | orchestrator |
 | 2026-11-12 19:20 | FU-91R 리뷰 중지(경량 정책) → coordinator diff 확인(MASKED_KINDS = privacy.ts 4종, 계좌번호 주장 제거, nextMilestone 문구) 후 **FU-91 merged**. 가이드 갱신 696ccd9(동의창 닫기 의미, 마스킹 범위, 해결된 이슈 표시). FU-90F·FU-92에 '빠르게 마무리, 별도 리뷰 없음' 전달. 묶음(FU-86+FU-88+FU-91) 통합 CI+E2E 실행 | msg_92ff58d8d9d0, msg_c3c8f4677a45 | orchestrator |
