@@ -1,6 +1,6 @@
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
-import { ApiError, plannerClient, type User } from '../api';
+import { ApiError, anySignal, plannerClient, type User } from '../api';
 import { uuidV7Key } from '../api/idempotency';
 import {
   adoptActiveOwner,
@@ -48,19 +48,6 @@ function loginErrorMessage(cause: unknown): string {
   return t('login.failed');
 }
 
-function combinedSignal(first: AbortSignal, second: AbortSignal): AbortSignal {
-  if (typeof AbortSignal.any === 'function') return AbortSignal.any([first, second]);
-  const controller = new AbortController();
-  for (const signal of [first, second]) {
-    if (signal.aborted) {
-      controller.abort(signal.reason);
-      break;
-    }
-    signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
-  }
-  return controller.signal;
-}
-
 /** Bound a confirmation request without ending the owner's session (FU-56). */
 function boundedSignal(
   ownerSignal: AbortSignal,
@@ -72,7 +59,7 @@ function boundedSignal(
   }, timeoutMs);
   (timer as unknown as { unref?: () => void }).unref?.();
   return {
-    signal: combinedSignal(ownerSignal, timeout.signal),
+    signal: anySignal([ownerSignal, timeout.signal]),
     dispose: () => {
       clearTimeout(timer);
     },

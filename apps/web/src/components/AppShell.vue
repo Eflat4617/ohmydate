@@ -35,16 +35,24 @@ const consentOpen = computed(
 );
 
 let teardownOffline: (() => void) | null = null;
-let revalidating = false;
+let revalidation: Promise<void> | null = null;
 
-async function revalidateIdentity(): Promise<void> {
-  if (!auth.confirmed || revalidating) return;
-  revalidating = true;
-  try {
-    await auth.loadCurrent({ timeoutMs: IDENTITY_REVALIDATION_TIMEOUT_MS });
-  } finally {
-    revalidating = false;
-  }
+/**
+ * Re-check who is signed in when the tab comes back (focus, visibility, the
+ * network returning). One check at a time: a trigger that arrives while one is
+ * in flight joins it instead of starting another, so repeated events cannot
+ * loop. Each check is bounded by IDENTITY_REVALIDATION_TIMEOUT_MS (FU-56/FU-85).
+ */
+function revalidateIdentity(): Promise<void> {
+  if (!auth.confirmed) return Promise.resolve();
+  if (revalidation !== null) return revalidation;
+  revalidation = auth
+    .loadCurrent({ timeoutMs: IDENTITY_REVALIDATION_TIMEOUT_MS })
+    .then(() => undefined)
+    .finally(() => {
+      revalidation = null;
+    });
+  return revalidation;
 }
 
 function onVisibilityChange(): void {
@@ -54,6 +62,45 @@ function onVisibilityChange(): void {
 function onWindowFocus(): void {
   void revalidateIdentity();
 }
+
+function onBackOnline(): void {
+  void revalidateIdentity();
+}
+
+/*
+ * The failed-check notice stays mounted from the failure until a check
+ * succeeds (or the owner changes), so a retry — from the button, a focus or
+ * the network returning — keeps the button and its keyboard focus in place
+ * and only marks it busy. While offline the OfflineBanner already explains
+ * why nothing can be checked, so the notice (a second polite live region)
+ * waits until the network is back.
+ */
+const revalidationFailed = ref(false);
+const revalidationBanner = ref<InstanceType<typeof UiBanner> | null>(null);
+const mainContent = ref<HTMLElement | null>(null);
+
+watch(
+  () => auth.revalidationState,
+  (state) => {
+    if (state === 'failed') revalidationFailed.value = true;
+    else if (state === 'idle') revalidationFailed.value = false;
+  },
+  { immediate: true },
+);
+
+const revalidationNoticeShown = computed(() => revalidationFailed.value && offline.online);
+const revalidationBusy = computed(() => auth.revalidationState === 'pending');
+
+// Runs before the DOM update that removes the notice: if keyboard focus is
+// inside it, hand focus to the main region instead of letting it fall to body.
+watch(revalidationNoticeShown, (shown, wasShown) => {
+  if (shown || !wasShown) return;
+  const banner: unknown = revalidationBanner.value?.$el;
+  if (!(banner instanceof HTMLElement) || !banner.contains(document.activeElement)) return;
+  void nextTick(() => {
+    mainContent.value?.focus({ preventScroll: true });
+  });
+});
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -126,6 +173,7 @@ onMounted(() => {
   teardownOffline = offline.initialize();
   window.addEventListener('keydown', onKeydown);
   window.addEventListener('focus', onWindowFocus);
+  window.addEventListener('online', onBackOnline);
   document.addEventListener('visibilitychange', onVisibilityChange);
   void auth.ensureOwnerConfirmed();
 });
@@ -142,6 +190,7 @@ watch(
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown);
   window.removeEventListener('focus', onWindowFocus);
+  window.removeEventListener('online', onBackOnline);
   document.removeEventListener('visibilitychange', onVisibilityChange);
   teardownOffline?.();
 });
@@ -159,20 +208,22 @@ onUnmounted(() => {
       <div class="app-main">
         <OfflineBanner />
         <UiBanner
-          v-if="auth.revalidationState === 'failed'"
+          v-if="revalidationNoticeShown"
+          ref="revalidationBanner"
           tone="offline"
+          inline
           class="identity-revalidation-banner"
           role="status"
           aria-live="polite"
         >
           {{ t('revalidation.failed') }}
           <template #actions>
-            <UiButton size="sm" @click="revalidateIdentity">
+            <UiButton size="sm" :busy="revalidationBusy" @click="revalidateIdentity">
               {{ t('revalidation.retry') }}
             </UiButton>
           </template>
         </UiBanner>
-        <main id="main-content" tabindex="-1" class="app-content">
+        <main id="main-content" ref="mainContent" tabindex="-1" class="app-content">
           <slot />
         </main>
       </div>

@@ -123,8 +123,11 @@ hard reload; the test never calls `page.reload`) and shows B. The spec then
 checks real session state from tab 1: `GET /me` returns B, the `sid` cookie
 was replaced, the active-owner pointer is B, B's Focus namespace is empty, A's
 namespace is preserved but not rendered, and A's task title is absent from the
-DOM and from B's task list. Signing out in tab 2 makes tab 1 return to the
-login screen and `GET /me` answer 401, still without a test-driven reload.
+DOM (checked only after tab 1's own `GET /tasks` after the reset has answered
+and B's list has rendered) and from B's task list. Signing out in tab 2 makes
+tab 1 return to the login screen and `GET /me` answer 401, still without a
+test-driven reload. The response waiters time out after 20 s, so a broken
+reset fails at the wait that never matched rather than at the test timeout.
 
 **Lock fallback scope.** When the Web Locks API is unavailable, Focus replay
 falls back to an in-tab mutex plus a `BroadcastChannel` notice
