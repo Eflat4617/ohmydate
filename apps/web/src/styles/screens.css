@@ -1803,6 +1803,20 @@
   margin: 0;
 }
 
+/* FU-86: why calendar edits wait for a lock request. A live region, so it
+   stays in the accessibility tree; empty, it takes no room in the column. */
+.block-lock-saving {
+  margin: 0;
+}
+
+.block-lock-saving:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
 .approved-panel .kv-list {
   margin-block: var(--space-2);
 }

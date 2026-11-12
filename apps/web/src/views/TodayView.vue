@@ -612,10 +612,12 @@ function resumeActive(): void {
               <span class="today-index" aria-hidden="true">{{ index + 1 }}</span>
               <div class="today-card-text">
                 <p v-if="block.id === nextBlockId" class="today-next-label eyebrow">{{ t('today.nextUp') }}</p>
-                <h2 class="today-title">{{ block.title }}</h2>
+                <h2 :id="`today-block-${block.id}-title`" class="today-title">{{ block.title }}</h2>
                 <p class="today-time">
                   <UiIcon name="clock" :size="16" />
-                  <span class="tabular">{{ formatTimeRange(block.startAt, block.endAt, today.timeZone) }}</span>
+                  <span :id="`today-block-${block.id}-time`" class="tabular">{{
+                    formatTimeRange(block.startAt, block.endAt, today.timeZone)
+                  }}</span>
                   · {{ formatDuration(minutesBetween(block.startAt, block.endAt)) }}
                 </p>
               </div>
@@ -648,6 +650,7 @@ function resumeActive(): void {
                 :locked="displayLocked(block.lock)"
                 :pending="lockPending(block.id)"
                 :disabled="readOnly"
+                :described-by="`today-block-${block.id}-title today-block-${block.id}-time`"
                 @toggle="toggleLock(block.lock)"
               />
               <BlockLockToggle v-else-if="block.lock" read-only :locked="block.lock.locked" />

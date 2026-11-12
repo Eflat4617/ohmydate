@@ -1,7 +1,8 @@
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { ActionStore, ApiError, isStoredFinalResult, plannerClient } from '../api';
 import { t } from '../i18n';
 import { errorMessage } from '../i18n/problem';
+import { refreshLayoutNow } from '../layout/now';
 import { runOwnerBound } from '../session/ownerBound';
 import { useOfflineStore } from '../stores/offline';
 import { useToastStore } from '../stores/toast';
@@ -58,6 +59,13 @@ export function useBlockLock(options: BlockLockOptions) {
     return pending.has(blockId);
   }
 
+  /**
+   * Some lock request of this screen is out (until its re-read is in). A lock
+   * moves the plan revision, so the plan page holds candidate edits meanwhile
+   * (FU-86): the re-read would otherwise discard them.
+   */
+  const anyPending = computed(() => pending.size > 0);
+
   async function toggle(block: LockableBlock): Promise<void> {
     if (!offline.mutationsEnabled || pending.has(block.id)) return;
     const locked = !block.locked;
@@ -87,6 +95,10 @@ export function useBlockLock(options: BlockLockOptions) {
           yield* owner.wait(options.refresh());
         } else if (cause instanceof ApiError && cause.status === 409 && cause.code === 'illegal_transition') {
           error.value = t('blockLock.notLockable');
+          // The block most likely started since the last layout tick (up to
+          // LAYOUT_TICK_MS ago): read the clock now so its toggle goes at once
+          // instead of staying pressable until the next tick (FU-86).
+          refreshLayoutNow();
           yield* owner.wait(options.refresh());
         } else {
           error.value = errorMessage(cause, t('blockLock.error'));
@@ -97,5 +109,5 @@ export function useBlockLock(options: BlockLockOptions) {
     });
   }
 
-  return { displayLocked, isPending, toggle, error };
+  return { displayLocked, isPending, anyPending, toggle, error };
 }

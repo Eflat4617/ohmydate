@@ -34,6 +34,8 @@ const props = withDefaults(
     editable?: boolean;
     selectedIndex?: number | null;
     errorIndexes?: number[];
+    /** Id of a note on every block, e.g. why the blocks cannot be edited right now. */
+    blockDescribedBy?: string | undefined;
   }>(),
   {
     availability: null,
@@ -407,6 +409,7 @@ defineExpose({ dates, positionedBlocks });
             :aria-pressed="selectedIndex === positioned.index"
             :aria-invalid="positioned.error"
             :aria-label="positioned.label"
+            :aria-describedby="blockDescribedBy"
             @click="select(positioned.index)"
             @keydown="onBlockKeydown($event, positioned.index)"
             @pointerdown="pointerDown($event, positioned.index, 'move')"

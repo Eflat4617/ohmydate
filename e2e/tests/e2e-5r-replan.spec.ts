@@ -96,6 +96,10 @@ function overlaps(left: { startAt: string; endAt: string }, right: { startAt: st
   return Date.parse(left.startAt) < Date.parse(right.endAt) && Date.parse(right.startAt) < Date.parse(left.endAt);
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * FU-71: lock a block the way a user does — the plan page's approved schedule,
  * paging forward to the block's week when the plan starts in an earlier one.
@@ -120,8 +124,12 @@ async function lockInUi(page: Page, planId: string, block: ApprovedBlockDto): Pr
     await page.getByRole('button', { name: '다음 주' }).click();
   }
   await expect(row).toBeVisible();
-  const toggle = row.getByRole('button', { name: '블록 고정' });
+  const toggle = row.getByRole('button', { name: '블록 고정', exact: true });
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  // FU-86: the row's task title and time describe the toggle, so rows differ for a screen reader.
+  const title = (await row.locator('.approved-schedule-title').innerText()).trim();
+  expect(title.length).toBeGreaterThan(0);
+  await expect(toggle).toHaveAccessibleDescription(new RegExp(`^${escapeRegExp(title)} .*\\d{1,2}:\\d{2}`));
   const response = page.waitForResponse(
     (candidate) =>
       candidate.request().method() === 'POST' && candidate.url().endsWith(`/schedule-blocks/${block.id}:lock`),
@@ -133,9 +141,10 @@ async function lockInUi(page: Page, planId: string, block: ApprovedBlockDto): Pr
   const headers = locked.request().headers();
   expect(headers['if-match']).toBe(`W/"${block.version}"`);
   expect(headers['idempotency-key']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-  const unlock = row.getByRole('button', { name: '고정 해제' });
-  await expect(unlock).toHaveAttribute('aria-pressed', 'true');
-  await expect(unlock).toBeEnabled();
+  // FU-86: the same button, now pressed; its name does not change with the state.
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveAccessibleName('블록 고정');
+  await expect(toggle).toBeEnabled();
 }
 
 test.describe('E2E-5R — replan proposal flow (real API)', () => {

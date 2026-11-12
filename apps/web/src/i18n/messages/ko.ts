@@ -265,8 +265,9 @@ export const ko = {
   },
 
   blockLock: {
-    lock: '블록 고정',
-    unlock: '고정 해제',
+    // FU-86: one accessible (and visible) name in both states; aria-pressed is
+    // the state, the row's task title and time are the description.
+    toggle: '블록 고정',
     locked: '고정됨',
     lockedToast: '블록을 고정했어요. 재계획해도 이 블록은 옮기지 않아요.',
     unlockedToast: '고정을 풀었어요. 다음 재계획에서 이 블록을 옮길 수 있어요.',
@@ -274,6 +275,7 @@ export const ko = {
     notLockable: '이미 시작했거나 끝난 블록은 고정을 바꿀 수 없어요. 최신 일정을 다시 불러왔어요.',
     error: '블록 고정을 바꾸지 못했어요.',
     editingHint: '일정안을 편집하는 동안에는 고정을 바꿀 수 없어요. 확정하거나 편집을 되돌린 뒤에 바꿔 주세요.',
+    savingHint: '블록 고정을 저장하는 동안에는 일정안을 편집할 수 없어요. 저장이 끝나면 다시 편집할 수 있어요.',
     readOnlyHint: '고정은 오늘 화면이나 일정안 비교 화면의 확정된 일정에서 바꿀 수 있어요.',
   },
 

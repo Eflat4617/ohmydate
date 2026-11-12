@@ -138,6 +138,7 @@ const now = useLayoutNow();
 const {
   displayLocked,
   isPending: lockPending,
+  anyPending: lockSaving,
   toggle: toggleLock,
   error: lockError,
 } = useBlockLock({
@@ -193,6 +194,12 @@ const calendarHeading = ref<HTMLElement | null>(null);
 // The plan re-read after a lock would reset unsaved candidate edits (the
 // revision changed), so locks wait until the draft is approved or reset.
 const lockDisabled = computed(() => !offline.mutationsEnabled || dirty.value || approving.value);
+// FU-86, the other direction: while a lock is out the draft stays as it is
+// (calendar edits are held, with the reason shown) until the plan re-read is
+// in. An edit started then would be discarded by that re-read (plan.version
+// moved), and a preview sent meanwhile would race the lock on the revision.
+// The window is one request plus its re-read; no edit is dropped silently.
+const calendarEditable = computed(() => offline.mutationsEnabled && !approving.value && !lockSaving.value);
 
 function resetDraft(): void {
   draftBlocks.value = selectedCandidate.value?.blocks.map((block) => ({ ...block })) ?? [];
@@ -326,7 +333,7 @@ async function runPreview(): Promise<void> {
 }
 
 function onBlocksUpdated(next: PlanBlock[]): void {
-  if (!offline.mutationsEnabled) return;
+  if (!calendarEditable.value) return;
   draftBlocks.value = next;
   dirty.value = true;
 }
@@ -599,6 +606,11 @@ onUnmounted(() => {
           <li><span class="legend-swatch legend-swatch--block" aria-hidden="true"></span>{{ t('plan.legendBlock') }}</li>
         </ul>
 
+        <!-- Always rendered (a live region must exist before its text changes). -->
+        <p id="plan-lock-saving-note" class="field-help block-lock-saving" role="status" aria-live="polite">{{
+          lockSaving ? t('blockLock.savingHint') : ''
+        }}</p>
+
         <WeekCalendar
           :blocks="draftBlocks"
           :time-zone="timeZone"
@@ -607,9 +619,10 @@ onUnmounted(() => {
           :commitment-occurrences="commitmentOccurrences"
           :commitment-names="commitmentNames"
           :task-names="taskNames"
-          :editable="offline.mutationsEnabled && !approving"
+          :editable="calendarEditable"
           :selected-index="null"
           :error-indexes="errorIndexes"
+          :block-described-by="lockSaving ? 'plan-lock-saving-note' : undefined"
           @update:blocks="onBlocksUpdated"
         />
 
@@ -631,16 +644,19 @@ onUnmounted(() => {
               :key="block.id"
               :data-approved-block-id="block.id"
             >
-              <span class="approved-schedule-time">
+              <span :id="`approved-block-${block.id}-time`" class="approved-schedule-time">
                 {{ formatDateTimeRange(block.startAt, block.endAt, timeZone) }}
               </span>
-              <span class="approved-schedule-title">{{ taskNames[block.taskId] ?? block.taskId }}</span>
+              <span :id="`approved-block-${block.id}-title`" class="approved-schedule-title">
+                {{ taskNames[block.taskId] ?? block.taskId }}
+              </span>
               <UiBadge class="chip" tone="success">{{ t(`plan.blockStatus.${block.status}`) }}</UiBadge>
               <BlockLockToggle
                 v-if="isBlockLockable(block, now)"
                 :locked="displayLocked(block)"
                 :pending="lockPending(block.id)"
                 :disabled="lockDisabled"
+                :described-by="`approved-block-${block.id}-title approved-block-${block.id}-time`"
                 @toggle="toggleLock(block)"
               />
               <BlockLockToggle v-else read-only :locked="block.locked" />
