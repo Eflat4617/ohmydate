@@ -164,4 +164,129 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
 
     await context.close();
   });
+
+  test('resets tab 1 automatically when tab 2 signs in as the other owner, without page.reload', async ({
+    browser,
+  }) => {
+    const accountA = { email: state.email, password: state.password };
+    const accountB = { email: state.todayEmail, password: state.todayPassword };
+
+    const context = await browser.newContext();
+    const pageA = await context.newPage();
+    await login(pageA, state, accountA);
+    const ownerA = await currentUser(context);
+
+    const aSettings = await patchSettings(
+      pageA,
+      { llm: { consent: { granted: true } } },
+      ownerA.version,
+    );
+    await patchSettings(
+      pageA,
+      { llm: { budget: { dailyUsd: 9, monthlyUsd: 90 } } },
+      aSettings.version,
+    );
+    const seededA = await currentUser(context);
+    expect(seededA.llm?.consent?.granted).toBe(true);
+    expect(seededA.llm?.budget).toEqual({ dailyUsd: 9, monthlyUsd: 90 });
+
+    const aOnlyTitle = `FU-56 owner A only ${Date.now().toString(36)}`;
+    await pageA.getByLabel('작업 빠르게 추가').fill(aOnlyTitle);
+    await pageA.getByRole('button', { name: '작업 추가' }).click();
+    await expect(pageA.getByText(aOnlyTitle, { exact: true })).toBeVisible();
+
+    const sessionsKeyA = `ohmydate.focus.sessions:${ownerA.id}`;
+    await pageA.evaluate(
+      ({ key, ownerId }) => {
+        localStorage.setItem(
+          key,
+          JSON.stringify({
+            'fu-56-session': {
+              id: 'fu-56-session',
+              taskId: crypto.randomUUID(),
+              state: 'active',
+              startedAt: new Date().toISOString(),
+              focusedSec: 0,
+              pausedSec: 0,
+              clientId: 'e2e-owner-a',
+              version: 1,
+              ownerId,
+            },
+          }),
+        );
+        (window as unknown as { __ohmydateOwnerSentinel?: string }).__ohmydateOwnerSentinel = 'A';
+      },
+      { key: sessionsKeyA, ownerId: ownerA.id },
+    );
+    const sidBefore = (await context.cookies()).find((cookie) => cookie.name === 'sid')?.value;
+    expect(sidBefore).toBeTruthy();
+
+    const pageB = await context.newPage();
+    await pageB.goto(`${state.webUrl}/inbox`);
+    await expect(pageB.getByRole('heading', { name: '인박스' })).toBeVisible();
+    await expect(pageB.getByText(aOnlyTitle, { exact: true })).toBeVisible();
+
+    const autoMe = pageA.waitForResponse(
+      (response) =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname.endsWith('/api/v1/me') &&
+        response.status() === 200,
+    );
+    await login(pageB, state, accountB);
+    const automaticMe = (await (await autoMe).json()) as MeDto;
+    const ownerB = await currentUser(context);
+    expect(ownerB.id).toBe(automaticMe.id);
+    expect(ownerB.id).not.toBe(ownerA.id);
+    expect(ownerB.llm).toBeUndefined();
+
+    await expect(pageA.getByRole('heading', { name: '인박스' })).toBeVisible({ timeout: 20_000 });
+    expect(
+      await pageA.evaluate(
+        () =>
+          (window as unknown as { __ohmydateOwnerSentinel?: string }).__ohmydateOwnerSentinel ??
+          null,
+      ),
+    ).toBeNull();
+    expect(await pageA.evaluate(() => localStorage.getItem('ohmydate.focus.owner'))).toBe(ownerB.id);
+    expect(
+      await pageA.evaluate((ownerId) => localStorage.getItem(`ohmydate.focus.sessions:${ownerId}`), ownerB.id),
+    ).toBeNull();
+    expect(await pageA.evaluate((key) => localStorage.getItem(key), sessionsKeyA)).not.toBeNull();
+    await expect(pageA.getByText(aOnlyTitle, { exact: true })).toHaveCount(0);
+
+    const tabOneMe = await pageA.request.get(`${state.apiUrl}/api/v1/me`);
+    expect(tabOneMe.ok()).toBeTruthy();
+    const tabOneUser = (await tabOneMe.json()) as MeDto;
+    expect(tabOneUser.id).toBe(ownerB.id);
+    expect(tabOneUser.llm).toBeUndefined();
+    const tabOneTasks = await pageA.request.get(`${state.apiUrl}/api/v1/tasks`);
+    expect(tabOneTasks.ok()).toBeTruthy();
+    const tabOneTitles = ((await tabOneTasks.json()) as { items: { title: string }[] }).items.map(
+      (task) => task.title,
+    );
+    expect(tabOneTitles).not.toContain(aOnlyTitle);
+
+    const sidAfter = (await context.cookies()).find((cookie) => cookie.name === 'sid');
+    expect(sidAfter?.value).toBeTruthy();
+    expect(sidAfter?.value).not.toBe(sidBefore);
+
+    const autoLogoutMe = pageA.waitForResponse(
+      (response) =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname.endsWith('/api/v1/me') &&
+        response.status() === 401,
+    );
+    await pageB.bringToFront();
+    await pageB.getByRole('button', { name: '로그아웃' }).click();
+    await expect(pageB).toHaveURL(`${state.webUrl}/login`, { timeout: 20_000 });
+    await autoLogoutMe;
+    await expect(pageA).toHaveURL(`${state.webUrl}/login`, { timeout: 20_000 });
+    await expect(pageA.getByRole('heading', { name: 'OhMyDate에 로그인' })).toBeVisible();
+    expect(
+      (await pageA.request.get(`${state.apiUrl}/api/v1/me`)).status(),
+    ).toBe(401);
+    expect(await pageA.evaluate(() => localStorage.getItem('ohmydate.focus.owner'))).toBeNull();
+
+    await context.close();
+  });
 });
