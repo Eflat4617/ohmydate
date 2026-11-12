@@ -425,6 +425,10 @@ export default async function globalSetup(): Promise<void> {
         LLM_FAKE_LATENCY_MS: String(AI_WAIT_LATENCY_MS),
         LLM_DAILY_BUDGET_USD: '10',
         LLM_MONTHLY_BUDGET_USD: '100',
+        // FU-79: fake-only reset route so every Playwright test starts with a
+        // clean fixed login window (helpers/test.ts calls it in an auto
+        // fixture). Rejected by production boot.
+        E2E_RESET_LOGIN_RATE_LIMIT: '1',
         ...shiftedClockEnv(clockOffsetMs),
       },
     );

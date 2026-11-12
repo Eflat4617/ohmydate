@@ -75,6 +75,15 @@ export class AuthService {
     await this.#sessions.delete(sessionId);
   }
 
+  /**
+   * FU-79: clears the fixed login windows between Playwright tests. The route
+   * that calls this exists only when the fake-only `E2E_RESET_LOGIN_RATE_LIMIT`
+   * knob is set (rejected in production).
+   */
+  resetLoginRateLimit(): void {
+    this.#rateLimiter.reset();
+  }
+
   async me(userId: Id): Promise<UserRecord> {
     const user = await this.#users.get(userId);
     if (user === null) {

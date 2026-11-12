@@ -336,8 +336,9 @@ export async function createApprovedGoalWithSingleStep(
   page: Page,
   state: E2EState,
   title: string,
+  options: { readonly nowMs?: number } = {},
 ): Promise<IntakeSessionDto> {
-  const dueAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const dueAt = new Date((options.nowMs ?? Date.now()) + 7 * 24 * 60 * 60 * 1000).toISOString();
   const created = await createIntakeGoal(page, state, {
     title,
     description: 'E2E single-block goal for the two-plan regression.',
@@ -387,8 +388,9 @@ export async function createPlanFromGoal(
   page: Page,
   state: E2EState,
   goalId: string,
+  options: { readonly nowMs?: number } = {},
 ): Promise<PlanDto> {
-  const start = new Date();
+  const start = new Date(options.nowMs ?? Date.now());
   start.setUTCHours(0, 0, 0, 0);
   const end = new Date(start.getTime() + 14 * 24 * 60 * 60 * 1000);
   const response = await apiFetch(page, state, '/plans', {
@@ -466,6 +468,7 @@ export async function setContinuousWeeklyAvailability(
   page: Page,
   state: E2EState,
   maxDailyFocusMin = 600,
+  timeZone = 'UTC',
 ): Promise<AvailabilityDto> {
   const current = await getAvailability(page, state);
   const rules = Array.from({ length: 7 }, (_, index) => index + 1).map((weekday) => ({
@@ -481,7 +484,7 @@ export async function setContinuousWeeklyAvailability(
       'Idempotency-Key': idempotencyKey(),
     },
     body: {
-      timeZone: 'UTC',
+      timeZone,
       rules,
       exceptions: [],
       prefs: {
@@ -518,6 +521,62 @@ export function editableBlocksForToday(
       endAt: new Date(startAt + duration).toISOString(),
     };
   });
+}
+
+const SLOT_GRID_MS = 5 * 60_000;
+/**
+ * Lead before the notification carrier block. It is rounded UP to the
+ * scheduler's 5-minute grid, which keeps it within the 10-minute notification
+ * window while starting after the API's now.
+ */
+const NOTIFICATION_LEAD_MS = 3 * 60_000;
+
+/**
+ * FU-79: approval blocks for a spec whose UI runs at `dayNowMs` while the API
+ * runs at `apiNowMs`. The first block (the notification/dedupe carrier) starts
+ * a few minutes after the API's now, so the leader sweep always sees it; the
+ * remaining blocks sit on the simulated day the browser clock shows, so Today
+ * always has three cards even when the suite runs at 21:50, 23:59 or 00:01.
+ */
+export function editableBlocksForSimulatedToday(
+  plan: PlanDto,
+  apiNowMs: number,
+  dayNowMs: number,
+): readonly { taskId: string; startAt: string; endAt: string }[] {
+  const candidate = plan.candidates.find((entry) => entry.feasible) ?? plan.candidates[0];
+  if (candidate === undefined) throw new Error('plan has no candidate to approve');
+  const sorted = [...candidate.blocks].sort(
+    (left, right) => Date.parse(left.startAt) - Date.parse(right.startAt),
+  );
+  const [carrier, ...rest] = sorted;
+  if (carrier === undefined) throw new Error('plan has no blocks to approve');
+
+  const carrierStart =
+    Math.ceil((apiNowMs + NOTIFICATION_LEAD_MS) / SLOT_GRID_MS) * SLOT_GRID_MS;
+  const carrierDuration = Date.parse(carrier.endAt) - Date.parse(carrier.startAt);
+  const blocks = [
+    {
+      taskId: carrier.taskId,
+      startAt: new Date(carrierStart).toISOString(),
+      endAt: new Date(carrierStart + carrierDuration).toISOString(),
+    },
+  ];
+
+  let cursor = Math.ceil((dayNowMs + SLOT_GRID_MS) / SLOT_GRID_MS) * SLOT_GRID_MS;
+  const carrierEnd = carrierStart + carrierDuration;
+  for (const block of rest) {
+    if (cursor < carrierEnd + SLOT_GRID_MS && cursor >= carrierStart) {
+      cursor = Math.ceil((carrierEnd + SLOT_GRID_MS) / SLOT_GRID_MS) * SLOT_GRID_MS;
+    }
+    const duration = Date.parse(block.endAt) - Date.parse(block.startAt);
+    blocks.push({
+      taskId: block.taskId,
+      startAt: new Date(cursor).toISOString(),
+      endAt: new Date(cursor + duration).toISOString(),
+    });
+    cursor += duration + SLOT_GRID_MS;
+  }
+  return blocks;
 }
 
 export async function approveCandidateWithBlocks(

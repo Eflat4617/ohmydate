@@ -90,6 +90,8 @@ export interface SessionStore {
 export interface LoginRateLimiter {
   /** Returns false when the attempt is over the configured window budget. */
   consume(key: string): boolean;
+  /** Clears all windows. Only the E2E reset route calls this. */
+  reset(): void;
 }
 
 export interface OutboxEventInput {

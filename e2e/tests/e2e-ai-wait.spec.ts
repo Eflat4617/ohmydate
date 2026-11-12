@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
+import { expect, test } from '../helpers/test';
 import { agentRunStatuses } from '../helpers/db';
 import { login } from '../helpers/app';
 import { readState } from '../helpers/state';

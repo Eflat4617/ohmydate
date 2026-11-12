@@ -1,6 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { expect, test } from '../helpers/test';
 import { login } from '../helpers/app';
+import { installBrowserClockAt, testClock } from '../helpers/clock';
+import { nextLocalMorningMs } from '../helpers/day-clock';
 import {
   approveCandidateWithBlocks,
   createApprovedGoal,
@@ -19,6 +22,9 @@ import { readState } from '../helpers/state';
 
 const state = readState();
 const account = { email: state.layoutEmail, password: state.layoutPassword };
+/** FU-79: simulate a local morning with room for the whole plan. */
+const clock = testClock(state);
+const simulatedDayMs = nextLocalMorningMs(clock.nowMs(), 'UTC');
 const LAYOUT_TOAST = '레이아웃이 바뀌었어요';
 
 async function blockingAxeViolations(page: Page) {
@@ -70,17 +76,25 @@ test.describe('E2E-6 — adaptive layout: focus switch, undo, auto switch off', 
   test('Today → focus switch with undo; auto switch off survives a reload', async ({ browser }) => {
     const suffix = Date.now().toString(36);
     const context = await browser.newContext({ timezoneId: 'UTC', viewport: { width: 1280, height: 860 } });
+    await installBrowserClockAt(context, simulatedDayMs);
     const page = await context.newPage();
     await login(page, state, account);
+    const apiNowMs = clock.nowMs();
 
     await setContinuousWeeklyAvailability(page, state);
     const goal = await createApprovedGoal(page, state, `E2E layout goal ${suffix}`, {
       estimatedScope: 'large',
       independentDraft: true,
+      nowMs: apiNowMs,
     });
     if (goal.goalId === undefined) throw new Error('approved goal id is missing');
-    const plan = await createPlanFromGoal(page, state, goal.goalId);
-    const approved = await approveCandidateWithBlocks(page, state, plan, editableBlocksForToday(plan));
+    const plan = await createPlanFromGoal(page, state, goal.goalId, { nowMs: apiNowMs });
+    const approved = await approveCandidateWithBlocks(
+      page,
+      state,
+      plan,
+      editableBlocksForToday(plan, simulatedDayMs),
+    );
     expect(approved.blocks.length).toBeGreaterThanOrEqual(2);
 
     await test.step('overview on Today (axe)', async () => {

@@ -1,12 +1,16 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page } from '@playwright/test';
+import { type Page } from '@playwright/test';
+import { expect, test } from '../helpers/test';
 import { login } from '../helpers/app';
+import { installBrowserClockAt, testClock } from '../helpers/clock';
+import { nextLocalMorningMs } from '../helpers/day-clock';
 import {
   apiFetch,
   approveCandidateWithBlocks,
   createApprovedGoal,
   createApprovedGoalWithSingleStep,
   createPlanFromGoal,
+  editableBlocksForSimulatedToday,
   editableBlocksForToday,
   expectOk,
   getWorkSession,
@@ -18,6 +22,15 @@ import { readState } from '../helpers/state';
 
 const state = readState();
 const account = { email: state.todayEmail, password: state.todayPassword };
+
+/**
+ * FU-79: the E2E user's time zone. Outside UTC on purpose: 21:50/23:59 UTC are
+ * late afternoon/evening here, and the DST transition day really is local.
+ */
+const E2E_TIME_ZONE = 'America/New_York';
+const clock = testClock(state);
+/** The simulated local morning the spec's browser and plan blocks use. */
+const simulatedDayMs = nextLocalMorningMs(clock.nowMs(), E2E_TIME_ZONE);
 
 async function scheduleBlock(
   page: Page,
@@ -53,6 +66,14 @@ async function allowTenMinuteSessions(page: Page, taskIds: readonly string[]): P
 }
 
 async function blockingAxeViolations(page: Page) {
+  // Wait for finite entrance animations (toast, next-up panel) so axe measures
+  // final colours rather than a half-transparent frame.
+  await page.evaluate(async () => {
+    const finite = document
+      .getAnimations()
+      .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity);
+    await Promise.all(finite.map((animation) => animation.finished.catch(() => undefined)));
+  });
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .analyze();
@@ -77,18 +98,25 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     browser,
   }) => {
     const suffix = Date.now().toString(36);
-    const context = await browser.newContext({ timezoneId: 'UTC' });
+    const context = await browser.newContext({ timezoneId: E2E_TIME_ZONE });
+    await installBrowserClockAt(context, simulatedDayMs);
     const page = await context.newPage();
     await login(page, state, account);
+    const apiNowMs = clock.nowMs();
 
-    await setContinuousWeeklyAvailability(page, state);
+    await setContinuousWeeklyAvailability(page, state, 600, E2E_TIME_ZONE);
     const goal = await createApprovedGoal(page, state, `E2E today goal ${suffix}`, {
       estimatedScope: 'large',
       independentDraft: true,
+      nowMs: apiNowMs,
     });
     if (goal.goalId === undefined) throw new Error('approved goal id is missing');
-    const plan = await createPlanFromGoal(page, state, goal.goalId);
-    const edited = editableBlocksForToday(plan);
+    const plan = await createPlanFromGoal(page, state, goal.goalId, { nowMs: apiNowMs });
+    // The first block carries the notification (right after the API's now);
+    // the other three sit on the simulated local day the browser shows.
+    // Re-read the clock here: goal/plan creation can be slow, and the carrier
+    // must still be in the notification window when it is approved.
+    const edited = editableBlocksForSimulatedToday(plan, clock.nowMs(), simulatedDayMs);
     const approved = await approveCandidateWithBlocks(page, state, plan, edited);
     expect(approved.blocks.length).toBeGreaterThanOrEqual(2);
     const notifyBlock = approved.blocks[0];
@@ -167,7 +195,8 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
   });
 
   test('replays local pause/resume events exactly once after reconnecting', async ({ browser }) => {
-    const context = await browser.newContext({ timezoneId: 'UTC' });
+    const context = await browser.newContext({ timezoneId: E2E_TIME_ZONE });
+    await installBrowserClockAt(context, simulatedDayMs);
     const page = await context.newPage();
     await login(page, state, account);
 
@@ -213,24 +242,32 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     browser,
   }) => {
     const suffix = Date.now().toString(36);
-    const context = await browser.newContext({ timezoneId: 'UTC' });
+    const context = await browser.newContext({ timezoneId: E2E_TIME_ZONE });
+    await installBrowserClockAt(context, simulatedDayMs);
     const page = await context.newPage();
     await login(page, state, { email: state.plansEmail, password: state.plansPassword });
-    await setContinuousWeeklyAvailability(page, state);
+    await setContinuousWeeklyAvailability(page, state, 600, E2E_TIME_ZONE);
+    const apiNowMs = clock.nowMs();
 
     const firstTitle = `E2E older plan ${suffix}`;
     const secondTitle = `E2E current plan ${suffix}`;
-    const firstGoal = await createApprovedGoalWithSingleStep(page, state, firstTitle);
+    const firstGoal = await createApprovedGoalWithSingleStep(page, state, firstTitle, {
+      nowMs: apiNowMs,
+    });
     if (firstGoal.goalId === undefined) throw new Error('first goal id is missing');
-    const firstPlan = await createPlanFromGoal(page, state, firstGoal.goalId);
-    const firstEdited = editableBlocksForToday(firstPlan);
+    const firstPlan = await createPlanFromGoal(page, state, firstGoal.goalId, { nowMs: apiNowMs });
+    const firstEdited = editableBlocksForToday(firstPlan, simulatedDayMs);
     const firstApproved = await approveCandidateWithBlocks(page, state, firstPlan, firstEdited);
     const olderBlock = firstApproved.blocks[0];
     if (olderBlock === undefined) throw new Error('older plan has no block');
 
-    const secondGoal = await createApprovedGoalWithSingleStep(page, state, secondTitle);
+    const secondGoal = await createApprovedGoalWithSingleStep(page, state, secondTitle, {
+      nowMs: apiNowMs,
+    });
     if (secondGoal.goalId === undefined) throw new Error('second goal id is missing');
-    const secondPlan = await createPlanFromGoal(page, state, secondGoal.goalId);
+    const secondPlan = await createPlanFromGoal(page, state, secondGoal.goalId, {
+      nowMs: apiNowMs,
+    });
     const olderEnd = Math.max(...firstApproved.blocks.map((block) => Date.parse(block.endAt)));
     const secondEdited = editableBlocksForToday(secondPlan, olderEnd);
     const currentApproved = await approveCandidateWithBlocks(page, state, secondPlan, secondEdited);

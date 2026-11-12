@@ -35,4 +35,9 @@ export class InMemoryLoginRateLimiter implements LoginRateLimiter {
     window.count += 1;
     return window.count <= this.#limit;
   }
+
+  /** FU-79: E2E-only isolation between Playwright tests (see routes/app.ts). */
+  reset(): void {
+    this.#windows.clear();
+  }
 }

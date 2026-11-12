@@ -1,6 +1,9 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
+import { expect, test } from '../helpers/test';
 import { login } from '../helpers/app';
+import { installBrowserClockAt, testClock } from '../helpers/clock';
+import { nextLocalMorningMs } from '../helpers/day-clock';
 import {
   apiFetch,
   approveCandidateWithBlocks,
@@ -28,6 +31,9 @@ import { readState } from '../helpers/state';
 
 const state = readState();
 const account = { email: state.notesEmail, password: state.notesPassword };
+/** FU-79: simulate a local morning with room for the planned blocks. */
+const clock = testClock(state);
+const simulatedDayMs = nextLocalMorningMs(clock.nowMs(), 'UTC');
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 const DESKTOP = { width: 1280, height: 860 };
 const PHONE = { width: 390, height: 844 };
@@ -121,6 +127,7 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
     const noteTitle = `발표 자료 메모 ${suffix}`;
     const planTitle = `발표 자료 준비 ${suffix}`;
     const context = await browser.newContext({ timezoneId: 'UTC', viewport: DESKTOP });
+    await installBrowserClockAt(context, simulatedDayMs);
     const page = await context.newPage();
     await login(page, state, account);
     await setContinuousWeeklyAvailability(page, state);
@@ -259,8 +266,15 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
     await test.step('focus on the plan’s task: RelatedNotes lists the note; undo restores Today', async () => {
       const session = (await expectOk(await apiFetch(page, state, `/intake-sessions/${sessionId}`), 'GET intake')) as IntakeSessionDto;
       if (session.goalId === undefined) throw new Error('approved session has no goal id');
-      const plan = await createPlanFromGoal(page, state, session.goalId);
-      const approved = await approveCandidateWithBlocks(page, state, plan, editableBlocksForToday(plan));
+      const plan = await createPlanFromGoal(page, state, session.goalId, {
+        nowMs: clock.nowMs(),
+      });
+      const approved = await approveCandidateWithBlocks(
+        page,
+        state,
+        plan,
+        editableBlocksForToday(plan, simulatedDayMs),
+      );
       expect(approved.blocks.length).toBeGreaterThanOrEqual(1);
 
       await page.goto(`${state.webUrl}/today`);
