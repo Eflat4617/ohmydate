@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 10:20 | **Sol 주간 한도 소진**(해제 2026-11-18 02:02). MODEL_BINDINGS §12 적용: FU-73R → **Fable 5.2 xhigh** 리뷰(ctx_65172dba464e, 구현 Opus), FU-77R2 → **Opus 5.5 xhigh** 리뷰(ctx_010b7e848bdf, 구현이 Fable이므로 계열 분리). 두 리뷰어에게 읽기 전용·판정 형식 안내 | worker-read | orchestrator |
 | 2026-11-12 10:15 | Orca 중지·재시작 점검: 재부팅 아님(uptime 14h), Vikunja 200, PG 쿼리 정상, orchestrator effort xhigh 유지. Sol 리뷰 2건(FU-73R ctx_1a2293e4a1c2, FU-77R2 ctx_e869e111f358)이 abandoned → worktree 변경 없음 확인 후 retry-of로 Sol medium 재시작(SOL_OK). 병합 완료 작업의 DeepSeek 프로세스 3개 종료 | worker-list | orchestrator |
 | 2026-11-12 10:10 | **FU-79 merged 0cdbd02** (FU-79R2 APPROVE, Sol). LOW 2건은 orchestrator가 병합 시 수정: reset fixture가 `response.ok`(메서드)를 속성처럼 써서 실패를 못 잡던 버그 → `response.status() !== 204`; README 시계 차이 문구. 통합 CI 2114 pass + web 442, boundaries 0 | reviews/FU-79R2.md | orchestrator |
 | 2026-11-12 09:30 | **사용자 지시: Sol 주간 한도 소진 후 리뷰는 Fable 5.2 xhigh로 대체**(MODEL_BINDINGS §12). Fable 구현 작업은 Opus xhigh가 리뷰(계열 분리). probe FABLE_OK | 사용자 메시지 | orchestrator |
