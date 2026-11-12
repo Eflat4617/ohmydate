@@ -441,6 +441,14 @@ describe.skipIf(!hasDatabase)('0009 today/session schema', () => {
     await client.end();
     client = await connect(schema);
 
+    // 0015 (FU-92) is newer and is unwound first.
+    const rolledBack0015 = await rollbackLatest({
+      databaseUrl: requireDatabaseUrl(),
+      schema,
+      migrationsDir,
+    });
+    expect(rolledBack0015).toBe('0015_auth_sessions.sql');
+
     // 0014 (FU-76) is newer and is unwound first.
     const rolledBack0014 = await rollbackLatest({
       databaseUrl: requireDatabaseUrl(),
@@ -512,6 +520,7 @@ describe.skipIf(!hasDatabase)('0009 today/session schema', () => {
       '0012_replanning.sql',
       '0013_context_documents.sql',
       '0014_agent_run_cancelled.sql',
+      '0015_auth_sessions.sql',
     ]);
   });
 });

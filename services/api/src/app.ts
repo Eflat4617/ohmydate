@@ -26,6 +26,7 @@ import { createBaseFakeLlm } from './adapters/fake-llm-scenarios.js';
 import { Argon2PasswordHasher } from './adapters/argon2-password-hasher.js';
 import { InMemoryLoginRateLimiter } from './adapters/in-memory-login-rate-limiter.js';
 import { InMemorySessionStore } from './adapters/in-memory-session-store.js';
+import { PgSessionStore } from './adapters/pg-session-store.js';
 import { PgIdempotencyStore } from './adapters/pg-idempotency-store.js';
 import { createPgSpendLedger } from './adapters/pg-spend-ledger.js';
 import { ScriptedFakeLlm } from './adapters/scripted-fake-llm.js';
@@ -37,6 +38,10 @@ import { NotificationJob } from './application/notification-service.js';
 import { ExportPurgeJob } from './application/export-purge-job.js';
 import { ReplanDetectionJob } from './application/replan-detection-job.js';
 import { ReplanSuppressedError } from './application/replan-errors.js';
+import {
+  DEFAULT_SESSION_SWEEP_INTERVAL_MS,
+  SessionSweepJob,
+} from './application/session-sweep-job.js';
 import { PgNotificationStore } from './adapters/pg-notification-store.js';
 import { PgExportStore } from './adapters/pg-export-store.js';
 import { createVikunjaRepositories } from './adapters/vikunja/composition.js';
@@ -155,6 +160,8 @@ export interface BuildAppOptions {
 export interface MaintenanceJobOverrides {
   readonly notificationIntervalMs?: number;
   readonly exportPurgeIntervalMs?: number;
+  /** FU-92 expired-session sweep (PG sessions only); 0 disables it. */
+  readonly sessionSweepIntervalMs?: number;
   readonly scheduler?: (callback: () => void, milliseconds: number) => { stop(): void };
 }
 
@@ -198,6 +205,23 @@ export function defaultLoggerOptions(config: AppConfig): LoggerOption {
       },
     },
   } as unknown as LoggerOption;
+}
+
+/**
+ * FU-92: login sessions live in the planner database whenever a database is
+ * configured for the Vikunja provider (`PROVIDER=vikunja` + DATABASE_URL, the
+ * same rule as the leader-locked jobs; main always requires DATABASE_URL), so
+ * a login survives API restarts. `PROVIDER=memory` loses its task data on
+ * restart anyway and keeps the process-local store, as do unit tests.
+ */
+export function usesPersistentSessions(
+  config: Pick<AppConfig, 'provider' | 'databaseUrl'>,
+): boolean {
+  return (
+    config.provider === 'vikunja' &&
+    config.databaseUrl !== null &&
+    config.databaseUrl.length > 0
+  );
 }
 
 /** /readyz must never hang on a database that accepts TCP but never answers. */
@@ -674,7 +698,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
 
   const users = new PgUserRepository(db, clock);
-  const sessions = new InMemorySessionStore({ clock, ttlMs: config.sessionTtlMs });
+  const pgSessions = usesPersistentSessions(config)
+    ? new PgSessionStore({ db, clock, ttlMs: config.sessionTtlMs })
+    : undefined;
+  const sessions =
+    pgSessions ?? new InMemorySessionStore({ clock, ttlMs: config.sessionTtlMs });
   const hasher = new Argon2PasswordHasher();
   const rateLimiter = new InMemoryLoginRateLimiter({
     clock,
@@ -836,6 +864,24 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     await notificationJob.stop();
     await exportPurgeJob.stop();
   });
+
+  // FU-92: expired login sessions are swept at boot and periodically. Reads
+  // already reject them, so shutdown waits for an in-flight sweep only briefly.
+  if (pgSessions !== undefined) {
+    const sessionSweepJob = new SessionSweepJob({
+      store: pgSessions,
+      intervalMs:
+        options.jobOverrides?.sessionSweepIntervalMs ?? DEFAULT_SESSION_SWEEP_INTERVAL_MS,
+      logger: jobLogger,
+    });
+    app.addHook('onClose', async () => {
+      await Promise.race([
+        sessionSweepJob.stop(),
+        new Promise((resolve) => setTimeout(resolve, 1_000).unref()),
+      ]);
+    });
+    sessionSweepJob.start();
+  }
   if (startMaintenance) {
     notificationJob.start();
     exportPurgeJob.start();

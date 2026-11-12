@@ -68,6 +68,14 @@ describe.skipIf(!hasDatabase)('0014 agent_run cancelled status (FU-76)', () => {
     await client.end();
     client = await connect(schema);
 
+    // 0015 (FU-92) is newer and is unwound first.
+    const rolledBack0015 = await rollbackLatest({
+      databaseUrl: requireDatabaseUrl(),
+      schema,
+      migrationsDir,
+    });
+    expect(rolledBack0015).toBe('0015_auth_sessions.sql');
+
     const rolledBack = await rollbackLatest({
       databaseUrl: requireDatabaseUrl(),
       schema,
@@ -87,7 +95,10 @@ describe.skipIf(!hasDatabase)('0014 agent_run cancelled status (FU-76)', () => {
     expect(rejected.code).toBe('23514');
 
     const reapplied = await migrate({ databaseUrl: requireDatabaseUrl(), schema, migrationsDir });
-    expect(reapplied.applied).toEqual(['0014_agent_run_cancelled.sql']);
+    expect(reapplied.applied).toEqual([
+      '0014_agent_run_cancelled.sql',
+      '0015_auth_sessions.sql',
+    ]);
     await insertRun(ownerId, 'cancelled');
     const count = await client.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM agent_run WHERE status = 'cancelled'`,

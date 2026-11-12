@@ -42,6 +42,7 @@
 
 ## 6. 인증·권한
 - 단일 사용자: planner 로컬 계정(argon2id), 세션 14일 슬라이딩 [가정], 로그인 rate limit.
+- 세션 저장(FU-92): planner DB `auth_session`에 `sid`·CSRF 토큰의 **SHA-256 해시만** 저장(원문은 브라우저 쿠키에만). 조회는 제시된 `sid`의 해시로, CSRF 헤더는 해시를 상수 시간 비교. 형식이 다른 `sid`는 DB 조회 없이 401. 만료 세션은 읽을 때 거부·삭제하고 부팅 시·10분마다 `DELETE … LIMIT 500` 스윕(종료 시 타이머 정지). DB 덤프만으로는 쿠키를 만들 수 없지만 사용자 id·접속 시각이 담기므로 백업은 계속 비밀로 취급. 전체 강제 로그아웃은 `DELETE FROM auth_session`(또는 down 마이그레이션).
 - Vikunja: 사용자 1명 + planner 서비스용 **API 토큰(최소 권한 scope)**, api 컨테이너 env/secret 파일로만 주입. Vikunja 회원가입 비활성(`service.enableregistration=false`).
 - 비밀: `deploy/secrets/*.env`(git 제외, 권한 600), Docker secrets. 회전: LLM 키·Vikunja 토큰 90일 [가정], 회전 절차 runbook.
 - 다중 사용자 대비: 모든 쿼리 owner 범위, 장래 PG RLS.
