@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 13:28 | 통합 전체 E2E 0ce42a2 **exit 0, 31 passed (6.5m)** — FU-56의 새 E2E-5 단언 포함 | scratchpad int-e2e-0ce42a2.log | orchestrator |
 | 2026-11-12 13:20 | 통합 CI 0ce42a2(FU-81+FU-56) **exit 0** 1회 통과: root 2142 passed/29 skipped, web 502+156, boundaries 0, build-smoke OK. 전체 E2E 백그라운드 실행 | scratchpad int-ci-0ce42a2.log | orchestrator |
 | 2026-11-12 13:20 | **GU-1-PKG 시작**: DeepSeek 4.1 Flash high ctx_9f0fc1356b11 (worktree gu-1-pkg, opencode.jsonc variant high 확인). 설계 판단: 개발 스택(deploy/dev)은 테스트 합성 사용자 수천 명과 공유 → GU-1은 별도 격리 스택 `ohmydate-local`(127.0.0.1:55442/3466, 자체 볼륨, 생성된 비밀은 deploy/secrets/local/). docker·실제 LLM 검증은 coordinator가 수행. 한국어 사용 안내서는 별도 작업(GU-1-GUIDE) | packets/GU-1-PKG.md | orchestrator |
 | 2026-11-12 12:58 | FU-85 시작: Opus 5.5 xhigh ctx_9a77442e11af (worktree fu-85-revalidation-hardening, base 0ce42a2+packet). 전체 ci/e2e는 coordinator 허가 후 실행. 통합 CI(0ce42a2: FU-81+FU-56 포함) 백그라운드 실행 중 | packets/FU-85.md | orchestrator |
