@@ -40,7 +40,11 @@ export function parseComposeArgv(argv) {
   for (const arg of head) {
     if (arg === '--dry-run') flags.add('dry-run');
     else if (arg === '--help') flags.add('help');
-    else positionals.push(arg);
+    else if (arg.startsWith('--dry-run=') || arg.startsWith('--help=')) {
+      throw new Error(
+        `지원하지 않는 인자 형식입니다: ${arg}. --dry-run / --help 는 값 없이 사용하세요.`,
+      );
+    } else positionals.push(arg);
   }
   return { flags, positionals, passthrough };
 }
@@ -108,7 +112,13 @@ export function composeInvocation(action, extra = []) {
   if (action === 'logs') {
     return {
       command: 'sudo',
-      args: [...command, 'logs', '--tail', '200', ...extra.filter((arg) => arg !== '-f')],
+      args: [
+        ...command,
+        'logs',
+        '--tail',
+        '200',
+        ...extra.filter((arg) => arg !== '-f' && arg !== '--follow'),
+      ],
     };
   }
   return { command: 'sudo', args: [...command, 'ps', ...extra] };

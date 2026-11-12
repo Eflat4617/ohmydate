@@ -1,5 +1,10 @@
 import { describe, expect, test, vi } from 'vitest';
-import { persistTokenState, previousTokenWarning } from './setup.mjs';
+import {
+  persistTokenState,
+  previousTokenWarning,
+  resolvePreviousToken,
+  tokenFingerprint,
+} from './setup.mjs';
 
 function deps(overrides = {}) {
   return {
@@ -20,6 +25,49 @@ describe('token rotation warnings', () => {
   test('does not warn for a known id or when nothing was rotated', () => {
     expect(previousTokenWarning(true, 7)).toBeNull();
     expect(previousTokenWarning(false, null)).toBeNull();
+  });
+});
+
+describe('token metadata fingerprint', () => {
+  test('only trusts a recorded token id when the file token matches its fingerprint', () => {
+    const current = 'token-current';
+    expect(
+      resolvePreviousToken(current, {
+        tokenId: 7,
+        tokenFingerprint: tokenFingerprint(current),
+      }),
+    ).toEqual({ tokenId: 7, unknown: false, fingerprint: tokenFingerprint(current) });
+    expect(resolvePreviousToken(current, { tokenId: 7 })).toEqual({
+      tokenId: null,
+      unknown: true,
+      fingerprint: tokenFingerprint(current),
+    });
+    expect(
+      resolvePreviousToken(current, { tokenId: 7, tokenFingerprint: tokenFingerprint('older') }),
+    ).toEqual({ tokenId: null, unknown: true, fingerprint: tokenFingerprint(current) });
+    expect(resolvePreviousToken(null, { tokenId: 7 })).toEqual({ tokenId: 7, unknown: false });
+  });
+
+  test('after a meta-write failure the re-run heals and the next rotation does not revoke the wrong id', () => {
+    // Rotated to token-c, but the meta still holds token-b's id.
+    const afterFailure = resolvePreviousToken('token-c', {
+      tokenId: 2,
+      tokenFingerprint: tokenFingerprint('token-b'),
+    });
+    expect(afterFailure).toEqual({
+      tokenId: null,
+      unknown: true,
+      fingerprint: tokenFingerprint('token-c'),
+    });
+
+    // The re-run rewrites the meta with the current file token but no id.
+    const rewritten = { tokenId: afterFailure.tokenId, tokenFingerprint: tokenFingerprint('token-c') };
+    const beforeNextRotation = resolvePreviousToken('token-c', rewritten);
+    expect(beforeNextRotation.tokenId).toBeNull();
+    expect(beforeNextRotation.unknown).toBe(false);
+    expect(previousTokenWarning(true, beforeNextRotation.tokenId)).toContain(
+      '이전 Vikunja 토큰 id 를 확인하지 못해',
+    );
   });
 });
 
@@ -74,6 +122,27 @@ describe('persistTokenState', () => {
     ).rejects.toThrow('Vikunja 토큰 파일을 저장하지 못했습니다');
     expect(io.writeTokenMetadata).not.toHaveBeenCalled();
     expect(io.deleteToken).toHaveBeenCalledWith(9);
+  });
+
+  test('a token file that failed after its rename counts as replaced', async () => {
+    const io = deps({
+      writeTokenFile: vi.fn(async () => {
+        const error = new Error('directory fsync failed');
+        error.fileReplaced = true;
+        throw error;
+      }),
+    });
+    await expect(
+      persistTokenState({
+        tokenCreated: true,
+        tokenFileExisted: true,
+        metadataExisted: true,
+        tokenId: 9,
+        ...io,
+      }),
+    ).rejects.toThrow('Vikunja 토큰 파일을 저장하지 못했습니다');
+    expect(io.writeTokenMetadata).not.toHaveBeenCalled();
+    expect(io.deleteToken).not.toHaveBeenCalled();
   });
 
   test('a metadata-only failure never revokes an existing token', async () => {

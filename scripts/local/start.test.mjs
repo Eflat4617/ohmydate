@@ -1,13 +1,16 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { mkdir, mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
   buildMark,
   effectiveLlm,
   needsBuild,
   readBuildStamp,
+  startLocal,
   waitForHttpOrExit,
   webBuildEnv,
   webSources,
@@ -179,6 +182,108 @@ describe('settle after healthz 200', () => {
     } finally {
       await new Promise((resolveClose) => server.close(resolveClose));
     }
+  });
+});
+
+async function freePort() {
+  const server = createServer();
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  const port = typeof address === 'object' && address !== null ? address.port : 0;
+  await new Promise((resolve) => server.close(resolve));
+  return port;
+}
+
+function startEnv(dir, { apiPort, webPort }) {
+  return {
+    ...process.env,
+    OHMYDATE_LOCAL_SECRETS_DIR: join(dir, 'secrets'),
+    OHMYDATE_LOCAL_RUN_DIR: join(dir, 'run'),
+    OHMYDATE_LOCAL_LOG_DIR: join(dir, 'logs'),
+    OHMYDATE_LOCAL_API_PORT: String(apiPort),
+    OHMYDATE_LOCAL_WEB_PORT: String(webPort),
+    OHMYDATE_LOCAL_DATABASE_URL: 'postgres://ohmydate:test@127.0.0.1:1/planner',
+    OHMYDATE_LOCAL_VIKUNJA_URL: 'http://127.0.0.1:1',
+  };
+}
+
+describe('start port ownership and readiness', () => {
+  test('a foreign listener on the API port is refused before any spawn', async () => {
+    const dir = await tempDir();
+    const server = createServer((_request, response) => {
+      response.writeHead(200);
+      response.end('foreign');
+    });
+    await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen));
+    const address = server.address();
+    const apiPort = typeof address === 'object' && address !== null ? address.port : 0;
+    const webPort = await freePort();
+    const spawnDetached = vi.fn();
+    try {
+      await expect(
+        startLocal({
+          env: startEnv(dir, { apiPort, webPort }),
+          fakeLlm: true,
+          deps: {
+            runPreflight: async () => ({
+              ok: true,
+              databaseUrl: 'postgres://ohmydate:test@127.0.0.1:1/planner',
+              warnings: [],
+            }),
+            needsBuild: () => false,
+            spawnDetached,
+          },
+        }),
+      ).rejects.toThrow(new RegExp(`포트 ${String(apiPort)} \\(API\\).*ss -ltnp`, 'u'));
+    } finally {
+      await new Promise((resolveClose) => server.close(resolveClose));
+    }
+    expect(spawnDetached).not.toHaveBeenCalled();
+    expect(existsSync(join(dir, 'run', 'api.pid'))).toBe(false);
+  });
+
+  test('a child that outlives the health settle then exits is not reported ready', async () => {
+    const dir = await tempDir();
+    const apiPort = await freePort();
+    const webPort = await freePort();
+    const spawnDetached = vi.fn((_name, _command, _args, env) => {
+      const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 500)'], {
+        env,
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+      return child.pid;
+    });
+    const printed = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((line) => {
+      printed.push(String(line));
+    });
+    try {
+      await expect(
+        startLocal({
+          env: startEnv(dir, { apiPort, webPort }),
+          fakeLlm: true,
+          deps: {
+            runPreflight: async () => ({
+              ok: true,
+              databaseUrl: 'postgres://ohmydate:test@127.0.0.1:1/planner',
+              warnings: [],
+            }),
+            needsBuild: () => false,
+            spawnDetached,
+            waitForHttpOrExit: async () => {
+              await new Promise((resolveDelay) => globalThis.setTimeout(resolveDelay, 400));
+              return { status: 200 };
+            },
+          },
+        }),
+      ).rejects.toThrow(/준비 완료 확인 직전에 종료/u);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(spawnDetached).toHaveBeenCalledTimes(2);
+    expect(printed.join('\n')).not.toContain('준비 완료');
   });
 });
 

@@ -13,6 +13,7 @@ import {
   statSync,
 } from 'node:fs';
 import { chmod, writeFile } from 'node:fs/promises';
+import { createConnection } from 'node:net';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { URL } from 'node:url';
@@ -132,7 +133,9 @@ export function needsBuild(kind, options = {}) {
   const reference =
     stamp !== null && typeof stamp[kind] === 'number' ? stamp[kind] : options.legacyReference;
   if (reference === undefined) return true;
-  if (newestMtimeOf(sources) > reference) return true;
+  // Stamp times are integer milliseconds while mtimeMs is fractional. Floor the
+  // mtime so a source written in the same millisecond as the stamp stays fresh.
+  if (Math.floor(newestMtimeOf(sources)) > reference) return true;
   return false;
 }
 
@@ -334,6 +337,49 @@ function lastLogLine(path) {
 
 export const HEALTH_SETTLE_MS = 1_000;
 
+/** True when something already accepts TCP connections on 127.0.0.1:port. */
+export async function portAcceptsConnections(port, timeoutMs = 500) {
+  return await new Promise((resolve) => {
+    const socket = createConnection({ host: '127.0.0.1', port });
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+  });
+}
+
+export function portInUseMessage(label, port) {
+  return (
+    `포트 ${String(port)} (${label}) 가 이미 사용 중입니다. ` +
+    `다른 프로세스를 종료하거나 포트를 바꾼 뒤 다시 실행하세요. 확인: ss -ltnp | grep :${String(port)}`
+  );
+}
+
+/** Refuse to spawn when a foreign process already owns the port. */
+export async function assertPortFree(label, port) {
+  if (await portAcceptsConnections(port)) throw new Error(portInUseMessage(label, port));
+}
+
+/** Last check before "준비 완료": both records must still be our live children. */
+export async function assertServicesRunning(context, names, inspect = inspectProcess) {
+  for (const name of names) {
+    const state = await inspect(context.runDir, name);
+    if (state.status !== 'running') {
+      throw new Error(
+        `${name} 프로세스가 준비 완료 확인 직전에 종료되었습니다 ` +
+          `(pid 파일: ${state.path}). 로그: ${context.logDir}/${name}.log`,
+      );
+    }
+  }
+}
+
 export async function waitForHttpOrExit(
   url,
   pid,
@@ -384,20 +430,21 @@ async function cleanupStarted(context, names, timeoutMs = 5_000) {
   }
 }
 
-async function main() {
-  const { flags } = parseFlags(process.argv.slice(2));
-  if (flags.has('help')) {
-    console.log(
-      'usage: node scripts/local/start.mjs [--rebuild] [--fake-llm]\n' +
-        'env: OHMYDATE_LOCAL_API_PORT, OHMYDATE_LOCAL_WEB_PORT, ' +
-        'OHMYDATE_LOCAL_DATABASE_URL, OHMYDATE_LOCAL_VIKUNJA_URL',
-    );
-    return;
-  }
-  const env = process.env;
+export async function startLocal(options = {}) {
+  const env = options.env ?? process.env;
+  const fakeLlm = options.fakeLlm === true;
+  const forceRebuild = options.forceRebuild === true;
+  const deps = options.deps ?? {};
+  const preflightFn = deps.runPreflight ?? runPreflight;
+  const inspectFn = deps.inspectProcess ?? inspectProcess;
+  const spawnFn = deps.spawnDetached ?? spawnDetached;
+  const waitFn = deps.waitForHttpOrExit ?? waitForHttpOrExit;
+  const needsBuildFn = deps.needsBuild ?? needsBuild;
+  const assertPortFreeFn = deps.assertPortFree ?? assertPortFree;
+  const assertReadyFn = deps.assertServicesRunning ?? assertServicesRunning;
+  const writeStampFn = deps.writeBuildStamp ?? writeBuildStamp;
+  const runPnpmFn = deps.runPnpm ?? runPnpm;
   const context = createContext(env);
-  const fakeLlm = flags.has('fake-llm');
-  const forceRebuild = flags.has('rebuild');
 
   // Print what will be probed before the preflight, so a stack-down error
   // always names the target (FU-90 finding 8).
@@ -407,7 +454,7 @@ async function main() {
     // The preflight below reports the missing secret with a clear message.
   }
 
-  const preflight = await runPreflight({ context, env, fakeLlm });
+  const preflight = await preflightFn({ context, env, fakeLlm });
   if (!preflight.ok) throw new Error(preflight.message);
   for (const warning of preflight.warnings) warn(warning);
 
@@ -417,8 +464,8 @@ async function main() {
       `LLM_PROVIDER=${String(llm.provider)}, LLM_BASE_URL=${llm.baseHost}, LLM_MODEL=${String(llm.model)}`,
   );
 
-  const apiState = await inspectProcess(context.runDir, 'api');
-  const webState = await inspectProcess(context.runDir, 'web');
+  const apiState = await inspectFn(context.runDir, 'api');
+  const webState = await inspectFn(context.runDir, 'web');
   for (const [name, state] of [
     ['api', apiState],
     ['web', webState],
@@ -426,8 +473,8 @@ async function main() {
     if (state.status !== 'running') await removePidRecord(context.runDir, name);
   }
 
-  const apiStale = forceRebuild || needsBuild('api');
-  const webStale = forceRebuild || needsBuild('web');
+  const apiStale = forceRebuild || needsBuildFn('api');
+  const webStale = forceRebuild || needsBuildFn('web');
   if (apiState.status === 'running' && apiStale) {
     throw new Error(
       'API가 이미 실행 중인데 빌드가 필요합니다. `corepack pnpm local:stop` 후 다시 `local:start` 하세요.',
@@ -439,15 +486,24 @@ async function main() {
     );
   }
 
+  // A port owned by a foreign process must never be mistaken for our child.
+  // Check before a long build, and only when no live pid record of ours exists.
+  for (const [state, port, label] of [
+    [apiState, context.ports.api, 'API'],
+    [webState, context.ports.web, '웹'],
+  ]) {
+    if (state.status !== 'running') await assertPortFreeFn(label, port);
+  }
+
   if (apiStale) {
     log('API 빌드 중...');
-    runPnpm(['--filter', '@ohmydate/api', 'build']);
-    await writeBuildStamp('api');
+    runPnpmFn(['--filter', '@ohmydate/api', 'build']);
+    await writeStampFn('api');
   }
   if (webStale) {
     log('웹 빌드 중...');
-    runPnpm(['--filter', '@ohmydate/web', 'build'], { env: webBuildEnv(env) });
-    await writeBuildStamp('web');
+    runPnpmFn(['--filter', '@ohmydate/web', 'build'], { env: webBuildEnv(env) });
+    await writeStampFn('web');
   }
 
   const stamp = readBuildStamp() ?? {};
@@ -475,7 +531,7 @@ async function main() {
       log(`API가 이미 실행 중입니다 (pid ${String(apiPid)}).`);
     } else {
       const marker = createMarker();
-      apiPid = await spawnDetached(
+      apiPid = await spawnFn(
         'api',
         process.execPath,
         [join(repoRoot, 'services/api/dist/main.js')],
@@ -502,7 +558,7 @@ async function main() {
         '--strictPort',
       ]);
       const marker = createMarker();
-      webPid = await spawnDetached(
+      webPid = await spawnFn(
         'web',
         invocation.command,
         invocation.args,
@@ -514,18 +570,19 @@ async function main() {
     }
 
     try {
-      await waitForHttpOrExit(
+      await waitFn(
         `${context.apiUrl}/healthz`,
         apiPid,
         join(context.logDir, 'api.log'),
         60_000,
       );
-      await waitForHttpOrExit(
+      await waitFn(
         `${context.webUrl}/`,
         webPid,
         join(context.logDir, 'web.log'),
         60_000,
       );
+      await assertReadyFn(context, ['api', 'web']);
     } catch (error) {
       await cleanupStarted(context, started);
       const message = error instanceof Error ? error.message : String(error);
@@ -542,6 +599,23 @@ async function main() {
   log(`OhMyDate 로컬 실행 준비 완료: ${context.webUrl}/`);
   log(`API: ${context.apiUrl} (로그: ${context.logDir}/api.log)`);
   log(`웹: ${context.webUrl}/ (로그: ${context.logDir}/web.log)`);
+}
+
+async function main() {
+  const { flags } = parseFlags(process.argv.slice(2));
+  if (flags.has('help')) {
+    console.log(
+      'usage: node scripts/local/start.mjs [--rebuild] [--fake-llm]\n' +
+        'env: OHMYDATE_LOCAL_API_PORT, OHMYDATE_LOCAL_WEB_PORT, ' +
+        'OHMYDATE_LOCAL_DATABASE_URL, OHMYDATE_LOCAL_VIKUNJA_URL',
+    );
+    return;
+  }
+  await startLocal({
+    env: process.env,
+    fakeLlm: flags.has('fake-llm'),
+    forceRebuild: flags.has('rebuild'),
+  });
 }
 
 if (isEntryPoint(import.meta.url)) {

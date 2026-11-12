@@ -32,6 +32,7 @@ export async function writeJsonAtomic(path, value) {
     `.${basename(path)}.${String(process.pid)}.${randomBytes(6).toString('hex')}.tmp`,
   );
   let handle = null;
+  let renamed = false;
   try {
     handle = await open(temp, 'wx', 0o600);
     await handle.writeFile(body, 'utf8');
@@ -40,6 +41,7 @@ export async function writeJsonAtomic(path, value) {
     handle = null;
     await chmod(temp, 0o600);
     await rename(temp, path);
+    renamed = true;
     await chmod(path, 0o600);
     const dirHandle = await open(dirname(path), 'r');
     try {
@@ -50,6 +52,9 @@ export async function writeJsonAtomic(path, value) {
   } catch (error) {
     if (handle !== null) await handle.close().catch(() => undefined);
     await rm(temp, { force: true }).catch(() => undefined);
+    // The rename already replaced the target: a caller must treat the file as
+    // written even though a later chmod/fsync failed.
+    if (renamed && error !== null && typeof error === 'object') error.fileReplaced = true;
     throw error;
   }
 }

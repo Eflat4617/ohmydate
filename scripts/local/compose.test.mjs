@@ -98,9 +98,10 @@ describe('local:stack wrapper', () => {
   });
 
   test('logs is bounded and ps works', () => {
-    const logs = composeInvocation('logs', ['-f']);
+    const logs = composeInvocation('logs', ['-f', '--follow']);
     expect(logs.args).toContain('--tail');
     expect(logs.args.slice(logs.args.indexOf('logs'))).not.toContain('-f');
+    expect(logs.args.slice(logs.args.indexOf('logs'))).not.toContain('--follow');
     expect(composeInvocation('ps').args).toContain('ps');
     expect(() => composeInvocation('rm')).toThrow(/알 수 없는/u);
   });
@@ -146,6 +147,23 @@ describe('local:stack wrapper', () => {
     expect(up.status).toBe(0);
     expect(up.stdout).toContain('up -d --build');
 
+    expect(await sudoLog(shim)).toBe('');
+  });
+
+  test('--dry-run=<value> and --help=<value> are refused before sudo', async () => {
+    const shim = await sudoShim();
+    for (const args of [
+      ['up', '--dry-run=true', '-d'],
+      ['up', '--dry-run=1'],
+      ['down', '--dry-run=true'],
+      ['logs', '--dry-run=true', 'vikunja'],
+      ['ps', '--dry-run=true'],
+      ['up', '--help=1'],
+    ]) {
+      const result = runCompose(args, shim);
+      expect(result.status, `${args.join(' ')}: ${result.stderr}`).not.toBe(0);
+      expect(result.stderr).toContain('값 없이 사용하세요');
+    }
     expect(await sudoLog(shim)).toBe('');
   });
 

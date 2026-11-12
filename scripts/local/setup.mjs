@@ -244,6 +244,26 @@ export function previousTokenWarning(rotated, previousTokenId) {
   );
 }
 
+/** Short non-reversible fingerprint used to tie metadata to the token file. */
+export function tokenFingerprint(token) {
+  return createHash('sha256').update(token).digest('hex').slice(0, 16);
+}
+
+/**
+ * A meta-write failure can leave an old tokenId next to a newer token file.
+ * Trust the recorded id only when the fingerprint matches the token actually
+ * in the file; otherwise the id is unknown and must not be revoked.
+ */
+export function resolvePreviousToken(token, metadataEntry) {
+  const recordedId = metadataEntry?.tokenId ?? null;
+  if (token === null) return { tokenId: recordedId, unknown: false };
+  const fingerprint = tokenFingerprint(token);
+  const recorded =
+    typeof metadataEntry?.tokenFingerprint === 'string' ? metadataEntry.tokenFingerprint : null;
+  const matches = recorded === fingerprint;
+  return { tokenId: matches ? recordedId : null, unknown: !matches, fingerprint };
+}
+
 /**
  * Write the rotated token state. A new token is unrecorded until the token file
  * write succeeds; revoke it only when that write did not replace the file
@@ -262,8 +282,17 @@ export async function persistTokenState(options) {
   let tokenFileReplaced = false;
   try {
     if (tokenCreated || !tokenFileExisted) {
-      await writeTokenFile();
-      tokenFileReplaced = true;
+      try {
+        await writeTokenFile();
+        tokenFileReplaced = true;
+      } catch (error) {
+        // writeJsonAtomic can fail after its rename (chmod/dir fsync): the
+        // token is already on disk, so it must not be revoked.
+        if (error !== null && typeof error === 'object' && error.fileReplaced === true) {
+          tokenFileReplaced = true;
+        }
+        throw error;
+      }
     }
     if (tokenCreated || !metadataExisted) {
       await writeTokenMetadata();
@@ -291,6 +320,11 @@ async function main() {
     return;
   }
   const rotateToken = flags.has('rotate-token');
+  for (const name of ['time-zone', 'locale']) {
+    if (flags.has(name)) {
+      throw new Error(`--${name} 에는 값이 필요합니다. 예: --${name} <값>`);
+    }
+  }
   const env = process.env;
   const context = createContext(env);
 
@@ -322,6 +356,17 @@ async function main() {
   if (migrationOutput.length > 0) console.log(migrationOutput);
 
   const existingUser = await findUserByEmail(dbUrl, credentials.email);
+
+  // C2: new users get the machine's IANA zone (Korean prompt allows a change)
+  // and ko-KR. Existing users are never modified by a re-run. Validate the
+  // interactive answer before Vikunja registration creates any side effect.
+  let timeZone;
+  let locale;
+  if (existingUser === null) {
+    timeZone = await resolveTimeZone(env, values);
+    locale = resolveLocale(env, values);
+  }
+
   const vikunja = await ensureVikunjaUser(
     context.vikunjaUrl,
     credentials.email,
@@ -330,15 +375,6 @@ async function main() {
   const inboxId = await ensureInbox(context.vikunjaUrl, vikunja.jwt);
   if (vikunja.userId === null) {
     throw new Error('Vikunja 사용자 id 를 확인하지 못했습니다.');
-  }
-
-  // C2: new users get the machine's IANA zone (Korean prompt allows a change)
-  // and ko-KR. Existing users are never modified by a re-run.
-  let timeZone;
-  let locale;
-  if (existingUser === null) {
-    timeZone = await resolveTimeZone(env, values);
-    locale = resolveLocale(env, values);
   }
 
   const ownerId =
@@ -355,7 +391,8 @@ async function main() {
       : {};
 
   const previousToken = existingTokens[ownerId] ?? null;
-  const previousTokenId = metadata[ownerId]?.tokenId ?? null;
+  const previous = resolvePreviousToken(previousToken, metadata[ownerId]);
+  const previousTokenId = previous.tokenId;
   let expiresAt = metadata[ownerId]?.expiresAt ?? null;
   const retainedTokenAlive =
     previousToken === null ? false : await tokenIsAlive(context.vikunjaUrl, previousToken);
@@ -380,13 +417,16 @@ async function main() {
       expiresAt,
       vikunjaUserId: vikunja.userId,
       tokenId,
+      tokenFingerprint: tokenFingerprint(token),
       updatedAt: new Date().toISOString(),
     },
   };
   await persistTokenState({
     tokenCreated,
     tokenFileExisted: tokenFile.text !== null,
-    metadataExisted: metadata[ownerId] !== undefined,
+    // A stale meta (old tokenId, newer token file) is rewritten even without a
+    // rotation, so the next run can identify the token that is really in use.
+    metadataExisted: metadata[ownerId] !== undefined && !previous.unknown,
     tokenId,
     writeTokenFile: () => writeTokenFile(context.tokenFile, mergedTokens),
     writeTokenMetadata: () => writeTokenMetadata(context.tokenMetaFile, mergedMetadata),
@@ -401,7 +441,7 @@ async function main() {
     ).catch(() => false);
     if (!removed) warn('이전 Vikunja 토큰을 삭제하지 못했습니다 (이미 만료되었거나 직접 삭제 필요).');
   }
-  const rotationWarning = previousTokenWarning(rotated, previousTokenId);
+  const rotationWarning = previousTokenWarning(rotated || previous.unknown, previousTokenId);
   if (rotationWarning !== null) warn(rotationWarning);
 
   log('설정 완료');

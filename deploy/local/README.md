@@ -36,8 +36,8 @@ corepack pnpm local:start
 `local:stack` resolves absolute compose/env paths from the repo root and runs
 `sudo docker compose -p ohmydate-local --env-file <abs>/deploy/local/local.env -f
 <abs>/deploy/local/compose.yaml <up|down|ps|logs>`; cwd does not matter.
-`down` never removes volumes (`-v` is ignored). `--dry-run` prints the command
-without running docker.
+`down` never removes volumes: `-v`/`--volumes` is refused with exit 1.
+`--dry-run` prints the command without running docker.
 
 ## Day-to-day
 

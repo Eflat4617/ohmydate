@@ -74,6 +74,22 @@ describe('setup CLI negatives', () => {
     expect(await readdir(dir).catch(() => [])).toEqual([]);
   });
 
+  test('a bare --time-zone is refused before any side effect', async () => {
+    const dir = await tempDir();
+    const result = runSetup(dir, {}, ['--time-zone']);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('--time-zone 에는 값이 필요합니다');
+    expect(await readdir(dir).catch(() => [])).toEqual([]);
+  });
+
+  test('a bare --locale is refused before any side effect', async () => {
+    const dir = await tempDir();
+    const result = runSetup(dir, {}, ['--locale']);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('--locale 에는 값이 필요합니다');
+    expect(await readdir(dir).catch(() => [])).toEqual([]);
+  });
+
   test('an invalid locale is refused before any side effect', async () => {
     const dir = await tempDir();
     const result = runSetup(dir, {}, ['--locale', 'not a locale']);
