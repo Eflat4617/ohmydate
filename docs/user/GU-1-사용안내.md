@@ -80,12 +80,18 @@ GU-1은 **M7(자체 백엔드로 교체) 전에, 지금 버전을 직접 써 보
 corepack pnpm local:stop
 mkdir -p ~/ohmydate-backup && chmod 700 ~/ohmydate-backup
 
-# 1) 비밀 디렉터리 (권한 그대로 묶어요)
-tar -czf ~/ohmydate-backup/secrets-$(date +%F).tgz -C deploy/secrets local
+T=$(date +%F-%H%M%S)
 
-# 2) DB 전체(planner + vikunja)를 한 파일로
+# 1) 비밀 디렉터리 (권한 그대로 묶어요)
+tar -czf ~/ohmydate-backup/secrets-$T.tgz -C deploy/secrets local
+
+# 2) DB 전체(planner + vikunja)를 한 파일로 — 임시 파일에 쓰고, 성공했을 때만 이름을 바꿔요
 sudo docker compose -p ohmydate-local --env-file deploy/local/local.env -f deploy/local/compose.yaml \
-  exec -T postgres pg_dumpall -U ohmydate > ~/ohmydate-backup/pg-$(date +%F).sql
+  exec -T postgres pg_dumpall -U ohmydate > ~/ohmydate-backup/pg-$T.sql.tmp \
+  && mv ~/ohmydate-backup/pg-$T.sql.tmp ~/ohmydate-backup/pg-$T.sql
+
+# 2-1) 매번 확인: 파일이 비어 있지 않고 마지막 부분에 완료 표시가 있어야 해요
+tail -n 8 ~/ohmydate-backup/pg-$T.sql | grep -q "PostgreSQL database cluster dump complete" && echo "DB 백업 OK"
 
 # 3) 백업 파일도 나만 읽게
 chmod 600 ~/ohmydate-backup/*
@@ -97,7 +103,7 @@ corepack pnpm local:start
 - 백업 파일에는 내 작업·노트·계정 정보가 그대로 들어 있어요. 클라우드 공유 폴더나 저장소 안에 두지 마세요.
 - Vikunja 화면에서 직접 첨부를 올리지 않았다면 `vikunja-files` 볼륨은 비어 있어요(OhMyDate에는 아직 업로드 기능이 없어요).
 - **복원**은 비밀 디렉터리와 DB를 함께 되돌려야 해서 코디네이터와 같이 진행해 주세요. 데이터 초기화(볼륨 삭제)도 코디네이터 작업이에요. `local:stack down`은 볼륨을 지우지 않아요(`-v`를 붙여도 무시해요).
-- 위 백업 명령은 안내서를 쓸 때 실제로 실행해 보지는 않았어요(작성 환경에서 docker 사용 금지). 처음 한 번은 결과 파일 크기가 0이 아닌지 확인해 주세요.
+- DB 백업 명령은 코디네이터가 실제 로컬 스택에서 실행해 확인했어요(2026-11-12). 그래도 **매번** `DB 백업 OK`가 나오는지 확인해 주세요. 실패하면 `.sql.tmp` 파일만 남고 이전 백업은 그대로예요.
 
 ---
 
@@ -196,6 +202,7 @@ corepack pnpm local:start
 [local]  - 시간대: Asia/Seoul · locale: ko-KR
 [local]  - API 토큰: 새로 발급 (만료 2027-…)
 [local] 다음 명령: corepack pnpm local:start
+[local] 로컬 앱이 이미 실행 중이라면 local:stop 후 local:start 로 재시작하세요.
 ```
 
 - 여기서 정한 **이메일·비밀번호가 OhMyDate 웹 로그인 정보**예요. 같은 비밀번호로 Vikunja 계정(`local-…`)도 만들어져요.
@@ -225,18 +232,24 @@ http://127.0.0.1:5180/ 을 열면 “**OhMyDate에 로그인**” 화면이 나�
 
 | 이런 메시지가 나오면 | 원인 | 이렇게 하세요 |
 |---|---|---|
-| `먼저 coordinator가 deploy/local 스택을 올려야 합니다. 정확한 명령: cd … && corepack pnpm local:stack up (postgres=down, vikunja=down)` | PostgreSQL/Vikunja 스택이 꺼져 있어요 | `corepack pnpm local:stack up` 실행 후 `corepack pnpm local:stack ps`로 확인. 방금 켰다면 30초쯤 기다렸다 다시 시도 |
+| `먼저 coordinator가 deploy/local 스택을 올려야 합니다. 정확한 명령: cd … && corepack pnpm local:stack up …` (끝부분은 `local:start`에서는 `(postgres=down, vikunja=down)`, `local:setup`에서는 30초 기다린 뒤 `(PostgreSQL: …)`/`(Vikunja: …)` 형태) | PostgreSQL/Vikunja 스택이 꺼져 있어요 | `corepack pnpm local:stack up` 실행 후 `corepack pnpm local:stack ps`로 확인. 방금 켰다면 30초쯤 기다렸다 다시 시도 |
 | `LLM API 키 파일 권한이 644 입니다. group/world 접근을 막아야 합니다. 정확한 명령: chmod 600 …` | 키 파일 권한이 넓어요 | 메시지에 나온 `chmod 600 <경로>`를 그대로 실행 |
 | `LLM API 키 파일이 없습니다: …. deepseek_api_key.txt (또는 LLM_API_KEY_FILE)을 0600 으로 준비하세요.` | 키 파일 위치가 달라요 | 파일을 저장소 루트에 두거나 `deploy/local/local.env`의 `LLM_API_KEY_FILE`을 고쳐요 |
 | ``로컬 비밀 파일이 없습니다: …. 먼저 `corepack pnpm local:setup` 을 실행하세요.`` | setup을 아직 안 했어요 | `corepack pnpm local:setup` |
 | ``마이그레이션이 최신이 아닙니다: …. 먼저 `corepack pnpm local:setup` 을 실행하세요.`` | 새 코드에 DB 변경이 있어요 | `corepack pnpm local:setup`(같은 이메일·비밀번호) 후 `local:start` |
 | ``API가 이미 실행 중인데 빌드가 필요합니다. `corepack pnpm local:stop` 후 다시 `local:start` 하세요.`` (또는 “웹이 …”, “… 프로세스가 현재 빌드보다 오래되었습니다.”) | 코드가 바뀌었는데 예전 프로세스가 돌고 있어요 | `corepack pnpm local:stop` → `corepack pnpm local:start` |
-| `프로세스가 응답 전에 종료되었습니다 (pid …). 마지막 로그: …` | 포트 3100 또는 5180을 다른 프로그램이 쓰고 있거나 시작 중 오류 | `ss -ltnp \| grep -E ':(3100\|5180)\b'`로 누가 쓰는지 보고 그 프로그램을 끈 뒤 다시 `local:start`. 그래도 안 되면 `.local/logs/api.log`, `web.log` 마지막 줄을 확인 |
+| `프로세스가 응답 전에 종료되었습니다 (pid …). 마지막 로그: …` | 포트 3100 또는 5180을 다른 프로그램이 쓰고 있거나 시작 중 오류 | 아래 표 밑의 `ss` 명령으로 누가 쓰는지 보고 그 프로그램을 끈 뒤 다시 `local:start`. 그래도 안 되면 `.local/logs/api.log`, `web.log` 마지막 줄을 확인 |
 | `비밀번호가 서로 일치하지 않습니다.` / `비밀번호는 8자 이상이어야 합니다.` | setup 입력 문제 | `local:setup`을 다시 실행 |
 | `Vikunja 사용자 등록/로그인에 실패했습니다. 같은 이메일의 사용자가 이미 있고 비밀번호가 다를 수 있습니다 (…)` | 이전에 다른 비밀번호로 setup 했어요 | 처음 정한 비밀번호로 다시 실행. 기억나지 않으면 코디네이터에게 |
 | 웹 로그인에서 “이메일 또는 비밀번호가 맞지 않아요.” | 로그인 정보가 달라요 | setup 때의 이메일·비밀번호. 1분에 5번 넘게 틀리면 “요청이 너무 많아요. …”가 나오니 1분 뒤 다시 |
 | 웹 로그인에서 “서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.” | API가 꺼져 있어요 | `corepack pnpm local:status`로 확인 후 `corepack pnpm local:start` |
 | Safari 등 WebKit 계열 브라우저에서 로그인이 안 됨 | `Secure` 쿠키를 받지 않는 브라우저 | Chrome 또는 Firefox로 http://127.0.0.1:5180/ 열기 |
+
+포트를 누가 쓰는지 확인하는 명령:
+
+```sh
+ss -ltnp | grep -E ':(3100|5180)\b'
+```
 
 ---
 
@@ -280,7 +293,7 @@ API·웹만 끄고 Docker 스택과 데이터는 건드리지 않아요. 20초 �
 ### 재부팅한 뒤
 
 - PostgreSQL·Vikunja 컨테이너는 `restart: unless-stopped`라서 **Docker가 켜지면 스스로 다시 떠요.**
-- API·웹은 다시 켜야 해요. **`corepack pnpm local:start` 한 번이면 돼요.** (남아 있던 오래된 PID 파일은 알아서 정리해요.)
+- API·웹은 다시 켜야 해요. **`corepack pnpm local:start` 한 번이면 돼요.** (남아 있던 오래된 PID 파일은 알아서 정리해요.) 그 뒤 브라우저에서 **다시 로그인**해요 — 지금 버전은 API를 다시 켤 때마다 로그인 세션이 사라져요.
 - 예외: 재부팅 전에 `local:stack down`으로 직접 내렸다면 `corepack pnpm local:stack up`부터 해요.
 
 ### 새 코드로 업데이트할 때
@@ -294,7 +307,7 @@ corepack pnpm local:start     # 바뀐 소스가 있으면 알아서 다시 빌�
 
 - `local:start`가 “마이그레이션이 최신이 아닙니다”라고 하면 `corepack pnpm local:setup`(같은 이메일·비밀번호)을 한 번 실행한 뒤 다시 `local:start` 해요.
 - 강제로 다시 빌드하려면 `corepack pnpm local:start --rebuild`.
-- 브라우저 탭은 새로 고침(F5) 해 주세요.
+- 브라우저 탭은 새로 고침(F5) 하고 **다시 로그인**해 주세요(API를 다시 켜면 로그인 세션이 사라져요).
 
 ---
 
@@ -319,8 +332,8 @@ corepack pnpm local:start     # 바뀐 소스가 있으면 알아서 다시 빌�
 | 보내요 (동의했을 때만) | 보내지 않아요 |
 |---|---|
 | 계획 마법사의 제목·마감·설명, 질문 답변 | 로그인 비밀번호, Vikunja 토큰, API 키 파일, 서버 비밀 |
-| AI가 만들 단계에 필요한 단계 정보 | “AI에 보내기 허용”을 켜지 않은 노트, 계획에 연결하지 않은 노트 |
-| **“AI에 보내기 허용”을 켜고 그 계획에 연결한 노트**의 관련 구간 일부(한 번에 최대 6KB) | 집중 회고 메모, 일정·가용 시간·약속 전체 |
+| AI가 만들 단계에 필요한 단계 정보, 비슷한 작업을 찾을 때 저장된 작업 템플릿(이름·단계 제목·결과물·완료 기준) | “AI에 보내기 허용”을 켜지 않은 노트, 계획에 연결하지 않은 노트 |
+| **“AI에 보내기 허용”을 켜고 그 계획에 연결한 노트**의 제목과 관련 구간 일부(한 번에 최대 6KB, 가림 처리 후) | 집중 회고 메모, 일정·가용 시간·약속 전체 |
 
 **실제로 가리는 것**(보내기 전에 자동으로 `[REDACTED_…]`로 바꿔요, `packages/llm/src/privacy.ts`):
 
@@ -508,7 +521,7 @@ E2E 시험(E2E-1~6)과 같은 순서로, 실제로 써 보면서 확인할 흐�
 
 - **GU-1 범위**: [1장 표](#gu-1은-무엇을-위한-단계인가요)의 ‘아직 아니에요’ 항목은 지금 버전에 없어요. 특히 작업 저장소는 아직 Vikunja이고(M7에서 교체 예정), 이 노트북 밖에서는 접속할 수 없어요.
 - **브라우저**: API가 `Secure` 쿠키를 써요. Chrome·Firefox는 `http://127.0.0.1`을 안전한 주소로 취급해서 잘 되지만, **Safari와 WebKit 계열 브라우저는 쿠키를 버려서 로그인이 되지 않아요.** 주소는 `http://127.0.0.1:5180/` 그대로 쓰세요.
-- **로그인 유지**: 로그인은 마지막 사용부터 14일 동안 유지돼요. 비밀번호 재설정 화면은 없어요 — 잊어버리면 코디네이터에게 요청해 주세요.
+- **로그인 유지**: 로그인 세션은 API가 켜져 있는 동안에만 유지돼요(그 안에서는 마지막 사용부터 14일). **`local:stop`/`local:start`, 재부팅, 업데이트, 토큰 교체(`--rotate-token`) 뒤에는 다시 로그인**해야 해요. 비밀번호 재설정 화면은 없어요 — 잊어버리면 코디네이터에게 요청해 주세요.
 - **Vikunja 화면(선택)**: http://127.0.0.1:3466 에서 Vikunja 원래 화면을 볼 수 있어요. 계정은 `local:setup`이 만들었고, setup이 출력한 사용자 이름(`local-…`)과 같은 비밀번호로 로그인해요. 꼭 쓸 필요는 없고, 작업은 OhMyDate에서 다루는 걸 권해요(두 곳에서 동시에 고치면 충돌 확인 창이 떠요).
 - **Vikunja 회원가입**: 로컬 Vikunja는 회원가입이 켜져 있지만 127.0.0.1에서만 열려 있어요. 포트를 다른 기기에 열거나 포워딩하지 마세요.
 - **Vikunja API 토큰**: OhMyDate가 Vikunja에 접근하는 토큰은 **365일** 동안 유효해요. 남은 기간은 `local:status`의 “Vikunja 토큰: 유효 (만료까지 N일 …)”로 확인해요. 바꾸려면:
@@ -528,6 +541,15 @@ E2E 시험(E2E-1~6)과 같은 순서로, 실제로 써 보면서 확인할 흐�
 
 ### 현재 알려진 이슈
 
-> 코디네이터가 병합 시점에 채워요. (GU-1 체험에 영향을 주는 열린 후속 작업 목록과 우회 방법)
+> 2026-11-12 기준. 고쳐지는 대로 코디네이터가 이 목록을 갱신해요.
 
-- (작성 예정)
+| 증상 | 우회 방법 | 상태 |
+|---|---|---|
+| AI가 만든 단계 이름·판별 이유가 가끔 영어로 나와요. AI를 쓰지 않을 때의 기본 3단계 초안도 영어(“Prepare the workspace and inputs” 등)예요 | 그대로 고쳐 쓰면 돼요 | FU-89: 사용자 언어(ko-KR)를 따르도록 고침 — 실제 DeepSeek 평가 9/9 일치, 리뷰 후 반영 예정 |
+| 동의 창이 “계좌번호”도 가린다고 안내해요 | 계좌번호는 가리지 않으니 마법사·AI 허용 노트에 적지 마세요 | FU-91: 문구를 실제 범위로 수정 중 |
+| 동의하기 전에는 동의 창이 페이지를 열 때마다 다시 떠요 | 동의하거나, AI 없이 쓰려면 Esc | FU-91 |
+| 마법사의 “곧 지원” 표시 | “일정안 만들기” 메뉴 사용 | FU-91 |
+| ‘블록 고정’을 누르면 계획 화면이 잠깐 아래로 밀려요(연속 클릭 시 옆 블록이 눌릴 수 있어요) | 한 번 누르고 표시가 바뀔 때까지 기다리기 | FU-86: 수정 완료, 리뷰 중 |
+| `local:setup` 전에 `local:status`를 실행하면 “DB에 다시 접속할 수 없습니다” 경고가 나와요 | setup 전이면 무시 | FU-90: 수정 완료, 리뷰 중 |
+| API를 다시 켤 때마다 다시 로그인해야 해요 | 다시 로그인 | FU-92(예정): 세션을 DB에 저장 |
+| “검색”(`/`)은 아직 안내만 나와요 | 노트 검색은 “노트” 화면 | 후속 마일스톤 |

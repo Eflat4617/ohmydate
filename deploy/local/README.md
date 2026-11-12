@@ -11,7 +11,7 @@ User guide (Korean, install → daily use → feedback): [docs/user/GU-1-사용�
 ## Prerequisites
 
 - Node >= 24 and `corepack pnpm` from the repo root.
-- Docker is operated by the coordinator; workers/users never run docker.
+- Workers never run docker. The user runs the stack only through `corepack pnpm local:stack <up|down|ps|logs>` (sudo); restore/reset (volume removal) is a coordinator action.
 - The product key file (`deepseek_api_key.txt`, or `LLM_API_KEY_FILE`) with
   mode strictly `0600` (the start preflight refuses group/world access and
   prints the exact `chmod 600 <path>`). Its contents are never read by the
