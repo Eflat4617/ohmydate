@@ -30,6 +30,7 @@ import {
   buildDecompositionLlmInput,
   intakeQueryText,
 } from '../src/application/intake/intake-service.js';
+import { resolveOutputLanguage } from '../src/application/intake/output-language.js';
 import {
   authHeaders,
   createTestContext,
@@ -39,6 +40,9 @@ import {
   type TestContext,
   type TestSession,
 } from './support/test-context.js';
+
+/** FU-89: seeded test users keep the DB default locale `en`, so intake LLM calls send `en`. */
+const SEEDED_LANGUAGE = resolveOutputLanguage('en');
 
 const ALLOWED_MARKER = 'ALLOWED-NOTE-MARKER-5521';
 const SECRET_MARKER = 'SECRET-NOT-ALLOWED-NOTE-9917';
@@ -235,7 +239,7 @@ describe.skipIf(!hasDatabase)('note-grounded intake decomposition', () => {
     const { ctx, llm, aliceId, alice, session, allowed, secret, context } = await scenario();
     try {
       // Exact-input fixture: the service must build precisely this grounded prompt.
-      const bundle = buildDecompositionLlmInput(answered, undefined, context);
+      const bundle = buildDecompositionLlmInput(answered, undefined, SEEDED_LANGUAGE, context);
       llm.addFixture({
         promptId: 'decomposition',
         input: bundle.input,
@@ -244,7 +248,7 @@ describe.skipIf(!hasDatabase)('note-grounded intake decomposition', () => {
 
       const decomposing = await answer(ctx, alice, session);
       const call = llm.calls.find((entry) => entry.promptId === 'decomposition');
-      expect(call?.version).toBe('v2');
+      expect(call?.version).toBe('v4');
       expect(call?.schemaId).toBe('llm.decomposition.v2');
       const prompt = JSON.stringify(call?.input);
       expect(prompt).toContain(ALLOWED_MARKER);
@@ -298,7 +302,7 @@ describe.skipIf(!hasDatabase)('note-grounded intake decomposition', () => {
         .execute();
       expect(runs).toHaveLength(1);
       const run = runs[0];
-      expect(run?.prompt_id_version).toBe('decomposition@v2');
+      expect(run?.prompt_id_version).toBe('decomposition@v4');
       expect(run?.redaction_report).toMatchObject({ email: 1, phone: 1 });
 
       const events = await ctx.db
@@ -329,7 +333,7 @@ describe.skipIf(!hasDatabase)('note-grounded intake decomposition', () => {
         documentId: allowed.id,
         agentRunId: run?.id,
         purpose: 'decomposition',
-        promptIdVersion: 'decomposition@v2',
+        promptIdVersion: 'decomposition@v4',
         status: 'succeeded',
         documentVersion: allowed.version,
         sectionHashes: context.sections.map((section) => section.sectionHash),
@@ -392,7 +396,7 @@ describe.skipIf(!hasDatabase)('note-grounded intake decomposition', () => {
       });
       fake.addFixture({
         promptId: 'decomposition',
-        input: buildDecompositionLlmInput(answered, undefined).input,
+        input: buildDecompositionLlmInput(answered, undefined, SEEDED_LANGUAGE).input,
         response: {
           output: {
             steps: [step('s1', 'a', 'prep'), step('s2', 'b', 'work'), step('s3', 'c', 'review')],
@@ -403,7 +407,7 @@ describe.skipIf(!hasDatabase)('note-grounded intake decomposition', () => {
       });
       const decomposing = await answer(ctx, alice, session);
       const call = fake.calls.find((entry) => entry.promptId === 'decomposition');
-      expect(call?.version).toBe('v1');
+      expect(call?.version).toBe('v3');
       expect(call?.input).not.toHaveProperty('notes');
       expect(JSON.stringify(call?.input)).not.toContain(SECRET_MARKER);
       expect(decomposing.manual).toBe(false);
@@ -449,7 +453,7 @@ describe.skipIf(!hasDatabase)('note-grounded intake decomposition', () => {
         .where('owner_id', '=', aliceId)
         .where('purpose', '=', 'decomposition')
         .executeTakeFirstOrThrow();
-      expect(run).toEqual({ prompt_id_version: 'decomposition@v2', status: 'failed' });
+      expect(run).toEqual({ prompt_id_version: 'decomposition@v4', status: 'failed' });
     } finally {
       await ctx.close();
     }
@@ -489,7 +493,7 @@ describe.skipIf(!hasDatabase)('note-grounded intake decomposition', () => {
     try {
       llm.addFixture({
         promptId: 'decomposition',
-        input: buildDecompositionLlmInput(answered, undefined, context).input,
+        input: buildDecompositionLlmInput(answered, undefined, SEEDED_LANGUAGE, context).input,
         response: { output: groundedOutput(context, allowed.id) },
       });
       await answer(ctx, alice, session);

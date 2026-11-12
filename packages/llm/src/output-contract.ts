@@ -43,9 +43,33 @@ const SUPPORTED_KEYWORDS: ReadonlySet<string> = new Set([
   'anyOf',
 ]);
 
-/** Convention: prompt `<id>@<version>` is validated by schema `llm.<id>.<version>`. */
+/**
+ * Output schema of every registered prompt version, stated explicitly (FU-89).
+ * A prompt version that only changes wording keeps the schema of the version it
+ * extends, so the output contract (and every consumer keyed on the schema id)
+ * stays the same: the FU-89 output-language versions answer in exactly the
+ * shape of their predecessors.
+ */
+export const PROMPT_SCHEMA_IDS: Readonly<Record<string, string>> = Object.freeze({
+  'decomposition@v1': 'llm.decomposition.v1',
+  'decomposition@v2': 'llm.decomposition.v2',
+  // FU-89: v1 / v2 plus the `outputLanguage` rule.
+  'decomposition@v3': 'llm.decomposition.v1',
+  'decomposition@v4': 'llm.decomposition.v2',
+  'layout_suggestion@v1': 'llm.layout_suggestion.v1',
+  'questions@v1': 'llm.questions.v1',
+  'replan_explanation@v1': 'llm.replan_explanation.v1',
+  'type_detection@v1': 'llm.type_detection.v1',
+  // FU-89: v1 plus the `outputLanguage` rule.
+  'type_detection@v2': 'llm.type_detection.v1',
+});
+
+/**
+ * Schema that validates prompt `<id>@<version>`: the explicit entry above, or the
+ * convention `llm.<id>.<version>` for keys that are not registered prompts.
+ */
 export function schemaIdForPrompt(promptId: string, version: string): string {
-  return `llm.${promptId}.${version}`;
+  return PROMPT_SCHEMA_IDS[`${promptId}@${version}`] ?? `llm.${promptId}.${version}`;
 }
 
 function rootSchema(schemaId: string): JsonSchema {

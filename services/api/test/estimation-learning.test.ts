@@ -15,6 +15,7 @@ import {
   buildDetectionLlmInput,
   editedEstimateKeys,
 } from '../src/application/intake/intake-service.js';
+import { resolveOutputLanguage } from '../src/application/intake/output-language.js';
 import {
   authHeaders,
   createTestContext,
@@ -33,6 +34,9 @@ import {
   replanServiceFor,
   seedPlanTask,
 } from './support/m5-fixtures.js';
+
+/** FU-89: seeded test users keep the DB default locale `en`, so intake LLM calls send `en`. */
+const SEEDED_LANGUAGE = resolveOutputLanguage('en');
 
 const START = '2026-11-11T08:00:00Z' as Instant;
 
@@ -358,14 +362,14 @@ describe.skipIf(!hasDatabase)('FU-48 intake approval records user-edited estimat
     const llm = new FakeLlm([
       {
         promptId: 'type_detection',
-        input: buildDetectionLlmInput(input, []).input,
+        input: buildDetectionLlmInput(input, [], SEEDED_LANGUAGE).input,
         response: {
           output: { classification: 'new', confidence: 0.9, reasons: ['fixture'], missingRequired: [] },
         },
       },
       {
         promptId: 'decomposition',
-        input: buildDecompositionLlmInput(answerInput, undefined).input,
+        input: buildDecompositionLlmInput(answerInput, undefined, SEEDED_LANGUAGE).input,
         response: { output: draft },
       },
     ]);

@@ -21,6 +21,7 @@ import type { BudgetGuard } from './budget.js';
 import { BudgetExceeded, GatewayError, LlmError, LlmTimeoutError, SchemaViolation } from './errors.js';
 import { sanitizeGroundedDecomposition, type GroundedDecompositionOutput } from './grounded-output.js';
 import { buildNoteContext, groundingIndexOf, type NoteContextResult } from './note-context.js';
+import { schemaIdForPrompt } from './output-contract.js';
 import type { LlmCompleteRequest, LlmCompleteResponse, LlmPort } from './port.js';
 import { buildUntrustedBlock } from './privacy.js';
 import { runStructured } from './run-structured.js';
@@ -78,6 +79,12 @@ export interface EvalSummary {
   readonly outcomes: readonly FixtureOutcome[];
 }
 
+/**
+ * FU-89: the production note-grounded prompt (decomposition@v4 = v2 plus the
+ * output-language rule; same llm.decomposition.v2 output schema).
+ */
+export const EVAL_PROMPT = { promptId: 'decomposition', version: 'v4' } as const;
+export const EVAL_OUTPUT_LANGUAGE = 'ko-KR';
 export const EVAL_OWNER_ID = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b0f01';
 export const EVAL_DOC_ID = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b0d01';
 export const EVAL_SECRET_DOC_ID = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b0d02';
@@ -204,6 +211,8 @@ export function buildEvalInput(body: string, now: string): {
   });
   const input = {
     configVersion: 'intake-agent-config@1',
+    // FU-89: the eval targets decomposition@v4, which writes in this language.
+    outputLanguage: EVAL_OUTPUT_LANGUAGE,
     task: { estimatedScope: 'medium' },
     template: null,
     documents: [
@@ -228,10 +237,10 @@ async function evaluateFixture(
     const result = await runStructured(
       port,
       {
-        promptId: 'decomposition',
-        version: 'v2',
+        promptId: EVAL_PROMPT.promptId,
+        version: EVAL_PROMPT.version,
         input,
-        schemaId: 'llm.decomposition.v2',
+        schemaId: schemaIdForPrompt(EVAL_PROMPT.promptId, EVAL_PROMPT.version),
         ownerId: EVAL_OWNER_ID,
         sessionKey: `injection-${meta.file}`,
       },

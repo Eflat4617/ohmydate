@@ -89,6 +89,7 @@ any ─► cancelled (사용자)     any ─► failed (복구 불가; 수동 �
 - `LlmPort.complete({promptId, version, input, schemaId, budget})` → `{output, usage, model, latencyMs}`.
 - 타임아웃 30s, 재시도 2회(지수 백오프, 429/5xx만), 일/월 비용 상한(`user.settings.llm.budget`) 초과 시 `budget_exceeded` → 수동 모드.
 - 프롬프트는 `packages/llm/prompts/<id>/<version>.md` 파일로 버전 관리, `agent_run`에 `promptId@version` 기록.
+- **출력 언어 (FU-89):** Intake는 `type_detection@v2`, `decomposition@v3`(노트 없음), `decomposition@v4`(노트 근거)를 쓴다. 이들은 v1/v2의 규칙을 그대로 두고 언어 규칙 하나만 더한 버전이며, 출력 스키마도 그대로다(`llm.type_detection.v1`, `llm.decomposition.v1`, `llm.decomposition.v2`; 매핑은 `PROMPT_SCHEMA_IDS`). 기존 버전은 수정하지 않고 등록된 채로 남긴다. 언어 규칙은 다음과 같다. 사용자에게 보이는 모든 문자열(단계 제목·결과물·완료 기준, 가정, 남은 질문, 근거 statement, 유형 판별 reasons)은 구조화 입력 `outputLanguage`(BCP-47)의 언어로 쓴다. 스키마 enum·id·key는 번역하지 않고, 인용한 사용자 내용도 번역하지 않는다. `outputLanguage`는 소유자의 `user.locale`에서 서버가 만든다. 형식이 잘못됐거나 알 수 없는 언어면 `ko-KR`로 대체하고(GU-1은 한국어 UI), 확장·private-use 하위 태그는 버린다. 그래서 이 값에는 사용자 글이 들어가지 않는다. 수동 초안(직접 작성 모드)도 `ko*`이면 한국어, 그 밖에는 영어 고정 문구를 쓴다.
 - 테스트는 `FakeLlm`(녹화 fixture) 사용, CI에서 실제 API 호출 금지.
 - 기본 공급자 **GB-1 결정(2026-11-11): DeepSeek API — ADR-022** (이전 후보: 후보 — Anthropic API(Claude Haiku/Sonnet 계열), OpenAI 호환 API, 로컬(Ollama, GPU 없는 홈서버에서는 성능 [미검증]). 가격/약관은 결정 시점에 재확인.)
 

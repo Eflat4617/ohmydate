@@ -13,6 +13,7 @@ import {
   buildNoteContext,
   groundingIndexOf,
   sanitizeGroundedDecomposition,
+  schemaIdForPrompt,
   validateOutput,
   type GroundedDecompositionOutput,
   type LlmCompleteRequest,
@@ -47,6 +48,7 @@ import {
   groundedDecompositionOutput,
 } from '../src/adapters/fake-llm-scenarios.js';
 import { buildDecompositionLlmInput, intakeQueryText } from '../src/application/intake/intake-service.js';
+import { resolveOutputLanguage } from '../src/application/intake/output-language.js';
 import {
   authHeaders,
   createTestContext,
@@ -109,7 +111,7 @@ function groundedInput(): { input: unknown; context: ReturnType<typeof buildNote
       },
     ],
   });
-  return { input: buildDecompositionLlmInput(input, undefined, context).input, context };
+  return { input: buildDecompositionLlmInput(input, undefined, resolveOutputLanguage('ko-KR'), context).input, context };
 }
 
 function request(promptId: string, version: string, body: unknown, onDispatch?: () => void): LlmCompleteRequest {
@@ -117,7 +119,8 @@ function request(promptId: string, version: string, body: unknown, onDispatch?: 
     promptId,
     version,
     input: body,
-    schemaId: `llm.${promptId}.${version}`,
+    // FU-89: the registered prompt->schema map (decomposition@v4 -> llm.decomposition.v2).
+    schemaId: schemaIdForPrompt(promptId, version),
     ...(onDispatch === undefined ? {} : { onDispatch }),
   };
 }
@@ -457,6 +460,21 @@ describe('e2e-grounded responder', () => {
     const own = await base.complete({ ...request('type_detection', 'v1', {}), ownerId: OWNER });
     expect(own.output).toEqual({ classification: 'new', confidence: 0.5, reasons: [] });
     expect(scripted.complete).toHaveBeenCalledTimes(1);
+  });
+
+  test('FU-89: the output-language versions get the same answers (matched by schema id)', async () => {
+    const llm = createFakeScenarioLlm('e2e-grounded', { owners: [OWNER] });
+    const detect = await llm.complete({ ...request('type_detection', 'v2', { outputLanguage: 'ko-KR' }), ownerId: OWNER });
+    expect(detect.output).toEqual({ classification: 'new', confidence: 0.5, reasons: [] });
+    const { input: body } = groundedInput();
+    expect((body as Record<string, unknown>)['outputLanguage']).toBe('ko-KR');
+    const grounded = await llm.complete({ ...request('decomposition', 'v4', body), ownerId: OWNER });
+    expect(validateOutput('llm.decomposition.v2', grounded.output).valid).toBe(true);
+    expect(grounded.output).toEqual(groundedDecompositionOutput(body));
+    // The ungrounded v3 keeps the plain fake (llm.decomposition.v1 is not part of the scenario).
+    await expect(
+      llm.complete({ ...request('decomposition', 'v3', { task: {} }), ownerId: OWNER }),
+    ).rejects.toBeInstanceOf(LlmUnavailable);
   });
 
   test('keeps the plain FakeLlm behaviour for every other prompt (negative)', async () => {

@@ -300,3 +300,11 @@ export interface IntakeApprovalLock {
   /** Returns `null` when another live approver holds this session's lock. */
   tryAcquire(ownerId: Id, sessionId: Id): Promise<IntakeApprovalLockHandle | null>;
 }
+
+/**
+ * FU-89: the owner's `locale` user setting (`user.locale`), the source of the
+ * intake `outputLanguage`. `null`/`undefined` when the owner has none.
+ */
+export interface OwnerLocaleSource {
+  localeOf(ownerId: Id): Promise<string | null | undefined>;
+}

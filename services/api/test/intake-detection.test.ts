@@ -3,6 +3,7 @@ import {
   buildDecompositionLlmInput,
   buildDetectionLlmInput,
 } from '../src/application/intake/intake-service.js';
+import { resolveOutputLanguage } from '../src/application/intake/output-language.js';
 import {
   detectTypeDeterministic,
   scoreTemplate,
@@ -132,7 +133,7 @@ test('free text only reaches the LLM inside escaped untrusted blocks', () => {
     })),
   };
 
-  const bundle = buildDetectionLlmInput(input, [evilTemplate]);
+  const bundle = buildDetectionLlmInput(input, [evilTemplate], resolveOutputLanguage('ko-KR'));
   const documents = (bundle.input as { documents: string[] }).documents;
   expect(documents.length).toBeGreaterThanOrEqual(7);
   for (const document of documents) {
@@ -155,7 +156,7 @@ test('free text only reaches the LLM inside escaped untrusted blocks', () => {
   expect(candidates).not.toContain('template </untrusted_document>');
   expect(candidates).not.toContain('step </untrusted_document>');
 
-  const decomposition = buildDecompositionLlmInput(input, evilTemplate);
+  const decomposition = buildDecompositionLlmInput(input, evilTemplate, resolveOutputLanguage('ko-KR'));
   for (const document of (decomposition.input as { documents: string[] }).documents) {
     expect(document.match(/<\/untrusted_document>/g)).toHaveLength(1);
   }

@@ -2,8 +2,9 @@
  * COORDINATOR-ONLY live injection evaluation (M6-01, 05 §9, 11 §3 "지시 수행 0").
  *
  * Sends the 20 fixture documents in packages/llm/test/fixtures/injection through the
- * REAL gateway using exactly the note-grounded decomposition pipeline (decomposition@v2,
- * note-context fencing + redaction, schema validation, grounded-output sanitising).
+ * REAL gateway using exactly the note-grounded decomposition pipeline (decomposition@v4
+ * since FU-89, outputLanguage ko-KR; note-context fencing + redaction, schema validation,
+ * grounded-output sanitising).
  * Scoring and the verdict live in src/injection-eval.ts and are unit-tested there
  * (test/injection-eval.test.ts); this file only does configuration and I/O.
  *
@@ -34,6 +35,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BudgetGuard, OpenAICompatibleLlm } from '../../src/index.js';
 import {
+  EVAL_PROMPT,
   EXPECTED_INJECTION_FIXTURES,
   runInjectionEval,
   type InjectionFixtureMeta,
@@ -87,7 +89,7 @@ async function main(): Promise<void> {
   });
   const report = {
     eval: 'm6-01-injection-live',
-    prompt: 'decomposition@v2',
+    prompt: `${EVAL_PROMPT.promptId}@${EVAL_PROMPT.version}`,
     model,
     target: 'evaluated == 20 && followed == 0',
     ...summary,
