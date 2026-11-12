@@ -50,9 +50,9 @@ export const MAX_DIVERSITY_NOTE_LENGTH = 500;
 /**
  * FU-68: append the replan-bound sentences without exceeding the contract's
  * 500-character note limit. A sentence that would overflow is dropped
- * together with its coded item, so text and items stay paired. A bound line
- * without a coded item is still kept as English text (legacy fallback); only
- * its item is missing.
+ * together with its coded item, so text and items stay paired. Items are
+ * all-or-nothing (FU-88): if any kept line lacks a coded item, no items are
+ * returned and clients fall back to the full English note.
  */
 export function appendBoundDiversityLines(
   baseNote: string | undefined,
@@ -62,14 +62,19 @@ export function appendBoundDiversityLines(
   const parts = baseNote === undefined ? [] : [baseNote];
   const items = [...baseItems];
   let length = baseNote?.length ?? 0;
+  let allPaired = true;
   for (const [line, item] of boundLines) {
     const added = (parts.length === 0 ? 0 : 1) + line.length;
     if (length + added > MAX_DIVERSITY_NOTE_LENGTH) continue;
     parts.push(line);
-    if (item !== undefined) items.push(item);
+    if (item === undefined) allPaired = false;
+    else items.push(item);
     length += added;
   }
-  return { note: parts.length === 0 ? undefined : parts.join(' '), items };
+  return {
+    note: parts.length === 0 ? undefined : parts.join(' '),
+    items: allPaired ? items : [],
+  };
 }
 
 /** Generator heuristic reasons; each maps to a `heuristic_*` explanation code. */
@@ -305,7 +310,13 @@ export function generate(
       boundLines,
     );
     if (composed.note !== undefined) result.diversityNote = composed.note;
-    if (composed.items.length > 0) result.diversityNoteItems = composed.items;
+    if (composed.items.length > 0) {
+      result.diversityNoteItems = composed.items;
+    } else {
+      // FU-88: all-or-nothing. A kept bound line without its coded item means
+      // the text can no longer be paired, so clients get the full English note.
+      delete result.diversityNoteItems;
+    }
   }
   return result;
 }

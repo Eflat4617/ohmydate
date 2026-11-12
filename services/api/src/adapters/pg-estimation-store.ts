@@ -108,11 +108,10 @@ export class PgEstimationStore implements EstimationStore {
       } else if (mutation?.kind === 'reset') {
         await this.#reset(trx, ownerId, mutation.templateId);
       }
-      const before = await this.#snapshot(
-        trx,
-        ownerId,
-        mutation?.kind === 'exclude' ? mutation.feedbackId : undefined,
-      );
+      // FU-88: the refresh plan is computed from the bounded window only. The
+      // mutated row is appended to the post-write snapshot just for the
+      // response, so an out-of-window un-exclude cannot feed group statistics.
+      const before = await this.#snapshot(trx, ownerId);
       const plan = compute(before);
       for (const update of plan.qualities) {
         // Automatic reclassification is not an owner edit: the row version
