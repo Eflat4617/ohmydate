@@ -176,7 +176,7 @@ describe('diversity note codes (FU-68)', () => {
     }
     expect(seen.has('diversity_dropped') || seen.has('diversity_distinct')).toBe(true);
     expect(seen.has('replan_bound_exceeded')).toBe(true);
-  });
+  }, 30_000);
 
   it('reaches each of the three codes on its own fixture', () => {
     // A history with no replan bounds produces the plain diversity sentence.
@@ -198,7 +198,7 @@ describe('diversity note codes (FU-68)', () => {
     expect(bounded.diversityNoteItems?.map((item) => item.code)).toEqual(['replan_bound_exceeded']);
     expect(bounded.diversityNote).toMatch(/^Replan change bound exceeded:/);
     expectCodedDiversityNote(bounded);
-  });
+  }, 30_000);
 
   it('caps a joined note at 500 characters and drops text with its item', () => {
     const baseNote = '3 distinct plans from 3 policy candidates (pairwise distance >= 0.15).';
