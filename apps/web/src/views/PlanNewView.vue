@@ -5,29 +5,50 @@ import { useQuery } from '@tanstack/vue-query';
 import {
   ActionStore,
   plannerClient,
+  type GoalSummary,
   type PlanCreate,
   type Task,
 } from '../api';
 import { addDaysToDate, todayInZone, zonedWallClockToInstant } from '../domain/time';
+import {
+  PICKER_GOAL_PAGES,
+  PICKER_PAGE_SIZE,
+  PICKER_TASK_PAGES,
+  defaultGroupOpen,
+  groupPickerTasks,
+  groupSelection,
+  isSchedulable,
+  selectedCount,
+  selectedTaskIdsInOrder,
+  selectionSummary,
+  toggleGroup,
+  type PickerGroup,
+} from '../domain/planPicker';
 import { useOfflineStore } from '../stores/offline';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
 import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiField from '../components/ui/UiField.vue';
+import UiIcon from '../components/ui/UiIcon.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { policyLabel } from '../domain/plan';
+import { formatNumber } from '../i18n/format';
 import { t, tp } from '../i18n';
 import { errorMessage } from '../i18n/problem';
-import { runOwnerBound } from '../session/ownerBound';
+import { collectPages, ownerFenced, runOwnerBound, useOwnerKey } from '../session/ownerBound';
+import { keyOwner, retryFenced } from '../composables/notes';
 
 const route = useRoute();
 const router = useRouter();
 const offline = useOfflineStore();
 const actions = new ActionStore();
+const owner = useOwnerKey();
 
 const busy = ref(false);
 const error = ref<string | null>(null);
-const selectedTaskIds = ref<string[]>([]);
+const selected = ref<ReadonlySet<string>>(new Set());
+/** Groups the user opened or closed; the rest follow `defaultGroupOpen`. */
+const openOverrides = ref<Readonly<Record<string, boolean>>>({});
 const startDate = ref('');
 const endDate = ref('');
 const policies = ref<NonNullable<PlanCreate['policies']>>(['front_loaded', 'balanced', 'focus_blocked']);
@@ -39,8 +60,31 @@ const availabilityQuery = useQuery({
 });
 
 const tasksQuery = useQuery({
-  queryKey: ['tasks', 'plan-picker'],
-  queryFn: () => plannerClient.listTasks({ limit: 100 }),
+  queryKey: computed(() => ['tasks', owner.value, 'plan-picker'] as const),
+  queryFn: ({ queryKey }) =>
+    ownerFenced(keyOwner(queryKey), (binding) =>
+      collectPages<Task>(
+        binding,
+        (cursor, signal) =>
+          plannerClient.listTasks({ limit: PICKER_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }), signal }),
+        { maxPages: PICKER_TASK_PAGES },
+      ),
+    ),
+  retry: retryFenced(),
+});
+
+const goalsQuery = useQuery({
+  queryKey: computed(() => ['goals', owner.value, 'plan-picker'] as const),
+  queryFn: ({ queryKey }) =>
+    ownerFenced(keyOwner(queryKey), (binding) =>
+      collectPages<GoalSummary>(
+        binding,
+        (cursor, signal) =>
+          plannerClient.listGoals({ limit: PICKER_PAGE_SIZE, ...(cursor === undefined ? {} : { cursor }), signal }),
+        { maxPages: PICKER_GOAL_PAGES },
+      ),
+    ),
+  retry: retryFenced(),
 });
 
 const timeZone = computed(() => availabilityQuery.data.value?.timeZone ?? 'UTC');
@@ -57,6 +101,13 @@ watch(
 );
 
 const tasks = computed<Task[]>(() => tasksQuery.data.value?.items ?? []);
+const goals = computed<GoalSummary[]>(() => goalsQuery.data.value?.items ?? []);
+const tasksCapped = computed(() => tasksQuery.data.value?.truncated === true);
+const goalsCapped = computed(() => goalsQuery.data.value?.truncated === true);
+/** Grouping waits for the goals, unless they failed: then everything is "기타 작업". */
+const pickerLoading = computed(() => tasksQuery.isPending.value || goalsQuery.isPending.value);
+
+const groups = computed<PickerGroup[]>(() => groupPickerTasks(goals.value, tasks.value));
 
 const goalId = computed(() => {
   const value = route.query['goalId'];
@@ -85,11 +136,36 @@ const taskNames = computed<Record<string, string>>(() => {
   return map;
 });
 
+/** The ?goalId scope's goal, once the goal list has it. */
+const scopeGoal = computed(() =>
+  goalId.value === null ? null : (goals.value.find((goal) => goal.id === goalId.value) ?? null),
+);
+
+/** What a locked scope (?taskIds or ?goalId) will plan, by name. */
+const lockedScopeTaskIds = computed<string[]>(() => {
+  if (queryTaskIds.value.length > 0) return queryTaskIds.value;
+  const goal = scopeGoal.value;
+  if (goal === null) return [];
+  const open = new Set(tasks.value.filter(isSchedulable).map((task) => task.id));
+  return goal.taskIds.filter((taskId) => open.has(taskId));
+});
+
+const selectedIds = computed(() => selectedTaskIdsInOrder(groups.value, selected.value));
+
 const scopeSummary = computed(() => {
   if (queryTaskIds.value.length > 0) return tp('planNew.scopeTasks', queryTaskIds.value.length);
-  if (goalId.value !== null) return t('planNew.scopeGoal', { goalId: goalId.value });
-  if (selectedTaskIds.value.length > 0) return tp('planNew.scopeSelected', selectedTaskIds.value.length);
-  return t('planNew.scopeNone');
+  if (goalId.value !== null) {
+    const goal = scopeGoal.value;
+    return goal === null
+      ? t('planNew.scopeGoal', { goalId: goalId.value })
+      : tp('planNew.scopeGoalTitled', lockedScopeTaskIds.value.length, { title: goal.title });
+  }
+  const summary = selectionSummary(groups.value, selected.value);
+  if (summary.tasks === 0) return t('planNew.scopeNone');
+  if (summary.plans === 0) return tp('planNew.scopeSelectedOther', summary.tasks);
+  return summary.other
+    ? tp('planNew.scopeSelectedPlansOther', summary.tasks, { plans: summary.plans })
+    : tp('planNew.scopeSelectedPlans', summary.tasks, { plans: summary.plans });
 });
 
 const POLICY_OPTIONS = ['front_loaded', 'balanced', 'focus_blocked'] as const;
@@ -101,27 +177,53 @@ const canGenerate = computed(
     startDate.value.length > 0 &&
     endDate.value.length > 0 &&
     policies.value.length > 0 &&
-    (usingQueryScope.value || selectedTaskIds.value.length > 0),
+    (usingQueryScope.value || selectedIds.value.length > 0),
 );
 
+function groupTitle(group: PickerGroup): string {
+  return group.title ?? t('planNew.groupOther');
+}
+
+/** DOM id stem for a group (goal ids are UUIDs, so this is a valid id). */
+function groupDomId(group: PickerGroup): string {
+  return `picker-group-${group.goalId ?? 'other'}`;
+}
+
+function isGroupOpen(group: PickerGroup, index: number): boolean {
+  return openOverrides.value[group.key] ?? defaultGroupOpen(index, groups.value.length);
+}
+
+function setGroupOpen(group: PickerGroup, index: number): void {
+  openOverrides.value = { ...openOverrides.value, [group.key]: !isGroupOpen(group, index) };
+}
+
 function toggleTask(taskId: string): void {
-  const selected = new Set(selectedTaskIds.value);
-  if (selected.has(taskId)) selected.delete(taskId);
-  else selected.add(taskId);
-  selectedTaskIds.value = [...selected];
+  const next = new Set(selected.value);
+  if (next.has(taskId)) next.delete(taskId);
+  else next.add(taskId);
+  selected.value = next;
+}
+
+function toggleWholeGroup(group: PickerGroup): void {
+  selected.value = toggleGroup(group, selected.value);
 }
 
 function togglePolicy(policy: NonNullable<PlanCreate['policies']>[number]): void {
-  const selected = new Set(policies.value);
-  if (selected.has(policy)) selected.delete(policy);
-  else selected.add(policy);
-  policies.value = [...selected];
+  const next = new Set(policies.value);
+  if (next.has(policy)) next.delete(policy);
+  else next.add(policy);
+  policies.value = [...next];
 }
 
 function buildScope(): PlanCreate['scope'] {
   if (queryTaskIds.value.length > 0) return { taskIds: queryTaskIds.value };
   if (goalId.value !== null) return { goalId: goalId.value };
-  return { taskIds: selectedTaskIds.value };
+  return { taskIds: selectedIds.value };
+}
+
+function retryLoad(): void {
+  void tasksQuery.refetch();
+  void goalsQuery.refetch();
 }
 
 async function generate(): Promise<void> {
@@ -175,32 +277,98 @@ async function generate(): Promise<void> {
     <form class="plan-new-form" @submit.prevent="generate">
       <fieldset class="settings-group plan-new-scope">
         <legend>{{ t('planNew.scope') }}</legend>
-        <p class="muted">{{ scopeSummary }}</p>
+        <p class="muted plan-new-summary" role="status">{{ scopeSummary }}</p>
         <template v-if="!usingQueryScope">
-          <UiSkeleton v-if="tasksQuery.isLoading.value" variant="lines" :count="4" />
-          <p v-if="tasksQuery.isLoading.value" class="visually-hidden" role="status">{{ t('planNew.loading') }}</p>
+          <UiSkeleton v-if="pickerLoading" variant="lines" :count="4" />
+          <p v-if="pickerLoading" class="visually-hidden" role="status">{{ t('planNew.loading') }}</p>
+          <UiBanner v-else-if="tasksQuery.isError.value" tone="error" role="alert">
+            {{ t('planNew.loadError') }}
+            <UiButton size="sm" variant="secondary" @click="retryLoad">{{ t('common.retry') }}</UiButton>
+          </UiBanner>
           <UiEmptyState
-            v-else-if="tasks.length === 0"
+            v-else-if="groups.length === 0"
             compact
             icon="inbox"
             :title="t('planNew.empty')"
           />
-          <ul v-else class="task-picker">
-            <li v-for="task in tasks" :key="task.id">
-              <label class="task-picker-row">
-                <input
-                  type="checkbox"
-                  :checked="selectedTaskIds.includes(task.id)"
-                  :disabled="!offline.mutationsEnabled"
-                  @change="toggleTask(task.id)"
-                />
-                <span>{{ task.title }}</span>
-              </label>
-            </li>
-          </ul>
+          <template v-else>
+            <p class="field-help">{{ t('planNew.pickerHelp') }}</p>
+            <UiBanner v-if="goalsQuery.isError.value" tone="warn" inline data-testid="picker-goals-error">
+              {{ t('planNew.goalsError') }}
+            </UiBanner>
+            <UiBanner v-if="tasksCapped" tone="warn" inline data-testid="picker-tasks-capped">
+              {{ t('planNew.tasksCapped', { max: formatNumber(PICKER_PAGE_SIZE * PICKER_TASK_PAGES) }) }}
+            </UiBanner>
+            <UiBanner v-if="goalsCapped" tone="warn" inline data-testid="picker-goals-capped">
+              {{ t('planNew.goalsCapped', { max: formatNumber(PICKER_PAGE_SIZE * PICKER_GOAL_PAGES) }) }}
+            </UiBanner>
+            <div class="picker-groups">
+              <div
+                v-for="(group, index) in groups"
+                :key="group.key"
+                class="picker-group"
+                :class="{ 'picker-group--other': group.kind === 'other' }"
+                role="group"
+                :aria-labelledby="`${groupDomId(group)}-title`"
+                :data-group-key="group.key"
+              >
+                <div class="picker-group-head">
+                  <button
+                    :id="`${groupDomId(group)}-toggle`"
+                    type="button"
+                    class="picker-group-toggle"
+                    :aria-expanded="isGroupOpen(group, index)"
+                    :aria-controls="`${groupDomId(group)}-tasks`"
+                    @click="setGroupOpen(group, index)"
+                  >
+                    <UiIcon class="picker-group-chevron" name="chevron-right" :size="16" />
+                    <UiIcon :name="group.kind === 'goal' ? 'projects' : 'inbox'" :size="18" />
+                    <span class="picker-group-text">
+                      <span :id="`${groupDomId(group)}-title`" class="picker-group-title">{{ groupTitle(group) }}</span>
+                      <span class="picker-group-meta">
+                        {{ tp('planNew.groupCount', group.tasks.length) }}<template
+                          v-if="selectedCount(group, selected) > 0"
+                        > · {{ tp('planNew.groupSelected', selectedCount(group, selected)) }}</template>
+                      </span>
+                    </span>
+                  </button>
+                  <label class="picker-group-all">
+                    <input
+                      type="checkbox"
+                      data-group-all
+                      :checked="groupSelection(group, selected) === 'all'"
+                      :indeterminate="groupSelection(group, selected) === 'some'"
+                      :aria-label="t('planNew.selectAllIn', { group: groupTitle(group) })"
+                      :disabled="!offline.mutationsEnabled"
+                      @change="toggleWholeGroup(group)"
+                    />
+                    <span aria-hidden="true">{{ t('planNew.selectAll') }}</span>
+                  </label>
+                </div>
+                <ul
+                  v-show="isGroupOpen(group, index)"
+                  :id="`${groupDomId(group)}-tasks`"
+                  class="task-picker"
+                >
+                  <li v-for="task in group.tasks" :key="task.id">
+                    <label class="task-picker-row">
+                      <input
+                        type="checkbox"
+                        :value="task.id"
+                        :checked="selected.has(task.id)"
+                        :disabled="!offline.mutationsEnabled"
+                        @change="toggleTask(task.id)"
+                      />
+                      <span>{{ task.title }}</span>
+                    </label>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </template>
         </template>
         <ul v-else class="scope-list">
-          <li v-for="taskId in queryTaskIds" :key="taskId">
+          <li v-for="taskId in lockedScopeTaskIds" :key="taskId">
             {{ taskNames[taskId] ?? taskId }}
           </li>
         </ul>

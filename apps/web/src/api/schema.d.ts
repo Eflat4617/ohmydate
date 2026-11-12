@@ -295,6 +295,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/goals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the owner's planning goals with their approved tasks (FU-98)
+         * @description Non-deleted goals of the owner, newest first (createdAt, then id, descending). taskIds are the tasks the goal's intake approval created (state created), in step order: exactly the set a { goalId } plan scope resolves to. A goal with no approved steps has taskIds []. limit defaults to 50.
+         */
+        get: operations["listGoals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/intake-sessions": {
         parameters: {
             query?: never;
@@ -1674,6 +1694,32 @@ export interface components {
         ExportStartResponse: {
             /** Format: uuid */
             exportId: string;
+        };
+        GoalListQuery: {
+            cursor?: string;
+            limit?: number;
+        };
+        GoalPage: {
+            items: {
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: uuid */
+                id: string;
+                status: "active" | "completed" | "archived";
+                taskIds: string[];
+                title: string;
+            }[];
+            nextCursor: string | null;
+        };
+        GoalStatus: "active" | "completed" | "archived";
+        GoalSummary: {
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: uuid */
+            id: string;
+            status: "active" | "completed" | "archived";
+            taskIds: string[];
+            title: string;
         };
         IntakeAnswer: {
             action: "answer" | "skip" | "idk";
@@ -4606,6 +4652,65 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listGoals: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Goal page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalPage"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

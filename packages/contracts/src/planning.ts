@@ -407,6 +407,42 @@ export const ScheduleBlockPageSchema = pageSchema(ScheduleBlockSchema, {
   id: 'ScheduleBlockPage',
 });
 
+/** FU-98: lifecycle of a planning goal (`goal.status`). */
+export const GOAL_STATUSES = ['active', 'completed', 'archived'] as const;
+
+export type GoalStatusName = (typeof GOAL_STATUSES)[number];
+
+export const GoalStatusSchema = Type.Union(
+  GOAL_STATUSES.map((status) => Type.Literal(status)) as TLiteral<GoalStatusName>[],
+);
+
+/**
+ * FU-98: one planning goal (one wizard session) with the tasks its approval
+ * created, i.e. the task set a `{ goalId }` plan scope resolves to. `taskIds`
+ * comes from the approval ledger in step order; it may name a task that was
+ * later deleted, and is empty when nothing was approved yet.
+ */
+export const GoalSummarySchema = Type.Object(
+  {
+    id: IdSchema,
+    title: Type.String({ minLength: 1, maxLength: 200 }),
+    status: GoalStatusSchema,
+    createdAt: InstantSchema,
+    taskIds: Type.Array(IdSchema),
+  },
+  { additionalProperties: false, $id: 'GoalSummary' },
+);
+
+export const GoalListQuerySchema = Type.Object(
+  {
+    cursor: Type.Optional(CursorSchema),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+  },
+  { additionalProperties: false, $id: 'GoalListQuery' },
+);
+
+export const GoalPageSchema = pageSchema(GoalSummarySchema, { id: 'GoalPage' });
+
 /** Path of `POST /schedule-blocks/{id}:lock` and `:unlock` (FU-71). */
 export const ScheduleBlockIdParamsSchema = Type.Object(
   {
@@ -467,3 +503,6 @@ export type ScheduleBlockListQuery = Static<typeof ScheduleBlockListQuerySchema>
 export type ScheduleBlockPage = Static<typeof ScheduleBlockPageSchema>;
 export type ScheduleBlockIdParams = Static<typeof ScheduleBlockIdParamsSchema>;
 export type PlanVersionDto = Static<typeof PlanVersionSchema>;
+export type GoalSummary = Static<typeof GoalSummarySchema>;
+export type GoalListQuery = Static<typeof GoalListQuerySchema>;
+export type GoalPage = Static<typeof GoalPageSchema>;

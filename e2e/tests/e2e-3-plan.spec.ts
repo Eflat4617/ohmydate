@@ -167,14 +167,37 @@ test.describe('E2E-3 — plan comparison and stale-availability approval', () =>
     await login(pageA, state);
 
     await setWeeklyAvailability(pageA, state);
-    const goal = await createApprovedGoal(pageA, state, `E2E plan goal ${suffix}`, {
+    const goalTitle = `E2E plan goal ${suffix}`;
+    const goal = await createApprovedGoal(pageA, state, goalTitle, {
       estimatedScope: 'large',
       independentDraft: true,
       nowMs: clock.nowMs(),
     });
     if (goal.goalId === undefined) throw new Error('approved goal id is missing');
 
+    // FU-98: the plain picker shows this just-approved plan as the first,
+    // expanded folder, and one "모두 선택" picks every one of its tasks.
+    await pageA.goto(`${state.webUrl}/plans/new`);
+    const folder = pageA.locator(`[data-group-key="goal:${goal.goalId}"]`);
+    await expect(folder).toBeVisible();
+    await expect(pageA.locator('.picker-group').first()).toHaveAttribute('data-group-key', `goal:${goal.goalId}`);
+    await expect(folder.getByRole('button', { name: new RegExp(goalTitle) })).toHaveAttribute('aria-expanded', 'true');
+    const selectAll = folder.getByRole('checkbox', { name: `${goalTitle} 작업 모두 선택` });
+    const folderTasks = folder.locator('.task-picker input[type="checkbox"]');
+    const folderTaskCount = await folderTasks.count();
+    expect(folderTaskCount, 'the approved plan has open tasks in its folder').toBeGreaterThan(1);
+    await selectAll.check();
+    for (let index = 0; index < folderTaskCount; index += 1) await expect(folderTasks.nth(index)).toBeChecked();
+    await expect(pageA.locator('.plan-new-summary')).toHaveText(`작업 ${folderTaskCount}개 선택 (계획 1개)`);
+    await folderTasks.first().uncheck();
+    await expect(selectAll).not.toBeChecked();
+    expect(await selectAll.evaluate((input) => (input as HTMLInputElement).indeterminate)).toBe(true);
+    await selectAll.check();
+    await expect(pageA.locator('.plan-new-summary')).toHaveText(`작업 ${folderTaskCount}개 선택 (계획 1개)`);
+    expect(await blockingAxeViolations(pageA)).toEqual([]);
+
     await pageA.goto(`${state.webUrl}/plans/new?goalId=${goal.goalId}`);
+    await expect(pageA.locator('.plan-new-summary')).toContainText(`계획 「${goalTitle}」`);
     const generatedAtMs = clock.nowMs();
     await pageA.getByRole('button', { name: '후보 만들기' }).click();
     await pageA.waitForURL(/\/plans\/[0-9a-f-]{36}$/);

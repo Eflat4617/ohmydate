@@ -66,6 +66,7 @@ import {
   type SessionReviewRequest,
   type ScheduleBlockIdParams,
   type ScheduleBlockListQuery,
+  type GoalListQuery,
   type TodayAcceptRequest,
   type TodayQuery,
   type TodayRescheduleRequest,
@@ -1167,6 +1168,13 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       const etag = etagForVersion(plan.version);
       if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
       return reply.code(200).header('ETag', etag).send(plan);
+    },
+    listGoals: async (request, reply) => {
+      const auth = currentAuth(request);
+      const page = await runtime.planning.listGoals(auth.userId, request.query as GoalListQuery);
+      const etag = etagForBody(page);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(page);
     },
     previewPlanCandidateEdit,
     approvePlanCandidate,

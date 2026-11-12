@@ -105,6 +105,23 @@ export interface GoalTasks {
   readonly taskIds: readonly Id[];
 }
 
+/** FU-98: one goal row plus the tasks its intake approval created. */
+export interface GoalSummaryRecord {
+  readonly id: Id;
+  readonly title: string;
+  readonly status: string;
+  readonly createdAt: Instant;
+  readonly taskIds: readonly Id[];
+}
+
+/** FU-98: keyset page of goals, newest first (`createdAt` desc, then `id` desc). */
+export interface GoalWindowQuery {
+  readonly cursorCreatedAt?: Instant;
+  readonly cursorId?: Id;
+  /** Maximum rows to return; callers ask for `pageSize + 1` to detect more. */
+  readonly limit: number;
+}
+
 export interface ApprovalSnapshot {
   readonly plan: Plan;
   readonly candidate: PlanCandidateDto;
@@ -173,6 +190,11 @@ export interface PlanningStore extends EstimateRepository {
     availabilityVersion: number,
   ): Promise<Plan>;
   resolveGoalTasks(ownerId: Id, goalId: Id): Promise<GoalTasks | null>;
+  /**
+   * FU-98: the owner's non-deleted goals, newest first, each with the task ids
+   * `resolveGoalTasks` would give it. Two queries per page, never one per goal.
+   */
+  listGoals(ownerId: Id, query: GoalWindowQuery): Promise<readonly GoalSummaryRecord[]>;
   listActiveBlocks(ownerId: Id): Promise<readonly ApprovedBlock[]>;
   /** FU-53: SQL-side range + cursor page of active blocks. */
   listScheduleBlocks(
