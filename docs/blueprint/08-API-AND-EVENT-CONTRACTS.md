@@ -113,7 +113,7 @@
 | 효과 | 블록 시각은 바뀌지 않는다. 상태가 바뀌면 블록 `version` +1, 일정안 revision(`plan.version` = `Today.version`, 일정안 ETag) +1 — 이전 revision에 묶인 Today 동작·미리보기·Today 제안 승인은 412(경합 시 409)가 되어 다시 읽어야 한다. `plan.updated_at`은 바꾸지 않는다(활성 일정안 선택 순서). 이미 요청한 상태면 그대로 200(버전·revision 불변, 감사 기록 없음) |
 | 감사 | `audit_event{actor:'user', action:'schedule_block.locked' 또는 'schedule_block.unlocked', entity:'schedule_block', entity_id, diff_summary:{planId, locked, version}}` — id와 상태만, 제목 없음 |
 | 이후 | 고정: 다음 재계획 후보에 그 블록이 없고 승인 시 같은 행·시각으로 남는다. 해제: 다음 재계획이 그 블록을 옮길 수 있다(후보가 대체하는 미래 블록에 포함). 고정을 바꾸기 전에 만든 재계획 제안은 승인 TX가 잠금 상태를 다시 읽어 검증한다: 그 뒤 고정한 블록을 옮기는 후보, 그 뒤 고정을 푼 블록을 빼먹는 후보 모두 422 `constraint_violation`(블록은 그대로) |
-| 웹 | Today 카드와 일정안 비교의 "확정된 일정"에 토글("블록 고정"/"고정 해제", `aria-pressed`), 재계획 제안 화면은 읽기 전용 배지. 낙관적 표시는 `runOwnerBound` 작업 안에서만, 412/409면 다시 읽는다 |
+| 웹 | Today 카드와 일정안 비교의 "확정된 일정"에 토글(이름은 항상 "블록 고정", 상태는 `aria-pressed`, 행의 작업 제목·시각은 `aria-describedby`), 재계획 제안 화면은 읽기 전용 배지. 낙관적 표시는 `runOwnerBound` 작업 안에서만, 실패하면(412/409/네트워크 등) 다시 읽는다. 고정 요청이 진행되는 동안 일정안 달력 편집은 보류되고 이유가 안내된다(레이아웃 이동 없음, FU-86) |
 
 ### 2.6 Replanning (M5)
 GET /replan-proposals?state=pending · POST /replan-proposals/{id}:approve (If-Match, Idem) · POST /replan-proposals/{id}:reject `{reason?}` (24h 억제)
