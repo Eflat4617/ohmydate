@@ -90,6 +90,9 @@ export const GENERATOR_EXPLANATION_CODES = [
   'capacity_deficit',
   'replan_bound_exceeded',
   'input_rejected',
+  // FU-96: appended (additive).
+  'heuristic_blocked_by_predecessor',
+  'auto_split_long_task',
 ] as const;
 
 /** Every explanation item code (closed enum). */

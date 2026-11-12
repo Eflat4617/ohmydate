@@ -1,4 +1,4 @@
-import type { Id, Instant, PolicyName } from './types.js';
+import type { AutoSplitReason, Id, Instant, PolicyName } from './types.js';
 
 /**
  * Stable explanation and violation codes (FU-62, 06 §6.1).
@@ -126,6 +126,13 @@ export interface GeneratorParamMap {
     affectedExistingBlocks: number;
   };
   input_rejected: { issueCount: number };
+  /** FU-96: a task could not start because a predecessor has no block at all. */
+  heuristic_blocked_by_predecessor: NoParams;
+  /**
+   * FU-96: a non-splittable task longer than one H6-legal block was split
+   * for scheduling into sessions of at most `sessionMaxMin` minutes.
+   */
+  auto_split_long_task: { taskId: Id; sessionMaxMin: number; reason: AutoSplitReason };
 }
 
 export type ExplanationParamMap = GeneratorParamMap & InputIssueParamMap & ViolationParamMap;
@@ -174,6 +181,8 @@ const GENERATOR_CODE_SET: Record<GeneratorExplanationCode, true> = {
   capacity_deficit: true,
   replan_bound_exceeded: true,
   input_rejected: true,
+  heuristic_blocked_by_predecessor: true,
+  auto_split_long_task: true,
 };
 
 const INPUT_ISSUE_CODE_SET: Record<InputIssueMessageCode, true> = {

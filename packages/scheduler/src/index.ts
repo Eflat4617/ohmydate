@@ -1,6 +1,7 @@
 export const packageName = '@ohmydate/scheduler' as const;
 
 export type {
+  AutoSplitReason,
   AvailabilityKind,
   AvailabilityRule,
   Block,
@@ -54,6 +55,11 @@ export {
   type ViolationParamMap,
 } from './codes.js';
 export { computeAvailableSlots, maxContiguousMin, slotTotalMin } from './slots.js';
+export {
+  autoSplitMinSessionMin,
+  maxLegalSessionMin,
+  type LegalSessionLimit,
+} from './sessions.js';
 export {
   MAX_HORIZON_DAYS,
   MAX_INPUT_MINUTES,

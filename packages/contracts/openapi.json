@@ -2525,6 +2525,14 @@
                 "type": "string"
               },
               {
+                "const": "heuristic_blocked_by_predecessor",
+                "type": "string"
+              },
+              {
+                "const": "auto_split_long_task",
+                "type": "string"
+              },
+              {
                 "const": "input_invalid_time_zone",
                 "type": "string"
               },
@@ -5575,6 +5583,14 @@
                             "type": "string"
                           },
                           {
+                            "const": "heuristic_blocked_by_predecessor",
+                            "type": "string"
+                          },
+                          {
+                            "const": "auto_split_long_task",
+                            "type": "string"
+                          },
+                          {
                             "const": "input_invalid_time_zone",
                             "type": "string"
                           },
@@ -6225,6 +6241,14 @@
                     },
                     {
                       "const": "input_rejected",
+                      "type": "string"
+                    },
+                    {
+                      "const": "heuristic_blocked_by_predecessor",
+                      "type": "string"
+                    },
+                    {
+                      "const": "auto_split_long_task",
                       "type": "string"
                     },
                     {
@@ -8101,6 +8125,14 @@
                       "type": "string"
                     },
                     {
+                      "const": "heuristic_blocked_by_predecessor",
+                      "type": "string"
+                    },
+                    {
+                      "const": "auto_split_long_task",
+                      "type": "string"
+                    },
+                    {
                       "const": "input_invalid_time_zone",
                       "type": "string"
                     },
@@ -8689,6 +8721,14 @@
                         },
                         {
                           "const": "input_rejected",
+                          "type": "string"
+                        },
+                        {
+                          "const": "heuristic_blocked_by_predecessor",
+                          "type": "string"
+                        },
+                        {
+                          "const": "auto_split_long_task",
                           "type": "string"
                         },
                         {
@@ -9469,6 +9509,14 @@
                               },
                               {
                                 "const": "input_rejected",
+                                "type": "string"
+                              },
+                              {
+                                "const": "heuristic_blocked_by_predecessor",
+                                "type": "string"
+                              },
+                              {
+                                "const": "auto_split_long_task",
                                 "type": "string"
                               },
                               {

@@ -1117,6 +1117,11 @@ export const ko = {
       breakAfterMin: '쉬기 전 최대 연속 집중',
       breakMin: '휴식 길이',
     },
+    /** FU-96: why a non-splittable task was split (`auto_split_long_task.reason`). */
+    autoSplitReason: {
+      break_after: '쉬는 시간 규칙에 맞게',
+      daily_cap: '하루 집중 한도에 맞게',
+    },
   },
 
   explain: {
@@ -1134,6 +1139,8 @@ export const ko = {
     replan_bound_exceeded:
       '바뀐 블록이 {changed}개로, 변경 상한 {bound}개(영향받은 기존 블록 {affected}개 × 2 + 2)를 넘어요. 영향받지 않은 블록은 그대로 두었고, 이 안이 그중 가장 나아요.',
     input_rejected: '입력값에 문제가 {count}건 있어서 일정을 만들지 않았어요.',
+    heuristic_blocked_by_predecessor: '앞 단계가 배치되지 않아 뒤 단계도 배치하지 못했어요.',
+    auto_split_long_task: '{task}은 한 번에 하기엔 길어서 {reason} 최대 {duration}씩 나눠 배치했어요.',
 
     input_invalid_time_zone: '시간대가 올바른 IANA 시간대가 아니에요.',
     input_invalid_horizon_instant: '계획 기간에 올바르지 않은 시각이 있어요.',

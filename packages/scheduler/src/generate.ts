@@ -1,4 +1,5 @@
 import type {
+  AutoSplitReason,
   Block,
   GenerateOptions,
   GenerateResult,
@@ -28,7 +29,7 @@ import { createPrng, type Prng } from './prng.js';
 import { canonicalJson, sha256Hex } from './hash.js';
 import { itemFromMessage, type DiversityNoteItem, type ExplanationItem } from './codes.js';
 
-export const GENERATOR_VERSION = 'm3-02.7';
+export const GENERATOR_VERSION = 'm3-02.8';
 
 /**
  * Deterministic work cap for one gap-fitted split search (`passes` checks plus
@@ -83,7 +84,8 @@ type HeuristicReason =
   | 'no_contiguous_window'
   | 'estimate_not_grid_aligned'
   | 'estimate_below_grid'
-  | 'session_bounds_infeasible';
+  | 'session_bounds_infeasible'
+  | 'blocked_by_predecessor';
 
 const HEURISTIC_CODES = {
   insufficient_available_time: 'heuristic_insufficient_available_time',
@@ -91,6 +93,7 @@ const HEURISTIC_CODES = {
   estimate_not_grid_aligned: 'heuristic_estimate_not_grid_aligned',
   estimate_below_grid: 'heuristic_estimate_below_grid',
   session_bounds_infeasible: 'heuristic_session_bounds_infeasible',
+  blocked_by_predecessor: 'heuristic_blocked_by_predecessor',
 } as const satisfies Record<HeuristicReason, ExplanationItem['code']>;
 
 /**
@@ -115,6 +118,44 @@ function explanationFields(lines: readonly ExplainedLine[]): {
     explanation: lines.map((line) => line.text),
     explanationItems: lines.map((line) => line.item),
   };
+}
+
+/**
+ * FU-96: at most this many `auto_split_long_task` lines per candidate. The
+ * other lines are bounded (3 summary + 4 violations + 6 heuristic reasons +
+ * 3 trailing = 16), so a candidate stays within the contract's 50 lines.
+ */
+export const MAX_AUTO_SPLIT_LINES = 20;
+
+function isAutoSplitReason(value: unknown): value is AutoSplitReason {
+  return value === 'break_after' || value === 'daily_cap';
+}
+
+/**
+ * One line per task the caller auto-split (`Task.autoSplit`, 06 §3), in input
+ * order. A marker on a task that is not splittable is ignored.
+ */
+function autoSplitLines(input: ScheduleInput): ExplainedLine[] {
+  const lines: ExplainedLine[] = [];
+  for (const task of input.tasks) {
+    if (lines.length >= MAX_AUTO_SPLIT_LINES) break;
+    const reason = task.autoSplit;
+    if (!task.splittable || !isAutoSplitReason(reason)) continue;
+    const limit =
+      reason === 'break_after'
+        ? `the ${input.prefs.breakAfterMin}-minute limit before a break`
+        : `the ${input.prefs.maxDailyFocusMin}-minute daily focus cap`;
+    lines.push(
+      explainedLine(
+        {
+          code: 'auto_split_long_task',
+          params: { taskId: task.id, sessionMaxMin: task.maxSessionMin, reason },
+        },
+        `Non-splittable task "${task.id}" is longer than ${limit}; scheduled in sessions of at most ${task.maxSessionMin} min.`,
+      ),
+    );
+  }
+  return lines;
 }
 
 function policyLine(policy: PolicyName): ExplainedLine {
@@ -1298,6 +1339,7 @@ function generateForPolicy(
       lines.push(explainedLine(itemFromMessage(violation), violation.message));
     }
   }
+  lines.push(...autoSplitLines(context.input));
   for (const reason of [...result.reasons].sort()) {
     lines.push(
       explainedLine(
@@ -1721,7 +1763,13 @@ function placeTasks(
     }
 
     if (remainingMin > 0 && windowEndMs <= windowStartMs) {
-      reasons.add('insufficient_available_time');
+      // FU-96: a predecessor without any block leaves its successors no start
+      // time at all. That is not a lack of available time, so say why.
+      reasons.add(
+        dependencyReadyMs === Number.POSITIVE_INFINITY
+          ? 'blocked_by_predecessor'
+          : 'insufficient_available_time',
+      );
       starved ||= task.dependsOn.length > 0;
     } else {
       let placed: Placement[] = [];

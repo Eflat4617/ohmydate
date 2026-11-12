@@ -25,6 +25,11 @@ export type WindowKind = 'morning' | 'afternoon' | 'evening';
 export type RiskLevel = 'p50' | 'p90';
 export type AvailabilityKind = 'work' | 'focus';
 export type ExceptionKind = 'off' | 'extra';
+/**
+ * FU-96: which H6 limit made a non-splittable task too long for one block.
+ * `break_after` = `prefs.breakAfterMin`, `daily_cap` = `prefs.maxDailyFocusMin`.
+ */
+export type AutoSplitReason = 'break_after' | 'daily_cap';
 
 export interface TaskEstimate {
   p50Min: number;
@@ -59,6 +64,15 @@ export interface Task {
    */
   bufferBeforeDueMin?: number;
   preferredWindows?: WindowKind[];
+  /**
+   * FU-96 caller annotation (06 §3): the user marked this task non-splittable,
+   * but its remaining minutes exceed the longest H6-legal single block
+   * (`maxLegalSessionMin`), so the caller sends it as `splittable: true` with
+   * session bounds capped at that length. Scheduling and validation use the
+   * bounds as given; the generator only adds one `auto_split_long_task`
+   * explanation line for it. Ignored when `splittable` is false.
+   */
+  autoSplit?: AutoSplitReason;
 }
 
 export interface AvailabilityRule {

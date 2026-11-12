@@ -46,6 +46,11 @@ const WEEKDAY_KEYS = [
   'availability.weekday.7',
 ] as const;
 
+const AUTO_SPLIT_REASON_KEYS = {
+  break_after: 'explanation.autoSplitReason.break_after',
+  daily_cap: 'explanation.autoSplitReason.daily_cap',
+} as const;
+
 const PREFERENCE_FIELD_KEYS = {
   maxDailyFocusMin: 'explanation.field.maxDailyFocusMin',
   breakAfterMin: 'explanation.field.breakAfterMin',
@@ -138,6 +143,18 @@ class ParamReader {
     return t(fieldKey);
   }
 
+  autoSplitReason(key: string): string {
+    const value = this.token(key);
+    const reasonKey = AUTO_SPLIT_REASON_KEYS[value as keyof typeof AUTO_SPLIT_REASON_KEYS] as
+      | (typeof AUTO_SPLIT_REASON_KEYS)[keyof typeof AUTO_SPLIT_REASON_KEYS]
+      | undefined;
+    if (reasonKey === undefined) {
+      this.valid = false;
+      return value;
+    }
+    return t(reasonKey);
+  }
+
   private guard(format: () => string): string {
     if (!this.valid) return '';
     try {
@@ -184,6 +201,13 @@ const RENDERERS: { readonly [C in ExplanationCode]: Renderer } = {
       affected: r.count('affectedExistingBlocks'),
     }),
   input_rejected: (r) => t('explain.input_rejected', { count: r.count('issueCount') }),
+  heuristic_blocked_by_predecessor: () => t('explain.heuristic_blocked_by_predecessor'),
+  auto_split_long_task: (r) =>
+    t('explain.auto_split_long_task', {
+      task: r.task('taskId'),
+      reason: r.autoSplitReason('reason'),
+      duration: r.duration('sessionMaxMin'),
+    }),
 
   input_invalid_time_zone: () => t('explain.input_invalid_time_zone'),
   input_invalid_horizon_instant: () => t('explain.input_invalid_horizon_instant'),

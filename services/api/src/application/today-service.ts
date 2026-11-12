@@ -49,11 +49,10 @@ import type {
   PlanningStore,
 } from './planning-ports.js';
 import { proposalConflict } from './daily-errors.js';
+import { schedulingSessionBounds } from './session-bounds.js';
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
-const DEFAULT_MIN_SESSION_MIN = 30;
-const DEFAULT_MAX_SESSION_MIN = 90;
 const PROPOSAL_TTL_MS = DAY_MS;
 const DUE_SOON_DAYS = 7;
 
@@ -704,21 +703,18 @@ export class TodayService {
       const required = riskLevel === 'p90' ? (estimate?.p90Min ?? 0) : (estimate?.p50Min ?? 0);
       const history = historyMinutes(allBlocks, taskId as Id, nowMs);
       const remainingMin = Math.max(0, required - history);
-      const splittable = task?.splittable ?? true;
-      const minSessionMin = !splittable
-        ? Math.max(1, remainingMin)
-        : (task?.session?.minMinutes ?? DEFAULT_MIN_SESSION_MIN);
-      const maxSessionMin = !splittable
-        ? Math.max(1, remainingMin)
-        : (task?.session?.maxMinutes ?? DEFAULT_MAX_SESSION_MIN);
+      // FU-96: the same bounds as plan generation/approval, so the blocks of
+      // an auto-split non-splittable task stay valid in today's actions.
+      const bounds = schedulingSessionBounds(task, remainingMin, snapshot.availability.prefs);
       return {
         id: taskId,
         ...(task?.dueAt === undefined ? {} : { dueAt: task.dueAt }),
         estimate: { p50Min: estimate?.p50Min ?? 0, p90Min: estimate?.p90Min ?? 0 },
         remainingMin,
-        splittable,
-        minSessionMin,
-        maxSessionMin,
+        splittable: bounds.splittable,
+        minSessionMin: bounds.minSessionMin,
+        maxSessionMin: bounds.maxSessionMin,
+        ...(bounds.autoSplit === undefined ? {} : { autoSplit: bounds.autoSplit }),
         priority: task?.priority ?? 2,
         dependsOn: (task?.dependsOn ?? []).filter((dependency) => taskIds.includes(dependency)),
       };
@@ -732,6 +728,7 @@ export class TodayService {
         task.minSessionMin = 1;
         task.maxSessionMin = 100_000;
         task.splittable = true;
+        delete task.autoSplit;
       }
     }
     return {

@@ -53,6 +53,13 @@ const ORACLE: Oracle = {
     `Replan change bound exceeded: ${p.changedBlocks} changed block(s) > ${p.bound} (2 × ${p.affectedExistingBlocks} affected existing block(s) + 2). Unaffected blocks were preserved; this candidate is the best available.`,
   input_rejected: ({ issueCount }) =>
     new RegExp(`^Input rejected before generation: [a-z_]+(, [a-z_]+){${issueCount - 1}}\\.$`),
+  heuristic_blocked_by_predecessor: () => 'Heuristic reason: blocked_by_predecessor.',
+  auto_split_long_task: ({ taskId, sessionMaxMin, reason }) =>
+    new RegExp(
+      `^Non-splittable task "${taskId}" is longer than the \\d+-minute ${
+        reason === 'break_after' ? 'limit before a break' : 'daily focus cap'
+      }; scheduled in sessions of at most ${sessionMaxMin} min\\.$`,
+    ),
 
   input_invalid_time_zone: () => /^Invalid IANA time zone: .*$/,
   input_invalid_horizon_instant: () => 'Horizon contains an invalid instant.',
@@ -402,6 +409,22 @@ const GENERATOR_SCENARIOS: ReadonlyArray<readonly [string, ScheduleInput]> = [
     }),
   ],
   ['rejected input', input({ timeZone: 'Mars/Base' })],
+  [
+    'blocked by predecessor',
+    input({
+      tasks: [
+        task({ estimate: { p50Min: 600, p90Min: 600 }, splittable: false, minSessionMin: 600, maxSessionMin: 600 }),
+        task({ id: 'B', dependsOn: ['A'] }),
+      ],
+    }),
+  ],
+  [
+    'auto split',
+    input({
+      prefs: { ...input().prefs, breakAfterMin: 60 },
+      tasks: [task({ estimate: { p50Min: 150, p90Min: 150 }, minSessionMin: 30, maxSessionMin: 60, autoSplit: 'break_after' })],
+    }),
+  ],
 ];
 
 function goldenInputs(): Array<readonly [string, ScheduleInput]> {

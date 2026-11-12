@@ -45,6 +45,8 @@ const SAMPLES: { readonly [C in ExplanationCode]: ExplanationItem['params'] } = 
   capacity_deficit: { capacityDeficitMin: 45 },
   replan_bound_exceeded: { changedBlocks: 6, bound: 4, affectedExistingBlocks: 1 },
   input_rejected: { issueCount: 2 },
+  heuristic_blocked_by_predecessor: {},
+  auto_split_long_task: { taskId: TASK, sessionMaxMin: 60, reason: 'break_after' },
   input_invalid_time_zone: {},
   input_invalid_horizon_instant: {},
   input_horizon_not_increasing: {},
