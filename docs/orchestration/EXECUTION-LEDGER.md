@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 12:58 | FU-85 시작: Opus 5.5 xhigh ctx_9a77442e11af (worktree fu-85-revalidation-hardening, base 0ce42a2+packet). 전체 ci/e2e는 coordinator 허가 후 실행. 통합 CI(0ce42a2: FU-81+FU-56 포함) 백그라운드 실행 중 | packets/FU-85.md | orchestrator |
 | 2026-11-12 12:50 | **FU-56 merged 1e344d9** (FU-56R APPROVE, Fable xhigh 리뷰; 새 E2E-5 단언이 mutation으로 효과 확인됨). MEDIUM(10 s 제한 미고정 테스트)+LOW 4건 → FU-85(GU-1 전, Opus) | reviews/FU-56R.md | orchestrator |
 | 2026-11-12 12:50 | FU-71 worker_done이 Orca 재시작 후 `worker_identity_changed`로 거부됨(내용은 coordinator에 전달됨). coordinator가 정산: worker-stop ctx_b6027c385bf0 + task-update completed(8c845ff). FU-64+68 done 619c3f9(retry-request로 재전송). 리뷰 시작: FU-71R ctx_f44cd1adc1f5, FU-64-68R ctx_4df38cbcc7d3 (둘 다 Fable 5.2 xhigh; 구현 Opus/DeepSeek). 리뷰어는 전체 ci/e2e 대신 typecheck·lint·api-client·boundaries + 패키지/대상 테스트만 실행, 전체 suite는 coordinator가 병합 결과에서 실행. 유휴 opencode 2개 종료(FU-56·FU-64+68, 세션은 resume 가능) | msg_2e7a57895b18, msg_89c614956bb0 | orchestrator |
 | 2026-11-12 11:25 | **FU-81 merged 209cd20** (FU-81R APPROVE, Fable 리뷰; 실제 Vikunja로 재현 확인). ADR-016에 FU-81 개정 추가, LOW·잔여 위험 → FU-84. FU-71에 'rerun now' 전달. 통합 CI는 FU-71 실행 후로 미룸(전체 suite 동시 2개 이하) | reviews/FU-81R.md | orchestrator |
