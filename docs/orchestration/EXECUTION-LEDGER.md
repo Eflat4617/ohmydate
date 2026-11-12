@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 14:24 | FU-86 done b6dc9bc (Opus; e2e 31/31 9.7 m; ci는 load 21–53에서 무관 5파일 timeout, 각 단독 통과; web test 재실행 load 12에서 통과). FU-86R 시작: Fable 5.2 xhigh ctx_d11809c1554c. GU-1-PKGF d3786f6 전체 ci 허가(그 worktree에서 local:start 금지 — ci 종료 후 coordinator 실검증) | msg_bd8b69ec68a8, msg_3bb2c9b4e6bc | orchestrator |
 | 2026-11-12 13:48 | 통합 CI e8134a8(FU-85 포함) exit 1: timeout 4건만(scheduler generate.property 240 s·performance, api http-timeouts 5 s·production-timeouts 120 s) — FU-85는 apps/web만 변경. 단독 재실행도 load 25–29(FU-86 ci + 리뷰어 + GU-1-PKGF 동시)에서 timeout → 판정 보류, 부하가 줄면 재실행(FU-80/65 계열) | scratchpad int-ci-e8134a8*.log | orchestrator |
 | 2026-11-12 13:41 | FU-64-68F done b8a2ac4+71bd167 (DeepSeek; ci는 무관한 http-timeouts 부하 timeout 1건, 단독 재실행 4/4). 1라운드 리뷰어 세션은 종료됨 → **FU-64-68R2** 새 Fable 5.2 xhigh ctx_dfee72ac750a. FU-86 전체 suite 허가(통합 CI와 합쳐 2개). FU-86 병합 시 08 §2.5.1 '웹' 행의 토글 이름을 coordinator가 갱신('블록 고정' 고정 + aria-pressed) | msg_d12e393da72a, msg_300338813611 | orchestrator |
 | 2026-11-12 13:33 | GU-1-PKGF 수정 1라운드 시작: DeepSeek ctx_5d5aa49789fe (같은 worktree; HIGH 3=리뷰 2+C1, MEDIUM 5, LOW 일괄; create-user에 --time-zone/--locale 허용). GU-1 안내서에 'AI 사용 동의' 단계 필수 | packets/GU-1-PKGF.md | orchestrator |
