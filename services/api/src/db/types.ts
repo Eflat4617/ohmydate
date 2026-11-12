@@ -130,6 +130,19 @@ export interface UserTable {
   version: Col<'integer', false, true>;
 }
 
+/**
+ * FU-92 (0015): persisted login session. Only SHA-256 digests (lowercase hex)
+ * of the `sid` cookie and the CSRF token are stored, never the raw values.
+ */
+export interface AuthSessionTable {
+  id_hash: Col<'text', false, false>;
+  user_id: Col<'uuid', false, false>;
+  csrf_token_hash: Col<'text', false, false>;
+  created_at: Col<'timestamptz', false, true>;
+  last_seen_at: Col<'timestamptz', false, true>;
+  expires_at: Col<'timestamptz', false, false>;
+}
+
 export interface ProjectTable {
   id: Col<'uuid', false, false>;
   owner_id: Col<'uuid', false, false>;
@@ -766,6 +779,7 @@ export interface NoteAiUsageTable {
 
 export interface Database {
   user: UserTable;
+  auth_session: AuthSessionTable;
   project: ProjectTable;
   task: TaskTable;
   task_dependency: TaskDependencyTable;
@@ -846,6 +860,14 @@ export const databaseTables = {
     created_at: col('timestamptz', false, true),
     updated_at: col('timestamptz', false, true),
     version: col('integer', false, true),
+  },
+  auth_session: {
+    id_hash: col('text', false, false),
+    user_id: col('uuid', false, false),
+    csrf_token_hash: col('text', false, false),
+    created_at: col('timestamptz', false, true),
+    last_seen_at: col('timestamptz', false, true),
+    expires_at: col('timestamptz', false, false),
   },
   project: {
     id: col('uuid', false, false),
@@ -1461,6 +1483,7 @@ export type AssertTableColumns<
 
 type TableAssertions = {
   user: AssertTableColumns<UserTable, typeof databaseTables.user>;
+  auth_session: AssertTableColumns<AuthSessionTable, typeof databaseTables.auth_session>;
   project: AssertTableColumns<ProjectTable, typeof databaseTables.project>;
   task: AssertTableColumns<TaskTable, typeof databaseTables.task>;
   task_dependency: AssertTableColumns<TaskDependencyTable, typeof databaseTables.task_dependency>;

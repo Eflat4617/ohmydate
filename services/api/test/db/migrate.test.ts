@@ -41,6 +41,7 @@ const MIGRATION_FILES = [
   '0012_replanning.sql',
   '0013_context_documents.sql',
   '0014_agent_run_cancelled.sql',
+  '0015_auth_sessions.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -115,6 +116,9 @@ const REPLANNING_TABLES = ['replan_proposal', 'replan_suppression'];
 // 0013_context_documents.sql.
 const NOTES_TABLES = ['context_document', 'document_link', 'note_ai_usage'];
 
+// 0015_auth_sessions.sql (FU-92).
+const AUTH_SESSION_TABLES = ['auth_session'];
+
 describe.skipIf(!hasDatabase)('migration runner', () => {
   let schema: string;
 
@@ -162,6 +166,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           ...LLM_SPEND_TABLES,
           ...REPLANNING_TABLES,
           ...NOTES_TABLES,
+          ...AUTH_SESSION_TABLES,
           'schema_migrations',
         ].sort(),
       );
@@ -464,6 +469,19 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           expect(availabilityColumns.rows.map((row) => row.column_name)).toEqual([]);
           const stillThere = await client.query<{ name: string | null }>(
             `SELECT to_regclass('user_availability_version')::text AS name`,
+          );
+          expect(stillThere.rows[0]?.name).not.toBeNull();
+        } else if (migration === '0015_auth_sessions.sql') {
+          // FU-92: only the session table goes; users stay.
+          for (const table of AUTH_SESSION_TABLES) {
+            const gone = await client.query<{ name: string | null }>(
+              `SELECT to_regclass($1)::text AS name`,
+              [table],
+            );
+            expect({ table, name: gone.rows[0]?.name }).toEqual({ table, name: null });
+          }
+          const stillThere = await client.query<{ name: string | null }>(
+            `SELECT to_regclass('"user"')::text AS name`,
           );
           expect(stillThere.rows[0]?.name).not.toBeNull();
         } else if (migration === '0014_agent_run_cancelled.sql') {

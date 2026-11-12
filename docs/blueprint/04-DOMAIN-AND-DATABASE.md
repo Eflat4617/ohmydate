@@ -30,6 +30,7 @@ external_provider_mapping (entity_type, entity_id) ↔ (provider, external_id)
 | 테이블 | 책임 | 핵심 컬럼 | 인덱스/제약 | 보존·삭제 | 마일스톤 |
 |---|---|---|---|---|---|
 | user | 계정·설정 | email, password_hash(argon2id), time_zone, locale, settings jsonb, llm_consent jsonb | uniq(email) | 계정 삭제 시 하드 | M1 |
+| auth_session | 로그인 세션(FU-92, 0015). 인증 기록이라 owner_id 대신 user_id | id_hash(PK, `sid`의 SHA-256 hex — 원문 미저장), user_id → user **ON DELETE CASCADE**, csrf_token_hash(CSRF 토큰 SHA-256 hex), created_at, last_seen_at, expires_at(14일 슬라이딩, 갱신은 최대 1분에 1회) | pk(id_hash), (expires_at), (user_id), 두 hash 컬럼 `^[0-9a-f]{64}$` CHECK | 로그아웃 시 삭제, 만료 행은 읽을 때 거부·삭제 + 부팅 시·10분마다 배치 스윕, 사용자 삭제 시 cascade | FU-92 |
 | goal | 목표 | title, target_date, status | (owner_id,status) | soft | M2 |
 | project | 묶음 | title, goal_id?, archived | (owner_id) | soft | M1 |
 | task | **planner 측 작업 확장** (core 필드는 provider) | project_id, title_cache, status_cache, due_at, splittable bool, min_session_min, max_session_min, priority, earliest_start_at, provider_etag | (owner_id,status_cache), (due_at) | soft | M1 |

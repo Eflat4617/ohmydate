@@ -68,21 +68,35 @@ export interface PasswordHasher {
 }
 
 export interface SessionRecord {
+  /** The raw session id the caller presented (`sid` cookie); never persisted. */
   readonly id: string;
   readonly userId: Id;
-  readonly csrfToken: string;
+  /**
+   * Lowercase hex SHA-256 of the session's CSRF token (FU-92). The raw token
+   * lives only in the browser's `csrf` cookie; verify with
+   * `sessionSecretMatches` (constant time).
+   */
+  readonly csrfTokenHash: string;
   readonly createdAt: Instant;
   readonly expiresAt: number;
 }
 
+/** Returned once by `create`: the only point where the raw CSRF token is known. */
+export interface CreatedSession extends SessionRecord {
+  readonly csrfToken: string;
+}
+
 /**
- * Server-side session store. The in-memory implementation is sufficient for a
- * single API process in M1; the interface is intentionally storage agnostic so
- * a PostgreSQL-backed store can replace it without touching routes.
+ * Server-side login-session store (14-day sliding expiry). FU-92:
+ * `PgSessionStore` persists sessions (digests only) so a login survives API
+ * restarts whenever a database backs the Vikunja provider
+ * (`PROVIDER=vikunja` + DATABASE_URL); `InMemorySessionStore` stays for
+ * `PROVIDER=memory` and unit tests. Expired sessions read as null.
  */
 export interface SessionStore {
-  create(userId: Id, csrfToken: string): Promise<SessionRecord>;
+  create(userId: Id, csrfToken: string): Promise<CreatedSession>;
   get(sessionId: string): Promise<SessionRecord | null>;
+  /** Like `get`, and slides the expiry to now + TTL. */
   touch(sessionId: string): Promise<SessionRecord | null>;
   delete(sessionId: string): Promise<void>;
 }

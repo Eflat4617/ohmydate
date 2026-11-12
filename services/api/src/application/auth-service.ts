@@ -1,16 +1,16 @@
 import type { Id } from '@ohmydate/domain';
-import { createCsrfToken } from '../adapters/in-memory-session-store.js';
 import { normalizeEmail } from '../adapters/pg-user-repository.js';
 import { ProblemError } from '../http/problem.js';
 import type {
+  CreatedSession,
   LoginRateLimiter,
   PasswordHasher,
-  SessionRecord,
   SessionStore,
   UserRecord,
   UserRepository,
   UserSettingsPatch,
 } from './ports.js';
+import { createCsrfToken } from './session-tokens.js';
 
 export interface AuthServiceDeps {
   readonly users: UserRepository;
@@ -26,7 +26,8 @@ export interface AuthServiceDeps {
 
 export interface LoginResult {
   readonly user: UserRecord;
-  readonly session: SessionRecord;
+  /** Carries the raw CSRF token once, for the login response cookie. */
+  readonly session: CreatedSession;
 }
 
 export class AuthService {

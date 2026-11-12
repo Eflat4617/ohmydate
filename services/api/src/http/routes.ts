@@ -129,6 +129,7 @@ import { PgNoteStore } from '../adapters/pg-note-store.js';
 import { NotesService } from '../application/notes/notes-service.js';
 import type { NoteRecord, NoteUsageRecord } from '../application/notes/ports.js';
 import { resolvePushKey } from '../application/push-crypto.js';
+import { sessionSecretMatches } from '../application/session-tokens.js';
 import type { Database } from '../db/types.js';
 import type { BudgetGuard, LlmPort } from '@ohmydate/llm';
 import type { IdGenerator } from '@ohmydate/domain';
@@ -362,9 +363,11 @@ function verifyCsrf(request: FastifyRequest): void {
   const auth = currentAuth(request);
   const header = headerValue(request, 'x-csrf-token');
   const cookie = request.cookies[CSRF_COOKIE];
+  // Double submit: header == cookie, and the header hashes to the session's
+  // stored CSRF digest (FU-92). Both comparisons are constant time.
   if (
     !timingSafeStringEqual(header, cookie) ||
-    !timingSafeStringEqual(header, auth.csrfToken)
+    !sessionSecretMatches(header, auth.csrfTokenHash)
   ) {
     throw new ProblemError({
       status: 403,
@@ -1708,7 +1711,7 @@ function buildPreHandler(runtime: RouteRuntime, meta: RouteMeta) {
       request.authSession = {
         sessionId: session.id,
         userId: session.userId,
-        csrfToken: session.csrfToken,
+        csrfTokenHash: session.csrfTokenHash,
       };
     }
     if (meta.requiresCsrf) verifyCsrf(request);
