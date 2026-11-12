@@ -185,7 +185,14 @@ export class PgEstimationStore implements EstimationStore {
           .where(sql<boolean>`stats is distinct from ${JSON.stringify(stats)}::jsonb`)
           .execute();
       }
-      return this.#snapshot(trx, ownerId);
+      // FU-64 fix: carry the mutated row into the post-write snapshot too, so
+      // an excluded row that sits outside the learning window is still found
+      // by patchFeedback instead of committing the write and answering 404.
+      return this.#snapshot(
+        trx,
+        ownerId,
+        mutation?.kind === 'exclude' ? mutation.feedbackId : undefined,
+      );
     });
   }
 

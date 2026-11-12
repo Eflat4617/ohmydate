@@ -6,6 +6,7 @@ import {
   createTestContext,
   hasDatabase,
   login,
+  newIdempotencyKey,
   type TestContext,
   type TestSession,
 } from './support/test-context.js';
@@ -128,5 +129,57 @@ describe.skipIf(!hasDatabase)('estimation feedback window (FU-64)', () => {
     // CPU time keeps the gate independent of machine load (FU-66 pattern).
     console.log(`profile window perf: cpu=${bestCpuMs.toFixed(1)}ms wall=${bestWallMs.toFixed(1)}ms`);
     expect(bestCpuMs).toBeLessThan(200);
+  });
+
+  test('PATCH of a row older than the window returns the row it committed (regression)', async () => {
+    const oldest = await ctx.db
+      .selectFrom('estimation_feedback')
+      .select(['id', 'version'])
+      .where('owner_id', '=', ownerId)
+      .orderBy('created_at', 'asc')
+      .orderBy('id', 'asc')
+      .executeTakeFirstOrThrow();
+    const patch = async (version: number, excluded: boolean) =>
+      ctx.app.inject({
+        method: 'PATCH',
+        url: `/api/v1/estimation/feedback/${oldest.id}`,
+        headers: authHeaders(session, {
+          'if-match': `W/"${version}"`,
+          'idempotency-key': newIdempotencyKey(),
+        }),
+        payload: { excluded },
+      });
+
+    const response = await patch(oldest.version, true);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      feedbackId: oldest.id,
+      excluded: true,
+      version: oldest.version + 1,
+    });
+    const stored = await ctx.db
+      .selectFrom('estimation_feedback')
+      .select(['excluded', 'version'])
+      .where('owner_id', '=', ownerId)
+      .where('id', '=', oldest.id)
+      .executeTakeFirstOrThrow();
+    expect(stored).toEqual({ excluded: true, version: oldest.version + 1 });
+
+    // A retry with the version the response advertised behaves consistently.
+    const retry = await patch(stored.version, false);
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json()).toMatchObject({
+      feedbackId: oldest.id,
+      excluded: false,
+      version: oldest.version + 2,
+    });
+    expect(
+      await ctx.db
+        .selectFrom('estimation_feedback')
+        .select(['excluded', 'version'])
+        .where('owner_id', '=', ownerId)
+        .where('id', '=', oldest.id)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ excluded: false, version: oldest.version + 2 });
   });
 });

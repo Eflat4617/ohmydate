@@ -44,6 +44,34 @@ const GAP_FIT_BUDGET = 512;
 /** Explanation prefix used when a replan exceeds its 06 §7 change bound. */
 const REPLAN_BOUND_PREFIX = 'Replan change bound exceeded:';
 
+/** Contract `PlanCandidate.diversityNote` maxLength (packages/contracts). */
+export const MAX_DIVERSITY_NOTE_LENGTH = 500;
+
+/**
+ * FU-68: append the replan-bound sentences without exceeding the contract's
+ * 500-character note limit. A sentence that would overflow is dropped
+ * together with its coded item, so text and items stay paired. A bound line
+ * without a coded item is still kept as English text (legacy fallback); only
+ * its item is missing.
+ */
+export function appendBoundDiversityLines(
+  baseNote: string | undefined,
+  baseItems: readonly DiversityNoteItem[],
+  boundLines: ReadonlyMap<string, DiversityNoteItem | undefined>,
+): { note: string | undefined; items: DiversityNoteItem[] } {
+  const parts = baseNote === undefined ? [] : [baseNote];
+  const items = [...baseItems];
+  let length = baseNote?.length ?? 0;
+  for (const [line, item] of boundLines) {
+    const added = (parts.length === 0 ? 0 : 1) + line.length;
+    if (length + added > MAX_DIVERSITY_NOTE_LENGTH) continue;
+    parts.push(line);
+    if (item !== undefined) items.push(item);
+    length += added;
+  }
+  return { note: parts.length === 0 ? undefined : parts.join(' '), items };
+}
+
 /** Generator heuristic reasons; each maps to a `heuristic_*` explanation code. */
 type HeuristicReason =
   | 'insufficient_available_time'
@@ -259,25 +287,25 @@ export function generate(
     ),
   );
   const result = finalize(candidates);
-  const boundLines = new Map<string, DiversityNoteItem>();
+  const boundLines = new Map<string, DiversityNoteItem | undefined>();
   for (const candidate of candidates) {
     candidate.explanation.forEach((line, index) => {
       if (!line.startsWith(REPLAN_BOUND_PREFIX)) return;
       const item = candidate.explanationItems[index];
-      if (item !== undefined) boundLines.set(line, item as DiversityNoteItem);
+      boundLines.set(
+        line,
+        item !== undefined && item.code === 'replan_bound_exceeded' ? item : undefined,
+      );
     });
   }
   if (boundLines.size > 0) {
-    const note = [...boundLines.keys()].join(' ');
-    const boundItems = [...boundLines.values()];
-    result.diversityNote =
-      result.diversityNote === undefined
-        ? note
-        : `${result.diversityNote} ${note}`;
-    result.diversityNoteItems = [
-      ...(result.diversityNoteItems ?? []),
-      ...boundItems,
-    ];
+    const composed = appendBoundDiversityLines(
+      result.diversityNote,
+      result.diversityNoteItems ?? [],
+      boundLines,
+    );
+    if (composed.note !== undefined) result.diversityNote = composed.note;
+    if (composed.items.length > 0) result.diversityNoteItems = composed.items;
   }
   return result;
 }

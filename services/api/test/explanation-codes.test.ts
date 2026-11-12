@@ -5,6 +5,7 @@ import {
   candidateExplanationJson,
   explanationItemsJson,
   parseCandidateExplanation,
+  parseDiversityNoteItems,
   parseExplanationItems,
 } from '../src/adapters/explanation-json.js';
 import { toContractViolations } from '../src/application/plan-service.js';
@@ -92,6 +93,47 @@ describe('explanation persistence helpers (FU-62)', () => {
     const copy = explanationItemsJson([...ITEMS]);
     expect(copy).toEqual(ITEMS);
     expect(copy[0]).not.toBe(ITEMS[0]);
+  });
+
+  it('round-trips diversity items through the candidate explanation column', () => {
+    const diversityItems = [
+      { code: 'diversity_distinct', params: { total: 3 } },
+      {
+        code: 'replan_bound_exceeded',
+        params: { changedBlocks: 38, bound: 12, affectedExistingBlocks: 5 },
+      },
+    ] as const;
+    const stored = candidateExplanationJson(LINES, [...ITEMS], [...diversityItems]);
+    expect(parseCandidateExplanation(JSON.parse(JSON.stringify(stored)))).toEqual({
+      explanation: LINES,
+      explanationItems: ITEMS,
+      diversityNoteItems: diversityItems,
+    });
+  });
+
+  it('drops all diversity items when stored data is unknown or malformed (negative)', () => {
+    expect(parseDiversityNoteItems(undefined)).toEqual([]);
+    expect(parseDiversityNoteItems([{ code: 'diversity_distinct', params: { total: 3 } }])).toEqual([
+      { code: 'diversity_distinct', params: { total: 3 } },
+    ]);
+    expect(parseDiversityNoteItems([{ code: 'free_text', params: {} }])).toEqual([]);
+    expect(
+      parseDiversityNoteItems([
+        { code: 'diversity_dropped', params: { kept: 1, total: 2, dropped: 1, note: 'free text' } },
+      ]),
+    ).toEqual([]);
+    const tooMany = Array.from({ length: 11 }, (_, index) => ({
+      code: 'replan_bound_exceeded',
+      params: { changedBlocks: index, bound: 2, affectedExistingBlocks: 0 },
+    }));
+    expect(parseDiversityNoteItems(tooMany)).toEqual([]);
+
+    const stored = [...LINES, { items: [...ITEMS], diversityNoteItems: [{ code: 'free_text', params: {} }] }];
+    expect(parseCandidateExplanation(stored)).toEqual({
+      explanation: LINES,
+      explanationItems: [...ITEMS],
+      diversityNoteItems: [],
+    });
   });
 
   it('maps scheduler findings to contract violations with message code and params', () => {

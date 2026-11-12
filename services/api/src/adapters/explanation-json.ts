@@ -22,6 +22,8 @@ const DIVERSITY_CODES: ReadonlySet<string> = new Set(DIVERSITY_NOTE_CODES);
 const PARAM_KEY = /^[a-z][A-Za-z0-9]{0,39}$/;
 const PARAM_TOKEN = new RegExp(EXPLANATION_PARAM_TOKEN_PATTERN);
 const MAX_PARAMS = 12;
+/** Contract `DiversityNoteItemsSchema` maxItems. */
+const MAX_DIVERSITY_ITEMS = 10;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -78,6 +80,7 @@ function parseDiversityItem(value: unknown): DiversityNoteItem | null {
 /** Validated diversity-note items, or `[]` when absent/legacy/all-or-nothing fails. */
 export function parseDiversityNoteItems(value: unknown): DiversityNoteItem[] {
   if (!Array.isArray(value) || value.length === 0) return [];
+  if (value.length > MAX_DIVERSITY_ITEMS) return [];
   const items: DiversityNoteItem[] = [];
   for (const entry of value) {
     const item = parseDiversityItem(entry);

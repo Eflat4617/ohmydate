@@ -3,6 +3,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { DiversityNoteItem, GenerateResult, ScheduleInput } from '../src/index.js';
 import { DIVERSITY_NOTE_CODES, generate } from '../src/index.js';
+import {
+  MAX_DIVERSITY_NOTE_LENGTH,
+  appendBoundDiversityLines,
+} from '../src/generate.js';
 
 /**
  * FU-68: every English `diversityNote` sentence has a closed coded item, and
@@ -123,6 +127,30 @@ const REPLAN_BOUND_INPUT = input({
   ],
 });
 
+const MULTI_REPLAN_INPUT = input({
+  horizon: { start: '2026-11-09T00:00:00Z', end: '2026-11-23T00:00:00Z' },
+  availability: ([1, 2, 3, 4, 5, 6, 7] as const).map((weekday) => ({
+    weekday,
+    startLocal: '00:00',
+    endLocal: '24:00',
+    kind: 'work' as const,
+  })),
+  tasks: Array.from({ length: 5 }, (_, index) => ({
+    id: `T${index}`,
+    estimate: { p50Min: 150 + 30 * index, p90Min: 150 + 30 * index },
+    splittable: true,
+    minSessionMin: 30,
+    maxSessionMin: 30,
+    priority: 1,
+    dependsOn: [],
+  })),
+  existingBlocks: Array.from({ length: 5 }, (_, index) => ({
+    taskId: `T${index}`,
+    start: `2026-11-09T0${index}:00:00Z`,
+    end: `2026-11-09T0${index}:30:00Z`,
+  })),
+});
+
 describe('diversity note codes (FU-68)', () => {
   it('publishes a duplicate-free closed code list', () => {
     expect(new Set(DIVERSITY_NOTE_CODES).size).toBe(DIVERSITY_NOTE_CODES.length);
@@ -139,13 +167,79 @@ describe('diversity note codes (FU-68)', () => {
       ...goldenInputs().map((fixture) => generate(fixture)),
       generate(input()),
       generate(REPLAN_BOUND_INPUT),
+      generate(MULTI_REPLAN_INPUT),
     ];
     for (const result of results) {
       expectCodedDiversityNote(result);
+      expect((result.diversityNote ?? '').length).toBeLessThanOrEqual(MAX_DIVERSITY_NOTE_LENGTH);
       for (const item of result.diversityNoteItems ?? []) seen.add(item.code);
     }
     expect(seen.has('diversity_dropped') || seen.has('diversity_distinct')).toBe(true);
     expect(seen.has('replan_bound_exceeded')).toBe(true);
+  });
+
+  it('reaches each of the three codes on its own fixture', () => {
+    // A history with no replan bounds produces the plain diversity sentence.
+    const dropped = generate(input());
+    expect(dropped.diversityNoteItems?.map((item) => item.code)).toEqual(['diversity_dropped']);
+    expectCodedDiversityNote(dropped);
+
+    // A multi-task replan keeps three genuinely distinct policy plans.
+    const distinct = generate(MULTI_REPLAN_INPUT);
+    expect(distinct.diversityNoteItems?.map((item) => item.code)).toEqual([
+      'diversity_distinct',
+      'replan_bound_exceeded',
+    ]);
+    expect(distinct.diversityNote).toMatch(/^3 distinct plans from 3 policy candidates/);
+    expectCodedDiversityNote(distinct);
+
+    // A single policy can produce a note that is only the bound sentence.
+    const bounded = generate(REPLAN_BOUND_INPUT, { policies: ['balanced'] });
+    expect(bounded.diversityNoteItems?.map((item) => item.code)).toEqual(['replan_bound_exceeded']);
+    expect(bounded.diversityNote).toMatch(/^Replan change bound exceeded:/);
+    expectCodedDiversityNote(bounded);
+  });
+
+  it('caps a joined note at 500 characters and drops text with its item', () => {
+    const baseNote = '3 distinct plans from 3 policy candidates (pairwise distance >= 0.15).';
+    const boundText = (changedBlocks: number) =>
+      `Replan change bound exceeded: ${changedBlocks} changed block(s) > 6 (2 × 2 affected existing block(s) + 2). Unaffected blocks were preserved; this candidate is the best available.`;
+    const boundItem = (changedBlocks: number): DiversityNoteItem => ({
+      code: 'replan_bound_exceeded',
+      params: { changedBlocks, bound: 6, affectedExistingBlocks: 2 },
+    });
+    const boundLines = new Map<string, DiversityNoteItem>([
+      [boundText(31), boundItem(31)],
+      [boundText(33), boundItem(33)],
+      [boundText(35), boundItem(35)],
+    ]);
+
+    const composed = appendBoundDiversityLines(baseNote, [], boundLines);
+    expect(composed.note).toBeDefined();
+    expect(composed.note!.length).toBeLessThanOrEqual(MAX_DIVERSITY_NOTE_LENGTH);
+    // At least one of the three sentences had to be dropped to fit.
+    expect(composed.items.length).toBeLessThan(3);
+    expect(composed.items.length).toBeGreaterThan(0);
+    // Every surviving sentence still has its item, in order.
+    const sentences = composed.note!
+      .slice(baseNote.length + 1)
+      .split(/(?=Replan change bound exceeded: )/);
+    expect(composed.note!.startsWith(baseNote)).toBe(true);
+    expect(sentences).toHaveLength(composed.items.length);
+    sentences.forEach((sentence, index) => {
+      const item = composed.items[index]!;
+      if (item.code !== 'replan_bound_exceeded') throw new Error(`unexpected code ${item.code}`);
+      expect(sentence.trim()).toBe(boundText(item.params.changedBlocks));
+    });
+
+    // A bound line without a coded item keeps its English text (legacy fallback).
+    const legacy = appendBoundDiversityLines(
+      'base note',
+      [],
+      new Map([[boundText(31), undefined]]),
+    );
+    expect(legacy.note).toBe(`base note ${boundText(31)}`);
+    expect(legacy.items).toEqual([]);
   });
 
   it('detects a missing or mislabelled item (negative)', () => {
