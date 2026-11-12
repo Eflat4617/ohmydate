@@ -33,11 +33,15 @@ export type {
 } from './types.js';
 
 export {
+  DIVERSITY_NOTE_CODES,
   EXPLANATION_CODES,
   INPUT_ISSUE_MESSAGE_CODES,
   VIOLATION_MESSAGE_CODES,
   itemFromMessage,
   type CodedItem,
+  type DiversityNoteCode,
+  type DiversityNoteItem,
+  type DiversityNoteParamMap,
   type ExplanationCode,
   type ExplanationItem,
   type ExplanationParamMap,

@@ -55,6 +55,10 @@ export {
 
 export {
   API_VIOLATION_MESSAGE_CODES,
+  DIVERSITY_NOTE_CODES,
+  DiversityNoteCodeSchema,
+  DiversityNoteItemSchema,
+  DiversityNoteItemsSchema,
   EXPLANATION_CODES,
   EXPLANATION_PARAM_TOKEN_PATTERN,
   ExplanationCodeSchema,
@@ -65,6 +69,8 @@ export {
   INPUT_ISSUE_MESSAGE_CODES,
   VIOLATION_MESSAGE_CODES,
   ViolationMessageCodeSchema,
+  type DiversityNoteCode,
+  type DiversityNoteItem,
   type ExplanationCode,
   type ExplanationItem,
   type ExplanationParams,

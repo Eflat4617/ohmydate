@@ -214,4 +214,18 @@ describe('outliers and exclusions', () => {
     const reversed = classifySamples([...samples].reverse());
     expect(reversed).toEqual(forward);
   });
+
+  it('classifies a large history in linear time (FU-64)', () => {
+    const samples = Array.from({ length: 20_000 }, (_, index) =>
+      sample(index + 1, 0.5 + ((index * 37) % 100) / 50),
+    );
+    const start = Date.now();
+    const classified = classifySamples(samples);
+    const elapsedMs = Date.now() - start;
+    expect(classified).toHaveLength(samples.length);
+    expect(groupCorrections(classified).get('all')?.sampleCount).toBe(samples.length);
+    // The previous leave-one-out loop compared every candidate with every
+    // other one (O(n^2)); this wide wall-clock budget only linear work meets.
+    expect(elapsedMs).toBeLessThan(2_000);
+  });
 });

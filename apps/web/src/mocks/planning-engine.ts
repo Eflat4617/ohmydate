@@ -128,6 +128,7 @@ export function buildScheduleInput(input: GenerationInput): ScheduleInput {
 export function candidateToDto(
   candidate: SchedulerCandidate,
   diversityNote?: string,
+  diversityNoteItems?: PlanCandidate['diversityNoteItems'],
 ): PlanCandidate {
   return {
     id: createUuidV7(),
@@ -144,6 +145,7 @@ export function candidateToDto(
     explanation: candidate.explanation,
     explanationItems: candidate.explanationItems,
     ...(diversityNote === undefined ? {} : { diversityNote }),
+    ...(diversityNoteItems === undefined ? {} : { diversityNoteItems }),
     generatorVersion: candidate.generatorVersion,
     inputHash: candidate.inputHash,
   };
@@ -161,7 +163,11 @@ export function generateCandidates(
   const result = generate(scheduleInput, { policies: [...policies] });
   return {
     candidates: result.candidates.map((candidate, index) =>
-      candidateToDto(candidate, index === 0 ? result.diversityNote : undefined),
+      candidateToDto(
+        candidate,
+        index === 0 ? result.diversityNote : undefined,
+        index === 0 ? result.diversityNoteItems : undefined,
+      ),
     ),
     diversityNote: result.diversityNote,
   };

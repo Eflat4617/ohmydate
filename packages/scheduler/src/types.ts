@@ -7,6 +7,7 @@
  */
 
 import type {
+  DiversityNoteItem,
   ExplanationItem,
   InputIssueParamMap,
   MessageCodeFields,
@@ -307,5 +308,10 @@ export interface GenerateOptions {
 
 export interface GenerateResult {
   candidates: PlanCandidate[];
+  /**
+   * FU-68: English note for logs/legacy clients, with one coded sentence per
+   * element in `diversityNoteItems` (same order, joined by a space).
+   */
   diversityNote?: string;
+  diversityNoteItems?: DiversityNoteItem[];
 }

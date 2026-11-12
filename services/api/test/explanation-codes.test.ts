@@ -60,13 +60,14 @@ describe('explanation persistence helpers (FU-62)', () => {
     expect(parseCandidateExplanation(JSON.parse(JSON.stringify(stored)))).toEqual({
       explanation: LINES,
       explanationItems: ITEMS,
+      diversityNoteItems: [],
     });
   });
 
   it('serializes legacy rows (lines only) with no items', () => {
-    expect(parseCandidateExplanation(LINES)).toEqual({ explanation: LINES, explanationItems: [] });
-    expect(parseCandidateExplanation([])).toEqual({ explanation: [], explanationItems: [] });
-    expect(parseCandidateExplanation(null)).toEqual({ explanation: [], explanationItems: [] });
+    expect(parseCandidateExplanation(LINES)).toEqual({ explanation: LINES, explanationItems: [], diversityNoteItems: [] });
+    expect(parseCandidateExplanation([])).toEqual({ explanation: [], explanationItems: [], diversityNoteItems: [] });
+    expect(parseCandidateExplanation(null)).toEqual({ explanation: [], explanationItems: [], diversityNoteItems: [] });
     expect(candidateExplanationJson(LINES, [])).toEqual(LINES);
     expect(parseExplanationItems(undefined, 2)).toEqual([]);
   });
@@ -79,7 +80,7 @@ describe('explanation persistence helpers (FU-62)', () => {
     const nested = [...LINES, { items: [ITEMS[0], { code: 'h7_deficit', params: { taskId: { id: TASK } } }] }];
     expect(parseCandidateExplanation(nested).explanationItems).toEqual([]);
     const short = [...LINES, { items: [ITEMS[0]] }];
-    expect(parseCandidateExplanation(short)).toEqual({ explanation: LINES, explanationItems: [] });
+    expect(parseCandidateExplanation(short)).toEqual({ explanation: LINES, explanationItems: [], diversityNoteItems: [] });
     const twoObjects = [...LINES, { items: [...ITEMS] }, { items: [...ITEMS] }];
     expect(parseCandidateExplanation(twoObjects).explanationItems).toEqual([]);
     expect(parseExplanationItems([{ code: 'h7_deficit', params: { shortMin: Number.NaN } }], 1)).toEqual([]);

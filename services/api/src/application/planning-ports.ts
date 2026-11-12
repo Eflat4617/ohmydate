@@ -6,6 +6,7 @@ import type {
   CommitmentListQuery,
   CommitmentPage,
   CommitmentPatch,
+  DiversityNoteItem,
   ExplanationItem,
   Plan,
   PlanBlock,
@@ -83,6 +84,8 @@ export interface NewCandidate {
   /** FU-62: `explanationItems[i]` codes `explanation[i]`. */
   readonly explanationItems: readonly ExplanationItem[];
   readonly diversityNote?: string | undefined;
+  /** FU-68: coded sentences of `diversityNote` (same order). */
+  readonly diversityNoteItems?: readonly DiversityNoteItem[] | undefined;
   readonly generatorVersion: string;
   readonly inputHash: string;
 }

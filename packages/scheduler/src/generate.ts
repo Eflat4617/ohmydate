@@ -26,7 +26,7 @@ import {
 import { POLICIES, POLICY_NAMES } from './policies.js';
 import { createPrng, type Prng } from './prng.js';
 import { canonicalJson, sha256Hex } from './hash.js';
-import { itemFromMessage, type ExplanationItem } from './codes.js';
+import { itemFromMessage, type DiversityNoteItem, type ExplanationItem } from './codes.js';
 
 export const GENERATOR_VERSION = 'm3-02.7';
 
@@ -259,21 +259,25 @@ export function generate(
     ),
   );
   const result = finalize(candidates);
-  const boundNotes = [
-    ...new Set(
-      candidates.flatMap((candidate) =>
-        candidate.explanation.filter((line) =>
-          line.startsWith(REPLAN_BOUND_PREFIX),
-        ),
-      ),
-    ),
-  ];
-  if (boundNotes.length > 0) {
-    const note = boundNotes.join(' ');
+  const boundLines = new Map<string, DiversityNoteItem>();
+  for (const candidate of candidates) {
+    candidate.explanation.forEach((line, index) => {
+      if (!line.startsWith(REPLAN_BOUND_PREFIX)) return;
+      const item = candidate.explanationItems[index];
+      if (item !== undefined) boundLines.set(line, item as DiversityNoteItem);
+    });
+  }
+  if (boundLines.size > 0) {
+    const note = [...boundLines.keys()].join(' ');
+    const boundItems = [...boundLines.values()];
     result.diversityNote =
       result.diversityNote === undefined
         ? note
         : `${result.diversityNote} ${note}`;
+    result.diversityNoteItems = [
+      ...(result.diversityNoteItems ?? []),
+      ...boundItems,
+    ];
   }
   return result;
 }
@@ -3789,12 +3793,21 @@ function finalize(candidates: PlanCandidate[]): GenerateResult {
     return {
       candidates: kept,
       diversityNote: `${kept.length} distinct plan(s) from ${candidates.length} policy candidate(s); ${dropped} candidate(s) dropped as too similar (distance < 0.15).`,
+      diversityNoteItems: [
+        {
+          code: 'diversity_dropped',
+          params: { kept: kept.length, total: candidates.length, dropped },
+        },
+      ],
     };
   }
   if (candidates.length > 1) {
     return {
       candidates: kept,
       diversityNote: `${kept.length} distinct plans from ${candidates.length} policy candidates (pairwise distance >= 0.15).`,
+      diversityNoteItems: [
+        { code: 'diversity_distinct', params: { total: candidates.length } },
+      ],
     };
   }
   return { candidates: kept };

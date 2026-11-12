@@ -31,6 +31,12 @@ import {
 
 const MAX_PROFILE_ITEMS = 2_000;
 const MAX_PROFILE_GROUPS = 200;
+/**
+ * FU-64: the estimator only ever classifies the newest feedback window. Every
+ * statistic is either a latest-per-task candidate or an item in the profile
+ * window, so rows older than this bound cannot change an in-window result.
+ */
+export const MAX_LEARNING_FEEDBACK_ROWS = 2_000;
 const PROFILE_METHOD = `${ESTIMATOR_VERSION}: ${ESTIMATION_PRIORS_VERSION} log-normal priors + shrinkage k=${SHRINKAGE_K}, |z|>${OUTLIER_Z_THRESHOLD} outliers`;
 
 export interface FeedbackRow {
