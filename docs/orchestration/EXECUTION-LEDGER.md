@@ -19,6 +19,7 @@
 | 2026-11-11 | ADR-001~015 Proposed | 13-ADR | orchestrator |
 | 2026-11-11 | 사용자 승인: GA-1, GM-1, GD-1 + 필요한 설치 전권 | 사용자 메시지 | user |
 | 2026-11-12 01:52 | M6-02 범위 확장 승인: pnpm-lock.yaml importer 항목만(apps/web → @ohmydate/ui-policy workspace, ui-policy → @sinclair/typebox 0.34.52 MIT, contracts와 동일 버전). 상대 경로 import 금지(경계) | msg_d79f1bd937cc | orchestrator |
+| 2026-11-12 11:16 | 메모리 부족(가용 4.3 GB, swap 3.7/4.1 GB, load 23): FU-81R·FU-56R 리뷰어가 동시에 전체 테스트 실행 중. FU-71 워커(구현 완료 8c845ff)에 ci/e2e 대기 지시 — 리뷰 하나가 끝나면 'rerun now' 전달. 다음부터 전체 suite 실행 세션을 2개 이하로 조정 | msg_fba7d97dc74b | orchestrator |
 | 2026-11-12 10:55 | 통합 E2E(FU-73·FU-77 병합 후) 30/30 pass. 시작: **FU-81**(Opus, ctx_ac7a425f26fc), **FU-71** 블록 잠금 API+UI(Opus, ctx_b6027c385bf0), **FU-64+68**(DeepSeek, ctx_d4e29fa54e02), **FU-56**(DeepSeek, ctx_4365cd35d15d). 리뷰는 §12(Fable; Fable 구현은 Opus) | packets/FU-81.md, FU-71.md, FU-64-68.md, FU-56.md | orchestrator |
 | 2026-11-12 10:45 | **FU-77 merged 02df284** (FU-77R2 APPROVE, Opus 리뷰) · **FU-73 merged 272802f** (FU-73R APPROVE, Fable 리뷰). ADR-016 개정(관계 쓰기 비동기 touch 기준선) orchestrator 작성. 통합 CI 2129 pass + web 499 + owner sweep 156, boundaries 0. 후속 FU-82, FU-83 | reviews/FU-77R2.md, FU-73R.md | orchestrator |
 | 2026-11-12 10:20 | **Sol 주간 한도 소진**(해제 2026-11-18 02:02). MODEL_BINDINGS §12 적용: FU-73R → **Fable 5.2 xhigh** 리뷰(ctx_65172dba464e, 구현 Opus), FU-77R2 → **Opus 5.5 xhigh** 리뷰(ctx_010b7e848bdf, 구현이 Fable이므로 계열 분리). 두 리뷰어에게 읽기 전용·판정 형식 안내 | worker-read | orchestrator |
