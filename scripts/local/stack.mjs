@@ -152,6 +152,16 @@ export async function checkMigrationsCurrent(databaseUrl) {
   }
 }
 
+/** Parse the migrate CLI's `Applied migrations: a.sql, b.sql` line. */
+export function appliedMigrationFiles(output) {
+  const match = /^Applied migrations: (.+)$/mu.exec(output);
+  if (match === null || match[1] === undefined) return [];
+  return match[1]
+    .split(',')
+    .map((filename) => filename.trim())
+    .filter((filename) => filename.length > 0);
+}
+
 export function ensureMigrations(databaseUrl) {
   const result = spawnSync(
     process.execPath,

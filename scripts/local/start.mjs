@@ -43,7 +43,12 @@ import {
   writePidRecord,
   PROCESS_MARKER_ENV,
 } from './pid.mjs';
-import { checkMigrationsCurrent, checkStack } from './stack.mjs';
+import {
+  appliedMigrationFiles,
+  checkMigrationsCurrent,
+  checkStack,
+  ensureMigrations,
+} from './stack.mjs';
 
 export const BUILD_OUTPUTS = {
   api: join(repoRoot, 'services/api/dist/main.js'),
@@ -181,6 +186,7 @@ export async function runPreflight(options = {}) {
   const checkStackFn = deps.checkStack ?? checkStack;
   const checkMigrationsFn = deps.checkMigrationsCurrent ?? checkMigrationsCurrent;
   const checkKeyFn = deps.checkLlmKeyFile ?? checkLlmKeyFile;
+  const applyMigrationsFn = deps.ensureMigrations;
 
   const missing = [];
   if (!fileExists(context.postgresEnvPath) && !fileExists(context.legacyStackEnvPath)) {
@@ -219,6 +225,21 @@ export async function runPreflight(options = {}) {
     };
   }
 
+  const notices = [];
+  if (applyMigrationsFn !== undefined) {
+    let output;
+    try {
+      output = await applyMigrationsFn(dbUrl);
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+    const applied = appliedMigrationFiles(typeof output === 'string' ? output : '');
+    // Filenames only: never the DB URL or password.
+    if (applied.length > 0) {
+      notices.push(`플래너 마이그레이션 적용: ${applied.join(', ')}`);
+    }
+  }
+
   const migrations = await checkMigrationsFn(dbUrl);
   if (!migrations.current) {
     return {
@@ -235,7 +256,7 @@ export async function runPreflight(options = {}) {
     if (key.warning !== null && key.warning !== undefined) warnings.push(key.warning);
   }
 
-  return { ok: true, databaseUrl: dbUrl, warnings };
+  return { ok: true, databaseUrl: dbUrl, warnings, notices };
 }
 
 async function rotateLogFile(logDir, name) {
@@ -454,8 +475,14 @@ export async function startLocal(options = {}) {
     // The preflight below reports the missing secret with a clear message.
   }
 
-  const preflight = await preflightFn({ context, env, fakeLlm });
+  const preflight = await preflightFn({
+    context,
+    env,
+    fakeLlm,
+    deps: { ensureMigrations: deps.ensureMigrations ?? ensureMigrations },
+  });
   if (!preflight.ok) throw new Error(preflight.message);
+  for (const notice of preflight.notices ?? []) log(notice);
   for (const warning of preflight.warnings) warn(warning);
 
   const llm = effectiveLlm(env, context.settings, fakeLlm);

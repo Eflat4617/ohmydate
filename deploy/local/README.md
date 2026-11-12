@@ -43,11 +43,16 @@ corepack pnpm local:start
 
 ```sh
 corepack pnpm local:status   # Korean summary: target, stack, migrations, secrets, key, token, API/web
-corepack pnpm local:start    # rebuild only when sources are newer (or --rebuild)
+corepack pnpm local:start    # apply pending migrations, rebuild only when sources are newer (or --rebuild)
+corepack pnpm local:migrate  # apply pending planner migrations only (idempotent)
 corepack pnpm local:stop     # SIGTERM then SIGKILL after 20 s; never touches docker
 corepack pnpm local:stack ps # container status
 corepack pnpm test:local     # local unit tests + dev-infra smoke
 ```
+
+`local:start` applies pending planner migrations automatically (after updates
+only `local:stop` + `local:start` are needed) and prints one Korean line with
+the applied filenames; `local:migrate` does just that step.
 
 `local:start --fake-llm` is for automated tests only (LLM_PROVIDER=fake,
 NODE_ENV=development). Re-running `local:setup` with the same email is a no-op
