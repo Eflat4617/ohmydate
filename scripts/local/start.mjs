@@ -15,6 +15,7 @@ import {
 import { chmod, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { URL } from 'node:url';
 import {
   childProcessEnv,
   createContext,
@@ -298,6 +299,29 @@ function webEnvironment(context, marker) {
   };
 }
 
+/** The web bundle bakes VITE_MOCK at build time; never inherit VITE_MOCK=1. */
+export function webBuildEnv(env = process.env) {
+  return { ...env, VITE_MOCK: '0' };
+}
+
+export function llmBaseHost(baseUrl) {
+  try {
+    return new URL(baseUrl).host || '(host 없음)';
+  } catch {
+    return '(잘못된 URL)';
+  }
+}
+
+/** Effective, non-secret LLM settings to print next to NODE_ENV. */
+export function effectiveLlm(env = process.env, settings = {}, fakeLlm = false) {
+  if (fakeLlm) return { provider: 'fake', baseHost: '(fake-llm)', model: '(fake-llm)' };
+  return {
+    provider: env.LLM_PROVIDER ?? settings.LLM_PROVIDER,
+    baseHost: llmBaseHost(env.LLM_BASE_URL ?? settings.LLM_BASE_URL ?? ''),
+    model: env.LLM_MODEL ?? settings.LLM_MODEL,
+  };
+}
+
 function lastLogLine(path) {
   try {
     const text = readFileSync(path, 'utf8').trimEnd();
@@ -308,7 +332,15 @@ function lastLogLine(path) {
   }
 }
 
-async function waitForHttpOrExit(url, pid, logPath, timeoutMs) {
+export const HEALTH_SETTLE_MS = 1_000;
+
+export async function waitForHttpOrExit(
+  url,
+  pid,
+  logPath,
+  timeoutMs,
+  settleMs = HEALTH_SETTLE_MS,
+) {
   const deadline = Date.now() + timeoutMs;
   let lastError = 'no response';
   while (Date.now() < deadline) {
@@ -319,9 +351,22 @@ async function waitForHttpOrExit(url, pid, logPath, timeoutMs) {
     }
     try {
       const response = await globalThis.fetch(url);
-      if (response.status === 200) return response;
+      if (response.status === 200) {
+        // A foreign listener can answer for us. Re-check our child after a
+        // short settle so an EADDRINUSE exit is never reported as ready.
+        if (pid !== null) {
+          await delay(settleMs);
+          if (!processAlive(pid)) {
+            throw new Error(
+              `프로세스가 응답 직후 종료되었습니다 (pid ${String(pid)}). 마지막 로그: ${lastLogLine(logPath)}`,
+            );
+          }
+        }
+        return response;
+      }
       lastError = `HTTP ${String(response.status)}`;
     } catch (error) {
+      if (error instanceof Error && error.message.startsWith('프로세스가')) throw error;
       lastError = error instanceof Error ? error.message : String(error);
     }
     await delay(200);
@@ -354,14 +399,22 @@ async function main() {
   const fakeLlm = flags.has('fake-llm');
   const forceRebuild = flags.has('rebuild');
 
+  // Print what will be probed before the preflight, so a stack-down error
+  // always names the target (FU-90 finding 8).
+  try {
+    log(describeTarget(context, databaseUrl(context, env)));
+  } catch {
+    // The preflight below reports the missing secret with a clear message.
+  }
+
   const preflight = await runPreflight({ context, env, fakeLlm });
   if (!preflight.ok) throw new Error(preflight.message);
   for (const warning of preflight.warnings) warn(warning);
 
-  log(describeTarget(context, preflight.databaseUrl));
+  const llm = effectiveLlm(env, context.settings, fakeLlm);
   log(
     `실행 모드: NODE_ENV=${fakeLlm ? 'development' : (env.NODE_ENV ?? context.settings.NODE_ENV ?? 'production')}, ` +
-      `LLM_PROVIDER=${fakeLlm ? 'fake' : (env.LLM_PROVIDER ?? context.settings.LLM_PROVIDER)}`,
+      `LLM_PROVIDER=${String(llm.provider)}, LLM_BASE_URL=${llm.baseHost}, LLM_MODEL=${String(llm.model)}`,
   );
 
   const apiState = await inspectProcess(context.runDir, 'api');
@@ -393,7 +446,7 @@ async function main() {
   }
   if (webStale) {
     log('웹 빌드 중...');
-    runPnpm(['--filter', '@ohmydate/web', 'build']);
+    runPnpm(['--filter', '@ohmydate/web', 'build'], { env: webBuildEnv(env) });
     await writeBuildStamp('web');
   }
 

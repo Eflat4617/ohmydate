@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
@@ -10,8 +10,10 @@ import {
   parseEnvText,
   parseFlags,
   readEnvFile,
+  repoRoot,
   STACK_DOWN_MESSAGE,
 } from './common.mjs';
+import { isValidTimeZone } from './prompt.mjs';
 
 const tempDirs = [];
 
@@ -130,5 +132,21 @@ describe('env and argv parsing', () => {
   test('stack-down message names the exact local:stack command', () => {
     expect(STACK_DOWN_MESSAGE).toContain('먼저 coordinator가 deploy/local 스택을 올려야 합니다');
     expect(STACK_DOWN_MESSAGE).toContain('corepack pnpm local:stack up');
+  });
+
+  test('zone validation uses the domain IANA set, not Intl leniency', () => {
+    for (const zone of ['Asia/Seoul', 'America/New_York', 'UTC', 'Etc/UTC']) {
+      expect(isValidTimeZone(zone)).toBe(true);
+    }
+    for (const zone of ['asia/seoul', '+09:00', 'EST', '', 'Mars/Olympus']) {
+      expect(isValidTimeZone(zone)).toBe(false);
+    }
+  });
+
+  test('local.env documents the split postgres.env / vikunja.env secret files', async () => {
+    const text = await readFile(join(repoRoot, 'deploy/local/local.env'), 'utf8');
+    expect(text).toContain('postgres.env');
+    expect(text).toContain('vikunja.env');
+    expect(text).not.toContain('stack.env');
   });
 });

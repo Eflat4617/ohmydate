@@ -101,7 +101,13 @@ test.skipIf(!enabled)(
       const setup = await runScript('setup.mjs', env);
       expect(setup.code, setup.stderr).toBe(0);
       expect(setup.stdout).toContain('대상: PostgreSQL');
-      expect(setup.stdout).not.toContain('test-password');
+      const dbPassword = decodeURIComponent(new URL(baseDatabaseUrl).password);
+      expect(setup.stdout).not.toContain(password);
+      expect(setup.stderr).not.toContain(password);
+      if (dbPassword.length > 0) {
+        expect(setup.stdout).not.toContain(dbPassword);
+        expect(setup.stderr).not.toContain(dbPassword);
+      }
 
       const start = await runScript('start.mjs', env, ['--fake-llm']);
       expect(start.code, start.stderr).toBe(0);

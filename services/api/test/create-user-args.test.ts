@@ -1,5 +1,8 @@
+import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
-import { parseCreateUserArgs } from '../src/cli/create-user.js';
+import { isCreateUserEntrypoint, parseCreateUserArgs } from '../src/cli/create-user.js';
+
+const exitCodeAfterImport = process.exitCode;
 
 describe('create-user argument parsing', () => {
   test('keeps the existing email-only behaviour', () => {
@@ -30,5 +33,13 @@ describe('create-user argument parsing', () => {
     );
     expect(() => parseCreateUserArgs(['a@example.com', '--nope'])).toThrow(/unknown option/u);
     expect(() => parseCreateUserArgs([])).toThrow(/usage/u);
+  });
+
+  test('importing the CLI module never executes main()', () => {
+    expect(exitCodeAfterImport).not.toBe(1);
+    expect(isCreateUserEntrypoint(fileURLToPath(import.meta.url))).toBe(false);
+    expect(
+      isCreateUserEntrypoint(fileURLToPath(new URL('../src/cli/create-user.ts', import.meta.url))),
+    ).toBe(true);
   });
 });

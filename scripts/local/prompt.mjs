@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Hidden-input prompts for the local setup. The password is never echoed or logged.
 import { createInterface } from 'node:readline/promises';
+import { isIanaTimeZone } from './time-zone.mjs';
 
 export const MIN_PASSWORD_LENGTH = 8;
 
@@ -15,13 +16,7 @@ export function isInteractive() {
 }
 
 export function isValidTimeZone(value) {
-  if (typeof value !== 'string' || value.length === 0) return false;
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
+  return isIanaTimeZone(value);
 }
 
 const LOCALE_PATTERN = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/u;

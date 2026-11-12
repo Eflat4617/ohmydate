@@ -19,8 +19,8 @@ async function tempDir() {
   return dir;
 }
 
-function runSetup(dir, extra = {}) {
-  return spawnSync(process.execPath, [join(repoRoot, 'scripts/local/setup.mjs')], {
+function runSetup(dir, extra = {}, args = []) {
+  return spawnSync(process.execPath, [join(repoRoot, 'scripts/local/setup.mjs'), ...args], {
     cwd: repoRoot,
     encoding: 'utf8',
     timeout: 30_000,
@@ -56,5 +56,29 @@ describe('setup CLI negatives', () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('8자 이상');
     expect(result.stderr).not.toContain('short');
+  });
+
+  test('an Intl-only zone spelling is refused before any side effect', async () => {
+    const dir = await tempDir();
+    const result = runSetup(dir, {}, ['--time-zone', 'asia/seoul']);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('시간대가 올바른 IANA 식별자가 아닙니다: asia/seoul');
+    expect(await readdir(dir).catch(() => [])).toEqual([]);
+  });
+
+  test('an invalid zone from the environment is refused before secrets init', async () => {
+    const dir = await tempDir();
+    const result = runSetup(dir, { OHMYDATE_LOCAL_TIME_ZONE: '+09:00' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('시간대가 올바른 IANA 식별자가 아닙니다: +09:00');
+    expect(await readdir(dir).catch(() => [])).toEqual([]);
+  });
+
+  test('an invalid locale is refused before any side effect', async () => {
+    const dir = await tempDir();
+    const result = runSetup(dir, {}, ['--locale', 'not a locale']);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('locale 형식이 올바르지 않습니다');
+    expect(await readdir(dir).catch(() => [])).toEqual([]);
   });
 });

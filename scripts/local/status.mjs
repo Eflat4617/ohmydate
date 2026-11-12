@@ -40,6 +40,30 @@ function readTokens(path) {
   }
 }
 
+/**
+ * The "DB locked out" warning is only meaningful when the files that hold the
+ * database password are gone while a stack/volume still exists. A missing
+ * token file is the normal first-run order and must stay quiet (FU-90
+ * finding 3).
+ */
+export function shouldWarnSecretsLost(context) {
+  const postgresLost =
+    !fileExists(context.postgresEnvPath) && !fileExists(context.legacyStackEnvPath);
+  return postgresLost && fileExists(context.stackStateFile);
+}
+
+export function describeKeyFile(path, mode) {
+  if (mode === null) return { failure: false, text: '있음 (권한 확인 불가)' };
+  const modeText = `mode ${mode.toString(8)}`;
+  if ((mode & 0o077) !== 0) {
+    return {
+      failure: true,
+      text: `있음 (${modeText}, start가 거부합니다 — chmod 600 ${path})`,
+    };
+  }
+  return { failure: false, text: `있음 (${modeText})` };
+}
+
 function readMetadata(path) {
   try {
     const parsed = readJsonObject(readFileSync(path, 'utf8'));
@@ -119,7 +143,7 @@ async function main() {
   } else {
     failures.push('secrets');
     log(` - 비밀 파일: 누락 (${missingSecrets.join(', ')})`);
-    if (fileExists(context.stackStateFile)) {
+    if (shouldWarnSecretsLost(context)) {
       warn(
         '비밀 디렉터리가 없지만 ohmydate-local 스택/볼륨이 존재합니다. ' +
           '비밀 디렉터리와 볼륨은 한 쌍이므로 함께 백업해야 하며, ' +
@@ -129,13 +153,9 @@ async function main() {
   }
 
   if (fileExists(context.keyFile)) {
-    const mode = fileMode(context.keyFile);
-    const modeText = mode === null ? '권한 확인 불가' : `mode ${mode.toString(8)}`;
-    if (mode !== null && (mode & 0o077) !== 0) {
-      log(` - LLM 키 파일: 있음 (${modeText}, chmod 600 권장)`);
-    } else {
-      log(` - LLM 키 파일: 있음 (${modeText})`);
-    }
+    const key = describeKeyFile(context.keyFile, fileMode(context.keyFile));
+    if (key.failure) failures.push('llm-key');
+    log(` - LLM 키 파일: ${key.text}`);
   } else {
     failures.push('llm-key');
     log(` - LLM 키 파일: 없음 (${context.keyFile})`);
