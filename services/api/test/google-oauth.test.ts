@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { GoogleIntegrationSchema } from '@ohmydate/contracts';
+import { sql } from 'kysely';
 import { decryptAtRest } from '../src/application/at-rest-crypto.js';
 import {
   GOOGLE_SCOPES,
@@ -13,6 +14,7 @@ import {
   ManualScheduler,
   TEST_REDIRECT_URI,
   TEST_WEB_ORIGIN,
+  allDayEvent,
   testGoogleSecrets,
   timedEvent,
 } from './support/google-fakes.js';
@@ -421,6 +423,145 @@ describe.skipIf(!hasDatabase)('Google OAuth connect / callback / disconnect (CAL
     });
     expect(bDelete.statusCode).toBe(409);
     expect((await status(sessionA)).body).toMatchObject({ status: 'connected' });
+  });
+
+  test('CAL-03F: if the grant cannot be stored, the callback still redirects with error and revokes it', async () => {
+    // The store is down for this owner's connection row (any write fails).
+    await sql
+      .raw(`alter table "${ctx.schema}".google_calendar_connection add constraint cal03f_store_down check (false) not valid`)
+      .execute(ctx.db);
+    const url = await connect(sessionA);
+    const result = await callback(sessionA, { code: 'auth-code-1', state: url.searchParams.get('state') ?? '' });
+    expect(result.status).toBe(302);
+    expect(result.location).toBe(`${TEST_WEB_ORIGIN}/settings/calendar?google=error`);
+    expect(google.callCount('exchangeCode')).toBe(1);
+    // The fresh grant does not stay live at Google with nothing here to revoke it later.
+    expect(google.revoked).toEqual([google.refreshToken]);
+    expect(manual.pending).toBe(0);
+    expect(await ctx.db.selectFrom('google_calendar_connection').selectAll().execute()).toEqual([]);
+    expect((await status(sessionA)).body).toMatchObject({ status: 'disconnected' });
+  });
+
+  test('CAL-03F: a successful connect revokes nothing', async () => {
+    await connected(sessionA);
+    expect(google.callCount('revoke')).toBe(0);
+  });
+
+  test('CAL-03F: a conditional GET never hides a newer sync status, and a sync does not invalidate If-Match', async () => {
+    await connected(sessionA);
+    expect((await sync(sessionA)).statusCode).toBe(200);
+    const first = await status(sessionA);
+    expect(first.body['lastError']).toBeNull();
+
+    // A background-style run changes only the sync bookkeeping (no version bump).
+    google.failingCalendars.set('primary@example.test', 'rejected');
+    ctx.clock.advance(60_000);
+    expect((await sync(sessionA)).statusCode).toBe(200);
+    const conditional = await ctx.app.inject({
+      method: 'GET',
+      url: BASE,
+      headers: authHeaders(sessionA, { 'if-none-match': first.etag }),
+    });
+    expect(conditional.statusCode).toBe(200);
+    expect(conditional.json()).toMatchObject({
+      status: 'connected',
+      lastError: 'google_rejected',
+      lastSyncAt: new Date(ctx.clock.now()).toISOString(),
+    });
+    expect(conditional.headers['etag']).toBe(first.etag);
+
+    // The ETag read before that sync is still the If-Match of a settings save.
+    const put = await ctx.app.inject({
+      method: 'PUT',
+      url: `${BASE}/settings`,
+      headers: authHeaders(sessionA, { 'if-match': first.etag, 'idempotency-key': newIdempotencyKey() }),
+      payload: {
+        selectedCalendarIds: (first.body['calendars'] as { id: string; selected: boolean }[])
+          .filter((calendar) => calendar.selected)
+          .map((calendar) => calendar.id),
+        settings: first.body['settings'],
+      },
+    });
+    expect(put.statusCode).toBe(200);
+
+    // Outside connected nothing changes without a version bump: 304 is answered again.
+    const removed = await ctx.app.inject({
+      method: 'DELETE',
+      url: BASE,
+      headers: authHeaders(sessionA, { 'if-match': put.headers['etag'] as string, 'idempotency-key': newIdempotencyKey() }),
+    });
+    expect(removed.statusCode).toBe(204);
+    const disconnected = await status(sessionA);
+    expect(disconnected.body['status']).toBe('disconnected');
+    const notModified = await ctx.app.inject({
+      method: 'GET',
+      url: BASE,
+      headers: authHeaders(sessionA, { 'if-none-match': disconnected.etag }),
+    });
+    expect(notModified.statusCode).toBe(304);
+  });
+
+  test('CAL-03F: a re-consent without the read scopes removes what was imported, once', async () => {
+    google.events.set('primary@example.test', [
+      timedEvent('evt1', '2026-01-02T10:00:00+09:00', '2026-01-02T11:00:00+09:00'),
+      allDayEvent('day1', '2026-01-03', '2026-01-04'),
+    ]);
+    await connected(sessionA);
+    expect((await sync(sessionA)).statusCode).toBe(200);
+    const liveImports = async () => ({
+      commitments: (
+        await ctx.db
+          .selectFrom('commitment_event')
+          .select('id')
+          .where('source', '=', 'google')
+          .where('deleted_at', 'is', null)
+          .execute()
+      ).length,
+      dayEvents: (
+        await ctx.db.selectFrom('calendar_day_event').select('id').where('deleted_at', 'is', null).execute()
+      ).length,
+    });
+    const availabilityVersion = async () =>
+      (
+        await ctx.db
+          .selectFrom('user_availability_version')
+          .select('version')
+          .where('owner_id', '=', ownerA as never)
+          .executeTakeFirst()
+      )?.version ?? 1;
+    expect(await liveImports()).toEqual({ commitments: 1, dayEvents: 1 });
+    const versionBefore = await availabilityVersion();
+
+    google.grantedScopes = [GOOGLE_SCOPE_APP_CREATED];
+    await connected(sessionA);
+    expect((await status(sessionA)).body).toMatchObject({ status: 'connected', importAvailable: false, exportAvailable: true });
+    const listedEvents = google.callCount('listEvents');
+    const first = await sync(sessionA);
+    expect(first.statusCode).toBe(200);
+    expect(first.body).toMatchObject({ imported: { created: 0, updated: 0, removed: 1, dayEvents: 1 } });
+    expect(await liveImports()).toEqual({ commitments: 0, dayEvents: 0 });
+    expect(await availabilityVersion()).toBe(versionBefore + 1);
+
+    // Once: the next run finds nothing left and changes nothing.
+    const second = await sync(sessionA);
+    expect(second.statusCode).toBe(200);
+    expect(second.body).toMatchObject({ imported: { created: 0, updated: 0, removed: 0, dayEvents: 0 } });
+    expect(await availabilityVersion()).toBe(versionBefore + 1);
+    expect(google.callCount('listEvents')).toBe(listedEvents);
+  });
+
+  test('CAL-03F: with the read scopes granted, a sync removes nothing that Google still lists', async () => {
+    google.events.set('primary@example.test', [
+      timedEvent('evt1', '2026-01-02T10:00:00+09:00', '2026-01-02T11:00:00+09:00'),
+    ]);
+    await connected(sessionA);
+    expect((await sync(sessionA)).statusCode).toBe(200);
+    await connected(sessionA);
+    const again = await sync(sessionA);
+    expect(again.body).toMatchObject({ imported: { created: 0, updated: 0, removed: 0 } });
+    expect(
+      await ctx.db.selectFrom('commitment_event').select('id').where('source', '=', 'google').where('deleted_at', 'is', null).execute(),
+    ).toHaveLength(1);
   });
 
   test('the background sync after connect is scheduled, not run inside the callback', async () => {

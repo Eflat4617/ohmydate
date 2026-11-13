@@ -2,6 +2,7 @@ import {
   GOOGLE_OAUTH_CALLBACK_PATH,
   integrationRoutes,
   type CalendarDayEventListQuery,
+  type GoogleCallbackResult,
   type GoogleDisconnectQuery,
   type GoogleIntegrationSettingsPut,
 } from '@ohmydate/contracts';
@@ -1723,9 +1724,16 @@ function buildGoogleHandlers(
     getGoogleIntegration: async (request, reply) => {
       const auth = currentAuth(request);
       const integration = await runtime.google.status(auth.userId);
+      // The ETag is the connection version: the If-Match of the settings PUT
+      // and of DELETE, which a background sync must not invalidate. While
+      // connected, a sync changes lastSyncAt / lastError (and calendar names)
+      // without a version bump, so the version cannot validate a cached copy:
+      // always 200 then. In every other state nothing changes without a bump.
       const etag = etagForVersion(integration.version);
       reply.header('Cache-Control', 'private, no-store');
-      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      if (integration.status !== 'connected' && ifNoneMatch(request, etag)) {
+        return reply.code(304).header('ETag', etag).send();
+      }
       return reply.code(200).header('ETag', etag).send(integration);
     },
     connectGoogleIntegration: async (request, reply) =>
@@ -1814,12 +1822,18 @@ function registerGoogleRoutes(app: FastifyInstance, runtime: RouteRuntime): void
     } catch {
       sessionOwnerId = null;
     }
-    const result = await runtime.google.handleCallback({
-      sessionOwnerId,
-      code: text(query['code']),
-      state: text(query['state']),
-      error: text(query['error']),
-    });
+    let result: GoogleCallbackResult;
+    try {
+      result = await runtime.google.handleCallback({
+        sessionOwnerId,
+        code: text(query['code']),
+        state: text(query['state']),
+        error: text(query['error']),
+      });
+    } catch {
+      // The browser always lands on the fixed settings path, never a problem body.
+      result = 'error';
+    }
     return reply
       .code(302)
       .header('Location', runtime.google.redirectLocation(result))

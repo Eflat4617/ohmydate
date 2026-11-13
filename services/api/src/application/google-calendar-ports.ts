@@ -283,7 +283,7 @@ export interface ExportSource {
     readonly endAt: Instant;
     readonly status: string;
   }[];
-  /** Live, non-google commitments overlapping the window or repeating. */
+  /** Live manual 약속 overlapping the window or repeating (never google/caldav/vikunja). */
   readonly commitments: readonly {
     readonly id: Id;
     readonly title: string;
@@ -322,6 +322,11 @@ export interface GoogleCalendarStore {
     input: { readonly selectedCalendarIds: readonly Id[]; readonly settings: GoogleIntegrationSettings },
     now: Instant,
   ): Promise<GoogleConnectionRecord>;
+  /**
+   * Store (or clear) the "OhMyDate" calendar id (version +1). In the same
+   * transaction every export mapping is dropped: they belong to the previous
+   * calendar, if any.
+   */
   setExportCalendar(ownerId: Id, calendarId: string | null, now: Instant): Promise<void>;
   /**
    * Disconnect in one transaction: token, scopes, export calendar id and the
@@ -353,6 +358,15 @@ export interface GoogleCalendarStore {
     readonly commitments: number;
     readonly dayEvents: number;
   }>;
+  /**
+   * Import is no longer granted: soft-delete every imported 약속 and day event
+   * (the disconnect path; availability_version +1 when a 약속 went). Changes
+   * nothing once they are gone.
+   */
+  removeAllImports(ownerId: Id, now: Instant): Promise<{
+    readonly commitments: number;
+    readonly dayEvents: number;
+  }>;
   listImportedDayEvents(ownerId: Id, calendarId: string): Promise<readonly ImportedDayEventRow[]>;
   applyDayEventChanges(
     ownerId: Id,
@@ -374,5 +388,4 @@ export interface GoogleCalendarStore {
     now: Instant,
   ): Promise<void>;
   deleteMapping(ownerId: Id, kind: ExportLocalKind, localKey: string): Promise<void>;
-  deleteAllMappings(ownerId: Id): Promise<void>;
 }

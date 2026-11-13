@@ -421,6 +421,54 @@ describe.skipIf(!hasDatabase)('Google import through the API (CAL-03)', () => {
     expect((await liveGoogleCommitments(ownerA)).map((row) => row.external_event_id)).toEqual(['p']);
   });
 
+  test('CAL-03F: an empty calendar list is a failed step: nothing is replaced or removed', async () => {
+    google.calendars.push({ id: 'second@example.test', summary: 'second', accessRole: 'owner' });
+    google.events.set(PRIMARY, [
+      timedEvent('p', '2026-01-02T10:00:00Z', '2026-01-02T11:00:00Z'),
+      allDayEvent('d', '2026-01-05', '2026-01-06'),
+    ]);
+    expect((await sync()).imported).toMatchObject({ created: 1, dayEvents: 1 });
+    const calendarRows = () =>
+      ctx.db
+        .selectFrom('google_calendar')
+        .select(['id', 'google_calendar_id', 'selected', 'version'])
+        .where('owner_id', '=', ownerA)
+        .orderBy('google_calendar_id')
+        .execute();
+    const liveDayEvents = () =>
+      ctx.db.selectFrom('calendar_day_event').select(['id', 'version']).where('owner_id', '=', ownerA).where('deleted_at', 'is', null).execute();
+    const calendarsBefore = await calendarRows();
+    expect(calendarsBefore).toHaveLength(2);
+    const commitmentsBefore = await liveGoogleCommitments(ownerA);
+    const dayEventsBefore = await liveDayEvents();
+    const versionBefore = await availabilityVersion(ownerA);
+    const statusBefore = await ctx.app.inject({ method: 'GET', url: '/api/v1/integrations/google', headers: authHeaders(sessionA) });
+
+    // Google answers 200 with no calendar at all (an account always has its primary one).
+    const listed = google.calendars;
+    google.calendars = [];
+    const result = await sync();
+    expect(result.imported).toEqual({ created: 0, updated: 0, removed: 0, dayEvents: 0 });
+    expect(await calendarRows()).toEqual(calendarsBefore);
+    expect(await liveGoogleCommitments(ownerA)).toEqual(commitmentsBefore);
+    expect(await liveDayEvents()).toEqual(dayEventsBefore);
+    expect(await availabilityVersion(ownerA)).toBe(versionBefore);
+    expect(google.callCount('listEvents')).toBe(2);
+    const status = await ctx.app.inject({ method: 'GET', url: '/api/v1/integrations/google', headers: authHeaders(sessionA) });
+    expect(status.json()).toMatchObject({
+      status: 'connected',
+      lastError: 'google_rejected',
+      calendars: (statusBefore.json() as { calendars: unknown[] }).calendars,
+      version: (statusBefore.json() as { version: number }).version,
+    });
+
+    // The next good listing imports as before.
+    google.calendars = listed;
+    expect((await sync()).imported).toEqual({ created: 0, updated: 0, removed: 0, dayEvents: 0 });
+    const fresh = await ctx.app.inject({ method: 'GET', url: '/api/v1/integrations/google', headers: authHeaders(sessionA) });
+    expect(fresh.json()).toMatchObject({ lastError: null });
+  });
+
   test('clients cannot create a google 약속 nor edit or delete an imported one', async () => {
     google.events.set(PRIMARY, [timedEvent('locked', '2026-01-02T10:00:00Z', '2026-01-02T11:00:00Z')]);
     await sync();

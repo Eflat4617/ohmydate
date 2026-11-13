@@ -70,6 +70,8 @@ const MAX_CALENDAR_PAGES = 4;
 const DEFAULT_MAX_EXPORT_WRITES = 300;
 const MAX_TITLE_LOOKUPS = 200;
 const DISCONNECT_GOOGLE_BOUND_MS = 15_000;
+/** Best-effort revoke of a grant the callback could not store (bounds the redirect). */
+const CALLBACK_REVOKE_BOUND_MS = 5_000;
 
 export interface GoogleOAuthConfig {
   readonly clientId: string;
@@ -129,8 +131,14 @@ interface SyncCounts {
 
 type RunMode = 'full' | 'export';
 
+/**
+ * `done`: Google was reachable for the whole run (parts Google refused are in
+ * lastError) and lastSyncAt moved. `failed`: offline, 5xx, rate limited or the
+ * run deadline stopped it; only lastError was recorded.
+ */
 type RunOutcome =
-  | { readonly kind: 'done'; readonly counts: SyncCounts; readonly lastSyncAt: Instant; readonly blocked: GoogleSyncErrorCode | null }
+  | { readonly kind: 'done'; readonly counts: SyncCounts; readonly lastSyncAt: Instant }
+  | { readonly kind: 'failed'; readonly code: GoogleSyncErrorCode }
   | { readonly kind: 'skipped' }
   | { readonly kind: 'auth_revoked' }
   | { readonly kind: 'cancelled' };
@@ -301,14 +309,17 @@ export class GoogleCalendarService implements GoogleIntegrationService {
   async handleCallback(input: GoogleCallbackInput): Promise<GoogleCallbackResult> {
     const result = await this.#callback(input);
     if (result.outcome !== 'connected') {
-      this.#options.logger?.warn('google oauth callback rejected', { reason: result.reason });
+      this.#options.logger?.warn('google oauth callback rejected', {
+        reason: result.reason,
+        ...(result.revoke === undefined ? {} : { revoke: result.revoke }),
+      });
     }
     return result.outcome;
   }
 
   async #callback(
     input: GoogleCallbackInput,
-  ): Promise<{ readonly outcome: GoogleCallbackResult; readonly reason?: string }> {
+  ): Promise<{ readonly outcome: GoogleCallbackResult; readonly reason?: string; readonly revoke?: string }> {
     const nowMs = Date.parse(this.#clock.now());
     if (input.state === undefined) return { outcome: 'error', reason: 'state_missing' };
     const key = sha256(input.state);
@@ -346,21 +357,39 @@ export class GoogleCalendarService implements GoogleIntegrationService {
     const ownerId = pending.ownerId;
     const key32 = this.#options.oauthConfig.tokenKey;
     const scopes = (tokens.scopes ?? []).filter((scope) => (GOOGLE_SCOPES as readonly string[]).includes(scope));
-    await this.#store.saveGrant(
-      ownerId,
-      {
-        ciphertext: encryptAtRest(tokens.refreshToken, key32.key, tokenAad(ownerId, key32.keyId)),
-        keyId: key32.keyId,
-        scopes,
-      },
-      this.#clock.now(),
-    );
+    try {
+      await this.#store.saveGrant(
+        ownerId,
+        {
+          ciphertext: encryptAtRest(tokens.refreshToken, key32.key, tokenAad(ownerId, key32.keyId)),
+          keyId: key32.keyId,
+          scopes,
+        },
+        this.#clock.now(),
+      );
+    } catch {
+      // Not stored: the fixed redirect still answers, and the fresh grant must
+      // not stay live at Google with nothing here that could ever revoke it.
+      return { outcome: 'error', reason: 'store_failed', revoke: await this.#revokeUnstored(tokens.refreshToken) };
+    }
     this.#tokens.set(ownerId, {
       token: tokens.accessToken,
       expiresAtMs: nowMs + tokens.expiresInSec * 1_000,
     });
     this.#schedule(ownerId, 'full', 0);
     return { outcome: 'connected' };
+  }
+
+  /** Best effort, bounded; returns a closed step label for the log line. */
+  async #revokeUnstored(refreshToken: string): Promise<string> {
+    try {
+      await this.#options.oauth.revoke(refreshToken, {
+        signal: this.#withShutdown(AbortSignal.timeout(CALLBACK_REVOKE_BOUND_MS)),
+      });
+      return 'revoked';
+    } catch (error) {
+      return `failed_${error instanceof GoogleApiError ? error.kind : 'internal'}`;
+    }
   }
 
   #prunePending(nowMs: number): void {
@@ -450,8 +479,9 @@ export class GoogleCalendarService implements GoogleIntegrationService {
       case 'skipped':
       case 'cancelled':
         throw googleStateConflict('Google Calendar is not connected');
+      case 'failed':
+        throw new ProviderUnavailableError('google', outcome.code);
       case 'done':
-        if (outcome.blocked !== null) throw new ProviderUnavailableError('google', outcome.blocked);
         return { ...outcome.counts, lastSyncAt: outcome.lastSyncAt };
     }
   }
@@ -572,16 +602,32 @@ export class GoogleCalendarService implements GoogleIntegrationService {
         state.blocked ??= code;
       }
     };
+    const importOn = importAvailableFor(connection.grantedScopes);
     try {
+      if (mode === 'full' && !importOn) {
+        // A re-consent without the read scopes: rows imported earlier would
+        // stay live, read-only and never refreshed, blocking time. Remove them
+        // like disconnect does; once they are gone this changes nothing.
+        const removed = await this.#store.removeAllImports(ownerId, this.#clock.now());
+        counts.imported.removed += removed.commitments;
+        counts.imported.dayEvents += removed.dayEvents;
+      }
       let accessToken: string;
       try {
         accessToken = await this.#accessToken(ownerId, connection, signal);
       } catch (error) {
-        if (error instanceof GoogleApiError && error.kind === 'auth_revoked') return { kind: 'auth_revoked' };
-        throw error;
+        if (controller.signal.aborted) return { kind: 'cancelled' };
+        if (this.#isRevoked(ownerId, error)) return { kind: 'auth_revoked' };
+        // Offline, 5xx, rate limited or the deadline while refreshing: nothing
+        // can run without an access token, so the run failed. The stored grant
+        // is kept; the next run refreshes again.
+        const code = codeOf(error);
+        note(code);
+        state.blocked ??= code;
+        return await this.#finishRun(ownerId, mode, counts, state);
       }
       const profile = await this.#store.ownerProfile(ownerId);
-      if (mode === 'full' && importAvailableFor(connection.grantedScopes)) {
+      if (mode === 'full' && importOn) {
         try {
           await this.#import(ownerId, connection, accessToken, profile, signal, counts, note);
         } catch (error) {
@@ -600,16 +646,36 @@ export class GoogleCalendarService implements GoogleIntegrationService {
         }
       }
       if (controller.signal.aborted) return { kind: 'cancelled' };
-      const now = this.#clock.now();
-      if (mode === 'full') {
-        await this.#store.recordSync(ownerId, { lastSyncAt: now, lastError: state.lastError }, now);
-      } else if (state.lastError !== null) {
-        await this.#store.recordSync(ownerId, { lastError: state.lastError }, now);
-      }
-      return { kind: 'done', counts, lastSyncAt: now, blocked: state.blocked };
+      return await this.#finishRun(ownerId, mode, counts, state);
     } finally {
       if (this.#running.get(ownerId) === controller) this.#running.delete(ownerId);
     }
+  }
+
+  /**
+   * lastSyncAt means "the last full sync that completed": Google was reachable
+   * for the whole run (a calendar or an event Google refused is reported in
+   * lastError but does not stop it). A failed run (offline, 5xx, rate limited,
+   * run deadline) leaves lastSyncAt as it was and only records lastError.
+   */
+  async #finishRun(
+    ownerId: Id,
+    mode: RunMode,
+    counts: SyncCounts,
+    state: { readonly lastError: GoogleSyncErrorCode | null; readonly blocked: GoogleSyncErrorCode | null },
+  ): Promise<RunOutcome> {
+    const now = this.#clock.now();
+    if (state.blocked !== null) {
+      // The code that stopped the run, matching the 503 detail.
+      await this.#store.recordSync(ownerId, { lastError: state.blocked }, now);
+      return { kind: 'failed', code: state.blocked };
+    }
+    if (mode === 'full') {
+      await this.#store.recordSync(ownerId, { lastSyncAt: now, lastError: state.lastError }, now);
+    } else if (state.lastError !== null) {
+      await this.#store.recordSync(ownerId, { lastError: state.lastError }, now);
+    }
+    return { kind: 'done', counts, lastSyncAt: now };
   }
 
   #isRevoked(ownerId: Id, error: unknown): boolean {
@@ -682,6 +748,12 @@ export class GoogleCalendarService implements GoogleIntegrationService {
       // A partial calendar list could unlist (and un-import) real calendars.
       note('too_many_events');
       return;
+    }
+    if (listed.length === 0) {
+      // A Google account always lists at least its primary calendar: an empty
+      // or item-less answer is not "no calendars". Replacing the list with it
+      // would unselect everything and remove every imported row.
+      throw new GoogleApiError('calendarList.list', 'rejected', 200, 'empty_calendar_list');
     }
     const entries: ListedCalendar[] = [];
     for (const entry of listed) {
@@ -795,13 +867,16 @@ export class GoogleCalendarService implements GoogleIntegrationService {
     let calendarId = connection.exportCalendarId;
     if (calendarId === null) {
       if (!anything) return;
+      // calendars.insert is not idempotent: one attempt (the adapter does not
+      // retry it), a failure fails this export step and the next run tries
+      // again. The returned id is stored right away, in one write that also
+      // drops any mapping of an older calendar.
       const created = await this.#options.calendar.insertCalendar(
         accessToken,
         { summary: EXPORT_CALENDAR_NAME, timeZone: profile.timeZone },
         { signal },
       );
       calendarId = created.id;
-      await this.#store.deleteAllMappings(ownerId);
       await this.#store.setExportCalendar(ownerId, calendarId, this.#clock.now());
     }
     const nowMs = Date.parse(this.#clock.now());
@@ -932,7 +1007,6 @@ export class GoogleCalendarService implements GoogleIntegrationService {
 
   async #forgetExportCalendar(ownerId: Id): Promise<void> {
     // The user deleted the "OhMyDate" calendar in Google: start over next run.
-    await this.#store.deleteAllMappings(ownerId);
     await this.#store.setExportCalendar(ownerId, null, this.#clock.now());
   }
 

@@ -221,6 +221,60 @@ describe('GoogleHttpClient Calendar API', () => {
     expect(requests).toHaveLength(1);
   });
 
+  test('CAL-03F: calendars.insert is attempted once, also on 429 and 5xx (a retry could make a second calendar)', async () => {
+    for (const [status, kind] of [
+      [503, 'unavailable'],
+      [500, 'unavailable'],
+      [429, 'rate_limited'],
+    ] as const) {
+      requests = [];
+      handler = (_request, response) => json(response, status, { error: { code: status } });
+      const { http, sleeps } = client({ maxAttempts: 3 });
+      const error = await http
+        .insertCalendar('t', { summary: 'OhMyDate', timeZone: 'Asia/Seoul' })
+        .catch((caught: unknown) => caught);
+      expect({ status, kind: (error as GoogleApiError).kind, requests: requests.length, sleeps }).toEqual({
+        status,
+        kind,
+        requests: 1,
+        sleeps: [],
+      });
+    }
+  });
+
+  test('CAL-03F: other calls still retry 5xx (single attempt is only for calendars.insert)', async () => {
+    let calls = 0;
+    handler = (_request, response) => {
+      calls += 1;
+      if (calls === 1) json(response, 503, { error: { code: 503 } });
+      else json(response, 200, { id: 'bfixed' });
+    };
+    const { http } = client({ maxAttempts: 3 });
+    await expect(
+      http.patchEvent('t', 'cal', 'bfixed', {
+        summary: 'x',
+        start: { dateTime: '2026-01-02T01:00:00.000Z', timeZone: 'UTC' },
+        end: { dateTime: '2026-01-02T02:00:00.000Z', timeZone: 'UTC' },
+        reminders: { useDefault: false, overrides: [] },
+        transparency: 'opaque',
+      }),
+    ).resolves.toEqual({ id: 'bfixed' });
+    expect(requests).toHaveLength(2);
+  });
+
+  test('CAL-03F: a list whose items is not an array is malformed; an absent list is an empty page', async () => {
+    handler = (_request, response) => json(response, 200, { items: { id: 'primary' } });
+    const { http } = client();
+    await expect(http.listCalendars('t', undefined)).rejects.toMatchObject({
+      kind: 'rejected',
+      reason: 'malformed_response',
+    });
+    handler = (_request, response) => json(response, 200, {});
+    await expect(
+      http.listEvents('t', 'cal', { timeMin: '2026-01-01T00:00:00.000Z', timeMax: '2026-02-01T00:00:00.000Z' }),
+    ).resolves.toEqual({ items: [] });
+  });
+
   test('events.insert sends the deterministic id and the reminder overrides as JSON', async () => {
     handler = (_request, response) => json(response, 200, { id: 'babc' });
     const { http } = client();

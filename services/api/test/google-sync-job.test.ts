@@ -214,6 +214,119 @@ describe.skipIf(!hasDatabase)('Google sync runs (CAL-03)', () => {
     expect(status.json()).toMatchObject({ status: 'connected', lastError: 'run_deadline' });
   });
 
+  async function syncNow(session: TestSession) {
+    return ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/integrations/google:sync',
+      headers: authHeaders(session, { 'idempotency-key': newIdempotencyKey() }),
+    });
+  }
+
+  async function statusOf(session: TestSession): Promise<Record<string, unknown>> {
+    const response = await ctx.app.inject({
+      method: 'GET',
+      url: '/api/v1/integrations/google',
+      headers: authHeaders(session),
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json() as Record<string, unknown>;
+  }
+
+  function connectionRow(ownerId: Id) {
+    return ctx.db
+      .selectFrom('google_calendar_connection')
+      .select(['status', 'last_sync_at', 'last_error', 'refresh_token_ciphertext', 'token_key_id', 'version'])
+      .where('owner_id', '=', ownerId)
+      .executeTakeFirstOrThrow();
+  }
+
+  test('CAL-03F: a token refresh failing without invalid_grant ends the run cleanly: 503, lastError, grant kept', async () => {
+    await setup();
+    const owner = await connect('refresh-down@example.com');
+    expect((await syncNow(owner.session)).statusCode).toBe(200);
+    const before = await connectionRow(owner.id);
+    const lastSyncAt = (await statusOf(owner.session))['lastSyncAt'];
+    expect(lastSyncAt).not.toBeNull();
+    const listed = google.callCount('listCalendars');
+    // The access token from the code exchange has expired: every run must refresh first.
+    ctx.clock.advance(2 * 60 * 60_000);
+
+    for (const [failure, code] of [
+      ['unavailable', 'google_unavailable'],
+      ['rate_limited', 'rate_limited'],
+    ] as const) {
+      google.refreshFails = failure;
+      const response = await syncNow(owner.session);
+      expect({ failure, status: response.statusCode }).toEqual({ failure, status: 503 });
+      expect(response.json()).toMatchObject({ code: 'provider_unavailable' });
+      expect(await statusOf(owner.session)).toMatchObject({ status: 'connected', lastError: code, lastSyncAt });
+      const row = await connectionRow(owner.id);
+      expect(row.status).toBe('connected');
+      expect(row.refresh_token_ciphertext).toEqual(before.refresh_token_ciphertext);
+      expect(row.token_key_id).toBe(before.token_key_id);
+      expect(row.version).toBe(before.version);
+    }
+    // Nothing ran without an access token.
+    expect(google.callCount('listCalendars')).toBe(listed);
+
+    google.refreshFails = null;
+    expect((await syncNow(owner.session)).statusCode).toBe(200);
+    expect(await statusOf(owner.session)).toMatchObject({
+      status: 'connected',
+      lastError: null,
+      lastSyncAt: new Date(ctx.clock.now()).toISOString(),
+    });
+  });
+
+  test('CAL-03F: a scheduled run whose token refresh fails records lastError and keeps lastSyncAt', async () => {
+    let tick: () => void = () => undefined;
+    await setup({
+      jobScheduler: (callback) => {
+        tick = callback;
+        return { stop: () => undefined };
+      },
+    });
+    const owner = await connect('refresh-tick@example.com');
+    expect((await syncNow(owner.session)).statusCode).toBe(200);
+    const before = await connectionRow(owner.id);
+    expect(before.last_sync_at).not.toBeNull();
+    ctx.clock.advance(2 * 60 * 60_000);
+    google.refreshFails = 'unavailable';
+
+    tick();
+    await vi.waitFor(
+      async () => {
+        const row = await connectionRow(owner.id);
+        expect(row).toMatchObject({ status: 'connected', last_error: 'google_unavailable' });
+        expect(row.last_sync_at).toEqual(before.last_sync_at);
+        expect(row.refresh_token_ciphertext).toEqual(before.refresh_token_ciphertext);
+      },
+      { timeout: 10_000 },
+    );
+  });
+
+  test('CAL-03F: a run stopped by the deadline keeps lastSyncAt; a completed run with a refused calendar moves it', async () => {
+    await setup({ runBoundMs: 1_500 });
+    const owner = await connect('deadline-keep@example.com');
+    expect((await syncNow(owner.session)).statusCode).toBe(200);
+    const first = (await statusOf(owner.session))['lastSyncAt'];
+    expect(first).toBe(new Date(ctx.clock.now()).toISOString());
+
+    ctx.clock.advance(10 * 60_000);
+    google.hang = true;
+    expect((await syncNow(owner.session)).statusCode).toBe(503);
+    expect(await statusOf(owner.session)).toMatchObject({ lastError: 'run_deadline', lastSyncAt: first });
+
+    google.hang = false;
+    google.failingCalendars.set('primary@example.test', 'rejected');
+    ctx.clock.advance(60_000);
+    const completed = await syncNow(owner.session);
+    expect(completed.statusCode).toBe(200);
+    const now = new Date(ctx.clock.now()).toISOString();
+    expect(completed.json()).toMatchObject({ lastSyncAt: now });
+    expect(await statusOf(owner.session)).toMatchObject({ lastError: 'google_rejected', lastSyncAt: now });
+  });
+
   test('shutdown aborts a running sync and closes cleanly', async () => {
     await setup();
     const owner = await connect('shutdown@example.com');
