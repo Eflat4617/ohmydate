@@ -26,6 +26,7 @@ REPORT (body)
 - tests: command -> exit code -> key output lines
 
 SPEED RULE: do NOT run the full `pnpm run ci` or the full `pnpm run e2e`; run the commands under "Exact tests". The coordinator runs the full suites on the batched merge.
+MEMORY RULE: this laptop has 15 GB and other workers are running. Run ONE test command at a time, never two suites in parallel, and prefer the files you touched over whole-package runs until the final pass.
 Never type `pnpm ci` (pnpm 12: that is a clean reinstall). Use `corepack pnpm …`.
 
 ALLOWED PATHS: `apps/web/**` (do not hand-edit `apps/web/src/api/schema.d.ts`; if it is stale against the contracts, regenerate it with the repo script and say so), `e2e/tests/e2e-a11y-screens.spec.ts` (add the new screen; never weaken an assertion), `docs/user/**` (only to make the in-app wording and the guide agree). The server is done: if a route or field you need is missing or behaves differently from the contract, `orca orchestration ask` — do not change `packages/**` or `services/**`.
