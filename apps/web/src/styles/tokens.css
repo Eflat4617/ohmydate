@@ -1,84 +1,120 @@
 /*
  * OhMyDate design tokens: the only place a raw colour or font name lives.
- * The world is a ten-minute study planner page: cool white paper, a ruled
- * cyan-grey grid, pen-black ink, highlighter fills and two coloured pens.
- * Every text and edge pair is checked against WCAG 2.2 AA in both schemes
- * (see DESIGN.md).
+ * The world is a dark, calm dashboard: a near-black ground with a faint green
+ * cast, large quiet cards, off-white text, and one lime signal.
+ *
+ * Two schemes share every token name. Dark is the default (`:root`); light is
+ * `:root[data-scheme='light']`. `data-theme` on the root is what the user chose
+ * (dark | light | system) and `data-scheme` is what is shown (dark | light);
+ * src/theme/theme.ts keeps both, so a stylesheet never reads
+ * `prefers-color-scheme` itself.
+ *
+ * Every text, tag, chart and focus pair is checked against WCAG 2.2 AA in both
+ * schemes (the table in DESIGN.md is computed from this file).
  */
+@font-face {
+  font-family: 'Pretendard Variable';
+  font-style: normal;
+  font-weight: 45 920;
+  font-display: swap;
+  src: url('../assets/fonts/PretendardVariable.woff2') format('woff2-variations');
+}
+
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
 
-  /* ── Paper and grid ─────────────────────────────────────────────── */
-  --color-paper: oklch(99% 0.004 215);
-  --color-paper-2: oklch(96.8% 0.007 215); /* well, hover */
-  --color-paper-3: oklch(94% 0.011 215); /* pressed, pencil shade */
-  --color-raised: var(--color-paper); /* dialogs and menus */
-  --color-rule: oklch(86% 0.02 215); /* grid hairline */
-  --color-rule-2: oklch(92.5% 0.012 215); /* minor grid: ten-minute cells */
-  --color-edge: oklch(56% 0.024 235); /* control edges, 4.5:1 on paper */
+  /* ── Surfaces ───────────────────────────────────────────────────── */
+  --color-ground: oklch(14% 0.008 150); /* the page */
+  --color-surface: oklch(17.5% 0.009 150); /* a card */
+  --color-raised: oklch(21.5% 0.011 150); /* dialog, sheet, menu, toast */
+  --color-inset: oklch(11.5% 0.006 150); /* a well inside a card; fields */
+  --color-fill: oklch(23.5% 0.011 150); /* neutral chip, hover ground, skeleton */
+  --color-fill-2: oklch(28% 0.012 150); /* pressed, the stronger neutral */
+  --color-hover: oklch(96% 0.005 150 / 6%); /* laid over any surface */
+  --color-press: oklch(96% 0.005 150 / 11%);
+  --color-overlay: oklch(6% 0.008 150 / 68%); /* scrim under a dialog */
 
-  /* ── Ink ────────────────────────────────────────────────────────── */
-  --color-ink: oklch(21% 0.012 255); /* heads, rules, the filled control */
-  --color-ink-2: oklch(30% 0.014 255); /* running text */
-  --color-muted: oklch(46% 0.022 240);
-  --color-on-ink: oklch(99% 0.004 215);
-  --color-overlay: oklch(21% 0.012 255 / 45%);
+  /* ── Lines ──────────────────────────────────────────────────────── */
+  --color-line: oklch(96% 0.005 150 / 9%); /* hairline: card edge, row rule */
+  --color-line-strong: oklch(96% 0.005 150 / 17%); /* button edge, divider that must read */
+  --color-edge: oklch(52% 0.012 150); /* a control's boundary, 3:1 on every surface */
 
-  /* ── Highlighters: fills only. Text on them is always --color-on-hl. */
-  --hl-yellow: oklch(91% 0.175 100);
-  --hl-mint: oklch(84% 0.105 170);
-  --hl-pink: oklch(79% 0.125 0);
-  --hl-sky: oklch(84% 0.085 235);
-  --hl-lilac: oklch(81% 0.095 295);
-  --hl-orange: oklch(83% 0.125 65);
-  --color-on-hl: oklch(21% 0.012 255);
-  --color-on-hl-muted: oklch(33% 0.02 250);
-  --color-hl-paper: oklch(99% 0.004 215); /* text on an ink fill laid over highlighter */
+  /* ── Text ───────────────────────────────────────────────────────── */
+  --color-text: oklch(96% 0.005 150); /* headings, numerals, values */
+  --color-text-2: oklch(83% 0.008 150); /* running text */
+  --color-text-3: oklch(69% 0.01 150); /* labels, captions, placeholders */
 
-  /* ── Pens ───────────────────────────────────────────────────────── */
-  --pen-red: oklch(50% 0.2 25);
-  --pen-red-2: oklch(43% 0.18 25);
-  --pen-blue: oklch(45% 0.17 262);
+  /* ── Hues. `--x` is a fill or a chart mark; `--x-text` is that hue as
+        text, icon or line on a surface; `--x-soft` is its tint. ──────── */
+  --lime: oklch(89% 0.2 128);
+  --lime-text: oklch(89% 0.2 128);
+  --lime-soft: color-mix(in oklab, var(--lime) 14%, transparent);
+  --cyan: oklch(87% 0.12 195);
+  --cyan-text: oklch(87% 0.12 195);
+  --cyan-soft: color-mix(in oklab, var(--cyan) 14%, transparent);
+  --orange: oklch(77% 0.15 52);
+  --orange-text: oklch(80% 0.12 55);
+  --orange-soft: color-mix(in oklab, var(--orange) 16%, transparent);
+  --violet: oklch(76% 0.13 300);
+  --violet-text: oklch(81% 0.11 300);
+  --violet-soft: color-mix(in oklab, var(--violet) 18%, transparent);
+  --green: oklch(82% 0.15 158);
+  --green-text: oklch(84% 0.15 158);
+  --green-soft: color-mix(in oklab, var(--green) 14%, transparent);
+  --amber: oklch(85% 0.14 85);
+  --amber-text: oklch(87% 0.14 85);
+  --amber-soft: color-mix(in oklab, var(--amber) 14%, transparent);
+  --sky: oklch(81% 0.1 235);
+  --sky-text: oklch(84% 0.09 235);
+  --sky-soft: color-mix(in oklab, var(--sky) 16%, transparent);
+  --red: oklch(69% 0.19 25);
+  --red-text: oklch(78% 0.12 22);
+  --red-soft: color-mix(in oklab, var(--red) 18%, transparent);
 
   /* ── Roles ──────────────────────────────────────────────────────── */
-  --color-accent: var(--hl-yellow); /* current, next, selected */
-  --color-accent-ink: var(--color-on-hl);
-  --color-ok: var(--hl-mint); /* done, saved, feasible */
-  --color-warn: var(--hl-pink); /* caution */
-  --color-info: var(--hl-sky);
-  --color-danger: var(--pen-red);
-  --color-danger-hover: var(--pen-red-2);
-  --color-link: var(--pen-blue);
+  --color-accent: var(--lime); /* the one signal: primary, current, now, next */
+  --color-accent-hover: oklch(93% 0.18 128);
+  --color-accent-press: oklch(83% 0.19 128);
+  --color-on-accent: oklch(17% 0.03 140); /* text on any bright hue fill, both schemes */
+  --color-on-accent-2: oklch(31% 0.04 140); /* quieter text on a bright fill */
+  --color-accent-text: var(--lime-text);
+  --color-accent-soft: var(--lime-soft);
+  --gradient-current: linear-gradient(100deg, var(--lime) 0%, var(--cyan) 100%); /* the current nav item */
+  --color-ok: var(--green);
+  --color-ok-text: var(--green-text);
+  --color-warn: var(--amber);
+  --color-warn-text: var(--amber-text);
+  --color-info: var(--sky);
+  --color-info-text: var(--sky-text);
+  --color-danger: var(--red);
+  --color-danger-hover: oklch(73% 0.165 25);
+  --color-danger-text: var(--red-text);
+  --color-on-danger: oklch(15% 0.03 25);
+  --color-link: var(--cyan-text);
 
-  /* A surface filled with ink flips its own ink and paper. */
-  --rev-bg: oklch(21% 0.012 255);
-  --rev-bg-2: oklch(30% 0.014 255);
-  --rev-fg: oklch(99% 0.004 215);
-  --rev-muted: oklch(80% 0.016 230);
-  --rev-rule: oklch(42% 0.018 245);
-
-  /* ── Time marks: the planner's own data colours ─────────────────── */
-  --color-cal-grid: var(--color-rule);
-  --color-cal-grid-minor: var(--color-rule-2);
-  --color-cal-availability: color-mix(in oklab, var(--color-ink) 6%, transparent);
-  --color-cal-focus-window: color-mix(in oklab, var(--hl-lilac) 60%, transparent);
-  --color-cal-commitment: var(--color-paper-3);
-  --color-cal-commitment-stripe: color-mix(in oklab, var(--color-ink) 22%, transparent);
-  --color-cal-block: var(--hl-yellow);
-  --color-on-cal-block: var(--color-on-hl);
-  --color-cal-off: color-mix(in oklab, var(--hl-pink) 22%, transparent);
-  --color-cal-off-stripe: color-mix(in oklab, var(--hl-pink) 70%, transparent);
-  --color-cal-off-edge: var(--pen-red);
-  --color-avail-work: var(--hl-sky);
-  --color-avail-work-stripe: color-mix(in oklab, var(--color-ink) 14%, var(--color-paper-3));
-  --color-avail-focus: var(--hl-lilac);
-  --color-avail-cell-edge: var(--color-edge);
+  /* ── Data series (charts). An edge is drawn only where the mark alone
+        would not reach 3:1 on the card (light scheme). ───────────────── */
+  --data-1: var(--lime);
+  --data-2: var(--cyan);
+  --data-3: var(--orange);
+  --data-4: var(--violet);
+  --data-1-edge: var(--lime);
+  --data-2-edge: var(--cyan);
+  --data-3-edge: var(--orange);
+  --data-4-edge: var(--violet);
+  --data-rest: oklch(96% 0.005 150); /* the other bars of a set: off-white */
+  --data-track: oklch(96% 0.005 150 / 10%); /* an empty bar, the ring's ground */
 
   /* ── Focus ring ─────────────────────────────────────────────────── */
-  --color-focus: var(--pen-blue);
+  --color-focus: oklch(89% 0.2 128);
   --focus-width: 2px;
   --focus-offset: 2px;
   --focus-ring: var(--focus-width) solid var(--color-focus);
+
+  /* ── Elevation: hairlines, a sheen, one soft shadow for what floats ─ */
+  --card-sheen: linear-gradient(140deg, oklch(96% 0.005 150 / 5%) 0%, oklch(96% 0.005 150 / 0%) 42%);
+  --shadow-float: 0 18px 48px oklch(4% 0.01 150 / 55%);
+  --blur-float: 18px;
 
   /* ── Spacing scale (4px base) ───────────────────────────────────── */
   --space-0-5: 0.125rem;
@@ -95,7 +131,7 @@
   --space-12: 3rem;
   --space-16: 4rem;
 
-  /* ── Type: one Korean-first family, no network fonts ────────────── */
+  /* ── Type: Pretendard (bundled, variable), system Korean sans behind it ─ */
   --font-body:
     'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo',
     'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -103,70 +139,221 @@
   --font-mono:
     ui-monospace, 'D2Coding', 'JetBrains Mono', 'Noto Sans Mono CJK KR', Menlo, Consolas, monospace;
 
-  /* Fixed scale. Steps: 12, 13, 14, 15, 17, 20, 26, 30. */
-  --text-2xs: 0.75rem; /* dense grid labels only */
-  --text-xs: 0.8125rem;
-  --text-sm: 0.875rem;
-  --text-md: 0.9375rem;
-  --text-lg: 1.0625rem;
-  --text-xl: 1.25rem;
-  --text-2xl: 1.625rem;
-  --text-3xl: 1.875rem;
+  /* Fixed scale. Steps: 12, 13, 14, 16, 18, 22, 28, 32; numerals 40 and 56. */
+  --text-2xs: 0.75rem; /* chart ticks, dense grid labels, key caps */
+  --text-xs: 0.8125rem; /* labels, tags, captions */
+  --text-sm: 0.875rem; /* controls, tables, meta */
+  --text-md: 1rem; /* body */
+  --text-lg: 1.125rem; /* card and section titles */
+  --text-xl: 1.375rem; /* dialog titles, a block's title */
+  --text-2xl: 1.75rem; /* a figure in a row of figures */
+  --text-3xl: 2rem; /* the page title */
+  --text-num: 2.5rem; /* the one big number of a card */
+  --text-num-lg: 3.5rem; /* a timer inside a card */
   --text-display: 4.5rem; /* the focus timer */
   --text-display-calm: 4.5rem; /* the focus timer in calm mode */
 
   --leading-tight: 1.25;
   --leading-snug: 1.4;
-  --leading-normal: 1.55; /* room for Hangul */
+  --leading-normal: 1.6; /* room for Hangul */
 
+  --weight-light: 300; /* large numerals */
   --weight-regular: 400;
-  --weight-medium: 500;
-  --weight-semibold: 600;
-  --weight-bold: 800;
+  --weight-medium: 500; /* headings, labels */
+  --weight-semibold: 600; /* buttons, emphasis */
+  --weight-bold: 650; /* the rare strongest step */
 
-  --tracking-tight: -0.02em;
+  --tracking-tight: -0.015em;
+  --tracking-num: -0.03em; /* large numerals */
 
   /* ── Edges ──────────────────────────────────────────────────────── */
   --rule-hair: 1px;
-  --rule-pen: 1.5px; /* a pen-drawn box */
-  --rule-bar: 2px; /* the rule under a head */
+  --rule-pen: 1px; /* a control's edge */
+  --rule-bar: 2px; /* the now line, a chart axis mark */
 
-  --radius-xs: 2px;
-  --radius-sm: 3px; /* pen boxes */
-  --radius-md: 4px; /* controls */
-  --radius-lg: 4px;
-  --radius-xl: 6px; /* dialogs */
+  --radius-xs: 4px; /* key caps, ticks */
+  --radius-sm: 6px; /* tags, checkboxes */
+  --radius-md: 10px; /* controls */
+  --radius-lg: 14px; /* a well inside a card, menus */
+  --radius-xl: 20px; /* cards, dialogs */
+  --radius-pill: 999px; /* the switch, bar ends, dots */
 
-  /* ── Motion: state only ─────────────────────────────────────────── */
+  /* ── Motion: short and functional ───────────────────────────────── */
   --duration-fast: 120ms;
   --duration-base: 180ms;
   --duration-slow: 260ms;
+  --duration-draw: 520ms; /* a bar or a ring drawing in, once */
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* ── Sizing and layout ──────────────────────────────────────────── */
-  --control-height: 2.25rem;
-  --control-height-sm: 1.875rem;
+  --control-height: 2.5rem;
+  --control-height-sm: 2rem;
   --control-height-lg: 2.75rem;
   --hit-target: 2.75rem; /* 44px on coarse pointers (07 §4) */
-  --nav-width: 13.5rem;
-  --bottom-nav-height: 3.5rem;
+  --nav-width: 15rem;
+  --nav-width-collapsed: 4.5rem;
+  --topbar-height: 4rem;
+  --sticky-top: calc(var(--topbar-height) + var(--space-4)); /* a sticky aside under the top bar (≥1024px) */
+  --bottom-nav-height: 3.75rem;
   --content-max: 46rem;
-  --content-wide: 80rem;
+  --content-wide: 84rem;
   --aside-width: 20rem;
+  --card-pad: 1.5rem;
+  --grid-gap: 1rem; /* between the cards of a dashboard */
   --tt-row: 2rem; /* one hour of the day timetable */
   --z-sticky: 5;
+  --z-topbar: 8;
   --z-nav: 10;
+  --z-popover: 20;
   --z-calm: 25;
   --z-dialog: 30;
   --z-toast: 40;
+
+  /* ── Names from the paper system, kept so every screen that has not
+        been restyled yet (HOLO-02/03) takes the new skin. New work uses
+        the names above. ───────────────────────────────────────────── */
+  --color-paper: var(--color-ground);
+  --color-paper-2: var(--color-fill);
+  --color-paper-3: var(--color-fill-2);
+  --color-rule: oklch(27% 0.01 150); /* opaque: used in gradients and grids */
+  --color-rule-2: oklch(21% 0.009 150);
+  --color-ink: var(--color-text);
+  --color-ink-2: var(--color-text-2);
+  --color-muted: var(--color-text-3);
+  --color-on-ink: var(--color-ground);
+  /* A "highlighter" is now a bright hue fill; text on one is always dark. */
+  --hl-yellow: var(--lime);
+  --hl-mint: var(--green);
+  --hl-pink: var(--amber);
+  --hl-sky: var(--cyan);
+  --hl-lilac: var(--violet);
+  --hl-orange: var(--orange);
+  --color-on-hl: var(--color-on-accent);
+  --color-on-hl-muted: var(--color-on-accent-2);
+  --color-hl-paper: oklch(96% 0.005 150);
+  --pen-red: var(--red-text);
+  --pen-red-2: oklch(84% 0.085 22);
+  --pen-blue: var(--cyan-text);
+  /* A surface that flips ink and paper (calm-mode chrome, old toasts). */
+  --rev-bg: oklch(96% 0.005 150);
+  --rev-bg-2: oklch(89% 0.007 150);
+  --rev-fg: oklch(17% 0.012 150);
+  --rev-muted: oklch(38% 0.014 150);
+  --rev-rule: oklch(72% 0.012 150);
+
+  /* ── Time marks: the planner's own data colours ─────────────────── */
+  --color-cal-grid: var(--color-rule);
+  --color-cal-grid-minor: var(--color-rule-2);
+  --color-cal-availability: oklch(96% 0.005 150 / 7%);
+  --color-cal-focus-window: color-mix(in oklab, var(--violet) 30%, transparent);
+  --color-cal-commitment: color-mix(in oklab, var(--cyan) 20%, transparent); /* the second kind */
+  --color-cal-commitment-stripe: color-mix(in oklab, var(--cyan) 38%, transparent);
+  --color-cal-block: var(--lime);
+  --color-on-cal-block: var(--color-on-accent);
+  --color-cal-off: color-mix(in oklab, var(--red) 16%, transparent);
+  --color-cal-off-stripe: color-mix(in oklab, var(--red) 45%, transparent);
+  --color-cal-off-edge: var(--red);
+  --color-avail-work: oklch(72% 0.1 195); /* a large painted area: a step calmer than the cyan */
+  --color-avail-work-stripe: color-mix(in oklab, var(--color-text) 20%, transparent);
+  --color-avail-focus: var(--violet);
+  --color-avail-cell-edge: var(--color-edge);
 }
 
-/* Phones and tablets: body text and fields at 16px (no zoom on focus). */
+/* ── Light scheme: pale ground, white cards, ink text. Lime stays a fill
+      behind dark text; lime as text becomes a deep green. ─────────────── */
+:root[data-scheme='light'] {
+  color-scheme: light;
+
+  --color-ground: oklch(96.2% 0.007 140);
+  --color-surface: oklch(100% 0 0);
+  --color-raised: oklch(100% 0 0);
+  --color-inset: oklch(97% 0.006 140);
+  --color-fill: oklch(94% 0.008 140);
+  --color-fill-2: oklch(90.5% 0.01 140);
+  --color-hover: oklch(21% 0.015 150 / 5%);
+  --color-press: oklch(21% 0.015 150 / 9%);
+  --color-overlay: oklch(21% 0.015 150 / 42%);
+
+  --color-line: oklch(21% 0.015 150 / 11%);
+  --color-line-strong: oklch(21% 0.015 150 / 20%);
+  --color-edge: oklch(61% 0.012 150);
+
+  --color-text: oklch(21% 0.015 150);
+  --color-text-2: oklch(35% 0.014 150);
+  --color-text-3: oklch(46.5% 0.014 150);
+
+  --lime: oklch(87% 0.2 128);
+  --lime-text: oklch(42% 0.12 135);
+  --lime-soft: color-mix(in oklab, var(--lime) 30%, transparent);
+  --cyan: oklch(84% 0.12 195);
+  --cyan-text: oklch(41% 0.065 205);
+  --cyan-soft: color-mix(in oklab, var(--cyan) 26%, transparent);
+  --orange: oklch(74% 0.16 52);
+  --orange-text: oklch(46% 0.12 45);
+  --orange-soft: color-mix(in oklab, var(--orange) 20%, transparent);
+  --violet: oklch(72% 0.14 300);
+  --violet-text: oklch(44% 0.16 300);
+  --violet-soft: color-mix(in oklab, var(--violet) 18%, transparent);
+  --green: oklch(80% 0.16 158);
+  --green-text: oklch(40% 0.095 158);
+  --green-soft: color-mix(in oklab, var(--green) 22%, transparent);
+  --amber: oklch(84% 0.15 85);
+  --amber-text: oklch(43% 0.085 75);
+  --amber-soft: color-mix(in oklab, var(--amber) 28%, transparent);
+  --sky: oklch(80% 0.1 235);
+  --sky-text: oklch(42% 0.105 245);
+  --sky-soft: color-mix(in oklab, var(--sky) 22%, transparent);
+  --red: oklch(56% 0.21 26);
+  --red-text: oklch(49% 0.2 26);
+  --red-soft: color-mix(in oklab, var(--red) 11%, transparent);
+
+  --color-accent-hover: oklch(83% 0.2 128);
+  --color-accent-press: oklch(78% 0.19 128);
+  --color-danger-hover: oklch(50% 0.2 26);
+  --color-on-danger: oklch(99% 0.005 25);
+
+  --data-1-edge: oklch(58% 0.16 132);
+  --data-2-edge: oklch(57% 0.085 200);
+  --data-3-edge: oklch(57% 0.16 48);
+  --data-4-edge: oklch(55% 0.16 300);
+  --data-rest: oklch(21% 0.015 150);
+  --data-track: oklch(21% 0.015 150 / 9%);
+
+  --color-focus: oklch(42% 0.12 135);
+
+  --card-sheen: none;
+  --shadow-float: 0 16px 40px oklch(21% 0.015 150 / 16%);
+
+  --color-rule: oklch(89% 0.008 140);
+  --color-rule-2: oklch(94% 0.006 140);
+  --color-on-ink: oklch(100% 0 0);
+  --color-hl-paper: oklch(100% 0 0);
+  --pen-red-2: oklch(43% 0.18 26);
+  --rev-bg: oklch(21% 0.015 150);
+  --rev-bg-2: oklch(30% 0.014 150);
+  --rev-fg: oklch(98% 0.004 140);
+  --rev-muted: oklch(80% 0.01 140);
+  --rev-rule: oklch(42% 0.014 150);
+
+  --color-cal-availability: oklch(21% 0.015 150 / 5%);
+  --color-cal-focus-window: color-mix(in oklab, var(--violet) 26%, transparent);
+  --color-cal-commitment: color-mix(in oklab, var(--cyan) 34%, transparent);
+  --color-cal-commitment-stripe: color-mix(in oklab, var(--cyan-text) 34%, transparent);
+  --color-cal-off: color-mix(in oklab, var(--red) 10%, transparent);
+  --color-cal-off-stripe: color-mix(in oklab, var(--red) 36%, transparent);
+  --color-avail-work: var(--cyan);
+  --color-avail-work-stripe: color-mix(in oklab, var(--color-text) 16%, transparent);
+}
+
+/* Phones and tablets: small text one step up (no zoom on focus). */
 @media (max-width: 63.99rem) {
   :root {
-    --text-md: 1rem;
     --text-sm: 0.9375rem;
+    --text-num: 2.25rem;
+    --text-num-lg: 3rem;
+    --card-pad: 1.25rem;
+    --grid-gap: 0.75rem;
   }
 }
 
@@ -183,52 +370,11 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-paper: oklch(19% 0.01 240);
-    --color-paper-2: oklch(22.5% 0.012 240);
-    --color-paper-3: oklch(26.5% 0.014 240);
-    --color-raised: oklch(22.5% 0.012 240);
-    --color-rule: oklch(34% 0.018 235);
-    --color-rule-2: oklch(27% 0.014 235);
-    --color-edge: oklch(60% 0.022 235);
-
-    --color-ink: oklch(95% 0.006 220);
-    --color-ink-2: oklch(88% 0.008 220);
-    --color-muted: oklch(71% 0.016 230);
-    --color-on-ink: oklch(19% 0.01 240);
-    --color-overlay: oklch(8% 0.01 240 / 66%);
-
-    --hl-yellow: oklch(86% 0.15 100);
-    --hl-mint: oklch(78% 0.1 170);
-    --hl-pink: oklch(74% 0.125 0);
-    --hl-sky: oklch(78% 0.085 235);
-    --hl-lilac: oklch(75% 0.095 295);
-    --hl-orange: oklch(78% 0.12 65);
-
-    --pen-red: oklch(73% 0.15 25);
-    --pen-red-2: oklch(79% 0.13 25);
-    --pen-blue: oklch(77% 0.11 262);
-
-    --rev-bg: oklch(95% 0.006 220);
-    --rev-bg-2: oklch(88% 0.008 220);
-    --rev-fg: oklch(19% 0.01 240);
-    --rev-muted: oklch(38% 0.016 235);
-    --rev-rule: oklch(70% 0.014 235);
-
-    --color-cal-availability: color-mix(in oklab, var(--color-ink) 9%, transparent);
-    --color-cal-focus-window: color-mix(in oklab, var(--hl-lilac) 38%, transparent);
-    --color-cal-commitment-stripe: color-mix(in oklab, var(--color-ink) 26%, transparent);
-    --color-cal-off: color-mix(in oklab, var(--hl-pink) 18%, transparent);
-    --color-cal-off-stripe: color-mix(in oklab, var(--hl-pink) 55%, transparent);
-    --color-avail-work-stripe: color-mix(in oklab, var(--color-ink) 22%, var(--color-paper-3));
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   :root {
     --duration-fast: 0ms;
     --duration-base: 0ms;
     --duration-slow: 0ms;
+    --duration-draw: 0ms;
   }
 }

@@ -259,6 +259,22 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       await buttonByText(wrapper.findAll('.today-card')[0] as unknown as VueWrapper, '집중 시작').trigger('click');
     },
   },
+  // HOLO-01 개요: the dashboard starts a session on the next block (and on an
+  // earlier task with "다시 시작") through one owner-bound task.
+  {
+    name: 'overview: start focus on the next block',
+    covers: ['src/composables/useOverview.ts'],
+    path: '/overview',
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('[data-primary="start"]').exists()).toBe(true));
+      await until(() => expect(wrapper.get('[data-primary="start"]').attributes('disabled')).toBeUndefined());
+    },
+    hold: { method: 'POST', path: /\/sessions$/ },
+    act: async (wrapper) => {
+      await wrapper.get('[data-primary="start"]').trigger('click');
+    },
+  },
   {
     name: 'today: reschedule preview',
     covers: ['src/views/TodayView.vue'],

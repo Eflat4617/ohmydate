@@ -36,3 +36,5 @@ MOTION: state only. A highlighter stroke draws from the left when an item become
 FORM: a Korean study planner with a ten-minute timetable, position 1 of 7 on the grounded list, chosen by the user over the assigned index 3. seed:4ada1e5707e6a072
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+
+Superseded on 2026-11-13 (HOLO-01): later the same day the user chose a different direction, a dark, calm, dashboard-first system with one lime signal, and the 텐미닛 플래너 world above was replaced. This brief is kept as the record of the earlier decision; the system now in force is `DESIGN.md`. The two points left unresolved here are settled: Pretendard is shipped as a file, and the theme is the user's choice (dark by default), not the OS's.

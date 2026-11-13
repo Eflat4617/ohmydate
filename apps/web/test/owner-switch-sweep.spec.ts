@@ -46,6 +46,10 @@ const EXEMPT: Record<string, string> = {
   'src/composables/useGoogleCalendar.ts':
     'Reads only (CAL-04 Google connection and all-day events), through owner-keyed ownerFenced lookups; writes nothing.',
   'src/layout/useTodaySnapshot.ts': 'Reads only (owner-keyed query); writes nothing.',
+  'src/layout/shellNav.ts':
+    'HOLO-01 sidebar fold: one synchronous ownerSlot write at the click, under the binding captured there; no request, nothing awaited. holo-shell.spec.ts covers the owner scoping.',
+  'src/theme/theme.ts':
+    'HOLO-01 theme choice: one synchronous ownerSlot write at the click, under the binding captured there; no request, nothing awaited. holo-theme.spec.ts covers the owner scoping.',
   'src/views/ProjectDetailView.vue': 'Reads only; its task edits are TaskList / useTaskActions (inbox cases).',
   'src/views/ProjectListView.vue': 'Reads only; writes nothing.',
   'src/session/owner.ts': 'The device-level active-owner pointer; changed only by the owner change itself.',

@@ -87,7 +87,8 @@ async function blockingAxeViolations(page: Page) {
 }
 
 async function openNotifications(page: Page): Promise<void> {
-  await page.locator('.nav-rail').getByRole('button', { name: '알림' }).click();
+  // HOLO-01: the notifications button moved from the sidebar to the top bar.
+  await page.locator('.app-topbar').getByRole('button', { name: '알림' }).click();
   await expect(page.getByRole('dialog', { name: '알림' })).toBeVisible();
 }
 

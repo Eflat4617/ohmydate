@@ -1,20 +1,32 @@
-/* ── Login: a quiet first page ─────────────────────────────────────── */
-/* No box and no backdrop: the mark, a heading on the 2px rule, two fields
-   and the one filled control. The column sits a third of the way down. */
+/* ── Login: the first page ─────────────────────────────────────────── */
+/* OhMyDate's glass object stands over the form, and the form is a frosted
+   panel laid across its lower edge (the same pairing as the AI card on 개요):
+   the mark, a heading, two fields and the one filled control. */
 .auth-page {
   display: grid;
-  grid-template-rows: 1fr auto 2fr;
+  grid-template-rows: 1fr auto auto 2fr;
   justify-items: center;
   min-height: 100dvh;
   padding: var(--space-6) var(--space-4);
 }
 
-.auth-card {
-  display: flex;
+.auth-visual {
   grid-row: 2;
+  margin-bottom: calc(-1 * var(--space-16));
+}
+
+.auth-card {
+  position: relative;
+  display: flex;
+  grid-row: 3;
   flex-direction: column;
   gap: var(--space-6);
-  width: min(22rem, 100%);
+  width: min(24rem, 100%);
+  padding: var(--space-8) var(--space-6) var(--space-6);
+  border: var(--rule-hair) solid var(--color-line-strong);
+  border-radius: var(--radius-xl);
+  background: color-mix(in oklab, var(--color-raised) 62%, transparent);
+  backdrop-filter: blur(var(--blur-float));
 }
 
 .auth-header {
@@ -22,8 +34,10 @@
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-2);
-  padding-bottom: var(--space-3);
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+}
+
+.auth-header h1 {
+  font-size: var(--text-2xl);
 }
 
 .auth-header .brand-mark {

@@ -323,7 +323,7 @@
   justify-content: space-between;
   gap: var(--space-2) var(--space-3);
   padding-bottom: var(--space-2);
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
 }
 
 .month-detail-head h2 {
@@ -530,7 +530,7 @@
 
   .month-detail {
     position: sticky;
-    top: var(--space-8);
+    top: var(--sticky-top);
   }
 }
 

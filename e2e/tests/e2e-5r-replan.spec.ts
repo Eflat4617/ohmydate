@@ -363,7 +363,8 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       await expect(banner).toContainText('약속과 겹치는 블록이 있어요');
       expect(await blockingAxeViolations(page)).toEqual([]);
 
-      await page.locator('.nav-rail').getByRole('button', { name: '알림' }).click();
+      // HOLO-01: the notifications button moved from the sidebar to the top bar.
+      await page.locator('.app-topbar').getByRole('button', { name: '알림' }).click();
       const panel = page.getByRole('dialog', { name: '알림' });
       await expect(panel.locator('[data-open-proposal]')).toHaveCount(1);
       await expect(panel.locator('[data-open-proposal]')).toHaveAttribute('href', `/replan/${proposalId}`);

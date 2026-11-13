@@ -8,6 +8,7 @@ import LayoutSettingsView from './views/LayoutSettingsView.vue';
 import LlmSettingsView from './views/LlmSettingsView.vue';
 import LoginView from './views/LoginView.vue';
 import MonthView from './views/MonthView.vue';
+import OverviewView from './views/OverviewView.vue';
 import PlanComparisonView from './views/PlanComparisonView.vue';
 import PlanNewView from './views/PlanNewView.vue';
 import ProjectDetailView from './views/ProjectDetailView.vue';
@@ -26,6 +27,9 @@ const NotesView = () => import('./views/NotesView.vue');
 export const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/inbox' },
   { path: '/login', name: 'login', component: LoginView, meta: { layout: 'blank' } },
+  // HOLO-01: the dashboard. `/` still lands on the inbox (E2E pins that
+  // landing); the brand link and the `o` key open this.
+  { path: '/overview', name: 'overview', component: OverviewView },
   { path: '/inbox', name: 'inbox', component: InboxView },
   { path: '/projects', name: 'projects', component: ProjectListView },
   { path: '/projects/:id', name: 'project', component: ProjectDetailView, props: true },

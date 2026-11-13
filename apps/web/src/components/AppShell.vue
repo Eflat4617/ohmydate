@@ -14,6 +14,7 @@ import OfflineBanner from './OfflineBanner.vue';
 import NotificationsPanel from './NotificationsPanel.vue';
 import SearchDialog from './SearchDialog.vue';
 import ToastHost from './ToastHost.vue';
+import TopBar from './TopBar.vue';
 import BrandMark from './BrandMark.vue';
 import UiBanner from './ui/UiBanner.vue';
 import UiButton from './ui/UiButton.vue';
@@ -76,6 +77,8 @@ function onBackOnline(): void {
 const revalidationFailed = ref(false);
 const revalidationBanner = ref<InstanceType<typeof UiBanner> | null>(null);
 const mainContent = ref<HTMLElement | null>(null);
+// HOLO-01: how many delivered notifications are still listed (the bell's dot).
+const unreadNotifications = ref(0);
 
 watch(
   () => auth.revalidationState,
@@ -145,6 +148,10 @@ function onKeydown(event: KeyboardEvent): void {
       event.preventDefault();
       requestNewTask();
       break;
+    case 'o':
+      event.preventDefault();
+      void router.push({ name: 'overview' });
+      break;
     case 't':
       event.preventDefault();
       void router.push({ name: 'today' });
@@ -206,9 +213,10 @@ onUnmounted(() => {
   </div>
   <template v-else>
     <a class="skip-link" href="#main-content">{{ t('app.skipToContent') }}</a>
-    <div class="app-shell" :class="{ 'app-shell--calm': calmMode }">
+    <div class="app-shell" :class="{ 'app-shell--calm': calmMode, 'app-shell--nav-collapsed': ui.navCollapsed }">
       <NavRail />
       <div class="app-main">
+        <TopBar :unread="unreadNotifications" />
         <OfflineBanner />
         <UiBanner
           v-if="revalidationNoticeShown"
@@ -235,7 +243,11 @@ onUnmounted(() => {
     <ToastHost />
     <HelpDialog :open="ui.helpOpen" @close="ui.closeDialogs()" />
     <SearchDialog :open="ui.searchOpen" @close="ui.closeDialogs()" />
-    <NotificationsPanel :open="ui.notificationsOpen" @close="ui.closeDialogs()" />
+    <NotificationsPanel
+      :open="ui.notificationsOpen"
+      @close="ui.closeDialogs()"
+      @unread="unreadNotifications = $event"
+    />
     <LlmConsentDialog :open="llmConsent.open" @close="llmConsent.closed()" />
   </template>
 </template>

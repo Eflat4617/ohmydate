@@ -1,0 +1,485 @@
+/*
+ * 개요 (HOLO-01): the dashboard. A greeting row, then cards on a 12-column
+ * grid. The page is its own size container, so the grid follows the canvas
+ * (a folded sidebar gives it a column more), not the window:
+ *   under 44rem   one column, in the order a · c · b · d · e · f
+ *   from 44rem    two columns
+ *   from 66rem    three columns: 진행 · 타임 트래커 · 오늘 요약, then AI · 작업 기록
+ * One lime thing per view: the primary button. In the cards lime is data
+ * (today's bar, the leading ring segment, the trend), never a second button.
+ */
+.overview-page {
+  gap: var(--space-6);
+  container: overview / inline-size;
+}
+
+.overview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-6);
+}
+
+.overview-greeting {
+  gap: var(--space-2);
+}
+
+.overview-next {
+  max-width: 40rem;
+  color: var(--color-text-2);
+}
+
+.overview-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* The week on show in 진행: step back and forth around its dates. */
+.week-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.week-switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height-sm);
+  padding: 0 var(--space-3);
+  border: var(--rule-hair) solid var(--color-line-strong);
+  border-radius: calc(var(--radius-md) - 2px);
+  background: var(--color-inset);
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.week-switch-label .icon {
+  color: var(--color-text-3);
+}
+
+/* ── The grid ──────────────────────────────────────────────────────── */
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--grid-gap);
+  align-items: stretch;
+}
+
+.overview-card {
+  grid-column: span 12;
+  gap: var(--space-5);
+}
+
+.overview-card--tracker {
+  order: 1;
+}
+
+.overview-card--progress {
+  order: 2;
+}
+
+.overview-card--summary {
+  order: 3;
+}
+
+.overview-card--ai {
+  order: 4;
+}
+
+.overview-card--log {
+  order: 5;
+}
+
+@container overview (min-width: 44rem) {
+  .overview-card {
+    grid-column: span 6;
+  }
+
+  .overview-card--progress {
+    order: 1;
+  }
+
+  .overview-card--tracker {
+    order: 2;
+  }
+
+  .overview-card--log {
+    grid-column: span 12;
+  }
+}
+
+@container overview (min-width: 66rem) {
+  .overview-card {
+    grid-column: span 4;
+  }
+
+  .overview-card--log {
+    grid-column: span 8;
+  }
+}
+
+/* ── Inside a card ─────────────────────────────────────────────────── */
+.overview-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.overview-card-error {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--space-3);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+/* The one big number of a card over its small label. */
+.overview-figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+}
+
+.duration-numeral {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0 0.22em;
+}
+
+.overview-figure-label {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.overview-figure-range {
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-subtitle {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.overview-note {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.overview-card .empty-state {
+  padding-block: var(--space-2);
+}
+
+/* 진행: the chart sits on the card's floor. */
+.overview-progress-chart {
+  margin-top: auto;
+}
+
+/* ── 타임 트래커 ─────────────────────────────────────────────────── */
+.tracker-well {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-4);
+  border: var(--rule-hair) solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-inset);
+  text-align: center;
+}
+
+/* Running: the well takes the faintest lime and the status its colour. The
+   word (집중하는 중) and the moving seconds say it too. */
+.tracker-well[data-status='active'] {
+  border-color: color-mix(in oklab, var(--color-accent-text) 35%, transparent);
+  background: linear-gradient(var(--color-accent-soft), var(--color-accent-soft)) var(--color-inset);
+}
+
+.tracker-status {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.tracker-well[data-status='active'] .tracker-status {
+  color: var(--color-accent-text);
+  font-weight: var(--weight-medium);
+}
+
+.tracker-clock {
+  color: var(--color-text);
+  font-size: var(--text-num-lg);
+  font-weight: var(--weight-light);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-num);
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+.tracker-clock-seconds {
+  color: var(--color-text-3);
+}
+
+.tracker-task {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracker-recent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.tracker-recent-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tracker-recent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.tracker-recent-item:first-child {
+  border-top: 0;
+}
+
+.tracker-recent-text {
+  min-width: 0;
+}
+
+.tracker-recent-title {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracker-recent-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-1-5);
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+/* ── 오늘 요약 ───────────────────────────────────────────────────── */
+.summary-due {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: var(--rule-hair) solid var(--color-line);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+/* ── AI 도우미 ───────────────────────────────────────────────────── */
+/* The glass object stands at the top of the card; the figure is a frosted
+   panel laid over its lower edge (the one blur on the screen); the facts sit
+   on the card's floor. */
+.ai-visual {
+  display: grid;
+  place-items: center;
+  margin-top: calc(-1 * var(--space-4));
+}
+
+.ai-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+  min-width: 0;
+  margin-top: calc(-1 * var(--space-12));
+  padding: var(--space-4);
+  border: var(--rule-hair) solid var(--color-line-strong);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-raised) 58%, transparent);
+  backdrop-filter: blur(var(--blur-float));
+}
+
+.ai-trend {
+  width: 100%;
+  margin-top: var(--space-1);
+}
+
+.ai-link {
+  font-size: var(--text-xs);
+}
+
+.ai-cold-title,
+.ai-consent-title {
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-snug);
+}
+
+.ai-cold-body,
+.ai-consent-body {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+.ai-consent .btn {
+  margin-top: var(--space-2);
+}
+
+.ai-facts {
+  display: flex;
+  flex-direction: column;
+  margin: auto 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-fact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.ai-fact:first-child {
+  border-top: 0;
+}
+
+.ai-fact:last-child {
+  padding-bottom: 0;
+}
+
+.ai-fact-icon {
+  flex: none;
+  color: var(--color-text-3);
+}
+
+.ai-fact-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-fact-title {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.ai-fact-note {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+/* ── 작업 기록 ───────────────────────────────────────────────────── */
+/* The table scrolls inside the card when the card is narrow; the page never
+   scrolls sideways. */
+.log-scroll {
+  margin-inline: calc(-1 * var(--card-pad));
+  padding-inline: var(--card-pad);
+  overflow-x: auto;
+}
+
+.log-table {
+  min-width: 38rem;
+}
+
+.log-task {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-time {
+  color: var(--color-text-2);
+  white-space: nowrap;
+}
+
+.data-table td.log-actions {
+  padding-right: 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.log-actions > * {
+  vertical-align: middle;
+}
+
+.log-actions > * + * {
+  margin-left: var(--space-1);
+}
+
+/* ── Skeletons, in each card's own shape ───────────────────────────── */
+.overview-card-skeleton {
+  gap: var(--space-3);
+}
+
+.overview-skeleton-number {
+  width: 9rem;
+  height: 2.5rem;
+}
+
+.overview-skeleton-caption {
+  width: 45%;
+}
+
+.overview-skeleton-bars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  height: 9rem;
+  margin-top: auto;
+}
+
+.overview-skeleton-bars > .skeleton {
+  width: 0.625rem;
+  border-radius: var(--radius-pill);
+}
+
+.overview-skeleton-well {
+  height: 9.5rem;
+}
+
+.overview-skeleton-row {
+  width: 100%;
+  height: 1rem;
+}
+
+.overview-skeleton-ring {
+  align-self: center;
+  width: 9.5rem;
+  height: 9.5rem;
+}
+
+.overview-skeleton-orb {
+  align-self: center;
+  width: 8rem;
+  height: 8rem;
+}

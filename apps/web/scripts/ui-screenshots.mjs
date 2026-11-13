@@ -10,13 +10,15 @@
 //   node scripts/ui-screenshots.mjs --label m6-03 --flows notes             # M6-03 notes screens
 //   node scripts/ui-screenshots.mjs --label cal-01 --flows month,daily      # CAL-01 한달 + Today's 약속/마감
 //   node scripts/ui-screenshots.mjs --label cal-04 --flows calendar --tablet # CAL-04 캘린더 연동, every status (+1024px)
+//   node scripts/ui-screenshots.mjs --label holo-01 --flows overview --tablet # HOLO-01 개요, every state (+1024px)
 //
-// Output: docs/ui-polish/<label>/<screen>-<viewport>[-dark][-full].png and
+// Output: docs/ui-polish/<label>/<screen>-<viewport>[-light][-full].png and
 //         docs/ui-polish/<label>/sweep-report.json
 // Every screen is visited at 390×844, 1440×900 and 360×780 (check-only), in
-// light and dark. Screenshots are kept for all light screens and for
-// Today/Focus in dark; axe-core (WCAG 2.0–2.2 A/AA tags) and a horizontal
-// overflow check run on every visit. Exit code 1 if any critical/serious
+// the dark theme (the default since HOLO-01) and the light theme. Screenshots
+// are kept for every dark screen and for the screens of LIGHT_CAPTURES in
+// light; axe-core (WCAG 2.0–2.2 A/AA tags) and a horizontal overflow check
+// run on every visit, in both themes. Exit code 1 if any critical/serious
 // violation or horizontal overflow is found (unless --report-only).
 /* global document, window -- used only inside page.evaluate() browser callbacks */
 import { spawn } from 'node:child_process';
@@ -37,7 +39,7 @@ function arg(name, fallback) {
 
 const label = arg('label', 'after');
 const only = arg('only', '');
-// Comma-separated subset of flows (main, daily, ai, replan, patterns, adaptive, notes, month, calendar); default: all.
+// Comma-separated subset of flows (overview, main, daily, ai, replan, patterns, adaptive, notes, month, calendar); default: all.
 const flowFilter = arg('flows', '')
   .split(',')
   .map((name) => name.trim())
@@ -54,9 +56,12 @@ const VIEWPORTS = [
 ];
 // --tablet adds the width where the nav rail first appears (1024px).
 if (process.argv.includes('--tablet')) VIEWPORTS.push({ name: 'tablet', width: 1024, height: 768, capture: true });
-const SCHEMES = ['light', 'dark'];
-const DARK_CAPTURES = /^(14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-wizard-evidence|52-month|56-calendar|57-calendar|58-calendar|59-calendar|60-calendar|61-calendar|64-commitments-google|66-month-labels)/;
+// HOLO-01: the theme is the user's choice (dark by default), not the system's.
+const SCHEMES = ['dark', 'light'];
+const LIGHT_CAPTURES = /^(00-overview|14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-wizard-evidence|52-month|56-calendar|57-calendar|58-calendar|59-calendar|60-calendar|61-calendar|64-commitments-google|66-month-labels)/;
 const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|14-today|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns|34-layout-overview|38-layout-deadline-risk|39-layout-review|43-notes-editor|50-wizard-evidence|52-month|53-month-day|56-calendar-not-configured|58-calendar-connected|60-calendar-needs-reauth|64-commitments-google)/;
+// The mock's signed-in owner (src/mocks/db.ts USER_ID): the theme is stored per owner.
+const MOCK_OWNER_ID = '01900000-0000-7000-8000-000000000002';
 // Synthetic ids from src/mocks/notes-seed.ts (M6-03).
 const NOTE_THESIS_ID = '01900000-0000-7000-8000-0000000003a1';
 const NOTE_MEETING_ID = '01900000-0000-7000-8000-0000000003a2';
@@ -126,12 +131,12 @@ async function checkpoint(page, name, run) {
     .filter(Boolean)
     .join(', ');
 
-  const keep = viewport.capture && (scheme === 'light' || DARK_CAPTURES.test(name));
+  const keep = viewport.capture && (scheme === 'dark' || LIGHT_CAPTURES.test(name));
   if (!keep) {
     if (flags) console.log(`  ! ${name} ${viewport.name} ${scheme}: ${flags}`);
     return;
   }
-  const suffix = scheme === 'dark' ? '-dark' : '';
+  const suffix = scheme === 'light' ? '-light' : '';
   const file = join(outDir, `${name}-${viewport.name}${suffix}.png`);
   await page.screenshot({ path: file, animations: 'disabled', caret: 'hide' });
   console.log(`  ${file.replace(`${webRoot}/`, '')}${flags ? `  ! ${flags}` : ''}`);
@@ -166,6 +171,15 @@ async function newPage(browser, run, overrides) {
       window.__OHMYDATE_MOCK__ = value;
     }, overrides);
   }
+  // HOLO-01: the run's theme, as the app itself stores it (the owner pointer
+  // and that owner's theme slot), so the first frame is already in it.
+  await page.addInitScript(
+    ({ owner, theme }) => {
+      window.localStorage.setItem('ohmydate.focus.owner', owner);
+      window.localStorage.setItem(`ohmydate.theme:${owner}`, theme);
+    },
+    { owner: MOCK_OWNER_ID, theme: run.scheme },
+  );
   return { context, page };
 }
 
@@ -176,6 +190,58 @@ async function go(page, path) {
 
 function isMobile(run) {
   return run.viewport.width < 1024;
+}
+
+// HOLO-01 개요: the dashboard with a week of sessions, with a session running,
+// with nothing recorded yet, and without AI consent.
+async function flowOverview(browser, run) {
+  const ready = async (page) => {
+    await page.locator('[data-overview]').waitFor();
+    await page.waitForFunction(
+      () =>
+        document.querySelectorAll('[data-widget]').length === 5 &&
+        document.querySelectorAll('[data-widget][data-state="loading"]').length === 0,
+    );
+  };
+
+  const full = await newPage(browser, run);
+  await go(full.page, '/overview');
+  await ready(full.page);
+  await full.page.getByRole('heading', { level: 1, name: /님, 좋은 (아침|오후|저녁)(이에요|예요)$/ }).waitFor();
+  await full.page.locator('[data-widget="progress"] [data-chart="bars"]').waitFor();
+  await dismissToasts(full.page);
+  await checkpoint(full.page, '00-overview', run);
+  await full.page.getByRole('button', { name: '이전 주' }).click();
+  await ready(full.page);
+  await checkpoint(full.page, '00-overview-last-week', run);
+  await full.context.close();
+
+  const running = await newPage(browser, run, { sessions: 'running' });
+  await go(running.page, '/overview');
+  await ready(running.page);
+  await running.page.locator('.tracker-well[data-status="active"]').waitFor();
+  await dismissToasts(running.page);
+  await checkpoint(running.page, '00-overview-running', run);
+  await running.context.close();
+
+  const empty = await newPage(browser, run, { sessions: 'none', estimation: 'cold', month: 'none' });
+  await go(empty.page, '/overview');
+  await ready(empty.page);
+  await empty.page.locator('[data-widget="log"] [data-empty]').waitFor();
+  await dismissToasts(empty.page);
+  await checkpoint(empty.page, '00-overview-empty', run);
+  await empty.context.close();
+
+  const consent = await newPage(browser, run, { llmProvider: 'deepseek' });
+  await go(consent.page, '/overview');
+  await consent.page.getByRole('dialog').waitFor();
+  await consent.page.getByRole('button', { name: '직접 작성 모드로 쓰기' }).click();
+  await consent.page.getByRole('dialog').waitFor({ state: 'detached' });
+  await ready(consent.page);
+  await consent.page.locator('[data-ai-consent]').waitFor();
+  await dismissToasts(consent.page);
+  await checkpoint(consent.page, '00-overview-no-consent', run);
+  await consent.context.close();
 }
 
 async function flowMain(browser, run) {
@@ -308,7 +374,8 @@ async function flowDaily(browser, run) {
       await page.getByRole('button', { name: '알림' }).filter({ visible: true }).first().dispatchEvent('click');
     }
   } else {
-    await page.locator('.nav-rail').getByRole('button', { name: '알림' }).click();
+    // HOLO-01: the notifications button is in the top bar.
+    await page.locator('.app-topbar').getByRole('button', { name: '알림' }).click();
   }
   await page.getByRole('dialog', { name: '알림' }).waitFor();
   await checkpoint(page, '18-notifications', run);
@@ -342,7 +409,8 @@ async function openNotificationsPanel(page, run) {
     await page.getByRole('dialog', { name: '더 보기' }).waitFor();
     await page.getByRole('dialog', { name: '더 보기' }).getByRole('button', { name: '알림' }).click();
   } else {
-    await page.locator('.nav-rail').getByRole('button', { name: '알림' }).click();
+    // HOLO-01: the notifications button is in the top bar.
+    await page.locator('.app-topbar').getByRole('button', { name: '알림' }).click();
   }
   await page.getByRole('dialog', { name: '알림' }).waitFor();
 }
@@ -781,6 +849,7 @@ async function main() {
         const run = { viewport, scheme };
         console.log(`${label} · ${viewport.name} ${viewport.width}x${viewport.height} · ${scheme}`);
         const flows = {
+          overview: flowOverview,
           main: flowMain,
           daily: flowDaily,
           ai: flowAi,

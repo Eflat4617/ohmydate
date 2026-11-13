@@ -31,6 +31,9 @@ import { readState } from '../helpers/state';
 // CAL-04 adds 캘린더 연동 (/settings/calendar) at both widths, in whatever
 // status the test stack's server reports (without a Google client file:
 // the one-time setup). The web tests and the mock sweep cover every status.
+// HOLO-01 adds 개요 (/overview), the dashboard, at both widths in the default
+// (dark) theme: its five cards have finished loading, exactly one filled
+// button is on the screen, and one sentence names what is next.
 
 const state = readState();
 const account = { email: state.plansEmail, password: state.plansPassword };
@@ -177,6 +180,28 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
       const size = `${viewport.width}x${viewport.height}`;
       await page.setViewportSize(viewport);
 
+      await test.step(`overview (${size})`, async () => {
+        await page.goto(`${state.webUrl}/overview`);
+        await expect(
+          page.getByRole('heading', { level: 1, name: /좋은 (아침|오후|저녁)(이에요|예요)$/ }),
+        ).toBeVisible();
+        const cards = page.locator('[data-overview] [data-widget]');
+        await expect(cards).toHaveCount(5);
+        await expect(page.locator('[data-overview] [data-widget][data-state="ready"]')).toHaveCount(5);
+        for (const title of ['진행', '타임 트래커', '오늘 요약', 'AI 도우미', '작업 기록']) {
+          await expect(page.getByRole('heading', { name: title, level: 2 })).toBeVisible();
+        }
+        // The plan seeded above has blocks today (earlier suites may have left
+        // others on this account): the dashboard names what is next in one
+        // sentence, and exactly one filled button acts on it (07 §4, DESIGN.md).
+        await expect(page.locator('[data-next]')).toHaveText(/(블록|세션|집중)/);
+        await expect(page.locator('main .btn--primary')).toHaveCount(1);
+        await expect(page.locator('main .btn--primary')).toHaveText(/^(집중 시작|이어서 보기)$/);
+        // Dark is the default theme; the shell says so on the root element.
+        await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+        await expectAccessible(page, `overview ${size}`);
+      });
+
       await test.step(`projects + project detail (${size})`, async () => {
         await page.goto(`${state.webUrl}/projects`);
         await expect(page.getByRole('heading', { name: '프로젝트', level: 1 })).toBeVisible();
@@ -264,7 +289,8 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
             .getByRole('button', { name: '알림' })
             .click();
         } else {
-          await page.locator('.nav-rail').getByRole('button', { name: '알림' }).click();
+          // HOLO-01: the notifications button moved from the sidebar to the top bar.
+          await page.locator('.app-topbar').getByRole('button', { name: '알림' }).click();
         }
         const panel = page.getByRole('dialog', { name: '알림' });
         await expect(panel).toBeVisible();

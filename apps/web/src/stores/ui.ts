@@ -1,5 +1,7 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
+import { readNavCollapsed, writeNavCollapsed } from '../layout/shellNav';
+import { captureOwnerBinding, currentOwnerId, onActiveOwnerChange } from '../session/ownerEpoch';
 
 export const useUiStore = defineStore('ui', () => {
   const helpOpen = ref(false);
@@ -8,6 +10,22 @@ export const useUiStore = defineStore('ui', () => {
   const conflictCount = ref(0);
   const conflictOpen = computed(() => conflictCount.value > 0);
   const newTaskRequest = ref(0);
+  // HOLO-01: the sidebar folded down to icons, remembered per owner.
+  const navCollapsed = ref(readNavCollapsed(currentOwnerId()));
+  onActiveOwnerChange((nextOwnerId) => {
+    navCollapsed.value = readNavCollapsed(nextOwnerId);
+  });
+
+  function setNavCollapsed(collapsed: boolean): void {
+    // The owner is noted at the click; a stale binding writes nothing.
+    const binding = captureOwnerBinding();
+    navCollapsed.value = collapsed;
+    writeNavCollapsed(binding, collapsed);
+  }
+
+  function toggleNav(): void {
+    setNavCollapsed(!navCollapsed.value);
+  }
 
   function openHelp(): void {
     helpOpen.value = true;
@@ -52,6 +70,9 @@ export const useUiStore = defineStore('ui', () => {
     conflictOpen,
     conflictCount,
     newTaskRequest,
+    navCollapsed,
+    setNavCollapsed,
+    toggleNav,
     openHelp,
     openSearch,
     openNotifications,

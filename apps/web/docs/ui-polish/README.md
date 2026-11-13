@@ -1,13 +1,24 @@
 # OhMyDate web — screens and behaviour
 
-The visual system was replaced on 2026-11-13 (UI-REDESIGN). It is recorded in
-[`DESIGN.md`](../../DESIGN.md) and the product record is
-[`PRODUCT.md`](../../PRODUCT.md). In one line: the app is a page from a
-ten-minute study planner. Cool white paper, a ruled grid, pen-black ink,
-highlighter fills for state and for time, no cards, no shadows, no pills.
+The visual system was replaced again on 2026-11-13 (HOLO-01), after the user
+saw the direction they had wanted: a dark, calm, dashboard-first tool with one
+lime signal. It is recorded in [`DESIGN.md`](../../DESIGN.md) and the product
+record is [`PRODUCT.md`](../../PRODUCT.md). In one line: large quiet cards on a
+near-black ground, one big light number per card, lime for the one thing to do
+and for "now", a complete light scheme, Pretendard bundled.
 This page keeps what `DESIGN.md` does not: how the stylesheet is laid out,
 the rules for new UI, and how each feature area behaves.
 The screen spec is `docs/blueprint/07-ADAPTIVE-UI-SPEC.md` §1–§6.
+
+HOLO-01 shipped the system (tokens, base, primitives, charts), the shell and
+개요. Every other screen already takes the new skin through the primitives and
+the old token names (aliases, listed at the end of `DESIGN.md`); HOLO-02 and
+HOLO-03 restyle them screen by screen. Where a section below still describes a
+screen in paper terms (a 2px rule, a highlighted word), read it as that
+screen's structure, not its look.
+
+The captures under `redesign/` are from the paper system and are stale; they
+are kept until the whole set is regenerated (`scripts/ui-screenshots.mjs`).
 
 ## Stylesheet layers
 
@@ -18,18 +29,18 @@ above it:
 |---|---|---|
 | Tokens | `src/styles/tokens.css` | every raw colour, font name, size, edge width, duration and z-index |
 | Base | `src/styles/base.css` | reset, type defaults, `:focus-visible`, selection, utilities (`.visually-hidden`, `.hl`, …) |
-| Primitives | `src/styles/primitives.css` | button, field, pen-box checkbox and radio, switch, section (`.card`, `.section-head`), badge, banner, figures, table, meter, empty state, skeleton, lists, dialog and sheet, toast |
-| Shell | `src/styles/shell.css` | nav rail, bottom nav and More sheet, page frame, adaptive frame, calm (Focus) mode |
+| Primitives | `src/styles/primitives.css` | button, icon link, segmented control, field, checkbox and radio, switch, card (`.card`, `.section-head`), tag (`.badge`), banner, figures, table, meter, empty state, skeleton, lists, menu, dialog and sheet, toast, the glass object's box |
+| Charts | `src/styles/charts.css` | the bar set, the ring and its legend, the trend (`src/components/charts`) |
+| Shell | `src/styles/shell.css` | sidebar, top bar, bottom nav and More sheet, page frame, adaptive frame, calm (Focus) mode |
 | Screens | `src/styles/screens/NN-*.css` (indexed by `src/styles/screens.css`) | one file per group of screens: layout and screen-specific pieces only |
 
 Rule: **no colour and no font name outside `tokens.css`**, and no raw length in
 `padding`, `margin` or `gap`. Vue files have no `<style>` blocks. Screens get
 their look from primitives and tokens.
 
-The comment block at the top of `src/styles.css` is the Hallmark stamp
-(`scripts/sloplint.mjs` reads it). It is repeated at the top of
-`src/styles/screens.css` and in `src/styles/screens/00-stamp.css` because the
-linter reads one stamp per folder of CSS; change the three together.
+The comment at the top of `src/styles.css` describes the system in one
+paragraph. Colours change with the scheme through `data-scheme` on `<html>`
+(`src/theme/theme.ts`); no stylesheet reads `prefers-color-scheme`.
 
 ## Primitives (`src/components/ui`)
 
@@ -37,17 +48,21 @@ linter reads one stamp per folder of CSS; change the three together.
 |---|---|
 | `UiButton` | `variant` primary / secondary / ghost / danger / danger-ghost, `size` sm/md/lg, `icon`, `iconOnly`, `block`, `busy` (spinner + `aria-busy`; the caller still owns `disabled`). One primary per screen or dialog |
 | `UiField` | label + help + error for any control in its slot. Wires `aria-describedby` (`<id>-help <id>-error`) and `aria-invalid` |
-| `UiCard` | a section of the page, not a box: no edge and no fill. An `h2` first in it sits on the 2px rule. `sunken` is the one tinted well |
-| `UiBadge` | a highlighted word. `tone` neutral/accent/success/warn/danger/info/offline/outline (`dot` renders nothing: the word carries the state) |
-| `UiBanner` | a highlighted line across the page. `tone` info/success/warn/error/offline/conflict/accent; the live `role` is opt-in so existing live regions are not duplicated |
+| `UiCard` | the unit: a surface with a hairline edge and 20px corners. `flat` is a plain section without a surface, `sunken` an inset well, `compact` the small one |
+| `UiBadge` | a tag: a small tinted rectangle with matching text. `tone` neutral/accent/success/warn/danger/info/offline/outline, plus the category hues as classes (`badge--cyan`, `--orange`, `--violet`); `dot` renders nothing: the word carries the state |
+| `UiBanner` | a tinted line with its hue on the edge and the icon. `tone` info/success/warn/error/offline/conflict/accent; the live `role` is opt-in so existing live regions are not duplicated |
+| `GlassOrb` | OhMyDate's own glass object (WebGL shader, still image without WebGL), decorative; the AI card of 개요 and the login screen only |
+| `BarWeekChart` / `RingChart` / `TrendChart` | hand-written SVG charts (`src/components/charts`), each with a text alternative |
 | `UiEmptyState` | what is missing and the next action, as plain text |
 | `UiSkeleton` / `UiSpinner` | loading. Skeletons are decorative and always come with a status message |
 | `UiDialog` | modal `dialog` or bottom `sheet` (see below) |
-| `ToastHost` | toasts set in ink, with an action and a dismiss button |
+| `ToastHost` | toasts as small raised cards, with an action and a dismiss button |
 | `UiIcon` | inline SVG icon set (`icons.ts`), always `aria-hidden` |
 
 CSS-only primitives: `.section-head`, `.stat-grid`, `.data-table`, `.meter`
-(set `--value` 0..1 and `--cells`), `.switch` with `.switch-row`, `.hl`.
+(set `--value` 0..1 and `--cells`), `.switch` with `.switch-row`, `.hl`,
+`.segmented` with `.segmented-item`, `.icon-link`, `.menu`, `.numeral` with
+`.numeral-unit`, `.legend`.
 
 ### UiDialog (closes FU-09)
 

@@ -3,6 +3,7 @@ import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import BrandMark from '../components/BrandMark.vue';
+import GlassOrb from '../components/ui/GlassOrb.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
 import UiField from '../components/ui/UiField.vue';
@@ -25,6 +26,7 @@ async function submit(): Promise<void> {
 
 <template>
   <main class="auth-page">
+    <GlassOrb class="auth-visual" :size="232" />
     <section class="auth-card" aria-labelledby="login-heading">
       <header class="auth-header">
         <BrandMark :size="44" />

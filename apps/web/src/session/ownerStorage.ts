@@ -90,6 +90,20 @@ const OWNER_SLOTS = {
     onOwnerChange: 'preserve',
     why: 'The day the owner skipped the review prompt (a date).',
   },
+  themePref: {
+    area: 'local',
+    prefix: 'ohmydate.theme',
+    staleWrites: 'drop',
+    onOwnerChange: 'preserve',
+    why: 'The colour theme the owner chose (dark, light or system), per owner on this device. One word, no user content.',
+  },
+  shellNav: {
+    area: 'local',
+    prefix: 'ohmydate.shell.nav',
+    staleWrites: 'drop',
+    onOwnerChange: 'preserve',
+    why: 'Whether the owner folded the sidebar down to icons, per owner on this device. A flag, no user content.',
+  },
   aiWait: {
     area: 'session',
     prefix: 'ohmydate.intake.aiWait.v2',

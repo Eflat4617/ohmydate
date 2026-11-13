@@ -152,8 +152,8 @@
   /* The index keeps its place while the page scrolls. */
   .notes-list-pane {
     position: sticky;
-    top: var(--space-8);
-    max-height: calc(100dvh - var(--space-16));
+    top: var(--sticky-top);
+    max-height: calc(100dvh - var(--sticky-top) - var(--space-8));
     overflow-y: auto;
     padding-right: var(--space-6);
     border-right: var(--rule-hair) solid var(--color-rule);
@@ -206,7 +206,7 @@
   min-height: 0;
   padding: 0 0 var(--space-2);
   border: 0;
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
   border-radius: 0;
   background: transparent;
   font-size: var(--text-2xl);
@@ -420,7 +420,7 @@
 /* A heading with its action beside it, over the 2px rule. */
 .note-section-header {
   padding-bottom: var(--space-2);
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
 }
 
 .note-section-title,
@@ -827,7 +827,7 @@
   display: flex;
   gap: var(--space-5);
   overflow-x: auto;
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
 }
 
 .tab {
@@ -993,7 +993,7 @@
 
 .wizard-evidence-title {
   padding-bottom: var(--space-2);
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
 }
 
 .evidence-list {
@@ -1075,7 +1075,7 @@
 /* The third section is a plain section, so its heading takes the rule itself. */
 .layout-settings .settings-group-title {
   padding-bottom: var(--space-2);
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
   font-size: var(--text-lg);
   font-weight: var(--weight-bold);
 }

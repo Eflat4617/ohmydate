@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { isNavItemCurrent, NAV_GROUPS } from '../layout/navigation';
 import { useAuthStore } from '../stores/auth';
 import { useUiStore } from '../stores/ui';
 import BrandMark from './BrandMark.vue';
@@ -8,6 +9,11 @@ import UiButton from './ui/UiButton.vue';
 import UiIcon from './ui/UiIcon.vue';
 import { t } from '../i18n';
 
+/**
+ * The sidebar (HOLO-01): brand, 새 작업, the navigation groups and, at the
+ * foot, search, help and sign-out. Folded (ui.navCollapsed) it shows icons
+ * only; the labels stay in the accessibility tree and become tooltips.
+ */
 const ui = useUiStore();
 const auth = useAuthStore();
 const router = useRouter();
@@ -30,122 +36,47 @@ function newTask(): void {
 </script>
 
 <template>
-  <nav class="nav-rail" :aria-label="t('nav.primary')">
-    <RouterLink class="nav-brand" to="/inbox" :aria-label="t('nav.home')">
-      <BrandMark :size="30" />
-      <span class="nav-brand-name">{{ t('app.name') }}</span>
+  <nav
+    id="app-sidebar"
+    class="nav-rail"
+    :class="{ 'nav-rail--collapsed': ui.navCollapsed }"
+    :aria-label="t('nav.primary')"
+    :data-collapsed="ui.navCollapsed ? 'true' : 'false'"
+  >
+    <!-- The way home, not a nav item: 개요 in the list carries aria-current. -->
+    <RouterLink v-slot="{ href, navigate }" to="/overview" custom>
+      <a class="nav-brand" :href="href" :aria-label="t('nav.home')" @click="navigate">
+        <BrandMark :size="32" />
+        <span class="nav-brand-name">{{ t('app.name') }}</span>
+      </a>
     </RouterLink>
 
-    <UiButton variant="primary" block icon="plus" class="nav-new-task" @click="newTask">
-      {{ t('nav.newTask') }} <kbd>n</kbd>
+    <UiButton
+      block
+      icon="plus"
+      class="nav-new-task"
+      :aria-label="ui.navCollapsed ? t('nav.newTask') : undefined"
+      :title="ui.navCollapsed ? t('nav.newTask') : undefined"
+      @click="newTask"
+    >
+      <span class="nav-new-task-label">{{ t('nav.newTask') }}</span> <kbd>n</kbd>
     </UiButton>
 
     <div class="nav-groups">
-      <div class="nav-group">
-        <p class="nav-group-label" aria-hidden="true">{{ t('nav.groupDaily') }}</p>
+      <div v-for="group in NAV_GROUPS" :key="group.id" class="nav-group" :data-nav-group="group.id">
+        <p class="nav-group-label" aria-hidden="true">{{ t(group.label) }}</p>
         <ul class="nav-links">
-          <li>
-            <RouterLink to="/today" class="nav-link">
-              <UiIcon name="today" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.today') }}</span>
-              <kbd>t</kbd>
-            </RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/month" class="nav-link">
-              <UiIcon name="month" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.month') }}</span>
-              <kbd>m</kbd>
-            </RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/inbox" class="nav-link">
-              <UiIcon name="inbox" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.inbox') }}</span>
-            </RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/projects" class="nav-link">
-              <UiIcon name="projects" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.projects') }}</span>
-            </RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/notes" class="nav-link">
-              <UiIcon name="note" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.notes') }}</span>
-            </RouterLink>
-          </li>
-          <li>
-            <button type="button" class="nav-link nav-link-button" @click="ui.openNotifications">
-              <UiIcon name="bell" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.notifications') }}</span>
-            </button>
-          </li>
-        </ul>
-      </div>
-
-      <div class="nav-group">
-        <p class="nav-group-label" aria-hidden="true">{{ t('nav.groupPlanning') }}</p>
-        <ul class="nav-links">
-          <li>
-            <RouterLink to="/plan/new" class="nav-link">
-              <UiIcon name="plan" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.plan') }}</span>
-            </RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/plans/new" class="nav-link">
-              <UiIcon name="compare" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.newPlan') }}</span>
-            </RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/replan" class="nav-link">
-              <UiIcon name="reschedule" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.replan') }}</span>
-            </RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/patterns" class="nav-link">
-              <UiIcon name="pattern" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.patterns') }}</span>
-            </RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/commitments" class="nav-link">
-              <UiIcon name="commitment" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.commitments') }}</span>
-            </RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/settings/availability" class="nav-link">
-              <UiIcon name="availability" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.availability') }}</span>
-            </RouterLink>
-          </li>
-        </ul>
-      </div>
-
-      <div class="nav-group">
-        <p class="nav-group-label" aria-hidden="true">{{ t('nav.groupSettings') }}</p>
-        <ul class="nav-links">
-          <li>
-            <RouterLink to="/settings/calendar" class="nav-link">
-              <UiIcon name="link" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.calendarSettings') }}</span>
-            </RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/settings/ai" class="nav-link">
-              <UiIcon name="ai" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.aiSettings') }}</span>
-            </RouterLink>
-          </li>
-          <li>
-            <RouterLink to="/settings/layout" class="nav-link">
-              <UiIcon name="layout" class="nav-link-icon" />
-              <span class="nav-link-label">{{ t('nav.layoutSettings') }}</span>
+          <li v-for="item in group.items" :key="item.to">
+            <RouterLink
+              :to="item.to"
+              class="nav-link"
+              :class="{ 'nav-link--current': isNavItemCurrent(item, route.name) }"
+              :aria-current="isNavItemCurrent(item, route.name) ? 'page' : undefined"
+              :title="ui.navCollapsed ? t(item.label) : undefined"
+            >
+              <UiIcon :name="item.icon" class="nav-link-icon" />
+              <span class="nav-link-label">{{ t(item.label) }}</span>
+              <kbd v-if="item.shortcut">{{ item.shortcut }}</kbd>
             </RouterLink>
           </li>
         </ul>
@@ -153,17 +84,32 @@ function newTask(): void {
     </div>
 
     <div class="nav-secondary">
-      <button type="button" class="nav-link nav-link--quiet" @click="ui.openSearch">
+      <button
+        type="button"
+        class="nav-link nav-link--quiet"
+        :title="ui.navCollapsed ? t('nav.search') : undefined"
+        @click="ui.openSearch"
+      >
         <UiIcon name="search" class="nav-link-icon" />
         <span class="nav-link-label">{{ t('nav.search') }}</span>
         <kbd>/</kbd>
       </button>
-      <button type="button" class="nav-link nav-link--quiet" @click="ui.openHelp">
+      <button
+        type="button"
+        class="nav-link nav-link--quiet"
+        :title="ui.navCollapsed ? t('nav.help') : undefined"
+        @click="ui.openHelp"
+      >
         <UiIcon name="help" class="nav-link-icon" />
         <span class="nav-link-label">{{ t('nav.help') }}</span>
         <kbd>?</kbd>
       </button>
-      <button type="button" class="nav-link nav-link--quiet" @click="signOut">
+      <button
+        type="button"
+        class="nav-link nav-link--quiet"
+        :title="ui.navCollapsed ? t('nav.signOut') : undefined"
+        @click="signOut"
+      >
         <UiIcon name="logout" class="nav-link-icon" />
         <span class="nav-link-label">{{ t('nav.signOut') }}</span>
       </button>

@@ -6,6 +6,7 @@ import { router } from './router';
 import { DEFAULT_LOCALE, setLocale } from './i18n';
 import { installPageSeal } from './session/ownerEpoch';
 import { createOwnerQueryClient } from './session/ownerQuery';
+import { bootTheme } from './theme/theme';
 import './styles.css';
 
 async function bootstrap(): Promise<void> {
@@ -23,5 +24,9 @@ async function bootstrap(): Promise<void> {
   app.use(VueQueryPlugin, { queryClient: createOwnerQueryClient() });
   app.mount('#app');
 }
+
+// HOLO-01: the stored theme goes on <html> before anything is mounted or
+// awaited (index.html holds the first paint until this module has run).
+bootTheme();
 
 void bootstrap();

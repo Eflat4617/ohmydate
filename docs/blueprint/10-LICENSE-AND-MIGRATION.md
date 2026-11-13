@@ -50,3 +50,14 @@
 
 ## 8. 업스트림 갱신 전략
 포크 브랜치 `ohmydate/v2.8.0-patches` = 태그 + 패치. 신규 릴리스 시 패치 리베이스 → 계약 테스트·E2E → 승격. 보안 릴리스는 즉시 검토.
+
+## 9. 제품에 함께 넣는 서드파티 자산 (번들)
+런타임 의존성이 아니라 저장소에 파일로 들어 있는 자산이다. 네트워크에서 내려받지 않고 앱과 함께 배포된다. 새 자산을 넣을 때 이 표에 한 줄을 더한다.
+
+| 자산 | 버전 | 파일 | 출처 | 라이선스 | sha256 |
+|---|---|---|---|---|---|
+| Pretendard Variable (글꼴, 가변 WOFF2 1개) | 1.3.9 | `apps/web/src/assets/fonts/PretendardVariable.woff2` | 공식 npm 패키지 `pretendard@1.3.9`의 `dist/web/variable/woff2/PretendardVariable.woff2` (tarball `https://registry.npmjs.org/pretendard/-/pretendard-1.3.9.tgz`, npm integrity `sha512-PaQAADyLY5v4kYFwkpSJHbSSYIkiriY/1xXw75TKoZ9UQQqeU+tvP05yTdZAWibiIYoo8ZKtRv8PM7w0IaywSw==` 일치 확인, 2026-11-13). 저장소: https://github.com/orioncactus/pretendard | SIL Open Font License 1.1 (전문: `apps/web/src/assets/fonts/LICENSE.txt`, 같은 패키지의 `dist/LICENSE.txt`) | `9599f12fd42fc0bce1cd50b47a0c022e108d7aa64dd0d1bb0ed44f3282d900b4` |
+
+- 사용: `apps/web/src/styles/tokens.css`의 `@font-face`(weight 45–920)와 `apps/web/index.html`의 preload. 의존성(`package.json`)으로는 추가하지 않았고 CDN을 쓰지 않는다(HOLO-01, 사용자 승인 2026-11-13).
+- OFL 1.1 조건: 글꼴 파일을 수정하지 않고 그대로 넣었다(Reserved Font Name "Pretendard" 유지). 글꼴만 따로 팔지 않는다. 라이선스 전문을 글꼴 옆에 둔다. 글꼴을 서브셋하거나 변환하면 수정본이 되므로 이름을 바꿔야 한다.
+- `apps/web/src/assets/glass-orb.webp`는 서드파티 자산이 아니다. 이 프로젝트의 셰이더(`apps/web/src/components/ui/glassOrbShader.ts`)를 `apps/web/scripts/render-glass-orb.mjs`로 직접 렌더링한 그림이다.
