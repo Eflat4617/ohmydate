@@ -111,7 +111,35 @@ export interface MonthBlockInput {
 export interface MonthCommitmentInput {
   readonly id: string;
   readonly title: string;
+  /** `google`: imported from Google Calendar (CAL-03); drawn the same, told apart in words. */
+  readonly source?: string;
   readonly occurrences?: readonly { readonly commitmentId: string; readonly startAt: string; readonly endAt: string }[];
+}
+
+/** CAL-04: an all-day event imported from Google (`GET /calendar-day-events`). */
+export interface MonthDayEventInput {
+  readonly id: string;
+  readonly title: string;
+  /** First day, `YYYY-MM-DD`. */
+  readonly startDate: string;
+  /** The day after the last one (exclusive, as Google's all-day `end.date`). */
+  readonly endDate: string;
+  readonly calendarName: string | null;
+}
+
+/**
+ * A plain label at the top of a day (a holiday, a trip). It is not a block or
+ * a 약속: it takes no time, is not counted and does not make a day busy.
+ */
+export interface MonthDayLabel {
+  /** Unique within a day. */
+  readonly key: string;
+  readonly title: string;
+  readonly calendarName: string | null;
+  readonly firstDate: string;
+  /** Inclusive. */
+  readonly lastDate: string;
+  readonly multiDay: boolean;
 }
 
 export interface MonthTaskInput {
@@ -138,6 +166,8 @@ export interface MonthItem {
   readonly done: boolean;
   readonly taskId: string | null;
   readonly commitmentId: string | null;
+  /** A 약속 imported from Google Calendar (read-only here). */
+  readonly fromGoogle: boolean;
 }
 
 export interface MonthDay {
@@ -151,6 +181,8 @@ export interface MonthDay {
   readonly past: boolean;
   readonly items: readonly MonthItem[];
   readonly counts: Readonly<Record<MonthItemKind, number>>;
+  /** All-day labels of the day, in start order (never counted with the items). */
+  readonly labels: readonly MonthDayLabel[];
 }
 
 export interface MonthGrid {
@@ -168,6 +200,8 @@ export interface MonthGridInput {
   readonly blocks: readonly MonthBlockInput[];
   readonly commitments: readonly MonthCommitmentInput[];
   readonly tasks: readonly MonthTaskInput[];
+  /** CAL-04: imported all-day events; absent when they could not be read. */
+  readonly dayEvents?: readonly MonthDayEventInput[];
 }
 
 /** Blocks that still describe time on the page; skipped, moved and superseded rows do not. */
@@ -204,6 +238,28 @@ function spanDays(
     date = addDaysToDate(date, 1);
   }
   return days;
+}
+
+/**
+ * The days of the visible grid an all-day event covers: `startDate` up to the
+ * day before `endDate` (exclusive), clipped to `firstDate..lastDate`. A
+ * malformed or empty span covers nothing.
+ */
+export function dayEventDates(
+  event: { readonly startDate: string; readonly endDate: string },
+  firstDate: string,
+  lastDate: string,
+): string[] {
+  if (!CIVIL_DATE.test(event.startDate) || !CIVIL_DATE.test(event.endDate) || event.endDate <= event.startDate) return [];
+  const dates: string[] = [];
+  let date = event.startDate < firstDate ? firstDate : event.startDate;
+  const last = addDaysToDate(event.endDate, -1);
+  const until = last > lastDate ? lastDate : last;
+  while (date <= until) {
+    dates.push(date);
+    date = addDaysToDate(date, 1);
+  }
+  return dates;
 }
 
 /** Time order; at the same minute a continued item first, then 약속, 블록, 마감; then by title. */
@@ -244,6 +300,7 @@ export function buildMonthGrid(input: MonthGridInput): MonthGrid {
         done: block.status === 'done',
         taskId: block.taskId,
         commitmentId: null,
+        fromGoogle: false,
       });
     }
   }
@@ -263,6 +320,7 @@ export function buildMonthGrid(input: MonthGridInput): MonthGrid {
           done: false,
           taskId: null,
           commitmentId: commitment.id,
+          fromGoogle: commitment.source === 'google',
         });
       }
     }
@@ -284,7 +342,26 @@ export function buildMonthGrid(input: MonthGridInput): MonthGrid {
       done: false,
       taskId: task.id,
       commitmentId: null,
+      fromGoogle: false,
     });
+  }
+
+  const labelsByDate = new Map<string, MonthDayLabel[]>();
+  for (const event of input.dayEvents ?? []) {
+    const lastDay = addDaysToDate(event.endDate, -1);
+    for (const date of dayEventDates(event, firstDate, lastDate)) {
+      const label: MonthDayLabel = {
+        key: `day:${event.id}`,
+        title: event.title,
+        calendarName: event.calendarName,
+        firstDate: event.startDate,
+        lastDate: lastDay,
+        multiDay: lastDay > event.startDate,
+      };
+      const list = labelsByDate.get(date);
+      if (list === undefined) labelsByDate.set(date, [label]);
+      else list.push(label);
+    }
   }
 
   let empty = true;
@@ -304,6 +381,9 @@ export function buildMonthGrid(input: MonthGridInput): MonthGrid {
         past: date < input.today,
         items,
         counts,
+        labels: (labelsByDate.get(date) ?? []).sort(
+          (left, right) => left.firstDate.localeCompare(right.firstDate) || left.title.localeCompare(right.title, 'ko'),
+        ),
       };
     }),
   );

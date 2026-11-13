@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw, type Router } from 'vue-router';
 import AvailabilityView from './views/AvailabilityView.vue';
+import CalendarSettingsView from './views/CalendarSettingsView.vue';
 import CommitmentsView from './views/CommitmentsView.vue';
 import FocusView from './views/FocusView.vue';
 import InboxView from './views/InboxView.vue';
@@ -38,6 +39,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/settings/availability', name: 'availability', component: AvailabilityView },
   { path: '/settings/ai', name: 'ai-settings', component: LlmSettingsView },
   { path: '/settings/layout', name: 'layout-settings', component: LayoutSettingsView },
+  // CAL-04: Google Calendar (the OAuth callback comes back here with ?google=…).
+  { path: '/settings/calendar', name: 'calendar-settings', component: CalendarSettingsView },
   // M6-03 notes workspace: one view for the list, a new note and an open note.
   // Loaded on demand, so the Markdown parser stays out of the main bundle.
   { path: '/notes', name: 'notes', component: NotesView },

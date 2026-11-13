@@ -43,6 +43,8 @@ const EXEMPT: Record<string, string> = {
   'src/composables/usePlannerRange.ts':
     'Reads only (CAL-01 month page and Today agenda), through owner-keyed ownerFenced lookups; writes nothing.',
   'src/composables/useLatestReplanPlan.ts': 'Reads only (owner-keyed query); writes nothing.',
+  'src/composables/useGoogleCalendar.ts':
+    'Reads only (CAL-04 Google connection and all-day events), through owner-keyed ownerFenced lookups; writes nothing.',
   'src/layout/useTodaySnapshot.ts': 'Reads only (owner-keyed query); writes nothing.',
   'src/views/ProjectDetailView.vue': 'Reads only; its task edits are TaskList / useTaskActions (inbox cases).',
   'src/views/ProjectListView.vue': 'Reads only; writes nothing.',

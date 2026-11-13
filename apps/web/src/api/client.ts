@@ -103,6 +103,17 @@ export type NoteAiUsage = components['schemas']['NoteAiUsage'];
 export type NoteAiUsagePage = components['schemas']['NoteAiUsagePage'];
 export type NoteAiUsageStatus = NoteAiUsage['status'];
 export type DecompositionEvidence = components['schemas']['DecompositionEvidence'];
+/** CAL-04: Google Calendar integration (CAL-03 contract, 08 §2.11). */
+export type GoogleIntegration = components['schemas']['GoogleIntegration'];
+export type GoogleIntegrationStatus = GoogleIntegration['status'];
+export type GoogleIntegrationSettings = components['schemas']['GoogleIntegrationSettings'];
+export type GoogleIntegrationSettingsPut = components['schemas']['GoogleIntegrationSettingsPut'];
+export type GoogleCalendarEntry = components['schemas']['GoogleCalendarEntry'];
+export type GoogleConnectResponse = components['schemas']['GoogleConnectResponse'];
+export type GoogleSyncResult = components['schemas']['GoogleSyncResult'];
+export type GoogleSyncErrorCode = NonNullable<GoogleIntegration['lastError']>;
+export type CalendarDayEvent = components['schemas']['CalendarDayEvent'];
+export type CommitmentSource = Commitment['source'];
 
 export interface DocumentListOptions {
   readonly q?: string;
@@ -594,6 +605,89 @@ export class PlannerClient {
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     this.versions.delete(`commitment:${commitmentId}`);
+  }
+
+  // ── Google Calendar integration (CAL-03 server, CAL-04 screen) ────────
+
+  cachedGoogleIntegrationVersion(): number | undefined {
+    return this.versions.get('google-integration');
+  }
+
+  /** Always 200, also when the server is not configured (`status: not_configured`). */
+  async getGoogleIntegration(options: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<GoogleIntegration> {
+    const { data, error, response } = await this.client.GET('/integrations/google', {
+      ...(options.fresh === true ? { cache: 'no-store' as RequestCache } : {}),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty Google integration response');
+    this.remember('google-integration', data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  /** The accounts.google.com consent URL; the caller navigates to it at the top level. */
+  async connectGoogleIntegration(idempotencyKey: string): Promise<GoogleConnectResponse> {
+    const { data, error, response } = await this.client.POST('/integrations/google:connect', {
+      params: { header: { 'Idempotency-Key': idempotencyKey } },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty Google connect response');
+    return data;
+  }
+
+  /** Full replacement of the import selection and the export settings (If-Match: the connection version). */
+  async putGoogleIntegrationSettings(
+    input: GoogleIntegrationSettingsPut,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<GoogleIntegration> {
+    const { data, error, response } = await this.client.PUT('/integrations/google/settings', {
+      params: {
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      body: input,
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty Google integration response');
+    this.remember('google-integration', data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  /** One import + export now; the counts of what changed. */
+  async syncGoogleIntegration(idempotencyKey: string): Promise<GoogleSyncResult> {
+    const { data, error, response } = await this.client.POST('/integrations/google:sync', {
+      params: { header: { 'Idempotency-Key': idempotencyKey } },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty Google sync response');
+    return data;
+  }
+
+  /** Revoke, forget the token, remove imported data; `removeExported` also deletes the "OhMyDate" calendar at Google. */
+  async disconnectGoogleIntegration(
+    removeExported: boolean,
+    idempotencyKey: string,
+    expectedVersion: number,
+  ): Promise<void> {
+    const { error, response } = await this.client.DELETE('/integrations/google', {
+      params: {
+        query: { removeExported: removeExported ? 'true' : 'false' },
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    this.versions.delete('google-integration');
+  }
+
+  /** Imported all-day events overlapping `from..to` (inclusive civil dates, at most 92 days). */
+  async listCalendarDayEvents(options: { from: string; to: string; signal?: AbortSignal }): Promise<CalendarDayEvent[]> {
+    const { data, error, response } = await this.client.GET('/calendar-day-events', {
+      params: { query: { from: options.from, to: options.to } },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty day event page');
+    return data.items;
   }
 
   async createPlan(input: PlanCreate, idempotencyKey: string): Promise<Plan> {

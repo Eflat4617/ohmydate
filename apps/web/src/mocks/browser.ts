@@ -9,6 +9,7 @@ import {
 // CAL-05: the inbox's 말로 적기 (the same delay / failure knobs hold it too).
 import { createTaskParseHandlers, setTaskParseDelay, setTaskParseFailure } from './task-parse';
 import { createIntakeHandlers } from './intake-handlers';
+import { createGoogleHandlers, seedGoogle, type MockGoogleScenario } from './google';
 import { createNotesHandlers, seedFocusNote } from './notes';
 import { createPlanningHandlers } from './planning-handlers';
 import { createReplanHandlers, seedColdEstimation, seedReplanScenario } from './replan';
@@ -33,6 +34,14 @@ declare global {
       parseDelayMs?: number;
       /** CAL-02: answer every "말로 적기" read with this 503. */
       parseFailure?: 'llm_unavailable' | 'budget_exceeded';
+      /**
+       * CAL-04: the Google Calendar connection to start from (default `connected`,
+       * with imported 약속 and all-day labels in November). `partial` is connected
+       * without the export permission.
+       */
+      google?: MockGoogleScenario;
+      /** CAL-04: make "지금 동기화" fail (503, or 409 after the grant was revoked). */
+      googleSyncFailure?: 'provider_unavailable' | 'auth_revoked';
     };
     /** Mock-mode only: the in-page synthetic database, for screenshot/state scripts. */
     __OHMYDATE_MOCK_DB__?: MockDb;
@@ -55,6 +64,12 @@ if (overrides?.parseDelayMs !== undefined) setCommitmentParseDelay(overrides.par
 if (overrides?.parseFailure !== undefined) setCommitmentParseFailure(overrides.parseFailure);
 if (overrides?.parseDelayMs !== undefined) setTaskParseDelay(overrides.parseDelayMs);
 if (overrides?.parseFailure !== undefined) setTaskParseFailure(overrides.parseFailure);
+// CAL-04: the mock's ":connect" sends the browser back here with ?google=connected
+// (a reload, so the in-memory database starts over): that page opens connected.
+const returnedConnected =
+  typeof location !== 'undefined' && new URLSearchParams(location.search).get('google') === 'connected';
+seedGoogle(mockDb, returnedConnected ? 'connected' : (overrides?.google ?? 'connected'));
+if (overrides?.googleSyncFailure !== undefined) mockDb.google.syncFailure = overrides.googleSyncFailure;
 if (typeof window !== 'undefined') window.__OHMYDATE_MOCK_DB__ = mockDb;
 
 export const worker = setupWorker(
@@ -67,4 +82,5 @@ export const worker = setupWorker(
   ...createPlanningHandlers(mockDb),
   ...createReplanHandlers(mockDb),
   ...createNotesHandlers(mockDb),
+  ...createGoogleHandlers(mockDb),
 );

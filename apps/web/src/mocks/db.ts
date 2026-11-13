@@ -23,6 +23,7 @@ import type {
 } from '../api/client';
 import { seedEstimationProfile } from './replan-seed';
 import { createNotesState, type MockNotesState } from './notes-seed';
+import { createGoogleState, type MockGoogleState } from './google-seed';
 
 export interface StoredResponse {
   readonly hash: string;
@@ -81,6 +82,8 @@ export interface MockDb {
   estimation: EstimationProfile;
   /** M6-03: notes, their AI usage history and the goals intake sessions created. */
   notes: MockNotesState;
+  /** CAL-04: the Google Calendar connection (not configured by default; see `seedGoogle`). */
+  google: MockGoogleState;
   idempotency: Map<string, StoredResponse>;
   pendingIdempotency: Set<string>;
   authenticated: boolean;
@@ -380,6 +383,7 @@ export function createMockDb(): MockDb {
       taskTwo: TODAY_TASK_TWO_ID,
     }),
     notes: createNotesState({ ownerId: USER_ID, projectId: SAMPLE_PROJECT_ID, createdAt, uuid: createUuidV7 }),
+    google: createGoogleState(),
     idempotency: new Map(),
     pendingIdempotency: new Set(),
     authenticated: true,
@@ -573,6 +577,7 @@ export function resetMockDb(): void {
   mockDb.replanSuppressions = fresh.replanSuppressions;
   mockDb.estimation = fresh.estimation;
   mockDb.notes = fresh.notes;
+  mockDb.google = fresh.google;
   mockDb.idempotency = fresh.idempotency;
   mockDb.pendingIdempotency = fresh.pendingIdempotency;
   mockDb.authenticated = fresh.authenticated;

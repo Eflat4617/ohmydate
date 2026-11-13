@@ -105,6 +105,34 @@ skeleton in the shape of the grid, an error with retry (a failed re-read keeps
 the last data and says so), one line for a month with nothing planned, and an
 offline line when nothing was read yet. The screen only reads.
 
+## 캘린더 연동 (CAL-04)
+
+`/settings/calendar` (route `calendar-settings`, rail group 설정, the phone's
+More sheet) is the settings page of the Google Calendar integration (CAL-03
+server, ADR-024, 08 §2.11), driven by `GET /integrations/google`. It has one
+state per `status`, each with at most one filled button: `not_configured`
+(what connecting does, the one-time laptop setup as a numbered worksheet with
+the guide's exact file path and commands; no button that cannot work, only
+*설정 다시 확인*), `disconnected` (what is read, what is sent, what is left
+alone; *구글 계정 연결*), `connected` (last sync and its result in words,
+*지금 동기화* with the returned counts in one sentence, 가져올 캘린더, 폰으로
+보내기, *연동 설정 저장*, 연결 끊기 with an `alertdialog` and the
+*‘OhMyDate’ 캘린더도 지우기* box) and `needs_reauth` (one line, *다시 연결*;
+the rest stays). Connect is `POST :connect`, then a top-level navigation to
+the returned `authorizationUrl` — only to `https://accounts.google.com` or
+this app's own origin (`src/domain/googleIntegration.ts`), owner-bound, never
+offline. `?google=connected|denied|error` shows its message once and is
+removed from the URL. Settings and disconnect send If-Match +
+Idempotency-Key; 412 re-reads (settings: keep mine / take theirs). `lastError`
+codes are catalog sentences with a fallback. Imported 약속 (`source: google`)
+say *구글 캘린더* on 약속 and have no 수정 / 삭제; a line above the list links
+here, and another says imported 약속 may be stale while sign-in is expired.
+On 한달, all-day events (`GET /calendar-day-events`) are plain labels beside
+the date, with the date underlined (the mark on phones and in the legend);
+they are not items and are never counted, and a failed read only adds one
+quiet line. Mock mode starts `connected` (`__OHMYDATE_MOCK__.google` picks
+another status for the sweep: `scripts/ui-screenshots.mjs --flows calendar`).
+
 Focus has a **calm mode**: the shell steps back (no rail, no bottom nav), the
 timer is set in display type, and the planned time shows under it as
 ten-minute cells that fill. Calm mode only lasts while the timer runs. When

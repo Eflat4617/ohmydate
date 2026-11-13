@@ -7,6 +7,7 @@ import UiButton from '../components/ui/UiButton.vue';
 import UiDeadlineFlag from '../components/ui/UiDeadlineFlag.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 import { usePlannerRange, useOwnerTimeZone } from '../composables/usePlannerRange';
+import { useCalendarDayEvents } from '../composables/useGoogleCalendar';
 import {
   MONTH_CELL_LINES,
   buildMonthGrid,
@@ -16,9 +17,11 @@ import {
   isMonthGridKey,
   monthGridRange,
   monthOfDate,
+  monthWeeks,
   parseMonthKey,
   shiftMonth,
   type MonthDay,
+  type MonthDayLabel,
   type MonthItem,
   type MonthKey,
 } from '../domain/monthGrid';
@@ -26,6 +29,7 @@ import { todayInZone } from '../domain/time';
 import { t, tp } from '../i18n';
 import {
   formatCivilDate,
+  formatCivilDateRange,
   formatCivilMonthDay,
   formatCivilWeekday,
   formatCivilWeekdayLong,
@@ -69,6 +73,18 @@ const range = computed(() => (ready.value ? monthGridRange(month.value, timeZone
 const query = usePlannerRange(range);
 const data = computed(() => query.data.value ?? null);
 
+// CAL-04: all-day events imported from Google, read on their own. They are
+// labels only; when they cannot be read the month shows without them.
+const dayRange = computed(() => {
+  const weeks = monthWeeks(month.value);
+  const first = weeks[0]?.[0];
+  const lastWeek = weeks[weeks.length - 1];
+  const last = lastWeek?.[lastWeek.length - 1];
+  return first === undefined || last === undefined ? null : { from: first, to: last };
+});
+const dayEventsQuery = useCalendarDayEvents(dayRange);
+const dayEventsFailed = computed(() => dayEventsQuery.isError.value && dayEventsQuery.data.value === undefined);
+
 const grid = computed(() =>
   buildMonthGrid({
     month: month.value,
@@ -77,7 +93,13 @@ const grid = computed(() =>
     blocks: data.value?.blocks ?? [],
     commitments: data.value?.commitments ?? [],
     tasks: data.value?.tasks ?? [],
+    dayEvents: dayEventsQuery.data.value ?? [],
   }),
+);
+const hasDayLabels = computed(() => days.value.some((day) => day.labels.length > 0));
+/** The legend's sample of the mark is the first labelled day of the month's own days. */
+const firstLabelledDay = computed(
+  () => (days.value.find((day) => day.inMonth && day.labels.length > 0) ?? days.value.find((day) => day.labels.length > 0))?.day ?? 1,
 );
 const days = computed(() => grid.value.weeks.flat());
 const dayByDate = computed(() => new Map(days.value.map((day) => [day.date, day])));
@@ -197,10 +219,11 @@ function cellTime(item: MonthItem): string {
 function cellName(day: MonthDay): string {
   const parts = [`${formatCivilMonthDay(day.date)} ${formatCivilWeekdayLong(day.date)}`];
   if (day.today) parts.push(t('month.cell.today'));
+  for (const label of day.labels) parts.push(t('month.cell.dayEvent', { title: label.title }));
   if (day.counts.block > 0) parts.push(tp('month.cell.blocks', day.counts.block));
   if (day.counts.commitment > 0) parts.push(tp('month.cell.commitments', day.counts.commitment));
   if (day.counts.deadline > 0) parts.push(tp('month.cell.deadlines', day.counts.deadline));
-  if (day.items.length === 0) parts.push(t('month.cell.nothing'));
+  if (day.items.length === 0 && day.labels.length === 0) parts.push(t('month.cell.nothing'));
   return parts.join(', ');
 }
 
@@ -220,7 +243,20 @@ function agendaTime(item: MonthItem): string {
 
 function agendaKind(item: MonthItem): string {
   if (item.kind === 'block') return item.done ? t('month.detail.kind.blockDone') : t('month.detail.kind.block');
-  return item.kind === 'commitment' ? t('month.detail.kind.commitment') : t('month.detail.kind.deadline');
+  if (item.kind === 'commitment') {
+    return item.fromGoogle ? t('month.detail.kind.commitmentGoogle') : t('month.detail.kind.commitment');
+  }
+  return t('month.detail.kind.deadline');
+}
+
+function labelKind(label: MonthDayLabel): string {
+  return label.calendarName === null || label.calendarName.length === 0
+    ? t('month.detail.kind.dayEvent')
+    : t('month.detail.kind.dayEventFrom', { calendar: label.calendarName });
+}
+
+function labelDates(label: MonthDayLabel): string {
+  return label.multiDay ? formatCivilDateRange(label.firstDate, label.lastDate) : formatCivilDate(label.firstDate);
 }
 
 function agendaLink(item: MonthItem): string {
@@ -230,6 +266,7 @@ function agendaLink(item: MonthItem): string {
 
 function retry(): void {
   void query.refetch();
+  if (dayEventsQuery.isError.value) void dayEventsQuery.refetch();
 }
 </script>
 
@@ -269,6 +306,9 @@ function retry(): void {
       </template>
     </UiBanner>
     <p v-if="offlineWithoutData" class="month-note" role="status">{{ t('month.offline') }}</p>
+    <p v-if="dayEventsFailed && !offlineWithoutData" class="month-note" role="status" data-month-day-events-error>
+      {{ t('month.dayEventsError') }}
+    </p>
 
     <div class="month-layout">
       <div class="month-main">
@@ -333,8 +373,11 @@ function retry(): void {
               @keydown="onCellKeydown($event, day.date)"
             >
               <span class="month-cell-head" aria-hidden="true">
-                <span class="month-day tabular">{{ day.day }}</span>
+                <span class="month-day tabular" :class="{ 'month-day--labelled': day.labels.length > 0 }">{{ day.day }}</span>
                 <span v-if="day.today" class="month-today-word">{{ t('month.cell.today') }}</span>
+                <span v-if="day.labels.length > 0" class="month-day-labels" data-month-day-labels>
+                  <span v-for="label in day.labels" :key="label.key" class="month-day-label">{{ label.title }}</span>
+                </span>
               </span>
               <span v-if="loading && day.inMonth" class="month-cell-skeleton" aria-hidden="true">
                 <span class="skeleton skeleton--text" :style="{ width: `${48 + ((day.day * 17) % 40)}%` }"></span>
@@ -382,6 +425,9 @@ function retry(): void {
           <li><span class="month-mark month-mark--commitment" aria-hidden="true"></span>{{ t('month.legendCommitment') }}</li>
           <li><UiDeadlineFlag class="month-mark month-mark--deadline" />{{ t('month.legendDeadline') }}</li>
           <li><span class="month-legend-today tabular" aria-hidden="true">{{ todayNumber }}</span>{{ t('month.legendToday') }}</li>
+          <li v-if="hasDayLabels" data-month-legend-day-event>
+            <span class="month-legend-daylabel tabular" aria-hidden="true">{{ firstLabelledDay }}</span>{{ t('month.legendDayEvent') }}
+          </li>
         </ul>
       </div>
 
@@ -395,6 +441,23 @@ function retry(): void {
             {{ t('month.detail.openToday') }}
           </RouterLink>
         </header>
+        <ul
+          v-if="selectedDay.labels.length > 0"
+          class="month-agenda month-agenda--labels"
+          :aria-label="t('month.detail.dayEvents', { date: formatCivilDate(selectedDay.date) })"
+          data-month-detail-labels
+        >
+          <li v-for="label in selectedDay.labels" :key="label.key" class="month-agenda-item month-agenda-item--label" data-kind="day-event">
+            <span class="month-agenda-daymark" aria-hidden="true"></span>
+            <span class="month-agenda-body">
+              <span class="month-agenda-meta">
+                <span class="month-agenda-time tabular">{{ labelDates(label) }}</span>
+                <span class="month-agenda-kind">{{ labelKind(label) }}</span>
+              </span>
+              <span class="month-agenda-label">{{ label.title }}</span>
+            </span>
+          </li>
+        </ul>
         <div v-if="loading" class="month-detail-skeleton" aria-hidden="true">
           <span class="skeleton skeleton--text"></span>
           <span class="skeleton skeleton--text"></span>
@@ -410,6 +473,7 @@ function retry(): void {
             class="month-agenda-item"
             :class="[`month-agenda-item--${item.kind}`, { 'month-agenda-item--done': item.done }]"
             :data-kind="item.kind"
+            :data-source="item.fromGoogle ? 'google' : undefined"
           >
             <span
               v-if="item.kind === 'block'"
@@ -428,7 +492,7 @@ function retry(): void {
             </span>
           </li>
         </ul>
-        <p v-else-if="data" class="month-detail-empty">{{ t('month.detail.empty') }}</p>
+        <p v-else-if="data && selectedDay.labels.length === 0" class="month-detail-empty">{{ t('month.detail.empty') }}</p>
       </section>
     </div>
   </section>

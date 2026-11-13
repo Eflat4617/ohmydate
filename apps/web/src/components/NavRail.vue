@@ -131,6 +131,12 @@ function newTask(): void {
         <p class="nav-group-label" aria-hidden="true">{{ t('nav.groupSettings') }}</p>
         <ul class="nav-links">
           <li>
+            <RouterLink to="/settings/calendar" class="nav-link">
+              <UiIcon name="link" class="nav-link-icon" />
+              <span class="nav-link-label">{{ t('nav.calendarSettings') }}</span>
+            </RouterLink>
+          </li>
+          <li>
             <RouterLink to="/settings/ai" class="nav-link">
               <UiIcon name="ai" class="nav-link-icon" />
               <span class="nav-link-label">{{ t('nav.aiSettings') }}</span>

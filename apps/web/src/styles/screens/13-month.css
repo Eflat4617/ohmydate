@@ -407,6 +407,69 @@
   font-weight: var(--weight-regular);
 }
 
+/* ── Day labels (CAL-04): all-day events from Google ──────────────────
+   Written beside the date in plain ink, the way a planner page notes a
+   holiday: no highlighter, no hatch, no time. They are not blocks or 약속
+   and take no time. The date of such a day is underlined with a 2px ink
+   bar (the mark the legend shows); on a phone the words go and the
+   underline stays, and the day's list carries the words. */
+.month-day--labelled,
+.month-legend-daylabel {
+  text-decoration: underline var(--rule-bar) var(--color-ink);
+  text-underline-offset: var(--space-1);
+}
+
+.month-day-labels {
+  display: flex;
+  flex: 1;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.month-day-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.month-day-label + .month-day-label::before {
+  content: '·';
+  margin-right: var(--space-1);
+  color: var(--color-muted);
+}
+
+.month-cell--other .month-day-label {
+  color: var(--color-muted);
+  font-weight: var(--weight-regular);
+}
+
+.month-legend-daylabel {
+  color: var(--color-ink);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+}
+
+/* In the day's list: the same 2px bar, standing in the mark column. */
+.month-agenda-daymark {
+  justify-self: center;
+  width: 1.25rem;
+  height: var(--rule-bar);
+  margin-top: var(--space-2-5);
+  background: var(--color-ink);
+}
+
+.month-agenda-label {
+  color: var(--color-ink);
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
 /* ── Widths ────────────────────────────────────────────────────────── */
 /* A phone: the date and a mark per kind, centred; the words are below. */
 @media (max-width: 639px) {
@@ -433,9 +496,11 @@
 
   .month-today-word,
   .month-items,
+  .month-day-labels,
   .month-cell-skeleton .skeleton + .skeleton {
     display: none;
   }
+
 
   .month-cell-skeleton {
     width: 100%;

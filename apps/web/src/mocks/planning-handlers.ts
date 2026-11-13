@@ -348,6 +348,10 @@ export function createPlanningHandlers(db: MockDb) {
       if (ifMatch instanceof Response) return ifMatch;
       const commitment = db.commitments.get(String(params.id));
       if (commitment === undefined) return problem(404, 'not_found', 'Commitment not found');
+      // CAL-03: an imported 약속 is edited in Google, never here.
+      if (commitment.source === 'google') {
+        return rememberDomainResult(db, token, 409, 'illegal_transition', 'Imported commitments are read-only');
+      }
       if (commitment.version !== ifMatch.version) {
         return problem(
           412,
@@ -377,6 +381,9 @@ export function createPlanningHandlers(db: MockDb) {
       if (ifMatch instanceof Response) return ifMatch;
       const commitment = db.commitments.get(String(params.id));
       if (commitment === undefined) return problem(404, 'not_found', 'Commitment not found');
+      if (commitment.source === 'google') {
+        return rememberDomainResult(db, token, 409, 'illegal_transition', 'Imported commitments are read-only');
+      }
       if (commitment.version !== ifMatch.version) {
         return problem(
           412,
