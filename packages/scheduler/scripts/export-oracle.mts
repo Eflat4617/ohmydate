@@ -323,12 +323,13 @@ function historyBlocks(input: ScheduleInput): Block[] {
 function evaluate(testCase: OracleCase): Record<string, unknown> {
   const { input, options } = testCase;
   const result = generate(input, options ?? {});
-  let slots: unknown = null;
-  try {
-    slots = computeAvailableSlots(input);
-  } catch {
-    slots = null;
-  }
+  const slots = ((): unknown => {
+    try {
+      return computeAvailableSlots(input);
+    } catch {
+      return null;
+    }
+  })();
   const inputIssues = validateInput(input);
   const history = historyBlocks(input);
   const validation = result.candidates.map((candidate) => ({
@@ -437,7 +438,7 @@ function canonicalPrimitives(): unknown[] {
     0.000001,
     5e-324,
     1.7976931348623157e308,
-    9007199254740993,
+    2 ** 53,
     '',
     'plain',
     'quote " backslash \\ slash /',
@@ -471,15 +472,12 @@ function instantPrimitives(): unknown[] {
     'not an instant',
     '',
   ].map((text) => {
-    let epochMs: number | null = null;
-    let utc: string | null = null;
     try {
-      epochMs = parseInstant(text);
-      utc = instantToUtc(epochMs);
+      const epochMs = parseInstant(text);
+      return { text, epochMs, utc: instantToUtc(epochMs) };
     } catch {
-      epochMs = null;
+      return { text, epochMs: null, utc: null };
     }
-    return { text, epochMs, utc };
   });
 }
 

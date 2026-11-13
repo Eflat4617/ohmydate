@@ -188,8 +188,9 @@ impl Operation {
         errors(self.validators().params.as_ref(), &instance)
     }
 
-    /// Parses and checks a raw query string. Unknown parameters are rejected:
-    /// the contract's query objects do not allow additional properties.
+    /// Parses and checks a raw query string. For an operation that declares
+    /// query parameters, unknown ones are rejected (the contract's query
+    /// objects allow no additional properties); other operations ignore it.
     pub fn validate_query(&self, raw: Option<&str>) -> Result<Map<String, Value>, Vec<FieldError>> {
         let mut query = Map::new();
         for (name, value) in parse_query(raw.unwrap_or("")) {
@@ -522,9 +523,11 @@ fn parse_operation(
         integer_query_params,
         params_schema: (!path_properties.is_empty())
             .then(|| object_schema(path_properties, path_required)),
-        // Every operation gets a query schema: a route without declared
-        // query parameters accepts none.
-        query_schema: Some(object_schema(query_properties, query_required)),
+        // As in the TypeScript core: an operation that declares query
+        // parameters accepts exactly those; one that declares none does not
+        // look at the query string at all.
+        query_schema: (!query_properties.is_empty())
+            .then(|| object_schema(query_properties, query_required)),
         body_schema,
         validators: OnceLock::new(),
     })
@@ -705,6 +708,10 @@ mod tests {
         ] {
             assert!(operation.validate_query(Some(raw)).is_err(), "{raw}");
         }
+
+        // getTask declares no query parameters, so its query is not checked.
+        let undeclared = Contract::embedded().operation("getTask").unwrap();
+        assert!(undeclared.validate_query(Some("download=1&x=y")).is_ok());
     }
 
     #[test]

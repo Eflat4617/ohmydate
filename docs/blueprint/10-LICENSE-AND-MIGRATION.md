@@ -12,7 +12,7 @@
 | L1 | 포크(수정 Vikunja)를 네트워크로 제공 | AGPL §13: 상호작용 사용자에게 **수정 소스 제공 의무** | 포크를 공개 원격 저장소(사용자 승인 후)로 유지하거나 서비스 내 소스 링크 제공. 개인 단독 사용 단계에서도 원칙 준수 | 개인용 범위의 의무 범위 해석 → 법률 검토 |
 | L2 | 자체 코드(apps/web, services/api)가 Vikunja의 "파생물"로 간주될 가능성 | 자체 코드에 AGPL 적용 요구 가능 | 별도 프로세스·공개 HTTP API로만 통신, Vikunja 코드/스타일/아이콘/문구 **복사 금지**, 경로 검사 CI, 클린룸 작성 기록 | 별도 프로세스 경계가 독립성을 **자동 보장하지 않음** |
 | L3 | Vikunja 프런트 수정 | 수정본은 AGPL | "폐기 구역"으로 지정, 패치 최소화 | — |
-| L4 | 서드파티 패키지 라이선스 | 상용 배포 제약 | `license-checker` allowlist(MIT/Apache-2.0/BSD/ISC 등), GPL 계열 신규 의존 시 리뷰 차단 | — |
+| L4 | 서드파티 패키지 라이선스 | 상용 배포 제약 | `license-checker` allowlist(MIT/Apache-2.0/BSD/ISC 등), GPL 계열 신규 의존 시 리뷰 차단 | Rust 크레이트는 §9 |
 | L5 | Vikunja Pro 기능 경계 | Pro 기능 의존 시 계약/비용 | 시간기록·감사·관리 기능은 **자체 구현**, Vikunja Pro 코드 사용 안 함 | 게이팅 방식 [미확인] |
 | L6 | 상표 "Vikunja" | 혼동 | 제품명·로고에 사용 안 함, 출처 표기만 | — |
 | L7 | LLM 공급자 약관 | 데이터 이용·보존 | GB-1 결정 시 약관 확인, 학습 사용 거부 옵션 | — |
@@ -50,3 +50,36 @@
 
 ## 8. 업스트림 갱신 전략
 포크 브랜치 `ohmydate/v2.8.0-patches` = 태그 + 패치. 신규 릴리스 시 패치 리베이스 → 계약 테스트·E2E → 승격. 보안 릴리스는 즉시 검토.
+
+## 9. Rust 코어의 의존성 라이선스 (RC-00, 2026-11-13, ADR-025)
+
+> ADR-025로 이 문서의 §2 L1–L3·L5·L6, §3–§8(Vikunja 포크·전환)은 전환이 끝나면 대상이 없어진다. 전환 계획은 `15-DESKTOP-RUST-CORE.md` §8이 대신한다. Vikunja 코드는 Rust 코어로 복사하지 않는다(규칙 유지).
+
+규칙(AGENTS.md): MIT / Apache-2.0 / BSD / ISC는 검토 없이 쓰고, 그 밖은 사용자에게 올린다. 아래는 `core/Cargo.lock` 기준, 리눅스 대상 의존 그래프 전체(`cargo metadata --filter-platform x86_64-unknown-linux-gnu`)다.
+
+| 라이선스 표기 | 크레이트 수 | 판단 |
+|---|---|---|
+| MIT OR Apache-2.0 (표기 변형 포함) | 76 | 허용 |
+| MIT | 37 | 허용 |
+| Apache-2.0 | 2 | 허용 |
+| Unlicense OR MIT — `jiff`, `jiff-core`, `jiff-tzdb`, `memchr`, `aho-corasick` | 5 | 허용(MIT로 사용) |
+| MIT AND BSD-3-Clause — `matchit` | 1 | 허용 |
+| BSD-2-Clause OR Apache-2.0 OR MIT — `zerocopy` | 1 | 허용 |
+| Apache-2.0 OR BSL-1.0 — `ryu-js` | 1 | 허용(Apache-2.0으로 사용) |
+| **Zlib — `foldhash`** | 1 | **사용자 확인.** 허용적(고지 의무도 MIT보다 가볍다). `hashbrown`을 거쳐 `rusqlite`·`jsonschema`가 쓴다 |
+| **MIT-0 — `borrow-or-share`** | 1 | **사용자 확인.** MIT에서 고지 조건을 뺀 것. `jsonschema`의 URI 처리가 쓴다 |
+| **(MIT OR Apache-2.0) AND Unicode-3.0 — `unicode-ident`** | 1 | **사용자 확인.** 유니코드 데이터 표 라이선스(허용적). proc-macro가 빌드 때만 쓰고 배포 바이너리에 들어가지 않는다 |
+| 합계 | 126 | |
+
+크레이트가 아닌 포함물:
+
+| 포함물 | 어디서 | 라이선스 | 판단 |
+|---|---|---|---|
+| SQLite 소스 | `libsqlite3-sys`의 `bundled` 기능이 함께 컴파일 | 퍼블릭 도메인 | **사용자 확인**(목록 밖이지만 제약 없음) |
+| IANA 시간대 데이터베이스 | `jiff-tzdb` | 퍼블릭 도메인 | **사용자 확인**(같음) |
+
+직접 의존은 11개다: `axum`, `tokio`, `rusqlite`, `jsonschema`, `serde_json`, `sha2`, `getrandom`, `jiff`, `ryu-js`, `tracing`, `tracing-subscriber`. 나머지 115개는 이들이 끌어온다. GPL·LGPL·MPL·AGPL 계열은 없다.
+
+아직 정하지 않은 것: HTTPS 클라이언트의 TLS 라이브러리(RC-70a). 후보에 따라 허용 목록 밖 라이선스(예: OpenSSL 계열 조항)가 들어올 수 있어, 고르기 전에 후보별 표를 사용자에게 올린다(15 §11 Q4). Tauri 셸의 의존성은 RC-100a에서 같은 방식으로 표를 만든다.
+
+점검 방법: 의존성을 더하거나 올린 Task는 위 표를 다시 뽑아 이 절을 갱신한다. 자동 검사(`cargo-deny` 등 도구 추가)는 RC-10에서 정한다.

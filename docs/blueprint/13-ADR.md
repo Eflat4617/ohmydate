@@ -23,6 +23,7 @@
 | 017 | 스케줄러 시간 분할: 전환-구간 기반 로컬 날짜 계산 (M3-01R3 결과) | Accepted |
 | 016 | VikunjaTaskRepository 동시성·멱등 보정 (M0-03 결과) | Accepted (Sol 리뷰로 사실 재확인 조건) |
 | 024 | Google 캘린더 연동: 사용자 소유 OAuth 클라이언트 + 최소 3개 scope + 전용 "OhMyDate" 캘린더 (CAL-03) | Accepted (GU-1 피드백 2차, 보안 리뷰 대상) |
+| 025 | 리눅스 데스크톱 앱 + Rust 코어 + SQLite, Vikunja 제거 (RC-00) | Accepted (2026-11-13 사용자 결정). ADR-001·002·003·004·007·011·012·013을 대체 |
 
 ---
 
@@ -217,3 +218,31 @@
 - **운영 주의:** Google Cloud 동의 화면이 "테스트" 상태면 테스트 사용자의 승인이 7일 뒤 만료된다(→ `needs_reauth`, 다시 연결). "앱 게시"(프로덕션)로 바꾸면 만료가 없어지는 대신 동의 시 "확인되지 않은 앱" 경고가 한 번 뜬다. 웹 애플리케이션 클라이언트 비밀은 만들 때 한 번만 내려받을 수 있다(2025-06 이후 생성 클라이언트). 단일 프로세스 가정: OAuth state와 owner별 직렬화는 프로세스 메모리(여러 프로세스로 늘릴 때 PG로 이동).
 - **재검토 트리거:** 다중 사용자/공개 배포(M8+, 앱 검증 필요), 내보내기 대상이 늘어남(사용자 기본 캘린더 쓰기 요구 → 별도 승인), 할당량 경고.
 
+## ADR-025 리눅스 데스크톱 앱 + Rust 코어 + SQLite, Vikunja 제거 (RC-00, 2026-11-13)
+- **사용자 결정(원문):** "슬슬 vikunja를 버려야 원하는 기능을 한참 구현하고 남을거같은데, 버리고 코어를 새로 짜야한다고 판단된다면, rust로 코어(백엔드)를 작성하도록. 1차목표는 리눅스에서 사용가능한 데스크탑 앱이니까."
+- **맥락:**
+  - Vikunja는 작업·프로젝트만 갖고 있다. 작업 단위 기능마다 두 번째 모델(`vikunja_planner_fields`)과 재조정기를 거쳐야 했고(ADR-016과 그 개정 3건, ADR-020과 보강 2건이 그 비용이다), 앱에 넣어 배포할 수 없다.
+  - 지금 코어는 데스크톱 앱이 될 수 없다. PostgreSQL(jsonb 183곳, gist 50곳, advisory lock), Node 24, docker가 필요하다. 코드의 큰 부분이 한 사람이 노트북 한 대에서 쓸 때는 필요 없는 서버 장치다: 로그인, 세션, CSRF, rate limit, 리더 잠금, 다중 owner 격리, Vikunja 재조정.
+  - 측정(2026-11-13): 서버 쪽 TypeScript 약 56k줄(api 30.4k, scheduler 7.2k, llm 6.0k, contracts 5.2k, provider-vikunja 3.9k, domain 2.3k, provider-native 1.0k) + 테스트 약 56k줄. 웹 앱 56k줄은 남는다.
+  - RC-00에서 추가로 확인한 것: 계약 operation 84개 중 서버 형태 때문에만 있는 것은 4개(로그인·로그아웃·푸시 구독 2개). 테이블 53개 중 14개가 사라진다(Vikunja 5, 인증 1, 승인 원장 2, 읽는 코드가 없던 것 5, Web Push 1). advisory lock 호출 11곳과 EXCLUDE 위반 처리 3곳이 필요 없어진다. `outbox_event`는 6곳에서 쓰지만 읽는 코드가 없었다.
+- **결정:**
+  1. 대상은 리눅스 데스크톱 앱. 사용자 한 명, 설치할 서버 없음. 셸은 Tauri 2, 화면은 `apps/web`을 구조 변경 없이 웹뷰에 띄운다.
+  2. 코어는 Rust 워크스페이스 `core/`다(크레이트: domain, scheduler, store, app, server, 뒤에 llm·integrations). 지금의 HTTP 계약(`packages/contracts`, `openapi.json`)을 127.0.0.1의 임의 포트에서 그대로 서빙한다. 인증은 실행마다 새로 만드는 토큰 + Host·Origin 검사. 계약 문서를 바이너리에 넣어 라우트·헤더 규칙·요청 검증을 거기서 만든다.
+  3. 저장은 SQLite 파일 하나(XDG 데이터 디렉터리, WAL). PostgreSQL이 강제하던 제약(겹침 금지, 범위)은 쓰기 트랜잭션 안의 코드 검사 + 테스트로 옮긴다.
+  4. Vikunja를 제거한다. 작업·프로젝트·의존 관계는 네이티브 테이블이다.
+  5. 로그인·세션·CSRF가 없다. `ETag`/`If-Match`/`Idempotency-Key` 규칙은 유지한다.
+  6. 비밀(LLM 키, Google refresh token, OAuth 클라이언트)은 OS 키링, 없으면 0600 파일.
+  7. 스케줄러는 감싸지 않고 **포팅**한다. TypeScript 스케줄러가 오라클이고 차분 테스트에서 출력이 바이트 단위로 같아야 한다. 시간은 `jiff` + 바이너리에 넣은 tzdb.
+  8. `packages/llm`의 프롬프트·스키마 파일이 단일 소스로 남는다.
+  9. TypeScript 코어는 지금부터 기능 동결(버그 수정만), Rust 코어가 패리티 관문(15 §7.7)을 통과할 때까지 기준 구현이다. 그 뒤 한 번에 전환하고 owner 내보내기를 가져온다. 예외 하나: 전환용 내보내기 `formatVersion` 2를 TypeScript 코어에 추가한다(15 §8.1).
+- **기각한 대안:**
+  - *TypeScript 코어 유지 + Node·PostgreSQL을 앱에 넣기:* PostgreSQL을 사용자 기계에서 초기화·업그레이드·백업하는 부담과 패키지 크기가 남고, 서버 장치와 Vikunja 의존은 그대로다.
+  - *TypeScript 로직 유지 + SQLite 포팅 + 사이드카(Node 프로세스):* jsonb·gist·advisory lock을 쓰는 저장소 계층(약 9k줄)은 어차피 다시 써야 하고, Node 런타임 배포와 프로세스 두 개의 수명 관리가 생긴다. 사용자가 고른 방향(Rust)과도 다르다.
+  - *TypeScript 스케줄러를 내장 JS 엔진으로 감싸기:* 스케줄러 7.2k줄을 다시 쓰지 않아도 되지만, 엔진과 `temporal-polyfill`·tzdata를 함께 싣게 되고, 두 언어 사이 경계가 영구히 남는다. 스케줄러는 순수 함수에 시드가 고정돼 있어 차분 테스트로 포팅을 검증할 수 있는, 포팅하기 가장 좋은 조건이다. RC-00에서 바닥 층(PRNG, 정규 JSON·수 표기, DST 분할, `inputHash`)이 첫 시도에 일치했다.
+- **결과:**
+  - 실행 환경에서 PostgreSQL, docker, Node, Vikunja, `deploy/`, `scripts/local`이 빠진다. ADR-016(Vikunja 보정)과 ADR-020(승인 잠금)의 장치는 대상이 사라져 함께 없어진다. ADR-023(웹의 owner 전환 하드 리셋)은 owner가 하나라 발동하지 않지만 웹 코드에 그대로 둔다.
+  - 계약은 바뀌지 않는다. 문제 코드 `unauthenticated`·`forbidden`은 뜻이 바뀌고(토큰, Host/Origin), `approval_in_progress`·`rate_limited`는 만드는 곳이 없어진다(15 §2.1).
+  - 전환 전까지 두 코어가 공존한다. 계약 변경은 `packages/contracts`와 Rust에만 구현한다(15 §11 R11).
+  - M7이 이 프로그램(RC)이 된다. GU-1(M7 전 사용자 확인)은 사용자의 이 결정으로 해제한다(12).
+  - 새 의존성 라이선스는 10 §9.
+- **재검토 트리거:** 스케줄러 차분에서 구조적으로 맞출 수 없는 불일치가 확인될 때(→ 결정 7), WebKitGTK에서 웹 앱이 쓸 수 없는 수준으로 깨질 때(→ 결정 1의 셸), 다른 OS·다중 사용자 요구.
