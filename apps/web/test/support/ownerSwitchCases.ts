@@ -110,6 +110,38 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       await buttonByText(wrapper.get('.commitment-list') as unknown as VueWrapper, '삭제').trigger('click');
     },
   },
+  // CAL-02 말로 적기: the read (drafts only) and adding a read draft.
+  {
+    name: 'commitments: read a note (말로 적기)',
+    covers: ['src/components/CommitmentParseSection.vue'],
+    path: '/commitments',
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('#commitment-note').exists()).toBe(true));
+    },
+    hold: { method: 'POST', path: /\/commitments:parse$/ },
+    act: async (wrapper) => {
+      await wrapper.get('#commitment-note').setValue('내일 오후 3시에 A-private-read');
+      await wrapper.get('form.nl-entry-form').trigger('submit');
+    },
+    markers: ['A-private-read'],
+  },
+  {
+    name: 'commitments: add a read draft',
+    covers: ['src/components/CommitmentParseSection.vue'],
+    path: '/commitments',
+    // The read is part of getting ready; the action is adding the draft it gave.
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('#commitment-note').exists()).toBe(true));
+      await wrapper.get('#commitment-note').setValue('내일 오후 3시에 A-private-draft');
+      await wrapper.get('form.nl-entry-form').trigger('submit');
+      await until(() => expect(wrapper.findAll('[data-testid="nl-draft"]')).toHaveLength(1));
+    },
+    hold: { method: 'POST', path: /\/commitments$/ },
+    act: async (wrapper) => {
+      await buttonByText(wrapper.get('[data-testid="nl-result"]') as unknown as VueWrapper, '추가').trigger('click');
+    },
+    markers: ['A-private-draft'],
+  },
   {
     name: 'inbox: quick add',
     covers: ['src/views/InboxView.vue', 'src/composables/useTaskActions.ts'],

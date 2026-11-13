@@ -30,10 +30,23 @@ export const DEFAULT_STRUCTURED_TIMEOUT_MS = 30_000;
 /** Hard ceiling for any per-call output bound; keeps a bad value from reserving unbounded spend. */
 export const MAX_OUTPUT_TOKENS_CEILING = 32_768;
 
+/**
+ * CAL-02: commitment_parse answers are short (at most 10 small items plus a
+ * 500-character leftover, roughly 1k tokens with headroom for reasoning), so
+ * both bounds stay small: 2000 output tokens, 20 s per attempt (one attempt +
+ * one repair + slack = 50 s for the whole call).
+ */
+export const DEFAULT_COMMITMENT_PARSE_MAX_OUTPUT_TOKENS = 2_000;
+export const DEFAULT_COMMITMENT_PARSE_TIMEOUT_MS = 20_000;
+
 export const DEFAULT_PROMPT_LIMIT_OVERRIDES: PromptLimitOverrides = Object.freeze({
   decomposition: Object.freeze({
     maxOutputTokens: DEFAULT_DECOMPOSITION_MAX_OUTPUT_TOKENS,
     timeoutMs: DEFAULT_DECOMPOSITION_TIMEOUT_MS,
+  }),
+  commitment_parse: Object.freeze({
+    maxOutputTokens: DEFAULT_COMMITMENT_PARSE_MAX_OUTPUT_TOKENS,
+    timeoutMs: DEFAULT_COMMITMENT_PARSE_TIMEOUT_MS,
   }),
 });
 

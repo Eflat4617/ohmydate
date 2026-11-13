@@ -606,6 +606,65 @@
         ],
         "type": "object"
       },
+      "CommitmentDraft": {
+        "additionalProperties": false,
+        "properties": {
+          "date": {
+            "format": "date",
+            "type": "string"
+          },
+          "endAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "notes": {
+            "items": {
+              "anyOf": [
+                {
+                  "const": "duration_defaulted",
+                  "type": "string"
+                },
+                {
+                  "const": "date_assumed",
+                  "type": "string"
+                },
+                {
+                  "const": "repeats_weekly",
+                  "type": "string"
+                }
+              ]
+            },
+            "maxItems": 3,
+            "type": "array"
+          },
+          "rrule": {
+            "maxLength": 500,
+            "minLength": 5,
+            "pattern": "^FREQ=",
+            "type": "string"
+          },
+          "startAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "timeZone": {
+            "format": "iana-time-zone",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "timeZone",
+          "date",
+          "notes"
+        ],
+        "type": "object"
+      },
       "CommitmentListQuery": {
         "additionalProperties": false,
         "properties": {
@@ -785,6 +844,102 @@
         "required": [
           "items",
           "nextCursor"
+        ],
+        "type": "object"
+      },
+      "CommitmentParseRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "maxLength": 500,
+            "minLength": 1,
+            "pattern": "\\S",
+            "type": "string"
+          },
+          "timeZone": {
+            "format": "iana-time-zone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "CommitmentParseResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "drafts": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "date": {
+                  "format": "date",
+                  "type": "string"
+                },
+                "endAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "notes": {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "const": "duration_defaulted",
+                        "type": "string"
+                      },
+                      {
+                        "const": "date_assumed",
+                        "type": "string"
+                      },
+                      {
+                        "const": "repeats_weekly",
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "maxItems": 3,
+                  "type": "array"
+                },
+                "rrule": {
+                  "maxLength": 500,
+                  "minLength": 5,
+                  "pattern": "^FREQ=",
+                  "type": "string"
+                },
+                "startAt": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "timeZone": {
+                  "format": "iana-time-zone",
+                  "type": "string"
+                },
+                "title": {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "title",
+                "timeZone",
+                "date",
+                "notes"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
+          "leftover": {
+            "maxLength": 3000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "drafts",
+          "leftover"
         ],
         "type": "object"
       },
@@ -12777,6 +12932,106 @@
           }
         },
         "summary": "Update a commitment"
+      }
+    },
+    "/commitments:parse": {
+      "post": {
+        "description": "Reads up to 500 characters (\"다음 주 화요일 오후 3시에 치과\") into at most 10 drafts with the commitment_parse@v1 prompt. Nothing is written: each draft is a proposal the client adds with POST /commitments. Idempotency-Key is required (a replay returns the stored answer without a second LLM call); there is no If-Match because no resource version exists. Drafts the server cannot validate (no real date, end not after start, start more than 1 day ago or more than 2 years ahead) are dropped into leftover. 503 llm_unavailable (no provider, consent missing, timeout, cancelled) and 503 budget_exceeded are not stored, so the same key can retry.",
+        "operationId": "parseCommitments",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitmentParseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitmentParseResponse"
+                }
+              }
+            },
+            "description": "Drafts and the unread leftover"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Malformed request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "State conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Domain validation failed"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Provider unavailable"
+          }
+        },
+        "summary": "Read a natural-language note into commitment drafts (AI; nothing is saved)"
       }
     },
     "/documents": {

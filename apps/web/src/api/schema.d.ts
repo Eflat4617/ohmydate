@@ -89,6 +89,26 @@ export interface paths {
         patch: operations["updateCommitment"];
         trace?: never;
     };
+    "/commitments:parse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a natural-language note into commitment drafts (AI; nothing is saved)
+         * @description Reads up to 500 characters ("다음 주 화요일 오후 3시에 치과") into at most 10 drafts with the commitment_parse@v1 prompt. Nothing is written: each draft is a proposal the client adds with POST /commitments. Idempotency-Key is required (a replay returns the stored answer without a second LLM call); there is no If-Match because no resource version exists. Drafts the server cannot validate (no real date, end not after start, start more than 1 day ago or more than 2 years ahead) are dropped into leftover. 503 llm_unavailable (no provider, consent missing, timeout, cancelled) and 503 budget_exceeded are not stored, so the same key can retry.
+         */
+        post: operations["parseCommitments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/documents": {
         parameters: {
             query?: never;
@@ -1307,6 +1327,19 @@ export interface components {
             timeZone: string;
             title: string;
         };
+        CommitmentDraft: {
+            /** Format: date */
+            date: string;
+            /** Format: date-time */
+            endAt?: string;
+            notes: ("duration_defaulted" | "date_assumed" | "repeats_weekly")[];
+            rrule?: string;
+            /** Format: date-time */
+            startAt?: string;
+            /** Format: iana-time-zone */
+            timeZone: string;
+            title: string;
+        };
         CommitmentListQuery: {
             cursor?: string;
             /** Format: date-time */
@@ -1353,6 +1386,27 @@ export interface components {
                 version: number;
             }[];
             nextCursor: string | null;
+        };
+        CommitmentParseRequest: {
+            text: string;
+            /** Format: iana-time-zone */
+            timeZone?: string;
+        };
+        CommitmentParseResponse: {
+            drafts: {
+                /** Format: date */
+                date: string;
+                /** Format: date-time */
+                endAt?: string;
+                notes: ("duration_defaulted" | "date_assumed" | "repeats_weekly")[];
+                rrule?: string;
+                /** Format: date-time */
+                startAt?: string;
+                /** Format: iana-time-zone */
+                timeZone: string;
+                title: string;
+            }[];
+            leftover: string;
         };
         CommitmentPatch: {
             /** Format: date-time */
@@ -3634,6 +3688,86 @@ export interface operations {
             };
             /** @description If-Match header required */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    parseCommitments: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommitmentParseRequest"];
+            };
+        };
+        responses: {
+            /** @description Drafts and the unread leftover */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommitmentParseResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Provider unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

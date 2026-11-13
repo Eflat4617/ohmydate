@@ -17,6 +17,8 @@ const SCHEMA_DIR = join(import.meta.dirname, '..', 'schemas');
 const PROMPT_DIR = join(import.meta.dirname, '..', 'prompts');
 
 const expectedSchemas = [
+  // CAL-02: natural-language commitment entry.
+  'llm.commitment_parse.v1',
   'llm.decomposition.v1',
   'llm.decomposition.v2',
   'llm.layout_suggestion.v1',
@@ -25,7 +27,7 @@ const expectedSchemas = [
   'llm.type_detection.v1',
 ];
 
-test('all six contract schemas are registered', () => {
+test('all seven contract schemas are registered (six + CAL-02 commitment_parse)', () => {
   expect(SCHEMA_IDS).toEqual(expectedSchemas);
   for (const schemaId of expectedSchemas) expect(hasSchema(schemaId)).toBe(true);
 });
@@ -38,6 +40,7 @@ test('every schema file compiles under Ajv strict mode', () => {
     'llm.decomposition.v2.json',
     'llm.replan_explanation.v1.json',
     'llm.layout_suggestion.v1.json',
+    'llm.commitment_parse.v1.json',
   ];
   for (const file of files) {
     const schema = JSON.parse(readFileSync(join(SCHEMA_DIR, file), 'utf8')) as {
@@ -57,6 +60,7 @@ test('generated schema map matches the checked-in JSON files', () => {
     'llm.decomposition.v2.json',
     'llm.replan_explanation.v1.json',
     'llm.layout_suggestion.v1.json',
+    'llm.commitment_parse.v1.json',
   ];
   expect(Object.keys(SCHEMA_SOURCES).sort()).toEqual(expectedSchemas);
   for (const file of files) {
@@ -115,6 +119,7 @@ test('additional properties are rejected', () => {
 test('prompt files are available through the pure registry', () => {
   const keys = listPromptKeys();
   expect(keys).toEqual([
+    'commitment_parse@v1',
     'decomposition@v1',
     'decomposition@v2',
     'decomposition@v3',

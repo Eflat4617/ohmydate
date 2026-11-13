@@ -8,6 +8,11 @@ import {
   IfNoneMatchHeaderSchema,
 } from './common.js';
 import { ProblemSchema } from './problem.js';
+import {
+  CommitmentDraftSchema,
+  CommitmentParseRequestSchema,
+  CommitmentParseResponseSchema,
+} from './commitment-parse.js';
 import { DiversityNoteItemSchema, ExplanationItemSchema } from './explanation.js';
 import {
   ApprovePlanRequestSchema,
@@ -722,6 +727,21 @@ export const planningRoutes: readonly RouteDefinition[] = [
       ...problems(400, 401, 403, 422),
     },
   },
+  // CAL-02: natural-language commitment entry (08 §2.4b). Reads drafts only.
+  {
+    method: 'post',
+    path: '/commitments:parse',
+    operationId: 'parseCommitments',
+    summary: 'Read a natural-language note into commitment drafts (AI; nothing is saved)',
+    description:
+      'Reads up to 500 characters ("다음 주 화요일 오후 3시에 치과") into at most 10 drafts with the commitment_parse@v1 prompt. Nothing is written: each draft is a proposal the client adds with POST /commitments. Idempotency-Key is required (a replay returns the stored answer without a second LLM call); there is no If-Match because no resource version exists. Drafts the server cannot validate (no real date, end not after start, start more than 1 day ago or more than 2 years ahead) are dropped into leftover. 503 llm_unavailable (no provider, consent missing, timeout, cancelled) and 503 budget_exceeded are not stored, so the same key can retry.',
+    headers: IdempotencyHeadersSchema,
+    body: CommitmentParseRequestSchema,
+    responses: {
+      200: { description: 'Drafts and the unread leftover', schema: CommitmentParseResponseSchema },
+      ...problems(400, 401, 403, 409, 422, 503),
+    },
+  },
   {
     method: 'patch',
     path: '/commitments/{id}',
@@ -1362,6 +1382,10 @@ export const schemaRegistry = {
   CommitmentPatch: CommitmentPatchSchema,
   CommitmentListQuery: CommitmentListQuerySchema,
   CommitmentPage: CommitmentPageSchema,
+  // CAL-02
+  CommitmentParseRequest: CommitmentParseRequestSchema,
+  CommitmentDraft: CommitmentDraftSchema,
+  CommitmentParseResponse: CommitmentParseResponseSchema,
   PlanScope: PlanScopeSchema,
   PlanHorizon: PlanHorizonSchema,
   PlanCreate: PlanCreateSchema,

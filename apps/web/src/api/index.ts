@@ -15,6 +15,9 @@ export {
   type AvailabilityRule,
   type Commitment,
   type CommitmentCreate,
+  type CommitmentDraft,
+  type CommitmentDraftNote,
+  type CommitmentParseResponse,
   type CommitmentOccurrence,
   type CommitmentPatch,
   type GoalSummary,
@@ -108,6 +111,7 @@ export {
 } from './idempotency';
 export {
   AI_REQUEST_CLIENT_BOUND_MS,
+  COMMITMENT_PARSE_CLIENT_BOUND_MS,
   AiRequestTimeoutError,
   aiRequestSignal,
   type AiRequestOptions,

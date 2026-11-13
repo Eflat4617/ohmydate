@@ -5,6 +5,7 @@ import {
   type LlmCompleteResponse,
   type LlmPort,
 } from '@ohmydate/llm';
+import { fakeCommitmentParseOutput } from './fake-commitment-parse.js';
 
 /**
  * E2E-only fake LLM scenarios (M6-03 scope amendment, coordinator-approved).
@@ -29,6 +30,9 @@ import {
  *   `inference` item that carries a planted link, and one item with a forged
  *   (never sent) reference. The real grounded sanitiser then strips the forged
  *   reference (`hallucinated_ref`) and the link (`[link removed]`).
+ *
+ * - `llm.commitment_parse.v1` (CAL-02) answers the deterministic reader of
+ *   fake-commitment-parse.ts (a few fixed phrase shapes; the rest -> leftover).
  *
  * Every other schema (including the ungrounded `llm.decomposition.v1`) keeps
  * the default `FakeLlm` behaviour: no fixture, `LlmUnavailable`, manual draft.
@@ -181,6 +185,7 @@ const TYPE_DETECTION_OUTPUT = { classification: 'new', confidence: 0.5, reasons:
 /** FU-89: schema ids, stable across prompt versions that keep the output shape. */
 const TYPE_DETECTION_SCHEMA_ID = 'llm.type_detection.v1';
 const GROUNDED_DECOMPOSITION_SCHEMA_ID = 'llm.decomposition.v2';
+const COMMITMENT_PARSE_SCHEMA_ID = 'llm.commitment_parse.v1';
 
 function respond(output: unknown): LlmCompleteResponse {
   return {
@@ -222,6 +227,10 @@ export class E2eGroundedFakeLlm implements LlmPort {
       // Simulated provider boundary: the note sections "leave" here.
       request.onDispatch?.();
       return respond(groundedDecompositionOutput(request.input));
+    }
+    if (request.schemaId === COMMITMENT_PARSE_SCHEMA_ID) {
+      request.onDispatch?.();
+      return respond(fakeCommitmentParseOutput(request.input));
     }
     return this.#fallback.complete(request);
   }

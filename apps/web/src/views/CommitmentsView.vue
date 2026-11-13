@@ -24,6 +24,8 @@ import {
   type WeekdayCode,
 } from '../domain/rrule';
 import { useOfflineStore } from '../stores/offline';
+import CommitmentParseSection from '../components/CommitmentParseSection.vue';
+import type { DraftFormValues } from '../domain/commitmentDraft';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -103,6 +105,12 @@ const form = reactive({
 
 const presetDays = computed<WeekdayCode[]>(() => weeklyDaysFromRrule(form.rrule));
 
+/**
+ * CAL-02: the manual form holds the screen's one filled button while it is in
+ * use (editing, or a title typed / a draft loaded); otherwise "말로 적기" does.
+ */
+const manualActive = computed(() => form.id !== null || form.title.trim().length > 0);
+
 watch(
   timeZone,
   (zone) => {
@@ -158,6 +166,18 @@ function edit(commitment: Commitment): void {
   form.endLocal = localInputValue(commitment.endAt, commitment.timeZone);
   form.timeZone = commitment.timeZone;
   form.rrule = commitment.rrule ?? '';
+  void nextTick().then(() => formHeading.value?.focus());
+}
+
+/** CAL-02 고치기: a draft opens in the manual form as a new commitment. */
+function fromDraft(values: DraftFormValues): void {
+  form.id = null;
+  form.title = values.title;
+  form.startLocal = values.startLocal;
+  form.endLocal = values.endLocal;
+  form.timeZone = values.timeZone;
+  form.rrule = values.rrule;
+  error.value = null;
   void nextTick().then(() => formHeading.value?.focus());
 }
 
@@ -291,6 +311,8 @@ function onFromChange(event: Event): void {
     <p class="status-region status-note" role="status" aria-live="polite">{{ message }}</p>
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
 
+    <CommitmentParseSection :manual-active="manualActive" @edit="fromDraft" />
+
     <div class="commitments-layout">
       <div class="commitments-list-column">
         <fieldset class="settings-group settings-group--compact">
@@ -374,7 +396,7 @@ function onFromChange(event: Event): void {
 
       <form class="settings-form commitment-editor" @submit.prevent="save">
         <fieldset class="settings-group">
-          <legend>{{ form.id === null ? t('commitments.newLegend') : t('commitments.editLegend') }}</legend>
+          <legend>{{ form.id === null ? t('commitments.manualHeading') : t('commitments.editLegend') }}</legend>
           <h2 ref="formHeading" class="sr-only" tabindex="-1">
             {{ form.id === null ? t('commitments.newForm') : t('commitments.editForm') }}
           </h2>
@@ -459,7 +481,12 @@ function onFromChange(event: Event): void {
         </section>
 
         <div class="form-actions">
-          <UiButton type="submit" variant="primary" :busy="busy" :disabled="!offline.mutationsEnabled || busy">
+          <UiButton
+            type="submit"
+            :variant="manualActive ? 'primary' : 'secondary'"
+            :busy="busy"
+            :disabled="!offline.mutationsEnabled || busy"
+          >
             {{ form.id === null ? t('commitments.create') : t('commitments.save') }}
           </UiButton>
           <UiButton v-if="form.id !== null" variant="ghost" :disabled="busy" @click="resetForm">
