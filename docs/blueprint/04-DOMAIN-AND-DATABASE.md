@@ -15,6 +15,7 @@
 ```text
 user 1─* goal 1─* project? ; project 1─* task ; task *─* task (task_dependency)
 user 1─* commitment_event ; user 1─* availability_rule ; availability_rule 1─* availability_exception
+user 1─0..1 google_calendar_connection 1─* google_calendar ; user 1─* calendar_day_event ; user 1─* google_export_mapping (CAL-03)
 task 1─* estimate 1─* estimate_evidence
 task_template 1─* task_type_fingerprint ; intake_session 1─* intake_answer ; intake_session *─1 task_template?
 plan 1─* plan_candidate ; plan 1─* plan_version 1─* schedule_block *─1 task ; plan_version 1─1 schedule_approval
@@ -35,7 +36,11 @@ external_provider_mapping (entity_type, entity_id) ↔ (provider, external_id)
 | project | 묶음 | title, goal_id?, archived | (owner_id) | soft | M1 |
 | task | **planner 측 작업 확장** (core 필드는 provider) | project_id, title_cache, status_cache, due_at, splittable bool, min_session_min, max_session_min, priority, earliest_start_at, provider_etag | (owner_id,status_cache), (due_at) | soft | M1 |
 | task_dependency | DAG | task_id, depends_on_task_id, kind(`finish_to_start`) | pk(task,dep), 사이클 검사는 앱(도메인) | cascade | M2 |
-| commitment_event | 고정 약속 | title, start_at, end_at, rrule?, tz, source(manual/caldav/vikunja) | gist(tstzrange) | soft | M3 |
+| commitment_event | 고정 약속 | title, start_at, end_at, rrule?, tz, source(manual/caldav/vikunja/**google**), external_calendar_id?, external_event_id?, external_etag? (0016, source=google일 때만 있고 그때 rrule 없음) | gist(tstzrange), **partial uniq(owner_id, external_calendar_id, external_event_id) where source='google' and deleted_at is null** | soft | M3 / CAL-03 |
+| google_calendar_connection | Google 연결(owner당 1개, CAL-03·ADR-024) | status(connected/needs_reauth/disconnected), refresh_token_ciphertext bytea(AES-256-GCM 봉투, AAD=owner+key id), token_key_id, granted_scopes text[], export_calendar_id?, settings jsonb{exportBlocks,exportCommitments,dailySummary,reminderMinutes}, last_sync_at?, last_error?(닫힌 코드) | uniq(owner_id), uniq(id,owner_id), 토큰 ⇔ status≠disconnected CHECK | 해제 시 토큰·목록·매핑 삭제, 설정·version 유지; user 삭제 시 cascade | CAL-03 |
+| google_calendar | 마지막으로 읽은 owner의 Google 캘린더 목록 | connection_id(→ connection (id, owner_id) cascade), google_calendar_id, name(≤200), access_role, is_primary, selected(가져오기 대상), time_zone? | uniq(owner_id, google_calendar_id) | 목록에서 빠지면 하드 삭제 | CAL-03 |
+| calendar_day_event | 가져온 종일 일정(시간을 막지 않음) | title(≤200), start_date, end_date(배타), source('google'), external_calendar_id, external_event_id, external_etag? | partial uniq(owner_id, external ref) where deleted_at is null, (owner_id, start_date, end_date) | soft | CAL-03 |
+| google_export_mapping | "OhMyDate" 캘린더로 보낸 것 | local_kind(block/commitment/summary), local_key(uuid 또는 날짜), google_calendar_id, google_event_id, fingerprint(sha256 hex), ends_at?(반복이면 null) | uniq(owner_id, local_kind, local_key), uniq(owner_id, google_calendar_id, google_event_id) | 해제 시 삭제 | CAL-03 |
 | availability_rule | 요일별 가용 | weekday, start_local, end_local, tz, kind(work/focus/rest) | (owner_id,weekday) | 하드 | M3 |
 | availability_exception | 휴일/예외 | date, kind(off/extra), start_local?, end_local? | (owner_id,date) | 하드 | M3 |
 | task_template | 재사용 템플릿 | name, steps jsonb(ordered, deps), stats jsonb, source(user/system), confidence | (owner_id) | 사용자 삭제 가능 | M2 |
@@ -106,6 +111,7 @@ external_provider_mapping (entity_type, entity_id) ↔ (provider, external_id)
 ## 6. 무결성 규칙(도메인 테스트 대상)
 1. task_dependency는 DAG(사이클 시 422 `dependency_cycle`).
 2. 활성 schedule_block은 동일 owner에서 겹침 불가(DB EXCLUDE + 도메인 validator 이중).
-3. block은 commitment_event·rest 구간과 겹침 불가(validator).
+3. block은 commitment_event·rest 구간과 겹침 불가(validator). Google에서 가져온 약속(source `google`)도 똑같이 막는다(CAL-03); 종일 일정(`calendar_day_event`)은 막지 않는다.
+3a. source `google` 약속은 API로 만들거나 고치거나 지울 수 없다(409 `illegal_transition`, 생성·수정 본문의 source는 manual/caldav/vikunja만). Google에서 고친 내용이 동기화로 반영된다.
 4. 같은 task의 block 합계 ≤ 추정 P90 × 1.5 [가정] (과다배치 방지).
 5. active work_session 1개.

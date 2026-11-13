@@ -155,6 +155,20 @@ import {
   WorkSessionPageSchema,
   WorkSessionSchema,
 } from './today.js';
+import {
+  GOOGLE_OAUTH_CALLBACK_PATH,
+  GOOGLE_SETTINGS_WEB_PATH,
+  CalendarDayEventListQuerySchema,
+  CalendarDayEventPageSchema,
+  CalendarDayEventSchema,
+  GoogleCalendarEntrySchema,
+  GoogleConnectResponseSchema,
+  GoogleDisconnectQuerySchema,
+  GoogleIntegrationSchema,
+  GoogleIntegrationSettingsPutSchema,
+  GoogleIntegrationSettingsSchema,
+  GoogleSyncResultSchema,
+} from './integrations.js';
 
 export type HttpMethod = 'get' | 'post' | 'patch' | 'put' | 'delete';
 
@@ -1321,12 +1335,104 @@ export const notesRoutes: readonly RouteDefinition[] = [
   },
 ];
 
+/** Shared state rules of the Google integration actions (08 §2.11). */
+const GOOGLE_STATE_RULES =
+  'While the server has no Google OAuth client file or token key (status not_configured), or the integration is in a state that does not allow the action, the route answers 409 illegal_transition (stored for the Idempotency-Key). The status, ETag and version come from GET /integrations/google.';
+
+/**
+ * Google Calendar integration (CAL-03, ADR-024, 08 §2.11). The OAuth callback
+ * is a browser redirect and is intentionally not in this table (see
+ * `GOOGLE_OAUTH_CALLBACK_PATH`).
+ */
+export const integrationRoutes: readonly RouteDefinition[] = [
+  {
+    method: 'get',
+    path: '/integrations/google',
+    operationId: 'getGoogleIntegration',
+    summary: 'Read the Google Calendar connection, calendars and export settings',
+    description:
+      'Always 200, also when the server is not configured (status not_configured). ETag W/"<version>" is the connection version used by PUT /integrations/google/settings and DELETE /integrations/google. importAvailable/exportAvailable reflect the scopes Google actually granted.',
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Google integration state', schema: GoogleIntegrationSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401),
+    },
+  },
+  {
+    method: 'post',
+    path: '/integrations/google:connect',
+    operationId: 'connectGoogleIntegration',
+    summary: 'Start the Google OAuth consent (authorization code + PKCE)',
+    description: `Returns the accounts.google.com URL to open as a top-level navigation. The state is single use, bound to the caller, and expires after 10 minutes; Google redirects back to GET /api/v1${GOOGLE_OAUTH_CALLBACK_PATH}, which answers 302 to the fixed web path ${GOOGLE_SETTINGS_WEB_PATH}?google=connected|denied|error. Allowed in disconnected, connected (re-consent) and needs_reauth. ${GOOGLE_STATE_RULES}`,
+    headers: IdempotencyHeadersSchema,
+    responses: {
+      200: { description: 'Consent URL', schema: GoogleConnectResponseSchema },
+      ...problems(400, 401, 403, 409, 422),
+    },
+  },
+  {
+    method: 'put',
+    path: '/integrations/google/settings',
+    operationId: 'updateGoogleIntegrationSettings',
+    summary: 'Replace the import calendar selection and the export settings',
+    description: `Allowed in connected and needs_reauth. selectedCalendarIds must be ids from GoogleIntegration.calendars (422 validation_failed otherwise). A change takes effect on the next sync. ${GOOGLE_STATE_RULES}`,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: GoogleIntegrationSettingsPutSchema,
+    responses: {
+      200: { description: 'Updated integration state', schema: GoogleIntegrationSchema },
+      ...problems(400, 401, 403, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'post',
+    path: '/integrations/google:sync',
+    operationId: 'syncGoogleIntegration',
+    summary: 'Run one import + export now and return the counts',
+    description: `Allowed in connected. A failing calendar is recorded in lastError and does not stop the others (200). Google unreachable or rate limited after the bounded retries is 503 provider_unavailable; a revoked grant moves the status to needs_reauth and answers 409. ${GOOGLE_STATE_RULES}`,
+    headers: IdempotencyHeadersSchema,
+    responses: {
+      200: { description: 'Sync counts', schema: GoogleSyncResultSchema },
+      ...problems(400, 401, 403, 409, 422, 503),
+    },
+  },
+  {
+    method: 'delete',
+    path: '/integrations/google',
+    operationId: 'disconnectGoogleIntegration',
+    summary: 'Disconnect Google: revoke, forget the token, remove imported data',
+    description: `Allowed in connected and needs_reauth. Revokes the grant at Google (best effort), deletes the stored refresh token, soft-deletes imported 약속 (source google) and day events, and with removeExported (default true) deletes the "OhMyDate" calendar at Google (best effort). Settings are kept for a later reconnect. ${GOOGLE_STATE_RULES}`,
+    query: GoogleDisconnectQuerySchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    responses: {
+      204: { description: 'Disconnected' },
+      ...problems(400, 401, 403, 409, 412, 422, 428),
+    },
+  },
+  {
+    method: 'get',
+    path: '/calendar-day-events',
+    operationId: 'listCalendarDayEvents',
+    summary: 'List imported all-day events overlapping a date range',
+    description:
+      'Inclusive from/to dates, at most 92 days apart (422 validation_failed otherwise). endDate is exclusive. All-day events never block time and are not 약속.',
+    query: CalendarDayEventListQuerySchema,
+    headers: IfNoneMatchHeadersSchema,
+    responses: {
+      200: { description: 'Day events ordered by startDate', schema: CalendarDayEventPageSchema },
+      304: { description: 'Not modified' },
+      ...problems(400, 401, 422),
+    },
+  },
+];
+
 export const contractRoutes: readonly RouteDefinition[] = [
   ...routes,
   ...planningRoutes,
   ...dailyRoutes,
   ...replanningRoutes,
   ...notesRoutes,
+  ...integrationRoutes,
 ];
 
 export const schemaRegistry = {
@@ -1468,6 +1574,14 @@ export const schemaRegistry = {
   NoteAiUsage: NoteAiUsageSchema,
   NoteAiUsagePage: NoteAiUsagePageSchema,
   NoteAiUsageListQuery: NoteAiUsageListQuerySchema,
+  GoogleIntegrationSettings: GoogleIntegrationSettingsSchema,
+  GoogleCalendarEntry: GoogleCalendarEntrySchema,
+  GoogleIntegration: GoogleIntegrationSchema,
+  GoogleConnectResponse: GoogleConnectResponseSchema,
+  GoogleIntegrationSettingsPut: GoogleIntegrationSettingsPutSchema,
+  GoogleSyncResult: GoogleSyncResultSchema,
+  CalendarDayEvent: CalendarDayEventSchema,
+  CalendarDayEventPage: CalendarDayEventPageSchema,
 } as const;
 
 export type SchemaRegistry = typeof schemaRegistry;

@@ -88,6 +88,20 @@ the resolved `host:port/database` and Vikunja URL, never the password.
 - `deploy/secrets/local/vikunja-tokens.json` is the API token file
   (`ownerId -> token`); `vikunja-tokens.meta.json` records expiry and the
   Vikunja token id.
+- Google Calendar sync (CAL-03, optional; guide:
+  [docs/user/Google-캘린더-연동-설정.md](../../docs/user/Google-캘린더-연동-설정.md)):
+  `local:secrets` also creates `google-token.key` (AES-256 key for the stored
+  Google refresh token). The user places the downloaded OAuth client JSON at
+  `deploy/secrets/local/google-oauth-client.json` (0600; `GOOGLE_OAUTH_CLIENT_FILE`
+  overrides the path). `local:start` passes `GOOGLE_OAUTH_CLIENT_FILE`,
+  `GOOGLE_TOKEN_KEY_FILE`, `GOOGLE_OAUTH_REDIRECT_URI`
+  (`http://127.0.0.1:<WEB_PORT>/api/v1/integrations/google/callback`) and
+  `GOOGLE_WEB_ORIGIN` only when the client file is present, refuses to start
+  when the file is group/world-readable, malformed or the key is missing (exact
+  fix printed, values never), and prints one `Google 캘린더 동기화:` line;
+  `local:status` prints the same line. Without the file the app runs with the
+  integration `not_configured`. Back the key up with the rest of this
+  directory: losing it means connecting Google again.
 
 ## Notes and risks
 

@@ -53,6 +53,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/calendar-day-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List imported all-day events overlapping a date range
+         * @description Inclusive from/to dates, at most 92 days apart (422 validation_failed otherwise). endDate is exclusive. All-day events never block time and are not 약속.
+         */
+        get: operations["listCalendarDayEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/commitments": {
         parameters: {
             query?: never;
@@ -500,6 +520,90 @@ export interface paths {
         put?: never;
         /** Resume a paused intake interview (needs_input restores the previous state) */
         post: operations["resumeIntakeSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the Google Calendar connection, calendars and export settings
+         * @description Always 200, also when the server is not configured (status not_configured). ETag W/"<version>" is the connection version used by PUT /integrations/google/settings and DELETE /integrations/google. importAvailable/exportAvailable reflect the scopes Google actually granted.
+         */
+        get: operations["getGoogleIntegration"];
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect Google: revoke, forget the token, remove imported data
+         * @description Allowed in connected and needs_reauth. Revokes the grant at Google (best effort), deletes the stored refresh token, soft-deletes imported 약속 (source google) and day events, and with removeExported (default true) deletes the "OhMyDate" calendar at Google (best effort). Settings are kept for a later reconnect. While the server has no Google OAuth client file or token key (status not_configured), or the integration is in a state that does not allow the action, the route answers 409 illegal_transition (stored for the Idempotency-Key). The status, ETag and version come from GET /integrations/google.
+         */
+        delete: operations["disconnectGoogleIntegration"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/google/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Replace the import calendar selection and the export settings
+         * @description Allowed in connected and needs_reauth. selectedCalendarIds must be ids from GoogleIntegration.calendars (422 validation_failed otherwise). A change takes effect on the next sync. While the server has no Google OAuth client file or token key (status not_configured), or the integration is in a state that does not allow the action, the route answers 409 illegal_transition (stored for the Idempotency-Key). The status, ETag and version come from GET /integrations/google.
+         */
+        put: operations["updateGoogleIntegrationSettings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/google:connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start the Google OAuth consent (authorization code + PKCE)
+         * @description Returns the accounts.google.com URL to open as a top-level navigation. The state is single use, bound to the caller, and expires after 10 minutes; Google redirects back to GET /api/v1/integrations/google/callback, which answers 302 to the fixed web path /settings/calendar?google=connected|denied|error. Allowed in disconnected, connected (re-consent) and needs_reauth. While the server has no Google OAuth client file or token key (status not_configured), or the integration is in a state that does not allow the action, the route answers 409 illegal_transition (stored for the Idempotency-Key). The status, ETag and version come from GET /integrations/google.
+         */
+        post: operations["connectGoogleIntegration"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/google:sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run one import + export now and return the counts
+         * @description Allowed in connected. A failing calendar is recorded in lastError and does not stop the others (200). Google unreachable or rate limited after the bounded retries is 503 provider_unavailable; a revoked grant moves the status to needs_reauth and answers 409. While the server has no Google OAuth client file or token key (status not_configured), or the integration is in a state that does not allow the action, the route answers 409 illegal_transition (stored for the Idempotency-Key). The status, ETag and version come from GET /integrations/google.
+         */
+        post: operations["syncGoogleIntegration"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1288,6 +1392,32 @@ export interface components {
             startLocal: string;
             weekday: number;
         };
+        CalendarDayEvent: {
+            calendarName: string | null;
+            /** Format: date */
+            endDate: string;
+            /** Format: uuid */
+            id: string;
+            /** @constant */
+            source: "google";
+            /** Format: date */
+            startDate: string;
+            title: string;
+        };
+        CalendarDayEventPage: {
+            items: {
+                calendarName: string | null;
+                /** Format: date */
+                endDate: string;
+                /** Format: uuid */
+                id: string;
+                /** @constant */
+                source: "google";
+                /** Format: date */
+                startDate: string;
+                title: string;
+            }[];
+        };
         Commitment: {
             /** Format: date-time */
             createdAt: string;
@@ -1306,7 +1436,7 @@ export interface components {
             /** Format: uuid */
             ownerId: string;
             rrule?: string;
-            source: "manual" | "caldav" | "vikunja";
+            source: "manual" | "caldav" | "vikunja" | "google";
             /** Format: date-time */
             startAt: string;
             /** Format: iana-time-zone */
@@ -1375,7 +1505,7 @@ export interface components {
                 /** Format: uuid */
                 ownerId: string;
                 rrule?: string;
-                source: "manual" | "caldav" | "vikunja";
+                source: "manual" | "caldav" | "vikunja" | "google";
                 /** Format: date-time */
                 startAt: string;
                 /** Format: iana-time-zone */
@@ -1774,6 +1904,71 @@ export interface components {
             status: "active" | "completed" | "archived";
             taskIds: string[];
             title: string;
+        };
+        GoogleCalendarEntry: {
+            accessRole: "freeBusyReader" | "reader" | "writerWithoutPrivateAccess" | "writer" | "owner";
+            /** Format: uuid */
+            id: string;
+            name: string;
+            primary: boolean;
+            selected: boolean;
+        };
+        GoogleConnectResponse: {
+            /** Format: uri */
+            authorizationUrl: string;
+        };
+        GoogleIntegration: {
+            calendars: {
+                accessRole: "freeBusyReader" | "reader" | "writerWithoutPrivateAccess" | "writer" | "owner";
+                /** Format: uuid */
+                id: string;
+                name: string;
+                primary: boolean;
+                selected: boolean;
+            }[];
+            exportAvailable: boolean;
+            exportCalendarName: string | null;
+            importAvailable: boolean;
+            lastError: ("auth_revoked" | "rate_limited" | "google_unavailable" | "google_rejected" | "too_many_events" | "run_deadline" | "internal_error") | null;
+            lastSyncAt: string | null;
+            settings: {
+                dailySummary: boolean;
+                exportBlocks: boolean;
+                exportCommitments: boolean;
+                reminderMinutes: number | null;
+            };
+            status: "not_configured" | "disconnected" | "connected" | "needs_reauth";
+            version: number;
+        };
+        GoogleIntegrationSettings: {
+            dailySummary: boolean;
+            exportBlocks: boolean;
+            exportCommitments: boolean;
+            reminderMinutes: number | null;
+        };
+        GoogleIntegrationSettingsPut: {
+            selectedCalendarIds: string[];
+            settings: {
+                dailySummary: boolean;
+                exportBlocks: boolean;
+                exportCommitments: boolean;
+                reminderMinutes: number | null;
+            };
+        };
+        GoogleSyncResult: {
+            exported: {
+                created: number;
+                removed: number;
+                updated: number;
+            };
+            imported: {
+                created: number;
+                dayEvents: number;
+                removed: number;
+                updated: number;
+            };
+            /** Format: date-time */
+            lastSyncAt: string;
         };
         IntakeAnswer: {
             action: "answer" | "skip" | "idk";
@@ -3369,6 +3564,65 @@ export interface operations {
             };
             /** @description If-Match header required */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listCalendarDayEvents: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Day events ordered by startDate */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarDayEventPage"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5847,6 +6101,372 @@ export interface operations {
             };
             /** @description If-Match header required */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    getGoogleIntegration: {
+        parameters: {
+            query?: never;
+            header?: {
+                "If-None-Match"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Google integration state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoogleIntegration"];
+                };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    disconnectGoogleIntegration: {
+        parameters: {
+            query?: {
+                removeExported?: "true" | "false";
+            };
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Version precondition failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match header required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateGoogleIntegrationSettings: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoogleIntegrationSettingsPut"];
+            };
+        };
+        responses: {
+            /** @description Updated integration state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoogleIntegration"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Version precondition failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match header required */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    connectGoogleIntegration: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Consent URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoogleConnectResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    syncGoogleIntegration: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sync counts */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoogleSyncResult"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Provider unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

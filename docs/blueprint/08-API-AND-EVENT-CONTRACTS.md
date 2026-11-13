@@ -153,6 +153,27 @@ GET /ui/layout-policy (정책 버전·규칙 파라미터) · GET/PUT /ui/layout
 ### 2.9 알림 (M4)
 GET /notifications · POST /notifications/{id}:dismiss · POST /push-subscriptions (Idem) · DELETE /push-subscriptions/{id}
 
+### 2.11 Google 캘린더 연동 (CAL-03, 2026-11-13, ADR-024)
+폰(Android Google 캘린더)과 일정을 맞추는 연동. 노트북이 Google로 나가는 연결만 한다. 웹 설정 화면은 CAL-04가 이 계약 위에 만든다.
+
+| 메서드 경로 | 헤더 | 입력 → 출력 | 코드 |
+|---|---|---|---|
+| GET /integrations/google | If-None-Match | → `GoogleIntegration{status: not_configured\|disconnected\|connected\|needs_reauth, importAvailable, exportAvailable, calendars[{id,name,primary,accessRole,selected}], exportCalendarName\|null, settings{exportBlocks,exportCommitments,dailySummary,reminderMinutes\|null}, lastSyncAt\|null, lastError\|null, version}` + `ETag: W/"<version>"` | 200/304/400/401 |
+| POST /integrations/google:connect | Idem | → `{authorizationUrl}` (accounts.google.com, PKCE S256, offline, consent) | 200/400/401/403/409/422 |
+| PUT /integrations/google/settings | If-Match + Idem | `{selectedCalendarIds[], settings}`(전체 교체) → GoogleIntegration | 200/400/401/403/409/412/422(모르는 캘린더 id)/428 |
+| POST /integrations/google:sync | Idem | → `{imported{created,updated,removed,dayEvents}, exported{created,updated,removed}, lastSyncAt}` | 200/400/401/403/409/422/503 |
+| DELETE /integrations/google?removeExported=true\|false | If-Match + Idem | 폐기·토큰 삭제·가져온 데이터 soft delete·(기본) "OhMyDate" 캘린더 삭제 → 204 | 204/400/401/403/409/412/422/428 |
+| GET /calendar-day-events?from&to | If-None-Match | 날짜 `YYYY-MM-DD`(포함 구간, ≤92일) → `{items[{id,title,startDate,endDate(배타),source:'google',calendarName\|null}]}` | 200/304/400/401/422 |
+
+- **상태 × 동작:** `not_configured`(서버에 OAuth 클라이언트 파일 또는 토큰 키 없음 — 정상 상태)에서는 GET만 200이고 나머지 동작은 409 `illegal_transition`. connect는 disconnected·connected(다시 동의)·needs_reauth에서, settings는 connected·needs_reauth에서, sync는 connected에서, DELETE는 connected·needs_reauth에서 허용. 그 밖은 409 `illegal_transition`(멱등 기록에 저장). 새 problem code는 없다.
+- **version/ETag:** 연결·상태·scope·설정·선택, 캘린더가 목록에 추가/삭제됨, 내보내기 캘린더 생성/삭제 때 증가한다. `lastSyncAt`/`lastError`는 상태 필드라 version을 바꾸지 않는다(GET /today와 같은 규칙) — 백그라운드 동기화 때문에 설정 PUT·해제가 412가 되지 않는다.
+- **`lastError` 코드(닫힌 enum):** `auth_revoked`, `rate_limited`, `google_unavailable`, `google_rejected`, `too_many_events`, `run_deadline`, `internal_error`. Google 메시지·제목·토큰은 담지 않는다.
+- **sync 결과:** 캘린더 하나의 실패는 `lastError`에 남고 200(나머지는 반영). 캘린더 목록 읽기나 내보내기 전체가 rate limit/장애/실행 상한(2분)으로 막히면 기록 후 503 `provider_unavailable`. 동의가 취소되면(`invalid_grant`) needs_reauth로 바꾸고 409.
+- **OAuth 콜백 `GET /api/v1/integrations/google/callback?code&state`(또는 `error`)는 JSON 계약 표와 헤더 행렬 밖이다:** 브라우저 최상위 리디렉트라 CSRF 헤더·If-None-Match·Problem 본문이 없고, 결과와 무관하게 항상 `302 Location: <GOOGLE_WEB_ORIGIN>/settings/calendar?google=connected|denied|error`(요청에서 온 URL 사용 안 함, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`). state는 1회용·10분·시작한 owner에 묶이고, 같은 owner의 세션 쿠키(SameSite=Lax)가 있어야 한다. `error=access_denied` → `denied`, 그 밖의 모든 불일치(state 없음/모름/만료, 세션 없음/다른 owner, code 없음, 교환 실패, refresh token 없음) → `error`, 아무것도 저장하지 않는다. 경로는 `GOOGLE_OAUTH_CALLBACK_PATH`로 contracts에서 내보낸다. 요청 로그는 경로와 허용된 쿼리 이름만 남기고 code·state 값은 남기지 않는다.
+- **약속:** `Commitment.source`에 `google`이 추가된다(응답만). `CommitmentCreate/Patch.source`는 manual/caldav/vikunja만 허용(400). source google 약속의 PATCH/DELETE는 409 `illegal_transition`. 목록 API는 그대로이며 가져온 약속도 함께 나온다.
+- **내보내기 넛지:** 승인(plan·replan·Today 제안), Today accept/shrink/reschedule, 약속 생성·수정·삭제가 2xx로 끝나면 응답을 보낸 뒤 owner별 3초 디바운스 내보내기를 건다(블록 고정은 시각을 바꾸지 않아 제외). 요청 결과·지연에 영향 없음.
+- **단일 프로세스 가정:** OAuth state와 owner별 동기화 직렬화는 API 프로세스 메모리에 있다(재시작 시 진행 중 동의는 "다시 연결"). 주기 작업은 PG advisory lock(5196105)으로 리더 1개.
+
 ### 2.10 데이터 권리 (M4 최소, M7 완성)
 POST /exports → 202 `{exportId}` · GET /exports/{id} (zip: JSON + Markdown + 첨부) · POST /account:delete (재인증 + 확인 문구, 7일 유예 [가정]) · POST /estimation:reset
 
@@ -174,6 +195,7 @@ POST /exports → 202 `{exportId}` · GET /exports/{id} (zip: JSON + Markdown + 
 
 ## 5. 내부 이벤트 토픽
 `task.created|updated|completed`, `plan.approved`, `session.completed`, `estimate.updated`, `replan.proposed`, `notification.due`, `provider.sync_failed`. 페이로드는 ID + version만(민감 본문 미포함).
+Google 내보내기 넛지(§2.11)는 outbox 토픽이 아니라 응답 후 프로세스 내 디바운스 타이머다(실패해도 5분 주기 동기화가 따라잡는다).
 
 ## 6. TaskRepository 포트 (계약 테스트 대상, `packages/domain/ports`)
 ```ts

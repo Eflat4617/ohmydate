@@ -445,6 +445,10 @@ export interface CommitmentEventTable {
   updated_at: Col<'timestamptz', false, true>;
   version: Col<'integer', false, true>;
   deleted_at: Col<'timestamptz', true, false>;
+  /** 0016 (CAL-03): set only for source 'google'. */
+  external_calendar_id: Col<'text', true, false>;
+  external_event_id: Col<'text', true, false>;
+  external_etag: Col<'text', true, false>;
 }
 
 export interface AvailabilityRuleTable {
@@ -777,6 +781,68 @@ export interface NoteAiUsageTable {
   version: Col<'integer', false, true>;
 }
 
+/** 0016 (CAL-03): one Google connection per owner; refresh token encrypted. */
+export interface GoogleCalendarConnectionTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  status: Col<'text', false, false>;
+  refresh_token_ciphertext: Col<'bytea', true, false>;
+  token_key_id: Col<'text', true, false>;
+  granted_scopes: Col<'text_array', false, true>;
+  export_calendar_id: Col<'text', true, false>;
+  settings: Col<'jsonb', false, true>;
+  last_sync_at: Col<'timestamptz', true, false>;
+  last_error: Col<'text', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface GoogleCalendarTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  connection_id: Col<'uuid', false, false>;
+  google_calendar_id: Col<'text', false, false>;
+  name: Col<'text', false, false>;
+  access_role: Col<'text', false, false>;
+  is_primary: Col<'boolean', false, true>;
+  selected: Col<'boolean', false, true>;
+  time_zone: Col<'text', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
+export interface CalendarDayEventTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  title: Col<'text', false, false>;
+  start_date: Col<'date', false, false>;
+  end_date: Col<'date', false, false>;
+  source: Col<'text', false, true>;
+  external_calendar_id: Col<'text', false, false>;
+  external_event_id: Col<'text', false, false>;
+  external_etag: Col<'text', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+  deleted_at: Col<'timestamptz', true, false>;
+}
+
+export interface GoogleExportMappingTable {
+  id: Col<'uuid', false, false>;
+  owner_id: Col<'uuid', false, false>;
+  local_kind: Col<'text', false, false>;
+  local_key: Col<'text', false, false>;
+  google_calendar_id: Col<'text', false, false>;
+  google_event_id: Col<'text', false, false>;
+  fingerprint: Col<'text', false, false>;
+  ends_at: Col<'timestamptz', true, false>;
+  created_at: Col<'timestamptz', false, true>;
+  updated_at: Col<'timestamptz', false, true>;
+  version: Col<'integer', false, true>;
+}
+
 export interface Database {
   user: UserTable;
   auth_session: AuthSessionTable;
@@ -827,6 +893,10 @@ export interface Database {
   vikunja_change_journal: VikunjaChangeJournalTable;
   vikunja_journal_epoch: VikunjaJournalEpochTable;
   vikunja_owner_account: VikunjaOwnerAccountTable;
+  google_calendar_connection: GoogleCalendarConnectionTable;
+  google_calendar: GoogleCalendarTable;
+  calendar_day_event: CalendarDayEventTable;
+  google_export_mapping: GoogleExportMappingTable;
 }
 
 export interface ColumnSpec {
@@ -1149,6 +1219,9 @@ export const databaseTables = {
     updated_at: col('timestamptz', false, true),
     version: col('integer', false, true),
     deleted_at: col('timestamptz', true, false),
+    external_calendar_id: col('text', true, false),
+    external_event_id: col('text', true, false),
+    external_etag: col('text', true, false),
   },
   availability_rule: {
     id: col('uuid', false, false),
@@ -1450,6 +1523,63 @@ export const databaseTables = {
     created_at: col('timestamptz', false, true),
     updated_at: col('timestamptz', false, true),
   },
+  google_calendar_connection: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    status: col('text', false, false),
+    refresh_token_ciphertext: col('bytea', true, false),
+    token_key_id: col('text', true, false),
+    granted_scopes: col('text_array', false, true),
+    export_calendar_id: col('text', true, false),
+    settings: col('jsonb', false, true),
+    last_sync_at: col('timestamptz', true, false),
+    last_error: col('text', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  google_calendar: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    connection_id: col('uuid', false, false),
+    google_calendar_id: col('text', false, false),
+    name: col('text', false, false),
+    access_role: col('text', false, false),
+    is_primary: col('boolean', false, true),
+    selected: col('boolean', false, true),
+    time_zone: col('text', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
+  calendar_day_event: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    title: col('text', false, false),
+    start_date: col('date', false, false),
+    end_date: col('date', false, false),
+    source: col('text', false, true),
+    external_calendar_id: col('text', false, false),
+    external_event_id: col('text', false, false),
+    external_etag: col('text', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+    deleted_at: col('timestamptz', true, false),
+  },
+  google_export_mapping: {
+    id: col('uuid', false, false),
+    owner_id: col('uuid', false, false),
+    local_kind: col('text', false, false),
+    local_key: col('text', false, false),
+    google_calendar_id: col('text', false, false),
+    google_event_id: col('text', false, false),
+    fingerprint: col('text', false, false),
+    ends_at: col('timestamptz', true, false),
+    created_at: col('timestamptz', false, true),
+    updated_at: col('timestamptz', false, true),
+    version: col('integer', false, true),
+  },
 } as const satisfies Record<keyof Database, Record<string, ColumnSpec>>;
 
 export type Equal<A, B> =
@@ -1587,6 +1717,19 @@ type TableAssertions = {
   vikunja_owner_account: AssertTableColumns<
     VikunjaOwnerAccountTable,
     typeof databaseTables.vikunja_owner_account
+  >;
+  google_calendar_connection: AssertTableColumns<
+    GoogleCalendarConnectionTable,
+    typeof databaseTables.google_calendar_connection
+  >;
+  google_calendar: AssertTableColumns<GoogleCalendarTable, typeof databaseTables.google_calendar>;
+  calendar_day_event: AssertTableColumns<
+    CalendarDayEventTable,
+    typeof databaseTables.calendar_day_event
+  >;
+  google_export_mapping: AssertTableColumns<
+    GoogleExportMappingTable,
+    typeof databaseTables.google_export_mapping
   >;
 };
 

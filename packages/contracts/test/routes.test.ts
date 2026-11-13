@@ -396,6 +396,38 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     optionalHeaders: [],
     statuses: [201, 400, 401, 403, 404, 409, 412, 422, 428, 503],
   },
+  // CAL-03 Google Calendar integration. The OAuth callback is a browser
+  // redirect and deliberately absent from this JSON header matrix.
+  getGoogleIntegration: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401],
+  },
+  connectGoogleIntegration: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 409, 422],
+  },
+  updateGoogleIntegrationSettings: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 409, 412, 422, 428],
+  },
+  syncGoogleIntegration: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 409, 422, 503],
+  },
+  disconnectGoogleIntegration: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [204, 400, 401, 403, 409, 412, 422, 428],
+  },
+  listCalendarDayEvents: {
+    requiredHeaders: [],
+    optionalHeaders: ['If-None-Match'],
+    statuses: [200, 304, 400, 401, 422],
+  },
 };
 
 const keyOf = (method: string, path: string): string => `${method.toUpperCase()} ${path}`;
@@ -563,6 +595,22 @@ test('route table covers notes endpoints from 08 §2.7 (M6-01)', () => {
   }
 });
 
+test('route table covers the Google Calendar integration endpoints from 08 §2.11 (CAL-03)', () => {
+  const keys = new Set(routes.map((route) => keyOf(route.method, route.path)));
+  for (const expected of [
+    'GET /integrations/google',
+    'POST /integrations/google:connect',
+    'PUT /integrations/google/settings',
+    'POST /integrations/google:sync',
+    'DELETE /integrations/google',
+    'GET /calendar-day-events',
+  ]) {
+    expect({ expected, present: keys.has(expected) }).toEqual({ expected, present: true });
+  }
+  // The callback is a 302 browser redirect, not a JSON operation.
+  expect(keys.has('GET /integrations/google/callback')).toBe(false);
+});
+
 test('approval and availability replacement pin If-Match to availability versions', () => {
   for (const operationId of [
     'approvePlanCandidate',
@@ -685,6 +733,8 @@ test('existing-resource mutations require both If-Match and Idempotency-Key', ()
     'addDocumentLink',
     'removeDocumentLink',
     'promoteTaskDescription',
+    'updateGoogleIntegrationSettings',
+    'disconnectGoogleIntegration',
   ]) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();
@@ -709,6 +759,8 @@ test('creation POSTs require Idempotency-Key without If-Match', () => {
     'requestReplanProposal',
     'resetEstimation',
     'createDocument',
+    'connectGoogleIntegration',
+    'syncGoogleIntegration',
   ]) {
     const route = routes.find((candidate) => candidate.operationId === operationId);
     expect(route).toBeDefined();

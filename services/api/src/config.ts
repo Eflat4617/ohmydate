@@ -186,6 +186,25 @@ export interface AppConfig {
    * production by `assertFakeKnobsAllowed`; the limiter itself is unchanged.
    */
   readonly e2eResetLoginRateLimit: boolean;
+  /**
+   * CAL-03 Google Calendar sync (ADR-024). Absolute path to the downloaded
+   * OAuth client JSON (`{"web":{client_id, client_secret, …}}`, also the
+   * `installed` shape); a secret file (0600), read once at boot, never logged.
+   * Missing (or no token key) = integration `not_configured`.
+   */
+  readonly googleOAuthClientFile: string | null;
+  /** Absolute path to the 32-byte refresh-token key (0600, hex/base64). */
+  readonly googleTokenKeyFile: string | null;
+  /** Exact redirect URI registered at Google (…/api/v1/integrations/google/callback). */
+  readonly googleOAuthRedirectUri: string | null;
+  /** Web origin the callback redirects to (`<origin>/settings/calendar?google=…`). */
+  readonly googleWebOrigin: string | null;
+  /** Leader-locked sync interval; 0 disables the job (default 300000). */
+  readonly googleSyncIntervalMs: number;
+  /** Import window: now − 1 day .. now + N days (default 180). */
+  readonly googleImportDays: number;
+  /** Export window: now − 1 day .. now + N days (default 60). */
+  readonly googleExportDays: number;
 }
 
 export const DEFAULT_SESSION_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -238,6 +257,13 @@ export const defaultConfig: AppConfig = {
   pushKeyFile: null,
   pushKey: null,
   e2eResetLoginRateLimit: false,
+  googleOAuthClientFile: null,
+  googleTokenKeyFile: null,
+  googleOAuthRedirectUri: null,
+  googleWebOrigin: null,
+  googleSyncIntervalMs: 300_000,
+  googleImportDays: 180,
+  googleExportDays: 60,
 };
 
 /**
@@ -348,9 +374,111 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AppConfig {
     pushKeyFile: env['PUSH_KEY_FILE'] ?? null,
     pushKey: env['PUSH_KEY'] ?? null,
     e2eResetLoginRateLimit: env['E2E_RESET_LOGIN_RATE_LIMIT'] === '1',
+    ...googleConfigFromEnv(env),
   });
   assertFakeKnobsAllowed(config);
   return config;
+}
+
+/**
+ * CAL-03 (ADR-024): Google Calendar knobs. File paths must be absolute; the
+ * redirect URI and web origin are validated here (never echoed beyond the env
+ * name) and are required once a client file is configured. The files
+ * themselves are read by `loadGoogleOAuthSecrets` (google-config.ts).
+ */
+export const GOOGLE_CALLBACK_API_PATH = '/api/v1/integrations/google/callback';
+
+export function googleConfigFromEnv(
+  env: NodeJS.ProcessEnv,
+): Pick<
+  AppConfig,
+  | 'googleOAuthClientFile'
+  | 'googleTokenKeyFile'
+  | 'googleOAuthRedirectUri'
+  | 'googleWebOrigin'
+  | 'googleSyncIntervalMs'
+  | 'googleImportDays'
+  | 'googleExportDays'
+> {
+  const optional = (name: string): string | null => {
+    const raw = env[name];
+    return raw === undefined || raw.trim() === '' ? null : raw.trim();
+  };
+  const clientFile = optional('GOOGLE_OAUTH_CLIENT_FILE');
+  const keyFile = optional('GOOGLE_TOKEN_KEY_FILE');
+  for (const [name, value] of [
+    ['GOOGLE_OAUTH_CLIENT_FILE', clientFile],
+    ['GOOGLE_TOKEN_KEY_FILE', keyFile],
+  ] as const) {
+    if (value !== null && !isAbsolute(value)) throw new Error(`${name} must be an absolute path`);
+  }
+  const redirectUri = optional('GOOGLE_OAUTH_REDIRECT_URI');
+  const webOrigin = optional('GOOGLE_WEB_ORIGIN');
+  if (redirectUri !== null) validateGoogleRedirectUri(redirectUri);
+  if (webOrigin !== null) validateGoogleWebOrigin(webOrigin);
+  if (clientFile !== null && (redirectUri === null || webOrigin === null)) {
+    throw new Error(
+      'GOOGLE_OAUTH_REDIRECT_URI and GOOGLE_WEB_ORIGIN are required when GOOGLE_OAUTH_CLIENT_FILE is set',
+    );
+  }
+  const interval = env['GOOGLE_SYNC_INTERVAL_MS'];
+  return {
+    googleOAuthClientFile: clientFile,
+    googleTokenKeyFile: keyFile,
+    googleOAuthRedirectUri: redirectUri,
+    googleWebOrigin: webOrigin === null ? null : new URL(webOrigin).origin,
+    googleSyncIntervalMs:
+      interval === undefined || interval.trim() === ''
+        ? defaultConfig.googleSyncIntervalMs
+        : parseNonNegativeInt('GOOGLE_SYNC_INTERVAL_MS', interval),
+    googleImportDays: parseBoundedInt(
+      'GOOGLE_IMPORT_DAYS',
+      env['GOOGLE_IMPORT_DAYS'],
+      defaultConfig.googleImportDays,
+      366,
+    ),
+    googleExportDays: parseBoundedInt(
+      'GOOGLE_EXPORT_DAYS',
+      env['GOOGLE_EXPORT_DAYS'],
+      defaultConfig.googleExportDays,
+      366,
+    ),
+  };
+}
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+function parsedHttpUrl(name: string, raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`${name} must be an absolute http(s) URL`);
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error(`${name} must be an absolute http(s) URL`);
+  }
+  if (url.protocol === 'http:' && !LOOPBACK_HOSTS.has(url.hostname)) {
+    throw new Error(`${name} may use http only on a loopback host (127.0.0.1, localhost, [::1])`);
+  }
+  if (url.username !== '' || url.password !== '' || url.search !== '' || url.hash !== '') {
+    throw new Error(`${name} must not contain credentials, a query or a fragment`);
+  }
+  return url;
+}
+
+export function validateGoogleRedirectUri(raw: string): void {
+  const url = parsedHttpUrl('GOOGLE_OAUTH_REDIRECT_URI', raw);
+  if (url.pathname !== GOOGLE_CALLBACK_API_PATH) {
+    throw new Error(`GOOGLE_OAUTH_REDIRECT_URI path must be ${GOOGLE_CALLBACK_API_PATH}`);
+  }
+}
+
+export function validateGoogleWebOrigin(raw: string): void {
+  const url = parsedHttpUrl('GOOGLE_WEB_ORIGIN', raw);
+  if (url.pathname !== '/') {
+    throw new Error('GOOGLE_WEB_ORIGIN must be an origin (scheme://host[:port]) without a path');
+  }
 }
 
 /** A fake-only test knob: its env name and whether this configuration sets it. */

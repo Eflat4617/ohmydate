@@ -66,6 +66,45 @@ const DEFAULT_PREFS: AvailabilityPreferencesDto = {
 type Db = Kysely<Database>;
 type Trx = Transaction<Database>;
 
+/**
+ * CAL-03: a 약속 imported from Google Calendar is edited in Google; the API
+ * refuses to change or delete it (409 illegal_transition, stored for the
+ * Idempotency-Key like other domain conflicts).
+ */
+function importedCommitmentReadOnly(): PlanConflictError {
+  return new PlanConflictError(
+    'this commitment is imported from Google Calendar and is read-only here; change it in Google Calendar',
+  );
+}
+
+/**
+ * Every commitment write increments the owner's availability_version inside
+ * the writing transaction (08 §2.4a). Shared with the Google import (CAL-03),
+ * whose 약속 changes must behave like manual edits.
+ */
+export async function bumpAvailabilityVersion(trx: Trx, ownerId: Id, now: Date): Promise<void> {
+  const userRow = await trx
+    .selectFrom('user')
+    .select('time_zone')
+    .where('id', '=', ownerId)
+    .executeTakeFirst();
+  await trx
+    .insertInto('user_availability_version')
+    .values({
+      owner_id: ownerId,
+      version: 1,
+      time_zone: userRow?.time_zone ?? 'UTC',
+      prefs: jsonb(prefsJson(DEFAULT_PREFS)),
+    })
+    .onConflict((oc) => oc.column('owner_id').doNothing())
+    .execute();
+  await trx
+    .updateTable('user_availability_version')
+    .set({ version: sql<number>`version + 1`, updated_at: now })
+    .where('owner_id', '=', ownerId)
+    .execute();
+}
+
 const MAX_RANGE_MS = 366 * 24 * 60 * 60 * 1000;
 
 function toInstant(value: Date | string): Instant {
@@ -382,6 +421,7 @@ export class PgPlanningStore implements PlanningStore {
         .where('deleted_at', 'is', null)
         .executeTakeFirst();
       if (current === undefined) throw new NotFoundError('commitment', id);
+      if (current.source === 'google') throw importedCommitmentReadOnly();
       if (current.version !== expectedVersion) {
         throw new VersionConflictError(expectedVersion as never, current.version as never);
       }
@@ -407,6 +447,7 @@ export class PgPlanningStore implements PlanningStore {
         .where('id', '=', id)
         .where('owner_id', '=', ownerId)
         .where('version', '=', expectedVersion)
+        .where('source', '<>', 'google')
         .returningAll()
         .executeTakeFirst();
       if (row === undefined) {
@@ -427,17 +468,19 @@ export class PgPlanningStore implements PlanningStore {
         .where('owner_id', '=', ownerId)
         .where('deleted_at', 'is', null)
         .where('version', '=', expectedVersion)
+        .where('source', '<>', 'google')
         .returning('id')
         .executeTakeFirst();
       if (deleted === undefined) {
         const exists = await trx
           .selectFrom('commitment_event')
-          .select('version')
+          .select(['version', 'source'])
           .where('id', '=', id)
           .where('owner_id', '=', ownerId)
           .where('deleted_at', 'is', null)
           .executeTakeFirst();
         if (exists === undefined) throw new NotFoundError('commitment', id);
+        if (exists.source === 'google') throw importedCommitmentReadOnly();
         throw new VersionConflictError(expectedVersion as never, exists.version as never);
       }
       await this.#bumpAvailability(trx, ownerId, now);
@@ -1158,26 +1201,7 @@ export class PgPlanningStore implements PlanningStore {
   }
 
   async #bumpAvailability(trx: Trx, ownerId: Id, now: Date): Promise<void> {
-    const userRow = await trx
-      .selectFrom('user')
-      .select('time_zone')
-      .where('id', '=', ownerId)
-      .executeTakeFirst();
-    await trx
-      .insertInto('user_availability_version')
-      .values({
-        owner_id: ownerId,
-        version: 1,
-        time_zone: userRow?.time_zone ?? 'UTC',
-        prefs: jsonb(prefsJson(DEFAULT_PREFS)),
-      })
-      .onConflict((oc) => oc.column('owner_id').doNothing())
-      .execute();
-    await trx
-      .updateTable('user_availability_version')
-      .set({ version: sql<number>`version + 1`, updated_at: now })
-      .where('owner_id', '=', ownerId)
-      .execute();
+    await bumpAvailabilityVersion(trx, ownerId, now);
   }
 
   #mapCommitment(row: {

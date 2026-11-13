@@ -116,6 +116,14 @@ describe.skipIf(!hasDatabase)('0015 auth_session (FU-92)', () => {
     await client.end();
     client = await connect(schema);
 
+    // 0016 (CAL-03) is newer and is unwound first.
+    const rolledBack0016 = await rollbackLatest({
+      databaseUrl: requireDatabaseUrl(),
+      schema,
+      migrationsDir,
+    });
+    expect(rolledBack0016).toBe('0016_google_calendar.sql');
+
     const rolledBack = await rollbackLatest({
       databaseUrl: requireDatabaseUrl(),
       schema,
@@ -132,7 +140,7 @@ describe.skipIf(!hasDatabase)('0015 auth_session (FU-92)', () => {
     expect(users.rows[0]?.count).toBe('1');
 
     const reapplied = await migrate({ databaseUrl: requireDatabaseUrl(), schema, migrationsDir });
-    expect(reapplied.applied).toEqual(['0015_auth_sessions.sql']);
+    expect(reapplied.applied).toEqual(['0015_auth_sessions.sql', '0016_google_calendar.sql']);
     await insertSession(userId);
     const count = await client.query<{ count: string }>(
       'SELECT count(*)::text AS count FROM auth_session',

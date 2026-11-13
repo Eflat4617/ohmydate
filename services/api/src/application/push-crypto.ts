@@ -1,22 +1,9 @@
-import { createCipheriv, createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { AppConfig } from '../config.js';
+import { atRestKey, encryptAtRest, parseKeyMaterial, type AtRestKey } from './at-rest-crypto.js';
 
-export interface PushKey {
-  readonly key: Buffer;
-  readonly keyId: string;
-}
-
-function parseKeyMaterial(raw: string, source: string): Buffer {
-  const value = raw.trim();
-  if (value.length === 0) throw new Error(`${source} is empty`);
-  if (/^[0-9a-fA-F]{64}$/.test(value)) return Buffer.from(value, 'hex');
-  const base64 = Buffer.from(value, 'base64');
-  if (base64.length === 32) return base64;
-  const utf8 = Buffer.from(value, 'utf8');
-  if (utf8.length === 32) return utf8;
-  throw new Error(`${source} must decode to a 32-byte AES-256 key`);
-}
+export type PushKey = AtRestKey;
 
 /**
  * Resolves the Web Push at-rest key (09 §6, §7). Never log the key or the file
@@ -37,17 +24,14 @@ export function resolvePushKey(config: AppConfig): PushKey {
     );
   }
   if (key.length !== 32) throw new Error('Web Push encryption key must be 32 bytes');
-  return {
-    key,
-    keyId: createHash('sha256').update(key).digest('hex').slice(0, 16),
-  };
+  return atRestKey(key);
 }
 
-/** AES-256-GCM envelope: 12-byte IV || 16-byte auth tag || ciphertext. */
+/**
+ * AES-256-GCM envelope: 12-byte IV || 16-byte auth tag || ciphertext, with the
+ * key id as additional authenticated data (unchanged since M4; the generic
+ * helper lives in at-rest-crypto.ts).
+ */
 export function encryptPushValue(plaintext: string, key: Buffer, keyId: string): Buffer {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', key, iv);
-  cipher.setAAD(Buffer.from(keyId, 'utf8'));
-  const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
-  return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]);
+  return encryptAtRest(plaintext, key, keyId);
 }

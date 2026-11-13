@@ -14,6 +14,7 @@ import {
   warn,
 } from './common.mjs';
 import { checkMigrationsCurrent, checkStack } from './stack.mjs';
+import { inspectGoogleSetup } from './google.mjs';
 import { readJsonObject, tokenMapOf } from './vikunja-token.mjs';
 
 async function httpStatus(url, options = {}) {
@@ -160,6 +161,11 @@ async function main() {
     failures.push('llm-key');
     log(` - LLM 키 파일: 없음 (${context.keyFile})`);
   }
+
+  // CAL-03: optional; only a placed-but-unusable setup is a failure.
+  const google = inspectGoogleSetup(context);
+  if (google.state === 'invalid') failures.push('google');
+  log(` - ${google.state === 'invalid' ? `Google 캘린더 동기화: 문제 (${google.line})` : google.line}`);
 
   const tokenData = readTokens(context.tokenFile);
   const owners = Object.keys(tokenData.tokens);
