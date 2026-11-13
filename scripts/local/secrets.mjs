@@ -13,7 +13,7 @@ import {
   writeFileExclusive,
 } from './common.mjs';
 
-const STACK_KEYS = ['postgres.env', 'vikunja.env', 'push.key', 'llm-session-secret'];
+const STACK_KEYS = ['postgres.env', 'vikunja.env', 'push.key', 'llm-session-secret', 'google-token.key'];
 
 async function existingMode(path) {
   try {
@@ -90,6 +90,13 @@ export async function initSecrets(options = {}) {
   );
   await writeIfMissing(
     context.sessionSecretFile,
+    `${randomBytes(32).toString('hex')}\n`,
+    created,
+    existing,
+  );
+  // CAL-03: AES-256-GCM key for the Google refresh token (GOOGLE_TOKEN_KEY_FILE).
+  await writeIfMissing(
+    context.googleTokenKeyFile,
     `${randomBytes(32).toString('hex')}\n`,
     created,
     existing,

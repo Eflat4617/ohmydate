@@ -49,6 +49,7 @@ import {
   checkStack,
   ensureMigrations,
 } from './stack.mjs';
+import { googleTunables, inspectGoogleSetup } from './google.mjs';
 
 export const BUILD_OUTPUTS = {
   api: join(repoRoot, 'services/api/dist/main.js'),
@@ -186,6 +187,7 @@ export async function runPreflight(options = {}) {
   const checkStackFn = deps.checkStack ?? checkStack;
   const checkMigrationsFn = deps.checkMigrationsCurrent ?? checkMigrationsCurrent;
   const checkKeyFn = deps.checkLlmKeyFile ?? checkLlmKeyFile;
+  const inspectGoogleFn = deps.inspectGoogleSetup ?? inspectGoogleSetup;
   const applyMigrationsFn = deps.ensureMigrations;
 
   const missing = [];
@@ -216,6 +218,11 @@ export async function runPreflight(options = {}) {
     const key = checkKeyFn(context.keyFile);
     if (!key.ok) return { ok: false, message: key.message };
   }
+
+  // CAL-03: no client file = not configured (normal); a placed but unusable
+  // file would fail the API boot, so refuse here with the exact fix.
+  const google = inspectGoogleFn(context);
+  if (google.state === 'invalid') return { ok: false, message: google.line };
 
   const health = await checkStackFn(dbUrl, context.vikunjaUrl);
   if (!health.ok) {
@@ -256,7 +263,7 @@ export async function runPreflight(options = {}) {
     if (key.warning !== null && key.warning !== undefined) warnings.push(key.warning);
   }
 
-  return { ok: true, databaseUrl: dbUrl, warnings, notices };
+  return { ok: true, databaseUrl: dbUrl, warnings, notices, google };
 }
 
 async function rotateLogFile(logDir, name) {
@@ -310,8 +317,18 @@ function apiEnvironment(context, preflight, options) {
     LLM_DAILY_BUDGET_USD: env.LLM_DAILY_BUDGET_USD ?? settings.LLM_DAILY_BUDGET_USD,
     LLM_MONTHLY_BUDGET_USD: env.LLM_MONTHLY_BUDGET_USD ?? settings.LLM_MONTHLY_BUDGET_USD,
     LOG_LEVEL: env.LOG_LEVEL ?? 'info',
+    ...googleEnvironment(context, preflight, env),
     [PROCESS_MARKER_ENV]: options.marker,
   };
+}
+
+/**
+ * CAL-03: Google env for the API. File paths and the redirect URI only (the
+ * API reads the files itself); nothing Google-related when not configured.
+ */
+export function googleEnvironment(context, preflight, env = process.env) {
+  if (preflight?.google?.state !== 'configured') return {};
+  return { ...preflight.google.env, ...googleTunables(env, context.settings) };
 }
 
 function webEnvironment(context, marker) {
@@ -484,6 +501,7 @@ export async function startLocal(options = {}) {
   if (!preflight.ok) throw new Error(preflight.message);
   for (const notice of preflight.notices ?? []) log(notice);
   for (const warning of preflight.warnings) warn(warning);
+  if (preflight.google !== undefined) log(preflight.google.line);
 
   const llm = effectiveLlm(env, context.settings, fakeLlm);
   log(

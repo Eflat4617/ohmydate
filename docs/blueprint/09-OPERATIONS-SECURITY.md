@@ -46,9 +46,11 @@
 - Vikunja: 사용자 1명 + planner 서비스용 **API 토큰(최소 권한 scope)**, api 컨테이너 env/secret 파일로만 주입. Vikunja 회원가입 비활성(`service.enableregistration=false`).
 - 비밀: `deploy/secrets/*.env`(git 제외, 권한 600), Docker secrets. 회전: LLM 키·Vikunja 토큰 90일 [가정], 회전 절차 runbook.
 - 다중 사용자 대비: 모든 쿼리 owner 범위, 장래 PG RLS.
+- **Google 캘린더(CAL-03, ADR-024):** 비밀 파일 2개 — 사용자가 내려받은 OAuth 클라이언트 JSON(`GOOGLE_OAUTH_CLIENT_FILE`, 로컬 기본 `deploy/secrets/local/google-oauth-client.json`)과 refresh token 암호화 키(`GOOGLE_TOKEN_KEY_FILE`, `local:secrets`가 만드는 `google-token.key`, 32바이트). 둘 다 0600이 아니면(그룹/기타 접근) API가 부팅을 거부하고 `local:start`가 정확한 `chmod 600`을 안내한다. 파일 내용·JSON 파서 메시지는 어떤 오류에도 넣지 않는다(오류 문구는 env 이름과 규칙만). 둘 중 하나라도 없으면 연동은 `not_configured`(정상). refresh token만 DB에 AES-256-GCM 봉투로 저장(AAD에 owner id + key id → 다른 owner 행으로 옮기면 복호 실패), access token은 메모리에만. 키 파일을 바꾸거나 잃으면 저장된 토큰을 풀 수 없어 `needs_reauth`(다시 연결)가 된다 — 비밀 디렉터리와 함께 백업. 클라이언트 비밀 회전: Google 콘솔에서 "Add Secret" → 새 JSON으로 교체 → `local:stop`/`local:start` → 옛 비밀 삭제. 연결 해제는 Google에서 토큰을 폐기(RFC 7009, 토큰은 본문으로)한다.
 
 ## 7. 로그·민감정보
 - 구조화 JSON 로그, 요청 ID. 노트 본문/프롬프트/응답/비밀/토큰 **로깅 금지**(pino redact paths + 테스트).
+- Google 연동(CAL-03): 로그에는 owner id와 닫힌 코드(콜백 거절 사유, `lastError` 코드, 해제 단계 결과)만 남긴다. access/refresh token·auth code·state·PKCE verifier·클라이언트 비밀·Authorization 헤더·일정 제목·캘린더 id는 남기지 않는다(redact 경로 + 전체 흐름 로그 캡처 테스트 `google-logging.test.ts`). Google 오류 객체의 메시지는 작업 이름·종류·HTTP 상태·Google의 `reason` 토큰만 담는다.
 - agent_run 은 메타데이터만.
 
 ## 8. 위협·대응
@@ -57,7 +59,8 @@
 | Prompt injection | 05 §9, 도구 권한 없음, 출력 검증 |
 | XSS | Vue 기본 이스케이프, `v-html` 금지(lint), Markdown은 sanitize(DOMPurify) 후 렌더, CSP `default-src 'self'` |
 | CSRF | SameSite=Lax + CSRF 토큰 |
-| SSRF | 서버가 사용자 URL을 fetch하지 않음(M1–M6). 링크 미리보기 없음 |
+| SSRF | 서버가 사용자 URL을 fetch하지 않음(M1–M6). 링크 미리보기 없음. Google 연동(CAL-03)의 나가는 호스트는 코드에 고정된 `oauth2.googleapis.com`(토큰·폐기)과 `www.googleapis.com`(Calendar API v3)뿐이고 env로 바꿀 수 없다. `accounts.google.com` 동의 화면은 브라우저가 연다. 리디렉트를 따라가지 않는다(`redirect: 'error'`) |
+| OAuth 리디렉트 악용 | 콜백은 항상 설정된 web origin의 고정 경로로만 302. state 1회용·10분·owner 결합 + 같은 owner 세션 필수, PKCE S256 |
 | 악성 첨부 | MIME/확장자 allowlist, 크기 제한, 저장명 UUID, `Content-Disposition: attachment`, 이미지 재인코딩(M6) |
 | 경로 탐색 | blob key = UUID, 사용자 파일명은 메타데이터로만 |
 | Rate limiting | 로그인·LLM 엔드포인트 토큰 버킷 |
@@ -68,6 +71,8 @@
 | 장애 | 감지 | 대응 |
 |---|---|---|
 | 인터넷 단절 | LLM/push 실패 | 수동 모드, 알림 지연 큐 |
+| Google 장애·할당량 | 동기화 `lastError`(rate_limited/google_unavailable/run_deadline) | 호출마다 10초 타임아웃·최대 3회 백오프(429/5xx/rateLimitExceeded, Retry-After 존중)·실행당 2분 상한, 다음 5분 주기에 재시도. 앱의 계획 기능은 영향 없음 |
+| Google 동의 만료/취소 | `invalid_grant` → `needs_reauth` | 동기화 중단, 데이터 유지, 사용자가 다시 연결(테스트 상태 동의 화면은 7일마다) |
 | LLM 장애 | 5xx/타임아웃 | 2회 재시도 → 수동 모드 |
 | DB 미접속 | readiness | api 503, web 캐시 |
 | 디스크 풀 | 80% 경보 | 로그 로테이션, 오래된 candidate/agent_run 정리 |

@@ -22,6 +22,7 @@
 | 018 | Inbox 프로젝트 식별: Project.kind | Accepted (구현 FU-18) |
 | 017 | 스케줄러 시간 분할: 전환-구간 기반 로컬 날짜 계산 (M3-01R3 결과) | Accepted |
 | 016 | VikunjaTaskRepository 동시성·멱등 보정 (M0-03 결과) | Accepted (Sol 리뷰로 사실 재확인 조건) |
+| 024 | Google 캘린더 연동: 사용자 소유 OAuth 클라이언트 + 최소 3개 scope + 전용 "OhMyDate" 캘린더 (CAL-03) | Accepted (GU-1 피드백 2차, 보안 리뷰 대상) |
 
 ---
 
@@ -199,3 +200,20 @@
   - **이번에 고친 것:** 울타리가 전혀 없던 가용 시간·약속·Inbox 작업(지연 삭제 타이머 포함)·일정안 생성/비교·알림 폴링/푸시 등록·마법사의 비AI 변경, 그리고 sweep이 뒤쪽 `await`에서 찾은 재계획 승인/거절/요청·패턴 화면. M6-02/M6-03의 수동 검사는 `runOwnerBound`로 옮겼다.
   - **보강 2(FU-77R-1 반영):** 처음 구현은 `await owner.wait(…)`가 래퍼 프라미스를 resolve하는 시점에 바인딩을 확인했다. 그 뒤 코드가 재개되기까지의 마이크로태스크 틈에 소유자가 바뀌면 뒤 코드가 새 사용자를 위해 실행됐고(AvailabilityView가 A의 가용 시간을 B의 캐시에 쓰고 "저장했어요"를 알림), 작업 안에서 기다린 async 헬퍼의 내부 대기 뒤 쓰기는 울타리 밖이었다. 위의 제너레이터 러너·헬퍼 위임·전송 계층 중단·이름 기반 저장소 규칙이 그 수정이다. 바인딩 작업을 기다린 뒤 효과를 내던 호출자(TaskList 편집/완료, Inbox 추가, 알림 지우기, AI 설정, 마법사의 비AI 변경, NoteEditor 저장 전체)도 작업으로 옮겼다.
   - **그대로 둔 것:** Focus 시작·복원·일시정지 경로(늦은 응답을 버리지 않고 시작한 소유자 namespace에 남기는 것이 의도), 마법사 AI 대기 상태 기계(검사가 폴링 토큰과 묶여 있음), Today 동작은 `await` 직후 재개된 구간에서 하는 기존 바인딩 검사를 유지하며 sweep으로 덮는다. 서버가 요청의 의도된 소유자를 검증하는 것(예: 기대 소유자 헤더)은 범위 밖이다. 사용자 간 정합성의 근거는 여전히 하드 리셋이고, 가드레일은 그 사이 창을 닫는다.
+
+## ADR-024 Google 캘린더 연동: 사용자 소유 OAuth 클라이언트 + 최소 scope + 전용 캘린더 (CAL-03, 2026-11-13)
+- **맥락(사용자 요청 원문):** "일정은 안드로이드 폰이랑 연동되게 구글일정공유? 그런거로 연동해줬으면 하고, 연동 시 구체적인 시간 구간이 정해져있는 일정이면 약속 메뉴에 그대로 일정 있다고 비워놓는 식으로." / "맨날 일을 미루기만 하는 나한테 오늘 할일이 무엇인지 리마인드 해주는 역할이 강하단말이야." 앱은 사용자 노트북에서만 돈다(GD-3 보류, 공개 URL 없음). 폰은 Android + Google 캘린더. → 노트북이 Google로 **나가는 연결만** 하고, 폰은 Google에 있는 것을 본다.
+- **결정:**
+  1. **OAuth 2.0 승인 코드 + PKCE(S256)**, 클라이언트는 사용자가 자기 Google Cloud 프로젝트에서 만든 "웹 애플리케이션" 클라이언트(JSON 파일 = 비밀 파일, `GOOGLE_OAUTH_CLIENT_FILE`). `access_type=offline`, `prompt=consent`, `include_granted_scopes=false`. state는 32바이트 난수·1회용·10분·시작한 owner에 묶임(프로세스 메모리, 재시작 시 "다시 연결"). 콜백은 같은 owner의 세션이 있어야 하고 항상 고정 경로 `<GOOGLE_WEB_ORIGIN>/settings/calendar?google=connected|denied|error`로 302(요청의 URL로 리디렉트하지 않음). 리디렉션 URI는 웹 origin(`http://127.0.0.1:5180/api/v1/integrations/google/callback`)이라 SameSite=Lax 세션 쿠키가 최상위 리디렉트에 실린다.
+  2. **scope 3개(최소 권한):** `calendar.app.created`(앱이 만든 보조 캘린더 1개 "OhMyDate"를 만들고 그 안의 일정만 관리), `calendar.calendarlist.readonly`(캘린더 목록), `calendar.events.readonly`(일정 읽기). 사용자 자신의 캘린더는 **읽기만** 하므로 앱이 사용자 일정을 바꾸거나 지울 수 없다. 세분화 동의: 토큰 응답의 `scope`로 실제 허용 범위를 판단해 읽기 2개가 없으면 가져오기 꺼짐, `calendar.app.created`가 없으면 내보내기 꺼짐(오류 아님, 상태에 표시).
+  3. **토큰:** refresh token만 AES-256-GCM 봉투(IV‖tag‖암호문, AAD = owner id + key id)로 `google_calendar_connection`에 저장, 전용 키 파일 `GOOGLE_TOKEN_KEY_FILE`(0600, push 키와 별개; push-crypto를 일반화한 `at-rest-crypto`). access token은 메모리에만. `invalid_grant`(또는 키 교체로 복호 불가) → `needs_reauth`, 동기화 중단, 아무것도 지우지 않음. 연결 해제 = Google에서 폐기(best effort) + 저장 토큰 삭제 + 가져온 데이터 soft delete + (`removeExported` 기본 true) "OhMyDate" 캘린더 삭제.
+  4. **가져오기(Google → 약속):** 선택한 캘린더(기본: 소유 캘린더 + 공휴일 캘린더, "OhMyDate"는 제외)를 `singleEvents=true`, now−1일 … now+180일(조절 가능)로 **창 단위 전체 목록**을 읽어 차이만 반영한다. 시간이 정해진 일정 → 약속(source `google`, 수동 약속과 같은 쓰기 경로라 availability_version·재계획 감지가 똑같이 동작), 종일 일정 → `calendar_day_event`(시간을 막지 않음). 취소·거절·"한가함"·근무 위치·길이 0 일정 제외. 제목만 200자로 저장(설명·참석자·장소 저장 안 함). 가져온 약속은 API에서 읽기 전용(409).
+  5. **내보내기(OhMyDate → "OhMyDate" 캘린더):** 승인된 블록(작업 제목), 수동 약속(반복은 RRULE), 선택적으로 하루 1개 "오늘 할 일 N개" 요약(사용자의 하루 시작 시각, 첫 블록이 더 이르면 그 시각; 설명에 시간·제목 목록). 모든 일정 `reminders.useDefault=false` + 팝업 1개(`reminderMinutes`, 기본 10분, null = 없음; 요약은 시작 시각에 팝업) — 이것이 폰의 리마인더다. 결정적 id(base32hex: `b`/`c`+uuid hex, `s`+날짜) + fingerprint로 멱등, 중복 id는 patch로 복구.
+  6. **동기화:** 리더 잠금(advisory key 5196105) 주기 작업(`GOOGLE_SYNC_INTERVAL_MS`, 기본 5분, 0 = 끔), owner 하나씩, 가져오기 → 내보내기, 호출마다 타임아웃·429/5xx/`rateLimitExceeded` 백오프(최대 3회)·실행당 2분 상한, 실패는 닫힌 코드(`lastError`)로 기록하고 다른 owner/캘린더는 계속. 변경 API(승인·Today·약속 쓰기) 뒤 owner별 3초 디바운스 내보내기(요청에 영향 없음), `POST /integrations/google:sync`로 즉시 실행.
+- **밖으로 나가는 것:** 작업 제목, 블록 시각, 수동 약속 제목·시각·반복 규칙, 그로부터 만든 하루 요약. 노트·설명·목표 문장·가져온 약속은 나가지 않는다. 나가는 호스트: `accounts.google.com`(브라우저가 여는 동의 화면), `oauth2.googleapis.com`(토큰·폐기), `www.googleapis.com`(Calendar API v3). 들어오는 연결 없음.
+- **왜 sync token이 아니라 창 단위 전체 목록인가:** 개인 1명·캘린더 몇 개·6개월 창이면 5분마다 수백 건 이하로 할당량에 여유가 크다. 창 단위 목록은 상태가 없어 410(sync token 만료)·누락 복구·창 이동(과거로 밀려난 일정)을 따로 다룰 필요가 없고, "창 안에서 사라진 것 = 삭제"라는 단순한 규칙으로 diff가 결정적이다. 쪽 수 상한(기본 10쪽 × 250건)을 넘으면 그 캘린더는 삭제를 하지 않고 `too_many_events`를 기록한다. 규모가 커지면(다중 사용자) sync token으로 바꾼다.
+- **왜 전용 캘린더인가:** 사용자 기본 캘린더에 쓰려면 `calendar.events`(모든 캘린더 쓰기)가 필요해 권한이 과하고, 앱 오류가 사용자 일정을 망칠 수 있다. `calendar.app.created`는 앱이 만든 캘린더에만 쓸 수 있고, 폰에서는 이 캘린더만 켜고 끄면 되며, 연결 해제 시 통째로 지울 수 있다.
+- **기각한 대안:** ① 비공개 iCal 주소(.ics 구독) — 가져오기만 가능, 폰으로 내보낼 수 없고 주소 자체가 비밀이라 관리 부담. ② CalDAV — Google CalDAV도 같은 OAuth가 필요해 얻는 것이 없고 구현이 더 크다. ③ Google 공식 SDK — 의존성·라이선스 검토가 필요하고 필요한 호출이 적어 Node 내장 `fetch`로 충분. ④ 서비스 계정 — 개인 Gmail 캘린더에 쓸 수 없음. ⑤ 공개 웹훅(push 알림) — 공개 URL이 없음(로컬 전용).
+- **운영 주의:** Google Cloud 동의 화면이 "테스트" 상태면 테스트 사용자의 승인이 7일 뒤 만료된다(→ `needs_reauth`, 다시 연결). "앱 게시"(프로덕션)로 바꾸면 만료가 없어지는 대신 동의 시 "확인되지 않은 앱" 경고가 한 번 뜬다. 웹 애플리케이션 클라이언트 비밀은 만들 때 한 번만 내려받을 수 있다(2025-06 이후 생성 클라이언트). 단일 프로세스 가정: OAuth state와 owner별 직렬화는 프로세스 메모리(여러 프로세스로 늘릴 때 PG로 이동).
+- **재검토 트리거:** 다중 사용자/공개 배포(M8+, 앱 검증 필요), 내보내기 대상이 늘어남(사용자 기본 캘린더 쓰기 요구 → 별도 승인), 할당량 경고.
+

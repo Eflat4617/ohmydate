@@ -36,13 +36,14 @@ describe('secrets init', () => {
 
     expect((await modeOf(dir))).toBe(0o700);
     expect(result.created.sort()).toEqual([
+      'google-token.key',
       'llm-session-secret',
       'postgres.env',
       'push.key',
       'vikunja.env',
     ]);
 
-    for (const name of ['postgres.env', 'vikunja.env', 'push.key', 'llm-session-secret']) {
+    for (const name of ['postgres.env', 'vikunja.env', 'push.key', 'llm-session-secret', 'google-token.key']) {
       expect(await modeOf(join(dir, name))).toBe(0o600);
     }
 
@@ -58,6 +59,10 @@ describe('secrets init', () => {
     expect(pushKey).toMatch(/^[0-9a-f]{64}$/u);
     expect(sessionSecret).toMatch(/^[0-9a-f]{64}$/u);
     expect(pushKey).not.toBe(sessionSecret);
+    // CAL-03: independent 32-byte key for the Google refresh token.
+    const googleKey = (await readFile(join(dir, 'google-token.key'), 'utf8')).trim();
+    expect(googleKey).toMatch(/^[0-9a-f]{64}$/u);
+    expect([pushKey, sessionSecret]).not.toContain(googleKey);
   });
 
   test('never overwrites an existing file and is idempotent', async () => {
@@ -76,6 +81,7 @@ describe('secrets init', () => {
     };
     const second = await initSecrets({ context: contextFor(dir) });
     expect(second.created).toEqual([]);
+    expect(second.existing).toContain('google-token.key');
     expect(await readFile(join(dir, 'push.key'), 'utf8')).toBe(before.push);
     expect(await readFile(join(dir, 'llm-session-secret'), 'utf8')).toBe(before.session);
   });
@@ -95,6 +101,7 @@ describe('secrets init', () => {
       parseEnvText(await readFile(join(dir, 'vikunja.env'), 'utf8')).VIKUNJA_SERVICE_SECRET,
       (await readFile(join(dir, 'push.key'), 'utf8')).trim(),
       (await readFile(join(dir, 'llm-session-secret'), 'utf8')).trim(),
+      (await readFile(join(dir, 'google-token.key'), 'utf8')).trim(),
     ];
     const output = `${first.stdout}${first.stderr}`;
     for (const value of values) {
