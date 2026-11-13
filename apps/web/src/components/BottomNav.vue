@@ -30,6 +30,7 @@ const moreLinks: readonly MoreLink[] = [
   { to: '/patterns', label: 'nav.patterns', icon: 'pattern' },
   { to: '/commitments', label: 'nav.commitments', icon: 'commitment' },
   { to: '/settings/availability', label: 'nav.availability', icon: 'availability' },
+  { to: '/settings/calendar', label: 'nav.calendarSettings', icon: 'link' },
   { to: '/settings/ai', label: 'nav.aiSettings', icon: 'ai' },
   { to: '/settings/layout', label: 'nav.layoutSettings', icon: 'layout' },
 ];
@@ -45,6 +46,7 @@ const MORE_ROUTES = new Set([
   'patterns',
   'commitments',
   'availability',
+  'calendar-settings',
   'ai-settings',
   'layout-settings',
   'notes',

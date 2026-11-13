@@ -2,6 +2,7 @@ import { setupServer } from 'msw/node';
 import { createHandlers } from './handlers';
 import { createCommitmentParseHandlers } from './commitment-parse';
 import { createIntakeHandlers } from './intake-handlers';
+import { createGoogleHandlers } from './google';
 import { createNotesHandlers } from './notes';
 import { createPlanningHandlers } from './planning-handlers';
 import { createReplanHandlers } from './replan';
@@ -15,4 +16,6 @@ export const server = setupServer(
   ...createPlanningHandlers(mockDb),
   ...createReplanHandlers(mockDb),
   ...createNotesHandlers(mockDb),
+  // CAL-04: the Google Calendar routes (not configured until a test seeds them).
+  ...createGoogleHandlers(mockDb),
 );

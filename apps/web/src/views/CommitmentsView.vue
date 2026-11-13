@@ -24,6 +24,7 @@ import {
   type WeekdayCode,
 } from '../domain/rrule';
 import { useOfflineStore } from '../stores/offline';
+import { useGoogleIntegration } from '../composables/useGoogleCalendar';
 import CommitmentParseSection from '../components/CommitmentParseSection.vue';
 import type { DraftFormValues } from '../domain/commitmentDraft';
 import UiBadge from '../components/ui/UiBadge.vue';
@@ -94,6 +95,22 @@ const commitmentsQuery = useQuery({
 
 const commitments = computed<Commitment[]>(() => commitmentsQuery.data.value?.items ?? []);
 
+/**
+ * CAL-04: 약속 imported from Google Calendar are edited there (the API
+ * refuses edits here), so their rows say where they come from and offer no
+ * 수정 / 삭제.
+ */
+const googleQuery = useGoogleIntegration();
+const googleStatus = computed(() => googleQuery.data.value?.status ?? null);
+const hasGoogleRows = computed(() => commitments.value.some((commitment) => isImported(commitment)));
+const showGoogleNote = computed(
+  () => hasGoogleRows.value || googleStatus.value === 'connected' || googleStatus.value === 'needs_reauth',
+);
+
+function isImported(commitment: Commitment): boolean {
+  return commitment.source === 'google';
+}
+
 const form = reactive({
   id: null as string | null,
   title: '',
@@ -160,6 +177,7 @@ function resetForm(): void {
 }
 
 function edit(commitment: Commitment): void {
+  if (isImported(commitment)) return;
   form.id = commitment.id;
   form.title = commitment.title;
   form.startLocal = localInputValue(commitment.startAt, commitment.timeZone);
@@ -260,7 +278,7 @@ async function save(): Promise<void> {
 }
 
 async function remove(commitment: Commitment): Promise<void> {
-  if (!offline.mutationsEnabled || busy.value) return;
+  if (!offline.mutationsEnabled || busy.value || isImported(commitment)) return;
   busy.value = true;
   error.value = null;
   await runOwnerBound(
@@ -327,6 +345,24 @@ function onFromChange(event: Event): void {
           </div>
         </fieldset>
 
+        <UiBanner
+          v-if="googleStatus === 'needs_reauth'"
+          tone="warn"
+          inline
+          class="commitments-google-stale"
+          role="status"
+          data-google-stale
+        >
+          {{ t('commitments.google.stale') }}
+          <template #actions>
+            <RouterLink to="/settings/calendar" class="btn btn--sm">{{ t('commitments.google.reconnect') }}</RouterLink>
+          </template>
+        </UiBanner>
+        <p v-if="showGoogleNote" class="commitments-google-note" data-google-note>
+          {{ t('commitments.google.note') }}
+          <RouterLink to="/settings/calendar">{{ t('commitments.google.link') }}</RouterLink>
+        </p>
+
         <div v-if="commitmentsQuery.isLoading.value">
           <p class="visually-hidden" role="status">{{ t('commitments.loading') }}</p>
           <UiSkeleton variant="card" :count="2" :lines="2" />
@@ -344,11 +380,21 @@ function onFromChange(event: Event): void {
           aria-live="polite"
         />
         <ul v-else class="commitment-list">
-          <UiCard v-for="commitment in commitments" :key="commitment.id" as="li" class="commitment-item">
+          <UiCard
+            v-for="commitment in commitments"
+            :key="commitment.id"
+            as="li"
+            class="commitment-item"
+            :class="{ 'commitment-item--imported': isImported(commitment) }"
+            :data-source="commitment.source"
+          >
             <div class="commitment-main">
               <div class="commitment-title-row">
                 <span class="commitment-swatch" aria-hidden="true"></span>
                 <strong class="commitment-title">{{ commitment.title }}</strong>
+                <UiBadge v-if="isImported(commitment)" tone="outline" data-commitment-source>
+                  {{ t('commitments.google.source') }}
+                </UiBadge>
                 <UiBadge v-if="commitment.rrule" tone="info">
                   <UiIcon name="reschedule" :size="12" />{{ t('commitments.repeats') }}
                 </UiBadge>
@@ -367,7 +413,10 @@ function onFromChange(event: Event): void {
                 {{ formatOccurrence(occurrence.startAt, occurrence.endAt, commitment.timeZone) }}
               </li>
             </ul>
-            <div class="card-footer card-footer--end">
+            <p v-if="isImported(commitment)" class="card-footer card-footer--end commitment-readonly">
+              {{ t('commitments.google.readOnly') }}
+            </p>
+            <div v-else class="card-footer card-footer--end">
               <UiButton
                 size="sm"
                 variant="ghost"

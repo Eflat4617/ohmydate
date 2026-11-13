@@ -13,6 +13,7 @@ import {
 import LlmConsentDialog from '../../src/components/LlmConsentDialog.vue';
 import NotificationsPanel from '../../src/components/NotificationsPanel.vue';
 import WizardNotesPanel from '../../src/components/notes/WizardNotesPanel.vue';
+import { setTopLevelNavigator } from '../../src/composables/useGoogleCalendar';
 import { setLayoutClock } from '../../src/layout/clock';
 import {
   SEED_COMMITMENT_ID,
@@ -22,16 +23,19 @@ import {
   mockDb,
   seedTodayRisk,
 } from '../../src/mocks/db';
+import { seedGoogle } from '../../src/mocks/google';
 import { NOTE_MEETING_ID } from '../../src/mocks/notes-seed';
 import { REPLAN_PENDING_ID, seedReplanScenario } from '../../src/mocks/replan';
 import { FEEDBACK_IDS } from '../../src/mocks/replan-seed';
 import { server } from '../../src/mocks/server';
+import { currentOwnerId } from '../../src/session/ownerEpoch';
 import { useAuthStore } from '../../src/stores/auth';
 import { useLlmConsentStore } from '../../src/stores/llmConsent';
 import { useSessionStore } from '../../src/stores/session';
 import { buttonInElement, dialogByTitle, setValue } from '../m6-03-notes-utils';
 import { IN_REVIEW_WINDOW, startedSession, useTestClock } from '../m6-layout-utils';
 import {
+  OWNER_B,
   sweepOwnerSwitch,
   until,
   type HeldResponses,
@@ -67,6 +71,9 @@ const ConsentHost = defineComponent({
     return () => h(LlmConsentDialog, { open: consent.open, onClose: () => consent.closed() });
   },
 });
+
+/** Where the connect case's page would have gone, and who was signed in then (the top-level navigation seam). */
+const googleNavigations: { readonly url: string; readonly owner: string | null }[] = [];
 
 export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
@@ -727,7 +734,78 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       await wrapper.get('[data-layout-auto]').setValue(false);
     },
   },
+  // CAL-04 캘린더 연동: save the settings, sync now, connect (a top-level
+  // navigation to Google) and disconnect.
+  {
+    name: 'calendar settings: save what is sent to the phone',
+    covers: ['src/views/CalendarSettingsView.vue'],
+    path: '/settings/calendar',
+    seed: () => seedGoogle(mockDb, 'connected'),
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('[data-google-setting="dailySummary"]').exists()).toBe(true));
+      await wrapper.get('[data-google-setting="dailySummary"]').setValue(false);
+    },
+    hold: { method: 'PUT', path: '/integrations/google/settings' },
+    act: async (wrapper) => {
+      await wrapper.get('form.google-settings-form').trigger('submit');
+    },
+  },
+  {
+    name: 'calendar settings: sync now',
+    covers: ['src/views/CalendarSettingsView.vue'],
+    path: '/settings/calendar',
+    seed: () => seedGoogle(mockDb, 'connected'),
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('[data-google-sync-now]').exists()).toBe(true));
+    },
+    hold: { method: 'POST', path: /\/integrations\/google:sync$/ },
+    act: async (wrapper) => {
+      await wrapper.get('[data-google-sync-now]').trigger('click');
+    },
+  },
+  {
+    name: 'calendar settings: connect (the page would leave for Google)',
+    covers: ['src/views/CalendarSettingsView.vue'],
+    path: '/settings/calendar',
+    seed: () => {
+      seedGoogle(mockDb, 'disconnected');
+      googleNavigations.length = 0;
+      setTopLevelNavigator((url) => {
+        googleNavigations.push({ url, owner: currentOwnerId() });
+      });
+    },
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('[data-google-connect]').exists()).toBe(true));
+    },
+    hold: { method: 'POST', path: /\/integrations\/google:connect$/ },
+    act: async (wrapper) => {
+      await wrapper.get('[data-google-connect]').trigger('click');
+    },
+    afterwards: async (stage) => {
+      // A consent started by A never sends B's page to Google: any navigation
+      // happened while A was still signed in.
+      if (stage.switched) expect(googleNavigations.filter((navigation) => navigation.owner === OWNER_B)).toEqual([]);
+      else await until(() => expect(googleNavigations).toHaveLength(1));
+      expect(googleNavigations.length).toBeLessThanOrEqual(1);
+    },
+  },
+  {
+    name: 'calendar settings: disconnect',
+    covers: ['src/views/CalendarSettingsView.vue'],
+    path: '/settings/calendar',
+    seed: () => seedGoogle(mockDb, 'connected'),
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('[data-google-disconnect]').exists()).toBe(true));
+      await wrapper.get('[data-google-disconnect]').trigger('click');
+      await until(() => expect(() => dialogByTitle('구글 연결을 끊을까요?')).not.toThrow());
+    },
+    hold: { method: 'DELETE', path: '/integrations/google' },
+    act: async () => {
+      buttonInElement(dialogByTitle('구글 연결을 끊을까요?'), '연결 끊기').click();
+    },
+  },
 ];
+
 
 /** A planning session that already has a step draft (every question answered "모름"). */
 async function draftSession(): Promise<IntakeSession> {

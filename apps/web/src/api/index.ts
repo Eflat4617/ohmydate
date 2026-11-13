@@ -98,6 +98,16 @@ export {
   type NoteAiUsagePage,
   type NoteAiUsageStatus,
   type DecompositionEvidence,
+  type GoogleIntegration,
+  type GoogleIntegrationStatus,
+  type GoogleIntegrationSettings,
+  type GoogleIntegrationSettingsPut,
+  type GoogleCalendarEntry,
+  type GoogleConnectResponse,
+  type GoogleSyncResult,
+  type GoogleSyncErrorCode,
+  type CalendarDayEvent,
+  type CommitmentSource,
 } from './client';
 export { ApiError, apiErrorFromPayload, apiErrorFromResponse, parseProblem, type ApiErrorCode, type Problem, type ProblemCode } from './errors';
 export { findInboxProject } from './inbox';

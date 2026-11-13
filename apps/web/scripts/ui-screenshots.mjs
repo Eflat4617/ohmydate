@@ -9,6 +9,7 @@
 //   node scripts/ui-screenshots.mjs --label m6-02 --flows adaptive          # M6-02 layout modes
 //   node scripts/ui-screenshots.mjs --label m6-03 --flows notes             # M6-03 notes screens
 //   node scripts/ui-screenshots.mjs --label cal-01 --flows month,daily      # CAL-01 한달 + Today's 약속/마감
+//   node scripts/ui-screenshots.mjs --label cal-04 --flows calendar --tablet # CAL-04 캘린더 연동, every status (+1024px)
 //
 // Output: docs/ui-polish/<label>/<screen>-<viewport>[-dark][-full].png and
 //         docs/ui-polish/<label>/sweep-report.json
@@ -36,7 +37,7 @@ function arg(name, fallback) {
 
 const label = arg('label', 'after');
 const only = arg('only', '');
-// Comma-separated subset of flows (main, daily, ai, replan, patterns, adaptive, notes, month); default: all.
+// Comma-separated subset of flows (main, daily, ai, replan, patterns, adaptive, notes, month, calendar); default: all.
 const flowFilter = arg('flows', '')
   .split(',')
   .map((name) => name.trim())
@@ -51,9 +52,11 @@ const VIEWPORTS = [
   { name: 'desktop', width: 1440, height: 900, capture: true },
   { name: 'narrow', width: 360, height: 780, capture: false },
 ];
+// --tablet adds the width where the nav rail first appears (1024px).
+if (process.argv.includes('--tablet')) VIEWPORTS.push({ name: 'tablet', width: 1024, height: 768, capture: true });
 const SCHEMES = ['light', 'dark'];
-const DARK_CAPTURES = /^(14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-wizard-evidence|52-month)/;
-const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|14-today|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns|34-layout-overview|38-layout-deadline-risk|39-layout-review|43-notes-editor|50-wizard-evidence|52-month|53-month-day)/;
+const DARK_CAPTURES = /^(14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-wizard-evidence|52-month|56-calendar|57-calendar|58-calendar|59-calendar|60-calendar|61-calendar|64-commitments-google|66-month-labels)/;
+const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|14-today|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns|34-layout-overview|38-layout-deadline-risk|39-layout-review|43-notes-editor|50-wizard-evidence|52-month|53-month-day|56-calendar-not-configured|58-calendar-connected|60-calendar-needs-reauth|64-commitments-google)/;
 // Synthetic ids from src/mocks/notes-seed.ts (M6-03).
 const NOTE_THESIS_ID = '01900000-0000-7000-8000-0000000003a1';
 const NOTE_MEETING_ID = '01900000-0000-7000-8000-0000000003a2';
@@ -667,6 +670,85 @@ async function flowMonth(browser, run) {
   await context.close();
 }
 
+// CAL-04: 캘린더 연동 in every status of the mock state machine
+// (src/mocks/google.ts, picked through __OHMYDATE_MOCK__.google), the
+// messages after coming back from Google, the disconnect dialog, and the
+// imported items on 약속 and 한달.
+async function calendarReady(page, status) {
+  await page.locator(`[data-google-status="${status}"]`).waitFor();
+}
+
+async function flowCalendar(browser, run) {
+  for (const [name, google, status] of [
+    ['56-calendar-not-configured', 'not_configured', 'not_configured'],
+    ['57-calendar-disconnected', 'disconnected', 'disconnected'],
+    ['60-calendar-needs-reauth', 'needs_reauth', 'needs_reauth'],
+    ['61-calendar-partial', 'partial', 'connected'],
+  ]) {
+    const { context, page } = await newPage(browser, run, { google });
+    await go(page, '/settings/calendar');
+    await calendarReady(page, status);
+    await dismissToasts(page);
+    await checkpoint(page, name, run);
+    await context.close();
+  }
+  {
+    const { context, page } = await newPage(browser, run);
+    await go(page, '/settings/calendar');
+    await calendarReady(page, 'connected');
+    await dismissToasts(page);
+    await checkpoint(page, '58-calendar-connected', run);
+    await page.locator('[data-google-disconnect]').click();
+    await page.getByRole('alertdialog', { name: '구글 연결을 끊을까요?' }).waitFor();
+    await checkpoint(page, '59-calendar-disconnect-dialog', run);
+    await context.close();
+  }
+  {
+    const { context, page } = await newPage(browser, run);
+    await go(page, '/settings/calendar?google=connected');
+    await page.locator('[data-google-returned="connected"]').waitFor();
+    await calendarReady(page, 'connected');
+    await dismissToasts(page);
+    await checkpoint(page, '62-calendar-returned', run);
+    await context.close();
+  }
+  {
+    const { context, page } = await newPage(browser, run, { google: 'disconnected' });
+    await go(page, '/settings/calendar?google=denied');
+    await page.locator('[data-google-returned="denied"]').waitFor();
+    await dismissToasts(page);
+    await checkpoint(page, '63-calendar-denied', run);
+    await context.close();
+  }
+  {
+    const { context, page } = await newPage(browser, run);
+    await go(page, '/commitments');
+    await page.locator('.commitment-item[data-source="google"]').first().waitFor();
+    await dismissToasts(page);
+    await checkpoint(page, '64-commitments-google', run);
+    await context.close();
+  }
+  {
+    const { context, page } = await newPage(browser, run, { google: 'needs_reauth' });
+    await go(page, '/commitments');
+    await page.locator('[data-google-stale]').waitFor();
+    await dismissToasts(page);
+    await checkpoint(page, '65-commitments-google-stale', run);
+    await context.close();
+  }
+  {
+    const { context, page } = await newPage(browser, run);
+    await go(page, '/month');
+    await monthReady(page);
+    await page.locator('[data-month-day-labels]').first().waitFor({ state: 'attached' });
+    await page.locator('[role="gridcell"][data-date="2026-11-28"]').click();
+    await page.locator('[data-month-detail-labels]').waitFor();
+    await dismissToasts(page);
+    await checkpoint(page, '66-month-labels', run);
+    await context.close();
+  }
+}
+
 // The dev server can reload a page while it optimises deps; retry a flow once
 // (findings from the failed attempt are discarded).
 async function withRetry(flow, browser, run) {
@@ -707,6 +789,7 @@ async function main() {
           adaptive: flowAdaptive,
           notes: flowNotes,
           month: flowMonth,
+          calendar: flowCalendar,
         };
         for (const [name, flow] of Object.entries(flows)) {
           if (flowFilter.length > 0 && !flowFilter.includes(name)) continue;

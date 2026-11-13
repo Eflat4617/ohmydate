@@ -76,7 +76,7 @@ export async function readPlannerRange(binding: OwnerBinding, range: InstantRang
 }
 
 /** Retry what may pass on its own (network, 5xx); never a stale owner or a 4xx answer. */
-function retryTransient(count: number, cause: unknown): boolean {
+export function retryTransient(count: number, cause: unknown): boolean {
   if (cause instanceof OwnerChangedError) return false;
   if (cause instanceof ApiError && cause.status >= 400 && cause.status < 500) return false;
   return count < 2;

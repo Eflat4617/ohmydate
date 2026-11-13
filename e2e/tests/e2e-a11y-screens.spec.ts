@@ -28,6 +28,9 @@ import { readState } from '../helpers/state';
 // detail, reject dialog and suppressed state are scanned by E2E-5R).
 // CAL-01 adds the month page (한달) at both widths: today is picked at first
 // and its list holds the 약속 seeded below.
+// CAL-04 adds 캘린더 연동 (/settings/calendar) at both widths, in whatever
+// status the test stack's server reports (without a Google client file:
+// the one-time setup). The web tests and the mock sweep cover every status.
 
 const state = readState();
 const account = { email: state.plansEmail, password: state.plansPassword };
@@ -236,6 +239,19 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await page.goto(`${state.webUrl}/settings/ai`);
         await expect(page.getByRole('heading', { name: 'AI 설정', level: 1 })).toBeVisible();
         await expectAccessible(page, `AI settings ${size}`);
+      });
+
+      await test.step(`calendar settings (${size})`, async () => {
+        await page.goto(`${state.webUrl}/settings/calendar`);
+        await expect(page.getByRole('heading', { name: '캘린더 연동', level: 1 })).toBeVisible();
+        const status = page.locator('[data-google-status]');
+        await expect(status).toBeVisible();
+        await expect(status).toHaveAttribute('data-google-status', /^(not_configured|disconnected|connected|needs_reauth)$/);
+        // At most one filled button on the page (07 §4, DESIGN.md); the shell's 새 작업 is the rail's own.
+        await expect(page.locator('main button.btn--primary')).toHaveCount(
+          (await status.getAttribute('data-google-status')) === 'not_configured' ? 0 : 1,
+        );
+        await expectAccessible(page, `calendar settings ${size}`);
       });
 
       await test.step(`notifications panel (${size})`, async () => {

@@ -1,0 +1,311 @@
+/* ── 캘린더 연동: Google Calendar settings (CAL-04) ──────────────────────
+   A settings page of the planner, not an integrations dashboard: a line
+   that says the state in a word, then sections whose headings sit on the
+   2px rule. The setup steps are a numbered worksheet with the commands set
+   in the code face; calendars are ruled rows of pen boxes. */
+.google-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.google-status-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.google-status-label {
+  color: var(--color-muted);
+}
+
+.google-section > p,
+.google-section > ul,
+.google-section > ol {
+  margin: 0;
+}
+
+/* What connecting does: three short ruled lines. */
+.google-points {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  color: var(--color-ink-2);
+  list-style: none;
+}
+
+.google-points > li {
+  padding: var(--space-2) 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.google-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+}
+
+/* The setup worksheet: a numbered list whose numbers sit in the margin. */
+.google-steps {
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 0 var(--space-6);
+  border-top: var(--rule-hair) solid var(--color-rule);
+  counter-reset: google-step;
+  list-style: none;
+}
+
+.google-steps > li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+  padding: var(--space-3) 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+  counter-increment: google-step;
+}
+
+.google-steps > li::before {
+  content: counter(google-step);
+  position: absolute;
+  top: var(--space-3);
+  left: calc(-1 * var(--space-6));
+  color: var(--color-ink);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.google-steps p {
+  margin: 0;
+  color: var(--color-ink-2);
+}
+
+/* Paths, commands and the redirect address: code, copied as written. */
+.google-code,
+.google-code-inline {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.google-code {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: var(--rule-bar) solid var(--color-ink);
+  background: var(--color-paper-2);
+  color: var(--color-ink);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.google-code-inline {
+  color: var(--color-ink);
+  word-break: break-all;
+}
+
+.google-check-note:empty,
+.google-sync-result:empty {
+  display: none;
+}
+
+.google-check-note,
+.google-sync-result {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+}
+
+/* Read / sent / left alone: three ruled rows. */
+.google-plan {
+  gap: 0 var(--space-4);
+  border-top: var(--rule-hair) solid var(--color-rule);
+  font-size: var(--text-md);
+}
+
+.google-plan dt,
+.google-plan dd {
+  padding: var(--space-2-5) 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.google-plan dt {
+  color: var(--color-ink);
+  font-weight: var(--weight-semibold);
+}
+
+.google-plan dd {
+  color: var(--color-ink-2);
+}
+
+@media (max-width: 479px) {
+  .google-plan {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .google-plan dt {
+    padding-bottom: 0;
+    border-bottom: 0;
+  }
+
+  .google-plan dd {
+    padding-top: var(--space-0-5);
+  }
+}
+
+.google-reauth-line {
+  margin: 0;
+  font-weight: var(--weight-semibold);
+}
+
+.google-reauth-hint {
+  margin: 0;
+}
+
+.google-last-sync {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  margin: 0;
+}
+
+.google-last-result {
+  color: var(--color-ink-2);
+  font-weight: var(--weight-regular);
+}
+
+/* A problem the last sync recorded is said in plain ink: the next sync
+   tries again by itself, so it is news, not danger (no red pen). */
+.google-last-result--problem {
+  color: var(--color-ink);
+  font-weight: var(--weight-semibold);
+}
+
+.google-empty {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+/* Calendars to import: ruled rows of pen boxes. */
+.google-calendars {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-top: var(--rule-hair) solid var(--color-rule);
+  list-style: none;
+}
+
+.google-calendar {
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.google-calendar-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2-5);
+  min-height: var(--control-height);
+  padding: var(--space-1-5) 0;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.google-calendar-name {
+  min-width: 0;
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+
+.google-calendar-tag {
+  color: var(--color-ink-2);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.google-calendar-tag--muted {
+  color: var(--color-muted);
+  font-weight: var(--weight-regular);
+}
+
+.google-switches {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.google-switch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.google-switch > p {
+  margin: 0;
+  padding-left: calc(var(--space-8) + var(--space-3) + var(--space-0-5));
+  font-size: var(--text-xs);
+}
+
+.google-disconnect-body,
+.google-disconnect-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.google-disconnect-body p,
+.google-disconnect-choice p {
+  margin: 0;
+}
+
+.google-disconnect-choice label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  min-height: var(--control-height-sm);
+  color: var(--color-ink);
+  font-weight: var(--weight-semibold);
+  cursor: pointer;
+}
+
+.google-disconnect-choice > p {
+  padding-left: calc(var(--space-6) + var(--space-1));
+  font-size: var(--text-xs);
+}
+
+@media (pointer: coarse) {
+  .google-calendar-label,
+  .google-disconnect-choice label {
+    min-height: var(--hit-target);
+  }
+}
+
+/* ── 약속: where imported rows come from (CAL-04) ─────────────────────── */
+.commitments-google-note {
+  margin: 0;
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+}
+
+.commitments-google-note a {
+  margin-left: var(--space-1);
+}
+
+.commitment-readonly {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+@media (max-width: 479px) {
+  .commitment-readonly {
+    white-space: normal;
+  }
+}
