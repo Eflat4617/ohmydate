@@ -38,7 +38,10 @@ impl TaskPriority {
 
     #[must_use]
     pub fn new(value: i64) -> Option<Self> {
-        u8::try_from(value).ok().filter(|value| (1..=4).contains(value)).map(Self)
+        u8::try_from(value)
+            .ok()
+            .filter(|value| (1..=4).contains(value))
+            .map(Self)
     }
 
     #[must_use]

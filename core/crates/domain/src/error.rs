@@ -11,7 +11,10 @@ pub struct ValidationIssue {
 
 impl ValidationIssue {
     pub fn new(path: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { path: path.into(), message: message.into() }
+        Self {
+            path: path.into(),
+            message: message.into(),
+        }
     }
 }
 
@@ -24,9 +27,15 @@ impl ValidationIssue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainError {
     /// The entity does not exist (or is soft-deleted). 404 `not_found`.
-    NotFound { resource: &'static str, id: Option<Id> },
+    NotFound {
+        resource: &'static str,
+        id: Option<Id>,
+    },
     /// `If-Match` named a version that is not current. 412 `version_conflict`.
-    VersionConflict { expected: Version, actual: Option<Version> },
+    VersionConflict {
+        expected: Version,
+        actual: Option<Version>,
+    },
     /// The request is well-formed but breaks a domain rule. 422
     /// `validation_failed`.
     ValidationFailed(Vec<ValidationIssue>),
@@ -43,7 +52,10 @@ pub enum DomainError {
 impl DomainError {
     #[must_use]
     pub fn not_found(resource: &'static str, id: &Id) -> Self {
-        DomainError::NotFound { resource, id: Some(id.clone()) }
+        DomainError::NotFound {
+            resource,
+            id: Some(id.clone()),
+        }
     }
 
     #[must_use]
@@ -67,14 +79,25 @@ impl DomainError {
 impl fmt::Display for DomainError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DomainError::NotFound { resource, id: Some(id) } => {
+            DomainError::NotFound {
+                resource,
+                id: Some(id),
+            } => {
                 write!(formatter, "{resource} not found: {id}")
             }
-            DomainError::NotFound { resource, id: None } => write!(formatter, "{resource} not found"),
-            DomainError::VersionConflict { expected, actual: Some(actual) } => {
+            DomainError::NotFound { resource, id: None } => {
+                write!(formatter, "{resource} not found")
+            }
+            DomainError::VersionConflict {
+                expected,
+                actual: Some(actual),
+            } => {
                 write!(formatter, "expected version {expected} but found {actual}")
             }
-            DomainError::VersionConflict { expected, actual: None } => {
+            DomainError::VersionConflict {
+                expected,
+                actual: None,
+            } => {
                 write!(formatter, "expected version {expected}")
             }
             DomainError::ValidationFailed(issues) => {
@@ -130,9 +153,18 @@ mod tests {
 
     #[test]
     fn each_error_has_its_own_problem_code() {
-        assert_eq!(DomainError::not_found("task", &id('5')).code(), ProblemCode::NotFound);
-        assert_eq!(DomainError::IdempotencyMismatch.code(), ProblemCode::IdempotencyMismatch);
-        assert_eq!(DomainError::DependencyCycle(vec![]).code(), ProblemCode::DependencyCycle);
+        assert_eq!(
+            DomainError::not_found("task", &id('5')).code(),
+            ProblemCode::NotFound
+        );
+        assert_eq!(
+            DomainError::IdempotencyMismatch.code(),
+            ProblemCode::IdempotencyMismatch
+        );
+        assert_eq!(
+            DomainError::DependencyCycle(vec![]).code(),
+            ProblemCode::DependencyCycle
+        );
         assert_ne!(
             DomainError::invalid("title", "x").code(),
             DomainError::IllegalTransition("x".into()).code()

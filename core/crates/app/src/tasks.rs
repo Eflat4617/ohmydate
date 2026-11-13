@@ -24,7 +24,11 @@ pub fn get(unit: &Unit<'_>, id: &Id) -> Result<Option<Task>, AppError> {
 }
 
 /// Live tasks, oldest first.
-pub fn list(unit: &Unit<'_>, filter: &TaskFilter, query: &PageQuery) -> Result<Page<Task>, AppError> {
+pub fn list(
+    unit: &Unit<'_>,
+    filter: &TaskFilter,
+    query: &PageQuery,
+) -> Result<Page<Task>, AppError> {
     let (after, limit) = cursor::resolve(query)?;
     let rows = tasks::list(unit.connection, filter, after.as_ref(), limit + 1)?;
     Ok(cursor::page(rows, limit, |task| PageAfter {
@@ -41,7 +45,11 @@ fn require_version(task: &Task, expected: Version) -> Result<(), AppError> {
     if task.version == expected {
         Ok(())
     } else {
-        Err(DomainError::VersionConflict { expected, actual: Some(task.version) }.into())
+        Err(DomainError::VersionConflict {
+            expected,
+            actual: Some(task.version),
+        }
+        .into())
     }
 }
 
@@ -120,13 +128,15 @@ pub fn update(
     }
     // Order as in the reference: unknown id is 404, then a stale version is
     // 412, and only then a deleted task is 404.
-    let current = tasks::get(unit.connection, id)?
-        .ok_or_else(|| DomainError::not_found("task", id))?;
+    let current =
+        tasks::get(unit.connection, id)?.ok_or_else(|| DomainError::not_found("task", id))?;
     require_version(&current, expected)?;
     if current.deleted_at.is_some() {
         return Err(DomainError::not_found("task", id).into());
     }
-    let depends_on = normalized.depends_on.unwrap_or_else(|| current.depends_on.clone());
+    let depends_on = normalized
+        .depends_on
+        .unwrap_or_else(|| current.depends_on.clone());
     check_dependencies(unit, id, &depends_on)?;
 
     let task = Task {
@@ -174,8 +184,12 @@ pub fn delete(unit: &Unit<'_>, id: &Id, expected: Version) -> Result<Version, Ap
     let now = unit.clock.now();
     for dependent_id in tasks::dependents_of(unit.connection, id)? {
         let dependent = require_live(unit, &dependent_id)?;
-        let depends_on =
-            dependent.depends_on.iter().filter(|dependency| *dependency != id).cloned().collect();
+        let depends_on = dependent
+            .depends_on
+            .iter()
+            .filter(|dependency| *dependency != id)
+            .cloned()
+            .collect();
         tasks::update(
             unit.connection,
             &Task {
@@ -208,7 +222,15 @@ pub fn add_dependency(
     if !depends_on.contains(depends_on_task_id) {
         depends_on.push(depends_on_task_id.clone());
     }
-    update(unit, id, &TaskPatch { depends_on: Some(depends_on), ..TaskPatch::default() }, expected)
+    update(
+        unit,
+        id,
+        &TaskPatch {
+            depends_on: Some(depends_on),
+            ..TaskPatch::default()
+        },
+        expected,
+    )
 }
 
 #[cfg(test)]
@@ -218,15 +240,25 @@ mod tests {
     use super::*;
     use crate::testing::{TestApp, id};
 
-    fn run<T>(test: &TestApp, work: impl FnOnce(&Unit<'_>) -> Result<T, AppError>) -> Result<T, AppError> {
+    fn run<T>(
+        test: &TestApp,
+        work: impl FnOnce(&Unit<'_>) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
         test.clock.advance_ms(1);
         test.app.store().write(|transaction| {
-            work(&Unit { connection: transaction, clock: test.clock.as_ref(), ids: test.ids() })
+            work(&Unit {
+                connection: transaction,
+                clock: test.clock.as_ref(),
+                ids: test.ids(),
+            })
         })
     }
 
     fn titled(title: &str) -> TaskCreate {
-        TaskCreate { title: title.into(), ..TaskCreate::default() }
+        TaskCreate {
+            title: title.into(),
+            ..TaskCreate::default()
+        }
     }
 
     fn new_task(test: &TestApp, title: &str) -> Task {
@@ -241,7 +273,10 @@ mod tests {
     }
 
     fn patch_title(title: &str) -> TaskPatch {
-        TaskPatch { title: Some(title.into()), ..TaskPatch::default() }
+        TaskPatch {
+            title: Some(title.into()),
+            ..TaskPatch::default()
+        }
     }
 
     fn v(value: u32) -> Version {
@@ -259,27 +294,50 @@ mod tests {
         assert_eq!(task.version, Version::INITIAL);
         assert!(!task.splittable);
         assert_eq!(task.created_at, task.updated_at);
-        assert_eq!(test.app.read(|unit| get(unit, &task.id)).unwrap(), Some(task));
+        assert_eq!(
+            test.app.read(|unit| get(unit, &task.id)).unwrap(),
+            Some(task)
+        );
     }
 
     #[test]
     fn create_rejects_unknown_projects_dependencies_and_bad_input() {
         let test = TestApp::new();
         let unknown_project = run(&test, |unit| {
-            create(unit, &TaskCreate { project_id: Some(id(1)), ..titled("x") })
+            create(
+                unit,
+                &TaskCreate {
+                    project_id: Some(id(1)),
+                    ..titled("x")
+                },
+            )
         });
         assert_eq!(code(&unknown_project.unwrap_err()), ProblemCode::NotFound);
 
         let unknown_dependency = run(&test, |unit| {
-            create(unit, &TaskCreate { depends_on: Some(vec![id(2)]), ..titled("x") })
+            create(
+                unit,
+                &TaskCreate {
+                    depends_on: Some(vec![id(2)]),
+                    ..titled("x")
+                },
+            )
         });
-        assert_eq!(code(&unknown_dependency.unwrap_err()), ProblemCode::NotFound);
+        assert_eq!(
+            code(&unknown_dependency.unwrap_err()),
+            ProblemCode::NotFound
+        );
 
         let blank = run(&test, |unit| create(unit, &titled("  ")));
         assert_eq!(code(&blank.unwrap_err()), ProblemCode::ValidationFailed);
 
-        let page = test.app.read(|unit| list(unit, &TaskFilter::default(), &PageQuery::default()));
-        assert!(page.unwrap().items.is_empty(), "failed creates must not leave rows");
+        let page = test
+            .app
+            .read(|unit| list(unit, &TaskFilter::default(), &PageQuery::default()));
+        assert!(
+            page.unwrap().items.is_empty(),
+            "failed creates must not leave rows"
+        );
     }
 
     #[test]
@@ -291,7 +349,10 @@ mod tests {
                 &TaskCreate {
                     description: Some("notes".into()),
                     due_at: Some("2026-11-20T23:59:00+09:00".into()),
-                    session: Some(SessionWindow { min_minutes: 30, max_minutes: 90 }),
+                    session: Some(SessionWindow {
+                        min_minutes: 30,
+                        max_minutes: 90,
+                    }),
                     ..titled("Draft")
                 },
             )
@@ -316,7 +377,10 @@ mod tests {
         assert_eq!(updated.title, "Final");
         assert_eq!(updated.description, None);
         assert_eq!(updated.due_at, None);
-        assert_eq!(updated.session, created.session, "an absent field keeps its value");
+        assert_eq!(
+            updated.session, created.session,
+            "an absent field keeps its value"
+        );
         assert_eq!(updated.status, TaskStatus::InProgress);
         assert_eq!(updated.version, v(2));
         assert_eq!(updated.created_at, created.created_at);
@@ -327,8 +391,13 @@ mod tests {
     fn a_stale_version_is_a_conflict_and_changes_nothing() {
         let test = TestApp::new();
         let task = new_task(&test, "Draft");
-        run(&test, |unit| update(unit, &task.id, &patch_title("Second"), v(1))).unwrap();
-        let stale = run(&test, |unit| update(unit, &task.id, &patch_title("Third"), v(1)));
+        run(&test, |unit| {
+            update(unit, &task.id, &patch_title("Second"), v(1))
+        })
+        .unwrap();
+        let stale = run(&test, |unit| {
+            update(unit, &task.id, &patch_title("Third"), v(1))
+        });
         match stale.unwrap_err() {
             AppError::Domain(DomainError::VersionConflict { expected, actual }) => {
                 assert_eq!((expected, actual), (v(1), Some(v(2))));
@@ -347,10 +416,20 @@ mod tests {
 
         let task = new_task(&test, "Draft");
         run(&test, |unit| delete(unit, &task.id, v(1))).unwrap();
-        let stale_on_deleted = run(&test, |unit| update(unit, &task.id, &patch_title("x"), v(1)));
-        assert_eq!(code(&stale_on_deleted.unwrap_err()), ProblemCode::VersionConflict);
-        let current_on_deleted = run(&test, |unit| update(unit, &task.id, &patch_title("x"), v(2)));
-        assert_eq!(code(&current_on_deleted.unwrap_err()), ProblemCode::NotFound);
+        let stale_on_deleted = run(&test, |unit| {
+            update(unit, &task.id, &patch_title("x"), v(1))
+        });
+        assert_eq!(
+            code(&stale_on_deleted.unwrap_err()),
+            ProblemCode::VersionConflict
+        );
+        let current_on_deleted = run(&test, |unit| {
+            update(unit, &task.id, &patch_title("x"), v(2))
+        });
+        assert_eq!(
+            code(&current_on_deleted.unwrap_err()),
+            ProblemCode::NotFound
+        );
     }
 
     #[test]
@@ -363,7 +442,10 @@ mod tests {
         let done = run(&test, |unit| complete(unit, &task.id, v(1))).unwrap();
         assert_eq!((done.status, done.version), (TaskStatus::Done, v(2)));
         let again = run(&test, |unit| complete(unit, &task.id, v(2))).unwrap();
-        assert_eq!(again, done, "completing a done task must not bump the version");
+        assert_eq!(
+            again, done,
+            "completing a done task must not bump the version"
+        );
 
         let missing = run(&test, |unit| complete(unit, &id(7), v(1)));
         assert_eq!(code(&missing.unwrap_err()), ProblemCode::NotFound);
@@ -376,9 +458,14 @@ mod tests {
         let stale = run(&test, |unit| delete(unit, &task.id, v(3)));
         assert_eq!(code(&stale.unwrap_err()), ProblemCode::VersionConflict);
 
-        assert_eq!(run(&test, |unit| delete(unit, &task.id, v(1))).unwrap(), v(2));
+        assert_eq!(
+            run(&test, |unit| delete(unit, &task.id, v(1))).unwrap(),
+            v(2)
+        );
         assert_eq!(test.app.read(|unit| get(unit, &task.id)).unwrap(), None);
-        let page = test.app.read(|unit| list(unit, &TaskFilter::default(), &PageQuery::default()));
+        let page = test
+            .app
+            .read(|unit| list(unit, &TaskFilter::default(), &PageQuery::default()));
         assert!(page.unwrap().items.is_empty());
         let twice = run(&test, |unit| delete(unit, &task.id, v(2)));
         assert_eq!(code(&twice.unwrap_err()), ProblemCode::NotFound);
@@ -401,11 +488,18 @@ mod tests {
         .unwrap();
 
         run(&test, |unit| delete(unit, &first.id, v(1))).unwrap();
-        let released = test.app.read(|unit| get(unit, &waiting.id)).unwrap().unwrap();
+        let released = test
+            .app
+            .read(|unit| get(unit, &waiting.id))
+            .unwrap()
+            .unwrap();
         assert_eq!(released.depends_on, vec![other.id.clone()]);
         assert_eq!(released.version, v(2));
         // The released task stays editable: its remaining edges are all live.
-        run(&test, |unit| update(unit, &waiting.id, &patch_title("still editable"), v(2))).unwrap();
+        run(&test, |unit| {
+            update(unit, &waiting.id, &patch_title("still editable"), v(2))
+        })
+        .unwrap();
         let untouched = test.app.read(|unit| get(unit, &other.id)).unwrap().unwrap();
         assert_eq!(untouched.version, v(1));
     }
@@ -413,9 +507,16 @@ mod tests {
     #[test]
     fn dependencies_append_once_and_cycles_are_refused() {
         let test = TestApp::new();
-        let (a, b, c) = (new_task(&test, "a"), new_task(&test, "b"), new_task(&test, "c"));
+        let (a, b, c) = (
+            new_task(&test, "a"),
+            new_task(&test, "b"),
+            new_task(&test, "c"),
+        );
         let b2 = run(&test, |unit| add_dependency(unit, &b.id, &a.id, v(1))).unwrap();
-        assert_eq!((b2.depends_on.clone(), b2.version), (vec![a.id.clone()], v(2)));
+        assert_eq!(
+            (b2.depends_on.clone(), b2.version),
+            (vec![a.id.clone()], v(2))
+        );
         let c2 = run(&test, |unit| add_dependency(unit, &c.id, &b.id, v(1))).unwrap();
         assert_eq!(c2.depends_on, vec![b.id.clone()]);
 
@@ -456,22 +557,53 @@ mod tests {
         }
         let titles = |filter: &TaskFilter, query: &PageQuery| -> (Vec<String>, Option<String>) {
             let page = test.app.read(|unit| list(unit, filter, query)).unwrap();
-            (page.items.into_iter().map(|task| task.title).collect(), page.next_cursor)
+            (
+                page.items.into_iter().map(|task| task.title).collect(),
+                page.next_cursor,
+            )
         };
         let all = TaskFilter::default();
-        let (first, cursor) = titles(&all, &PageQuery { cursor: None, limit: Some(3) });
+        let (first, cursor) = titles(
+            &all,
+            &PageQuery {
+                cursor: None,
+                limit: Some(3),
+            },
+        );
         assert_eq!(first, ["t0", "t1", "t2"]);
-        let (rest, end) = titles(&all, &PageQuery { cursor, limit: Some(3) });
+        let (rest, end) = titles(
+            &all,
+            &PageQuery {
+                cursor,
+                limit: Some(3),
+            },
+        );
         assert_eq!(rest, ["t3", "t4"]);
         assert_eq!(end, None);
 
-        let in_project = TaskFilter { project_id: Some(project.id.clone()), status: None };
-        assert_eq!(titles(&in_project, &PageQuery::default()).0, ["t0", "t2", "t4"]);
-        let done = TaskFilter { project_id: None, status: Some(TaskStatus::Done) };
+        let in_project = TaskFilter {
+            project_id: Some(project.id.clone()),
+            status: None,
+        };
+        assert_eq!(
+            titles(&in_project, &PageQuery::default()).0,
+            ["t0", "t2", "t4"]
+        );
+        let done = TaskFilter {
+            project_id: None,
+            status: Some(TaskStatus::Done),
+        };
         assert_eq!(titles(&done, &PageQuery::default()).0, ["t4"]);
 
         let bad = test.app.read(|unit| {
-            list(unit, &all, &PageQuery { cursor: Some("%%".into()), limit: None })
+            list(
+                unit,
+                &all,
+                &PageQuery {
+                    cursor: Some("%%".into()),
+                    limit: None,
+                },
+            )
         });
         assert_eq!(code(&bad.unwrap_err()), ProblemCode::ValidationFailed);
     }

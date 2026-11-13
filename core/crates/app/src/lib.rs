@@ -17,7 +17,7 @@ pub mod tasks;
 #[cfg(test)]
 mod testing;
 
-pub use app::{App, IdempotentRequest, Idempotent, OwnerDefaults, Unit, IDEMPOTENCY_TTL_MS};
-pub use cursor::{Page, PageQuery, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT};
+pub use app::{App, IDEMPOTENCY_TTL_MS, Idempotent, IdempotentRequest, OwnerDefaults, Unit};
+pub use cursor::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, Page, PageQuery};
 pub use error::AppError;
 pub use ohmydate_store::idempotency::StoredResponse;

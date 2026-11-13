@@ -99,17 +99,19 @@ pub(crate) fn resolve(query: &PageQuery) -> Result<(Option<PageAfter>, u32), Dom
 }
 
 /// Builds a page from `limit + 1` fetched rows.
-pub(crate) fn page<T>(
-    mut rows: Vec<T>,
-    limit: u32,
-    position: impl Fn(&T) -> PageAfter,
-) -> Page<T> {
+pub(crate) fn page<T>(mut rows: Vec<T>, limit: u32, position: impl Fn(&T) -> PageAfter) -> Page<T> {
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let has_more = rows.len() > limit;
     rows.truncate(limit);
-    let next_cursor =
-        if has_more { rows.last().map(|last| encode(&position(last))) } else { None };
-    Page { items: rows, next_cursor }
+    let next_cursor = if has_more {
+        rows.last().map(|last| encode(&position(last)))
+    } else {
+        None
+    };
+    Page {
+        items: rows,
+        next_cursor,
+    }
 }
 
 #[cfg(test)]
@@ -134,7 +136,9 @@ mod tests {
     #[test]
     fn every_input_length_round_trips_through_base64url() {
         for length in 0..=9_u8 {
-            let bytes: Vec<u8> = (0..length).map(|index| index.wrapping_mul(53).wrapping_add(200)).collect();
+            let bytes: Vec<u8> = (0..length)
+                .map(|index| index.wrapping_mul(53).wrapping_add(200))
+                .collect();
             assert_eq!(from_base64_url(&to_base64_url(&bytes)).unwrap(), bytes);
         }
     }
@@ -160,10 +164,24 @@ mod tests {
     #[test]
     fn limits_default_to_twenty_and_are_bounded() {
         assert_eq!(resolve(&PageQuery::default()).unwrap(), (None, 20));
-        assert_eq!(resolve(&PageQuery { cursor: None, limit: Some(100) }).unwrap(), (None, 100));
+        assert_eq!(
+            resolve(&PageQuery {
+                cursor: None,
+                limit: Some(100)
+            })
+            .unwrap(),
+            (None, 100)
+        );
         for limit in [0, 101] {
-            let error = resolve(&PageQuery { cursor: None, limit: Some(limit) }).unwrap_err();
-            assert_eq!(error, DomainError::invalid("limit", "expected an integer between 1 and 100"));
+            let error = resolve(&PageQuery {
+                cursor: None,
+                limit: Some(limit),
+            })
+            .unwrap_err();
+            assert_eq!(
+                error,
+                DomainError::invalid("limit", "expected an integer between 1 and 100")
+            );
         }
     }
 
@@ -171,7 +189,13 @@ mod tests {
     fn a_page_reports_a_cursor_only_when_more_rows_exist() {
         let rows = vec![1, 2, 3];
         let last = page(rows.clone(), 3, |_| position());
-        assert_eq!(last, Page { items: vec![1, 2, 3], next_cursor: None });
+        assert_eq!(
+            last,
+            Page {
+                items: vec![1, 2, 3],
+                next_cursor: None
+            }
+        );
         let first = page(rows, 2, |_| position());
         assert_eq!(first.items, vec![1, 2]);
         assert_eq!(first.next_cursor, Some(encode(&position())));

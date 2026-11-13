@@ -15,8 +15,11 @@ pub struct Migration {
 }
 
 /// Every migration, in order. Versions are consecutive from 1.
-pub const MIGRATIONS: &[Migration] =
-    &[Migration { version: 1, name: "core", sql: include_str!("../migrations/0001_core.sql") }];
+pub const MIGRATIONS: &[Migration] = &[Migration {
+    version: 1,
+    name: "core",
+    sql: include_str!("../migrations/0001_core.sql"),
+}];
 
 /// What happened at open.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -65,12 +68,18 @@ fn run_list(
         })?
         .unwrap_or(0);
     if current > supported {
-        return Err(StoreError::NewerSchema { found: current, supported });
+        return Err(StoreError::NewerSchema {
+            found: current,
+            supported,
+        });
     }
 
     // History must match what this build embeds: an edited or missing applied
     // migration means the file and the code disagree about the schema.
-    for migration in migrations.iter().filter(|migration| migration.version <= current) {
+    for migration in migrations
+        .iter()
+        .filter(|migration| migration.version <= current)
+    {
         let recorded: Option<String> = connection
             .query_row(
                 "SELECT checksum FROM schema_migration WHERE version = ?1",
@@ -79,12 +88,16 @@ fn run_list(
             )
             .optional()?;
         if recorded.as_deref() != Some(checksum(migration.sql).as_str()) {
-            return Err(StoreError::MigrationChanged { version: migration.version });
+            return Err(StoreError::MigrationChanged {
+                version: migration.version,
+            });
         }
     }
 
-    let pending: Vec<&Migration> =
-        migrations.iter().filter(|migration| migration.version > current).collect();
+    let pending: Vec<&Migration> = migrations
+        .iter()
+        .filter(|migration| migration.version > current)
+        .collect();
     let mut report = MigrationReport::default();
     if pending.is_empty() {
         return Ok(report);
@@ -114,7 +127,10 @@ fn run_list(
 }
 
 fn backup_path(path: &Path, from_version: i64) -> PathBuf {
-    let mut name = path.file_name().map(std::ffi::OsStr::to_os_string).unwrap_or_default();
+    let mut name = path
+        .file_name()
+        .map(std::ffi::OsStr::to_os_string)
+        .unwrap_or_default();
     name.push(format!(".pre-v{}", from_version + 1));
     path.with_file_name(name)
 }
@@ -124,16 +140,26 @@ mod tests {
     use super::*;
     use crate::tests::TempDir;
 
-    const FIRST: Migration =
-        Migration { version: 1, name: "first", sql: "CREATE TABLE a (x INTEGER) STRICT;" };
-    const SECOND: Migration =
-        Migration { version: 2, name: "second", sql: "CREATE TABLE b (y INTEGER) STRICT;" };
+    const FIRST: Migration = Migration {
+        version: 1,
+        name: "first",
+        sql: "CREATE TABLE a (x INTEGER) STRICT;",
+    };
+    const SECOND: Migration = Migration {
+        version: 2,
+        name: "second",
+        sql: "CREATE TABLE b (y INTEGER) STRICT;",
+    };
 
     fn tables(connection: &Connection) -> Vec<String> {
         let mut statement = connection
             .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
             .unwrap();
-        statement.query_map([], |row| row.get(0)).unwrap().map(Result::unwrap).collect()
+        statement
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
     }
 
     #[test]
@@ -168,7 +194,9 @@ mod tests {
         assert!(matches!(error, StoreError::Sqlite(_)));
         assert_eq!(tables(&connection), vec!["a", "schema_migration"]);
         let version: i64 = connection
-            .query_row("SELECT max(version) FROM schema_migration", [], |row| row.get(0))
+            .query_row("SELECT max(version) FROM schema_migration", [], |row| {
+                row.get(0)
+            })
             .unwrap();
         assert_eq!(version, 1);
     }
@@ -178,16 +206,31 @@ mod tests {
         let mut connection = Connection::open_in_memory().unwrap();
         run_list(&mut connection, None, &[FIRST, SECOND]).unwrap();
         let error = run_list(&mut connection, None, &[FIRST]).unwrap_err();
-        assert!(matches!(error, StoreError::NewerSchema { found: 2, supported: 1 }), "{error:?}");
+        assert!(
+            matches!(
+                error,
+                StoreError::NewerSchema {
+                    found: 2,
+                    supported: 1
+                }
+            ),
+            "{error:?}"
+        );
     }
 
     #[test]
     fn an_edited_applied_migration_is_refused() {
         let mut connection = Connection::open_in_memory().unwrap();
         run_list(&mut connection, None, &[FIRST]).unwrap();
-        let edited = Migration { sql: "CREATE TABLE a (x TEXT) STRICT;", ..FIRST };
+        let edited = Migration {
+            sql: "CREATE TABLE a (x TEXT) STRICT;",
+            ..FIRST
+        };
         let error = run_list(&mut connection, None, &[edited]).unwrap_err();
-        assert!(matches!(error, StoreError::MigrationChanged { version: 1 }), "{error:?}");
+        assert!(
+            matches!(error, StoreError::MigrationChanged { version: 1 }),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -197,14 +240,18 @@ mod tests {
         let mut connection = Connection::open(&path).unwrap();
         let fresh = run_list(&mut connection, Some(&path), &[FIRST]).unwrap();
         assert_eq!(fresh.backup, None);
-        connection.execute("INSERT INTO a (x) VALUES (42)", []).unwrap();
+        connection
+            .execute("INSERT INTO a (x) VALUES (42)", [])
+            .unwrap();
 
         let upgraded = run_list(&mut connection, Some(&path), &[FIRST, SECOND]).unwrap();
         let backup = upgraded.backup.unwrap();
         assert_eq!(backup, directory.file("data.db.pre-v2"));
         let copy = Connection::open(&backup).unwrap();
         assert_eq!(tables(&copy), vec!["a", "schema_migration"]);
-        let value: i64 = copy.query_row("SELECT x FROM a", [], |row| row.get(0)).unwrap();
+        let value: i64 = copy
+            .query_row("SELECT x FROM a", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(value, 42);
     }
 }

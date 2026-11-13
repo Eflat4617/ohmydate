@@ -64,8 +64,10 @@ pub fn assert_acyclic(edges: &[DependencyEdge]) -> Result<(), DomainError> {
             match marks[next] {
                 Mark::OnPath => {
                     let cycle_start = path.iter().position(|&entry| entry == next).unwrap_or(0);
-                    let mut cycle: Vec<Id> =
-                        path[cycle_start..].iter().map(|&entry| nodes[entry].clone()).collect();
+                    let mut cycle: Vec<Id> = path[cycle_start..]
+                        .iter()
+                        .map(|&entry| nodes[entry].clone())
+                        .collect();
                     cycle.push(nodes[next].clone());
                     return Err(DomainError::DependencyCycle(cycle));
                 }
@@ -90,7 +92,10 @@ mod tests {
     }
 
     fn edge(task: char, depends_on: char) -> DependencyEdge {
-        DependencyEdge { task_id: id(task), depends_on_task_id: id(depends_on) }
+        DependencyEdge {
+            task_id: id(task),
+            depends_on_task_id: id(depends_on),
+        }
     }
 
     #[test]
@@ -98,7 +103,12 @@ mod tests {
         assert_eq!(assert_acyclic(&[]), Ok(()));
         assert_eq!(assert_acyclic(&[edge('c', 'b'), edge('b', 'a')]), Ok(()));
         assert_eq!(
-            assert_acyclic(&[edge('d', 'b'), edge('d', 'c'), edge('b', 'a'), edge('c', 'a')]),
+            assert_acyclic(&[
+                edge('d', 'b'),
+                edge('d', 'c'),
+                edge('b', 'a'),
+                edge('c', 'a')
+            ]),
             Ok(())
         );
     }
@@ -116,17 +126,31 @@ mod tests {
         let result = assert_acyclic(&[edge('a', 'b'), edge('b', 'c'), edge('c', 'a')]);
         assert_eq!(
             result,
-            Err(DomainError::DependencyCycle(vec![id('a'), id('b'), id('c'), id('a')]))
+            Err(DomainError::DependencyCycle(vec![
+                id('a'),
+                id('b'),
+                id('c'),
+                id('a')
+            ]))
         );
     }
 
     #[test]
     fn a_cycle_behind_an_acyclic_prefix_is_found() {
-        let result =
-            assert_acyclic(&[edge('1', '2'), edge('2', '3'), edge('3', '4'), edge('4', '2')]);
+        let result = assert_acyclic(&[
+            edge('1', '2'),
+            edge('2', '3'),
+            edge('3', '4'),
+            edge('4', '2'),
+        ]);
         assert_eq!(
             result,
-            Err(DomainError::DependencyCycle(vec![id('2'), id('3'), id('4'), id('2')]))
+            Err(DomainError::DependencyCycle(vec![
+                id('2'),
+                id('3'),
+                id('4'),
+                id('2')
+            ]))
         );
     }
 

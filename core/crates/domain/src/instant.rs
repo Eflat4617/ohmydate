@@ -163,9 +163,7 @@ impl Instant {
         let minute = within_day % MS_PER_HOUR / MS_PER_MINUTE;
         let second = within_day % MS_PER_MINUTE / MS_PER_SECOND;
         let millisecond = within_day % MS_PER_SECOND;
-        format!(
-            "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millisecond:03}Z"
-        )
+        format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millisecond:03}Z")
     }
 }
 
@@ -176,7 +174,11 @@ impl fmt::Display for Instant {
 }
 
 fn expect(bytes: &[u8], position: usize, expected: u8) -> Result<(), InstantParseError> {
-    if bytes.get(position) == Some(&expected) { Ok(()) } else { Err(InstantParseError::Format) }
+    if bytes.get(position) == Some(&expected) {
+        Ok(())
+    } else {
+        Err(InstantParseError::Format)
+    }
 }
 
 fn digits(bytes: &[u8], start: usize, count: usize) -> Result<i64, InstantParseError> {
@@ -224,7 +226,11 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
     let shifted_month = (5 * day_of_year + 2) / 153;
     let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
-    let month = if shifted_month < 10 { shifted_month + 3 } else { shifted_month - 9 };
+    let month = if shifted_month < 10 {
+        shifted_month + 3
+    } else {
+        shifted_month - 9
+    };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
     (year, month, day)
 }
@@ -239,25 +245,58 @@ mod tests {
 
     #[test]
     fn utc_instants_round_trip_in_the_canonical_form() {
-        assert_eq!(parse("2026-11-20T14:59:00.000Z").unwrap(), "2026-11-20T14:59:00.000Z");
-        assert_eq!(parse("2026-11-20T14:59:00Z").unwrap(), "2026-11-20T14:59:00.000Z");
-        assert_eq!(parse("1970-01-01T00:00:00Z").unwrap(), "1970-01-01T00:00:00.000Z");
-        assert_eq!(parse("9999-12-31T23:59:59.999Z").unwrap(), "9999-12-31T23:59:59.999Z");
-        assert_eq!(parse("2024-02-29T12:00:00Z").unwrap(), "2024-02-29T12:00:00.000Z");
+        assert_eq!(
+            parse("2026-11-20T14:59:00.000Z").unwrap(),
+            "2026-11-20T14:59:00.000Z"
+        );
+        assert_eq!(
+            parse("2026-11-20T14:59:00Z").unwrap(),
+            "2026-11-20T14:59:00.000Z"
+        );
+        assert_eq!(
+            parse("1970-01-01T00:00:00Z").unwrap(),
+            "1970-01-01T00:00:00.000Z"
+        );
+        assert_eq!(
+            parse("9999-12-31T23:59:59.999Z").unwrap(),
+            "9999-12-31T23:59:59.999Z"
+        );
+        assert_eq!(
+            parse("2024-02-29T12:00:00Z").unwrap(),
+            "2024-02-29T12:00:00.000Z"
+        );
     }
 
     #[test]
     fn offsets_are_normalised_to_utc() {
-        assert_eq!(parse("2026-11-20T23:59:00+09:00").unwrap(), "2026-11-20T14:59:00.000Z");
-        assert_eq!(parse("2026-11-20T00:30:00-05:30").unwrap(), "2026-11-20T06:00:00.000Z");
-        assert_eq!(parse("2026-01-01T00:00:00+00:00").unwrap(), "2026-01-01T00:00:00.000Z");
+        assert_eq!(
+            parse("2026-11-20T23:59:00+09:00").unwrap(),
+            "2026-11-20T14:59:00.000Z"
+        );
+        assert_eq!(
+            parse("2026-11-20T00:30:00-05:30").unwrap(),
+            "2026-11-20T06:00:00.000Z"
+        );
+        assert_eq!(
+            parse("2026-01-01T00:00:00+00:00").unwrap(),
+            "2026-01-01T00:00:00.000Z"
+        );
     }
 
     #[test]
     fn fractions_beyond_milliseconds_are_truncated() {
-        assert_eq!(parse("2026-01-01T00:00:00.1Z").unwrap(), "2026-01-01T00:00:00.100Z");
-        assert_eq!(parse("2026-01-01T00:00:00.123456789Z").unwrap(), "2026-01-01T00:00:00.123Z");
-        assert_eq!(parse("2026-01-01T00:00:00.9999+09:00").unwrap(), "2025-12-31T15:00:00.999Z");
+        assert_eq!(
+            parse("2026-01-01T00:00:00.1Z").unwrap(),
+            "2026-01-01T00:00:00.100Z"
+        );
+        assert_eq!(
+            parse("2026-01-01T00:00:00.123456789Z").unwrap(),
+            "2026-01-01T00:00:00.123Z"
+        );
+        assert_eq!(
+            parse("2026-01-01T00:00:00.9999+09:00").unwrap(),
+            "2025-12-31T15:00:00.999Z"
+        );
     }
 
     #[test]
@@ -274,7 +313,11 @@ mod tests {
             "2026-11-20T14:59:00Zjunk",
             "２０２６-11-20T14:59:00Z",
         ] {
-            assert_eq!(Instant::parse_rfc3339(text), Err(InstantParseError::Format), "{text}");
+            assert_eq!(
+                Instant::parse_rfc3339(text),
+                Err(InstantParseError::Format),
+                "{text}"
+            );
         }
     }
 
@@ -327,18 +370,24 @@ mod tests {
         assert_eq!(Instant::from_epoch_ms(-1), None);
         assert_eq!(Instant::from_epoch_ms(Instant::MAX.epoch_ms() + 1), None);
         assert_eq!(Instant::MAX.checked_add_ms(1), None);
-        assert_eq!(Instant::MIN.checked_add_ms(1_500).unwrap().to_rfc3339(), "1970-01-01T00:00:01.500Z");
+        assert_eq!(
+            Instant::MIN.checked_add_ms(1_500).unwrap().to_rfc3339(),
+            "1970-01-01T00:00:01.500Z"
+        );
     }
 
     #[test]
     fn canonical_strings_sort_in_time_order() {
-        let mut instants = vec![
+        let mut instants = [
             Instant::parse_rfc3339("2026-11-20T14:59:00Z").unwrap(),
             Instant::parse_rfc3339("2026-02-01T00:00:00Z").unwrap(),
             Instant::parse_rfc3339("2026-11-20T14:58:59.999Z").unwrap(),
         ];
         instants.sort();
-        let mut strings: Vec<String> = instants.iter().map(|instant| instant.to_rfc3339()).collect();
+        let mut strings: Vec<String> = instants
+            .iter()
+            .map(|instant| instant.to_rfc3339())
+            .collect();
         let sorted_by_time = strings.clone();
         strings.sort();
         assert_eq!(strings, sorted_by_time);

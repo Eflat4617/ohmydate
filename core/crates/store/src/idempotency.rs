@@ -21,11 +21,18 @@ pub enum Record {
     /// A long-running operation with this key is still in flight.
     Pending { request_hash: String },
     /// The operation finished; replay `response`.
-    Completed { request_hash: String, response: StoredResponse },
+    Completed {
+        request_hash: String,
+        response: StoredResponse,
+    },
 }
 
 fn encode_headers(headers: &[(String, String)]) -> String {
-    headers.iter().map(|(name, value)| format!("{name}: {value}")).collect::<Vec<_>>().join("\n")
+    headers
+        .iter()
+        .map(|(name, value)| format!("{name}: {value}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn decode_headers(text: &str) -> Result<Vec<(String, String)>, StoreError> {
@@ -33,13 +40,20 @@ fn decode_headers(text: &str) -> Result<Vec<(String, String)>, StoreError> {
         .map(|line| {
             line.split_once(": ")
                 .map(|(name, value)| (name.to_owned(), value.to_owned()))
-                .ok_or(StoreError::Corrupt { table: "idempotency_record", column: "response_headers" })
+                .ok_or(StoreError::Corrupt {
+                    table: "idempotency_record",
+                    column: "response_headers",
+                })
         })
         .collect()
 }
 
 /// The unexpired record for `key`, if any.
-pub fn find(connection: &Connection, key: &str, now: Instant) -> Result<Option<Record>, StoreError> {
+pub fn find(
+    connection: &Connection,
+    key: &str,
+    now: Instant,
+) -> Result<Option<Record>, StoreError> {
     let found = connection
         .query_row(
             "SELECT request_hash, status, response_status, response_headers, response_body
@@ -64,9 +78,16 @@ pub fn find(connection: &Connection, key: &str, now: Instant) -> Result<Option<R
         ("pending", None, None) => Ok(Some(Record::Pending { request_hash })),
         ("completed", Some(status), Some(headers)) => Ok(Some(Record::Completed {
             request_hash,
-            response: StoredResponse { status, headers: decode_headers(&headers)?, body },
+            response: StoredResponse {
+                status,
+                headers: decode_headers(&headers)?,
+                body,
+            },
         })),
-        _ => Err(StoreError::Corrupt { table: "idempotency_record", column: "status" }),
+        _ => Err(StoreError::Corrupt {
+            table: "idempotency_record",
+            column: "status",
+        }),
     }
 }
 
@@ -137,22 +158,40 @@ pub fn complete(
             SET status = 'completed', response_status = ?2, response_headers = ?3,
                 response_body = ?4
           WHERE key = ?1 AND status = 'pending'",
-        (key, response.status, encode_headers(&response.headers), response.body.as_deref()),
+        (
+            key,
+            response.status,
+            encode_headers(&response.headers),
+            response.body.as_deref(),
+        ),
     )?;
     Ok(changed == 1)
 }
 
 /// Frees a pending key so the same key can be retried.
 pub fn release(connection: &Connection, key: &str) -> Result<(), StoreError> {
-    connection
-        .execute("DELETE FROM idempotency_record WHERE key = ?1 AND status = 'pending'", [key])?;
+    connection.execute(
+        "DELETE FROM idempotency_record WHERE key = ?1 AND status = 'pending'",
+        [key],
+    )?;
     Ok(())
+}
+
+/// Frees every pending key. Called at start: an operation that was in flight
+/// when the previous process ended can no longer complete.
+pub fn release_all_pending(connection: &Connection) -> Result<usize, StoreError> {
+    Ok(connection.execute(
+        "DELETE FROM idempotency_record WHERE status = 'pending'",
+        [],
+    )?)
 }
 
 /// Deletes expired rows and returns how many were removed.
 pub fn delete_expired(connection: &Connection, now: Instant) -> Result<usize, StoreError> {
-    Ok(connection
-        .execute("DELETE FROM idempotency_record WHERE expires_at <= ?1", [now.epoch_ms()])?)
+    Ok(connection.execute(
+        "DELETE FROM idempotency_record WHERE expires_at <= ?1",
+        [now.epoch_ms()],
+    )?)
 }
 
 #[cfg(test)]
@@ -191,56 +230,154 @@ mod tests {
         store
             .write(|transaction| insert_completed(transaction, reservation(100, 200), &response()))
             .unwrap();
-        let found = store.read(|connection| find(connection, KEY, at(150))).unwrap();
+        let found = store
+            .read(|connection| find(connection, KEY, at(150)))
+            .unwrap();
         assert_eq!(
             found,
-            Some(Record::Completed { request_hash: HASH.into(), response: response() })
+            Some(Record::Completed {
+                request_hash: HASH.into(),
+                response: response()
+            })
         );
-        assert_eq!(store.read(|connection| find(connection, KEY, at(200))).unwrap(), None);
-        assert_eq!(store.read(|connection| find(connection, "other", at(150))).unwrap(), None);
+        assert_eq!(
+            store
+                .read(|connection| find(connection, KEY, at(200)))
+                .unwrap(),
+            None
+        );
+        assert_eq!(
+            store
+                .read(|connection| find(connection, "other", at(150)))
+                .unwrap(),
+            None
+        );
     }
 
     #[test]
     fn an_empty_response_round_trips() {
         let store = Store::open_in_memory().unwrap();
-        let empty = StoredResponse { status: 204, headers: Vec::new(), body: None };
+        let empty = StoredResponse {
+            status: 204,
+            headers: Vec::new(),
+            body: None,
+        };
         store
             .write(|transaction| insert_completed(transaction, reservation(100, 200), &empty))
             .unwrap();
-        let found = store.read(|connection| find(connection, KEY, at(150))).unwrap();
-        assert_eq!(found, Some(Record::Completed { request_hash: HASH.into(), response: empty }));
+        let found = store
+            .read(|connection| find(connection, KEY, at(150)))
+            .unwrap();
+        assert_eq!(
+            found,
+            Some(Record::Completed {
+                request_hash: HASH.into(),
+                response: empty
+            })
+        );
     }
 
     #[test]
     fn a_pending_record_completes_once_or_is_released() {
         let store = Store::open_in_memory().unwrap();
-        store.write(|transaction| insert_pending(transaction, reservation(100, 200))).unwrap();
+        store
+            .write(|transaction| insert_pending(transaction, reservation(100, 200)))
+            .unwrap();
         assert_eq!(
-            store.read(|connection| find(connection, KEY, at(150))).unwrap(),
-            Some(Record::Pending { request_hash: HASH.into() })
+            store
+                .read(|connection| find(connection, KEY, at(150)))
+                .unwrap(),
+            Some(Record::Pending {
+                request_hash: HASH.into()
+            })
         );
-        assert!(store.write(|transaction| complete(transaction, KEY, &response())).unwrap());
         assert!(
-            !store.write(|transaction| complete(transaction, KEY, &response())).unwrap(),
+            store
+                .write(|transaction| complete(transaction, KEY, &response()))
+                .unwrap()
+        );
+        assert!(
+            !store
+                .write(|transaction| complete(transaction, KEY, &response()))
+                .unwrap(),
             "a completed record cannot be completed again"
         );
 
         // Releasing only removes pending rows.
-        store.write(|transaction| release(transaction, KEY)).unwrap();
-        assert!(store.read(|connection| find(connection, KEY, at(150))).unwrap().is_some());
+        store
+            .write(|transaction| release(transaction, KEY))
+            .unwrap();
+        assert!(
+            store
+                .read(|connection| find(connection, KEY, at(150)))
+                .unwrap()
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn a_restart_frees_pending_keys_but_keeps_completed_ones() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .write(|transaction| insert_pending(transaction, reservation(100, 200)))
+            .unwrap();
+        let other = Reservation {
+            key: "0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c56",
+            ..reservation(100, 200)
+        };
+        store
+            .write(|transaction| insert_completed(transaction, other, &response()))
+            .unwrap();
+        assert_eq!(
+            store
+                .write(|transaction| release_all_pending(transaction))
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .read(|connection| find(connection, KEY, at(150)))
+                .unwrap(),
+            None
+        );
+        assert!(
+            store
+                .read(|connection| find(connection, other.key, at(150)))
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[test]
     fn release_frees_a_pending_key_and_expired_rows_are_swept() {
         let store = Store::open_in_memory().unwrap();
-        store.write(|transaction| insert_pending(transaction, reservation(100, 200))).unwrap();
-        store.write(|transaction| release(transaction, KEY)).unwrap();
-        assert_eq!(store.read(|connection| find(connection, KEY, at(150))).unwrap(), None);
+        store
+            .write(|transaction| insert_pending(transaction, reservation(100, 200)))
+            .unwrap();
+        store
+            .write(|transaction| release(transaction, KEY))
+            .unwrap();
+        assert_eq!(
+            store
+                .read(|connection| find(connection, KEY, at(150)))
+                .unwrap(),
+            None
+        );
 
         store
             .write(|transaction| insert_completed(transaction, reservation(100, 200), &response()))
             .unwrap();
-        assert_eq!(store.write(|transaction| delete_expired(transaction, at(199))).unwrap(), 0);
-        assert_eq!(store.write(|transaction| delete_expired(transaction, at(200))).unwrap(), 1);
+        assert_eq!(
+            store
+                .write(|transaction| delete_expired(transaction, at(199)))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            store
+                .write(|transaction| delete_expired(transaction, at(200)))
+                .unwrap(),
+            1
+        );
     }
 }

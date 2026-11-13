@@ -82,7 +82,9 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         assert_eq!(store.read(get).unwrap(), None);
         let expected = owner("0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55");
-        store.write(|transaction| insert(transaction, &expected)).unwrap();
+        store
+            .write(|transaction| insert(transaction, &expected))
+            .unwrap();
         assert_eq!(store.read(get).unwrap(), Some(expected));
     }
 
@@ -90,10 +92,13 @@ mod tests {
     fn a_second_owner_is_refused() {
         let store = Store::open_in_memory().unwrap();
         store
-            .write(|transaction| insert(transaction, &owner("0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55")))
+            .write(|transaction| {
+                insert(transaction, &owner("0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55"))
+            })
             .unwrap();
-        let second = store
-            .write(|transaction| insert(transaction, &owner("0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c56")));
+        let second = store.write(|transaction| {
+            insert(transaction, &owner("0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c56"))
+        });
         assert!(matches!(second, Err(StoreError::Sqlite(_))), "{second:?}");
     }
 }

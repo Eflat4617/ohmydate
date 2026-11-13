@@ -1,5 +1,6 @@
 [package]
 name = "ohmydate-scheduler"
+description = "Deterministic scheduler of the OhMyDate core: a port of packages/scheduler. Pure, no I/O."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,3 +11,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+jiff.workspace = true
+ryu-js.workspace = true
+serde_json.workspace = true
+sha2.workspace = true

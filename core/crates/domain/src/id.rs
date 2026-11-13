@@ -91,13 +91,22 @@ pub struct UuidV7Generator<C, R> {
 
 impl<C: Clock, R: RandomSource> UuidV7Generator<C, R> {
     pub fn new(clock: C, random: R) -> Self {
-        Self { clock, random, state: Mutex::new(GeneratorState { last_ms: -1, sequence: 0 }) }
+        Self {
+            clock,
+            random,
+            state: Mutex::new(GeneratorState {
+                last_ms: -1,
+                sequence: 0,
+            }),
+        }
     }
 }
 
 impl<C, R> fmt::Debug for UuidV7Generator<C, R> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("UuidV7Generator").finish_non_exhaustive()
+        formatter
+            .debug_struct("UuidV7Generator")
+            .finish_non_exhaustive()
     }
 }
 
@@ -107,8 +116,10 @@ impl<C: Clock, R: RandomSource> IdGenerator for UuidV7Generator<C, R> {
         let (timestamp_ms, sequence) = {
             // A poisoned lock only means another thread panicked mid-update;
             // the two integers are still usable.
-            let mut state =
-                self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if now_ms > state.last_ms {
                 state.last_ms = now_ms;
                 state.sequence = 0;
@@ -217,6 +228,9 @@ mod tests {
             assert!(previous < next);
             previous = next;
         }
-        assert!(previous.as_str().starts_with("00000000-0006-7000-"), "{previous}");
+        assert!(
+            previous.as_str().starts_with("00000000-0006-7000-"),
+            "{previous}"
+        );
     }
 }

@@ -23,12 +23,17 @@ pub(crate) fn optional_instant(
     column: &'static str,
     epoch_ms: Option<i64>,
 ) -> Result<Option<Instant>, StoreError> {
-    epoch_ms.map(|value| instant(table, column, value)).transpose()
+    epoch_ms
+        .map(|value| instant(table, column, value))
+        .transpose()
 }
 
 pub(crate) fn version(table: &'static str, value: i64) -> Result<Version, StoreError> {
     u32::try_from(value)
         .ok()
         .and_then(Version::new)
-        .ok_or(StoreError::Corrupt { table, column: "version" })
+        .ok_or(StoreError::Corrupt {
+            table,
+            column: "version",
+        })
 }

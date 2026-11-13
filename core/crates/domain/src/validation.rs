@@ -74,15 +74,22 @@ fn validate_due_at(text: &str) -> Result<Instant, DomainError> {
 }
 
 fn validate_session(session: SessionWindow) -> Result<SessionWindow, DomainError> {
-    for (path, minutes) in
-        [("session.minMinutes", session.min_minutes), ("session.maxMinutes", session.max_minutes)]
-    {
+    for (path, minutes) in [
+        ("session.minMinutes", session.min_minutes),
+        ("session.maxMinutes", session.max_minutes),
+    ] {
         if !(1..=1440).contains(&minutes) {
-            return Err(DomainError::invalid(path, "expected an integer between 1 and 1440"));
+            return Err(DomainError::invalid(
+                path,
+                "expected an integer between 1 and 1440",
+            ));
         }
     }
     if session.min_minutes > session.max_minutes {
-        return Err(DomainError::invalid("session", "minMinutes must not exceed maxMinutes"));
+        return Err(DomainError::invalid(
+            "session",
+            "minMinutes must not exceed maxMinutes",
+        ));
     }
     Ok(session)
 }
@@ -169,9 +176,11 @@ mod tests {
 
     #[test]
     fn create_applies_the_defaults() {
-        let normalized =
-            validate_task_create(&TaskCreate { title: "Read papers".into(), ..TaskCreate::default() })
-                .unwrap();
+        let normalized = validate_task_create(&TaskCreate {
+            title: "Read papers".into(),
+            ..TaskCreate::default()
+        })
+        .unwrap();
         assert_eq!(normalized.status, TaskStatus::Todo);
         assert!(!normalized.splittable);
         assert_eq!(normalized.priority, TaskPriority::DEFAULT);
@@ -188,16 +197,28 @@ mod tests {
             ..TaskCreate::default()
         })
         .unwrap();
-        assert_eq!(normalized.due_at.unwrap().to_rfc3339(), "2026-11-20T14:59:00.000Z");
+        assert_eq!(
+            normalized.due_at.unwrap().to_rfc3339(),
+            "2026-11-20T14:59:00.000Z"
+        );
         assert_eq!(normalized.depends_on, vec![id('5'), id('6')]);
     }
 
     #[test]
     fn blank_and_overlong_titles_are_rejected() {
-        let blank = validate_task_create(&TaskCreate { title: " \u{3000}\t".into(), ..TaskCreate::default() });
-        assert_eq!(issue(blank.unwrap_err()), ValidationIssue::new("title", "title must not be empty"));
+        let blank = validate_task_create(&TaskCreate {
+            title: " \u{3000}\t".into(),
+            ..TaskCreate::default()
+        });
+        assert_eq!(
+            issue(blank.unwrap_err()),
+            ValidationIssue::new("title", "title must not be empty")
+        );
 
-        let long = validate_task_create(&TaskCreate { title: "가".repeat(201), ..TaskCreate::default() });
+        let long = validate_task_create(&TaskCreate {
+            title: "가".repeat(201),
+            ..TaskCreate::default()
+        });
         assert_eq!(
             issue(long.unwrap_err()),
             ValidationIssue::new("title", "title must be at most 200 characters")
@@ -216,11 +237,17 @@ mod tests {
             due_at: Some("2026-02-30T00:00:00Z".into()),
             ..TaskCreate::default()
         });
-        assert_eq!(issue(due.unwrap_err()), ValidationIssue::new("dueAt", "invalid calendar date-time"));
+        assert_eq!(
+            issue(due.unwrap_err()),
+            ValidationIssue::new("dueAt", "invalid calendar date-time")
+        );
 
         let session = validate_task_create(&TaskCreate {
             title: "x".into(),
-            session: Some(SessionWindow { min_minutes: 90, max_minutes: 30 }),
+            session: Some(SessionWindow {
+                min_minutes: 90,
+                max_minutes: 30,
+            }),
             ..TaskCreate::default()
         });
         assert_eq!(
@@ -230,7 +257,10 @@ mod tests {
 
         let zero = validate_task_create(&TaskCreate {
             title: "x".into(),
-            session: Some(SessionWindow { min_minutes: 0, max_minutes: 30 }),
+            session: Some(SessionWindow {
+                min_minutes: 0,
+                max_minutes: 30,
+            }),
             ..TaskCreate::default()
         });
         assert_eq!(issue(zero.unwrap_err()).path, "session.minMinutes");
@@ -255,7 +285,10 @@ mod tests {
 
     #[test]
     fn patch_rejects_a_blank_title_and_an_overlong_description() {
-        let title = validate_task_patch(&TaskPatch { title: Some("\n".into()), ..TaskPatch::default() });
+        let title = validate_task_patch(&TaskPatch {
+            title: Some("\n".into()),
+            ..TaskPatch::default()
+        });
         assert_eq!(issue(title.unwrap_err()).path, "title");
 
         let description = validate_task_patch(&TaskPatch {

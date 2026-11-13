@@ -64,14 +64,18 @@ pub struct App {
 
 impl fmt::Debug for App {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("App").field("owner", &self.owner.id).finish_non_exhaustive()
+        formatter
+            .debug_struct("App")
+            .field("owner", &self.owner.id)
+            .finish_non_exhaustive()
     }
 }
 
 impl App {
     /// Wraps an open store. On a new data file this creates the owner row
     /// and the Inbox project in one transaction; on an existing file the
-    /// defaults are ignored. Expired idempotency records are removed.
+    /// defaults are ignored. Expired idempotency records are removed, and
+    /// keys left pending by a previous process are freed.
     pub fn open(
         store: Store,
         clock: Arc<dyn Clock>,
@@ -81,6 +85,8 @@ impl App {
         let owner = store.write(|transaction| -> Result<Owner, StoreError> {
             let now = clock.now();
             idempotency::delete_expired(transaction, now)?;
+            // Whatever was in flight when the last process ended is gone.
+            idempotency::release_all_pending(transaction)?;
             let owner = match owner::get(transaction)? {
                 Some(existing) => existing,
                 None => {
@@ -115,7 +121,12 @@ impl App {
             }
             Ok(owner)
         })?;
-        Ok(Self { store, clock, ids, owner })
+        Ok(Self {
+            store,
+            clock,
+            ids,
+            owner,
+        })
     }
 
     /// The single local owner.
@@ -136,9 +147,16 @@ impl App {
     }
 
     /// Runs read-only use-cases.
-    pub fn read<T>(&self, work: impl FnOnce(&Unit<'_>) -> Result<T, AppError>) -> Result<T, AppError> {
+    pub fn read<T>(
+        &self,
+        work: impl FnOnce(&Unit<'_>) -> Result<T, AppError>,
+    ) -> Result<T, AppError> {
         self.store.read(|connection| {
-            work(&Unit { connection, clock: self.clock.as_ref(), ids: self.ids.as_ref() })
+            work(&Unit {
+                connection,
+                clock: self.clock.as_ref(),
+                ids: self.ids.as_ref(),
+            })
         })
     }
 
@@ -162,12 +180,18 @@ impl App {
         storable: impl FnOnce(&AppError) -> Option<StoredResponse>,
         operation: impl FnOnce(&Unit<'_>) -> Result<StoredResponse, AppError>,
     ) -> Result<Idempotent, AppError> {
-        let outcome = self.store.write(|transaction| -> Result<_, AppError> {
+        self.store.write(|transaction| -> Result<_, AppError> {
             let now = self.clock.now();
             match idempotency::find(transaction, request.key, now)? {
-                Some(Record::Completed { request_hash, response }) => {
+                Some(Record::Completed {
+                    request_hash,
+                    response,
+                }) => {
                     return if request_hash == request.request_hash {
-                        Ok(Ok(Idempotent { response, replayed: true }))
+                        Ok(Ok(Idempotent {
+                            response,
+                            replayed: true,
+                        }))
                     } else {
                         Err(DomainError::IdempotencyMismatch.into())
                     };
@@ -199,7 +223,10 @@ impl App {
             match result {
                 Ok(response) => {
                     idempotency::insert_completed(transaction, reservation, &response)?;
-                    Ok(Ok(Idempotent { response, replayed: false }))
+                    Ok(Ok(Idempotent {
+                        response,
+                        replayed: false,
+                    }))
                 }
                 Err(error) => match storable(&error) {
                     Some(response) => {
@@ -210,13 +237,13 @@ impl App {
                     None => Err(error),
                 },
             }
-        })?;
-        outcome
+        })?
     }
 }
 
 fn expiry(now: Instant) -> Instant {
-    now.checked_add_ms(IDEMPOTENCY_TTL_MS).unwrap_or(Instant::MAX)
+    now.checked_add_ms(IDEMPOTENCY_TTL_MS)
+        .unwrap_or(Instant::MAX)
 }
 
 #[cfg(test)]
@@ -232,22 +259,35 @@ mod tests {
     const HASH_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
     fn request(hash: &'static str) -> IdempotentRequest<'static> {
-        IdempotentRequest { key: KEY, route: "/projects", request_hash: hash }
+        IdempotentRequest {
+            key: KEY,
+            route: "/projects",
+            request_hash: hash,
+        }
     }
 
     fn created(body: &str) -> StoredResponse {
-        StoredResponse { status: 201, headers: Vec::new(), body: Some(body.to_owned()) }
+        StoredResponse {
+            status: 201,
+            headers: Vec::new(),
+            body: Some(body.to_owned()),
+        }
     }
 
     fn never_storable(_: &AppError) -> Option<StoredResponse> {
         None
     }
 
-    fn create_project(test: &TestApp, hash: &'static str, title: &str) -> Result<Idempotent, AppError> {
-        test.app.mutate_idempotent(request(hash), never_storable, |unit| {
-            let project = project_cases::create(unit, title)?;
-            Ok(created(project.id.as_str()))
-        })
+    fn create_project(
+        test: &TestApp,
+        hash: &'static str,
+        title: &str,
+    ) -> Result<Idempotent, AppError> {
+        test.app
+            .mutate_idempotent(request(hash), never_storable, |unit| {
+                let project = project_cases::create(unit, title)?;
+                Ok(created(project.id.as_str()))
+            })
     }
 
     fn project_count(test: &TestApp) -> usize {
@@ -264,7 +304,10 @@ mod tests {
         let owner = test.app.owner().clone();
         assert_eq!(owner.time_zone, "Asia/Seoul");
         assert_eq!(owner.version, Version::INITIAL);
-        let page = test.app.read(|unit| project_cases::list(unit, &PageQuery::default())).unwrap();
+        let page = test
+            .app
+            .read(|unit| project_cases::list(unit, &PageQuery::default()))
+            .unwrap();
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].kind, ProjectKind::Inbox);
         assert!(test.app.is_ready());
@@ -280,7 +323,11 @@ mod tests {
             locale: "en".into(),
         });
         assert_eq!(reopened.app.owner(), &first);
-        assert_eq!(project_count(&reopened), 1, "the inbox must not be created twice");
+        assert_eq!(
+            project_count(&reopened),
+            1,
+            "the inbox must not be created twice"
+        );
     }
 
     #[test]
@@ -299,19 +346,31 @@ mod tests {
         let test = TestApp::new();
         create_project(&test, HASH_A, "Thesis").unwrap();
         let error = create_project(&test, HASH_B, "Other").unwrap_err();
-        assert!(matches!(error, AppError::Domain(DomainError::IdempotencyMismatch)), "{error:?}");
+        assert!(
+            matches!(error, AppError::Domain(DomainError::IdempotencyMismatch)),
+            "{error:?}"
+        );
         assert_eq!(project_count(&test), 2);
     }
 
     #[test]
     fn an_unstorable_failure_leaves_nothing_and_the_key_can_be_retried() {
         let test = TestApp::new();
-        let failed = test.app.mutate_idempotent(request(HASH_A), never_storable, |unit| {
-            project_cases::create(unit, "Half done")?;
-            Err(DomainError::not_found("task", &id(9)).into())
-        });
-        assert!(matches!(failed, Err(AppError::Domain(DomainError::NotFound { .. }))));
-        assert_eq!(project_count(&test), 1, "the project insert must be rolled back");
+        let failed = test
+            .app
+            .mutate_idempotent(request(HASH_A), never_storable, |unit| {
+                project_cases::create(unit, "Half done")?;
+                Err(DomainError::not_found("task", &id(9)).into())
+            });
+        assert!(matches!(
+            failed,
+            Err(AppError::Domain(DomainError::NotFound { .. }))
+        ));
+        assert_eq!(
+            project_count(&test),
+            1,
+            "the project insert must be rolled back"
+        );
 
         let retried = create_project(&test, HASH_A, "Thesis").unwrap();
         assert!(!retried.replayed);
@@ -331,17 +390,30 @@ mod tests {
             }
             _ => None,
         };
-        let failed = test.app.mutate_idempotent(request(HASH_A), storable, |unit| {
-            project_cases::create(unit, "Half done")?;
-            Err(DomainError::invalid("title", "nope").into())
-        });
-        assert!(matches!(failed, Err(AppError::Domain(DomainError::ValidationFailed(_)))));
-        assert_eq!(project_count(&test), 1, "the failed mutation must not leave writes");
+        let failed = test
+            .app
+            .mutate_idempotent(request(HASH_A), storable, |unit| {
+                project_cases::create(unit, "Half done")?;
+                Err(DomainError::invalid("title", "nope").into())
+            });
+        assert!(matches!(
+            failed,
+            Err(AppError::Domain(DomainError::ValidationFailed(_)))
+        ));
+        assert_eq!(
+            project_count(&test),
+            1,
+            "the failed mutation must not leave writes"
+        );
 
         let replay = create_project(&test, HASH_A, "Thesis").unwrap();
         assert!(replay.replayed);
         assert_eq!(replay.response, problem);
-        assert_eq!(project_count(&test), 1, "a replay must not execute the operation");
+        assert_eq!(
+            project_count(&test),
+            1,
+            "a replay must not execute the operation"
+        );
     }
 
     #[test]
@@ -352,7 +424,10 @@ mod tests {
         assert!(create_project(&test, HASH_A, "Thesis").unwrap().replayed);
         test.clock.advance_ms(1);
         let after_expiry = create_project(&test, HASH_B, "Second").unwrap();
-        assert!(!after_expiry.replayed, "an expired key is free for any request");
+        assert!(
+            !after_expiry.replayed,
+            "an expired key is free for any request"
+        );
         assert_eq!(project_count(&test), 3);
     }
 
@@ -379,7 +454,10 @@ mod tests {
             create_project(&test, HASH_B, "Thesis"),
             Err(AppError::Domain(DomainError::IdempotencyMismatch))
         ));
-        test.app.store().write(|transaction| idempotency::release(transaction, KEY)).unwrap();
+        test.app
+            .store()
+            .write(|transaction| idempotency::release(transaction, KEY))
+            .unwrap();
         assert!(!create_project(&test, HASH_A, "Thesis").unwrap().replayed);
     }
 }

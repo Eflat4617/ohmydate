@@ -26,8 +26,10 @@ fn project(raw: RawProject) -> Result<Project, StoreError> {
     Ok(Project {
         id: row::id("project", "id", &id)?,
         title,
-        kind: ProjectKind::parse(&kind)
-            .ok_or(StoreError::Corrupt { table: "project", column: "kind" })?,
+        kind: ProjectKind::parse(&kind).ok_or(StoreError::Corrupt {
+            table: "project",
+            column: "kind",
+        })?,
         archived,
         version: row::version("project", version)?,
         created_at: row::instant("project", "created_at", created_at)?,
@@ -140,7 +142,9 @@ mod tests {
         assert_eq!(store.read(|c| get(c, &missing)).unwrap(), None);
         assert_eq!(store.read(get_inbox).unwrap(), None);
 
-        store.write(|transaction| insert(transaction, &sample(1, ProjectKind::Inbox, 10))).unwrap();
+        store
+            .write(|transaction| insert(transaction, &sample(1, ProjectKind::Inbox, 10)))
+            .unwrap();
         let second =
             store.write(|transaction| insert(transaction, &sample(2, ProjectKind::Inbox, 20)));
         assert!(matches!(second, Err(StoreError::Sqlite(_))), "{second:?}");
@@ -155,15 +159,30 @@ mod tests {
             sample(2, ProjectKind::Normal, 10),
         ];
         store
-            .write(|transaction| rows.iter().try_for_each(|project| insert(transaction, project)))
+            .write(|transaction| {
+                rows.iter()
+                    .try_for_each(|project| insert(transaction, project))
+            })
             .unwrap();
 
         let first = store.read(|c| list(c, None, 2)).unwrap();
-        assert_eq!(first.iter().map(|p| p.title.as_str()).collect::<Vec<_>>(), ["project 2", "project 1"]);
-        let after = PageAfter { created_at: first[1].created_at, id: first[1].id.clone() };
+        assert_eq!(
+            first.iter().map(|p| p.title.as_str()).collect::<Vec<_>>(),
+            ["project 2", "project 1"]
+        );
+        let after = PageAfter {
+            created_at: first[1].created_at,
+            id: first[1].id.clone(),
+        };
         let rest = store.read(|c| list(c, Some(&after), 2)).unwrap();
-        assert_eq!(rest.iter().map(|p| p.title.as_str()).collect::<Vec<_>>(), ["project 3"]);
-        let end = PageAfter { created_at: rest[0].created_at, id: rest[0].id.clone() };
+        assert_eq!(
+            rest.iter().map(|p| p.title.as_str()).collect::<Vec<_>>(),
+            ["project 3"]
+        );
+        let end = PageAfter {
+            created_at: rest[0].created_at,
+            id: rest[0].id.clone(),
+        };
         assert!(store.read(|c| list(c, Some(&end), 2)).unwrap().is_empty());
     }
 }

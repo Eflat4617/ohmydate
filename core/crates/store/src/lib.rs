@@ -64,7 +64,11 @@ impl Store {
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "synchronous", "NORMAL")?;
         let report = migrate::run(&mut connection, Some(path))?;
-        Ok(Self { connection: Mutex::new(connection), path: Some(path.to_path_buf()), report })
+        Ok(Self {
+            connection: Mutex::new(connection),
+            path: Some(path.to_path_buf()),
+            report,
+        })
     }
 
     /// A private in-memory database with the full schema. For tests.
@@ -72,7 +76,11 @@ impl Store {
         let mut connection = Connection::open_in_memory()?;
         configure(&connection)?;
         let report = migrate::run(&mut connection, None)?;
-        Ok(Self { connection: Mutex::new(connection), path: None, report })
+        Ok(Self {
+            connection: Mutex::new(connection),
+            path: None,
+            report,
+        })
     }
 
     /// Location of the data file; `None` for an in-memory store.
@@ -90,7 +98,9 @@ impl Store {
     fn lock(&self) -> MutexGuard<'_, Connection> {
         // A panic while the lock was held cannot leave a half-applied write:
         // the transaction is rolled back when it is dropped during unwinding.
-        self.connection.lock().unwrap_or_else(PoisonError::into_inner)
+        self.connection
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Runs read-only queries.
@@ -250,7 +260,10 @@ mod tests {
         assert_eq!(count(&copy, "project"), 1);
         assert!(copy.migration_report().applied.is_empty());
 
-        assert!(store.backup_to(&target).is_err(), "an existing backup must not be overwritten");
+        assert!(
+            store.backup_to(&target).is_err(),
+            "an existing backup must not be overwritten"
+        );
     }
 
     #[test]
@@ -283,7 +296,9 @@ mod tests {
     fn count(store: &Store, table: &str) -> i64 {
         store
             .read(|connection| {
-                connection.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| row.get(0))
+                connection.query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
             })
             .unwrap()
     }

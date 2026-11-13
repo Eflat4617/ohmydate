@@ -36,8 +36,10 @@ pub fn create(unit: &Unit<'_>, title: &str) -> Result<Project, AppError> {
 
 /// The Inbox project (ADR-018).
 pub fn inbox(unit: &Unit<'_>) -> Result<Project, AppError> {
-    projects::get_inbox(unit.connection)?
-        .ok_or(AppError::Domain(DomainError::NotFound { resource: "project", id: None }))
+    projects::get_inbox(unit.connection)?.ok_or(AppError::Domain(DomainError::NotFound {
+        resource: "project",
+        id: None,
+    }))
 }
 
 #[cfg(test)]
@@ -48,7 +50,11 @@ mod tests {
     fn create_in(test: &TestApp, title: &str) -> Result<Project, AppError> {
         test.app.store().write(|transaction| {
             create(
-                &Unit { connection: transaction, clock: test.clock.as_ref(), ids: test.ids() },
+                &Unit {
+                    connection: transaction,
+                    clock: test.clock.as_ref(),
+                    ids: test.ids(),
+                },
                 title,
             )
         })
@@ -62,7 +68,10 @@ mod tests {
         assert_eq!(project.kind, ProjectKind::Normal);
         assert_eq!(project.version, Version::INITIAL);
         assert!(!project.archived);
-        let page = test.app.read(|unit| list(unit, &PageQuery::default())).unwrap();
+        let page = test
+            .app
+            .read(|unit| list(unit, &PageQuery::default()))
+            .unwrap();
         let kinds: Vec<ProjectKind> = page.items.iter().map(|p| p.kind).collect();
         assert_eq!(kinds, [ProjectKind::Inbox, ProjectKind::Normal]);
         assert_eq!(page.next_cursor, None);
@@ -73,7 +82,10 @@ mod tests {
     fn a_blank_title_is_rejected() {
         let test = TestApp::new();
         let error = create_in(&test, "   ").unwrap_err();
-        assert!(matches!(error, AppError::Domain(DomainError::ValidationFailed(_))), "{error:?}");
+        assert!(
+            matches!(error, AppError::Domain(DomainError::ValidationFailed(_))),
+            "{error:?}"
+        );
     }
 
     #[test]
@@ -83,15 +95,27 @@ mod tests {
             test.clock.advance_ms(1);
             create_in(&test, title).unwrap();
         }
-        let query = |cursor: Option<String>| PageQuery { cursor, limit: Some(2) };
+        let query = |cursor: Option<String>| PageQuery {
+            cursor,
+            limit: Some(2),
+        };
         let first = test.app.read(|unit| list(unit, &query(None))).unwrap();
         assert_eq!(first.items.len(), 2);
-        let second = test.app.read(|unit| list(unit, &query(first.next_cursor.clone()))).unwrap();
+        let second = test
+            .app
+            .read(|unit| list(unit, &query(first.next_cursor.clone())))
+            .unwrap();
         let titles: Vec<&str> = second.items.iter().map(|p| p.title.as_str()).collect();
         assert_eq!(titles, ["b", "c"]);
         assert_eq!(second.next_cursor, None);
 
-        let error = test.app.read(|unit| list(unit, &query(Some("garbage".into())))).unwrap_err();
-        assert!(matches!(error, AppError::Domain(DomainError::ValidationFailed(_))), "{error:?}");
+        let error = test
+            .app
+            .read(|unit| list(unit, &query(Some("garbage".into()))))
+            .unwrap_err();
+        assert!(
+            matches!(error, AppError::Domain(DomainError::ValidationFailed(_))),
+            "{error:?}"
+        );
     }
 }

@@ -67,7 +67,11 @@ impl TestApp {
             COUNTER.fetch_add(1, Ordering::SeqCst)
         ));
         std::fs::create_dir_all(&directory).unwrap();
-        Self::open(directory, Arc::new(TestClock(AtomicI64::new(Self::START_MS))), &defaults())
+        Self::open(
+            directory,
+            Arc::new(TestClock(AtomicI64::new(Self::START_MS))),
+            &defaults(),
+        )
     }
 
     fn open(directory: PathBuf, clock: Arc<TestClock>, defaults: &OwnerDefaults) -> Self {
@@ -85,7 +89,12 @@ impl TestApp {
             .unwrap();
         let ids = Arc::new(CountingIds(AtomicU64::new(u64::try_from(used).unwrap())));
         let app = App::open(store, clock.clone(), ids.clone(), defaults).unwrap();
-        Self { app, ids, clock, directory: Some(directory) }
+        Self {
+            app,
+            ids,
+            clock,
+            directory: Some(directory),
+        }
     }
 
     pub(crate) fn ids(&self) -> &dyn IdGenerator {
