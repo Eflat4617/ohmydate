@@ -1,6 +1,7 @@
 import { setupWorker } from 'msw/browser';
 import type { User } from '../api';
 import { createHandlers } from './handlers';
+import { createCommitmentParseHandlers, setCommitmentParseDelay } from './commitment-parse';
 import { createIntakeHandlers } from './intake-handlers';
 import { createNotesHandlers, seedFocusNote } from './notes';
 import { createPlanningHandlers } from './planning-handlers';
@@ -20,6 +21,8 @@ declare global {
       today?: 'risk';
       /** M6-03: link a seeded note to the first Today task (Focus → RelatedNotes). */
       notes?: 'focus';
+      /** CAL-02: hold each "말로 적기" read this long (ms), to see the wait state. */
+      parseDelayMs?: number;
     };
     /** Mock-mode only: the in-page synthetic database, for screenshot/state scripts. */
     __OHMYDATE_MOCK_DB__?: MockDb;
@@ -36,11 +39,14 @@ if (overrides?.replan !== undefined) {
 if (overrides?.estimation === 'cold') seedColdEstimation(mockDb);
 if (overrides?.today === 'risk') seedTodayRisk(mockDb);
 if (overrides?.notes === 'focus') seedFocusNote(mockDb);
+if (overrides?.parseDelayMs !== undefined) setCommitmentParseDelay(overrides.parseDelayMs);
 if (typeof window !== 'undefined') window.__OHMYDATE_MOCK_DB__ = mockDb;
 
 export const worker = setupWorker(
   ...createHandlers(mockDb),
   ...createIntakeHandlers(mockDb),
+  // CAL-02: before the planning handlers so /commitments:parse never reaches /commitments.
+  ...createCommitmentParseHandlers(mockDb),
   ...createPlanningHandlers(mockDb),
   ...createReplanHandlers(mockDb),
   ...createNotesHandlers(mockDb),

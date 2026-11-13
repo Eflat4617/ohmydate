@@ -14,6 +14,14 @@
  */
 export const AI_REQUEST_CLIENT_BOUND_MS = 315_000;
 
+/**
+ * CAL-02: `POST /commitments:parse` is a short read. Server bound: 2 x 20 s
+ * attempts + 10 s slack = 50 s, plus the agent_run writes; the client waits
+ * 65 s and then gives up (a read stores nothing, so the person can just
+ * read again).
+ */
+export const COMMITMENT_PARSE_CLIENT_BOUND_MS = 65_000;
+
 export interface AiRequestOptions {
   /** Explicit cancel (the wizard's 취소 / 직접 작성으로 계속). */
   readonly signal?: AbortSignal;

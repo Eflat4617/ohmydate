@@ -1,6 +1,6 @@
 import createClient, { type Middleware } from 'openapi-fetch';
 import { ApiError, apiErrorFromPayload } from './errors';
-import { aiRequestSignal, type AiRequestOptions } from './ai-request';
+import { COMMITMENT_PARSE_CLIENT_BOUND_MS, aiRequestSignal, type AiRequestOptions } from './ai-request';
 import type { components, paths } from './schema';
 
 export type Task = components['schemas']['Task'];
@@ -55,6 +55,10 @@ export type Commitment = components['schemas']['Commitment'];
 export type CommitmentCreate = components['schemas']['CommitmentCreate'];
 export type CommitmentPatch = components['schemas']['CommitmentPatch'];
 export type CommitmentOccurrence = components['schemas']['CommitmentOccurrence'];
+/** CAL-02: natural-language commitment entry. */
+export type CommitmentDraft = components['schemas']['CommitmentDraft'];
+export type CommitmentDraftNote = CommitmentDraft['notes'][number];
+export type CommitmentParseResponse = components['schemas']['CommitmentParseResponse'];
 export type Plan = components['schemas']['Plan'];
 export type PlanCandidate = components['schemas']['PlanCandidate'];
 export type PlanCreate = components['schemas']['PlanCreate'];
@@ -489,6 +493,33 @@ export class PlannerClient {
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty commitment response');
     this.remember(`commitment:${data.id}`, data.version);
+    return data;
+  }
+
+  /**
+   * CAL-02: read a natural-language note into commitment drafts (nothing is
+   * saved). The server bound is 50 s (one attempt + one repair + slack); the
+   * client gives up a little later. Aborting `signal` (the screen's 취소)
+   * closes the request and the server cancels the model call.
+   */
+  async parseCommitments(
+    text: string,
+    idempotencyKey: string,
+    options: { readonly timeZone?: string; readonly signal?: AbortSignal } = {},
+  ): Promise<CommitmentParseResponse> {
+    const ai = aiRequestSignal({
+      boundMs: COMMITMENT_PARSE_CLIENT_BOUND_MS,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    const { data, error, response } = await this.client
+      .POST('/commitments:parse', {
+        body: { text, ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }) },
+        params: { header: { 'Idempotency-Key': idempotencyKey } },
+        signal: ai.signal,
+      })
+      .finally(() => ai.dispose());
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty commitment parse response');
     return data;
   }
 
