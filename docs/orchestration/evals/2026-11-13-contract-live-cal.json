@@ -1,0 +1,52 @@
+{
+  "eval": "m6-01-contract-live",
+  "model": "deepseek-v4.1-flash",
+  "runsPerPrompt": 3,
+  "prompts": [
+    {
+      "prompt": "commitment_parse@v1",
+      "schemaId": "llm.commitment_parse.v1",
+      "planned": 3,
+      "valid": 3,
+      "invalid": 0,
+      "errored": 0,
+      "notRun": 0,
+      "validRate": 1,
+      "attempts": 3,
+      "repairs": 0,
+      "inputTokens": 8893,
+      "outputTokens": 463,
+      "latencyMsP50": 3515,
+      "latencyMsMax": 3670,
+      "errorCodes": {},
+      "languageChecked": 0,
+      "languageMismatched": 0
+    },
+    {
+      "prompt": "task_parse@v1",
+      "schemaId": "llm.task_parse.v1",
+      "planned": 3,
+      "valid": 3,
+      "invalid": 0,
+      "errored": 0,
+      "notRun": 0,
+      "validRate": 1,
+      "attempts": 3,
+      "repairs": 0,
+      "inputTokens": 8206,
+      "outputTokens": 1071,
+      "latencyMsP50": 5714,
+      "latencyMsMax": 9421,
+      "errorCodes": {},
+      "languageChecked": 0,
+      "languageMismatched": 0
+    }
+  ],
+  "planned": 6,
+  "valid": 6,
+  "invalid": 0,
+  "errored": 0,
+  "notRun": 0,
+  "verdict": "pass",
+  "exitCode": 0
+}
