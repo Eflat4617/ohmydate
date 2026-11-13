@@ -9,7 +9,7 @@ OhMyDate: 적응형 AI 개인 플래너. 기준 명세 `ORCA_ADAPTIVE_PLANNER_MA
 - `packages/scheduler`: 순수 함수, 결정론(시드), validator는 생성기와 별도 구현.
 - `services/api`: Fastify. 라우트 → application use-case → domain/ports. 라우트에서 DB 직접 접근 금지.
 - `apps/web`: Vue 3 `<script setup lang="ts">`, Pinia, Vue Query. `v-html` 금지(sanitize 컴포넌트만).
-  화면은 `apps/web/DESIGN.md`(2026-11-13 재디자인, 텐미닛 플래너)와 `apps/web/docs/ui-polish/README.md`의 규칙을 따른다: 색·글꼴은 `tokens.css`에만, 카드·그림자·알약 배지 없음, 화면당 채워진 버튼 하나.
+  화면은 `apps/web/DESIGN.md`(2026-11-13 밤 재디자인, 어두운 대시보드 시스템)와 `apps/web/docs/ui-polish/README.md`의 규칙을 따른다: 색·글꼴은 `tokens.css`에만, 카드가 기본 단위, 화면당 채워진(라임) 버튼 하나, 다크 기본 + 라이트 테마.
 - `upstream/vikunja`: AGPL 구역. 다른 코드에서 import·복사 금지. 수정은 `PATCHES.md` 기록.
 - `core/`: Rust 코어(아래 "Rust 코어" 절). `tests-core/`: 그 블랙박스 패리티 하네스(pnpm 워크스페이스 패키지가 아니다 — lockfile을 바꾸지 않는다).
 
