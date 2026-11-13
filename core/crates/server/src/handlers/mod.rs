@@ -102,6 +102,16 @@ pub fn table() -> Vec<(&'static str, Handler)> {
     ]
 }
 
+/// Contract operations the desktop core will never serve (blueprint 15 §2):
+/// there are no accounts to log in to, and native notifications replace Web
+/// Push. They answer 404 like any unknown route.
+pub const DROPPED_OPERATIONS: [&str; 4] = [
+    "login",
+    "logout",
+    "createPushSubscription",
+    "deletePushSubscription",
+];
+
 impl Call {
     /// Runs read-only use-cases.
     pub fn read<T>(
@@ -193,5 +203,38 @@ impl Call {
             .as_ref()
             .and_then(Value::as_object)
             .ok_or_else(Problem::internal)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contract::Contract;
+
+    #[test]
+    fn every_handler_and_dropped_operation_names_a_contract_operation() {
+        let contract = Contract::embedded();
+        for (id, _) in table() {
+            assert!(
+                contract.operation(id).is_some(),
+                "handler for unknown operation {id}"
+            );
+        }
+        for id in DROPPED_OPERATIONS {
+            assert!(
+                contract.operation(id).is_some(),
+                "dropped operation {id} is not in the contract"
+            );
+        }
+    }
+
+    #[test]
+    fn no_operation_is_both_served_and_dropped_or_registered_twice() {
+        let mut ids: Vec<&str> = table().into_iter().map(|(id, _)| id).collect();
+        assert!(ids.iter().all(|id| !DROPPED_OPERATIONS.contains(id)));
+        ids.sort_unstable();
+        let before = ids.len();
+        ids.dedup();
+        assert_eq!(ids.len(), before);
     }
 }

@@ -23,7 +23,10 @@
     "local:stop": "node scripts/local/stop.mjs",
     "local:status": "node scripts/local/status.mjs",
     "test:local": "OHMYDATE_LOCAL_SMOKE=1 vitest run --config scripts/local/vitest.config.mjs",
-    "ci": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:api-client && pnpm run check:boundaries && node scripts/ci/build-smoke.mjs --required"
+    "ci": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:api-client && pnpm run check:boundaries && node scripts/ci/build-smoke.mjs --required",
+    "core:check": "cd core && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
+    "core:parity": "cd core && cargo build -p ohmydate-server && cd .. && tsc --noEmit -p tests-core && vitest run --config tests-core/vitest.config.ts",
+    "core:oracle": "tsc --noEmit -p packages/scheduler/scripts && pnpm --filter @ohmydate/contracts exec tsx ../scheduler/scripts/export-oracle.mts"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.0",

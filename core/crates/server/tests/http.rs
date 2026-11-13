@@ -304,6 +304,22 @@ async fn unknown_routes_and_unported_operations_are_distinguished() {
         "not_found",
     );
 
+    // In the contract, but dropped for the desktop: no accounts, no Web Push.
+    let login = server
+        .call(
+            "POST",
+            "/api/v1/auth/login",
+            &[],
+            Some(json!({"email": "a@b.co", "password": "x"})),
+        )
+        .await;
+    assert_problem(&login, 404, "not_found");
+    assert_problem(
+        &server.call("POST", "/api/v1/auth/logout", &[], None).await,
+        404,
+        "not_found",
+    );
+
     // In the contract, not yet served by this build.
     let unported = server.get("/api/v1/availability").await;
     assert_eq!((unported.status, unported.code()), (501, "internal_error"));

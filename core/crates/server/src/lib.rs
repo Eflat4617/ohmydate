@@ -177,6 +177,11 @@ async fn respond(
         .contract
         .route(parts.method.as_str(), api_path)
         .ok_or_else(|| Problem::not_found("no route matches this request"))?;
+    if handlers::DROPPED_OPERATIONS.contains(&operation.id.as_str()) {
+        return Err(Problem::not_found(
+            "this operation is not part of the desktop core",
+        ));
+    }
     let handler = state.handlers.get_key_value(operation.id.as_str());
     if let Some((id, _)) = handler {
         *operation_label = id;
