@@ -1,0 +1,16 @@
+[package]
+name = "ohmydate-store"
+description = "SQLite storage of the OhMyDate core: one data file, embedded migrations, typed queries."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+ohmydate-domain.workspace = true
+rusqlite.workspace = true
+sha2.workspace = true

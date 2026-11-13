@@ -1,0 +1,13 @@
+[package]
+name = "ohmydate-domain"
+description = "Pure domain types and rules of the OhMyDate core. No I/O, no dependencies."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
