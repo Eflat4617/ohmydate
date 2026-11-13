@@ -68,6 +68,14 @@ describe.skipIf(!hasDatabase)('0014 agent_run cancelled status (FU-76)', () => {
     await client.end();
     client = await connect(schema);
 
+    // 0016 (CAL-03) is newer and is unwound first.
+    const rolledBack0016 = await rollbackLatest({
+      databaseUrl: requireDatabaseUrl(),
+      schema,
+      migrationsDir,
+    });
+    expect(rolledBack0016).toBe('0016_google_calendar.sql');
+
     // 0015 (FU-92) is newer and is unwound first.
     const rolledBack0015 = await rollbackLatest({
       databaseUrl: requireDatabaseUrl(),
@@ -98,6 +106,7 @@ describe.skipIf(!hasDatabase)('0014 agent_run cancelled status (FU-76)', () => {
     expect(reapplied.applied).toEqual([
       '0014_agent_run_cancelled.sql',
       '0015_auth_sessions.sql',
+      '0016_google_calendar.sql',
     ]);
     await insertRun(ownerId, 'cancelled');
     const count = await client.query<{ count: string }>(

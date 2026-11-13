@@ -46,7 +46,7 @@ describe('setup CLI negatives', () => {
     expect(result.stderr).toContain('corepack pnpm local:stack up');
     // Secrets init still ran first and is safe to repeat.
     expect((await readdir(dir)).sort()).toEqual(
-      ['llm-session-secret', 'postgres.env', 'push.key', 'vikunja.env'].sort(),
+      ['google-token.key', 'llm-session-secret', 'postgres.env', 'push.key', 'vikunja.env'].sort(),
     );
   });
 
