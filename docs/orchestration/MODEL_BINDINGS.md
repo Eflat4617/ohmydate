@@ -110,3 +110,10 @@
 - 리뷰(계열 분리 유지): 구현자가 Fable이므로 별도 리뷰가 필요한 위험 변경은 Sol 6.1 medium, Sol 한도 시 Opus 5.5 xhigh(§12의 예외 조항과 같음).
 - 영수증의 model/effort를 원장에 기록.
 
+## 14. Fable 한도 임박 시 안전 중지 (2026-11-13 22:35, 사용자 지시)
+- 사용자: "만약 작업하다가 fable 한도가 소진될거같다 싶으면(대략 3% 남은시점) 진행중이던 작업들 안전하게 중지해놓도록해. 다른모델로 전환해서 계속하려하지마. 나중에 사용량 리셋되면 내가 계속하라고 명령해줄게"
+- 측정: `python3 -I scripts/orca/usage-guard.py read` (`orca account list --json`의 rateLimits.claude: fableWeekly·weekly·session 사용률, 97% 이상이면 exit 1). 작업자가 도는 동안 `watch`를 백그라운드로 유지.
+- 임계 도달 시: `usage-guard.py safe-stop`(살아 있는 작업자 전부 worker-stop + 각 worktree의 미커밋 변경을 WIP 커밋) → 대기 명령 정리 → 원장·작업 상태에 중지 지점 기록 → 사용자에게 보고 → 종료.
+- 금지: 다른 모델(Opus, DeepSeek, Sol)로 바꿔 이어 가기, 리셋 뒤 자동 재개. 재개는 사용자 명령으로만.
+- 2026-11-13 22:35 측정값: Fable 주간 73%, 전체 주간 68%, 리셋 (일) 오전 10:00.
+
