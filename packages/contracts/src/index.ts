@@ -477,6 +477,22 @@ export {
   type NoteSourceName,
 } from './notes.js';
 
+// CAL-02: natural-language commitment entry.
+export {
+  COMMITMENT_DRAFTS_MAX,
+  COMMITMENT_DRAFT_NOTES,
+  COMMITMENT_PARSE_LEFTOVER_MAX,
+  COMMITMENT_PARSE_TEXT_MAX,
+  CommitmentDraftNoteSchema,
+  CommitmentDraftSchema,
+  CommitmentParseRequestSchema,
+  CommitmentParseResponseSchema,
+  type CommitmentDraft,
+  type CommitmentDraftNote,
+  type CommitmentParseRequest,
+  type CommitmentParseResponse,
+} from './commitment-parse.js';
+
 export {
   contractRoutes,
   dailyRoutes,

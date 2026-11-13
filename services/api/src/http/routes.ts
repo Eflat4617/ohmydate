@@ -25,6 +25,7 @@ import {
   type AvailabilityPut,
   type CommitmentCreate,
   type CommitmentListQuery,
+  type CommitmentParseRequest,
   type CommitmentPatch,
   type DecompositionDraftDto,
   type DecompositionDraftPatch,
@@ -105,6 +106,8 @@ import { IntakeError } from '../application/intake/intake-error.js';
 import { DailyProblemError } from '../application/daily-errors.js';
 import { ReplanSuppressedError } from '../application/replan-errors.js';
 import { IntakeService } from '../application/intake/intake-service.js';
+import { CommitmentParseService } from '../application/commitment-parse/commitment-parse-service.js';
+import { currentAbortSignal } from '@ohmydate/provider-vikunja';
 import { InProcessIntakeApprovalLock } from '../application/intake/in-process-approval-lock.js';
 import { PgAgentRunRepository } from '../adapters/pg-agent-run-repository.js';
 import { PgIntakeApprovalLock } from '../adapters/pg-intake-approval-lock.js';
@@ -167,6 +170,8 @@ export interface RouteRuntime {
   readonly tasks: TaskService;
   readonly planning: PlanService;
   readonly intake: IntakeService;
+  /** CAL-02: natural-language commitment entry (drafts only). */
+  readonly commitmentParse: CommitmentParseService;
   readonly today: TodayService;
   readonly workSessions: SessionService;
   readonly notifications: NotificationStore;
@@ -561,6 +566,28 @@ async function runIdempotent(
   }
 }
 
+/**
+ * CAL-02: a signal for a short AI read that the client can cancel. It aborts
+ * when the connection closes before the answer was sent (the web's 취소
+ * aborts its fetch) and on graceful shutdown. Unlike the long intake calls
+ * (FU-76), a disconnect here does cancel: nobody is left to read the answer
+ * and the read is cheap to repeat.
+ */
+function clientAbortSignal(reply: FastifyReply): { readonly signal: AbortSignal; dispose(): void } {
+  const controller = new AbortController();
+  const onClose = (): void => {
+    if (!reply.raw.writableEnded) controller.abort();
+  };
+  reply.raw.once('close', onClose);
+  const shutdown = currentAbortSignal();
+  return {
+    signal: shutdown === undefined ? controller.signal : AbortSignal.any([controller.signal, shutdown]),
+    dispose: () => {
+      reply.raw.off('close', onClose);
+    },
+  };
+}
+
 function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyRequest, reply: FastifyReply) => Promise<FastifyReply>> {
   const userSettings = async (request: FastifyRequest, reply: FastifyReply) =>
     runIdempotent(runtime, request, reply, async () => {
@@ -812,6 +839,23 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
         body: commitment,
         headers: { ETag: etagForVersion(commitment.version) },
       };
+    });
+
+  // CAL-02: drafts only; a 200 is stored for idempotent replay (no second LLM call).
+  const parseCommitments = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const abort = clientAbortSignal(reply);
+      try {
+        const result = await runtime.commitmentParse.parse(
+          auth.userId,
+          request.body as CommitmentParseRequest,
+          abort.signal,
+        );
+        return { status: 200, body: result };
+      } finally {
+        abort.dispose();
+      }
     });
 
   const updateCommitment = async (request: FastifyRequest, reply: FastifyReply) =>
@@ -1198,6 +1242,7 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       return reply.code(200).header('ETag', etag).send(page);
     },
     createCommitment,
+    parseCommitments,
     updateCommitment,
     deleteCommitment,
     getToday: async (request, reply) => {
@@ -1808,6 +1853,22 @@ export function createRuntime(options: {
     // FU-89: generated text follows the owner's locale (ko-KR when missing/invalid).
     ownerLocales: { localeOf: async (ownerId) => (await options.users.get(ownerId))?.locale ?? null },
   });
+  const planningService = new PlanService({
+    tasks: options.repos.tasks,
+    store: options.planningStore,
+    clock: options.clock,
+  });
+  const commitmentParse = new CommitmentParseService({
+    clock: options.clock,
+    ids: options.ids,
+    agentRuns: new PgAgentRunRepository(options.db),
+    llm: options.llm,
+    llmProvider: options.config.llmProvider,
+    budgetGuard: options.budgetGuard,
+    promptLimits: llmPromptLimits(options.config),
+    ownerLocales: { localeOf: async (ownerId) => (await options.users.get(ownerId))?.locale ?? null },
+    ownerZone: async (ownerId) => (await planningService.getAvailability(ownerId)).timeZone,
+  });
   const todayStore = new PgTodayStore({
     db: options.db,
     clock: options.clock,
@@ -1864,12 +1925,9 @@ export function createRuntime(options: {
     auth: options.auth,
     projects: new ProjectService(options.repos.projects),
     tasks: new TaskService(options.repos.tasks),
-    planning: new PlanService({
-      tasks: options.repos.tasks,
-      store: options.planningStore,
-      clock: options.clock,
-    }),
+    planning: planningService,
     intake,
+    commitmentParse,
     today,
     workSessions: sessions,
     notifications,

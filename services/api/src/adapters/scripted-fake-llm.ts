@@ -4,6 +4,7 @@ import {
   type LlmCompleteResponse,
   type LlmPort,
 } from '@ohmydate/llm';
+import { fakeCommitmentParseOutput } from './fake-commitment-parse.js';
 
 /**
  * FU-76 E2E support for `LLM_PROVIDER=fake` only: for the configured owners
@@ -49,8 +50,11 @@ const SCRIPTED_STEPS = [
   },
 ] as const;
 
-export function scriptedFakeOutput(schemaId: string): unknown {
+/** `input` is read only for CAL-02 commitment_parse (the fixed-phrase reader). */
+export function scriptedFakeOutput(schemaId: string, input?: unknown): unknown {
   switch (schemaId) {
+    case 'llm.commitment_parse.v1':
+      return fakeCommitmentParseOutput(input);
     case 'llm.type_detection.v1':
       return { classification: 'new', confidence: 0.4, reasons: ['scripted_fake'] };
     case 'llm.decomposition.v1':
@@ -112,7 +116,7 @@ export class ScriptedFakeLlm implements LlmPort {
     request.onDispatch?.();
     await abortableDelay(this.#latencyMs, request.signal);
     return {
-      output: scriptedFakeOutput(request.schemaId),
+      output: scriptedFakeOutput(request.schemaId, request.input),
       usage: { inputTokens: 0, outputTokens: 0 },
       model: 'fake-llm',
       provider: 'fake',

@@ -1077,7 +1077,8 @@ export function validateRRule(rrule: string): void {
   }
 }
 
-function validateCommitment(input: CommitmentCreate, now: string): void {
+/** Create-path bounds of a commitment; also applied to CAL-02 drafts before they are offered. */
+export function validateCommitment(input: CommitmentCreate, now: string): void {
   assertStartNotTooOld(input.startAt, now);
   assertInterval(input.startAt, input.endAt);
   if (input.rrule !== undefined) validateRRule(input.rrule);

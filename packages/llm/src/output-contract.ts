@@ -51,6 +51,8 @@ const SUPPORTED_KEYWORDS: ReadonlySet<string> = new Set([
  * shape of their predecessors.
  */
 export const PROMPT_SCHEMA_IDS: Readonly<Record<string, string>> = Object.freeze({
+  // CAL-02: natural-language commitment entry (drafts only; the user adds them).
+  'commitment_parse@v1': 'llm.commitment_parse.v1',
   'decomposition@v1': 'llm.decomposition.v1',
   'decomposition@v2': 'llm.decomposition.v2',
   // FU-89: v1 / v2 plus the `outputLanguage` rule.
@@ -127,7 +129,10 @@ function describeScalar(node: JsonSchema): string {
   } else if (type === 'object') {
     parts.push('object');
   } else if (type === 'array') {
-    parts.push('array');
+    // Only reached for an array inside `anyOf` (e.g. "array or null"): say what it holds.
+    parts.push(describeArray(node));
+    const items = node['items'] as JsonSchema | undefined;
+    if (items !== undefined) parts.push(`each ${describeScalar(items)}`);
   } else {
     throw new Error(`unsupported schema type ${String(type)}`);
   }

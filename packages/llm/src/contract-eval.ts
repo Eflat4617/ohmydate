@@ -25,6 +25,7 @@ import { buildNoteContext } from './note-context.js';
 import { schemaIdForPrompt } from './output-contract.js';
 import type { LlmPort } from './port.js';
 import type { PromptLimitOverrides } from './prompt-limits.js';
+import { buildCommitmentParseInput, commitmentCalendar } from './commitment-parse.js';
 import { buildUntrustedBlock } from './privacy.js';
 import { listPromptKeys } from './prompt-registry.js';
 import { runStructured } from './run-structured.js';
@@ -125,12 +126,34 @@ function withOutputLanguage(input: Record<string, unknown>, index: number): Reco
   return { configVersion: input['configVersion'], outputLanguage: smokeOutputLanguage(index), ...input };
 }
 
+/** CAL-02: benign synthetic notes (Korean and English) for commitment_parse. */
+const COMMITMENT_NOTES: readonly string[] = [
+  '다음 주 화요일 오후 3시에 치과',
+  '14일 저녁 7시부터 9시까지 동창 모임',
+  '매주 목요일 7시 스터디',
+  'Dentist next Tuesday at 3pm, team dinner on Friday 7 to 9pm',
+  '내일 오전 10시 회의, 모레 점심 약속\n보고서 쓰기',
+];
+
+/** A fixed local "now" (Friday 2026-11-13 14:05 in Seoul), so the smoke input is deterministic. */
+function commitmentParseInput(index: number): Record<string, unknown> {
+  const bundle = buildCommitmentParseInput({
+    text: COMMITMENT_NOTES[index % COMMITMENT_NOTES.length] as string,
+    now: { date: '2026-11-13', weekday: 'FR', time: '14:05' },
+    calendar: commitmentCalendar('2026-11-13'),
+    timeZone: 'Asia/Seoul',
+    outputLanguage: smokeOutputLanguage(index),
+  });
+  return { ...bundle.input };
+}
+
 /**
  * Benign synthetic input per registered prompt key, shaped like the production
  * inputs (services/api intake builders) where a production caller exists. The
  * FU-89 versions carry `outputLanguage`; the older versions keep their inputs.
  */
 export const CONTRACT_SMOKE_INPUTS: Readonly<Record<string, (index: number) => unknown>> = {
+  'commitment_parse@v1': (index) => commitmentParseInput(index),
   'type_detection@v1': (index) => detectionInput(index),
   'type_detection@v2': (index) => withOutputLanguage(detectionInput(index), index),
   'decomposition@v1': (index) => decompositionInput(index),
@@ -165,6 +188,8 @@ export function userFacingStrings(schemaId: string, output: unknown): string[] {
   const value = (output ?? {}) as Record<string, unknown>;
   const list = (key: string): unknown[] => (Array.isArray(value[key]) ? (value[key] as unknown[]) : []);
   const strings: unknown[] = [];
+  // CAL-02: commitment_parse writes no generated prose; its titles and leftover
+  // are copied note text in the note's own language, so they are not judged.
   if (schemaId === 'llm.type_detection.v1') strings.push(...list('reasons'));
   if (schemaId === 'llm.decomposition.v1' || schemaId === 'llm.decomposition.v2') {
     for (const step of list('steps') as Record<string, unknown>[]) {

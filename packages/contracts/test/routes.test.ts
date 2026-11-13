@@ -185,6 +185,12 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     optionalHeaders: [],
     statuses: [201, 400, 401, 403, 422],
   },
+  // CAL-02: reads drafts only; 409 idempotency_in_progress, 503 LLM.
+  parseCommitments: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 409, 422, 503],
+  },
   updateCommitment: {
     requiredHeaders: ['If-Match', 'Idempotency-Key'],
     optionalHeaders: [],
@@ -490,6 +496,7 @@ test('route table covers availability, commitment and planning endpoints from 08
     'PUT /availability',
     'GET /commitments',
     'POST /commitments',
+    'POST /commitments:parse',
     'PATCH /commitments/{id}',
     'DELETE /commitments/{id}',
   ]) {
@@ -695,6 +702,7 @@ test('creation POSTs require Idempotency-Key without If-Match', () => {
     'createIntakeSession',
     'createPlan',
     'createCommitment',
+    'parseCommitments',
     'createSession',
     'createPushSubscription',
     'createExport',
