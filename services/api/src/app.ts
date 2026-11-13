@@ -100,8 +100,19 @@ import {
   ConstraintViolationError,
   PlanConflictError,
 } from './application/planning-errors.js';
-import { installShutdownContext } from './http/shutdown-context.js';
-import { NotConfiguredGoogleIntegration } from './application/google-integration.js';
+import { installShutdownContext, shutdownControllerFor } from './http/shutdown-context.js';
+import {
+  NotConfiguredGoogleIntegration,
+  type GoogleIntegrationService,
+} from './application/google-integration.js';
+import {
+  GoogleCalendarService,
+  type Scheduler as GoogleNudgeScheduler,
+} from './application/google-calendar-service.js';
+import type { GoogleCalendarPort, GoogleOAuthPort } from './application/google-calendar-ports.js';
+import { GoogleHttpClient } from './adapters/google-http.js';
+import { PgGoogleCalendarStore } from './adapters/pg-google-calendar-store.js';
+import { loadGoogleOAuthSecrets, type GoogleOAuthSecrets } from './google-config.js';
 import { loggedPath, loggedUrl } from './http/log-url.js';
 import './http/fastify-augment.js';
 
@@ -156,6 +167,21 @@ export interface BuildAppOptions {
    * background sweeps out of isolated test processes.
    */
   readonly jobOverrides?: MaintenanceJobOverrides;
+  /**
+   * CAL-03: boot-time Google secrets (main reads them once; `undefined` reads
+   * them from config here, `null` = not configured) and test-only fake ports.
+   */
+  readonly google?: GoogleAppOptions;
+}
+
+export interface GoogleAppOptions {
+  readonly secrets?: GoogleOAuthSecrets | null;
+  readonly oauth?: GoogleOAuthPort;
+  readonly calendar?: GoogleCalendarPort;
+  readonly nudgeScheduler?: GoogleNudgeScheduler;
+  readonly nudgeDelayMs?: number;
+  readonly runBoundMs?: number;
+  readonly maxEventPages?: number;
 }
 
 export interface MaintenanceJobOverrides {
@@ -186,6 +212,15 @@ export function defaultLoggerOptions(config: AppConfig): LoggerOption {
         'req.body.cookie',
         'password',
         'token',
+        // CAL-03: Google OAuth material, should any object ever carry it.
+        'accessToken',
+        'refreshToken',
+        'access_token',
+        'refresh_token',
+        'clientSecret',
+        'client_secret',
+        'codeVerifier',
+        'code_verifier',
       ],
       censor: '[REDACTED]',
     },
@@ -464,6 +499,70 @@ function hasExplicitBudget(value: unknown): boolean {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   const llm = (value as Record<string, unknown>)['llm'];
   return llm !== null && typeof llm === 'object' && !Array.isArray(llm) && Object.hasOwn(llm, 'budget');
+}
+
+/**
+ * CAL-03 composition: without an OAuth client file and token key the
+ * integration is `not_configured` (a normal state). Otherwise the fetch-based
+ * Google adapter (or injected test fakes) drives the service.
+ */
+function composeGoogleIntegration(input: {
+  readonly app: FastifyInstance;
+  readonly options: BuildAppOptions;
+  readonly config: AppConfig;
+  readonly db: Kysely<Database>;
+  readonly clock: Clock;
+  readonly ids: IdGenerator;
+  readonly repos: AppRepositories;
+  readonly planningStore: PgPlanningStore;
+}): { readonly service: GoogleIntegrationService; readonly calendarService: GoogleCalendarService | null } {
+  const { app, options, config, db, clock, ids, repos, planningStore } = input;
+  const store = new PgGoogleCalendarStore({
+    db,
+    clock,
+    ids,
+    availability: (ownerId) => planningStore.getAvailability(ownerId),
+  });
+  const secrets =
+    options.google?.secrets !== undefined ? options.google.secrets : loadGoogleOAuthSecrets(config);
+  if (secrets === null) {
+    if ((config.googleOAuthClientFile === null) !== (config.googleTokenKeyFile === null)) {
+      app.log.warn(
+        { configured: config.googleOAuthClientFile === null ? 'GOOGLE_TOKEN_KEY_FILE' : 'GOOGLE_OAUTH_CLIENT_FILE' },
+        'Google Calendar sync needs both GOOGLE_OAUTH_CLIENT_FILE and GOOGLE_TOKEN_KEY_FILE; it stays not_configured',
+      );
+    }
+    return {
+      service: new NotConfiguredGoogleIntegration(async (ownerId, from, to) => ({
+        items: [...(await store.listDayEvents(ownerId, from, to))],
+      })),
+      calendarService: null,
+    };
+  }
+  const http = new GoogleHttpClient({ clientId: secrets.clientId, clientSecret: secrets.clientSecret });
+  const shutdownSignal = shutdownControllerFor(app)?.signal;
+  const calendarService = new GoogleCalendarService({
+    oauthConfig: {
+      clientId: secrets.clientId,
+      redirectUri: secrets.redirectUri,
+      webOrigin: secrets.webOrigin,
+      tokenKey: secrets.tokenKey,
+    },
+    oauth: options.google?.oauth ?? http,
+    calendar: options.google?.calendar ?? http,
+    store,
+    tasks: repos.tasks,
+    clock,
+    importDays: config.googleImportDays,
+    exportDays: config.googleExportDays,
+    ...(shutdownSignal === undefined ? {} : { shutdownSignal }),
+    ...(options.google?.nudgeScheduler === undefined ? {} : { scheduler: options.google.nudgeScheduler }),
+    ...(options.google?.nudgeDelayMs === undefined ? {} : { nudgeDelayMs: options.google.nudgeDelayMs }),
+    ...(options.google?.runBoundMs === undefined ? {} : { runBoundMs: options.google.runBoundMs }),
+    ...(options.google?.maxEventPages === undefined ? {} : { maxEventPages: options.google.maxEventPages }),
+    logger: { warn: (message, details) => app.log.warn(details ?? {}, message) },
+  });
+  return { service: calendarService, calendarService };
 }
 
 const startupSweeps = new WeakMap<
@@ -758,6 +857,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       { allowUnpricedModels: ['fake-llm'] },
     );
 
+  const google = composeGoogleIntegration({ app, options, config, db, clock, ids, repos, planningStore });
+
   const runtime = createRuntime({
     config,
     clock,
@@ -771,7 +872,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     planningStore,
     llm,
     budgetGuard,
-    google: new NotConfiguredGoogleIntegration(),
+    google: google.service,
     logger: {
       warn: (message, details) => app.log.warn(details ?? {}, message),
     },

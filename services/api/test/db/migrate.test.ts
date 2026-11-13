@@ -42,6 +42,7 @@ const MIGRATION_FILES = [
   '0013_context_documents.sql',
   '0014_agent_run_cancelled.sql',
   '0015_auth_sessions.sql',
+  '0016_google_calendar.sql',
 ] as const;
 
 const M1_TABLES = [
@@ -119,6 +120,14 @@ const NOTES_TABLES = ['context_document', 'document_link', 'note_ai_usage'];
 // 0015_auth_sessions.sql (FU-92).
 const AUTH_SESSION_TABLES = ['auth_session'];
 
+// 0016_google_calendar.sql (CAL-03).
+const GOOGLE_CALENDAR_TABLES = [
+  'calendar_day_event',
+  'google_calendar',
+  'google_calendar_connection',
+  'google_export_mapping',
+];
+
 describe.skipIf(!hasDatabase)('migration runner', () => {
   let schema: string;
 
@@ -167,6 +176,7 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           ...REPLANNING_TABLES,
           ...NOTES_TABLES,
           ...AUTH_SESSION_TABLES,
+          ...GOOGLE_CALENDAR_TABLES,
           'schema_migrations',
         ].sort(),
       );
@@ -469,6 +479,27 @@ describe.skipIf(!hasDatabase)('migration runner', () => {
           expect(availabilityColumns.rows.map((row) => row.column_name)).toEqual([]);
           const stillThere = await client.query<{ name: string | null }>(
             `SELECT to_regclass('user_availability_version')::text AS name`,
+          );
+          expect(stillThere.rows[0]?.name).not.toBeNull();
+        } else if (migration === '0016_google_calendar.sql') {
+          // CAL-03: the Google tables and the external columns go; commitments stay.
+          for (const table of GOOGLE_CALENDAR_TABLES) {
+            const gone = await client.query<{ name: string | null }>(
+              `SELECT to_regclass($1)::text AS name`,
+              [table],
+            );
+            expect({ table, name: gone.rows[0]?.name }).toEqual({ table, name: null });
+          }
+          const columns = await client.query<{ column_name: string }>(
+            `SELECT column_name
+               FROM information_schema.columns
+              WHERE table_schema = $1 AND table_name = 'commitment_event'
+                AND column_name LIKE 'external_%'`,
+            [schema],
+          );
+          expect(columns.rows).toEqual([]);
+          const stillThere = await client.query<{ name: string | null }>(
+            `SELECT to_regclass('commitment_event')::text AS name`,
           );
           expect(stillThere.rows[0]?.name).not.toBeNull();
         } else if (migration === '0015_auth_sessions.sql') {

@@ -66,6 +66,34 @@ const DEFAULT_PREFS: AvailabilityPreferencesDto = {
 type Db = Kysely<Database>;
 type Trx = Transaction<Database>;
 
+/**
+ * Every commitment write increments the owner's availability_version inside
+ * the writing transaction (08 §2.4a). Shared with the Google import (CAL-03),
+ * whose 약속 changes must behave like manual edits.
+ */
+export async function bumpAvailabilityVersion(trx: Trx, ownerId: Id, now: Date): Promise<void> {
+  const userRow = await trx
+    .selectFrom('user')
+    .select('time_zone')
+    .where('id', '=', ownerId)
+    .executeTakeFirst();
+  await trx
+    .insertInto('user_availability_version')
+    .values({
+      owner_id: ownerId,
+      version: 1,
+      time_zone: userRow?.time_zone ?? 'UTC',
+      prefs: jsonb(prefsJson(DEFAULT_PREFS)),
+    })
+    .onConflict((oc) => oc.column('owner_id').doNothing())
+    .execute();
+  await trx
+    .updateTable('user_availability_version')
+    .set({ version: sql<number>`version + 1`, updated_at: now })
+    .where('owner_id', '=', ownerId)
+    .execute();
+}
+
 const MAX_RANGE_MS = 366 * 24 * 60 * 60 * 1000;
 
 function toInstant(value: Date | string): Instant {
@@ -1158,26 +1186,7 @@ export class PgPlanningStore implements PlanningStore {
   }
 
   async #bumpAvailability(trx: Trx, ownerId: Id, now: Date): Promise<void> {
-    const userRow = await trx
-      .selectFrom('user')
-      .select('time_zone')
-      .where('id', '=', ownerId)
-      .executeTakeFirst();
-    await trx
-      .insertInto('user_availability_version')
-      .values({
-        owner_id: ownerId,
-        version: 1,
-        time_zone: userRow?.time_zone ?? 'UTC',
-        prefs: jsonb(prefsJson(DEFAULT_PREFS)),
-      })
-      .onConflict((oc) => oc.column('owner_id').doNothing())
-      .execute();
-    await trx
-      .updateTable('user_availability_version')
-      .set({ version: sql<number>`version + 1`, updated_at: now })
-      .where('owner_id', '=', ownerId)
-      .execute();
+    await bumpAvailabilityVersion(trx, ownerId, now);
   }
 
   #mapCommitment(row: {

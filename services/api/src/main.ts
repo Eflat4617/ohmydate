@@ -23,6 +23,7 @@ import {
   type AppConfig,
 } from './config.js';
 import type { Database } from './db/types.js';
+import { loadGoogleOAuthSecrets } from './google-config.js';
 
 const { Pool } = pg;
 
@@ -593,6 +594,9 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
   const llmApiKey = loadLlmApiKey(baseConfig);
   // Stable HMAC secret for the gateway session header (read once, never logged).
   const llmSessionSecret = loadLlmSessionSecret(baseConfig);
+  // CAL-03: Google OAuth client + refresh-token key, read once; a configured
+  // but missing/open/malformed file fails boot naming the env variable only.
+  const googleSecrets = loadGoogleOAuthSecrets(baseConfig);
 
   const config: AppConfig = {
     ...baseConfig,
@@ -624,6 +628,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<void> 
     db,
     ...(llmApiKey.length === 0 ? {} : { llmApiKey }),
     ...(llmSessionSecret.length === 0 ? {} : { llmSessionSecret }),
+    google: { secrets: googleSecrets },
   });
   poolErrorReport.report = (error) =>
     app.log.warn(pgClientErrorDetails(error), 'pg client error');

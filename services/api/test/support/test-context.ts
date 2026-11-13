@@ -21,6 +21,7 @@ import { Kysely, PostgresDialect } from 'kysely';
 import pg from 'pg';
 import {
   buildApp,
+  type GoogleAppOptions,
   type LoggerInstanceOption,
   type MaintenanceJobOverrides,
 } from '../../src/app.js';
@@ -104,6 +105,8 @@ export interface TestContextOptions {
   readonly budgetGuard?: BudgetGuard;
   /** Leader-only maintenance jobs are disabled unless a test opts in. */
   readonly jobOverrides?: MaintenanceJobOverrides;
+  /** CAL-03: Google secrets and fake ports (never the real Google). */
+  readonly google?: GoogleAppOptions;
 }
 
 export async function createTestContext(
@@ -142,6 +145,7 @@ export async function createTestContext(
     ...(options.llm === undefined ? {} : { llm: options.llm }),
     ...(options.llmApiKey === undefined ? {} : { llmApiKey: options.llmApiKey }),
     ...(options.budgetGuard === undefined ? {} : { budgetGuard: options.budgetGuard }),
+    ...(options.google === undefined ? {} : { google: options.google }),
     jobOverrides: options.jobOverrides ?? {
       notificationIntervalMs: 0,
       exportPurgeIntervalMs: 0,
