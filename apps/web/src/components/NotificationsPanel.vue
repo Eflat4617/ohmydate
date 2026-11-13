@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { inject, onMounted, ref } from 'vue';
+import { inject, onMounted, ref, watch } from 'vue';
 import { routerKey } from 'vue-router';
 import { plannerClient, uuidV7Key, type Notification as PlannerNotification } from '../api';
 import { notificationLabel, useNotifications } from '../notifications/useNotifications';
@@ -17,13 +17,20 @@ import UiIcon from './ui/UiIcon.vue';
 import UiSpinner from './ui/UiSpinner.vue';
 
 const props = defineProps<{ open: boolean }>();
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; unread: [count: number] }>();
 
 const offline = useOfflineStore();
 const auth = useAuthStore();
 const router = inject(routerKey, null);
 const { items, visibleItems, loading, error, start, dismiss } = useNotifications();
 const busyId = ref<string | null>(null);
+// HOLO-01: the top bar's bell shows a dot while something delivered is still
+// listed here (sent, not dismissed).
+watch(
+  () => items.value.filter((item) => item.state === 'sent').length,
+  (count) => emit('unread', count),
+  { immediate: true },
+);
 const pushSupported = ref(false);
 const pushStatus = ref<'idle' | 'denied' | 'enabled' | 'unavailable'>('idle');
 const pushBusy = ref(false);

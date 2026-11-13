@@ -182,6 +182,36 @@ export const ICONS = {
       'M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1.1-1.1',
     ],
   },
+  // HOLO-01: the dashboard shell and its widgets.
+  overview: {
+    paths: ['M4.5 4.5h5.5v5.5H4.5z', 'M14 4.5h5.5v5.5H14z', 'M4.5 14h5.5v5.5H4.5z', 'M14 14h5.5v5.5H14z'],
+  },
+  sidebar: {
+    paths: ['M5.5 4.5h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1z', 'M9.5 4.5v15'],
+  },
+  sun: {
+    paths: ['M12 3.5v2', 'M12 18.5v2', 'M3.5 12h2', 'M18.5 12h2', 'M6 6l1.4 1.4', 'M16.6 16.6L18 18', 'M6 18l1.4-1.4', 'M16.6 7.4L18 6'],
+    circles: [[12, 12, 3.75]],
+  },
+  moon: { paths: ['M19.5 14.2A7.75 7.75 0 0 1 9.8 4.5a7.75 7.75 0 1 0 9.7 9.7z'] },
+  monitor: {
+    paths: ['M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z', 'M9 19.5h6', 'M12 16v3.5'],
+  },
+  // The "open" corner of a card: to the screen that owns the detail.
+  open: { paths: ['M8 16l8-8', 'M9.5 8H16v6.5'] },
+  user: { paths: ['M5 19.5a7 7 0 0 1 14 0'], circles: [[12, 8.5, 3.5]] },
+  timer: { paths: ['M12 10v3.5l2 1.5', 'M10 3.5h4', 'M12 3.5v3.25'], circles: [[12, 13.5, 6.75]] },
+  bolt: { paths: ['M13 3.5L6 13.5h5l-1 7 7-10h-5z'] },
+  ring: { paths: ['M12 4a8 8 0 0 1 8 8'], circles: [[12, 12, 8], [12, 12, 3.25]] },
+  list: {
+    paths: ['M9 6.5h10.5', 'M9 12h10.5', 'M9 17.5h10.5'],
+    dots: [
+      [5, 6.5],
+      [5, 12],
+      [5, 17.5],
+    ],
+  },
+  'chevron-down': { paths: ['M6.5 9.5L12 15l5.5-5.5'] },
 } as const satisfies Record<string, IconShape>;
 
 export type IconName = keyof typeof ICONS;

@@ -4,689 +4,1018 @@
   "title": "Design System: OhMyDate",
   "extensions": {
     "colorMeta": {
-      "paper": {
+      "ground": {
         "role": "neutral",
-        "displayName": "Paper",
-        "canonical": "oklch(99% 0.004 215)",
+        "displayName": "Ground",
+        "canonical": "oklch(14% 0.008 150)",
         "tonalRamp": [
-          "oklch(15% 0.002 215)",
-          "oklch(27% 0.003 215)",
-          "oklch(39% 0.004 215)",
-          "oklch(51% 0.004 215)",
-          "oklch(63% 0.004 215)",
-          "oklch(75% 0.003 215)",
-          "oklch(86% 0.002 215)",
-          "oklch(95% 0.001 215)"
+          "oklch(15% 0.004 150)",
+          "oklch(27% 0.004 150)",
+          "oklch(39% 0.008 150)",
+          "oklch(51% 0.008 150)",
+          "oklch(63% 0.008 150)",
+          "oklch(75% 0.008 150)",
+          "oklch(86% 0.004 150)",
+          "oklch(95% 0.004 150)"
         ],
-        "darkScheme": "paper-dark"
+        "lightScheme": "ground-light"
       },
-      "paper-2": {
+      "surface": {
         "role": "neutral",
-        "displayName": "Paper Well",
-        "canonical": "oklch(96.8% 0.007 215)",
+        "displayName": "Card Surface",
+        "canonical": "oklch(17.5% 0.009 150)",
         "tonalRamp": [
-          "oklch(15% 0.003 215)",
-          "oklch(27% 0.005 215)",
-          "oklch(39% 0.006 215)",
-          "oklch(51% 0.007 215)",
-          "oklch(63% 0.007 215)",
-          "oklch(75% 0.006 215)",
-          "oklch(86% 0.004 215)",
-          "oklch(95% 0.002 215)"
+          "oklch(15% 0.005 150)",
+          "oklch(27% 0.005 150)",
+          "oklch(39% 0.009 150)",
+          "oklch(51% 0.009 150)",
+          "oklch(63% 0.009 150)",
+          "oklch(75% 0.009 150)",
+          "oklch(86% 0.005 150)",
+          "oklch(95% 0.005 150)"
         ],
-        "darkScheme": "paper-2-dark"
+        "lightScheme": "surface-light"
       },
-      "paper-3": {
+      "raised": {
         "role": "neutral",
-        "displayName": "Paper Pressed",
-        "canonical": "oklch(94% 0.011 215)",
+        "displayName": "Raised Surface",
+        "canonical": "oklch(21.5% 0.011 150)",
         "tonalRamp": [
-          "oklch(15% 0.005 215)",
-          "oklch(27% 0.008 215)",
-          "oklch(39% 0.01 215)",
-          "oklch(51% 0.011 215)",
-          "oklch(63% 0.011 215)",
-          "oklch(75% 0.009 215)",
-          "oklch(86% 0.007 215)",
-          "oklch(95% 0.004 215)"
+          "oklch(15% 0.006 150)",
+          "oklch(27% 0.006 150)",
+          "oklch(39% 0.011 150)",
+          "oklch(51% 0.011 150)",
+          "oklch(63% 0.011 150)",
+          "oklch(75% 0.011 150)",
+          "oklch(86% 0.006 150)",
+          "oklch(95% 0.006 150)"
         ],
-        "darkScheme": "paper-3-dark"
+        "lightScheme": "raised-light"
       },
-      "rule": {
+      "inset": {
         "role": "neutral",
-        "displayName": "Grid Rule",
-        "canonical": "oklch(86% 0.02 215)",
+        "displayName": "Inset Well",
+        "canonical": "oklch(11.5% 0.006 150)",
         "tonalRamp": [
-          "oklch(15% 0.009 215)",
-          "oklch(27% 0.014 215)",
-          "oklch(39% 0.018 215)",
-          "oklch(51% 0.02 215)",
-          "oklch(63% 0.02 215)",
-          "oklch(75% 0.017 215)",
-          "oklch(86% 0.012 215)",
-          "oklch(95% 0.007 215)"
+          "oklch(15% 0.003 150)",
+          "oklch(27% 0.003 150)",
+          "oklch(39% 0.006 150)",
+          "oklch(51% 0.006 150)",
+          "oklch(63% 0.006 150)",
+          "oklch(75% 0.006 150)",
+          "oklch(86% 0.003 150)",
+          "oklch(95% 0.003 150)"
         ],
-        "darkScheme": "rule-dark"
+        "lightScheme": "inset-light"
       },
-      "rule-2": {
+      "fill": {
         "role": "neutral",
-        "displayName": "Minor Rule",
-        "canonical": "oklch(92.5% 0.012 215)",
+        "displayName": "Neutral Fill",
+        "canonical": "oklch(23.5% 0.011 150)",
         "tonalRamp": [
-          "oklch(15% 0.005 215)",
-          "oklch(27% 0.008 215)",
-          "oklch(39% 0.011 215)",
-          "oklch(51% 0.012 215)",
-          "oklch(63% 0.012 215)",
-          "oklch(75% 0.01 215)",
-          "oklch(86% 0.007 215)",
-          "oklch(95% 0.004 215)"
+          "oklch(15% 0.006 150)",
+          "oklch(27% 0.006 150)",
+          "oklch(39% 0.011 150)",
+          "oklch(51% 0.011 150)",
+          "oklch(63% 0.011 150)",
+          "oklch(75% 0.011 150)",
+          "oklch(86% 0.006 150)",
+          "oklch(95% 0.006 150)"
         ],
-        "darkScheme": "rule-2-dark"
+        "lightScheme": "fill-light"
+      },
+      "fill-2": {
+        "role": "neutral",
+        "displayName": "Neutral Fill 2",
+        "canonical": "oklch(28% 0.012 150)",
+        "tonalRamp": [
+          "oklch(15% 0.007 150)",
+          "oklch(27% 0.007 150)",
+          "oklch(39% 0.012 150)",
+          "oklch(51% 0.012 150)",
+          "oklch(63% 0.012 150)",
+          "oklch(75% 0.012 150)",
+          "oklch(86% 0.007 150)",
+          "oklch(95% 0.007 150)"
+        ],
+        "lightScheme": "fill-2-light"
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(96% 0.005 150 / 9%)",
+        "tonalRamp": [
+          "oklch(15% 0.003 150)",
+          "oklch(27% 0.003 150)",
+          "oklch(39% 0.005 150)",
+          "oklch(51% 0.005 150)",
+          "oklch(63% 0.005 150)",
+          "oklch(75% 0.005 150)",
+          "oklch(86% 0.003 150)",
+          "oklch(95% 0.003 150)"
+        ],
+        "lightScheme": "line-light"
+      },
+      "line-strong": {
+        "role": "neutral",
+        "displayName": "Strong Hairline",
+        "canonical": "oklch(96% 0.005 150 / 17%)",
+        "tonalRamp": [
+          "oklch(15% 0.003 150)",
+          "oklch(27% 0.003 150)",
+          "oklch(39% 0.005 150)",
+          "oklch(51% 0.005 150)",
+          "oklch(63% 0.005 150)",
+          "oklch(75% 0.005 150)",
+          "oklch(86% 0.003 150)",
+          "oklch(95% 0.003 150)"
+        ],
+        "lightScheme": "line-strong-light"
       },
       "edge": {
         "role": "neutral",
         "displayName": "Control Edge",
-        "canonical": "oklch(56% 0.024 235)",
+        "canonical": "oklch(52% 0.012 150)",
         "tonalRamp": [
-          "oklch(15% 0.011 235)",
-          "oklch(27% 0.017 235)",
-          "oklch(39% 0.022 235)",
-          "oklch(51% 0.024 235)",
-          "oklch(63% 0.024 235)",
-          "oklch(75% 0.02 235)",
-          "oklch(86% 0.014 235)",
-          "oklch(95% 0.008 235)"
+          "oklch(15% 0.007 150)",
+          "oklch(27% 0.007 150)",
+          "oklch(39% 0.012 150)",
+          "oklch(51% 0.012 150)",
+          "oklch(63% 0.012 150)",
+          "oklch(75% 0.012 150)",
+          "oklch(86% 0.007 150)",
+          "oklch(95% 0.007 150)"
         ],
-        "darkScheme": "edge-dark"
+        "lightScheme": "edge-light"
       },
-      "ink": {
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "canonical": "oklch(96% 0.005 150)",
+        "tonalRamp": [
+          "oklch(15% 0.003 150)",
+          "oklch(27% 0.003 150)",
+          "oklch(39% 0.005 150)",
+          "oklch(51% 0.005 150)",
+          "oklch(63% 0.005 150)",
+          "oklch(75% 0.005 150)",
+          "oklch(86% 0.003 150)",
+          "oklch(95% 0.003 150)"
+        ],
+        "lightScheme": "text-light"
+      },
+      "text-2": {
+        "role": "neutral",
+        "displayName": "Running Text",
+        "canonical": "oklch(83% 0.008 150)",
+        "tonalRamp": [
+          "oklch(15% 0.004 150)",
+          "oklch(27% 0.004 150)",
+          "oklch(39% 0.008 150)",
+          "oklch(51% 0.008 150)",
+          "oklch(63% 0.008 150)",
+          "oklch(75% 0.008 150)",
+          "oklch(86% 0.004 150)",
+          "oklch(95% 0.004 150)"
+        ],
+        "lightScheme": "text-2-light"
+      },
+      "text-3": {
+        "role": "neutral",
+        "displayName": "Quiet Text",
+        "canonical": "oklch(69% 0.01 150)",
+        "tonalRamp": [
+          "oklch(15% 0.006 150)",
+          "oklch(27% 0.006 150)",
+          "oklch(39% 0.01 150)",
+          "oklch(51% 0.01 150)",
+          "oklch(63% 0.01 150)",
+          "oklch(75% 0.01 150)",
+          "oklch(86% 0.006 150)",
+          "oklch(95% 0.006 150)"
+        ],
+        "lightScheme": "text-3-light"
+      },
+      "lime": {
         "role": "primary",
-        "displayName": "Pen-Black Ink",
-        "canonical": "oklch(21% 0.012 255)",
+        "displayName": "Lime Signal",
+        "canonical": "oklch(89% 0.2 128)",
         "tonalRamp": [
-          "oklch(15% 0.005 255)",
-          "oklch(27% 0.008 255)",
-          "oklch(39% 0.011 255)",
-          "oklch(51% 0.012 255)",
-          "oklch(63% 0.012 255)",
-          "oklch(75% 0.01 255)",
-          "oklch(86% 0.007 255)",
-          "oklch(95% 0.004 255)"
+          "oklch(15% 0.11 128)",
+          "oklch(27% 0.11 128)",
+          "oklch(39% 0.2 128)",
+          "oklch(51% 0.2 128)",
+          "oklch(63% 0.2 128)",
+          "oklch(75% 0.2 128)",
+          "oklch(86% 0.11 128)",
+          "oklch(95% 0.11 128)"
         ],
-        "darkScheme": "ink-dark"
+        "lightScheme": "lime-light"
       },
-      "ink-2": {
+      "lime-text": {
         "role": "primary",
-        "displayName": "Running Ink",
-        "canonical": "oklch(30% 0.014 255)",
+        "displayName": "Lime As Text",
+        "canonical": "oklch(89% 0.2 128)",
         "tonalRamp": [
-          "oklch(15% 0.006 255)",
-          "oklch(27% 0.01 255)",
-          "oklch(39% 0.013 255)",
-          "oklch(51% 0.014 255)",
-          "oklch(63% 0.014 255)",
-          "oklch(75% 0.012 255)",
-          "oklch(86% 0.008 255)",
-          "oklch(95% 0.005 255)"
+          "oklch(15% 0.11 128)",
+          "oklch(27% 0.11 128)",
+          "oklch(39% 0.2 128)",
+          "oklch(51% 0.2 128)",
+          "oklch(63% 0.2 128)",
+          "oklch(75% 0.2 128)",
+          "oklch(86% 0.11 128)",
+          "oklch(95% 0.11 128)"
         ],
-        "darkScheme": "ink-2-dark"
+        "lightScheme": "lime-text-light"
       },
-      "muted": {
-        "role": "neutral",
-        "displayName": "Muted Ink",
-        "canonical": "oklch(46% 0.022 240)",
-        "tonalRamp": [
-          "oklch(15% 0.01 240)",
-          "oklch(27% 0.015 240)",
-          "oklch(39% 0.02 240)",
-          "oklch(51% 0.022 240)",
-          "oklch(63% 0.022 240)",
-          "oklch(75% 0.019 240)",
-          "oklch(86% 0.013 240)",
-          "oklch(95% 0.008 240)"
-        ],
-        "darkScheme": "muted-dark"
-      },
-      "on-ink": {
-        "role": "neutral",
-        "displayName": "Paper On Ink",
-        "canonical": "oklch(99% 0.004 215)",
-        "tonalRamp": [
-          "oklch(15% 0.002 215)",
-          "oklch(27% 0.003 215)",
-          "oklch(39% 0.004 215)",
-          "oklch(51% 0.004 215)",
-          "oklch(63% 0.004 215)",
-          "oklch(75% 0.003 215)",
-          "oklch(86% 0.002 215)",
-          "oklch(95% 0.001 215)"
-        ],
-        "darkScheme": "on-ink-dark"
-      },
-      "hl-yellow": {
-        "role": "primary",
-        "displayName": "Yellow Highlighter",
-        "canonical": "oklch(91% 0.175 100)",
-        "tonalRamp": [
-          "oklch(15% 0.079 100)",
-          "oklch(27% 0.122 100)",
-          "oklch(39% 0.158 100)",
-          "oklch(51% 0.175 100)",
-          "oklch(63% 0.175 100)",
-          "oklch(75% 0.149 100)",
-          "oklch(86% 0.105 100)",
-          "oklch(95% 0.061 100)"
-        ],
-        "darkScheme": "hl-yellow-dark"
-      },
-      "hl-mint": {
+      "cyan": {
         "role": "secondary",
-        "displayName": "Mint Highlighter",
-        "canonical": "oklch(84% 0.105 170)",
+        "displayName": "Cyan",
+        "canonical": "oklch(87% 0.12 195)",
         "tonalRamp": [
-          "oklch(15% 0.047 170)",
-          "oklch(27% 0.073 170)",
-          "oklch(39% 0.095 170)",
-          "oklch(51% 0.105 170)",
-          "oklch(63% 0.105 170)",
-          "oklch(75% 0.089 170)",
-          "oklch(86% 0.063 170)",
-          "oklch(95% 0.037 170)"
+          "oklch(15% 0.066 195)",
+          "oklch(27% 0.066 195)",
+          "oklch(39% 0.12 195)",
+          "oklch(51% 0.12 195)",
+          "oklch(63% 0.12 195)",
+          "oklch(75% 0.12 195)",
+          "oklch(86% 0.066 195)",
+          "oklch(95% 0.066 195)"
         ],
-        "darkScheme": "hl-mint-dark"
+        "lightScheme": "cyan-light"
       },
-      "hl-pink": {
+      "cyan-text": {
         "role": "secondary",
-        "displayName": "Pink Highlighter",
-        "canonical": "oklch(79% 0.125 0)",
+        "displayName": "Cyan As Text",
+        "canonical": "oklch(87% 0.12 195)",
         "tonalRamp": [
-          "oklch(15% 0.056 0)",
-          "oklch(27% 0.087 0)",
-          "oklch(39% 0.113 0)",
-          "oklch(51% 0.125 0)",
-          "oklch(63% 0.125 0)",
-          "oklch(75% 0.106 0)",
-          "oklch(86% 0.075 0)",
-          "oklch(95% 0.044 0)"
+          "oklch(15% 0.066 195)",
+          "oklch(27% 0.066 195)",
+          "oklch(39% 0.12 195)",
+          "oklch(51% 0.12 195)",
+          "oklch(63% 0.12 195)",
+          "oklch(75% 0.12 195)",
+          "oklch(86% 0.066 195)",
+          "oklch(95% 0.066 195)"
         ],
-        "darkScheme": "hl-pink-dark"
+        "lightScheme": "cyan-text-light"
       },
-      "hl-sky": {
-        "role": "secondary",
-        "displayName": "Sky Highlighter",
-        "canonical": "oklch(84% 0.085 235)",
+      "orange": {
+        "role": "tertiary",
+        "displayName": "Orange",
+        "canonical": "oklch(77% 0.15 52)",
         "tonalRamp": [
-          "oklch(15% 0.038 235)",
-          "oklch(27% 0.059 235)",
-          "oklch(39% 0.077 235)",
-          "oklch(51% 0.085 235)",
-          "oklch(63% 0.085 235)",
-          "oklch(75% 0.072 235)",
-          "oklch(86% 0.051 235)",
-          "oklch(95% 0.03 235)"
+          "oklch(15% 0.083 52)",
+          "oklch(27% 0.083 52)",
+          "oklch(39% 0.15 52)",
+          "oklch(51% 0.15 52)",
+          "oklch(63% 0.15 52)",
+          "oklch(75% 0.15 52)",
+          "oklch(86% 0.083 52)",
+          "oklch(95% 0.083 52)"
         ],
-        "darkScheme": "hl-sky-dark"
+        "lightScheme": "orange-light"
       },
-      "hl-lilac": {
+      "orange-text": {
         "role": "tertiary",
-        "displayName": "Lilac Highlighter",
-        "canonical": "oklch(81% 0.095 295)",
+        "displayName": "Orange As Text",
+        "canonical": "oklch(80% 0.12 55)",
         "tonalRamp": [
-          "oklch(15% 0.043 295)",
-          "oklch(27% 0.066 295)",
-          "oklch(39% 0.086 295)",
-          "oklch(51% 0.095 295)",
-          "oklch(63% 0.095 295)",
-          "oklch(75% 0.081 295)",
-          "oklch(86% 0.057 295)",
-          "oklch(95% 0.033 295)"
+          "oklch(15% 0.066 55)",
+          "oklch(27% 0.066 55)",
+          "oklch(39% 0.12 55)",
+          "oklch(51% 0.12 55)",
+          "oklch(63% 0.12 55)",
+          "oklch(75% 0.12 55)",
+          "oklch(86% 0.066 55)",
+          "oklch(95% 0.066 55)"
         ],
-        "darkScheme": "hl-lilac-dark"
+        "lightScheme": "orange-text-light"
       },
-      "hl-orange": {
+      "violet": {
         "role": "tertiary",
-        "displayName": "Orange Highlighter",
-        "canonical": "oklch(83% 0.125 65)",
+        "displayName": "Violet",
+        "canonical": "oklch(76% 0.13 300)",
         "tonalRamp": [
-          "oklch(15% 0.056 65)",
-          "oklch(27% 0.087 65)",
-          "oklch(39% 0.113 65)",
-          "oklch(51% 0.125 65)",
-          "oklch(63% 0.125 65)",
-          "oklch(75% 0.106 65)",
-          "oklch(86% 0.075 65)",
-          "oklch(95% 0.044 65)"
+          "oklch(15% 0.072 300)",
+          "oklch(27% 0.072 300)",
+          "oklch(39% 0.13 300)",
+          "oklch(51% 0.13 300)",
+          "oklch(63% 0.13 300)",
+          "oklch(75% 0.13 300)",
+          "oklch(86% 0.072 300)",
+          "oklch(95% 0.072 300)"
         ],
-        "darkScheme": "hl-orange-dark"
+        "lightScheme": "violet-light"
       },
-      "on-hl": {
-        "role": "neutral",
-        "displayName": "On-Highlighter Ink",
-        "canonical": "oklch(21% 0.012 255)",
-        "tonalRamp": [
-          "oklch(15% 0.005 255)",
-          "oklch(27% 0.008 255)",
-          "oklch(39% 0.011 255)",
-          "oklch(51% 0.012 255)",
-          "oklch(63% 0.012 255)",
-          "oklch(75% 0.01 255)",
-          "oklch(86% 0.007 255)",
-          "oklch(95% 0.004 255)"
-        ]
-      },
-      "on-hl-muted": {
-        "role": "neutral",
-        "displayName": "On-Highlighter Muted Ink",
-        "canonical": "oklch(33% 0.02 250)",
-        "tonalRamp": [
-          "oklch(15% 0.009 250)",
-          "oklch(27% 0.014 250)",
-          "oklch(39% 0.018 250)",
-          "oklch(51% 0.02 250)",
-          "oklch(63% 0.02 250)",
-          "oklch(75% 0.017 250)",
-          "oklch(86% 0.012 250)",
-          "oklch(95% 0.007 250)"
-        ]
-      },
-      "pen-red": {
+      "violet-text": {
         "role": "tertiary",
-        "displayName": "Red Pen",
-        "canonical": "oklch(50% 0.2 25)",
+        "displayName": "Violet As Text",
+        "canonical": "oklch(81% 0.11 300)",
         "tonalRamp": [
-          "oklch(15% 0.09 25)",
-          "oklch(27% 0.14 25)",
-          "oklch(39% 0.18 25)",
-          "oklch(51% 0.2 25)",
-          "oklch(63% 0.2 25)",
-          "oklch(75% 0.17 25)",
-          "oklch(86% 0.12 25)",
-          "oklch(95% 0.07 25)"
+          "oklch(15% 0.061 300)",
+          "oklch(27% 0.061 300)",
+          "oklch(39% 0.11 300)",
+          "oklch(51% 0.11 300)",
+          "oklch(63% 0.11 300)",
+          "oklch(75% 0.11 300)",
+          "oklch(86% 0.061 300)",
+          "oklch(95% 0.061 300)"
         ],
-        "darkScheme": "pen-red-dark"
+        "lightScheme": "violet-text-light"
       },
-      "pen-red-2": {
-        "role": "tertiary",
-        "displayName": "Red Pen Pressed",
-        "canonical": "oklch(43% 0.18 25)",
+      "green": {
+        "role": "semantic",
+        "displayName": "Green (ok)",
+        "canonical": "oklch(82% 0.15 158)",
         "tonalRamp": [
-          "oklch(15% 0.081 25)",
-          "oklch(27% 0.126 25)",
-          "oklch(39% 0.162 25)",
-          "oklch(51% 0.18 25)",
-          "oklch(63% 0.18 25)",
-          "oklch(75% 0.153 25)",
-          "oklch(86% 0.108 25)",
-          "oklch(95% 0.063 25)"
+          "oklch(15% 0.083 158)",
+          "oklch(27% 0.083 158)",
+          "oklch(39% 0.15 158)",
+          "oklch(51% 0.15 158)",
+          "oklch(63% 0.15 158)",
+          "oklch(75% 0.15 158)",
+          "oklch(86% 0.083 158)",
+          "oklch(95% 0.083 158)"
         ],
-        "darkScheme": "pen-red-2-dark"
+        "lightScheme": "green-light"
       },
-      "pen-blue": {
-        "role": "tertiary",
-        "displayName": "Blue Pen",
-        "canonical": "oklch(45% 0.17 262)",
+      "green-text": {
+        "role": "semantic",
+        "displayName": "Green As Text",
+        "canonical": "oklch(84% 0.15 158)",
         "tonalRamp": [
-          "oklch(15% 0.077 262)",
-          "oklch(27% 0.119 262)",
-          "oklch(39% 0.153 262)",
-          "oklch(51% 0.17 262)",
-          "oklch(63% 0.17 262)",
-          "oklch(75% 0.145 262)",
-          "oklch(86% 0.102 262)",
-          "oklch(95% 0.059 262)"
+          "oklch(15% 0.083 158)",
+          "oklch(27% 0.083 158)",
+          "oklch(39% 0.15 158)",
+          "oklch(51% 0.15 158)",
+          "oklch(63% 0.15 158)",
+          "oklch(75% 0.15 158)",
+          "oklch(86% 0.083 158)",
+          "oklch(95% 0.083 158)"
         ],
-        "darkScheme": "pen-blue-dark"
+        "lightScheme": "green-text-light"
       },
-      "paper-dark": {
-        "role": "neutral",
-        "displayName": "Paper (dark scheme)",
-        "canonical": "oklch(19% 0.01 240)",
+      "amber": {
+        "role": "semantic",
+        "displayName": "Amber (caution)",
+        "canonical": "oklch(85% 0.14 85)",
         "tonalRamp": [
-          "oklch(15% 0.005 240)",
-          "oklch(27% 0.007 240)",
-          "oklch(39% 0.009 240)",
-          "oklch(51% 0.01 240)",
-          "oklch(63% 0.01 240)",
-          "oklch(75% 0.009 240)",
-          "oklch(86% 0.006 240)",
-          "oklch(95% 0.003 240)"
-        ]
+          "oklch(15% 0.077 85)",
+          "oklch(27% 0.077 85)",
+          "oklch(39% 0.14 85)",
+          "oklch(51% 0.14 85)",
+          "oklch(63% 0.14 85)",
+          "oklch(75% 0.14 85)",
+          "oklch(86% 0.077 85)",
+          "oklch(95% 0.077 85)"
+        ],
+        "lightScheme": "amber-light"
       },
-      "paper-2-dark": {
-        "role": "neutral",
-        "displayName": "Paper Well (dark scheme)",
-        "canonical": "oklch(22.5% 0.012 240)",
+      "amber-text": {
+        "role": "semantic",
+        "displayName": "Amber As Text",
+        "canonical": "oklch(87% 0.14 85)",
         "tonalRamp": [
-          "oklch(15% 0.005 240)",
-          "oklch(27% 0.008 240)",
-          "oklch(39% 0.011 240)",
-          "oklch(51% 0.012 240)",
-          "oklch(63% 0.012 240)",
-          "oklch(75% 0.01 240)",
-          "oklch(86% 0.007 240)",
-          "oklch(95% 0.004 240)"
-        ]
+          "oklch(15% 0.077 85)",
+          "oklch(27% 0.077 85)",
+          "oklch(39% 0.14 85)",
+          "oklch(51% 0.14 85)",
+          "oklch(63% 0.14 85)",
+          "oklch(75% 0.14 85)",
+          "oklch(86% 0.077 85)",
+          "oklch(95% 0.077 85)"
+        ],
+        "lightScheme": "amber-text-light"
       },
-      "paper-3-dark": {
-        "role": "neutral",
-        "displayName": "Paper Pressed (dark scheme)",
-        "canonical": "oklch(26.5% 0.014 240)",
+      "sky": {
+        "role": "semantic",
+        "displayName": "Sky (information)",
+        "canonical": "oklch(81% 0.1 235)",
         "tonalRamp": [
-          "oklch(15% 0.006 240)",
-          "oklch(27% 0.01 240)",
-          "oklch(39% 0.013 240)",
-          "oklch(51% 0.014 240)",
-          "oklch(63% 0.014 240)",
-          "oklch(75% 0.012 240)",
-          "oklch(86% 0.008 240)",
-          "oklch(95% 0.005 240)"
-        ]
+          "oklch(15% 0.055 235)",
+          "oklch(27% 0.055 235)",
+          "oklch(39% 0.1 235)",
+          "oklch(51% 0.1 235)",
+          "oklch(63% 0.1 235)",
+          "oklch(75% 0.1 235)",
+          "oklch(86% 0.055 235)",
+          "oklch(95% 0.055 235)"
+        ],
+        "lightScheme": "sky-light"
       },
-      "rule-dark": {
-        "role": "neutral",
-        "displayName": "Grid Rule (dark scheme)",
-        "canonical": "oklch(34% 0.018 235)",
+      "sky-text": {
+        "role": "semantic",
+        "displayName": "Sky As Text",
+        "canonical": "oklch(84% 0.09 235)",
         "tonalRamp": [
-          "oklch(15% 0.008 235)",
-          "oklch(27% 0.013 235)",
-          "oklch(39% 0.016 235)",
-          "oklch(51% 0.018 235)",
-          "oklch(63% 0.018 235)",
-          "oklch(75% 0.015 235)",
-          "oklch(86% 0.011 235)",
-          "oklch(95% 0.006 235)"
-        ]
+          "oklch(15% 0.05 235)",
+          "oklch(27% 0.05 235)",
+          "oklch(39% 0.09 235)",
+          "oklch(51% 0.09 235)",
+          "oklch(63% 0.09 235)",
+          "oklch(75% 0.09 235)",
+          "oklch(86% 0.05 235)",
+          "oklch(95% 0.05 235)"
+        ],
+        "lightScheme": "sky-text-light"
       },
-      "rule-2-dark": {
-        "role": "neutral",
-        "displayName": "Minor Rule (dark scheme)",
-        "canonical": "oklch(27% 0.014 235)",
+      "red": {
+        "role": "semantic",
+        "displayName": "Red (danger)",
+        "canonical": "oklch(69% 0.19 25)",
         "tonalRamp": [
-          "oklch(15% 0.006 235)",
-          "oklch(27% 0.01 235)",
-          "oklch(39% 0.013 235)",
-          "oklch(51% 0.014 235)",
-          "oklch(63% 0.014 235)",
-          "oklch(75% 0.012 235)",
-          "oklch(86% 0.008 235)",
-          "oklch(95% 0.005 235)"
-        ]
-      },
-      "edge-dark": {
-        "role": "neutral",
-        "displayName": "Control Edge (dark scheme)",
-        "canonical": "oklch(60% 0.022 235)",
-        "tonalRamp": [
-          "oklch(15% 0.01 235)",
-          "oklch(27% 0.015 235)",
-          "oklch(39% 0.02 235)",
-          "oklch(51% 0.022 235)",
-          "oklch(63% 0.022 235)",
-          "oklch(75% 0.019 235)",
-          "oklch(86% 0.013 235)",
-          "oklch(95% 0.008 235)"
-        ]
-      },
-      "ink-dark": {
-        "role": "primary",
-        "displayName": "Pen-Black Ink (dark scheme)",
-        "canonical": "oklch(95% 0.006 220)",
-        "tonalRamp": [
-          "oklch(15% 0.003 220)",
-          "oklch(27% 0.004 220)",
-          "oklch(39% 0.005 220)",
-          "oklch(51% 0.006 220)",
-          "oklch(63% 0.006 220)",
-          "oklch(75% 0.005 220)",
-          "oklch(86% 0.004 220)",
-          "oklch(95% 0.002 220)"
-        ]
-      },
-      "ink-2-dark": {
-        "role": "primary",
-        "displayName": "Running Ink (dark scheme)",
-        "canonical": "oklch(88% 0.008 220)",
-        "tonalRamp": [
-          "oklch(15% 0.004 220)",
-          "oklch(27% 0.006 220)",
-          "oklch(39% 0.007 220)",
-          "oklch(51% 0.008 220)",
-          "oklch(63% 0.008 220)",
-          "oklch(75% 0.007 220)",
-          "oklch(86% 0.005 220)",
-          "oklch(95% 0.003 220)"
-        ]
-      },
-      "muted-dark": {
-        "role": "neutral",
-        "displayName": "Muted Ink (dark scheme)",
-        "canonical": "oklch(71% 0.016 230)",
-        "tonalRamp": [
-          "oklch(15% 0.007 230)",
-          "oklch(27% 0.011 230)",
-          "oklch(39% 0.014 230)",
-          "oklch(51% 0.016 230)",
-          "oklch(63% 0.016 230)",
-          "oklch(75% 0.014 230)",
-          "oklch(86% 0.01 230)",
-          "oklch(95% 0.006 230)"
-        ]
-      },
-      "on-ink-dark": {
-        "role": "neutral",
-        "displayName": "Paper On Ink (dark scheme)",
-        "canonical": "oklch(19% 0.01 240)",
-        "tonalRamp": [
-          "oklch(15% 0.005 240)",
-          "oklch(27% 0.007 240)",
-          "oklch(39% 0.009 240)",
-          "oklch(51% 0.01 240)",
-          "oklch(63% 0.01 240)",
-          "oklch(75% 0.009 240)",
-          "oklch(86% 0.006 240)",
-          "oklch(95% 0.003 240)"
-        ]
-      },
-      "hl-yellow-dark": {
-        "role": "primary",
-        "displayName": "Yellow Highlighter (dark scheme)",
-        "canonical": "oklch(86% 0.15 100)",
-        "tonalRamp": [
-          "oklch(15% 0.068 100)",
-          "oklch(27% 0.105 100)",
-          "oklch(39% 0.135 100)",
-          "oklch(51% 0.15 100)",
-          "oklch(63% 0.15 100)",
-          "oklch(75% 0.128 100)",
-          "oklch(86% 0.09 100)",
-          "oklch(95% 0.052 100)"
-        ]
-      },
-      "hl-mint-dark": {
-        "role": "secondary",
-        "displayName": "Mint Highlighter (dark scheme)",
-        "canonical": "oklch(78% 0.1 170)",
-        "tonalRamp": [
-          "oklch(15% 0.045 170)",
-          "oklch(27% 0.07 170)",
-          "oklch(39% 0.09 170)",
-          "oklch(51% 0.1 170)",
-          "oklch(63% 0.1 170)",
-          "oklch(75% 0.085 170)",
-          "oklch(86% 0.06 170)",
-          "oklch(95% 0.035 170)"
-        ]
-      },
-      "hl-pink-dark": {
-        "role": "secondary",
-        "displayName": "Pink Highlighter (dark scheme)",
-        "canonical": "oklch(74% 0.125 0)",
-        "tonalRamp": [
-          "oklch(15% 0.056 0)",
-          "oklch(27% 0.087 0)",
-          "oklch(39% 0.113 0)",
-          "oklch(51% 0.125 0)",
-          "oklch(63% 0.125 0)",
-          "oklch(75% 0.106 0)",
-          "oklch(86% 0.075 0)",
-          "oklch(95% 0.044 0)"
-        ]
-      },
-      "hl-sky-dark": {
-        "role": "secondary",
-        "displayName": "Sky Highlighter (dark scheme)",
-        "canonical": "oklch(78% 0.085 235)",
-        "tonalRamp": [
-          "oklch(15% 0.038 235)",
-          "oklch(27% 0.059 235)",
-          "oklch(39% 0.077 235)",
-          "oklch(51% 0.085 235)",
-          "oklch(63% 0.085 235)",
-          "oklch(75% 0.072 235)",
-          "oklch(86% 0.051 235)",
-          "oklch(95% 0.03 235)"
-        ]
-      },
-      "hl-lilac-dark": {
-        "role": "tertiary",
-        "displayName": "Lilac Highlighter (dark scheme)",
-        "canonical": "oklch(75% 0.095 295)",
-        "tonalRamp": [
-          "oklch(15% 0.043 295)",
-          "oklch(27% 0.066 295)",
-          "oklch(39% 0.086 295)",
-          "oklch(51% 0.095 295)",
-          "oklch(63% 0.095 295)",
-          "oklch(75% 0.081 295)",
-          "oklch(86% 0.057 295)",
-          "oklch(95% 0.033 295)"
-        ]
-      },
-      "hl-orange-dark": {
-        "role": "tertiary",
-        "displayName": "Orange Highlighter (dark scheme)",
-        "canonical": "oklch(78% 0.12 65)",
-        "tonalRamp": [
-          "oklch(15% 0.054 65)",
-          "oklch(27% 0.084 65)",
-          "oklch(39% 0.108 65)",
-          "oklch(51% 0.12 65)",
-          "oklch(63% 0.12 65)",
-          "oklch(75% 0.102 65)",
-          "oklch(86% 0.072 65)",
-          "oklch(95% 0.042 65)"
-        ]
-      },
-      "pen-red-dark": {
-        "role": "tertiary",
-        "displayName": "Red Pen (dark scheme)",
-        "canonical": "oklch(73% 0.15 25)",
-        "tonalRamp": [
-          "oklch(15% 0.068 25)",
+          "oklch(15% 0.105 25)",
           "oklch(27% 0.105 25)",
-          "oklch(39% 0.135 25)",
-          "oklch(51% 0.15 25)",
-          "oklch(63% 0.15 25)",
-          "oklch(75% 0.128 25)",
-          "oklch(86% 0.09 25)",
-          "oklch(95% 0.052 25)"
+          "oklch(39% 0.19 25)",
+          "oklch(51% 0.19 25)",
+          "oklch(63% 0.19 25)",
+          "oklch(75% 0.19 25)",
+          "oklch(86% 0.105 25)",
+          "oklch(95% 0.105 25)"
+        ],
+        "lightScheme": "red-light"
+      },
+      "red-text": {
+        "role": "semantic",
+        "displayName": "Red As Text",
+        "canonical": "oklch(78% 0.12 22)",
+        "tonalRamp": [
+          "oklch(15% 0.066 22)",
+          "oklch(27% 0.066 22)",
+          "oklch(39% 0.12 22)",
+          "oklch(51% 0.12 22)",
+          "oklch(63% 0.12 22)",
+          "oklch(75% 0.12 22)",
+          "oklch(86% 0.066 22)",
+          "oklch(95% 0.066 22)"
+        ],
+        "lightScheme": "red-text-light"
+      },
+      "on-accent": {
+        "role": "neutral",
+        "displayName": "Text On A Bright Fill",
+        "canonical": "oklch(17% 0.03 140)",
+        "tonalRamp": [
+          "oklch(15% 0.017 140)",
+          "oklch(27% 0.017 140)",
+          "oklch(39% 0.03 140)",
+          "oklch(51% 0.03 140)",
+          "oklch(63% 0.03 140)",
+          "oklch(75% 0.03 140)",
+          "oklch(86% 0.017 140)",
+          "oklch(95% 0.017 140)"
         ]
       },
-      "pen-red-2-dark": {
-        "role": "tertiary",
-        "displayName": "Red Pen Pressed (dark scheme)",
-        "canonical": "oklch(79% 0.13 25)",
+      "on-accent-2": {
+        "role": "neutral",
+        "displayName": "Quiet Text On A Bright Fill",
+        "canonical": "oklch(31% 0.04 140)",
         "tonalRamp": [
-          "oklch(15% 0.059 25)",
-          "oklch(27% 0.091 25)",
-          "oklch(39% 0.117 25)",
-          "oklch(51% 0.13 25)",
-          "oklch(63% 0.13 25)",
-          "oklch(75% 0.111 25)",
-          "oklch(86% 0.078 25)",
-          "oklch(95% 0.045 25)"
+          "oklch(15% 0.022 140)",
+          "oklch(27% 0.022 140)",
+          "oklch(39% 0.04 140)",
+          "oklch(51% 0.04 140)",
+          "oklch(63% 0.04 140)",
+          "oklch(75% 0.04 140)",
+          "oklch(86% 0.022 140)",
+          "oklch(95% 0.022 140)"
         ]
       },
-      "pen-blue-dark": {
-        "role": "tertiary",
-        "displayName": "Blue Pen (dark scheme)",
-        "canonical": "oklch(77% 0.11 262)",
+      "on-danger": {
+        "role": "neutral",
+        "displayName": "Text On The Danger Fill",
+        "canonical": "oklch(15% 0.03 25)",
         "tonalRamp": [
-          "oklch(15% 0.05 262)",
-          "oklch(27% 0.077 262)",
-          "oklch(39% 0.099 262)",
-          "oklch(51% 0.11 262)",
-          "oklch(63% 0.11 262)",
-          "oklch(75% 0.093 262)",
-          "oklch(86% 0.066 262)",
-          "oklch(95% 0.038 262)"
+          "oklch(15% 0.017 25)",
+          "oklch(27% 0.017 25)",
+          "oklch(39% 0.03 25)",
+          "oklch(51% 0.03 25)",
+          "oklch(63% 0.03 25)",
+          "oklch(75% 0.03 25)",
+          "oklch(86% 0.017 25)",
+          "oklch(95% 0.017 25)"
+        ],
+        "lightScheme": "on-danger-light"
+      },
+      "ground-light": {
+        "role": "neutral",
+        "displayName": "Ground (light scheme)",
+        "canonical": "oklch(96.2% 0.007 140)",
+        "tonalRamp": [
+          "oklch(15% 0.004 140)",
+          "oklch(27% 0.004 140)",
+          "oklch(39% 0.007 140)",
+          "oklch(51% 0.007 140)",
+          "oklch(63% 0.007 140)",
+          "oklch(75% 0.007 140)",
+          "oklch(86% 0.004 140)",
+          "oklch(95% 0.004 140)"
+        ]
+      },
+      "surface-light": {
+        "role": "neutral",
+        "displayName": "Card Surface (light scheme)",
+        "canonical": "oklch(100% 0 0)",
+        "tonalRamp": [
+          "oklch(15% 0.0 0)",
+          "oklch(27% 0.0 0)",
+          "oklch(39% 0.0 0)",
+          "oklch(51% 0.0 0)",
+          "oklch(63% 0.0 0)",
+          "oklch(75% 0.0 0)",
+          "oklch(86% 0.0 0)",
+          "oklch(95% 0.0 0)"
+        ]
+      },
+      "raised-light": {
+        "role": "neutral",
+        "displayName": "Raised Surface (light scheme)",
+        "canonical": "oklch(100% 0 0)",
+        "tonalRamp": [
+          "oklch(15% 0.0 0)",
+          "oklch(27% 0.0 0)",
+          "oklch(39% 0.0 0)",
+          "oklch(51% 0.0 0)",
+          "oklch(63% 0.0 0)",
+          "oklch(75% 0.0 0)",
+          "oklch(86% 0.0 0)",
+          "oklch(95% 0.0 0)"
+        ]
+      },
+      "inset-light": {
+        "role": "neutral",
+        "displayName": "Inset Well (light scheme)",
+        "canonical": "oklch(97% 0.006 140)",
+        "tonalRamp": [
+          "oklch(15% 0.003 140)",
+          "oklch(27% 0.003 140)",
+          "oklch(39% 0.006 140)",
+          "oklch(51% 0.006 140)",
+          "oklch(63% 0.006 140)",
+          "oklch(75% 0.006 140)",
+          "oklch(86% 0.003 140)",
+          "oklch(95% 0.003 140)"
+        ]
+      },
+      "fill-light": {
+        "role": "neutral",
+        "displayName": "Neutral Fill (light scheme)",
+        "canonical": "oklch(94% 0.008 140)",
+        "tonalRamp": [
+          "oklch(15% 0.004 140)",
+          "oklch(27% 0.004 140)",
+          "oklch(39% 0.008 140)",
+          "oklch(51% 0.008 140)",
+          "oklch(63% 0.008 140)",
+          "oklch(75% 0.008 140)",
+          "oklch(86% 0.004 140)",
+          "oklch(95% 0.004 140)"
+        ]
+      },
+      "fill-2-light": {
+        "role": "neutral",
+        "displayName": "Neutral Fill 2 (light scheme)",
+        "canonical": "oklch(90.5% 0.01 140)",
+        "tonalRamp": [
+          "oklch(15% 0.006 140)",
+          "oklch(27% 0.006 140)",
+          "oklch(39% 0.01 140)",
+          "oklch(51% 0.01 140)",
+          "oklch(63% 0.01 140)",
+          "oklch(75% 0.01 140)",
+          "oklch(86% 0.006 140)",
+          "oklch(95% 0.006 140)"
+        ]
+      },
+      "line-light": {
+        "role": "neutral",
+        "displayName": "Hairline (light scheme)",
+        "canonical": "oklch(21% 0.015 150 / 11%)",
+        "tonalRamp": [
+          "oklch(15% 0.008 150)",
+          "oklch(27% 0.008 150)",
+          "oklch(39% 0.015 150)",
+          "oklch(51% 0.015 150)",
+          "oklch(63% 0.015 150)",
+          "oklch(75% 0.015 150)",
+          "oklch(86% 0.008 150)",
+          "oklch(95% 0.008 150)"
+        ]
+      },
+      "line-strong-light": {
+        "role": "neutral",
+        "displayName": "Strong Hairline (light scheme)",
+        "canonical": "oklch(21% 0.015 150 / 20%)",
+        "tonalRamp": [
+          "oklch(15% 0.008 150)",
+          "oklch(27% 0.008 150)",
+          "oklch(39% 0.015 150)",
+          "oklch(51% 0.015 150)",
+          "oklch(63% 0.015 150)",
+          "oklch(75% 0.015 150)",
+          "oklch(86% 0.008 150)",
+          "oklch(95% 0.008 150)"
+        ]
+      },
+      "edge-light": {
+        "role": "neutral",
+        "displayName": "Control Edge (light scheme)",
+        "canonical": "oklch(61% 0.012 150)",
+        "tonalRamp": [
+          "oklch(15% 0.007 150)",
+          "oklch(27% 0.007 150)",
+          "oklch(39% 0.012 150)",
+          "oklch(51% 0.012 150)",
+          "oklch(63% 0.012 150)",
+          "oklch(75% 0.012 150)",
+          "oklch(86% 0.007 150)",
+          "oklch(95% 0.007 150)"
+        ]
+      },
+      "text-light": {
+        "role": "neutral",
+        "displayName": "Text (light scheme)",
+        "canonical": "oklch(21% 0.015 150)",
+        "tonalRamp": [
+          "oklch(15% 0.008 150)",
+          "oklch(27% 0.008 150)",
+          "oklch(39% 0.015 150)",
+          "oklch(51% 0.015 150)",
+          "oklch(63% 0.015 150)",
+          "oklch(75% 0.015 150)",
+          "oklch(86% 0.008 150)",
+          "oklch(95% 0.008 150)"
+        ]
+      },
+      "text-2-light": {
+        "role": "neutral",
+        "displayName": "Running Text (light scheme)",
+        "canonical": "oklch(35% 0.014 150)",
+        "tonalRamp": [
+          "oklch(15% 0.008 150)",
+          "oklch(27% 0.008 150)",
+          "oklch(39% 0.014 150)",
+          "oklch(51% 0.014 150)",
+          "oklch(63% 0.014 150)",
+          "oklch(75% 0.014 150)",
+          "oklch(86% 0.008 150)",
+          "oklch(95% 0.008 150)"
+        ]
+      },
+      "text-3-light": {
+        "role": "neutral",
+        "displayName": "Quiet Text (light scheme)",
+        "canonical": "oklch(46.5% 0.014 150)",
+        "tonalRamp": [
+          "oklch(15% 0.008 150)",
+          "oklch(27% 0.008 150)",
+          "oklch(39% 0.014 150)",
+          "oklch(51% 0.014 150)",
+          "oklch(63% 0.014 150)",
+          "oklch(75% 0.014 150)",
+          "oklch(86% 0.008 150)",
+          "oklch(95% 0.008 150)"
+        ]
+      },
+      "lime-light": {
+        "role": "primary",
+        "displayName": "Lime Signal (light scheme)",
+        "canonical": "oklch(87% 0.2 128)",
+        "tonalRamp": [
+          "oklch(15% 0.11 128)",
+          "oklch(27% 0.11 128)",
+          "oklch(39% 0.2 128)",
+          "oklch(51% 0.2 128)",
+          "oklch(63% 0.2 128)",
+          "oklch(75% 0.2 128)",
+          "oklch(86% 0.11 128)",
+          "oklch(95% 0.11 128)"
+        ]
+      },
+      "lime-text-light": {
+        "role": "primary",
+        "displayName": "Lime As Text (light scheme)",
+        "canonical": "oklch(42% 0.12 135)",
+        "tonalRamp": [
+          "oklch(15% 0.066 135)",
+          "oklch(27% 0.066 135)",
+          "oklch(39% 0.12 135)",
+          "oklch(51% 0.12 135)",
+          "oklch(63% 0.12 135)",
+          "oklch(75% 0.12 135)",
+          "oklch(86% 0.066 135)",
+          "oklch(95% 0.066 135)"
+        ]
+      },
+      "cyan-light": {
+        "role": "secondary",
+        "displayName": "Cyan (light scheme)",
+        "canonical": "oklch(84% 0.12 195)",
+        "tonalRamp": [
+          "oklch(15% 0.066 195)",
+          "oklch(27% 0.066 195)",
+          "oklch(39% 0.12 195)",
+          "oklch(51% 0.12 195)",
+          "oklch(63% 0.12 195)",
+          "oklch(75% 0.12 195)",
+          "oklch(86% 0.066 195)",
+          "oklch(95% 0.066 195)"
+        ]
+      },
+      "cyan-text-light": {
+        "role": "secondary",
+        "displayName": "Cyan As Text (light scheme)",
+        "canonical": "oklch(41% 0.065 205)",
+        "tonalRamp": [
+          "oklch(15% 0.036 205)",
+          "oklch(27% 0.036 205)",
+          "oklch(39% 0.065 205)",
+          "oklch(51% 0.065 205)",
+          "oklch(63% 0.065 205)",
+          "oklch(75% 0.065 205)",
+          "oklch(86% 0.036 205)",
+          "oklch(95% 0.036 205)"
+        ]
+      },
+      "orange-light": {
+        "role": "tertiary",
+        "displayName": "Orange (light scheme)",
+        "canonical": "oklch(74% 0.16 52)",
+        "tonalRamp": [
+          "oklch(15% 0.088 52)",
+          "oklch(27% 0.088 52)",
+          "oklch(39% 0.16 52)",
+          "oklch(51% 0.16 52)",
+          "oklch(63% 0.16 52)",
+          "oklch(75% 0.16 52)",
+          "oklch(86% 0.088 52)",
+          "oklch(95% 0.088 52)"
+        ]
+      },
+      "orange-text-light": {
+        "role": "tertiary",
+        "displayName": "Orange As Text (light scheme)",
+        "canonical": "oklch(46% 0.12 45)",
+        "tonalRamp": [
+          "oklch(15% 0.066 45)",
+          "oklch(27% 0.066 45)",
+          "oklch(39% 0.12 45)",
+          "oklch(51% 0.12 45)",
+          "oklch(63% 0.12 45)",
+          "oklch(75% 0.12 45)",
+          "oklch(86% 0.066 45)",
+          "oklch(95% 0.066 45)"
+        ]
+      },
+      "violet-light": {
+        "role": "tertiary",
+        "displayName": "Violet (light scheme)",
+        "canonical": "oklch(72% 0.14 300)",
+        "tonalRamp": [
+          "oklch(15% 0.077 300)",
+          "oklch(27% 0.077 300)",
+          "oklch(39% 0.14 300)",
+          "oklch(51% 0.14 300)",
+          "oklch(63% 0.14 300)",
+          "oklch(75% 0.14 300)",
+          "oklch(86% 0.077 300)",
+          "oklch(95% 0.077 300)"
+        ]
+      },
+      "violet-text-light": {
+        "role": "tertiary",
+        "displayName": "Violet As Text (light scheme)",
+        "canonical": "oklch(44% 0.16 300)",
+        "tonalRamp": [
+          "oklch(15% 0.088 300)",
+          "oklch(27% 0.088 300)",
+          "oklch(39% 0.16 300)",
+          "oklch(51% 0.16 300)",
+          "oklch(63% 0.16 300)",
+          "oklch(75% 0.16 300)",
+          "oklch(86% 0.088 300)",
+          "oklch(95% 0.088 300)"
+        ]
+      },
+      "green-light": {
+        "role": "semantic",
+        "displayName": "Green (ok) (light scheme)",
+        "canonical": "oklch(80% 0.16 158)",
+        "tonalRamp": [
+          "oklch(15% 0.088 158)",
+          "oklch(27% 0.088 158)",
+          "oklch(39% 0.16 158)",
+          "oklch(51% 0.16 158)",
+          "oklch(63% 0.16 158)",
+          "oklch(75% 0.16 158)",
+          "oklch(86% 0.088 158)",
+          "oklch(95% 0.088 158)"
+        ]
+      },
+      "green-text-light": {
+        "role": "semantic",
+        "displayName": "Green As Text (light scheme)",
+        "canonical": "oklch(40% 0.095 158)",
+        "tonalRamp": [
+          "oklch(15% 0.052 158)",
+          "oklch(27% 0.052 158)",
+          "oklch(39% 0.095 158)",
+          "oklch(51% 0.095 158)",
+          "oklch(63% 0.095 158)",
+          "oklch(75% 0.095 158)",
+          "oklch(86% 0.052 158)",
+          "oklch(95% 0.052 158)"
+        ]
+      },
+      "amber-light": {
+        "role": "semantic",
+        "displayName": "Amber (caution) (light scheme)",
+        "canonical": "oklch(84% 0.15 85)",
+        "tonalRamp": [
+          "oklch(15% 0.083 85)",
+          "oklch(27% 0.083 85)",
+          "oklch(39% 0.15 85)",
+          "oklch(51% 0.15 85)",
+          "oklch(63% 0.15 85)",
+          "oklch(75% 0.15 85)",
+          "oklch(86% 0.083 85)",
+          "oklch(95% 0.083 85)"
+        ]
+      },
+      "amber-text-light": {
+        "role": "semantic",
+        "displayName": "Amber As Text (light scheme)",
+        "canonical": "oklch(43% 0.085 75)",
+        "tonalRamp": [
+          "oklch(15% 0.047 75)",
+          "oklch(27% 0.047 75)",
+          "oklch(39% 0.085 75)",
+          "oklch(51% 0.085 75)",
+          "oklch(63% 0.085 75)",
+          "oklch(75% 0.085 75)",
+          "oklch(86% 0.047 75)",
+          "oklch(95% 0.047 75)"
+        ]
+      },
+      "sky-light": {
+        "role": "semantic",
+        "displayName": "Sky (information) (light scheme)",
+        "canonical": "oklch(80% 0.1 235)",
+        "tonalRamp": [
+          "oklch(15% 0.055 235)",
+          "oklch(27% 0.055 235)",
+          "oklch(39% 0.1 235)",
+          "oklch(51% 0.1 235)",
+          "oklch(63% 0.1 235)",
+          "oklch(75% 0.1 235)",
+          "oklch(86% 0.055 235)",
+          "oklch(95% 0.055 235)"
+        ]
+      },
+      "sky-text-light": {
+        "role": "semantic",
+        "displayName": "Sky As Text (light scheme)",
+        "canonical": "oklch(42% 0.105 245)",
+        "tonalRamp": [
+          "oklch(15% 0.058 245)",
+          "oklch(27% 0.058 245)",
+          "oklch(39% 0.105 245)",
+          "oklch(51% 0.105 245)",
+          "oklch(63% 0.105 245)",
+          "oklch(75% 0.105 245)",
+          "oklch(86% 0.058 245)",
+          "oklch(95% 0.058 245)"
+        ]
+      },
+      "red-light": {
+        "role": "semantic",
+        "displayName": "Red (danger) (light scheme)",
+        "canonical": "oklch(56% 0.21 26)",
+        "tonalRamp": [
+          "oklch(15% 0.116 26)",
+          "oklch(27% 0.116 26)",
+          "oklch(39% 0.21 26)",
+          "oklch(51% 0.21 26)",
+          "oklch(63% 0.21 26)",
+          "oklch(75% 0.21 26)",
+          "oklch(86% 0.116 26)",
+          "oklch(95% 0.116 26)"
+        ]
+      },
+      "red-text-light": {
+        "role": "semantic",
+        "displayName": "Red As Text (light scheme)",
+        "canonical": "oklch(49% 0.2 26)",
+        "tonalRamp": [
+          "oklch(15% 0.11 26)",
+          "oklch(27% 0.11 26)",
+          "oklch(39% 0.2 26)",
+          "oklch(51% 0.2 26)",
+          "oklch(63% 0.2 26)",
+          "oklch(75% 0.2 26)",
+          "oklch(86% 0.11 26)",
+          "oklch(95% 0.11 26)"
+        ]
+      },
+      "on-danger-light": {
+        "role": "neutral",
+        "displayName": "Text On The Danger Fill (light scheme)",
+        "canonical": "oklch(99% 0.005 25)",
+        "tonalRamp": [
+          "oklch(15% 0.003 25)",
+          "oklch(27% 0.003 25)",
+          "oklch(39% 0.005 25)",
+          "oklch(51% 0.005 25)",
+          "oklch(63% 0.005 25)",
+          "oklch(75% 0.005 25)",
+          "oklch(86% 0.003 25)",
+          "oklch(95% 0.003 25)"
         ]
       }
     },
     "typographyMeta": {
       "display": {
         "displayName": "Display",
-        "purpose": "The focus timer only. 4.5rem, 7.5rem from 1280px wide; in calm mode 4.5rem, 9rem from 640px, 11rem from 1280px; 30px once the session is complete."
+        "purpose": "The focus timer only. 4.5rem, 7.5rem from 1280px wide; calm mode has its own step."
+      },
+      "numeral-lg": {
+        "displayName": "Numeral Large",
+        "purpose": "A timer inside a card (the tracker). 56px, weight 300, tabular; 48px below 1024px."
+      },
+      "numeral": {
+        "displayName": "Numeral",
+        "purpose": "The one big number of a card. 40px, weight 300, tabular; its unit is half the size. 36px below 1024px."
       },
       "headline": {
         "displayName": "Headline",
-        "purpose": "The page's h1, on the 2px ink rule."
+        "purpose": "The page h1. 32px, weight 500."
       },
       "figure": {
         "displayName": "Figure",
-        "purpose": "A number over its muted label (계획, 여유, 블록)."
+        "purpose": "A number in a row of figures over its 13px label. 28px, weight 300, tabular."
       },
       "title-lg": {
         "displayName": "Title Large",
-        "purpose": "The next block's title, the task in hand on Focus, dialog titles, the wordmark."
+        "purpose": "Dialog titles, a block title. 22px, weight 500."
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Section headings, settings legends, block titles (at weight 600)."
+        "purpose": "Section headings and settings legends. 18px, weight 500."
       },
       "body": {
         "displayName": "Body",
-        "purpose": "Running text, fields, nav items. 16px below 1024px."
+        "purpose": "Running text, fields, a card title (at 500). 16px, line-height 1.6 for Hangul."
       },
       "body-sm": {
         "displayName": "Body Small",
-        "purpose": "Buttons (weight 600), banners, tables, meta lines. 15px below 1024px."
+        "purpose": "Buttons, nav items, tables, meta lines. 14px (15px below 1024px)."
       },
       "label": {
         "displayName": "Label",
-        "purpose": "Field labels, badges, choice boxes; at 400 and muted for help text and figure labels."
+        "purpose": "Field labels, tags, captions. 13px, weight 500."
       },
       "grid-label": {
         "displayName": "Grid Label",
-        "purpose": "Labels inside dense time grids and the bottom nav. Not for running text."
+        "purpose": "Chart ticks, key caps, the bottom nav. 12px. Not for running text."
       },
       "code": {
         "displayName": "Code",
-        "purpose": "Code only: an RRULE, a raw-input field, inline code and plain source in a note."
+        "purpose": "Only where the content is code: an RRULE, a raw-input field, inline code in a note."
       }
     },
-    "shadows": [],
+    "shadows": [
+      {
+        "name": "shadow-float",
+        "value": "0 18px 48px oklch(4% 0.01 150 / 55%)",
+        "purpose": "The one soft shadow, for what floats: dialog, sheet, menu, toast. Never on a card."
+      }
+    ],
     "edges": [
       {
         "name": "rule-hair",
         "value": "1px",
-        "purpose": "Hairlines between rows, grid lines, field edges."
+        "purpose": "Every hairline: card edges, row rules, field edges."
       },
       {
         "name": "rule-pen",
-        "value": "1.5px",
-        "purpose": "A pen-drawn box: buttons, checkboxes, dialogs, the boxed danger badge."
+        "value": "1px",
+        "purpose": "A control edge (kept as a name from the paper system)."
       },
       {
         "name": "rule-bar",
         "value": "2px",
-        "purpose": "The ink rule under a heading, the now line, the top of a sheet."
+        "purpose": "Marks that are data: the now line, chart strokes."
       },
       {
         "name": "focus-ring",
-        "value": "2px solid var(--pen-blue), offset 2px",
-        "purpose": "Keyboard focus on every control; drawn 1px inside on fields."
+        "value": "2px solid var(--color-focus), offset 2px",
+        "purpose": "Lime on dark, deep green on light; 3:1 or more on every surface."
+      },
+      {
+        "name": "card-sheen",
+        "value": "linear-gradient(140deg, oklch(96% 0.005 150 / 5%) 0%, transparent 42%)",
+        "purpose": "The faint top-left sheen of a card in the dark scheme; none in the light scheme."
       }
     ],
     "motion": [
@@ -698,7 +1027,7 @@
       {
         "name": "duration-base",
         "value": "180ms",
-        "purpose": "The highlighter stroke, the scrim, a layout switch."
+        "purpose": "The scrim, a menu, a layout switch."
       },
       {
         "name": "duration-slow",
@@ -706,24 +1035,24 @@
         "purpose": "Dialogs, sheets and toasts arriving; the meter fill."
       },
       {
+        "name": "duration-draw",
+        "value": "520ms",
+        "purpose": "A bar growing or a ring fading in, once."
+      },
+      {
         "name": "ease-standard",
         "value": "cubic-bezier(0.2, 0, 0, 1)",
-        "purpose": "Default easing for control transitions."
+        "purpose": "Default."
       },
       {
         "name": "ease-out",
         "value": "cubic-bezier(0.16, 1, 0.3, 1)",
-        "purpose": "The highlighter stroke and anything arriving."
-      },
-      {
-        "name": "hl-draw",
-        "value": "@keyframes hl-draw { from { background-size: 0% 100%; } }",
-        "purpose": "A highlighter stroke drawn from the left when something becomes current or selected."
+        "purpose": "Things arriving."
       },
       {
         "name": "reduced-motion",
-        "value": "all duration tokens 0ms; spinner, skeleton and AI wait run stopped",
-        "purpose": "prefers-reduced-motion removes every movement."
+        "value": "all durations 0",
+        "purpose": "Every duration token becomes 0; loops stop; the glass object holds one frame."
       }
     ],
     "breakpoints": [
@@ -740,26 +1069,47 @@
         "value": "768px"
       },
       {
-        "name": "rail",
+        "name": "sidebar",
         "value": "1024px"
       },
       {
-        "name": "context-column",
+        "name": "labels",
         "value": "1280px"
       },
       {
         "name": "wide",
         "value": "1440px"
+      },
+      {
+        "name": "dashboard-two-columns",
+        "value": "44rem (container)"
+      },
+      {
+        "name": "dashboard-three-columns",
+        "value": "66rem (container)"
       }
     ],
     "layout": [
       {
         "name": "nav-width",
-        "value": "13.5rem"
+        "value": "15rem"
+      },
+      {
+        "name": "nav-width-collapsed",
+        "value": "4.5rem"
+      },
+      {
+        "name": "topbar-height",
+        "value": "4rem"
+      },
+      {
+        "name": "sticky-top",
+        "value": "calc(4rem + 1rem)",
+        "purpose": "A sticky aside under the top bar."
       },
       {
         "name": "bottom-nav-height",
-        "value": "3.5rem"
+        "value": "3.75rem"
       },
       {
         "name": "content-max",
@@ -767,20 +1117,30 @@
       },
       {
         "name": "content-wide",
-        "value": "80rem"
+        "value": "84rem"
+      },
+      {
+        "name": "card-pad",
+        "value": "1.5rem",
+        "purpose": "1.25rem below 1024px."
+      },
+      {
+        "name": "grid-gap",
+        "value": "1rem",
+        "purpose": "Between the cards of a dashboard; 0.75rem below 1024px."
       },
       {
         "name": "tt-row",
         "value": "2rem",
-        "purpose": "One hour of any time grid: six ten-minute cells."
+        "purpose": "One hour of any time grid."
       },
       {
         "name": "control-height",
-        "value": "2.25rem"
+        "value": "2.5rem"
       },
       {
         "name": "control-height-sm",
-        "value": "1.875rem"
+        "value": "2rem"
       },
       {
         "name": "control-height-lg",
@@ -789,7 +1149,7 @@
       {
         "name": "hit-target",
         "value": "2.75rem",
-        "purpose": "Minimum control size on coarse pointers."
+        "purpose": "Minimum on coarse pointers."
       }
     ]
   },
@@ -798,157 +1158,151 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The one ink-filled control on a page or dialog: the next thing to do. Inert, it steps back to an outline.",
+      "description": "The one lime-filled control of a view or dialog: the next thing to do. Inert, it gives the lime back.",
       "html": "<button class=\"ds-btn ds-btn-primary\">집중 시작</button> <button class=\"ds-btn ds-btn-primary\" disabled>집중 시작</button>",
-      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; min-height: 2.25rem; padding: 0 0.75rem; border: 1.5px solid var(--color-ink); border-radius: 4px; background: transparent; color: var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.875rem; font-weight: 600; line-height: 1.2; white-space: nowrap; cursor: pointer; transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), border-color 120ms cubic-bezier(0.2, 0, 0, 1), transform 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-btn:hover { background: var(--color-paper-2); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 2px solid var(--pen-blue); outline-offset: 2px; } .ds-btn-primary { background: var(--color-ink); color: var(--color-on-ink); } .ds-btn-primary:hover { background: var(--color-ink-2); border-color: var(--color-ink-2); } .ds-btn-primary:disabled { background: transparent; color: var(--color-ink); border-color: var(--color-edge); opacity: 0.55; cursor: not-allowed; transform: none; }"
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.5rem; padding: 0 1rem; border: 1px solid oklch(96% 0.005 150 / 17%); border-radius: 10px; background: transparent; color: oklch(96% 0.005 150); font-family: 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; line-height: 1.2; white-space: nowrap; cursor: pointer; } .ds-btn-primary { border-color: transparent; background: oklch(89% 0.2 128); color: oklch(17% 0.03 140); font-weight: 600; } .ds-btn-primary:hover { background: oklch(93% 0.18 128); } .ds-btn-primary:disabled { background: oklch(23.5% 0.011 150); color: oklch(83% 0.008 150); opacity: 0.7; cursor: not-allowed; }"
     },
     {
-      "name": "Outline Button",
+      "name": "Secondary Button",
       "kind": "button",
       "refersTo": "button",
-      "description": "The default button: a pen-drawn box. Every action that is not the primary one.",
-      "html": "<button class=\"ds-btn\">축소</button> <button class=\"ds-btn\">재배치</button>",
-      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; min-height: 2.25rem; padding: 0 0.75rem; border: 1.5px solid var(--color-ink); border-radius: 4px; background: transparent; color: var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.875rem; font-weight: 600; line-height: 1.2; white-space: nowrap; cursor: pointer; transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), border-color 120ms cubic-bezier(0.2, 0, 0, 1), transform 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-btn:hover { background: var(--color-paper-2); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 2px solid var(--pen-blue); outline-offset: 2px; }"
+      "description": "The default: transparent with a strong hairline. Ghost drops the edge.",
+      "html": "<button class=\"ds-btn\">축소</button> <button class=\"ds-btn ds-btn-ghost\">취소</button>",
+      "css": ".ds-btn-ghost { border-color: transparent; } .ds-btn:hover { background: oklch(96% 0.005 150 / 6%); }"
     },
     {
-      "name": "Ghost and Danger Buttons",
-      "kind": "button",
-      "refersTo": "button-ghost",
-      "description": "Ghost drops the edge for a tertiary action; danger is filled in red pen for a destructive one.",
-      "html": "<button class=\"ds-btn ds-btn-ghost\">블록 고정</button> <button class=\"ds-btn ds-btn-danger\">삭제</button>",
-      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; min-height: 2.25rem; padding: 0 0.75rem; border: 1.5px solid var(--color-ink); border-radius: 4px; background: transparent; color: var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.875rem; font-weight: 600; line-height: 1.2; white-space: nowrap; cursor: pointer; transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), border-color 120ms cubic-bezier(0.2, 0, 0, 1), transform 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-btn:hover { background: var(--color-paper-2); } .ds-btn:active { transform: translateY(1px); } .ds-btn:focus-visible { outline: 2px solid var(--pen-blue); outline-offset: 2px; } .ds-btn-ghost { border-color: transparent; } .ds-btn-danger { background: var(--pen-red); border-color: var(--pen-red); color: var(--color-on-ink); } .ds-btn-danger:hover { background: var(--pen-red-2); border-color: var(--pen-red-2); }"
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The unit: a surface with a hairline edge, 20px corners and, in the dark scheme, a faint top-left sheen. A small title, one big light number, then a chart or a list.",
+      "html": "<section class=\"ds-card\"><h2 class=\"ds-card-title\">진행</h2><p class=\"ds-numeral\">6<span>시간</span> 38<span>분</span></p><p class=\"ds-caption\">이번 주 집중 시간</p></section>",
+      "css": ".ds-card { display: flex; flex-direction: column; gap: 1rem; padding: 1.5rem; border: 1px solid oklch(96% 0.005 150 / 9%); border-radius: 20px; background: linear-gradient(140deg, oklch(96% 0.005 150 / 5%), transparent 42%) oklch(17.5% 0.009 150); font-family: 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif; } .ds-card-title { margin: 0; color: oklch(96% 0.005 150); font-size: 1rem; font-weight: 500; } .ds-numeral { margin: 0; color: oklch(96% 0.005 150); font-size: 2.5rem; font-weight: 300; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; line-height: 1.05; } .ds-numeral span { margin-left: 0.12em; color: oklch(83% 0.008 150); font-size: 0.5em; letter-spacing: 0; } .ds-caption { margin: 0; color: oklch(69% 0.01 150); font-size: 0.8125rem; }"
+    },
+    {
+      "name": "Tag",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "A small rounded rectangle with a tinted fill and matching text; one hue per category. The word carries the state.",
+      "html": "<span class=\"ds-tag\">할 일</span> <span class=\"ds-tag ds-tag-lime\">다음 차례</span> <span class=\"ds-tag ds-tag-green\">완료</span> <span class=\"ds-tag ds-tag-amber\">주의</span> <span class=\"ds-tag ds-tag-red\">지났어요</span> <span class=\"ds-tag ds-tag-cyan\">졸업 논문</span>",
+      "css": ".ds-tag { display: inline-flex; align-items: center; min-height: 1.5rem; padding: 0 0.5rem; border-radius: 6px; background: oklch(23.5% 0.011 150); color: oklch(83% 0.008 150); font-family: 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif; font-size: 0.8125rem; font-weight: 500; white-space: nowrap; } .ds-tag-lime { background: oklch(89% 0.2 128 / 14%); color: oklch(89% 0.2 128); } .ds-tag-green { background: oklch(82% 0.15 158 / 14%); color: oklch(84% 0.15 158); } .ds-tag-amber { background: oklch(85% 0.14 85 / 14%); color: oklch(87% 0.14 85); } .ds-tag-red { background: oklch(69% 0.19 25 / 18%); color: oklch(78% 0.12 22); } .ds-tag-cyan { background: oklch(87% 0.12 195 / 14%); color: oklch(87% 0.12 195); }"
     },
     {
       "name": "Field",
       "kind": "input",
       "refersTo": "field",
-      "description": "A text field with its label above. Field, select and textarea share this box.",
-      "html": "<label class=\"ds-field\"><span class=\"ds-field-label\">작업 이름</span><input class=\"ds-input\" type=\"text\" value=\"연구 노트 요약\"><span class=\"ds-field-help\">짧게 적어요.</span></label>",
-      "css": ".ds-field { display: flex; flex-direction: column; gap: 0.25rem; max-width: 20rem; font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); } .ds-field-label { color: var(--color-ink); font-size: 0.8125rem; font-weight: 600; line-height: 1.4; } .ds-field-help { color: var(--color-muted); font-size: 0.8125rem; line-height: 1.4; } .ds-input { min-height: 2.25rem; padding: 0.25rem 0.625rem; border: 1px solid var(--color-edge); border-radius: 4px; background: var(--color-paper); color: var(--color-ink); font: inherit; font-size: 0.9375rem; line-height: 1.4; transition: border-color 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-input:hover { border-color: var(--color-ink); } .ds-input:focus-visible { border-color: var(--color-ink); outline: 2px solid var(--pen-blue); outline-offset: -1px; }"
+      "description": "Field, select and textarea are one box: an inset well with the 3:1 control edge.",
+      "html": "<label class=\"ds-field\"><span>작업 제목</span><input class=\"ds-input\" placeholder=\"무엇을 해야 하나요?\" /></label>",
+      "css": ".ds-field { display: flex; flex-direction: column; gap: 0.375rem; color: oklch(96% 0.005 150); font-family: 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif; font-size: 0.8125rem; font-weight: 500; } .ds-input { min-height: 2.5rem; padding: 0.375rem 0.75rem; border: 1px solid oklch(52% 0.012 150); border-radius: 10px; background: oklch(11.5% 0.006 150); color: oklch(96% 0.005 150); font: inherit; font-size: 1rem; font-weight: 400; } .ds-input:focus-visible { border-color: oklch(89% 0.2 128); outline: 2px solid oklch(89% 0.2 128); outline-offset: -1px; }"
     },
     {
-      "name": "Badge",
-      "kind": "chip",
-      "refersTo": "badge",
-      "description": "A state is a highlighted word with square ends. Danger is written in red pen and boxed, not highlighted.",
-      "html": "<span class=\"ds-badge\">대기</span> <span class=\"ds-badge ds-badge-accent\">다음 차례</span> <span class=\"ds-badge ds-badge-ok\">저장됨</span> <span class=\"ds-badge ds-badge-warn\">위험도: 보통</span> <span class=\"ds-badge ds-badge-info\">제안</span> <span class=\"ds-badge ds-badge-danger\">마감 초과</span>",
-      "css": ".ds-badge { display: inline-flex; align-items: center; min-height: 1.375rem; padding: 0 0.375rem; background: var(--color-paper-3); color: var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.8125rem; font-weight: 600; line-height: 1.3; white-space: nowrap; font-variant-numeric: tabular-nums; } .ds-badge-accent { background: var(--hl-yellow); color: var(--color-on-hl); } .ds-badge-ok { background: var(--hl-mint); color: var(--color-on-hl); } .ds-badge-warn { background: var(--hl-pink); color: var(--color-on-hl); } .ds-badge-info { background: var(--hl-sky); color: var(--color-on-hl); } .ds-badge-danger { background: transparent; color: var(--pen-red); box-shadow: inset 0 0 0 1.5px var(--pen-red); }"
+      "name": "Segmented Control",
+      "kind": "navigation",
+      "refersTo": "button",
+      "description": "One of a few, in an inset track; the picked one is a lifted, heavier tile (the theme switch).",
+      "html": "<div class=\"ds-seg\" role=\"group\" aria-label=\"테마\"><button class=\"ds-seg-item\" aria-pressed=\"false\">라이트</button><button class=\"ds-seg-item\" aria-pressed=\"true\">다크</button><button class=\"ds-seg-item\" aria-pressed=\"false\">시스템</button></div>",
+      "css": ".ds-seg { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid oklch(96% 0.005 150 / 17%); border-radius: 10px; background: oklch(11.5% 0.006 150); } .ds-seg-item { min-height: 2.125rem; padding: 0 0.75rem; border: 1px solid transparent; border-radius: 7px; background: transparent; color: oklch(69% 0.01 150); font-family: 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif; font-size: 0.8125rem; cursor: pointer; } .ds-seg-item[aria-pressed='true'] { border-color: oklch(96% 0.005 150 / 17%); background: oklch(28% 0.012 150); color: oklch(96% 0.005 150); font-weight: 600; }"
     },
     {
-      "name": "Choice Box",
-      "kind": "chip",
-      "refersTo": "choice-chip",
-      "description": "A radio or checkbox drawn as a selectable box. Picked means highlighted yellow.",
-      "html": "<label class=\"ds-choice\"><input type=\"radio\" name=\"ds-outcome\" checked>끝냈어요</label> <label class=\"ds-choice\"><input type=\"radio\" name=\"ds-outcome\">일부만</label> <label class=\"ds-choice\"><input type=\"radio\" name=\"ds-outcome\">못 했어요</label>",
-      "css": ".ds-choice { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 1.875rem; padding: 0 0.625rem; border: 1px solid var(--color-edge); border-radius: 4px; background: var(--color-paper); color: var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.8125rem; font-weight: 500; cursor: pointer; transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1), border-color 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-choice:hover { border-color: var(--color-ink); } .ds-choice:has(input:checked) { border-color: var(--color-on-hl); background: var(--hl-yellow); color: var(--color-on-hl); font-weight: 600; } .ds-choice:has(input:focus-visible) { outline: 2px solid var(--pen-blue); outline-offset: 2px; } .ds-choice input { appearance: none; display: inline-grid; place-content: center; width: 1.125rem; height: 1.125rem; margin: 0; border: 1.5px solid var(--color-on-hl); border-radius: 50%; background: transparent; } .ds-choice input::before { content: ''; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--color-on-hl); transform: scale(0); } .ds-choice input:checked::before { transform: scale(1); }"
-    },
-    {
-      "name": "Section",
-      "kind": "card",
-      "description": "What replaces a card: a heading over a 2px ink rule, then ruled rows. No edge, no fill, no shadow.",
-      "html": "<section class=\"ds-section\"><h2 class=\"ds-section-head\">다음 일정</h2><ul class=\"ds-rows\"><li><strong>연구 노트 요약</strong><span>오후 7:00~8:30 · 1시간 30분</span></li><li><strong>발표 개요 초안</strong><span>오후 9:00~9:40 · 40분</span></li></ul></section>",
-      "css": ".ds-section { display: flex; flex-direction: column; max-width: 22rem; color: var(--color-ink-2); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); } .ds-section-head { margin: 0; padding-bottom: 0.5rem; border-bottom: 2px solid var(--color-ink); color: var(--color-ink); font-size: 1.0625rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.25; } .ds-rows { margin: 0; padding: 0; list-style: none; } .ds-rows li { display: flex; flex-direction: column; padding: 0.75rem 0; border-bottom: 1px solid var(--color-rule); } .ds-rows strong { color: var(--color-ink); font-size: 0.9375rem; font-weight: 600; } .ds-rows span { color: var(--color-muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }"
-    },
-    {
-      "name": "Navigation Item",
-      "kind": "nav",
+      "name": "Sidebar Item",
+      "kind": "navigation",
       "refersTo": "nav-link",
-      "description": "The rail is a list of words. The current item is heavy, with a yellow stroke behind its label that draws from the left.",
-      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link ds-nav-link-active\" href=\"#\"><span class=\"ds-nav-label\">오늘</span><kbd class=\"ds-kbd\">t</kbd></a><a class=\"ds-nav-link\" href=\"#\"><span class=\"ds-nav-label\">인박스</span></a><a class=\"ds-nav-link\" href=\"#\"><span class=\"ds-nav-label\">프로젝트</span></a></nav>",
-      "css": ".ds-nav { display: flex; flex-direction: column; width: 12rem; font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); } .ds-nav-link { display: flex; align-items: center; gap: 0.625rem; min-height: 2rem; padding: 0 0.5rem; border-radius: 4px; color: var(--color-ink-2); font-size: 0.9375rem; text-decoration: none; transition: background-color 120ms cubic-bezier(0.2, 0, 0, 1); } .ds-nav-link:hover { background: var(--color-paper-2); } .ds-nav-link:focus-visible { outline: 2px solid var(--pen-blue); outline-offset: 2px; } .ds-nav-label { position: relative; z-index: 0; } .ds-nav-label::before { content: ''; position: absolute; inset: 0.05em -0.25rem; z-index: -1; background: var(--hl-yellow); transform: scaleX(0); transform-origin: left center; transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-nav-link-active { font-weight: 800; } .ds-nav-link-active .ds-nav-label { color: var(--color-on-hl); } .ds-nav-link-active .ds-nav-label::before, .ds-nav-link:active .ds-nav-label::before { transform: scaleX(1); } .ds-kbd { display: inline-grid; place-items: center; min-width: 1.5em; height: 1.5em; margin-left: auto; padding: 0 0.3em; border: 1px solid var(--color-edge); border-radius: 2px; color: var(--color-muted); font: inherit; font-size: 0.75em; font-weight: 500; line-height: 1; }"
+      "description": "The current screen takes the lime-to-cyan gradient with dark text and aria-current; no other item is filled.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-link\" aria-current=\"page\" href=\"#\">개요</a><a class=\"ds-nav-link\" href=\"#\">오늘</a><a class=\"ds-nav-link\" href=\"#\">한달</a></nav>",
+      "css": ".ds-nav { display: flex; flex-direction: column; gap: 2px; width: 13.5rem; font-family: 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif; } .ds-nav-link { display: flex; align-items: center; min-height: 2.125rem; padding: 0 0.75rem; border-radius: 10px; color: oklch(83% 0.008 150); font-size: 0.875rem; text-decoration: none; } .ds-nav-link:hover { background: oklch(96% 0.005 150 / 6%); } .ds-nav-link[aria-current='page'] { background: linear-gradient(100deg, oklch(89% 0.2 128), oklch(87% 0.12 195)); color: oklch(17% 0.03 140); font-weight: 600; }"
     },
     {
       "name": "Banner",
-      "kind": "custom",
+      "kind": "feedback",
       "refersTo": "banner",
-      "description": "A highlighted line across the page. An error is boxed in red pen on the paper itself.",
-      "html": "<div class=\"ds-banner\"><strong>일정안이 준비됐어요</strong><span>세 가지를 비교하고 하나를 골라요.</span></div><div class=\"ds-banner ds-banner-error\"><strong>저장하지 못했어요</strong><span>잠시 뒤에 다시 해 보세요.</span></div>",
-      "css": ".ds-banner { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.5rem; padding: 0.5rem 0.75rem; border: 1.5px solid transparent; border-radius: 2px; background: var(--hl-sky); color: var(--color-on-hl); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); font-size: 0.875rem; line-height: 1.4; } .ds-banner strong { font-weight: 800; } .ds-banner-error { background: var(--color-paper); border-color: var(--pen-red); color: var(--color-ink); } .ds-banner-error strong { color: var(--pen-red); }"
+      "description": "A tinted line with its hue on the edge; text stays the page text. Error is red with a red title; offline is neutral and dashed.",
+      "html": "<p class=\"ds-banner\">재계획 제안 1개가 기다리고 있어요</p> <p class=\"ds-banner ds-banner-error\">오늘 일정을 불러오지 못했어요.</p>",
+      "css": ".ds-banner { margin: 0 0 0.5rem; padding: 0.75rem 1rem; border: 1px solid oklch(84% 0.09 235 / 32%); border-radius: 14px; background: oklch(81% 0.1 235 / 16%); color: oklch(96% 0.005 150); font-family: 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif; font-size: 0.875rem; } .ds-banner-error { border-color: oklch(78% 0.12 22 / 32%); background: oklch(69% 0.19 25 / 18%); }"
     },
     {
-      "name": "Time Cells",
-      "kind": "custom",
-      "refersTo": "timetable-row",
-      "description": "The signature: an hour is a 2rem row of six ten-minute cells, and planned time is highlighter over the cells with the grid lines drawn on top. The meter under it is the same device for focus progress.",
-      "html": "<div class=\"ds-tt\"><div class=\"ds-tt-row ds-tt-now\"><span class=\"ds-tt-hour\"><span>오후 6시</span></span><span class=\"ds-tt-cells\"><span class=\"ds-tt-elapsed\"></span></span></div><div class=\"ds-tt-row\"><span class=\"ds-tt-hour\"><span>오후 7시</span></span><span class=\"ds-tt-cells\"><span class=\"ds-tt-run\" style=\"--from:0;--to:1\"></span></span></div><div class=\"ds-tt-row\"><span class=\"ds-tt-hour\"><span>오후 8시</span></span><span class=\"ds-tt-cells\"><span class=\"ds-tt-run\" style=\"--from:0;--to:0.5\"></span></span></div><div class=\"ds-tt-row\"><span class=\"ds-tt-hour\"><span>오후 9시</span></span><span class=\"ds-tt-cells\"><span class=\"ds-tt-run ds-tt-run-lilac\" style=\"--from:0;--to:0.6667\"></span></span></div></div><div class=\"ds-meter\" style=\"--value:0.4;--cells:9\"><span class=\"ds-meter-fill\"></span></div>",
-      "css": ".ds-tt { width: 22rem; border-left: 1px solid var(--color-rule); border-top: 2px solid var(--color-ink); font-family: var(--font-body, 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif); } .ds-tt-row { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); height: 2rem; border-bottom: 1px solid var(--color-rule); } .ds-tt-hour { display: flex; align-items: center; justify-content: flex-end; padding-right: 0.5rem; border-right: 1px solid var(--color-rule); color: var(--color-muted); font-size: 0.8125rem; white-space: nowrap; } .ds-tt-now .ds-tt-hour span { padding: 0 0.25rem; background: var(--hl-yellow); color: var(--color-on-hl); font-weight: 600; } .ds-tt-cells { position: relative; display: block; border-right: 1px solid var(--color-rule); } .ds-tt-cells::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(to right, transparent 0, transparent calc(100% / 6 - 1px), var(--color-rule-2) calc(100% / 6 - 1px), var(--color-rule-2) calc(100% / 6)); pointer-events: none; } .ds-tt-run { position: absolute; inset-block: 0; left: calc(var(--from) * 100%); width: calc((var(--to) - var(--from)) * 100%); background: var(--hl-yellow); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--hl-yellow) 50%, var(--color-on-hl)); } .ds-tt-run-lilac { background: var(--hl-lilac); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--hl-lilac) 50%, var(--color-on-hl)); } .ds-tt-elapsed { position: absolute; inset-block: 0; left: 0; width: 66%; background: var(--color-paper-2); border-right: 2px solid var(--color-ink); } .ds-meter { position: relative; display: block; width: 22rem; height: 2rem; margin-top: 1rem; overflow: hidden; border: 1px solid var(--color-edge); background: var(--color-paper); } .ds-meter-fill { position: absolute; inset: 0; background: var(--hl-yellow); transform: scaleX(var(--value, 0)); transform-origin: left center; transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-meter:hover .ds-meter-fill { transform: scaleX(calc(var(--value, 0) + 1 / var(--cells))); } .ds-meter::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(to right, transparent 0, transparent calc(100% / var(--cells) - 1px), var(--color-edge) calc(100% / var(--cells) - 1px), var(--color-edge) calc(100% / var(--cells))); opacity: 0.45; pointer-events: none; }"
+      "name": "Bar Set",
+      "kind": "chart",
+      "refersTo": "card",
+      "description": "A week of days on one scale; today is the lime bar. Zero is an empty track, a day that has not come is dashed. The numbers are also a hidden table.",
+      "html": "<div class=\"ds-bars\"><i style=\"--v:40%\"></i><i style=\"--v:62%\"></i><i style=\"--v:18%\"></i><i style=\"--v:70%\"></i><i style=\"--v:48%\"></i><i class=\"ds-bar-today\" style=\"--v:100%\"></i><i class=\"ds-bar-future\"></i></div>",
+      "css": ".ds-bars { display: flex; align-items: flex-end; justify-content: space-around; height: 8rem; } .ds-bars i { position: relative; width: 10px; height: 100%; border-radius: 999px; background: oklch(96% 0.005 150 / 10%); } .ds-bars i::after { content: ''; position: absolute; inset: auto 0 0; height: var(--v, 0%); border-radius: 999px; background: oklch(96% 0.005 150); } .ds-bars .ds-bar-today::after { background: oklch(89% 0.2 128); } .ds-bars .ds-bar-future { background: none; outline: 1px dashed oklch(96% 0.005 150 / 17%); }"
+    },
+    {
+      "name": "Dialog",
+      "kind": "overlay",
+      "refersTo": "dialog",
+      "description": "The raised surface with a strong hairline and the one soft shadow, over a scrim.",
+      "html": "<div class=\"ds-dialog\"><h2>블록 축소</h2><p>얼마나 줄일까요?</p><div class=\"ds-dialog-actions\"><button class=\"ds-btn ds-btn-ghost\">취소</button><button class=\"ds-btn ds-btn-primary\">미리 보기</button></div></div>",
+      "css": ".ds-dialog { display: flex; flex-direction: column; gap: 1.25rem; width: min(26rem, 100%); padding: 1.5rem; border: 1px solid oklch(96% 0.005 150 / 17%); border-radius: 20px; background: oklch(21.5% 0.011 150); box-shadow: 0 18px 48px oklch(4% 0.01 150 / 55%); color: oklch(83% 0.008 150); font-family: 'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', system-ui, sans-serif; } .ds-dialog h2 { margin: 0; color: oklch(96% 0.005 150); font-size: 1.375rem; font-weight: 500; } .ds-dialog p { margin: 0; } .ds-dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 1rem; border-top: 1px solid oklch(96% 0.005 150 / 9%); }"
     }
   ],
   "narrative": {
-    "northStar": "The Ten-Minute Planner Page",
-    "overview": "OhMyDate looks like a page from a Korean ten-minute study planner (텐미닛 플래너). The ground is cool white paper. Structure is drawn, not built: a ruled grid in two weights, a 2px ink rule under every heading, hairlines between rows. Text is pen-black ink. State and planned time are marked the way a student marks them, with a highlighter over the word or over the cells. Two coloured pens do the rest: red for danger, blue for links and the focus ring.\n\nNothing floats and nothing is boxed for its own sake. There are no cards, no shadows and no pills. What used to be a card is a section of the page: a heading over a 2px ink rule, then ruled rows. What used to be a pill is a highlighted word with square ends. The density is that of a worksheet: 15px running text, 36px controls, 32px hour rows.\n\nEach kind of screen looks like its job. Today is a block list beside the day's time table. Focus is one large timer over a strip of ten-minute cells. Planning screens are worksheets and ruled tables. Settings are plain forms whose legends sit on the 2px rule. The scheme follows the operating system, light or dark, and ink on a highlighter stays dark in both.",
+    "northStar": "A Calm Dark Dashboard With One Lime Signal",
+    "overview": "OhMyDate opens on a dashboard. The ground is near-black with a faint green cast; on it sit a few large cards of related sizes on one grid, with generous dark space between and inside them. Each card says one thing: a small quiet title, one big light number, and a chart or a short list under it. Text is off-white in three steps. Lime is the one signal: the primary button, the current nav item, today, now and next, and the leading series of every chart. Cyan is the second data colour, orange the third; red is kept for danger and overdue. A light scheme shares every token; the theme is the user's choice, dark by default.",
     "keyCharacteristics": [
-      "Cool white paper, a ruled grid in two weights, pen-black ink.",
-      "A section is a heading over a 2px ink rule; a state is a highlighted word.",
-      "Six highlighters carry state and time; a red pen and a blue pen carry danger and links.",
-      "Time is drawn as ten-minute cells that fill with highlighter.",
-      "One installed Korean sans, four weights, a fixed type scale.",
-      "Flat: no shadows, no cards, no pills, corners of 0 to 6px.",
-      "Motion only when a state changes."
+      "Near-black ground with a green cast, three surface steps, hairlines in white at low alpha.",
+      "The card is the unit: 20px corners, a hairline edge, a faint top-left sheen in the dark scheme.",
+      "One big light number per card (weight 300, tabular), over a small quiet label.",
+      "One lime signal; cyan and orange as data; red only for danger and overdue.",
+      "Pretendard, bundled; headings medium, body 16px.",
+      "Hand-written SVG charts with a text alternative each.",
+      "Motion is short and functional; nothing moves under reduced motion.",
+      "One glass object, made by this project, in at most one or two places."
     ],
     "rules": [
       {
-        "name": "The Highlighter Is A Fill Rule",
-        "body": "A highlighter colour is only ever a background. Text, icons, edges and rules are ink or pen. Text on any highlighter is `on-hl` in both colour schemes; a highlighted region re-points the ink, muted, edge, link and focus tokens to their on-highlighter values so everything inside it stays dark.",
-        "section": "colors"
+        "name": "The One Lime Rule",
+        "body": "A view has one lime thing to do: its primary button. Lime elsewhere on the view is not an action: the current nav item, the bar of today, the leading series, a \"now\" mark. Lime never means ok, caution or information; those are green, amber and sky."
       },
       {
-        "name": "The Yellow Means Now Rule",
-        "body": "Yellow marks what is current, next, selected or on, and it is the single-series fill of planned time (the focus meter, the week calendar's blocks). It never means ok, caution or information; those are mint, pink and sky.",
-        "section": "colors"
+        "name": "The Fill Or Text Rule",
+        "body": "A bright hue is either a fill with dark text on it (`--x` under `--color-on-accent`) or text on a surface (`--x-text`). Never `--x` as text in the light scheme, never light text on a bright fill."
       },
       {
-        "name": "The Danger Is Written Rule",
-        "body": "Danger is red pen, not a highlighter: red text, a red box drawn around the message, or a red filled button. There is no red highlighter.",
-        "section": "colors"
+        "name": "The Red Is Danger Rule",
+        "body": "Red is danger and overdue. A deadline is an orange flag; red arrives when it has passed."
       },
       {
         "name": "The Second Signal Rule",
-        "body": "No meaning rides on hue alone. A state is a word; 집중 paint carries upright lines; a commitment and a 쉼 exception are striped; offline is dashed pencil.",
-        "section": "colors"
+        "body": "No meaning rides on hue alone. A state is a word in its tag; the selected segment is lifted and heavier; a switch moves its knob; the current nav item carries `aria-current`; the numbers of a chart are also text."
       },
       {
         "name": "The One Face Rule",
-        "body": "One family, four weights. A new role is a size and a weight from the scale, not a second typeface. The mono face is for code only.",
-        "section": "typography"
+        "body": "One family. A new role is a size and a weight from the scale. Mono is for code only."
       },
       {
-        "name": "The Aligned Numbers Rule",
-        "body": "Times, durations, counts and the timer use tabular numerals so they line up in a column.",
-        "section": "typography"
+        "name": "The Light Numeral Rule",
+        "body": "A number that leads a card is light and large; it is never bold. Times, durations and counts are tabular so they line up."
       },
       {
         "name": "The Whole Word Rule",
-        "body": "Hangul words do not break mid-word (`word-break: keep-all`); long ids and URLs may wrap anywhere. Headings balance their lines.",
-        "section": "typography"
+        "body": "Hangul words do not break mid-word (`word-break: keep-all`); long ids and URLs may wrap anywhere. Headings balance their lines."
       },
       {
-        "name": "The No Shadow Rule",
-        "body": "Nothing casts a shadow, at rest or on hover. If a surface must separate from the page, draw its edge in ink.",
-        "section": "elevation"
+        "name": "The No Glow Rule",
+        "body": "No drop shadow on a card, no glow behind a number, no gradient text, no blur on an ordinary card. The only gradient fill is the current nav item and the brand tile."
       }
     ],
     "dos": [
-      "Do take every colour, size, edge and duration from `src/styles/tokens.css`. Stylesheets outside it contain no raw colour.",
-      "Do open a section with a heading over a 2px ink rule and separate its rows with 1px hairlines.",
-      "Do show a state as a highlighted word with square ends, and write danger in red pen.",
-      "Do set text on any highlighter in `--color-on-hl` (or `--color-on-hl-muted`), in both colour schemes.",
-      "Do keep one ink-filled control per page or dialog, the next thing to do; other actions are outlines or ghosts. The shell's own 새 작업 is the one standing exception.",
-      "Do draw any new view of time on the shared module: 2rem per hour, six ten-minute cells, highlighter over the cells with the grid lines on top.",
-      "Do give every colour-coded mark a second signal: a word, a stripe, a line pattern or a dash.",
-      "Do keep controls at 44px or more on coarse pointers and keep the 2px blue-pen focus ring visible.",
-      "Do check any new text or edge pair against the contrast table before adding a token."
+      "Do take every colour, size, edge and duration from `src/styles/tokens.css`.",
+      "Do compose a screen from cards of related sizes on the 12-column grid, with one big light number per card.",
+      "Do give every card a title and, where another screen owns the detail, the open icon-link.",
+      "Do keep one lime-filled button per view or dialog; other actions are secondary or ghost.",
+      "Do compute every number from the user's real data, and show a real empty state when there is none.",
+      "Do set text on a bright hue fill in `--color-on-accent`, and use `--x-text` for a hue as text.",
+      "Do give every chart a text alternative and every colour-coded mark a second signal.",
+      "Do check any new text, tag or mark pair in both schemes before adding a token.",
+      "Do keep controls at 44px or more on coarse pointers and the focus ring visible."
     ],
     "donts": [
-      "Don't add a card: no bordered, filled or shadowed box around a section.",
-      "Don't add a shadow of any kind. Separate a surface with an ink edge.",
-      "Don't round a badge or a button into a pill. Corners stop at 6px, and only radios are round.",
-      "Don't use a highlighter as a text, icon or border colour.",
-      "Don't use yellow for ok, caution or information, and don't use blue for anything but links and the focus ring.",
-      "Don't add a second typeface, a shipped font file or a network font. Mono is for code only.",
-      "Don't set a size or weight outside the scale (12, 13, 14, 15, 17, 20, 26, 30px; 400, 500, 600, 800), and don't set text in capitals or add letter-spacing beyond the heading's -0.02em.",
-      "Don't animate anything that is not a change of state: no entrance choreography, no hover lifts, no decorative loops.",
-      "Don't centre the page in the window; it starts at the left margin beside the rail."
+      "Don't add a drop shadow, a glow, gradient text or a blur to an ordinary card.",
+      "Don't use lime for ok, caution or information, or red for anything but danger and overdue.",
+      "Don't set lime (or any bright hue) as text on a light surface.",
+      "Don't read `prefers-color-scheme` in a stylesheet; key on `data-scheme`.",
+      "Don't invent a metric, a placeholder statistic or a decorative count-up.",
+      "Don't add a chart, icon or 3D library, or fetch a font or image from the network.",
+      "Don't set a size or weight outside the scale, or set text in capitals.",
+      "Don't animate a layout property, or anything that is not a change of state.",
+      "Don't bring in a name, logo, wording, image or exact screen from another product."
     ]
   }
 }

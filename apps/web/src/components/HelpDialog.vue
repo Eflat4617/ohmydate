@@ -22,6 +22,8 @@ defineEmits<{ close: [] }>();
     <dl class="shortcut-list">
       <dt><kbd>n</kbd></dt>
       <dd>{{ t('help.newTask') }}</dd>
+      <dt><kbd>o</kbd></dt>
+      <dd>{{ t('help.overview') }}</dd>
       <dt><kbd>t</kbd></dt>
       <dd>{{ t('help.today') }}</dd>
       <dt><kbd>m</kbd></dt>

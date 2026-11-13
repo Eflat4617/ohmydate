@@ -46,7 +46,7 @@
 
 .replan-group > h2 {
   padding-bottom: var(--space-2);
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
 }
 
 .replan-items {
@@ -190,6 +190,17 @@
   font-weight: var(--weight-semibold);
 }
 
+/* HOLO-01: in its narrow column the card gives the figures the room. */
+.replan-metrics {
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+}
+
+.replan-metrics-table th,
+.replan-metrics-table td {
+  padding-right: var(--space-2);
+}
+
 /* Figures: now beside proposed, right-aligned so they compare. */
 .replan-metrics-table td {
   color: var(--color-ink);
@@ -305,7 +316,7 @@
 
 .replan-locked > h3 {
   padding-bottom: var(--space-1-5);
-  border-bottom: var(--rule-hair) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
   font-size: var(--text-sm);
 }
 
@@ -344,7 +355,7 @@
 
 .replan-actions:has(> .visually-hidden:first-child) {
   padding-top: var(--space-3);
-  border-top: var(--rule-bar) solid var(--color-ink);
+  border-top: var(--rule-hair) solid var(--color-line-strong);
 }
 
 .replan-actions > .visually-hidden {
@@ -397,7 +408,7 @@
 
   .replan-actions {
     position: sticky;
-    top: var(--space-8);
+    top: var(--sticky-top);
     grid-column: 2;
     grid-row: 3;
   }

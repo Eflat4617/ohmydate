@@ -1,85 +1,119 @@
 ---
 name: OhMyDate
-description: A Korean ten-minute study planner page. Time is drawn as cells and planned time is highlighted.
+description: A dark, calm, dashboard-first personal planner. Large quiet cards, one big light number each, and one lime signal.
 colors:
-  paper: "oklch(99% 0.004 215)"
-  paper-2: "oklch(96.8% 0.007 215)"
-  paper-3: "oklch(94% 0.011 215)"
-  rule: "oklch(86% 0.02 215)"
-  rule-2: "oklch(92.5% 0.012 215)"
-  edge: "oklch(56% 0.024 235)"
-  ink: "oklch(21% 0.012 255)"
-  ink-2: "oklch(30% 0.014 255)"
-  muted: "oklch(46% 0.022 240)"
-  on-ink: "oklch(99% 0.004 215)"
-  hl-yellow: "oklch(91% 0.175 100)"
-  hl-mint: "oklch(84% 0.105 170)"
-  hl-pink: "oklch(79% 0.125 0)"
-  hl-sky: "oklch(84% 0.085 235)"
-  hl-lilac: "oklch(81% 0.095 295)"
-  hl-orange: "oklch(83% 0.125 65)"
-  on-hl: "oklch(21% 0.012 255)"
-  on-hl-muted: "oklch(33% 0.02 250)"
-  pen-red: "oklch(50% 0.2 25)"
-  pen-red-2: "oklch(43% 0.18 25)"
-  pen-blue: "oklch(45% 0.17 262)"
-  paper-dark: "oklch(19% 0.01 240)"
-  paper-2-dark: "oklch(22.5% 0.012 240)"
-  paper-3-dark: "oklch(26.5% 0.014 240)"
-  rule-dark: "oklch(34% 0.018 235)"
-  rule-2-dark: "oklch(27% 0.014 235)"
-  edge-dark: "oklch(60% 0.022 235)"
-  ink-dark: "oklch(95% 0.006 220)"
-  ink-2-dark: "oklch(88% 0.008 220)"
-  muted-dark: "oklch(71% 0.016 230)"
-  on-ink-dark: "oklch(19% 0.01 240)"
-  hl-yellow-dark: "oklch(86% 0.15 100)"
-  hl-mint-dark: "oklch(78% 0.1 170)"
-  hl-pink-dark: "oklch(74% 0.125 0)"
-  hl-sky-dark: "oklch(78% 0.085 235)"
-  hl-lilac-dark: "oklch(75% 0.095 295)"
-  hl-orange-dark: "oklch(78% 0.12 65)"
-  pen-red-dark: "oklch(73% 0.15 25)"
-  pen-red-2-dark: "oklch(79% 0.13 25)"
-  pen-blue-dark: "oklch(77% 0.11 262)"
+  ground: "oklch(14% 0.008 150)"
+  surface: "oklch(17.5% 0.009 150)"
+  raised: "oklch(21.5% 0.011 150)"
+  inset: "oklch(11.5% 0.006 150)"
+  fill: "oklch(23.5% 0.011 150)"
+  fill-2: "oklch(28% 0.012 150)"
+  line: "oklch(96% 0.005 150 / 9%)"
+  line-strong: "oklch(96% 0.005 150 / 17%)"
+  edge: "oklch(52% 0.012 150)"
+  text: "oklch(96% 0.005 150)"
+  text-2: "oklch(83% 0.008 150)"
+  text-3: "oklch(69% 0.01 150)"
+  lime: "oklch(89% 0.2 128)"
+  lime-text: "oklch(89% 0.2 128)"
+  cyan: "oklch(87% 0.12 195)"
+  cyan-text: "oklch(87% 0.12 195)"
+  orange: "oklch(77% 0.15 52)"
+  orange-text: "oklch(80% 0.12 55)"
+  violet: "oklch(76% 0.13 300)"
+  violet-text: "oklch(81% 0.11 300)"
+  green: "oklch(82% 0.15 158)"
+  green-text: "oklch(84% 0.15 158)"
+  amber: "oklch(85% 0.14 85)"
+  amber-text: "oklch(87% 0.14 85)"
+  sky: "oklch(81% 0.1 235)"
+  sky-text: "oklch(84% 0.09 235)"
+  red: "oklch(69% 0.19 25)"
+  red-text: "oklch(78% 0.12 22)"
+  on-accent: "oklch(17% 0.03 140)"
+  on-accent-2: "oklch(31% 0.04 140)"
+  on-danger: "oklch(15% 0.03 25)"
+  ground-light: "oklch(96.2% 0.007 140)"
+  surface-light: "oklch(100% 0 0)"
+  raised-light: "oklch(100% 0 0)"
+  inset-light: "oklch(97% 0.006 140)"
+  fill-light: "oklch(94% 0.008 140)"
+  fill-2-light: "oklch(90.5% 0.01 140)"
+  line-light: "oklch(21% 0.015 150 / 11%)"
+  line-strong-light: "oklch(21% 0.015 150 / 20%)"
+  edge-light: "oklch(61% 0.012 150)"
+  text-light: "oklch(21% 0.015 150)"
+  text-2-light: "oklch(35% 0.014 150)"
+  text-3-light: "oklch(46.5% 0.014 150)"
+  lime-light: "oklch(87% 0.2 128)"
+  lime-text-light: "oklch(42% 0.12 135)"
+  cyan-light: "oklch(84% 0.12 195)"
+  cyan-text-light: "oklch(41% 0.065 205)"
+  orange-light: "oklch(74% 0.16 52)"
+  orange-text-light: "oklch(46% 0.12 45)"
+  violet-light: "oklch(72% 0.14 300)"
+  violet-text-light: "oklch(44% 0.16 300)"
+  green-light: "oklch(80% 0.16 158)"
+  green-text-light: "oklch(40% 0.095 158)"
+  amber-light: "oklch(84% 0.15 85)"
+  amber-text-light: "oklch(43% 0.085 75)"
+  sky-light: "oklch(80% 0.1 235)"
+  sky-text-light: "oklch(42% 0.105 245)"
+  red-light: "oklch(56% 0.21 26)"
+  red-text-light: "oklch(49% 0.2 26)"
+  on-danger-light: "oklch(99% 0.005 25)"
 typography:
   display:
     fontFamily: "'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
     fontSize: "4.5rem"
-    fontWeight: 800
+    fontWeight: 650
     lineHeight: 1
-    letterSpacing: "-0.02em"
+    letterSpacing: "-0.015em"
+    fontFeature: "tabular-nums"
+  numeral-lg:
+    fontFamily: "'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    fontSize: "3.5rem"
+    fontWeight: 300
+    lineHeight: 1.05
+    letterSpacing: "-0.03em"
+    fontFeature: "tabular-nums"
+  numeral:
+    fontFamily: "'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+    fontSize: "2.5rem"
+    fontWeight: 300
+    lineHeight: 1.05
+    letterSpacing: "-0.03em"
     fontFeature: "tabular-nums"
   headline:
     fontFamily: "'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
-    fontSize: "1.875rem"
-    fontWeight: 800
+    fontSize: "2rem"
+    fontWeight: 500
     lineHeight: 1.25
-    letterSpacing: "-0.02em"
+    letterSpacing: "-0.015em"
   figure:
     fontFamily: "'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
-    fontSize: "1.625rem"
-    fontWeight: 800
-    lineHeight: 1.25
-    letterSpacing: "-0.02em"
+    fontSize: "1.75rem"
+    fontWeight: 300
+    lineHeight: 1.2
+    letterSpacing: "-0.03em"
     fontFeature: "tabular-nums"
   title-lg:
     fontFamily: "'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
-    fontSize: "1.25rem"
-    fontWeight: 800
+    fontSize: "1.375rem"
+    fontWeight: 500
     lineHeight: 1.4
-    letterSpacing: "-0.02em"
+    letterSpacing: "-0.015em"
   title:
     fontFamily: "'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
-    fontSize: "1.0625rem"
-    fontWeight: 800
+    fontSize: "1.125rem"
+    fontWeight: 500
     lineHeight: 1.25
-    letterSpacing: "-0.02em"
+    letterSpacing: "-0.015em"
   body:
     fontFamily: "'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
-    fontSize: "0.9375rem"
+    fontSize: "1rem"
     fontWeight: 400
-    lineHeight: 1.55
+    lineHeight: 1.6
   body-sm:
     fontFamily: "'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
     fontSize: "0.875rem"
@@ -88,7 +122,7 @@ typography:
   label:
     fontFamily: "'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
     fontSize: "0.8125rem"
-    fontWeight: 600
+    fontWeight: 500
     lineHeight: 1.4
   grid-label:
     fontFamily: "'Pretendard Variable', Pretendard, 'Noto Sans CJK KR', 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
@@ -100,11 +134,12 @@ typography:
     fontSize: "0.9em"
     fontWeight: 400
 rounded:
-  none: "0"
-  xs: "2px"
-  sm: "3px"
-  md: "4px"
-  xl: "6px"
+  xs: "4px"
+  sm: "6px"
+  md: "10px"
+  lg: "14px"
+  xl: "20px"
+  pill: "999px"
 spacing:
   "0-5": "0.125rem"
   "1": "0.25rem"
@@ -122,346 +157,385 @@ spacing:
 components:
   button:
     backgroundColor: "transparent"
-    textColor: "{colors.ink}"
+    textColor: "{colors.text}"
     typography: "{typography.body-sm}"
     rounded: "{rounded.md}"
-    padding: "0 0.75rem"
-    height: "2.25rem"
+    padding: "0 1rem"
+    height: "2.5rem"
   button-hover:
-    backgroundColor: "{colors.paper-2}"
+    backgroundColor: "{colors.fill}"
   button-primary:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.on-ink}"
+    backgroundColor: "{colors.lime}"
+    textColor: "{colors.on-accent}"
     rounded: "{rounded.md}"
-    padding: "0 0.75rem"
-    height: "2.25rem"
-  button-primary-hover:
-    backgroundColor: "{colors.ink-2}"
+    padding: "0 1rem"
+    height: "2.5rem"
   button-primary-disabled:
-    backgroundColor: "transparent"
-    textColor: "{colors.ink}"
+    backgroundColor: "{colors.fill}"
+    textColor: "{colors.text-2}"
   button-ghost:
     backgroundColor: "transparent"
-    textColor: "{colors.ink}"
+    textColor: "{colors.text}"
   button-danger:
-    backgroundColor: "{colors.pen-red}"
-    textColor: "{colors.on-ink}"
-  button-danger-hover:
-    backgroundColor: "{colors.pen-red-2}"
+    backgroundColor: "{colors.red}"
+    textColor: "{colors.on-danger}"
   button-sm:
     typography: "{typography.label}"
-    padding: "0 0.625rem"
-    height: "1.875rem"
+    padding: "0 0.75rem"
+    height: "2rem"
   button-lg:
     typography: "{typography.body}"
-    padding: "0 1.25rem"
+    padding: "0 1.5rem"
     height: "2.75rem"
   field:
-    backgroundColor: "{colors.paper}"
-    textColor: "{colors.ink}"
+    backgroundColor: "{colors.inset}"
+    textColor: "{colors.text}"
     typography: "{typography.body}"
     rounded: "{rounded.md}"
-    padding: "0.25rem 0.625rem"
-    height: "2.25rem"
-  badge:
-    backgroundColor: "{colors.paper-3}"
-    textColor: "{colors.ink}"
-    typography: "{typography.label}"
-    rounded: "{rounded.none}"
-    padding: "0 0.375rem"
-    height: "1.375rem"
-  badge-accent:
-    backgroundColor: "{colors.hl-yellow}"
-    textColor: "{colors.on-hl}"
-  badge-ok:
-    backgroundColor: "{colors.hl-mint}"
-    textColor: "{colors.on-hl}"
-  badge-warn:
-    backgroundColor: "{colors.hl-pink}"
-    textColor: "{colors.on-hl}"
-  badge-info:
-    backgroundColor: "{colors.hl-sky}"
-    textColor: "{colors.on-hl}"
-  badge-danger:
-    backgroundColor: "transparent"
-    textColor: "{colors.pen-red}"
-  choice-chip:
-    backgroundColor: "{colors.paper}"
-    textColor: "{colors.ink}"
-    typography: "{typography.label}"
-    rounded: "{rounded.md}"
-    padding: "0 0.625rem"
-    height: "1.875rem"
-  choice-chip-selected:
-    backgroundColor: "{colors.hl-yellow}"
-    textColor: "{colors.on-hl}"
-  banner:
-    backgroundColor: "{colors.hl-sky}"
-    textColor: "{colors.on-hl}"
-    typography: "{typography.body-sm}"
-    rounded: "{rounded.xs}"
-    padding: "0.5rem 0.75rem"
-  banner-error:
-    backgroundColor: "{colors.paper}"
-    textColor: "{colors.ink}"
-  dialog:
-    backgroundColor: "{colors.paper}"
-    textColor: "{colors.ink-2}"
+    padding: "0.375rem 0.75rem"
+    height: "2.5rem"
+  card:
+    backgroundColor: "{colors.surface}"
+    textColor: "{colors.text-2}"
     rounded: "{rounded.xl}"
-    padding: "1.25rem"
+    padding: "1.5rem"
+  tag:
+    backgroundColor: "{colors.fill}"
+    textColor: "{colors.text-2}"
+    typography: "{typography.label}"
+    rounded: "{rounded.sm}"
+    padding: "0 0.5rem"
+    height: "1.5rem"
+  tag-accent:
+    backgroundColor: "{colors.lime}"
+    textColor: "{colors.lime-text}"
+  banner:
+    backgroundColor: "{colors.sky}"
+    textColor: "{colors.text}"
+    typography: "{typography.body-sm}"
+    rounded: "{rounded.lg}"
+    padding: "0.75rem 1rem"
+  dialog:
+    backgroundColor: "{colors.raised}"
+    textColor: "{colors.text-2}"
+    rounded: "{rounded.xl}"
+    padding: "1.5rem"
     width: "34rem"
   toast:
-    backgroundColor: "{colors.ink}"
-    textColor: "{colors.on-ink}"
+    backgroundColor: "{colors.raised}"
+    textColor: "{colors.text}"
     typography: "{typography.body-sm}"
-    rounded: "{rounded.md}"
+    rounded: "{rounded.lg}"
     width: "30rem"
   nav-link:
     backgroundColor: "transparent"
-    textColor: "{colors.ink-2}"
-    typography: "{typography.body}"
+    textColor: "{colors.text-2}"
+    typography: "{typography.body-sm}"
     rounded: "{rounded.md}"
-    padding: "0 0.5rem"
-    height: "2rem"
-  nav-link-active:
-    backgroundColor: "{colors.hl-yellow}"
-    textColor: "{colors.on-hl}"
-  meter:
-    backgroundColor: "{colors.paper}"
-    rounded: "{rounded.none}"
-    height: "0.875rem"
-  timetable-row:
-    backgroundColor: "{colors.paper}"
-    textColor: "{colors.muted}"
-    typography: "{typography.label}"
-    height: "2rem"
+    padding: "0 0.75rem"
+    height: "2.125rem"
+  nav-link-current:
+    backgroundColor: "{colors.lime}"
+    textColor: "{colors.on-accent}"
 ---
 
 # Design System: OhMyDate
 
 ## Overview
 
-**Creative North Star: "The Ten-Minute Planner Page"**
+**Creative North Star: "A Calm Dark Dashboard With One Lime Signal"**
 
-OhMyDate looks like a page from a Korean ten-minute study planner (텐미닛 플래너). The ground is cool white paper. Structure is drawn, not built: a ruled grid in two weights, a 2px ink rule under every heading, hairlines between rows. Text is pen-black ink. State and planned time are marked the way a student marks them, with a highlighter over the word or over the cells. Two coloured pens do the rest: red for danger, blue for links and the focus ring.
+OhMyDate opens on a dashboard. The ground is near-black with a faint green cast; on it sit a few large cards of related sizes on one grid, with generous dark space between and inside them. Each card says one thing: a small quiet title, one big light number, and a chart or a short list under it. Text is off-white in three steps. Lime is the one signal: the primary button, the current nav item, today, now and next, and the leading series of every chart. Cyan is the second data colour and the "second kind" on calendars, orange the third; red is kept for danger and for what is overdue.
 
-Nothing floats and nothing is boxed for its own sake. There are no cards, no shadows and no pills. What used to be a card is a section of the page: a heading over a 2px ink rule, then ruled rows. What used to be a pill is a highlighted word with square ends. The density is that of a worksheet: 15px running text, 36px controls, 32px hour rows.
+This system replaced the paper "텐미닛 플래너" system on 2026-11-13 (HOLO-01), after the user saw the direction they had wanted all along. What carries over is the product: one next action read first, proposals told apart from what is confirmed, time shown so it can be compared.
 
-Each kind of screen looks like its job. Today is a block list beside the day's time table. Focus is one large timer over a strip of ten-minute cells. Planning screens are worksheets and ruled tables. Settings are plain forms whose legends sit on the 2px rule. The scheme follows the operating system, light or dark, and ink on a highlighter stays dark in both.
+The arrangement is the point. Sidebar to canvas is 240px to the rest; the top bar is one quiet line; cards sit on a 12-column grid in threes, twos or one; one lime thing per view. A screen is composed from OhMyDate's own data so the page has that balance, never by filling a template.
+
+A light scheme shares every token: a pale ground, white cards, ink text. There lime stays a fill behind dark text, and lime as text becomes a deep green. The theme is the user's choice (다크 by default, 라이트, 시스템), not the operating system's.
 
 **Key Characteristics:**
-- Cool white paper, a ruled grid in two weights, pen-black ink.
-- A section is a heading over a 2px ink rule; a state is a highlighted word.
-- Six highlighters carry state and time; a red pen and a blue pen carry danger and links.
-- Time is drawn as ten-minute cells that fill with highlighter.
-- One installed Korean sans, four weights, a fixed type scale.
-- Flat: no shadows, no cards, no pills, corners of 0 to 6px.
-- Motion only when a state changes.
+- Near-black ground with a green cast, three surface steps, hairlines in white at low alpha.
+- The card is the unit: 20px corners, a hairline edge, a faint top-left sheen in the dark scheme.
+- One big light number per card (weight 300, tabular), over a small quiet label.
+- One lime signal; cyan and orange as data; red only for danger and overdue.
+- Pretendard, bundled; headings medium, body 16px.
+- Hand-written SVG charts with a text alternative each.
+- Motion is short and functional; nothing moves under reduced motion.
+- One glass object, made by this project, in at most one or two places.
 
 ## Colors
 
-A cool, nearly neutral paper and ink (hues 215 to 255) under six saturated highlighter fills and two pen colours. Every value is an OKLCH custom property in `src/styles/tokens.css`; no raw colour appears in any other stylesheet or in any Vue file. The dark scheme redefines the same tokens under `prefers-color-scheme: dark` (the `-dark` entries in the frontmatter).
+Every value is an OKLCH custom property in `src/styles/tokens.css`; no raw colour appears in any other stylesheet or in any Vue file (the glass shader's own light colours are the one exception, inside `glassOrbShader.ts`). The dark scheme is `:root`; the light scheme redefines the same names under `:root[data-scheme='light']` (the `-light` entries in the frontmatter).
 
-### Primary
-- **Pen-Black Ink** (`ink`): headings, the 2px rules, button text and edges, checkbox and radio boxes, and the one filled control. Running text uses the slightly lighter **Running Ink** (`ink-2`).
-- **Yellow Highlighter** (`hl-yellow`): the mark for current, next, selected and switched on. It sits behind the current nav item, the next block's title, the task in hand on Focus, the current hour's label, the picked schedule candidate, the open note, the active tab, a checked choice box, a pressed toggle, a switch that is on, and selected text. It is also the fill of time itself where there is one series: the focus progress meter, the planned blocks of the week calendar, and the moving run of the AI wait strip.
+### How a theme reaches the page
+`src/theme/theme.ts` keeps two attributes on `<html>`:
 
-### Secondary
-- **Mint Highlighter** (`hl-mint`): done, saved, ok, feasible. The "saved" word, success badges and banners, a finished wizard step, a finished block on the day time table, and the focus meter once the session is complete.
-- **Pink Highlighter** (`hl-pink`): caution. Warning badges and banners, a conflict, a sync conflict on Focus, an AI wait that is running long, and (thinned to 22%, striped at 70%) a 쉼 exception on the week calendar. It is also the cloth of the deadline pennant (마감) on the month page and on Today, a flag drawn in ink so the shape says "deadline" without the colour.
-- **Sky Highlighter** (`hl-sky`): information, the default banner, and the 작업 paint on the availability grid.
+- `data-theme` is what the user chose: `dark`, `light` or `system`.
+- `data-scheme` is what is shown: `dark` or `light`.
 
-### Tertiary
-- **Lilac Highlighter** (`hl-lilac`): a further series on the day time table and the 집중 paint on the availability grid (drawn with upright hairlines over it so it does not rely on hue); thinned to 60% it marks focus windows on the week calendar.
-- **Orange Highlighter** (`hl-orange`): a further series on the day time table only.
-- **Red Pen** (`pen-red`, pressed `pen-red-2`): danger. Error text, a struck-out `del`, the boxed danger badge, the red box around an error banner, the fill of a destructive button, the edge of a 쉼 exception.
-- **Blue Pen** (`pen-blue`): links and the 2px focus ring. Nothing else is blue.
+Stylesheets read only `data-scheme`. No stylesheet has a `prefers-color-scheme` query; the media query is consulted in `theme.ts`, and only while the choice is `system`. The choice is stored per owner through `session/ownerStorage.ts` (slot `themePref`). `main.ts` applies it before it mounts anything, and the entry script is `blocking="render"`, so Chromium paints no frame before the theme is on the root. In a browser without `blocking="render"` a 라이트 user can see one empty dark frame.
 
-### Neutral
-- **Paper** (`paper`): the page, fields, dialogs in light mode. In dark mode dialogs and menus use the next step up (`paper-2-dark`) as their raised ground.
-- **Paper Well** (`paper-2`): hover grounds, the sunken aside, elapsed time on the day time table ("pencil shade").
-- **Paper Pressed** (`paper-3`): the neutral badge, skeletons, commitments on the week calendar.
-- **Grid Rule** (`rule`): hairlines between rows and the hour lines of every time grid.
-- **Minor Rule** (`rule-2`): the ten-minute lines inside an hour.
-- **Control Edge** (`edge`): the 1px edge of fields, choice boxes, key caps and the meter.
-- **Muted Ink** (`muted`): secondary text, figure labels, hour labels, placeholders.
-- **On-Highlighter Ink** (`on-hl`, quieter `on-hl-muted`): the only text colours allowed on a highlighter. They do not change in dark mode.
+### Surfaces
+- **Ground** (`--color-ground`): the page, the sidebar, the top bar.
+- **Surface** (`--color-surface`): a card.
+- **Raised** (`--color-raised`): what floats: dialog, sheet, menu, toast, a chart callout.
+- **Inset** (`--color-inset`): a well inside a card (the tracker's timer) and every field.
+- **Fill** / **Fill 2** (`--color-fill`, `--color-fill-2`): the neutral tag, a skeleton, the selected segment, an avatar.
+- **Hover** / **Press** (`--color-hover`, `--color-press`): laid over any surface.
 
-### Day time table series
-The block list and the time table share one highlighter per block: the next block is yellow, a finished block is mint, and the others cycle lilac, orange, sky in list order. Each fill takes a 1px inset edge mixed half from the fill and half from on-highlighter ink.
+### Lines
+- **Line** (`--color-line`): the hairline of a card and between rows.
+- **Line Strong** (`--color-line-strong`): a button's edge, a divider that must read.
+- **Edge** (`--color-edge`): the boundary of a field, checkbox, radio, switch and choice chip. It is the one line that reaches 3:1 on every surface.
+
+### Text
+- **Text** (`--color-text`): headings, numerals, values.
+- **Text 2** (`--color-text-2`): running text.
+- **Text 3** (`--color-text-3`): labels, captions, placeholders, chart ticks.
+
+### Hues
+Each hue has three tokens: `--x` (a fill or a chart mark), `--x-text` (that hue as text, icon or line on a surface) and `--x-soft` (its tint). In the dark scheme `--x-text` is the hue itself or a step lighter; in the light scheme it is a deep version, so lime text on white never happens.
+
+| Hue | Role |
+| --- | --- |
+| **Lime** | the signal (`--color-accent`): primary button, current nav item, today / now / next, focus ring, series 1 |
+| **Cyan** | series 2, the "second kind" on calendars (약속), links |
+| **Orange** | series 3, the deadline flag |
+| **Violet** | series 4, focus windows |
+| **Green** | ok, saved, done |
+| **Amber** | caution, conflict |
+| **Sky** | information |
+| **Red** | danger and overdue, nothing else |
+
+Text on any bright hue fill is `--color-on-accent` (near-black green) in both schemes; `--color-on-accent-2` is the quieter step. Text on the red fill is `--color-on-danger`.
+
+### Data series
+`--data-1` to `--data-4` are lime, cyan, orange, violet. `--data-rest` is the neutral series (the other days of a week: off-white on dark, ink on light) and `--data-track` an empty bar or the ring's ground. Each series also has `--data-N-edge`: the same colour in the dark scheme, a deeper one in the light scheme, where a lime or cyan fill alone would not reach 3:1 on a white card. A mark takes its edge as a 1px stroke or outline.
 
 ### Contrast
-Computed from the token values (WCAG 2.x relative luminance). All pairs meet WCAG 2.2 AA: 4.5:1 for text, 3:1 for control edges.
+Computed from the token values (WCAG 2.x relative luminance, tints composited as the browser does). All pairs meet WCAG 2.2 AA: 4.5:1 for text, 3:1 for control boundaries, chart marks and the focus ring.
 
-| Pair | Light | Dark |
+| Pair | Dark | Light |
 | --- | --- | --- |
-| Running text (`ink-2`) on paper | 13.3:1 | 12.9:1 |
-| Headings (`ink`) on paper | 17.2:1 | 16.0:1 |
-| Muted on paper | 6.9:1 | 7.2:1 |
-| Muted on paper well (`paper-2`) | 6.5:1 | 6.7:1 |
-| Control edge on paper | 4.5:1 | 4.7:1 |
-| Control edge on paper pressed (`paper-3`) | 3.9:1 | 3.9:1 |
-| Ink on yellow highlighter | 13.7:1 | 11.7:1 |
-| Ink on mint highlighter | 11.3:1 | 9.2:1 |
-| Ink on pink highlighter | 8.7:1 | 7.2:1 |
-| Ink on sky highlighter | 11.0:1 | 9.0:1 |
-| Ink on lilac highlighter | 9.6:1 | 7.8:1 |
-| Ink on orange highlighter | 10.2:1 | 8.6:1 |
-| Quieter ink (`on-hl-muted`) on any highlighter, lowest (pink) | 6.0:1 | 5.0:1 |
-| Red pen on paper | 6.5:1 | 7.2:1 |
-| Paper text on the red danger fill | 6.5:1 | 7.2:1 |
-| Blue pen on paper | 7.5:1 | 8.9:1 |
+| Text on ground | 17.7:1 | 15.8:1 |
+| Text on card | 16.9:1 | 17.7:1 |
+| Text 2 on card | 11.2:1 | 11.2:1 |
+| Text 3 on ground | 7.2:1 | 6.2:1 |
+| Text 3 on card | 6.9:1 | 6.9:1 |
+| Text 3 on raised | 6.3:1 | 6.9:1 |
+| Text 3 on inset | 7.4:1 | 6.4:1 |
+| Text 3 on fill | 6.0:1 | 5.8:1 |
+| Text 3 on fill 2 | 5.3:1 | 5.2:1 |
+| Dark text on lime (primary button) | 14.3:1 | 13.5:1 |
+| Dark text on lime, hover | 16.1:1 | 11.8:1 |
+| Dark text on cyan / orange / violet | 13.4 / 8.8 / 8.5:1 | 12.2 / 7.9 / 7.3:1 |
+| Dark text on green / amber / sky | 11.6 / 11.9 / 10.7:1 | 10.9 / 11.5 / 10.4:1 |
+| Text on the red danger fill | 6.5:1 | 5.0:1 |
+| Lime text on card | 14.3:1 | 8.1:1 |
+| Tag, lime (text on its tint on a card) | 10.3:1 | 7.3:1 |
+| Tag, cyan / orange / violet | 9.8 / 7.5 / 7.4:1 | 7.6 / 6.3 / 7.2:1 |
+| Tag, green / amber / sky | 9.3 / 9.5 / 8.6:1 | 7.7 / 7.1 / 7.4:1 |
+| Tag, red | 7.2:1 | 5.8:1 |
+| Tag, neutral | 9.9:1 | 9.4:1 |
+| Red text on card | 9.0:1 | 6.9:1 |
+| Link on card | 13.4:1 | 8.6:1 |
+| Focus ring on ground / card / raised | 15.0 / 14.3 / 13.1:1 | 7.3 / 8.1 / 8.1:1 |
+| Control edge on card / ground / inset / raised | 3.5 / 3.6 / 3.7 / 3.2:1 | 3.8 / 3.4 / 3.5 / 3.8:1 |
+| Chart mark edge, series 1 to 4, on card | 14.3 / 13.4 / 8.7 / 8.5:1 | 4.1 / 4.3 / 4.7 / 5.2:1 |
+| Chart label (text 3) on card | 6.9:1 | 6.9:1 |
 
 ### Named Rules
-**The Highlighter Is A Fill Rule.** A highlighter colour is only ever a background. Text, icons, edges and rules are ink or pen. Text on any highlighter is `on-hl` in both colour schemes; a highlighted region re-points the ink, muted, edge, link and focus tokens to their on-highlighter values so everything inside it stays dark.
+**The One Lime Rule.** A view has one lime thing to do: its primary button. Lime elsewhere on the view is not an action: the current nav item, today's bar, the leading series, a "now" mark. Lime never means ok, caution or information; those are green, amber and sky.
 
-**The Yellow Means Now Rule.** Yellow marks what is current, next, selected or on, and it is the single-series fill of planned time (the focus meter, the week calendar's blocks). It never means ok, caution or information; those are mint, pink and sky.
+**The Fill Or Text Rule.** A bright hue is either a fill with dark text on it (`--x` under `--color-on-accent`) or text on a surface (`--x-text`). Never `--x` as text in the light scheme, never light text on a bright fill.
 
-**The Danger Is Written Rule.** Danger is red pen, not a highlighter: red text, a red box drawn around the message, or a red filled button. There is no red highlighter.
+**The Red Is Danger Rule.** Red is danger and overdue. A deadline is an orange flag; red arrives when it has passed.
 
-**The Second Signal Rule.** No meaning rides on hue alone. A state is a word; 집중 paint carries upright lines; a commitment and a 쉼 exception are striped; offline is dashed pencil.
+**The Second Signal Rule.** No meaning rides on hue alone. A state is a word in its tag; the selected segment is lifted and heavier; a switch moves its knob; the current nav item carries `aria-current`; a chart's numbers are also text.
 
 ## Typography
 
-**Display Font:** the body family (`--font-display` is `--font-body`)
-**Body Font:** Pretendard when installed, else Noto Sans CJK KR, then the platform Korean sans (Apple SD Gothic Neo, Malgun Gothic) and `system-ui`
-**Label/Mono Font:** `ui-monospace`, D2Coding, JetBrains Mono, Noto Sans Mono CJK KR. Used only where the content is code: an RRULE, a raw-input field, inline code and plain source in a note.
+**Body and Display Font:** Pretendard Variable, bundled (`src/assets/fonts/PretendardVariable.woff2`, v1.3.9, SIL OFL 1.1, weights 45 to 920 in one file), preloaded from `index.html`. Behind it the system Korean sans (Noto Sans CJK KR, Apple SD Gothic Neo, Malgun Gothic) and `system-ui`. No font is requested from the network.
+**Mono Font:** `ui-monospace`, D2Coding, JetBrains Mono, Noto Sans Mono CJK KR. Only where the content is code.
 
-**Character:** One Korean-first sans carries everything, so hierarchy is weight and size, never a change of face. No font file is shipped and no network font is requested; the page takes whatever Korean sans the machine has. Headings are heavy (800) and slightly tightened (-0.02em); everything else is untracked. Nothing is set in capitals.
+**Character:** One family carries everything; rank is size, weight and the quiet around a thing. Large numerals are light (300) and tabular; headings are medium (500); body is 16px regular. Nothing is set in capitals.
 
 ### Hierarchy
-The scale is fixed: 12, 13, 14, 15, 17, 20, 26, 30px, plus a display size. Weights are 400, 500, 600 and 800.
+The scale is fixed: 12, 13, 14, 16, 18, 22, 28, 32px, plus numerals at 40 and 56px and the focus timer's display size. Weights are 300, 400, 500, 600 and 650.
 
-- **Display** (800, 4.5rem, 7.5rem from 1280px wide, line-height 1, tabular numerals): the focus timer and nothing else. In calm mode it takes `--text-display-calm` (4.5rem, 9rem from 640px, 11rem from 1280px). When the session is complete it steps down to 30px.
-- **Headline** (800, 30px, 1.25): the page's `h1`, sitting on the 2px rule.
-- **Figure** (800, 26px, 1.25, tabular numerals): a number over its 13px muted label (계획, 여유, 블록).
-- **Title Large** (800, 20px, 1.4): the next block's title, the task in hand on Focus, dialog titles, the wordmark.
-- **Title** (800, 17px, 1.25): section headings (`h2`), settings legends, block titles at weight 600.
-- **Body** (400, 15px, 1.55): running text, fields, nav items. Line height leaves room for Hangul. Prose is capped near 34 to 40rem.
-- **Body Small** (400 or 600, 14px, 1.4): buttons (600), banners, tables, meta lines.
-- **Label** (600, 13px, 1.4): field labels, badges, choice boxes; at 400 and muted for help text and figure labels.
-- **Grid Label** (400 or 500, 12px): labels inside dense time grids and the bottom nav. Not for running text.
+- **Display** (`--text-display`, 4.5rem, 7.5rem from 1280px): the focus timer and nothing else. Calm mode has its own step (`--text-display-calm`).
+- **Numeral Large** (`--text-num-lg`, 56px, 300, tabular): a timer inside a card.
+- **Numeral** (`--text-num`, 40px, 300, tabular, `.numeral`): the one big number of a card. Its unit (`.numeral-unit`) is half the size and a step quieter.
+- **Headline** (`--text-3xl`, 32px, 500): the page's `h1`.
+- **Figure** (`--text-2xl`, 28px, 300, tabular, `.stat-value`): a number in a row of figures.
+- **Title Large** (`--text-xl`, 22px, 500): dialog titles, a block's title.
+- **Title** (`--text-lg`, 18px, 500): section headings, settings legends.
+- **Body** (`--text-md`, 16px, 400, line-height 1.6): running text, fields, a card's title (500).
+- **Body Small** (`--text-sm`, 14px): buttons, nav items, tables, meta lines.
+- **Label** (`--text-xs`, 13px, 500): field labels, tags, captions.
+- **Grid Label** (`--text-2xs`, 12px): chart ticks, key caps, the bottom nav. Not for running text.
 
-Below 1024px body text and fields are 16px and small text is 15px, so a phone does not zoom on focus.
+Below 1024px small text is 15px and the two numeral sizes step down (36 and 48px).
 
 ### Named Rules
-**The One Face Rule.** One family, four weights. A new role is a size and a weight from the scale, not a second typeface. The mono face is for code only.
+**The One Face Rule.** One family. A new role is a size and a weight from the scale. Mono is for code only.
 
-**The Aligned Numbers Rule.** Times, durations, counts and the timer use tabular numerals so they line up in a column.
+**The Light Numeral Rule.** A number that leads a card is light and large; it is never bold. Times, durations and counts are tabular so they line up.
 
 **The Whole Word Rule.** Hangul words do not break mid-word (`word-break: keep-all`); long ids and URLs may wrap anywhere. Headings balance their lines.
 
 ## Layout
 
-The page is a planner page that starts at the left margin; it is not centred. From 1024px a fixed left rail (13.5rem, paper, a right hairline) holds the wordmark, 새 작업 and the nav as a list of words; the page scrolls beside it. Below 1024px the rail is replaced by a fixed bottom nav (3.5rem plus the safe area, a 1.5px ink rule on top) with five slots, the middle one the add button.
+From 1024px a fixed sidebar (15rem; 4.5rem folded to icons) stands at the left and the canvas scrolls beside it. The canvas opens with the top bar, 4rem high and sticky, on one hairline. Below 1024px the sidebar is replaced by a fixed bottom nav (3.75rem plus the safe area) and the top bar scrolls with the page.
 
-Page measure is 46rem, or 80rem for wide pages. Page padding is 16px, 24px from 640px, and 32px from 1024px. Every page opens with a header on a 2px ink rule: title left, actions right.
+- **Sidebar:** the brand (a link to 개요), 새 작업, then four groups: 메인 (개요, 오늘, 한달, 인박스, 프로젝트, 노트), 계획 (계획 세우기, 일정안 만들기, 재계획 제안, 약속, 가용 시간), AI 분석 (내 패턴), 설정 (캘린더 연동, AI 설정, 레이아웃); at the foot 검색, 도움말, 로그아웃. On a short window only the groups scroll. `src/layout/navigation.ts` is the one list; the sidebar, the phone's 더 보기 sheet and the breadcrumb read it.
+- **Top bar:** sidebar toggle and breadcrumb (group / screen) at the left; theme switch, notifications and the account at the right. It holds no page action.
+- **Page:** `.page` is 46rem wide, `.page--wide` 84rem, starting at the canvas's left edge. Page padding is 16px, 24px from 640px, 32px from 1024px. A page opens with its title at the left and its actions at the right, with no rule under it.
+- **Dashboard grid:** 12 columns, 16px gaps (12px below 1024px). A dashboard page is a size container (`container: <name> / inline-size`) and its cards change span by the canvas's width, not the window's: three columns from 66rem, two from 44rem, one below. Cards in a row stretch to one height; what a card ends with sits on its floor (`margin-top: auto`).
+- **Sticky asides** use `top: var(--sticky-top)` so they clear the top bar.
 
-The adaptive frame is one grid with three regions (primary, secondary, tertiary). They stack below 640px; from 640px the two context regions sit side by side under the primary; from 1280px they become a 17rem column beside it. Today is the exception: from 1280px its day time table stands in a right column (28rem, 30rem from 1440px) for the height of the page, and the block list and context panels share the left.
+Spacing is a 4px scale (2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64px). A card's padding is 24px (20px below 1024px); inside it 16 to 20px separate its parts. Control heights are 32, 40 and 44px; on a coarse pointer every control is at least 44px.
 
-Spacing is a 4px scale (2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64px). Typical rhythm: 4 to 8px inside a control group, 12px between a section's rows of content, 20 to 24px between sections, 8px between a heading and its rule. Control heights are 30, 36 and 44px; on a coarse pointer every control is at least 44px.
-
-Time grids share one module: an hour is a 2rem row of six ten-minute cells, with a 4.5rem label column. The focus meter's cells are the same height as an hour row.
-
-Breakpoints in use: 480, 640, 768, 1024, 1280, 1440px, plus `pointer: coarse` and `pointer: fine`.
+Breakpoints in use: 480, 640, 768, 1024, 1280, 1440px, the container steps 44rem and 66rem, plus `pointer: coarse`.
 
 ## Elevation & Depth
 
-Flat. There is no drop shadow anywhere in the stylesheets; the only `box-shadow` values are inset 1px or 1.5px lines used to draw an edge inside a fill. Depth is said with ink:
+Depth is said with surface steps and hairlines, not with shadows.
 
-- A dialog is a sheet of paper laid over the page: a 1.5px ink edge on the raised ground, over a 45% ink scrim (66% in dark mode).
-- A bottom sheet takes a 2px ink rule on its top edge; a side sheet a 1.5px ink rule on its left.
-- A toast is a line set in ink: an ink fill with paper text.
-- The one tinted ground is the well (`paper-2`), for an aside inside a section and for hover.
+- A card is one step up from the ground with a hairline edge. In the dark scheme it has a faint sheen from its top-left corner (`--card-sheen`); in the light scheme it is plain white.
+- A well (`--color-inset`) is one step down, inside a card.
+- What floats (dialog, sheet, menu, toast) is the raised surface with a stronger hairline and the one soft shadow (`--shadow-float`), over a scrim for dialogs.
+- Blur is allowed for one floating thing at a time: a menu, or the frosted panel laid over the glass object.
 
 ### Named Rules
-**The No Shadow Rule.** Nothing casts a shadow, at rest or on hover. If a surface must separate from the page, draw its edge in ink.
+**The No Glow Rule.** No drop shadow on a card, no glow behind a number, no gradient text, no blur on an ordinary card. The only gradient fill is the current nav item (lime to cyan) and the brand tile.
 
 ## Shapes
 
-Square, pen-drawn forms. Corners are 0 to 6px: highlighted words, badges, time cells and the meter are square (0); key caps and banners 2px; checkboxes and the order-number box 3px; buttons, fields, choice boxes and nav items 4px; dialogs 6px. The only round shapes are a radio button, the pick mark on a schedule candidate (one of three, drawn as a radio), and the circular skeleton.
+Corners are generous and consistent: key caps and checkboxes 4px, tags 6px, controls 10px, wells and menus 14px, cards and dialogs 20px. Round shapes are the switch, bar ends, legend dots, the avatar and a radio.
 
-Lines come in three weights: a 1px hairline (rows, grids, field edges), a 1.5px pen line (buttons, checkboxes, dialogs, the boxed danger badge), and a 2px bar (the rule under a heading, the now line on the day time table, the top of a sheet). A dashed line means pencil: offline, erase, not yet real.
-
-A highlighter mark hugs its text: 4px of padding either side, pulled back by a negative margin so the text stays on the left margin, cloned across line breaks.
+Lines are 1px. The 2px weight is kept for marks that are data: the now line and chart strokes. A dashed line means "not real yet": offline, a day that has not come.
 
 ## Components
 
+Every class named here existed before HOLO-01 and kept its name; the screens not yet restyled took the new look from the primitives. New classes are marked (new).
+
 ### Buttons
-Pen-drawn boxes that state what they do in a short Korean label.
-- **Shape:** 4px corners, a 1.5px ink edge, 36px high (30px small, 44px large), 12px side padding, 14px weight 600, never wrapping.
-- **Default (outline):** transparent with ink text and an ink edge; hover fills with the paper well.
-- **Primary:** ink fill with paper text; hover lightens to running ink. When it cannot act it steps back to an outline with a control-edge border and turns to ink when it can.
-- **Ghost:** no edge; the same hover. **Danger:** red pen fill with paper text. **Danger ghost:** red text, no edge.
-- **Pressed toggle:** a yellow fill with on-highlighter ink and edge.
-- **Press / Focus:** a 1px downward press; a 2px blue-pen ring, offset 2px. Disabled is 55% opacity.
+- **Shape:** 10px corners, 40px high (32 small, 44 large), 16px side padding, 14px medium, never wrapping.
+- **Secondary (default):** transparent with a strong hairline; hover lays the hover tint and takes the control edge.
+- **Primary** (`.btn--primary`): lime fill, near-black text, 600. One per view. Inert, it gives the lime back (neutral fill, quiet text).
+- **Ghost:** no edge. **Danger:** red fill. **Danger ghost:** red text, red tint on hover.
+- **Icon button** (`.btn--icon`): a square with the secondary's edge.
+- **Pressed toggle** (`.btn[aria-pressed='true']`): lime tint, lime text and edge.
+- **States:** hover, `:focus-visible` (2px lime ring, offset 2px; deep green in the light scheme), active (1px down), disabled (50%), busy (spinner in the icon's box, `aria-busy`).
+- **Icon link** (`.icon-link`, new): the 32px "open" corner of a card.
+- **Segmented control** (`.segmented` / `.segmented-item`, new): one of a few, in an inset track; the picked one is a lifted, heavier tile with its icon in lime.
 
-### Chips
-- **Badge:** a highlighted word. Square ends, no border, 13px weight 600, 22px high, 6px side padding. Neutral is paper pressed; accent yellow, ok mint, warn pink, info sky. Danger is not highlighted: red text in a 1.5px red inset box. Offline is muted text in a hairline box. The word carries the state; there is no leading dot.
-- **Choice box:** a checkbox or radio drawn as a selectable box (4px corners, 1px control edge, 30px high). Picked is a yellow fill with an on-highlighter edge and weight 600.
+### Tags
+`.badge` / `.chip`: a small rounded rectangle (6px, 24px high, 13px medium) with a tinted fill and matching text. Neutral is the fill surface. Tones: `--accent` / `--lime`, `--success` / `--ok` / `--green`, `--warn` / `--amber`, `--info` / `--sky`, `--danger` / `--red`, and the category hues `--cyan`, `--orange`, `--violet`. One hue per category: a project keeps the same hue everywhere (`projectHue`). `--offline` and `--outline` are outlines without a fill. The word carries the state; there is no leading dot.
 
-### Cards / Containers
-There are none. The section primitive has no edge, no fill and no padding; it is a column with 12px gaps whose opening heading sits on the 2px ink rule.
-- **Well:** the only filled container, paper well with 12px by 16px padding, for an aside inside a section.
-- **Rows:** list rows are separated by hairlines and padded 16px top and bottom; tables are ruled rows with a 2px ink rule under the head and no outer box.
-- **Figures:** a 13px muted label over a 26px weight 800 number, set in a wrapping row with 32px gaps.
-- **Empty state:** a line of text and what to do, left-aligned, no illustration.
+### Cards
+- **Card** (`.card`): surface, hairline, 20px corners, 24px padding, 16px between its parts.
+- **Flat** (`.card--flat`): a plain section of the page with no surface.
+- **Well** (`.card--sunken`): inset, 14px corners.
+- **Compact** (`.card--compact`): 16px padding, 14px corners.
+- **Title** (`.card-title`): 16px medium with an optional 18px icon in text 3. **Header:** title left, the open icon-link right.
+- **Figures** (`.stat` / `.stat-value`): a 13px label over a 28px light number.
+- **Rows and tables** (`.data-table`): hairline rows, a quiet head, numbers right-aligned.
+- **Empty state** (`.empty-state`): what is missing and what to do, left-aligned, with a small icon tile (hidden when compact).
+- **Skeleton:** blocks in the shape of what will arrive; a dashboard card has its own.
 
-### Inputs / Fields
-- **Style:** paper ground, a 1px control edge, 4px corners, 36px high, 15px text. Field, select and textarea are one box. The label sits above at 13px weight 600; help text is 13px muted.
-- **Hover / Focus:** the edge turns to ink; focus adds the 2px blue-pen ring drawn 1px inside.
-- **Error / Disabled:** a red edge with a 13px red message; disabled is the paper well at 70% opacity.
-- **Checkbox / Radio:** an 18px pen box (1.5px ink edge, 3px corners; a radio is round). Checked fills with ink and is ticked in paper.
-- **Switch:** a checkbox drawn as a 36 by 20px pen box with a sliding square; on is a yellow fill.
+### Inputs
+- **Field, select, textarea:** one box. Inset ground, the 3:1 edge, 10px corners, 40px high, 16px text. Hover lightens the edge; focus takes the focus colour and the ring drawn 1px inside. Error is a red edge with a 13px red message. Disabled is the neutral fill at 70%.
+- **Checkbox / radio:** an 18px well with the edge; checked fills with lime and takes a dark tick or dot.
+- **Switch:** a 40 by 22px pill; on is lime with the knob at the right.
+- **Choice chip:** a checkbox or radio as a chip; picked is the lime tint with a lime edge and weight 600.
 
 ### Navigation
-- **Rail (from 1024px):** a list of words under small muted group labels. Items are 15px, 32px high, hover on the paper well. The current item is weight 800 with a yellow stroke behind its label only, drawn from the left. Shortcuts show as key caps at the right.
-- **Bottom nav (below 1024px):** five slots, icon over a 12px label; the current label is highlighted yellow; the middle slot is a 44px ink-filled add button.
-- **Tabs:** the active tab is weight 800 with its label highlighted.
+- **Sidebar item** (`.nav-link`): 34px high, 14px, an 18px line icon in text 3. The current item (`.nav-link--current` or `.router-link-active`) is the lime-to-cyan gradient with dark text, weight 600, and `aria-current="page"`.
+- **Folded sidebar:** icons only; the labels stay in the accessibility tree and as tooltips; a group's name becomes a hairline.
+- **Bottom nav:** five slots (오늘, 인박스, 새 작업, 계획, 더 보기), icon over a 12px label; the current slot's icon sits in the gradient pill. 개요 is the first link of the 더 보기 sheet.
+- **Menu** (`.menu` / `.menu-item`, new): a small floating list (the account menu).
 
 ### Banner, Dialog, Toast
-- **Banner:** a highlighted line across the page, 2px corners, 14px text: sky by default, mint for success, pink for warning or conflict, yellow for accent. An error is the page's own paper boxed in a 1.5px red line with a red title. Offline is the paper well with a dashed hairline.
-- **Dialog:** 34rem wide (26rem small, 44rem large), 20px padding, title at 20px weight 800, actions right-aligned over a hairline and stacked full-width below 640px. A sheet rises from the bottom on small screens and stands at the right (26rem) from 1024px.
-- **Toast:** ink fill, paper text, 4px corners, at most 30rem; bottom centre above the bottom nav, bottom right from 1024px.
+- **Banner:** a tinted line with its hue on the edge and the icon; text stays the page's text. Info is sky, success green, warning and conflict amber, accent lime, error red with a red title. Offline is neutral and dashed.
+- **Dialog:** the raised surface, 20px corners, 24px padding, title at 22px medium, actions right-aligned over a hairline and stacked below 640px. A sheet rises from the bottom on small screens and stands at the right (27rem) from 1024px.
+- **Toast:** a small raised card, bottom centre above the bottom nav, bottom right from 1024px.
 
-### Time Cells (signature)
-Time is drawn as ten-minute cells that fill with highlighter. The same device appears four times, and the month page reuses its marks.
-- **Day time table (Today):** hour rows of six cells under a 2px ink rule, with a header row marked 10 to 60. Each planned block is a run filled in its series highlighter; the ten-minute lines are drawn over the fill, as on paper. Elapsed time is shaded in the paper well up to a 2px ink line at now, and the current hour's label is highlighted yellow. A legend below pairs each swatch with its title.
-- **Meter (Focus progress):** a strip with a 1px control edge, ruled into as many cells as the plan has ten-minute units, filling with yellow from the left; mint once complete. The AI wait strip is the same strip with a run that travels while waiting.
-- **Availability grid:** cells painted by dragging; 작업 is a plain sky fill, 집중 is lilac with upright lines, erase is a dashed box.
-- **Week calendar:** planned blocks are yellow over their cells; commitments are paper pressed with ink stripes; focus windows are thinned lilac; a 쉼 exception is thinned pink with stripes and a red edge.
-- **Day time table, 약속 (CAL-01):** a commitment of the day is time that is taken but is not planned work: paper pressed with the week calendar's ink stripes and a 1px ink edge, drawn under the block runs, with its own legend entry (약속 · title).
-- **Month page (한달, CAL-01):** one ruled row per week (Monday first), seven day cells. In a cell a planned block is a yellow highlighter run over its time and title (mint with a tick once finished), a 약속 carries the striped ink box and a deadline the pink pennant; past days are shaded in pencil, today's date takes yellow and the word 오늘, and the picked day is boxed in a 2px ink line. A cell holds four lines and folds the rest into "+N개". An all-day event from Google (CAL-04) is not a block or a 약속: its name is written beside the date in plain ink and the date is underlined with the 2px ink bar, the legend's sample. Below 640px a cell shows its date and one mark per kind. From 1280px the picked day's list is the page's one context column (15rem, 17rem from 1440px); below that it sits under the grid. The legend is said once, under the grid.
+### Charts (new, `src/components/charts`)
+Hand-written SVG, no library. Each takes plain numbers, handles zero, one and missing values, and has a text alternative. Geometry is in `geometry.ts` (pure, tested).
 
-### Motion
-State only. Durations are 120, 180 and 260ms on `cubic-bezier(0.2, 0, 0, 1)` or the softer `cubic-bezier(0.16, 1, 0.3, 1)`.
-- **Highlighter stroke:** when something becomes current or selected, its yellow mark draws from the left in 180ms (the next block's title, the picked schedule candidate, the current nav item).
-- **Overlays:** the scrim fades in by opacity; a dialog, sheet or toast fades in while settling 6 to 16px into place over 260ms.
-- **Layout switch:** panels fade in by opacity only. A transform here would trap the Focus calm-mode overlay.
-- **Controls:** colour and edge changes take 120ms; a button moves 1px when pressed; the meter fill grows over 260ms.
-- **Waiting:** the spinner, the skeleton shimmer and the AI wait run loop only while something is loading.
-- **Reduced motion:** every duration token becomes 0, all animation and transition durations are cut, the spinner and skeleton stop, and the AI wait run becomes a still hatch.
+- **`BarWeekChart`:** a set of vertical bars on one scale. One bar may be highlighted (lime), with a value callout above it and a comparison chip. A zero is an empty track; a missing value is a dashed track. The numbers are repeated in a visually hidden table; the picture is hidden from assistive technology.
+- **`RingChart`:** up to four parts of a whole, clockwise from the top in the order given, with a legend (dot, name, dotted leader, value). The legend is the text alternative and carries each share. One part closes the ring; none leaves the track.
+- **`TrendChart`:** a small area under a line, oldest at the left, with a dot on the newest value and an optional dashed reference line. Its summary is the SVG's accessible name.
+- **Legend** (`.legend`): the list used by the ring; use it wherever a mark needs a name.
+
+### Glass Object (new, `src/components/ui/GlassOrb.vue`)
+OhMyDate's own: three nested bands of glass turning around a small core, the brand mark's ring and dot in the round, lime at the upper left to cyan at the lower right. A WebGL fragment shader written for this project (`glassOrbShader.ts`) ray-marches it; no library, model or image goes into it.
+
+- It animates only while it is on screen, the tab is visible and motion is allowed, at no more than 30 frames a second and 1.5 device pixels per CSS pixel.
+- Under `prefers-reduced-motion` it draws one still frame.
+- Without WebGL, or when the context is lost, it shows `src/assets/glass-orb.webp`, which `scripts/render-glass-orb.mjs` renders from the same shader.
+- It is decorative (`aria-hidden`).
+- It is used on the AI card of 개요 and on the login screen, each time behind a frosted panel laid over its lower edge. Do not add a third place without a reason.
+
+### Brand Mark
+`BrandMark.vue`: an open ring (the O, a day) with a dot in its opening (the date, now), dark on a lime-to-cyan rounded tile. Beside it the wordmark "OhMyDate" in the text face at weight 600.
+
+### Time Marks (not yet restyled)
+The day timetable, the week calendar, the month page, the availability grid and the focus meter keep the structure they had before HOLO-01 and take the new colours through the old token names: planned blocks are lime with dark text, 약속 are a cyan tint, focus windows violet, a 쉼 exception a red tint, the now line lime. HOLO-02 and HOLO-03 restyle them.
+
+## Motion
+
+Short and functional. Durations are 120, 180 and 260ms, plus 520ms (`--duration-draw`) for a chart drawing in, on `cubic-bezier(0.2, 0, 0, 1)` or the softer `cubic-bezier(0.16, 1, 0.3, 1)`.
+
+- **Charts:** bars grow from the floor once; ring arcs and the trend fade in once. Numbers do not count up.
+- **The timer ticks.** That is its motion.
+- **Overlays:** the scrim fades in; a dialog, sheet, toast or menu fades in while settling 4 to 16px into place.
+- **Layout switch:** panels fade in by opacity only (a transform would trap the Focus calm-mode overlay).
+- **Controls:** colour and edge changes take 120ms; a button moves 1px when pressed.
+- **Waiting:** the spinner and the skeleton shimmer loop only while something is loading.
+- **Never** animate a layout property (width, height, padding, grid tracks). The sidebar folds at once.
+- **Reduced motion:** every duration token becomes 0, animations and transitions are cut, the spinner and skeleton stop, the glass object holds one frame.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** take every colour, size, edge and duration from `src/styles/tokens.css`. Stylesheets outside it contain no raw colour.
-- **Do** open a section with a heading over a 2px ink rule and separate its rows with 1px hairlines.
-- **Do** show a state as a highlighted word with square ends, and write danger in red pen.
-- **Do** set text on any highlighter in `--color-on-hl` (or `--color-on-hl-muted`), in both colour schemes.
-- **Do** keep one ink-filled control per page or dialog, the next thing to do; other actions are outlines or ghosts. The shell's own 새 작업 is the one standing exception.
-- **Do** draw any new view of time on the shared module: 2rem per hour, six ten-minute cells, highlighter over the cells with the grid lines on top.
-- **Do** give every colour-coded mark a second signal: a word, a stripe, a line pattern or a dash.
-- **Do** keep controls at 44px or more on coarse pointers and keep the 2px blue-pen focus ring visible.
-- **Do** check any new text or edge pair against the contrast table before adding a token.
+- **Do** take every colour, size, edge and duration from `src/styles/tokens.css`.
+- **Do** compose a screen from cards of related sizes on the 12-column grid, with one big light number per card.
+- **Do** give every card a title and, where another screen owns the detail, the open icon-link.
+- **Do** keep one lime-filled button per view or dialog; other actions are secondary or ghost.
+- **Do** compute every number from the user's real data, and show a real empty state when there is none.
+- **Do** set text on a bright hue fill in `--color-on-accent`, and use `--x-text` for a hue as text.
+- **Do** give every chart a text alternative and every colour-coded mark a second signal.
+- **Do** check any new text, tag or mark pair in both schemes before adding a token.
+- **Do** keep controls at 44px or more on coarse pointers and the focus ring visible.
 
 ### Don't:
-- **Don't** add a card: no bordered, filled or shadowed box around a section.
-- **Don't** add a shadow of any kind. Separate a surface with an ink edge.
-- **Don't** round a badge or a button into a pill. Corners stop at 6px, and only radios are round.
-- **Don't** use a highlighter as a text, icon or border colour.
-- **Don't** use yellow for ok, caution or information, and don't use blue for anything but links and the focus ring.
-- **Don't** add a second typeface, a shipped font file or a network font. Mono is for code only.
-- **Don't** set a size or weight outside the scale (12, 13, 14, 15, 17, 20, 26, 30px; 400, 500, 600, 800), and don't set text in capitals or add letter-spacing beyond the heading's -0.02em.
-- **Don't** animate anything that is not a change of state: no entrance choreography, no hover lifts, no decorative loops.
-- **Don't** centre the page in the window; it starts at the left margin beside the rail.
+- **Don't** add a drop shadow, a glow, gradient text or a blur to an ordinary card.
+- **Don't** use lime for ok, caution or information, or red for anything but danger and overdue.
+- **Don't** set lime (or any bright hue) as text on a light surface.
+- **Don't** read `prefers-color-scheme` in a stylesheet; key on `data-scheme`.
+- **Don't** invent a metric, a placeholder statistic or a decorative count-up.
+- **Don't** add a chart, icon or 3D library, or fetch a font or image from the network.
+- **Don't** set a size or weight outside the scale, or set text in capitals.
+- **Don't** animate a layout property, or anything that is not a change of state.
+- **Don't** bring in a name, logo, wording, image or exact screen from another product.
+
+## Moving A Screen To This System (HOLO-02, HOLO-03)
+
+The old token names still resolve, so no screen is broken; they are aliases to be retired as each screen is restyled.
+
+| Old name (still works) | Use instead |
+| --- | --- |
+| `--color-paper` | `--color-ground` (page), `--color-surface` (card), `--color-inset` (field, well) |
+| `--color-paper-2`, `--color-paper-3` | `--color-fill`, `--color-fill-2`, or `--color-hover` for a hover |
+| `--color-ink`, `--color-ink-2`, `--color-muted` | `--color-text`, `--color-text-2`, `--color-text-3` |
+| `--color-rule`, `--color-rule-2` | `--color-line`, `--color-line-strong` (the old ones are opaque, for grids and gradients) |
+| `--hl-yellow` | `--color-accent` (fill) or `--color-accent-soft` (tint) |
+| `--hl-mint`, `--hl-pink`, `--hl-sky`, `--hl-lilac`, `--hl-orange` | `--green`, `--amber`, `--cyan`, `--violet`, `--orange`, or their `-soft` tints with `-text` |
+| `--color-on-hl`, `--color-on-hl-muted` | `--color-on-accent`, `--color-on-accent-2` |
+| `--pen-red`, `--pen-blue` | `--color-danger-text`, `--color-link` |
+| `--rev-*` | `--color-raised` with normal text |
+
+What a restyle usually means: wrap a section in a `.card` (or use `UiCard`), drop the rule under its heading, replace a highlighted word with a tag, replace a bright fill over text with a tint, and lead with the one number that matters.

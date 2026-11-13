@@ -1,0 +1,335 @@
+/*
+ * Charts (HOLO-01): hand-written SVG, drawn from tokens. Series colours are
+ * --data-1..4; a mark takes its --data-N-edge as a stroke, which is the same
+ * colour in the dark scheme and a deeper one in the light scheme, where the
+ * fill alone would not reach 3:1 on a white card. Marks draw in once; reduced
+ * motion shows them drawn.
+ */
+
+/* ── Bar set: a week of days ───────────────────────────────────────── */
+.bar-set {
+  --bar-headroom: 5.25rem;
+
+  min-width: 0;
+  margin: 0;
+}
+
+.bar-set-plot {
+  position: relative;
+  padding-top: var(--bar-headroom);
+}
+
+.bar-set-svg {
+  display: block;
+  overflow: visible;
+}
+
+.bar-set-track {
+  fill: var(--data-track);
+}
+
+.bar-set-col--missing .bar-set-track {
+  fill: none;
+  stroke: var(--color-line-strong);
+  stroke-dasharray: 3 4;
+}
+
+.bar-set-bar {
+  fill: var(--data-rest);
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: bar-grow var(--duration-draw) var(--ease-out) both;
+}
+
+.bar-set-col--highlight .bar-set-bar {
+  fill: var(--data-1);
+  stroke: var(--data-1-edge);
+  stroke-width: 1;
+}
+
+.bar-set-dot {
+  fill: var(--data-track);
+}
+
+.bar-set-col--highlight .bar-set-dot {
+  fill: var(--data-1);
+  stroke: var(--data-1-edge);
+  stroke-width: 1;
+}
+
+@keyframes bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+.bar-set-labels {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bar-set-label {
+  color: var(--color-text-3);
+  font-size: var(--text-2xs);
+  text-align: center;
+}
+
+.bar-set-label--highlight {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+/* The value of the highlighted bar, set in the headroom above it. It follows
+   the bar's column and stays inside the plot at either end. */
+.bar-set-callout {
+  --callout-half: 3.75rem;
+
+  position: absolute;
+  top: 0;
+  left: clamp(var(--callout-half), var(--x, 50%), calc(100% - var(--callout-half)));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1-5);
+  width: max-content;
+  max-width: calc(2 * var(--callout-half) + 1rem);
+  transform: translateX(-50%);
+}
+
+.bar-set-callout-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-1-5) var(--space-2-5);
+  border: var(--rule-hair) solid var(--color-line-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-raised);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.bar-set-callout-value {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.bar-set-callout-note {
+  color: var(--color-text-3);
+  font-size: var(--text-2xs);
+}
+
+.bar-set-chip {
+  font-weight: var(--weight-semibold);
+}
+
+/* ── Ring: parts of a whole, with its legend ───────────────────────── */
+.ring {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  margin: 0;
+}
+
+.ring-plot {
+  position: relative;
+  align-self: center;
+  width: min(100%, 10.5rem);
+}
+
+.ring-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.ring-track {
+  fill: none;
+  stroke: var(--data-track);
+}
+
+.ring-arc,
+.ring-edge {
+  fill: none;
+  stroke-linecap: round;
+  animation: ring-draw var(--duration-draw) var(--ease-out) both;
+}
+
+.ring-edge--1 {
+  stroke: var(--data-1-edge);
+}
+
+.ring-edge--2 {
+  stroke: var(--data-2-edge);
+}
+
+.ring-edge--3 {
+  stroke: var(--data-3-edge);
+}
+
+.ring-edge--4 {
+  stroke: var(--data-4-edge);
+}
+
+.ring-arc--1 {
+  stroke: var(--data-1);
+}
+
+.ring-arc--2 {
+  stroke: var(--data-2);
+}
+
+.ring-arc--3 {
+  stroke: var(--data-3);
+}
+
+.ring-arc--4 {
+  stroke: var(--data-4);
+}
+
+/* Only opacity moves: the arcs are already in place. */
+@keyframes ring-draw {
+  from {
+    opacity: 0;
+  }
+}
+
+.ring-total {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-0-5);
+  padding: 0 1.5rem;
+  text-align: center;
+}
+
+.ring-total-value {
+  color: var(--color-text);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-light);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-num);
+  line-height: 1.15;
+}
+
+.ring-total-label {
+  color: var(--color-text-3);
+  font-size: var(--text-2xs);
+}
+
+/* ── Legend: a mark, its name, a dotted leader, its value ──────────── */
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-sm);
+}
+
+.legend-dot {
+  flex: none;
+  align-self: center;
+  width: 0.5rem;
+  height: 0.5rem;
+  border: var(--rule-hair) solid var(--data-1-edge);
+  border-radius: 50%;
+  background: var(--data-1);
+}
+
+.legend-dot--2 {
+  border-color: var(--data-2-edge);
+  background: var(--data-2);
+}
+
+.legend-dot--3 {
+  border-color: var(--data-3-edge);
+  background: var(--data-3);
+}
+
+.legend-dot--4 {
+  border-color: var(--data-4-edge);
+  background: var(--data-4);
+}
+
+.legend-label {
+  color: var(--color-text-2);
+  white-space: nowrap;
+}
+
+.legend-leader {
+  flex: 1;
+  min-width: var(--space-4);
+  border-bottom: var(--rule-hair) dashed var(--color-line-strong);
+  transform: translateY(-0.2em);
+}
+
+.legend-value {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Trend: a small area under a line ──────────────────────────────── */
+.trend {
+  position: relative;
+  min-width: 0;
+  height: 4rem;
+}
+
+.trend-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.trend-guide {
+  stroke: var(--color-line-strong);
+  stroke-dasharray: 3 4;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-area {
+  fill: var(--color-accent-soft);
+  animation: ring-draw var(--duration-draw) var(--ease-out) both;
+}
+
+.trend-line {
+  fill: none;
+  stroke: var(--data-1-edge);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  animation: ring-draw var(--duration-draw) var(--ease-out) both;
+}
+
+.trend-dot {
+  position: absolute;
+  width: 0.5rem;
+  height: 0.5rem;
+  border: var(--rule-hair) solid var(--data-1-edge);
+  border-radius: 50%;
+  background: var(--data-1);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+  transform: translate(-50%, -50%);
+}

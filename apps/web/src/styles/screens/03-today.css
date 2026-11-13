@@ -224,7 +224,7 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding-bottom: var(--space-2);
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
 }
 
 .day-timetable-head h2 {
@@ -345,7 +345,8 @@
   inset-block: 0;
   left: calc(var(--at) * 100%);
   z-index: 1;
-  border-left: var(--rule-bar) solid var(--color-ink);
+  /* HOLO-01: now is the lime signal. */
+  border-left: var(--rule-bar) solid var(--color-accent-text);
 }
 
 .tt-row--now .tt-hour-label {
@@ -414,7 +415,7 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding-bottom: var(--space-2);
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
 }
 
 .today-agenda-head a {

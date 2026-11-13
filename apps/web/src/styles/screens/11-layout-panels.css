@@ -14,7 +14,7 @@
   align-items: center;
   gap: var(--space-1-5);
   padding-bottom: var(--space-2);
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
   font-size: var(--text-md);
   font-weight: var(--weight-bold);
   line-height: var(--leading-snug);

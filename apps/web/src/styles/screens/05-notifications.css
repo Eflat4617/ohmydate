@@ -1,6 +1,6 @@
 /* ── Notifications sheet: a ruled list ─────────────────────────────── */
 .notification-list {
-  border-top: var(--rule-bar) solid var(--color-ink);
+  border-top: var(--rule-hair) solid var(--color-line-strong);
 }
 
 .notification-item {

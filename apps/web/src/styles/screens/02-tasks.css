@@ -16,7 +16,7 @@
   align-items: center;
   gap: var(--space-2);
   padding-bottom: var(--space-1-5);
-  border-bottom: var(--rule-bar) solid var(--color-ink);
+  border-bottom: var(--rule-hair) solid var(--color-line-strong);
 }
 
 .quick-add-row:has(.quick-add-input:focus-visible) {

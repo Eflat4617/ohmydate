@@ -5,8 +5,8 @@ import { useAuthStore } from '../stores/auth';
 import { useUiStore } from '../stores/ui';
 import UiDialog from './ui/UiDialog.vue';
 import UiIcon from './ui/UiIcon.vue';
-import type { IconName } from './ui/icons';
-import { t, type MessageKey } from '../i18n';
+import { MORE_LINKS } from '../layout/navigation';
+import { t } from '../i18n';
 
 const ui = useUiStore();
 const auth = useAuthStore();
@@ -14,46 +14,11 @@ const router = useRouter();
 const route = useRoute();
 const moreOpen = ref(false);
 
-interface MoreLink {
-  readonly to: string;
-  readonly label: MessageKey;
-  readonly icon: IconName;
-}
+// HOLO-01: the sheet lists every sidebar link the bar does not hold itself,
+// in the sidebar's order — 개요 first (CAL-01: 한달 is here too).
+const moreLinks = MORE_LINKS;
 
-// CAL-01: 한달 opens the sheet (the bar's four slots stay Today, Inbox, add, Plan).
-const moreLinks: readonly MoreLink[] = [
-  { to: '/month', label: 'nav.month', icon: 'month' },
-  { to: '/projects', label: 'nav.projects', icon: 'projects' },
-  { to: '/notes', label: 'nav.notes', icon: 'note' },
-  { to: '/plans/new', label: 'nav.newPlan', icon: 'compare' },
-  { to: '/replan', label: 'nav.replan', icon: 'reschedule' },
-  { to: '/patterns', label: 'nav.patterns', icon: 'pattern' },
-  { to: '/commitments', label: 'nav.commitments', icon: 'commitment' },
-  { to: '/settings/availability', label: 'nav.availability', icon: 'availability' },
-  { to: '/settings/calendar', label: 'nav.calendarSettings', icon: 'link' },
-  { to: '/settings/ai', label: 'nav.aiSettings', icon: 'ai' },
-  { to: '/settings/layout', label: 'nav.layoutSettings', icon: 'layout' },
-];
-
-const MORE_ROUTES = new Set([
-  'month',
-  'projects',
-  'project',
-  'plans-new',
-  'plan',
-  'replan',
-  'replan-proposal',
-  'patterns',
-  'commitments',
-  'availability',
-  'calendar-settings',
-  'ai-settings',
-  'layout-settings',
-  'notes',
-  'notes-new',
-  'notes-detail',
-  'task',
-]);
+const MORE_ROUTES = new Set([...MORE_LINKS.flatMap((link) => link.routes), 'task']);
 const moreActive = computed(() => typeof route.name === 'string' && MORE_ROUTES.has(route.name));
 
 function newTask(): void {

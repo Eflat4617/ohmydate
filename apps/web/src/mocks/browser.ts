@@ -14,6 +14,7 @@ import { createNotesHandlers, seedFocusNote } from './notes';
 import { createPlanningHandlers } from './planning-handlers';
 import { createReplanHandlers, seedColdEstimation, seedReplanScenario } from './replan';
 import { mockDb, seedMonth, seedTodayRisk, type MockDb } from './db';
+import { seedOverviewSessions } from './overview-seed';
 
 declare global {
   interface Window {
@@ -42,6 +43,12 @@ declare global {
       google?: MockGoogleScenario;
       /** CAL-04: make "지금 동기화" fail (503, or 409 after the grant was revoked). */
       googleSyncFailure?: 'provider_unavailable' | 'auth_revoked';
+      /**
+       * HOLO-01: the focus sessions 개요 is computed from. Mock mode seeds a
+       * fortnight of them by default; `running` adds one that is in progress,
+       * `none` leaves the dashboard empty.
+       */
+      sessions?: 'running' | 'none';
     };
     /** Mock-mode only: the in-page synthetic database, for screenshot/state scripts. */
     __OHMYDATE_MOCK_DB__?: MockDb;
@@ -51,11 +58,10 @@ declare global {
 const overrides = typeof window === 'undefined' ? undefined : window.__OHMYDATE_MOCK__;
 // CAL-01: mock mode opens on a believable month (src/mocks/db.ts seedMonth).
 if (overrides?.month !== 'none') seedMonth(mockDb);
+// HOLO-01: after the month, so the sessions belong to its tasks.
+if (overrides?.sessions !== 'none') seedOverviewSessions(mockDb, { running: overrides?.sessions === 'running' });
 if (overrides?.llmProvider !== undefined) {
   mockDb.user = { ...mockDb.user, llmProvider: overrides.llmProvider };
-}
-if (overrides?.replan !== undefined) {
-  seedReplanScenario(mockDb, { history: overrides.replan === 'history' });
 }
 if (overrides?.estimation === 'cold') seedColdEstimation(mockDb);
 if (overrides?.today === 'risk') seedTodayRisk(mockDb);
@@ -70,6 +76,13 @@ const returnedConnected =
   typeof location !== 'undefined' && new URLSearchParams(location.search).get('google') === 'connected';
 seedGoogle(mockDb, returnedConnected ? 'connected' : (overrides?.google ?? 'connected'));
 if (overrides?.googleSyncFailure !== undefined) mockDb.google.syncFailure = overrides.googleSyncFailure;
+// After the Google seed: importing its 약속 moves the availability version,
+// and a replan proposal is only approvable for the version it was computed
+// for. (Seeded before it, the proposal was stale from the first frame and the
+// sweep's "approve" step could not pass — found while sweeping HOLO-01.)
+if (overrides?.replan !== undefined) {
+  seedReplanScenario(mockDb, { history: overrides.replan === 'history' });
+}
 if (typeof window !== 'undefined') window.__OHMYDATE_MOCK_DB__ = mockDb;
 
 export const worker = setupWorker(

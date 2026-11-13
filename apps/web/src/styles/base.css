@@ -9,7 +9,8 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
-  scrollbar-color: var(--color-rule) var(--color-paper);
+  background: var(--color-ground);
+  scrollbar-color: var(--color-fill-2) transparent;
 }
 
 html,
@@ -25,25 +26,25 @@ body,
 
 body {
   margin: 0;
-  background: var(--color-paper);
-  color: var(--color-ink-2);
+  background: var(--color-ground);
+  color: var(--color-text-2);
   font-family: var(--font-body);
   font-size: var(--text-md);
+  font-weight: var(--weight-regular);
   line-height: var(--leading-normal);
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  caret-color: var(--color-ink);
+  caret-color: var(--color-accent-text);
   /* Keep Hangul words intact; long tokens (ids, URLs) still wrap. */
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
 
-/* Selecting text is highlighting it. */
 ::selection {
-  background: var(--hl-yellow);
-  color: var(--color-on-hl);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 h1,
@@ -58,13 +59,15 @@ figure {
   margin: 0;
 }
 
+/* Headings are medium weight: size and the quiet around them carry the rank. */
 h1,
 h2,
 h3,
 h4 {
   min-width: 0;
-  color: var(--color-ink);
+  color: var(--color-text);
   font-family: var(--font-display);
+  font-weight: var(--weight-medium);
   line-height: var(--leading-tight);
   letter-spacing: var(--tracking-tight);
   overflow-wrap: break-word;
@@ -73,22 +76,18 @@ h4 {
 
 h1 {
   font-size: var(--text-3xl);
-  font-weight: var(--weight-bold);
 }
 
 h2 {
   font-size: var(--text-lg);
-  font-weight: var(--weight-bold);
 }
 
 h3 {
   font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
 }
 
 h4 {
   font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
 }
 
 p {
@@ -106,7 +105,7 @@ a:hover {
 }
 
 strong {
-  color: var(--color-ink);
+  color: var(--color-text);
   font-weight: var(--weight-semibold);
 }
 
@@ -140,7 +139,8 @@ textarea {
 }
 
 img,
-svg {
+svg,
+canvas {
   display: block;
   max-width: 100%;
 }
@@ -158,16 +158,17 @@ svg {
   outline-style: dotted;
 }
 
-/* A key cap is a small pen box. */
+/* A key cap. */
 kbd {
   display: inline-grid;
   place-items: center;
-  min-width: 1.5em;
-  height: 1.5em;
-  padding: 0 0.3em;
-  border: var(--rule-hair) solid var(--color-edge);
+  min-width: 1.6em;
+  height: 1.6em;
+  padding: 0 0.35em;
+  border: var(--rule-hair) solid var(--color-line-strong);
   border-radius: var(--radius-xs);
-  color: var(--color-muted);
+  background: var(--color-hover);
+  color: var(--color-text-3);
   font-family: var(--font-body);
   font-size: 0.75em;
   font-weight: var(--weight-medium);
@@ -179,23 +180,20 @@ hr {
   height: var(--rule-hair);
   margin: 0;
   border: 0;
-  background: var(--color-rule);
+  background: var(--color-line);
 }
 
 del {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
   text-decoration-thickness: 1.5px;
 }
 
-ins {
-  background: var(--hl-yellow);
-  color: var(--color-on-hl);
-  text-decoration: none;
-}
-
+ins,
 mark {
-  background: var(--hl-yellow);
-  color: var(--color-on-hl);
+  border-radius: var(--radius-xs);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  text-decoration: none;
 }
 
 /* ── Utilities ─────────────────────────────────────────────────────── */
@@ -214,12 +212,12 @@ mark {
 
 .muted,
 .subtle {
-  color: var(--color-muted);
+  color: var(--color-text-3);
 }
 
 .danger,
 .error-text {
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .error-text {
@@ -234,6 +232,26 @@ mark {
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* The one big number of a card: light weight, tabular, tight. */
+.numeral {
+  color: var(--color-text);
+  font-size: var(--text-num);
+  font-weight: var(--weight-light);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-num);
+  line-height: 1.05;
+  white-space: nowrap;
+}
+
+/* The unit beside a numeral (시간, 분, 배): smaller and quieter. */
+.numeral-unit {
+  margin-left: 0.12em;
+  color: var(--color-text-2);
+  font-size: 0.5em;
+  font-weight: var(--weight-regular);
+  letter-spacing: 0;
 }
 
 .stack {
@@ -265,29 +283,30 @@ mark {
 
 .section-title,
 .h2 {
-  color: var(--color-ink);
+  color: var(--color-text);
   font-size: var(--text-lg);
-  font-weight: var(--weight-bold);
+  font-weight: var(--weight-medium);
   letter-spacing: var(--tracking-tight);
 }
 
 .h3 {
-  color: var(--color-ink);
+  color: var(--color-text);
   font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-medium);
 }
 
-/* A highlighter stroke behind a word or a line of text. */
+/* A lime mark behind a word or a line of text: "this one, now". */
 .hl {
-  background: var(--hl-yellow);
-  color: var(--color-on-hl);
+  border-radius: var(--radius-xs);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
 
-/* The one authored motion: a highlighter stroke drawn from the left when
-   something becomes current or selected. The stroke is a background, so on
-   text that wraps every line gets its own. Reduced motion ends it at once. */
+/* A mark that draws in from the left when something becomes current. The
+   mark is a background, so on text that wraps every line gets its own.
+   Reduced motion ends it at once. */
 @keyframes hl-draw {
   from {
     background-size: 0% 100%;
@@ -302,9 +321,10 @@ mark {
   z-index: var(--z-toast);
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-md);
-  background: var(--color-ink);
-  color: var(--color-on-ink);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
   font-weight: var(--weight-semibold);
+  text-decoration: none;
   transform: translateY(-300%);
 }
 
