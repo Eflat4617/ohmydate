@@ -154,6 +154,40 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
     markers: ['A-private-task'],
   },
+  // CAL-05 말로 적기 in the inbox: the read (drafts only) and adding a read draft.
+  {
+    name: 'inbox: read a to-do note (말로 적기)',
+    covers: ['src/components/TaskParseSection.vue', 'src/composables/useNlDraftRead.ts'],
+    path: '/inbox',
+    ready: async (wrapper) => {
+      await inboxReady(wrapper);
+      await until(() => expect(wrapper.find('#task-note').exists()).toBe(true));
+    },
+    hold: { method: 'POST', path: /\/tasks:parse$/ },
+    act: async (wrapper) => {
+      await wrapper.get('#task-note').setValue('내일까지 A-private-todo-read');
+      await wrapper.get('form.task-parse-form').trigger('submit');
+    },
+    markers: ['A-private-todo-read'],
+  },
+  {
+    name: 'inbox: add a read task draft',
+    covers: ['src/components/TaskParseSection.vue', 'src/composables/useNlDraftRead.ts'],
+    path: '/inbox',
+    // The read is part of getting ready; the action is adding the draft it gave.
+    ready: async (wrapper) => {
+      await inboxReady(wrapper);
+      await until(() => expect(wrapper.find('#task-note').exists()).toBe(true));
+      await wrapper.get('#task-note').setValue('내일까지 A-private-todo-draft');
+      await wrapper.get('form.task-parse-form').trigger('submit');
+      await until(() => expect(wrapper.findAll('[data-testid="task-draft"]')).toHaveLength(1));
+    },
+    hold: { method: 'POST', path: /\/tasks$/ },
+    act: async (wrapper) => {
+      await buttonByText(wrapper.get('[data-testid="task-parse-result"]') as unknown as VueWrapper, '추가').trigger('click');
+    },
+    markers: ['A-private-todo-draft'],
+  },
   {
     name: 'inbox: rename',
     covers: ['src/components/TaskList.vue', 'src/composables/useTaskActions.ts'],

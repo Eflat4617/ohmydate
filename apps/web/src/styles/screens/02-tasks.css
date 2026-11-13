@@ -131,6 +131,17 @@
   font-weight: var(--weight-regular);
 }
 
+/* CAL-05: the deadline under the title, quiet; past due on an open task adds the word 지났어요. */
+.task-due {
+  grid-column: 1 / -1;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.task-due-overdue {
+  margin-left: var(--space-1-5);
+}
+
 .task-item--done .task-title {
   color: var(--color-muted);
   text-decoration: line-through;
@@ -250,4 +261,48 @@
 .project-chevron {
   flex: none;
   color: var(--color-muted);
+}
+
+/* ── Inbox: 말로 적기 (CAL-05) ─────────────────────────────────────────
+   The shared 말로 적기 rows (08-availability.css) with the inbox's own
+   pieces: a shorter note under the quick add, the title edited in place,
+   the deadline input, and the guessed-AM/PM line both screens use. */
+.nl-entry.task-parse {
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-6);
+}
+
+.nl-entry-note.task-parse-note {
+  min-height: 3.75rem;
+}
+
+.task-draft-title {
+  flex: 1 1 14rem;
+  min-width: 0;
+  max-width: 32rem;
+  font-weight: var(--weight-semibold);
+}
+
+.task-draft-due-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.task-draft-due-edit input {
+  width: 14rem;
+}
+
+/* The guessed half-day: the sentence and its one small switch on one line. */
+.nl-draft-meridiem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-2);
+}
+
+.nl-draft-meridiem-switch {
+  color: var(--color-ink);
 }

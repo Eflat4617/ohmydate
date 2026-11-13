@@ -1,14 +1,27 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import UiButton from './ui/UiButton.vue';
 import UiIcon from './ui/UiIcon.vue';
 import { t } from '../i18n';
 
-const props = defineProps<{ disabled?: boolean }>();
-const emit = defineEmits<{ submit: [title: string] }>();
+/**
+ * The inbox's one-line quick add: type a title, Enter, it is added at once.
+ * CAL-05: `primary` (default true) lets the page give its one filled button to
+ * 말로 적기 while this field is empty; `filled-change` says when it has text.
+ */
+const props = withDefaults(defineProps<{ disabled?: boolean; primary?: boolean }>(), {
+  disabled: false,
+  primary: true,
+});
+const emit = defineEmits<{ submit: [title: string]; 'filled-change': [filled: boolean] }>();
 
 const title = ref('');
 const input = ref<HTMLInputElement | null>(null);
+
+watch(
+  () => title.value.trim().length > 0,
+  (filled) => emit('filled-change', filled),
+);
 
 function submit(): void {
   if (props.disabled === true) return;
@@ -44,7 +57,11 @@ defineExpose({ focus, clear });
         autocomplete="off"
         :disabled="disabled"
       />
-      <UiButton type="submit" variant="primary" :disabled="disabled || title.trim().length === 0">
+      <UiButton
+        type="submit"
+        :variant="primary ? 'primary' : 'secondary'"
+        :disabled="disabled || title.trim().length === 0"
+      >
         {{ t('quickAdd.submit') }}
       </UiButton>
     </div>

@@ -1,6 +1,11 @@
 import createClient, { type Middleware } from 'openapi-fetch';
 import { ApiError, apiErrorFromPayload } from './errors';
-import { COMMITMENT_PARSE_CLIENT_BOUND_MS, aiRequestSignal, type AiRequestOptions } from './ai-request';
+import {
+  COMMITMENT_PARSE_CLIENT_BOUND_MS,
+  TASK_PARSE_CLIENT_BOUND_MS,
+  aiRequestSignal,
+  type AiRequestOptions,
+} from './ai-request';
 import type { components, paths } from './schema';
 
 export type Task = components['schemas']['Task'];
@@ -59,6 +64,10 @@ export type CommitmentOccurrence = components['schemas']['CommitmentOccurrence']
 export type CommitmentDraft = components['schemas']['CommitmentDraft'];
 export type CommitmentDraftNote = CommitmentDraft['notes'][number];
 export type CommitmentParseResponse = components['schemas']['CommitmentParseResponse'];
+/** CAL-05: natural-language task entry in the inbox. */
+export type TaskDraft = components['schemas']['TaskDraft'];
+export type TaskDraftNote = TaskDraft['notes'][number];
+export type TaskParseResponse = components['schemas']['TaskParseResponse'];
 export type Plan = components['schemas']['Plan'];
 export type PlanCandidate = components['schemas']['PlanCandidate'];
 export type PlanCreate = components['schemas']['PlanCreate'];
@@ -521,6 +530,33 @@ export class PlannerClient {
       .finally(() => ai.dispose());
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty commitment parse response');
+    return data;
+  }
+
+  /**
+   * CAL-05: read a natural-language to-do note into task drafts (nothing is
+   * saved). Same bounds and cancel as parseCommitments: the server bound is
+   * 50 s, the client gives up a little later, and aborting `signal` closes the
+   * request so the server cancels the model call.
+   */
+  async parseTasks(
+    text: string,
+    idempotencyKey: string,
+    options: { readonly timeZone?: string; readonly signal?: AbortSignal } = {},
+  ): Promise<TaskParseResponse> {
+    const ai = aiRequestSignal({
+      boundMs: TASK_PARSE_CLIENT_BOUND_MS,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    const { data, error, response } = await this.client
+      .POST('/tasks:parse', {
+        body: { text, ...(options.timeZone === undefined ? {} : { timeZone: options.timeZone }) },
+        params: { header: { 'Idempotency-Key': idempotencyKey } },
+        signal: ai.signal,
+      })
+      .finally(() => ai.dispose());
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty task parse response');
     return data;
   }
 

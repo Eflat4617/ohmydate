@@ -18,6 +18,9 @@ export {
   type CommitmentDraft,
   type CommitmentDraftNote,
   type CommitmentParseResponse,
+  type TaskDraft,
+  type TaskDraftNote,
+  type TaskParseResponse,
   type CommitmentOccurrence,
   type CommitmentPatch,
   type GoalSummary,
@@ -112,6 +115,7 @@ export {
 export {
   AI_REQUEST_CLIENT_BOUND_MS,
   COMMITMENT_PARSE_CLIENT_BOUND_MS,
+  TASK_PARSE_CLIENT_BOUND_MS,
   AiRequestTimeoutError,
   aiRequestSignal,
   type AiRequestOptions,

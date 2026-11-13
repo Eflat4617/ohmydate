@@ -1,6 +1,7 @@
 import type { CommitmentCreate, CommitmentDraft } from '../api';
+import { shiftSpanHalfDay, type HalfDayDirection } from './meridiem';
 import { weeklyDaysFromRrule, type WeekdayCode } from './rrule';
-import { localInputValue, zonedWallClockToInstant } from './time';
+import { localDateOf, localInputValue, zonedWallClockToInstant } from './time';
 
 /**
  * CAL-02: a draft read from a natural-language note ("다음 주 화요일 오후 3시에
@@ -113,4 +114,20 @@ export function weeklyRepeatOf(rrule: string | undefined): WeeklyRepeat | null {
   if (days.length === 0) return null;
   const until = /(?:^|;)UNTIL=(\d{4})(\d{2})(\d{2})(?:;|$)/i.exec(rrule);
   return { days, until: until === null ? null : `${until[1]}-${until[2]}-${until[3]}` };
+}
+
+/** The read guessed AM for a bare 7-11 hour (CAL-05 addendum): the row offers the PM reading. */
+export function draftMeridiemGuessed(draft: CommitmentDraft): boolean {
+  return draft.notes.includes('meridiem_assumed') && draftHasTime(draft);
+}
+
+/**
+ * The draft moved by half a day (오전 <-> 오후): the start 12 hours on the
+ * local wall clock in the draft's zone, the end keeping the length; `date`
+ * follows the new start. A draft without a time is returned as it is.
+ */
+export function switchDraftMeridiem(draft: CommitmentDraft, direction: HalfDayDirection): CommitmentDraft {
+  if (draft.startAt === undefined || draft.endAt === undefined) return draft;
+  const span = shiftSpanHalfDay(draft.startAt, draft.endAt, draft.timeZone, direction);
+  return { ...draft, ...span, date: localDateOf(span.startAt, draft.timeZone) };
 }
