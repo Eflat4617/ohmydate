@@ -63,6 +63,7 @@ function item(overrides: Partial<CommitmentParseItem> = {}): CommitmentParseItem
     weeklyDays: null,
     untilDate: null,
     dateWasGuessed: false,
+    meridiemWasGuessed: false,
     ...overrides,
   };
 }
@@ -135,6 +136,7 @@ describe('draftsFromOutput: recorded phrase classes in Asia/Seoul', () => {
   });
 
   test('weekly repeats become an RRULE the expander accepts, with UNTIL when given', () => {
+    // CAL-05 addendum: the bare 7시 was read as AM, so the draft says the half-day was a guess.
     expect(draftsFromOutput(recordedOutput('weekly-ambiguous-hour'), SEOUL).drafts[0]).toEqual({
       title: '스터디',
       timeZone: 'Asia/Seoul',
@@ -142,7 +144,7 @@ describe('draftsFromOutput: recorded phrase classes in Asia/Seoul', () => {
       startAt: '2026-11-18T22:00:00.000Z',
       endAt: '2026-11-18T23:00:00.000Z',
       rrule: 'FREQ=WEEKLY;BYDAY=TH',
-      notes: ['duration_defaulted', 'repeats_weekly'],
+      notes: ['duration_defaulted', 'repeats_weekly', 'meridiem_assumed'],
     });
     expect(draftsFromOutput(recordedOutput('weekly-evening-until'), SEOUL).drafts[0]).toMatchObject({
       startAt: '2026-11-19T10:00:00.000Z',
@@ -170,6 +172,31 @@ describe('draftsFromOutput: recorded phrase classes in Asia/Seoul', () => {
         }
       }
     }
+  });
+});
+
+describe('draftsFromOutput: guessed AM/PM (CAL-05 addendum)', () => {
+  test('a bare 7-11 hour flagged by the model gets meridiem_assumed; the instant is the AM reading', () => {
+    expect(draftsFromOutput(recordedOutput('bare-nine'), SEOUL).drafts[0]).toEqual({
+      title: '회의',
+      timeZone: 'Asia/Seoul',
+      date: '2026-11-14',
+      startAt: '2026-11-14T00:00:00.000Z',
+      endAt: '2026-11-14T01:00:00.000Z',
+      notes: ['duration_defaulted', 'meridiem_assumed'],
+    });
+  });
+
+  test('저녁 7시, 오후 3시, 15시 and a bare 3시 carry no meridiem note (negative)', () => {
+    for (const id of ['weekly-evening-until', 'next-week-weekday', 'twenty-four-hour', 'no-day-range']) {
+      const notes = draftsFromOutput(recordedOutput(id), SEOUL).drafts[0]?.notes ?? [];
+      expect({ id, guessed: notes.includes('meridiem_assumed') }).toEqual({ id, guessed: false });
+    }
+  });
+
+  test('a flag on a draft without a time is ignored: there is no half-day to switch', () => {
+    const [draft] = convert([item({ startTime: null, meridiemWasGuessed: true })]).drafts;
+    expect(draft?.notes).toEqual([]);
   });
 });
 
@@ -467,7 +494,14 @@ describe('fakeCommitmentParseOutput (LLM_PROVIDER=fake E2E stand-in)', () => {
       startTime: '19:00',
       endTime: '21:00',
     });
-    expect(read('매주 목요일 7시 스터디').items[0]).toMatchObject({ weeklyDays: ['TH'], date: '2026-11-19', startTime: '07:00' });
+    expect(read('매주 목요일 7시 스터디').items[0]).toMatchObject({
+      weeklyDays: ['TH'],
+      date: '2026-11-19',
+      startTime: '07:00',
+      meridiemWasGuessed: true,
+    });
+    expect(read('내일 저녁 7시 스터디').items[0]).toMatchObject({ startTime: '19:00', meridiemWasGuessed: false });
+    expect(read('내일 09시 회의').items[0]).toMatchObject({ startTime: '09:00', meridiemWasGuessed: false });
     expect(read('이번 주말 영화 보기').items[0]).toMatchObject({ date: '2026-11-14', startTime: null, dateWasGuessed: true });
   });
 

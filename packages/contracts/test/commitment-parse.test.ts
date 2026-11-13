@@ -68,8 +68,9 @@ describe('CommitmentParseResponse', () => {
     expect(validate(body)).toBe(false);
   });
 
-  test('the note codes are the three documented ones', () => {
-    expect([...COMMITMENT_DRAFT_NOTES]).toEqual(['duration_defaulted', 'date_assumed', 'repeats_weekly']);
+  test('the note codes are the documented ones (CAL-05 addendum adds meridiem_assumed)', () => {
+    expect([...COMMITMENT_DRAFT_NOTES]).toEqual(['duration_defaulted', 'date_assumed', 'repeats_weekly', 'meridiem_assumed']);
+    expect(validateDraft({ ...draft, notes: ['duration_defaulted', 'meridiem_assumed'] })).toBe(true);
   });
 });
 

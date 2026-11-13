@@ -140,6 +140,8 @@ export {
   DEFAULT_DECOMPOSITION_TIMEOUT_MS,
   DEFAULT_PROMPT_LIMIT_OVERRIDES,
   DEFAULT_STRUCTURED_TIMEOUT_MS,
+  DEFAULT_TASK_PARSE_MAX_OUTPUT_TOKENS,
+  DEFAULT_TASK_PARSE_TIMEOUT_MS,
   MAX_OUTPUT_TOKENS_CEILING,
   effectiveMaxOutputTokens,
   maxPromptTimeoutMs,
@@ -193,6 +195,7 @@ export {
   MAX_COMMITMENT_TEXT_LENGTH,
   WEEKDAY_CODES,
   buildCommitmentParseInput,
+  buildNoteReadInput,
   commitmentCalendar,
   type CommitmentCalendarDay,
   type CommitmentParseInputBundle,
@@ -202,3 +205,17 @@ export {
   type CommitmentParseOutput,
   type WeekdayCode,
 } from './commitment-parse.js';
+
+export {
+  MAX_TASK_DRAFTS,
+  MAX_TASK_TEXT_LENGTH,
+  TASK_PARSE_CONFIG_VERSION,
+  TASK_PARSE_PROMPT,
+  TASK_PARSE_SCHEMA_ID,
+  TASK_TEXT_BLOCK_ID,
+  buildTaskParseInput,
+  type TaskParseInputBundle,
+  type TaskParseInputRequest,
+  type TaskParseItem,
+  type TaskParseOutput,
+} from './task-parse.js';

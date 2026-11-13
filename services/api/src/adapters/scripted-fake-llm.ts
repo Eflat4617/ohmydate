@@ -5,6 +5,7 @@ import {
   type LlmPort,
 } from '@ohmydate/llm';
 import { fakeCommitmentParseOutput } from './fake-commitment-parse.js';
+import { fakeTaskParseOutput } from './fake-task-parse.js';
 
 /**
  * FU-76 E2E support for `LLM_PROVIDER=fake` only: for the configured owners
@@ -50,11 +51,13 @@ const SCRIPTED_STEPS = [
   },
 ] as const;
 
-/** `input` is read only for CAL-02 commitment_parse (the fixed-phrase reader). */
+/** `input` is read only for CAL-02 commitment_parse and CAL-05 task_parse (the fixed-phrase readers). */
 export function scriptedFakeOutput(schemaId: string, input?: unknown): unknown {
   switch (schemaId) {
     case 'llm.commitment_parse.v1':
       return fakeCommitmentParseOutput(input);
+    case 'llm.task_parse.v1':
+      return fakeTaskParseOutput(input);
     case 'llm.type_detection.v1':
       return { classification: 'new', confidence: 0.4, reasons: ['scripted_fake'] };
     case 'llm.decomposition.v1':

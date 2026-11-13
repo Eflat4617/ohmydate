@@ -61,6 +61,8 @@ export const PROMPT_SCHEMA_IDS: Readonly<Record<string, string>> = Object.freeze
   'layout_suggestion@v1': 'llm.layout_suggestion.v1',
   'questions@v1': 'llm.questions.v1',
   'replan_explanation@v1': 'llm.replan_explanation.v1',
+  // CAL-05: natural-language task entry in the inbox (drafts only; the user adds them).
+  'task_parse@v1': 'llm.task_parse.v1',
   'type_detection@v1': 'llm.type_detection.v1',
   // FU-89: v1 plus the `outputLanguage` rule.
   'type_detection@v2': 'llm.type_detection.v1',

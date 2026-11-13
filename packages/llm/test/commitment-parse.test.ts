@@ -73,6 +73,7 @@ function item(overrides: Partial<CommitmentParseItem> = {}): CommitmentParseItem
     weeklyDays: null,
     untilDate: null,
     dateWasGuessed: false,
+    meridiemWasGuessed: false,
     ...overrides,
   };
 }
@@ -118,6 +119,9 @@ describe('llm.commitment_parse.v1 schema', () => {
     ['a 501-character leftover', { items: [], leftover: 'x'.repeat(501) }],
     ['a missing leftover', { items: [] }],
     ['a string boolean', { items: [item({ dateWasGuessed: 'false' as unknown as boolean })], leftover: '' }],
+    // CAL-05 addendum: the guessed AM/PM flag is required on every item.
+    ['a missing meridiem flag', { items: [{ ...item(), meridiemWasGuessed: undefined }], leftover: '' }],
+    ['a string meridiem flag', { items: [item({ meridiemWasGuessed: 'true' as unknown as boolean })], leftover: '' }],
   ])('rejects %s (negative)', (_label, value) => {
     expect(validateOutput(COMMITMENT_PARSE_SCHEMA_ID, value).valid).toBe(false);
   });
@@ -168,6 +172,8 @@ describe('commitment_parse@v1 prompt', () => {
       'untilDate',
       'dateWasGuessed',
       'Do not translate it',
+      // CAL-05 addendum.
+      '`meridiemWasGuessed` is true exactly when',
     ]) {
       expect({ phrase, stated: prompt.includes(phrase) }).toEqual({ phrase, stated: true });
     }
@@ -235,6 +241,8 @@ describe('recorded phrase-class fixtures replay through FakeLlm', () => {
       'day-of-month-range',
       'weekly-ambiguous-hour',
       'weekly-evening-until',
+      'bare-nine',
+      'twenty-four-hour',
       'no-day-range',
       'duration',
       'overnight',
@@ -267,6 +275,18 @@ describe('recorded phrase-class fixtures replay through FakeLlm', () => {
     expect(first('no-day-range')).toMatchObject({ dateWasGuessed: true });
     expect(byId.get('not-an-event')).toEqual({ items: [], leftover: '요즘 너무 피곤하다' });
     expect(byId.get('several')?.leftover).toBe('보고서 쓰기');
+    // CAL-05 addendum: only a bare 7-11 hour read as AM is flagged as a guessed half-day.
+    expect(first('weekly-ambiguous-hour').meridiemWasGuessed).toBe(true);
+    expect(first('bare-nine')).toMatchObject({ startTime: '09:00', meridiemWasGuessed: true });
+    expect(first('weekly-evening-until')).toMatchObject({ startTime: '19:00', meridiemWasGuessed: false });
+    expect(first('next-week-weekday')).toMatchObject({ startTime: '15:00', meridiemWasGuessed: false });
+    expect(first('twenty-four-hour')).toMatchObject({ startTime: '15:00', meridiemWasGuessed: false });
+    expect(first('no-day-range')).toMatchObject({ startTime: '15:00', meridiemWasGuessed: false });
+    for (const entry of recorded.cases) {
+      for (const draft of entry.output.items) {
+        if (draft.startTime === null) expect({ id: entry.id, flag: draft.meridiemWasGuessed }).toEqual({ id: entry.id, flag: false });
+      }
+    }
     // Titles keep the person's wording, without the date/time words.
     for (const entry of recorded.cases) {
       for (const draft of entry.output.items) {

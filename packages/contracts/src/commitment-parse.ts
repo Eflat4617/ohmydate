@@ -31,8 +31,10 @@ export const CommitmentParseRequestSchema = Type.Object(
  * - `duration_defaulted`: no end time was given; the end is start + 60 min.
  * - `date_assumed`: no day was given (or only "주말"); the nearest date was taken.
  * - `repeats_weekly`: the note asked for a weekly repeat (`rrule`).
+ * - `meridiem_assumed` (CAL-05 addendum): the start was a bare hour from 7 to 11
+ *   with no 오전/오후 word; it was read as AM and the person may switch it.
  */
-export const COMMITMENT_DRAFT_NOTES = ['duration_defaulted', 'date_assumed', 'repeats_weekly'] as const;
+export const COMMITMENT_DRAFT_NOTES = ['duration_defaulted', 'date_assumed', 'repeats_weekly', 'meridiem_assumed'] as const;
 
 export type CommitmentDraftNote = (typeof COMMITMENT_DRAFT_NOTES)[number];
 

@@ -39,8 +39,8 @@ const consent = { granted: true, at: '2026-11-12T00:00:00.000Z', provider: 'deep
 
 const twoDrafts = {
   items: [
-    { title: '치과', date: '2026-11-17', startTime: '15:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false },
-    { title: '동창 모임', date: '2026-11-14', startTime: '19:00', endTime: '21:00', endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false },
+    { title: '치과', date: '2026-11-17', startTime: '15:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false, meridiemWasGuessed: false },
+    { title: '동창 모임', date: '2026-11-14', startTime: '19:00', endTime: '21:00', endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false, meridiemWasGuessed: false },
   ],
   leftover: '',
 };
@@ -208,8 +208,8 @@ describe.skipIf(!hasDatabase)('POST /commitments:parse (CAL-02)', () => {
     llm.addPromptFallback('commitment_parse', {
       output: {
         items: [
-          { title: 'Dentist', date: '2026-11-17', startTime: '09:00', endTime: '10:00', endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false },
-          { title: 'Weekly study', date: '2026-11-19', startTime: '19:00', endTime: null, endDate: null, weeklyDays: ['TH'], untilDate: null, dateWasGuessed: false },
+          { title: 'Dentist', date: '2026-11-17', startTime: '09:00', endTime: '10:00', endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false, meridiemWasGuessed: false },
+          { title: 'Weekly study', date: '2026-11-19', startTime: '19:00', endTime: null, endDate: null, weeklyDays: ['TH'], untilDate: null, dateWasGuessed: false, meridiemWasGuessed: false },
         ],
         leftover: '',
       },
@@ -249,11 +249,11 @@ describe.skipIf(!hasDatabase)('POST /commitments:parse (CAL-02)', () => {
     llm.addPromptFallback('commitment_parse', {
       output: {
         items: [
-          { title: '치과', date: '2026-02-30', startTime: '15:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false },
-          { title: '회의', date: '2026-11-16', startTime: '10:00', endTime: '09:00', endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false },
-          { title: '지난 약속', date: '2026-11-01', startTime: '10:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false },
-          { title: '먼 약속', date: '2031-01-01', startTime: '10:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false },
-          { title: '영화', date: '2026-11-14', startTime: null, endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: true },
+          { title: '치과', date: '2026-02-30', startTime: '15:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false, meridiemWasGuessed: false },
+          { title: '회의', date: '2026-11-16', startTime: '10:00', endTime: '09:00', endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false, meridiemWasGuessed: false },
+          { title: '지난 약속', date: '2026-11-01', startTime: '10:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false, meridiemWasGuessed: false },
+          { title: '먼 약속', date: '2031-01-01', startTime: '10:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false, meridiemWasGuessed: false },
+          { title: '영화', date: '2026-11-14', startTime: null, endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: true, meridiemWasGuessed: false },
         ],
         leftover: '보고서 쓰기',
       },
@@ -468,8 +468,8 @@ describe.skipIf(!hasDatabase)('POST /commitments:parse (CAL-02)', () => {
     llm.addPromptFallback('commitment_parse', {
       output: {
         items: [
-          { title: TITLE_MARKER, date: '2026-11-17', startTime: '15:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false },
-          { title: `${TITLE_MARKER}-dropped`, date: '2026-02-30', startTime: '15:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false },
+          { title: TITLE_MARKER, date: '2026-11-17', startTime: '15:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false, meridiemWasGuessed: false },
+          { title: `${TITLE_MARKER}-dropped`, date: '2026-02-30', startTime: '15:00', endTime: null, endDate: null, weeklyDays: null, untilDate: null, dateWasGuessed: false, meridiemWasGuessed: false },
         ],
         leftover: '',
       },

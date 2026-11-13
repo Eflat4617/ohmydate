@@ -21,7 +21,7 @@ const WEEKDAYS: Readonly<Record<string, WeekdayCode>> = {
   토: 'SA',
   일: 'SU',
 };
-const TIME = /(오전|오후|아침|저녁|밤|새벽)?\s*(\d{1,2})\s*시(?:\s*(반)|\s*(\d{1,2})\s*분)?/u;
+export const TIME = /(오전|오후|아침|저녁|밤|새벽)?\s*(\d{1,2})\s*시(?:\s*(반)|\s*(\d{1,2})\s*분)?/u;
 const RANGE_END = /(?:부터|~|-)\s*(오전|오후|아침|저녁|밤|새벽)?\s*(\d{1,2})\s*시(?:\s*(반)|\s*(\d{1,2})\s*분)?/u;
 const DURATION = /(\d{1,2})\s*시간/u;
 const STRIP = [
@@ -35,13 +35,13 @@ const STRIP = [
   /(?:오전|오후|아침|저녁|밤|새벽)/gu,
 ];
 
-function record(value: unknown): Record<string, unknown> | null {
+export function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
 
-function unescapeFenced(text: string): string {
+export function unescapeFenced(text: string): string {
   return text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 
@@ -49,7 +49,7 @@ function pad(value: number): string {
   return String(value).padStart(2, '0');
 }
 
-function hourOf(marker: string | undefined, hour: number, evening: boolean): number {
+export function hourOf(marker: string | undefined, hour: number, evening: boolean): number {
   if (marker === '오후' || marker === '저녁' || marker === '밤') return hour === 12 ? 12 : hour % 12 + 12;
   if (marker === '오전' || marker === '아침' || marker === '새벽') return hour % 12;
   if (hour > 12) return hour;
@@ -58,12 +58,23 @@ function hourOf(marker: string | undefined, hour: number, evening: boolean): num
   return hour;
 }
 
-function minuteOf(half: string | undefined, minutes: string | undefined): number {
+/**
+ * CAL-05 addendum: a bare hour from 7 to 11 read as AM (no 오전/오후 word, no
+ * 24-hour form such as "09시", no evening context) is a guessed half-day.
+ * Shared with the task reader (fake-task-parse.ts).
+ */
+export function meridiemGuessed(marker: string | undefined, rawHour: string, evening: boolean): boolean {
+  if (marker !== undefined || evening || rawHour.startsWith('0')) return false;
+  const hour = Number(rawHour);
+  return hour >= 7 && hour <= 11;
+}
+
+export function minuteOf(half: string | undefined, minutes: string | undefined): number {
   if (half !== undefined) return 30;
   return minutes === undefined ? 0 : Number(minutes);
 }
 
-function dayFor(part: string, now: { date: string; weekday: WeekdayCode }, calendar: readonly CommitmentCalendarDay[]): {
+export function dayFor(part: string, now: { date: string; weekday: WeekdayCode }, calendar: readonly CommitmentCalendarDay[]): {
   date: string;
   guessed: boolean;
   weekly: WeekdayCode | null;
@@ -105,6 +116,7 @@ function readPart(
   const evening = /저녁|밤|퇴근/u.test(part);
   let startTime: string | null = null;
   let endTime: string | null = null;
+  const guessedMeridiem = time !== null && meridiemGuessed(time[1], time[2] as string, evening);
   if (time !== null) {
     const startHour = hourOf(time[1], Number(time[2]), evening);
     if (startHour > 23) return null;
@@ -139,6 +151,7 @@ function readPart(
     weeklyDays: day.weekly === null ? null : [day.weekly],
     untilDate: null,
     dateWasGuessed: day.guessed,
+    meridiemWasGuessed: guessedMeridiem,
   };
 }
 
