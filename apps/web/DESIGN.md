@@ -388,7 +388,7 @@ Below 1024px small text is 15px and the two numeral sizes step down (36 and 48px
 
 From 1024px a fixed sidebar (15rem; 4.5rem folded to icons) stands at the left and the canvas scrolls beside it. The canvas opens with the top bar, 4rem high and sticky, on one hairline. Below 1024px the sidebar is replaced by a fixed bottom nav (3.75rem plus the safe area) and the top bar scrolls with the page.
 
-- **Sidebar:** the brand (a link to 개요), 새 작업, then four groups: 메인 (개요, 오늘, 플래너, 인박스, 프로젝트, 노트), 계획 (계획 세우기, 일정안 만들기, 재계획 제안, 약속, 가용 시간), AI 분석 (내 패턴), 설정 (캘린더 연동, AI 설정, 레이아웃); at the foot 검색, 도움말, 로그아웃. On a short window only the groups scroll. `src/layout/navigation.ts` is the one list; the sidebar, the phone's 더 보기 sheet and the breadcrumb read it.
+- **Sidebar:** the brand (a link to 개요), 새 작업, then four groups: 메인 (개요, 오늘, 타임 트래커, 플래너, 인박스, 프로젝트, 노트), 계획 (계획 세우기, 일정안 만들기, 재계획 제안, 약속, 가용 시간), AI 분석 (내 패턴), 설정 (캘린더 연동, AI 설정, 레이아웃); at the foot 검색, 도움말, 로그아웃. On a short window only the groups scroll. `src/layout/navigation.ts` is the one list; the sidebar, the phone's 더 보기 sheet and the breadcrumb read it.
 - **Top bar:** sidebar toggle and breadcrumb (group / screen) at the left; theme switch, notifications and the account at the right. It holds no page action.
 - **Page:** `.page` is 46rem wide, `.page--wide` 84rem, starting at the canvas's left edge. Page padding is 16px, 24px from 640px, 32px from 1024px. A page opens with its title at the left and its actions at the right, with no rule under it.
 - **Dashboard grid:** 12 columns, 16px gaps (12px below 1024px). A dashboard page is a size container (`container: <name> / inline-size`) and its cards change span by the canvas's width, not the window's: three columns from 66rem, two from 44rem, one below. Cards in a row stretch to one height; what a card ends with sits on its floor (`margin-top: auto`).
@@ -496,6 +496,13 @@ OhMyDate's own: three nested bands of glass turning around a small core, the bra
 - **약속 추가** (`CommitmentAddDialog`): one dialog, two ways in — 말로 적기 on top, the fields under 직접 입력 (title, start, end, weekdays). The time zone and the raw rule are behind 고급. One filled button: the next step of 말로 적기, or 약속 추가 once a title is typed.
 
 The three kinds are a shape each, wherever they are listed: a bar (block), a dot (약속), a flag (deadline); done is a tick.
+
+### Time Tracker (new in HOLO-02, `views/TrackerView.vue`)
+Two cards. The numbers are computed in `domain/tracker.ts` (pure, tested) from the same lookups 개요 uses.
+
+- **Timer card:** the clock in a well at the left (56px light numerals, the seconds a step quieter; the well takes the faintest lime while a session runs), the question and its answer at the right — the task picker and 집중 시작, or the running task and 이어서 보기. That button is the screen's one primary. Starting opens the Focus screen; there is one timer engine.
+- **Task picker** (`components/tracker/TaskPicker.vue`, `.task-finder`): a combobox with a list popup. One field searches the open tasks by every word typed and holds the one picked; the list is a menu (the raised, frosted surface) whose rows carry the project tag, a 다음 블록 tag on the next planned block's task, and a tick on the picked one. Arrows move, Enter picks, Escape closes and puts the picked title back. The next planned block's task is picked to begin with.
+- **기록:** the week's sessions as a `.data-table` grouped by day: a day's row carries its date and, under the 집중 column, its subtotal; the week's total is the card's one big number. A week switcher and two small selects (project, state) sit in the card's head; the totals follow the filters, and a filtered card says so.
 
 ### Time Marks
 - **Day timetable** (`DayTimetable`, `.tt`): one row per hour, six ten-minute cells on hairlines. The next block is the lime fill, other planned blocks its tint, a finished one the neutral fill with a tick in the legend; a 약속 is cyan with a hatch (its second signal). The now line is lime and the current hour's label takes its colour. Time gone is not shaded.

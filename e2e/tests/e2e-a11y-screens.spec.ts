@@ -37,7 +37,8 @@ import { readState } from '../helpers/state';
 // HOLO-02 adds 플래너 (/planner): the week grid (the 약속 seeded below is on
 // it, under its own accessible name) and the day view beside its timetable,
 // at both widths; 약속 추가 is the screen's one filled button. `/month` above
-// is the same screen's month view.
+// is the same screen's month view. It also adds 타임 트래커 (/tracker): the
+// timer card with its task picker and the week's record, at both widths.
 
 const state = readState();
 const account = { email: state.plansEmail, password: state.plansPassword };
@@ -289,6 +290,35 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expect(page.getByRole('heading', { name: '타임테이블', level: 2 })).toBeVisible();
         await expect(page.locator('[data-planner-day-list]')).toBeVisible();
         await expectAccessible(page, `planner day ${size}`);
+      });
+
+      await test.step(`time tracker (${size})`, async () => {
+        await page.goto(`${state.webUrl}/tracker`);
+        await expect(page.getByRole('heading', { name: '타임 트래커', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '타이머', level: 2 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '기록', level: 2 })).toBeVisible();
+        const log = page.locator('[data-tracker-log]');
+        await expect(log).toHaveAttribute('data-state', 'ready');
+        // One filled button on the screen (07 §4, DESIGN.md).
+        await expect(page.locator('main .btn--primary')).toHaveCount(1);
+        await expect(page.locator('main .btn--primary')).toHaveText(/^(집중 시작|이어서 보기)$/);
+        await expectAccessible(page, `time tracker ${size}`);
+        // The card is in exactly one of its two states. An earlier suite may have
+        // left a session running on this account; otherwise the picker is there,
+        // named by its question, with its list wired.
+        const idle = page.locator('[data-tracker-idle]');
+        await expect(page.locator('[data-tracker-idle], [data-tracker-running]')).toHaveCount(1);
+        if ((await idle.count()) === 1) {
+          const picker = page.getByRole('combobox', { name: '무엇을 하고 있나요?' });
+          await expect(picker).toBeEnabled();
+          await expect(picker).toHaveAttribute('aria-expanded', 'false');
+          await picker.click();
+          await expect(picker).toHaveAttribute('aria-expanded', 'true');
+          await expect(page.getByRole('listbox', { name: '무엇을 하고 있나요?' })).toBeVisible();
+          await expectAccessible(page, `time tracker picker ${size}`);
+          await page.keyboard.press('Escape');
+          await expect(picker).toHaveAttribute('aria-expanded', 'false');
+        }
       });
 
       await test.step(`AI settings (${size})`, async () => {

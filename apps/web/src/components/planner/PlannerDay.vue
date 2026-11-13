@@ -223,7 +223,7 @@ function retry(): void {
             <UiIcon name="list" :size="18" />
             {{ isToday ? t('planner.day.listToday') : t('planner.day.list') }}
           </h2>
-          <RouterLink v-if="isToday" to="/today" class="icon-link" :aria-label="t('overview.tracker.open')" data-planner-open-today>
+          <RouterLink v-if="isToday" to="/today" class="icon-link" :aria-label="t('planner.day.openToday')" data-planner-open-today>
             <UiIcon name="open" :size="16" />
           </RouterLink>
         </header>

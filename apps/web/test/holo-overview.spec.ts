@@ -38,6 +38,7 @@ function testRouter(): Router {
     routes: [
       { path: '/overview', name: 'overview', component: Stub },
       { path: '/today', name: 'today', component: Stub },
+      { path: '/tracker', name: 'tracker', component: Stub },
       { path: '/month', name: 'month', component: Stub },
       { path: '/patterns', name: 'patterns', component: Stub },
       { path: '/replan', name: 'replan', component: Stub },
@@ -144,7 +145,8 @@ describe('개요 — greeting and the one primary button', () => {
       wrapper.findAll('[data-widget] [data-open]').map((link) => [link.attributes('aria-label'), link.attributes('href')]),
     ).toEqual([
       ['내 패턴 열기', '/patterns'],
-      ['오늘 열기', '/today'],
+      // HOLO-02: the 타임 트래커 card opens the screen of that name (it opened 오늘 before it existed).
+      ['타임 트래커 열기', '/tracker'],
       ['한달 열기', '/month'],
       ['재계획 제안 열기', '/replan'],
     ]);

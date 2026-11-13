@@ -48,6 +48,8 @@ export const ko = {
     groupSettings: '설정',
     overview: '개요',
     today: '오늘',
+    // HOLO-02: the timer and the week's record of it.
+    tracker: '타임 트래커',
     // HOLO-02: the calendar screen (일 · 주 · 월); `/month` is its 월 view.
     planner: '플래너',
     inbox: '인박스',
@@ -136,7 +138,7 @@ export const ko = {
     },
     tracker: {
       title: '타임 트래커',
-      open: '오늘 열기',
+      open: '타임 트래커 열기',
       idle: '대기 중',
       active: '집중하는 중',
       paused: '잠시 멈춤',
@@ -1561,6 +1563,55 @@ export const ko = {
   },
 
   // CAL-01: the month page of the planner.
+  // HOLO-02: 타임 트래커 — the timer card and the week's sessions. The words
+  // for a session's state and the table's columns are 개요's (`overview.*`).
+  tracker: {
+    title: '타임 트래커',
+    lede: '지금 하는 일에 타이머를 켜고, 한 주의 기록을 돌아봐요.',
+    timer: {
+      title: '타이머',
+      question: '무엇을 하고 있나요?',
+      nextBlock: '다음 블록이에요 · {time}',
+      runningOn: '지금 집중하고 있는 작업',
+      pausedOn: '잠시 멈춰 둔 작업',
+      pickFirst: '작업을 고르면 시작할 수 있어요.',
+      planError: '오늘 계획을 불러오지 못해서 다음 블록을 미리 고르지 못했어요.',
+    },
+    picker: {
+      placeholder: '작업 이름으로 찾기',
+      loading: '작업을 불러오는 중…',
+      loadError: '작업 목록을 불러오지 못했어요.',
+      toggle: '작업 목록 열기',
+      next: '다음 블록',
+      none: '맞는 작업이 없어요.',
+      count: plural({ other: '작업 {count}개' }),
+      countMore: plural({ other: '작업 {count}개를 보여 드려요. {more}개가 더 있어요.' }),
+      more: plural({ other: '{count}개 더 있어요. 이름을 더 적어 좁혀 보세요.' }),
+    },
+    log: {
+      title: '기록',
+      week: '기록을 볼 주',
+      weekAnnounce: '{range} 기록',
+      filterProject: '프로젝트로 거르기',
+      filterState: '상태로 거르기',
+      allProjects: '모든 프로젝트',
+      allStates: '모든 상태',
+      caption: '{range} 집중 세션',
+      subtotal: '이날 합계',
+      count: plural({ other: '세션 {count}개' }),
+      filtered: '거른 결과',
+      loading: '기록을 불러오는 중…',
+      loadError: '기록을 불러오지 못했어요.',
+      staleError: '최신 기록을 다시 불러오지 못했어요. 마지막으로 불러온 내용이에요.',
+      offline: '오프라인이라 기록을 불러올 수 없어요. 연결되면 다시 불러와요.',
+      empty: '이 주에는 집중 기록이 없어요.',
+      emptyBody: '위에서 작업을 골라 집중을 시작하면 여기에 남아요.',
+      noMatch: '조건에 맞는 기록이 없어요.',
+      clearFilters: '거르기 풀기',
+      truncated: '기록이 많아서 최근 2,000개까지만 읽었어요. 합계가 실제보다 적을 수 있어요.',
+    },
+  },
+
   // HOLO-02: 플래너, the calendar screen with three views (일 · 주 · 월). The
   // month view keeps its own copy (`month.*`, CAL-01).
   planner: {
@@ -1610,6 +1661,7 @@ export const ko = {
       next: '다음 날',
       list: '이날 일정',
       listToday: '오늘 일정',
+      openToday: '오늘 열기',
       count: plural({ other: '일정 {count}개' }),
       loading: '이날 일정을 불러오는 중…',
       loadError: '이날 일정을 불러오지 못했어요.',

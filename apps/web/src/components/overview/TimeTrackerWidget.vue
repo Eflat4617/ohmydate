@@ -96,7 +96,7 @@ function retry(): void {
     widget="tracker"
     icon="timer"
     :title="t('overview.tracker.title')"
-    to="/today"
+    to="/tracker"
     :open-label="t('overview.tracker.open')"
     :state="state"
     @retry="retry"

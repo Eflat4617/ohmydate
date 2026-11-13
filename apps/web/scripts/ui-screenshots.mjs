@@ -59,7 +59,7 @@ const VIEWPORTS = [
 if (process.argv.includes('--tablet')) VIEWPORTS.push({ name: 'tablet', width: 1024, height: 768, capture: true });
 // HOLO-01: the theme is the user's choice (dark by default), not the system's.
 const SCHEMES = ['dark', 'light'];
-const LIGHT_CAPTURES = /^(70-planner|71-planner|72-planner|73-planner|74-planner|75-tracker|76-tracker|00-overview|14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-wizard-evidence|52-month|56-calendar|57-calendar|58-calendar|59-calendar|60-calendar|61-calendar|64-commitments-google|66-month-labels)/;
+const LIGHT_CAPTURES = /^(70-planner|71-planner|72-planner|73-planner|74-planner|75-tracker|76-tracker|78-tracker|00-overview|14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-wizard-evidence|52-month|56-calendar|57-calendar|58-calendar|59-calendar|60-calendar|61-calendar|64-commitments-google|66-month-labels)/;
 const FULL_CAPTURES = /^(73-planner-day|74-planner-month|75-tracker|09-wizard-step4|11-plan-comparison|12-availability|13-commitments|14-today|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns|34-layout-overview|38-layout-deadline-risk|39-layout-review|43-notes-editor|50-wizard-evidence|52-month|53-month-day|56-calendar-not-configured|58-calendar-connected|60-calendar-needs-reauth|64-commitments-google)/;
 // The mock's signed-in owner (src/mocks/db.ts USER_ID): the theme is stored per owner.
 const MOCK_OWNER_ID = '01900000-0000-7000-8000-000000000002';
@@ -776,6 +776,44 @@ async function flowPlanner(browser, run) {
   await context.close();
 }
 
+// HOLO-02: 타임 트래커 — waiting with the next block's task picked, the picker
+// open, the record filtered by project, a session running, and no record yet.
+async function flowTracker(browser, run) {
+  const ready = async (page) => {
+    await page.locator('[data-tracker-log][data-state="ready"]').waitFor();
+  };
+
+  const idle = await newPage(browser, run);
+  await go(idle.page, '/tracker');
+  await ready(idle.page);
+  await idle.page.locator('[data-tracker-hint]').waitFor();
+  await dismissToasts(idle.page);
+  await checkpoint(idle.page, '75-tracker', run);
+  await idle.page.locator('#tracker-task').click();
+  await idle.page.locator('#tracker-task-list [role="option"]').first().waitFor();
+  await checkpoint(idle.page, '76-tracker-picker', run);
+  await idle.page.keyboard.press('Escape');
+  await idle.page.locator('[data-filter-project]').selectOption({ label: '졸업 논문' });
+  await checkpoint(idle.page, '77-tracker-filtered', run);
+  await idle.context.close();
+
+  const running = await newPage(browser, run, { sessions: 'running' });
+  await go(running.page, '/tracker');
+  await ready(running.page);
+  await running.page.locator('[data-tracker-timer][data-status="active"]').waitFor();
+  await dismissToasts(running.page);
+  await checkpoint(running.page, '78-tracker-running', run);
+  await running.context.close();
+
+  const empty = await newPage(browser, run, { sessions: 'none' });
+  await go(empty.page, '/tracker');
+  await ready(empty.page);
+  await empty.page.locator('[data-tracker-log] [data-empty]').waitFor();
+  await dismissToasts(empty.page);
+  await checkpoint(empty.page, '79-tracker-empty', run);
+  await empty.context.close();
+}
+
 // CAL-04: 캘린더 연동 in every status of the mock state machine
 // (src/mocks/google.ts, picked through __OHMYDATE_MOCK__.google), the
 // messages after coming back from Google, the disconnect dialog, and the
@@ -898,6 +936,7 @@ async function main() {
           month: flowMonth,
           calendar: flowCalendar,
           planner: flowPlanner,
+          tracker: flowTracker,
         };
         for (const [name, flow] of Object.entries(flows)) {
           if (flowFilter.length > 0 && !flowFilter.includes(name)) continue;

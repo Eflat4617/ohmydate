@@ -19,16 +19,19 @@ import ReplanListView from './views/ReplanListView.vue';
 import ReplanProposalView from './views/ReplanProposalView.vue';
 import TaskDetailView from './views/TaskDetailView.vue';
 import TodayView from './views/TodayView.vue';
+import TrackerView from './views/TrackerView.vue';
 import { currentOwnerId, isPageSealed } from './session/ownerEpoch';
 
 const NotesView = () => import('./views/NotesView.vue');
 
 /** The app's route table (exported so tests can mount it on a memory history). */
 export const routes: RouteRecordRaw[] = [
-  { path: '/', redirect: '/inbox' },
+  // HOLO-02: the app opens on 개요, the dashboard. (Signing in still goes to
+  // the inbox by name — LoginView — and an owner reset reloads to the inbox:
+  // session/ownerEpoch.ts.)
+  { path: '/', redirect: '/overview' },
   { path: '/login', name: 'login', component: LoginView, meta: { layout: 'blank' } },
-  // HOLO-01: the dashboard. `/` still lands on the inbox (E2E pins that
-  // landing); the brand link and the `o` key open this.
+  // HOLO-01: the dashboard; the brand link and the `o` key open it too.
   { path: '/overview', name: 'overview', component: OverviewView },
   { path: '/inbox', name: 'inbox', component: InboxView },
   { path: '/projects', name: 'projects', component: ProjectListView },
@@ -36,6 +39,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/plan/new', name: 'plan-new', component: PlanningWizardView },
   { path: '/plan/:sessionId', name: 'plan-session', component: PlanningWizardView, props: true },
   { path: '/today', name: 'today', component: TodayView },
+  // HOLO-02: the timer card and the week's focus sessions.
+  { path: '/tracker', name: 'tracker', component: TrackerView },
   // HOLO-02: 플래너, the calendar screen with three views (`?view=day|week|month`,
   // 주 by default; the day, week or month is in the query too).
   { path: '/planner', name: 'planner', component: PlannerView },
@@ -60,7 +65,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/replan', name: 'replan', component: ReplanListView },
   { path: '/replan/:id', name: 'replan-proposal', component: ReplanProposalView, props: true },
   { path: '/patterns', name: 'patterns', component: PatternsView },
-  { path: '/:pathMatch(.*)*', redirect: '/inbox' },
+  // An address the app does not know opens the dashboard.
+  { path: '/:pathMatch(.*)*', redirect: '/overview' },
 ];
 
 export const router = createRouter({

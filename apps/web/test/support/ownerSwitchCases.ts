@@ -310,6 +310,21 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       await wrapper.get('[data-planner-card-start]').trigger('click');
     },
   },
+  // HOLO-02 타임 트래커: starting on the task the picker holds.
+  {
+    name: 'tracker: start focus on the picked task',
+    covers: ['src/views/TrackerView.vue'],
+    path: '/tracker',
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('[data-tracker-start]').exists()).toBe(true));
+      await until(() => expect(wrapper.get('[data-tracker-start]').attributes('disabled')).toBeUndefined());
+    },
+    hold: { method: 'POST', path: /\/sessions$/ },
+    act: async (wrapper) => {
+      await wrapper.get('[data-tracker-idle]').trigger('submit');
+    },
+  },
   {
     name: 'today: reschedule preview',
     covers: ['src/views/TodayView.vue'],

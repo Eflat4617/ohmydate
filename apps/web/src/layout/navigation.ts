@@ -29,6 +29,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { to: '/overview', label: 'nav.overview', icon: 'overview', shortcut: 'o', routes: ['overview'] },
       { to: '/today', label: 'nav.today', icon: 'today', shortcut: 't', routes: ['today'] },
+      // HOLO-02: the timer and the week's record of it.
+      { to: '/tracker', label: 'nav.tracker', icon: 'timer', routes: ['tracker'] },
       // HOLO-02: 플래너 (일 · 주 · 월). `/month` is its 월 view and belongs to it.
       { to: '/planner', label: 'nav.planner', icon: 'month', shortcut: 'm', routes: ['planner', 'month'] },
       { to: '/inbox', label: 'nav.inbox', icon: 'inbox', routes: ['inbox'] },
