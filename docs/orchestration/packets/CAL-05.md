@@ -50,3 +50,6 @@ Exact tests (DATABASE_URL=postgres://ohmydate:ohmydate-dev-only@127.0.0.1:55432/
 corepack pnpm exec vitest run packages/llm packages/contracts <the services/api test files you added or touched, plus the commitments-parse, tasks and intake suites> ; corepack pnpm --filter @ohmydate/web lint ; corepack pnpm --filter @ohmydate/web test ; corepack pnpm run typecheck ; corepack pnpm run lint ; corepack pnpm run check:api-client ; corepack pnpm run check:boundaries ; corepack pnpm run e2e <your new spec and CAL-02's spec> (if the stack is not up say SKIPPED + reason — never start docker).
 Commit (Task trailer), clean git status, worker_done.
 Retry limit 2. Rollback: delete branch.
+
+ADDENDUM (coordinator, 2026-11-13 11:45, sent to the worker as msg_f880835c7ec7): guessed AM/PM.
+"매주 목요일 7시 스터디" is read as 오전 7:00 with nothing telling the user it was a guess. Both readers (commitment_parse and task_parse) return `meridiemWasGuessed` (true when the start hour is a bare 7–11 with no AM/PM word or context); the server adds note `meridiem_assumed`; both draft lists say so and offer one action, "오후로 바꾸기" / "오전으로 바꾸기", that moves start and end by 12 hours. commitment_parse v1 is amended in place because it has not been deployed.
