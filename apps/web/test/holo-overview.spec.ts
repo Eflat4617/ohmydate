@@ -39,6 +39,7 @@ function testRouter(): Router {
       { path: '/overview', name: 'overview', component: Stub },
       { path: '/today', name: 'today', component: Stub },
       { path: '/tracker', name: 'tracker', component: Stub },
+      { path: '/planner', name: 'planner', component: Stub },
       { path: '/month', name: 'month', component: Stub },
       { path: '/patterns', name: 'patterns', component: Stub },
       { path: '/replan', name: 'replan', component: Stub },
@@ -147,7 +148,8 @@ describe('개요 — greeting and the one primary button', () => {
       ['내 패턴 열기', '/patterns'],
       // HOLO-02: the 타임 트래커 card opens the screen of that name (it opened 오늘 before it existed).
       ['타임 트래커 열기', '/tracker'],
-      ['한달 열기', '/month'],
+      // HOLO-02: 오늘 요약 opens today in 플래너 (한달 is that screen's month view now).
+      ['플래너에서 오늘 열기', '/planner?view=day'],
       ['재계획 제안 열기', '/replan'],
     ]);
   });

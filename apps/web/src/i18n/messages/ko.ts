@@ -157,7 +157,7 @@ export const ko = {
     },
     summary: {
       title: '오늘 요약',
-      open: '한달 열기',
+      open: '플래너에서 오늘 열기',
       legend: '오늘 시간의 종류',
       planned: '집중 블록',
       commitment: '약속',
