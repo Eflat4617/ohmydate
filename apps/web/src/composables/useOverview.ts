@@ -13,6 +13,7 @@ import {
   type WorkSession,
 } from '../api';
 import { sessionsWithin } from '../domain/overview';
+import { rememberFocusTask } from './focusContext';
 import { t } from '../i18n';
 import { errorMessage } from '../i18n/problem';
 import { layoutClock } from '../layout/clock';
@@ -189,6 +190,8 @@ function samePayload<T>(left: T, right: T): boolean {
 export interface FocusTarget {
   readonly taskId: string;
   readonly blockId?: string;
+  /** The task's name, when the caller has it: Focus shows it instead of asking for it. */
+  readonly title?: string;
 }
 
 /**
@@ -216,6 +219,8 @@ export function useFocusStart(options: { readonly onActiveExists?: () => unknown
     startingTaskId.value = target.taskId;
     error.value = null;
     activeExists.value = false;
+    // Presentational only, in this owner's memory: the name Focus shows.
+    if (target.title !== undefined) rememberFocusTask(sessionStore.ownerId, target.taskId, target.title);
     const scope = `focus:start:${target.taskId}`;
     const input: SessionCreate = actions.peek<SessionCreate>(scope)?.payload ?? {
       taskId: target.taskId,

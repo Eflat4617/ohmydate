@@ -148,11 +148,14 @@ function start(): void {
   const current = plan.value;
   // Presentational only: lets Focus show the block's title and planned length.
   if (block !== null && current !== null) rememberFocusBlocks(sessionStore.ownerId, current.blocks, current.timeZone);
-  void focus.start(block === null ? { taskId: task.id } : { taskId: task.id, blockId: block.id });
+  void focus.start(
+    block === null ? { taskId: task.id, title: task.title } : { taskId: task.id, blockId: block.id, title: task.title },
+  );
 }
 
 function restart(taskId: string): void {
-  void focus.start({ taskId });
+  const title = tasks.value.get(taskId)?.title;
+  void focus.start(title === undefined ? { taskId } : { taskId, title });
 }
 
 function resume(): void {

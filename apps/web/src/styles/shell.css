@@ -731,7 +731,7 @@
     'primary'
     'secondary'
     'tertiary';
-  gap: var(--space-6);
+  gap: var(--grid-gap);
   align-items: start;
   width: 100%;
   min-width: 0;
@@ -741,7 +741,7 @@
 .adaptive-region {
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: var(--grid-gap);
   min-width: 0;
 }
 
@@ -815,7 +815,7 @@
       'primary secondary'
       'primary tertiary';
     grid-template-rows: auto 1fr;
-    column-gap: var(--space-8);
+    column-gap: var(--grid-gap);
   }
 
   .adaptive-frame--columns.adaptive-frame--no-secondary:not(:has(.today-page)) {

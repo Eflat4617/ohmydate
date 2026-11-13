@@ -273,6 +273,8 @@ Every value is an OKLCH custom property in `src/styles/tokens.css`; no raw colou
 - `data-theme` is what the user chose: `dark`, `light` or `system`.
 - `data-scheme` is what is shown: `dark` or `light`.
 
+A part of the page can ask for the dark scheme by itself with the class `.scheme-dark` (Focus calm mode); nothing else forces a scheme.
+
 Stylesheets read only `data-scheme`. No stylesheet has a `prefers-color-scheme` query; the media query is consulted in `theme.ts`, and only while the choice is `system`. The choice is stored per owner through `session/ownerStorage.ts` (slot `themePref`). `main.ts` applies it before it mounts anything, and the entry script is `blocking="render"`, so Chromium paints no frame before the theme is on the root. In a browser without `blocking="render"` a 라이트 user can see one empty dark frame.
 
 ### Surfaces
@@ -496,6 +498,12 @@ OhMyDate's own: three nested bands of glass turning around a small core, the bra
 - **약속 추가** (`CommitmentAddDialog`): one dialog, two ways in — 말로 적기 on top, the fields under 직접 입력 (title, start, end, weekdays). The time zone and the raw rule are behind 고급. One filled button: the next step of 말로 적기, or 약속 추가 once a title is typed.
 
 The three kinds are a shape each, wherever they are listed: a bar (block), a dot (약속), a flag (deadline); done is a tick.
+
+### Today and Focus (HOLO-02)
+- **오늘:** the day's figures are a row of three small stat cards (`.today-stat`: a 13px label over the light figure) with the risk as a card of its own under them. Each block is a card; the next one carries the lime mark (a 3px bar on its leading edge and a 다음 차례 tag) and the screen's one filled button, 집중 시작 — the other blocks' start buttons are secondary, and while a session waits the filled button is 세션 이어가기 in the banner instead. 오늘 약속 and 오늘 마감 are two compact cards; the day timetable is a card in the right column from 1280px.
+- **Context panels** (`.layout-panel`): compact cards. One that is running or waiting takes a lime edge and mark, a warning an amber one.
+- **집중:** one card. The task's name (never an id), the timer at the display size in the light weight, the planned time as the system's meter ticked every ten minutes, then the timer's own filled button and 완료. Done, the timer steps back to a figure and the review sheet — a card in the dialog's manner — leads.
+- **Calm mode** is dark whatever the theme: the page takes `.scheme-dark`, which declares every token of the dark scheme again for its subtree. No card, no chrome: the name, one number, the two buttons.
 
 ### Time Tracker (new in HOLO-02, `views/TrackerView.vue`)
 Two cards. The numbers are computed in `domain/tracker.ts` (pure, tested) from the same lookups 개요 uses.

@@ -1,6 +1,8 @@
-/* ── Today: a planner page ─────────────────────────────────────────────
-   The day's blocks as a list, and beside it the same blocks drawn on a
-   time table of ten-minute cells. A row and its run share a highlighter. */
+/* ── 오늘 (HOLO-02): the day as cards ──────────────────────────────────
+   The day in figures as a row of small stat cards; each block a card (the
+   next one carries the lime mark and the screen's one filled button); what
+   else is on today — 약속, 마감 — as two compact cards; and beside it all
+   the same day on the ten-minute time table, as a card. */
 .today-main {
   display: flex;
   flex-direction: column;
@@ -25,14 +27,28 @@
   gap: var(--space-5);
 }
 
-/* The day in figures, said once. */
+/* The day in figures: three small cards and, under them, how safe it is. */
 .today-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: var(--space-3) var(--space-8);
-  padding-bottom: var(--space-4);
-  border-bottom: var(--rule-hair) solid var(--color-rule);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--grid-gap);
+}
+
+.today-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--grid-gap);
+}
+
+.today-stat {
+  gap: var(--space-1);
+}
+
+.today-risk-card {
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
 }
 
 .today-risk {
@@ -40,32 +56,16 @@
   flex: 1 1 14rem;
   flex-direction: column;
   align-items: flex-start;
-  gap: var(--space-0-5);
+  gap: var(--space-1-5);
   min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* The level is the fourth figure: a highlighter stroke on the figures' line,
-   at their weight. The margin is the figures' label line plus the few
-   pixels that put its smaller type on their baseline. */
-.today-risk > .chip {
-  min-height: calc(var(--text-xl) * var(--leading-snug));
-  margin-top: calc(var(--text-xs) * var(--leading-normal) + var(--space-1));
-  padding: 0 var(--space-1-5);
-  font-size: var(--text-xl);
-  font-weight: var(--weight-bold);
-  letter-spacing: var(--tracking-tight);
-}
-
 .today-risk-reason {
-  color: var(--color-muted);
-  font-size: var(--text-xs);
-}
-
-.today-summary .replan-request {
-  align-self: center;
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
 }
 
 /* Series: how a block is drawn, in the list and on the time table. Every
@@ -93,78 +93,65 @@
   --series-ink: var(--color-text-2);
 }
 
+.today-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap);
+  min-width: 0;
+}
+
 .today-blocks {
   display: flex;
   flex-direction: column;
+  gap: var(--grid-gap);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+/* A block: what and when, then what can be done with it. */
 .today-card {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas:
-    'index text'
-    '. actions';
-  gap: var(--space-2) var(--space-3);
-  padding: var(--space-4) 0;
-  border-bottom: var(--rule-hair) solid var(--color-rule);
+  gap: var(--space-4);
 }
 
-.today-card:first-child {
-  padding-top: 0;
-}
-
-/* The order number sits in a pen box filled with the row's highlighter. */
-.today-index {
-  display: grid;
-  grid-area: index;
-  place-items: center;
-  width: 1.375rem;
-  height: 1.375rem;
-  margin-top: 0.15rem;
-  border-radius: var(--radius-sm);
-  background: var(--series);
-  box-shadow: inset 0 0 0 var(--rule-pen) var(--series-edge);
-  color: var(--color-on-hl);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-bold);
-  line-height: 1;
-}
-
-.today-card--next .today-index {
-  margin-top: 0.3rem;
+/* The next block carries the lime mark: a bar on the card's leading edge. */
+.today-card--next::before {
+  content: '';
+  position: absolute;
+  top: var(--card-pad);
+  bottom: var(--card-pad);
+  left: 0;
+  width: 3px;
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
+  background: var(--color-accent);
 }
 
 .today-card-text {
   display: flex;
-  grid-area: text;
   flex-direction: column;
-  gap: var(--space-0-5);
+  gap: var(--space-1);
   min-width: 0;
+}
+
+.today-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+  margin-bottom: var(--space-1);
 }
 
 .today-title {
   font-size: var(--text-lg);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-medium);
   line-height: var(--leading-snug);
 }
 
-/* The next block is the one marked in yellow. */
 .today-card--next .today-title {
   font-size: var(--text-xl);
-  font-weight: var(--weight-bold);
 }
 
-.today-card--next .today-title-text {
-  padding: 0 var(--space-1);
-  margin-left: calc(-1 * var(--space-1));
-  background: linear-gradient(var(--hl-yellow), var(--hl-yellow)) no-repeat left center / 100% 100%;
-  color: var(--color-on-hl);
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
-  animation: hl-draw var(--duration-base) var(--ease-out);
+.today-card--done .today-title {
+  color: var(--color-text-2);
 }
 
 .today-time {
@@ -172,13 +159,12 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0 var(--space-3);
-  color: var(--color-muted);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
 }
 
-.today-next-label {
-  color: var(--color-ink);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
+.today-duration {
+  color: var(--color-text-3);
 }
 
 .today-card-actions,
@@ -186,27 +172,19 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-1-5);
-}
-
-.today-card-actions {
-  grid-area: actions;
-}
-
-/* One filled control on the screen: starting the next block. */
-.today-card:not(.today-card--next) .btn--primary {
-  --btn-bg: transparent;
-  --btn-fg: var(--color-ink);
-  --btn-bg-hover: var(--color-paper-2);
-  --btn-border-hover: var(--color-ink);
+  gap: var(--space-2);
 }
 
 @media (pointer: fine) {
   .today-card:not(.today-card--next) .today-card-actions .btn {
     min-height: var(--control-height-sm);
-    padding-inline: var(--space-2-5);
+    padding-inline: var(--space-3);
     font-size: var(--text-xs);
   }
+}
+
+.today-empty {
+  padding: var(--card-pad);
 }
 
 /* ── The day time table ────────────────────────────────────────────── */
@@ -378,37 +356,18 @@
 }
 
 /* ── What else is on today (CAL-01) ────────────────────────────────────
-   Under the block list: today's 약속 and what is due today. Each is a
-   short section on the 2px rule with ruled rows: the time in tabular
-   figures, then the title. A 약속 row carries the hatch it has on the
-   time table; a deadline row the pennant of the month page. */
+   Two compact cards under the blocks: today's 약속 and what is due today.
+   A row is a mark, a time in tabular figures and a title. A 약속 row carries
+   the cyan dot, a deadline row the flag. */
 .today-agendas {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: var(--grid-gap);
   min-width: 0;
-  margin-top: var(--space-6);
 }
 
 .today-agenda {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
   min-width: 0;
-}
-
-.today-agenda-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding-bottom: var(--space-2);
-  border-bottom: var(--rule-hair) solid var(--color-line-strong);
-}
-
-.today-agenda-head a {
-  color: var(--color-muted);
-  font-size: var(--text-xs);
 }
 
 .today-agenda-list {
@@ -421,46 +380,43 @@
 
 .today-agenda-item {
   display: grid;
-  grid-template-columns: 1rem minmax(7.5rem, auto) minmax(0, 1fr);
+  grid-template-columns: 1rem minmax(7rem, auto) minmax(0, 1fr);
   align-items: baseline;
   gap: var(--space-1) var(--space-3);
-  padding: var(--space-2-5) 0;
-  border-bottom: var(--rule-hair) solid var(--color-rule);
+  padding: var(--space-2) 0;
+}
+
+.today-agenda-item + .today-agenda-item {
+  border-top: var(--rule-hair) solid var(--color-line);
 }
 
 .today-agenda-mark {
   align-self: center;
-  width: 0.75rem;
-  height: 0.75rem;
+  justify-self: center;
 }
 
 .today-agenda-mark--commitment {
-  background:
-    repeating-linear-gradient(135deg, var(--color-cal-commitment-stripe) 0 1px, transparent 1px 3px),
-    var(--color-cal-commitment);
-  box-shadow: inset 0 0 0 var(--rule-hair) var(--color-ink);
-}
-
-.today-agenda-mark--deadline {
-  width: auto;
-  height: auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--data-2);
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--data-2-edge);
 }
 
 .today-agenda-time {
-  color: var(--color-muted);
+  color: var(--color-text-3);
   font-size: var(--text-sm);
   white-space: nowrap;
 }
 
 .today-agenda-title {
   min-width: 0;
-  color: var(--color-ink-2);
+  color: var(--color-text);
   overflow-wrap: anywhere;
 }
 
 a.today-agenda-title {
-  color: var(--color-ink);
-  font-weight: var(--weight-semibold);
+  font-weight: var(--weight-medium);
   text-decoration: none;
 }
 
@@ -475,6 +431,14 @@ a.today-agenda-title:hover {
 
   .today-agenda-title {
     grid-column: 2;
+  }
+
+  .today-stats {
+    gap: var(--space-2);
+  }
+
+  .today-stat .stat-value {
+    font-size: var(--text-xl);
   }
 }
 
@@ -502,10 +466,10 @@ a.today-agenda-title:hover {
    the page, and the block list and the context panels share the left one. */
 @media (min-width: 1280px) {
   .adaptive-frame--columns:has(.today-page) {
-    --today-tt: 28rem;
+    --today-tt: 27rem;
 
     position: relative;
-    padding-right: calc(var(--today-tt) + var(--space-10));
+    padding-right: calc(var(--today-tt) + var(--grid-gap));
   }
 
   .adaptive-frame--columns .today-timetable {
