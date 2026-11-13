@@ -191,8 +191,8 @@ describe('플래너 — the address says the view and the dates', () => {
     );
     expect(wrapper.get('[data-planner-next]').attributes('aria-label')).toBe('다음 주');
     expect(wrapper.get('[data-planner-current]').attributes('disabled')).toBeUndefined();
-    // The change is said once for assistive tech.
-    expect(wrapper.get('[role="status"]').text()).toBe('11월 16일 ~ 11월 22일 주');
+    // The change is said once for assistive tech (after "loading" has given way to it).
+    await vi.waitFor(() => expect(wrapper.get('[role="status"]').text()).toBe('11월 16일 ~ 11월 22일 주'));
 
     await wrapper.get('[data-planner-current]').trigger('click');
     await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/planner'));
