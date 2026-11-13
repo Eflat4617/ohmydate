@@ -58,6 +58,8 @@ export const REPLAN_DETECTION_ADVISORY_LOCK_KEY = 5_196_104;
 export const DEFAULT_REPLAN_DETECTION_JOB_INTERVAL_MS = 300_000;
 export const DEFAULT_NOTIFICATION_JOB_INTERVAL_MS = 60_000;
 export const DEFAULT_EXPORT_PURGE_JOB_INTERVAL_MS = 300_000;
+/** CAL-03 Google sync leader lock, distinct from the other jobs. */
+export const GOOGLE_SYNC_ADVISORY_LOCK_KEY = 5_196_105;
 
 /**
  * Single-process (memory provider) maintenance scheduler. The leader-only path
@@ -110,6 +112,7 @@ import {
   type Scheduler as GoogleNudgeScheduler,
 } from './application/google-calendar-service.js';
 import type { GoogleCalendarPort, GoogleOAuthPort } from './application/google-calendar-ports.js';
+import { GoogleSyncJob } from './application/google-sync-job.js';
 import { GoogleHttpClient } from './adapters/google-http.js';
 import { PgGoogleCalendarStore } from './adapters/pg-google-calendar-store.js';
 import { loadGoogleOAuthSecrets, type GoogleOAuthSecrets } from './google-config.js';
@@ -189,6 +192,8 @@ export interface MaintenanceJobOverrides {
   readonly exportPurgeIntervalMs?: number;
   /** FU-92 expired-session sweep (PG sessions only); 0 disables it. */
   readonly sessionSweepIntervalMs?: number;
+  /** CAL-03 Google sync; defaults to GOOGLE_SYNC_INTERVAL_MS; 0 disables it. */
+  readonly googleSyncIntervalMs?: number;
   readonly scheduler?: (callback: () => void, milliseconds: number) => { stop(): void };
 }
 
@@ -1006,6 +1011,28 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await replanDetectionJob.stop();
     });
     replanDetectionJob.start();
+  }
+
+  // CAL-03: leader-locked Google sync (import then export per owner). Stopped
+  // before the service closes, which aborts Google calls and waits briefly.
+  if (google.calendarService !== null) {
+    const calendarService = google.calendarService;
+    const googleLock = lockFor(GOOGLE_SYNC_ADVISORY_LOCK_KEY);
+    const googleSyncJob = new GoogleSyncJob({
+      runner: calendarService,
+      intervalMs: options.jobOverrides?.googleSyncIntervalMs ?? config.googleSyncIntervalMs,
+      ...(googleLock === undefined ? {} : { leaderLock: googleLock }),
+      logger: jobLogger,
+      ...(scheduler === undefined ? {} : { scheduler }),
+    });
+    app.addHook('onClose', async () => {
+      await googleSyncJob.stop();
+      await Promise.race([
+        calendarService.close(),
+        new Promise((resolve) => setTimeout(resolve, 2_000).unref()),
+      ]);
+    });
+    if (startMaintenance) googleSyncJob.start();
   }
 
   if (config.provider === 'vikunja' && config.reconcileIntervalMs > 0) {

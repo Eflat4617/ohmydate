@@ -149,6 +149,7 @@ export async function createTestContext(
     jobOverrides: options.jobOverrides ?? {
       notificationIntervalMs: 0,
       exportPurgeIntervalMs: 0,
+      googleSyncIntervalMs: 0,
     },
   });
   await app.ready();

@@ -122,3 +122,43 @@ test('loggedUrl keeps the path and drops every query value, whatever the spellin
   }
   expect(loggedPath('/api/v1/documents?q=secret')).toBe('/api/v1/documents');
 });
+
+test('CAL-03: Google OAuth material is redacted wherever an object carries it', () => {
+  const { stream, output } = captureStream();
+  const logger = pino(
+    defaultLoggerOptions(createConfig()) as unknown as pino.LoggerOptions,
+    stream,
+  );
+  logger.warn(
+    {
+      accessToken: 'ya29.secret-access',
+      refreshToken: '1//secret-refresh',
+      access_token: 'ya29.secret-access-2',
+      refresh_token: '1//secret-refresh-2',
+      clientSecret: 'GOCSPX-secret',
+      client_secret: 'GOCSPX-secret-2',
+      codeVerifier: 'verifier-secret',
+      code_verifier: 'verifier-secret-2',
+      req: {
+        method: 'GET',
+        url: '/api/v1/integrations/google/callback?code=4%2Fauth-code-secret&state=state-secret&scope=x',
+        id: 'req-3',
+        headers: { authorization: 'Bearer ya29.header-secret', cookie: 'sid=s' },
+      },
+    },
+    'google',
+  );
+  const text = output();
+  for (const secret of [
+    'ya29.secret-access',
+    '1//secret-refresh',
+    'GOCSPX-secret',
+    'verifier-secret',
+    'auth-code-secret',
+    'state-secret',
+    'ya29.header-secret',
+  ]) {
+    expect({ secret, leaked: text.includes(secret) }).toEqual({ secret, leaked: false });
+  }
+  expect(text).toContain('/api/v1/integrations/google/callback');
+});

@@ -1716,7 +1716,7 @@ function buildGoogleHandlers(
  * Mutations after which the "OhMyDate" calendar may need an export (CAL-03 E).
  * Block lock/unlock is not one: it never changes block times.
  */
-const GOOGLE_EXPORT_NUDGE_OPERATIONS: ReadonlySet<string> = new Set([
+export const GOOGLE_EXPORT_NUDGE_OPERATIONS: ReadonlySet<string> = new Set([
   'approvePlanCandidate',
   'approveReplanProposal',
   'acceptToday',
