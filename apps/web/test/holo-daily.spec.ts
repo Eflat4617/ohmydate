@@ -256,7 +256,7 @@ describe('집중 — the timer card and calm mode', () => {
     expect(wrapper.get('.focus-timer').attributes('role')).toBe('timer');
     const meter = wrapper.get('.focus-progress-track');
     expect(meter.classes()).toContain('meter');
-    expect(meter.get('.meter-fill').exists()).toBe(true);
+    expect(meter.find('.meter-fill').exists()).toBe(true);
     // A 90-minute block is ticked into nine ten-minute cells.
     expect(meter.attributes('style')).toContain('--cells: 9');
     // The filled button is the timer's own; 완료 is not filled (negative).

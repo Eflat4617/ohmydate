@@ -233,7 +233,7 @@ function onCancelConflict(): void {
 <template>
   <section class="task-list" :aria-busy="busy">
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
-    <ul v-if="visibleTasks.length > 0" class="task-items">
+    <ul v-if="visibleTasks.length > 0" class="card task-items">
       <TaskItem
         v-for="task in visibleTasks"
         :key="task.id"
@@ -251,7 +251,7 @@ function onCancelConflict(): void {
         @remove="onRemove(task)"
       />
     </ul>
-    <UiEmptyState v-else icon="check-circle" :title="props.emptyText ?? t('taskList.empty')" />
+    <UiEmptyState v-else icon="check-circle" class="card task-list-empty" :title="props.emptyText ?? t('taskList.empty')" />
 
     <ConflictDialog
       v-if="conflict"

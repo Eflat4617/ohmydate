@@ -81,7 +81,7 @@ const notes = computed(() => notesQuery.data.value?.items ?? []);
 </script>
 
 <template>
-  <section class="page">
+  <section class="page project-page" data-project-page>
     <header class="page-header">
       <div class="page-heading">
         <p class="breadcrumb">
@@ -92,7 +92,7 @@ const notes = computed(() => notesQuery.data.value?.items ?? []);
       </div>
     </header>
 
-    <div class="tabs" role="tablist" :aria-label="t('projects.tabs.label')" data-project-tabs>
+    <div class="segmented project-tabs" role="tablist" :aria-label="t('projects.tabs.label')" data-project-tabs>
       <button
         v-for="item in TABS"
         :id="`project-tab-${item}`"
@@ -100,8 +100,8 @@ const notes = computed(() => notesQuery.data.value?.items ?? []);
         :ref="(el) => (tabRefs[item] = el as HTMLButtonElement | null)"
         type="button"
         role="tab"
-        class="tab"
-        :class="{ 'tab--active': tab === item }"
+        class="btn segmented-item project-tab"
+        :class="{ 'project-tab--active': tab === item }"
         :aria-selected="tab === item ? 'true' : 'false'"
         :aria-controls="`project-panel-${item}`"
         :tabindex="tab === item ? 0 : -1"
@@ -109,7 +109,7 @@ const notes = computed(() => notesQuery.data.value?.items ?? []);
         @click="selectTab(item)"
         @keydown="onTabKeydown"
       >
-        <span class="tab-label">{{ t(`projects.tabs.${item}`) }}</span>
+        {{ t(`projects.tabs.${item}`) }}
       </button>
     </div>
 
@@ -118,7 +118,7 @@ const notes = computed(() => notesQuery.data.value?.items ?? []);
       id="project-panel-tasks"
       role="tabpanel"
       aria-labelledby="project-tab-tasks"
-      class="tab-panel"
+      class="project-panel"
       tabindex="0"
     >
       <div v-if="tasksQuery.isLoading.value">
@@ -145,7 +145,7 @@ const notes = computed(() => notesQuery.data.value?.items ?? []);
       id="project-panel-notes"
       role="tabpanel"
       aria-labelledby="project-tab-notes"
-      class="tab-panel project-notes"
+      class="card project-panel project-notes"
       tabindex="0"
       data-project-notes
     >

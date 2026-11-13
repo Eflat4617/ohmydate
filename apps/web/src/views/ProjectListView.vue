@@ -8,14 +8,33 @@ import UiButton from '../components/ui/UiButton.vue';
 import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
+import { useTaskDirectory } from '../composables/useOverview';
 import { t } from '../i18n';
 
+/**
+ * 프로젝트 (HOLO-02): each project is a card — its name and how many of its
+ * tasks are still open. The whole card opens the project. The counts come
+ * from the task list the other screens read (composables/useOverview.ts);
+ * until it answers a card shows its name only.
+ */
 const { data, isLoading, isError, refetch } = useQuery({
   queryKey: ['projects'],
   queryFn: () => plannerClient.listProjects(),
 });
 
 const projects = computed<Project[]>(() => data.value?.items ?? []);
+const directory = useTaskDirectory();
+
+/** Open (not done) tasks per project; null until the task list has answered. */
+const openCounts = computed(() => {
+  const tasks = directory.data.value?.tasks;
+  if (tasks === undefined) return null;
+  const counts = new Map<string, number>();
+  for (const task of tasks.values()) {
+    if (task.status !== 'done') counts.set(task.projectId, (counts.get(task.projectId) ?? 0) + 1);
+  }
+  return counts;
+});
 
 /** The system Inbox project is labelled in the UI language, not by its stored title. */
 function projectTitle(project: Project): string {
@@ -24,7 +43,7 @@ function projectTitle(project: Project): string {
 </script>
 
 <template>
-  <section class="page">
+  <section class="page page--wide projects-page" data-projects>
     <header class="page-header">
       <div class="page-heading">
         <h1>{{ t('projects.title') }}</h1>
@@ -43,17 +62,27 @@ function projectTitle(project: Project): string {
       </template>
     </UiBanner>
     <ul v-else-if="projects.length > 0" class="project-list">
-      <li v-for="project in projects" :key="project.id" class="project-item">
+      <li
+        v-for="project in projects"
+        :key="project.id"
+        class="card card--interactive project-item"
+        :data-project="project.id"
+      >
         <RouterLink :to="{ name: 'project', params: { id: project.id } }" class="project-link">
           <span class="project-icon" aria-hidden="true">
             <UiIcon :name="project.kind === 'inbox' ? 'inbox' : 'projects'" />
           </span>
           <span class="project-title">{{ projectTitle(project) }}</span>
-          <UiIcon name="chevron-right" class="project-chevron" />
         </RouterLink>
-        <UiBadge v-if="project.archived" class="task-status">{{ t('projects.archived') }}</UiBadge>
+        <div class="project-foot">
+          <p v-if="openCounts" class="project-count" data-project-open>
+            <span class="project-count-number">{{ openCounts.get(project.id) ?? 0 }}</span>
+            <span>{{ t('projects.openTasks') }}</span>
+          </p>
+          <UiBadge v-if="project.archived" class="task-status">{{ t('projects.archived') }}</UiBadge>
+        </div>
       </li>
     </ul>
-    <UiEmptyState v-else icon="projects" :title="t('projects.empty')" />
+    <UiEmptyState v-else icon="projects" class="card" :title="t('projects.empty')" />
   </section>
 </template>

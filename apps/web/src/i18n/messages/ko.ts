@@ -323,6 +323,8 @@ export const ko = {
     loadError: '작업을 불러오지 못했어요.',
     missing: '인박스 프로젝트가 없어요. 프로젝트가 생기기 전에는 작업을 보여 드릴 수 없어요.',
     empty: '인박스가 비었어요. 떠오르는 다음 일을 위에 적어 보세요.',
+    // HOLO-02: the one disclosure 말로 적기 is folded under.
+    parseFold: '말로 여러 개 적기',
   },
 
   // CAL-05: natural-language task entry in the inbox ("말로 적기").
@@ -396,6 +398,8 @@ export const ko = {
     back: '프로젝트',
     fallbackTitle: '프로젝트',
     taskCount: plural({ other: '작업 {count}개' }),
+    // HOLO-02: the caption under a project card's count of tasks that are not done.
+    openTasks: '열린 작업',
     tasksLoading: '작업을 불러오는 중…',
     tasksLoadError: '프로젝트 작업을 불러오지 못했어요.',
     tasksEmpty: '이 프로젝트에는 아직 작업이 없어요.',
@@ -1562,6 +1566,28 @@ export const ko = {
   },
 
   // CAL-01: the month page of the planner.
+  // HOLO-02: 작업 상세 — the task at the left, what belongs to it at the right.
+  // The fields' own words (상태, 마감, 프로젝트, 설명) are `notes.task.*` (M6-03).
+  taskDetail: {
+    startFocus: '집중 시작',
+    blocks: {
+      title: '일정',
+      open: '플래너 열기',
+      empty: '앞으로 잡힌 블록이 없어요.',
+      emptyBody: '일정안을 확정하면 이 작업의 블록이 여기에 보여요.',
+      done: plural({ other: '지난 2주 동안 끝낸 블록 {count}개' }),
+      more: plural({ other: '그 뒤로 {count}개 더 있어요' }),
+    },
+    sessions: {
+      title: '집중 기록',
+      total: '최근 4주 집중 시간',
+      count: plural({ other: '세션 {count}개' }),
+      empty: '최근 4주 동안 집중한 기록이 없어요.',
+      truncated: '기록이 많아서 최근 것만 더했어요.',
+    },
+    relatedError: '일정과 집중 기록을 불러오지 못했어요.',
+  },
+
   // HOLO-02: 타임 트래커 — the timer card and the week's sessions. The words
   // for a session's state and the table's columns are 개요's (`overview.*`).
   tracker: {

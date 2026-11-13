@@ -38,6 +38,9 @@ test.describe('E2E-8 — 할 일을 말로 적기 (CAL-05)', () => {
 
     const title = `보고서 초안 E${Date.now().toString(36)}`;
     await page.goto(`${state.webUrl}/inbox`);
+    // HOLO-02: 말로 적기 is folded under one disclosure below the quick add.
+    await expect(page.getByRole('heading', { name: '말로 적기' })).toBeHidden();
+    await page.getByText('말로 여러 개 적기', { exact: true }).click();
     await expect(page.getByRole('heading', { name: '말로 적기' })).toBeVisible();
     await page.getByLabel('할 일 메모').fill(`내일까지 ${title}, 요즘 너무 피곤하다`);
     await page.getByRole('button', { name: '읽기' }).click();

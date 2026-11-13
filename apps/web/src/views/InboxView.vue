@@ -14,6 +14,7 @@ import { useAuthStore } from '../stores/auth';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
+import UiIcon from '../components/ui/UiIcon.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { t, tp } from '../i18n';
 
@@ -107,7 +108,7 @@ async function refresh(): Promise<void> {
 </script>
 
 <template>
-  <section class="page">
+  <section class="page inbox-page" data-inbox>
     <header class="page-header">
       <div class="page-heading">
         <h1>{{ t('inbox.title') }}</h1>
@@ -121,20 +122,28 @@ async function refresh(): Promise<void> {
       </div>
     </header>
 
-    <QuickAddForm
-      ref="quickAdd"
-      :disabled="quickAddDisabled"
-      :primary="quickAddPrimary"
-      @submit="addTask"
-      @filled-change="quickAddFilled = $event"
-    />
-    <UiBanner v-if="createError" tone="error" role="alert">{{ createError }}</UiBanner>
-
-    <TaskParseSection
-      :quick-add-active="quickAddFilled"
-      :time-zone="timeZone"
-      @primary-change="parseWantsPrimary = $event"
-    />
+    <!-- The quick add is the top field; 말로 적기 is folded under one disclosure. -->
+    <div class="card inbox-add">
+      <QuickAddForm
+        ref="quickAdd"
+        :disabled="quickAddDisabled"
+        :primary="quickAddPrimary"
+        @submit="addTask"
+        @filled-change="quickAddFilled = $event"
+      />
+      <UiBanner v-if="createError" tone="error" role="alert">{{ createError }}</UiBanner>
+      <details class="inbox-fold" data-task-parse-fold>
+        <summary class="inbox-fold-summary">
+          <UiIcon name="chevron-down" :size="16" class="inbox-fold-icon" />
+          {{ t('inbox.parseFold') }}
+        </summary>
+        <TaskParseSection
+          :quick-add-active="quickAddFilled"
+          :time-zone="timeZone"
+          @primary-change="parseWantsPrimary = $event"
+        />
+      </details>
+    </div>
 
     <div v-if="isLoading" class="list-loading">
       <p class="visually-hidden" role="status">{{ t('inbox.loading') }}</p>

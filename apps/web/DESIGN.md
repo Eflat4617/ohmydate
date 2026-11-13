@@ -505,6 +505,13 @@ The three kinds are a shape each, wherever they are listed: a bar (block), a dot
 - **집중:** one card. The task's name (never an id), the timer at the display size in the light weight, the planned time as the system's meter ticked every ten minutes, then the timer's own filled button and 완료. Done, the timer steps back to a figure and the review sheet — a card in the dialog's manner — leads.
 - **Calm mode** is dark whatever the theme: the page takes `.scheme-dark`, which declares every token of the dark scheme again for its subtree. No card, no chrome: the name, one number, the two buttons.
 
+### Tasks and Projects (HOLO-02)
+- **Quick add** (`.quick-add`): the top field of 인박스, in a card of its own — one inset field holding the plus, the words and its button. Under it one disclosure, 말로 여러 개 적기, holds the whole 말로 적기 section.
+- **Task list** (`.task-items`): one card of quiet rows on hairlines. A row is the title (a link to the task), its state, and its deadline; an open task past its deadline adds the red 지났어요 tag (red is only ever "overdue"). With a mouse the row's actions wait until the row is pointed at or holds the focus; they are always in the tab order and always shown on touch.
+- **Project card** (`.project-item`): the project's mark and name over one light number, the tasks still open. The whole card is the link.
+- **Project page:** its two views (작업, 노트) are the segmented control (`role="tablist"`).
+- **Task page** (`.task-page`): two columns of cards from 56rem. Left, the task: state, deadline, project tag, description. Right, what belongs to it: 일정 (its blocks to come), 집중 기록 (its focused time of the last four weeks as the card's number, then the newest sessions), 연결된 노트. The page's one filled button starts a focus session on the task. No id and no version number is on the page.
+
 ### Time Tracker (new in HOLO-02, `views/TrackerView.vue`)
 Two cards. The numbers are computed in `domain/tracker.ts` (pure, tested) from the same lookups 개요 uses.
 
