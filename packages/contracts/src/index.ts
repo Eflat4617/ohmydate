@@ -537,6 +537,22 @@ export {
   type GoogleSyncResult,
 } from './integrations.js';
 
+// CAL-05: natural-language task entry.
+export {
+  TASK_DRAFTS_MAX,
+  TASK_DRAFT_NOTES,
+  TASK_PARSE_LEFTOVER_MAX,
+  TASK_PARSE_TEXT_MAX,
+  TaskDraftNoteSchema,
+  TaskDraftSchema,
+  TaskParseRequestSchema,
+  TaskParseResponseSchema,
+  type TaskDraft,
+  type TaskDraftNote,
+  type TaskParseRequest,
+  type TaskParseResponse,
+} from './task-parse.js';
+
 export {
   contractRoutes,
   dailyRoutes,

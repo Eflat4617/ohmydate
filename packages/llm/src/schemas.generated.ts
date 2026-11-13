@@ -20,7 +20,8 @@ export const SCHEMA_SOURCES: Readonly<Record<string, unknown>> = {
             "endDate": null,
             "weeklyDays": null,
             "untilDate": null,
-            "dateWasGuessed": false
+            "dateWasGuessed": false,
+            "meridiemWasGuessed": false
           }
         ]
       ],
@@ -35,7 +36,8 @@ export const SCHEMA_SOURCES: Readonly<Record<string, unknown>> = {
           "endDate",
           "weeklyDays",
           "untilDate",
-          "dateWasGuessed"
+          "dateWasGuessed",
+          "meridiemWasGuessed"
         ],
         "properties": {
           "title": {
@@ -83,6 +85,9 @@ export const SCHEMA_SOURCES: Readonly<Record<string, unknown>> = {
             ]
           },
           "dateWasGuessed": {
+            "type": "boolean"
+          },
+          "meridiemWasGuessed": {
             "type": "boolean"
           }
         }
@@ -525,6 +530,64 @@ export const SCHEMA_SOURCES: Readonly<Record<string, unknown>> = {
     },
     "riskLevel": {
       "enum": ["low", "medium", "high"]
+    }
+  }
+},
+  "llm.task_parse.v1": {
+  "$id": "llm.task_parse.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["items", "leftover"],
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 10,
+      "examples": [
+        [
+          {
+            "title": "title",
+            "dueDate": "2026-01-02",
+            "dueTime": null,
+            "dateWasGuessed": false,
+            "meridiemWasGuessed": false
+          }
+        ]
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "dueDate", "dueTime", "dateWasGuessed", "meridiemWasGuessed"],
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "dueDate": {
+            "anyOf": [
+              { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+              { "type": "null" }
+            ]
+          },
+          "dueTime": {
+            "anyOf": [
+              { "type": "string", "pattern": "^[0-2][0-9]:[0-5][0-9]$" },
+              { "type": "null" }
+            ]
+          },
+          "dateWasGuessed": {
+            "type": "boolean"
+          },
+          "meridiemWasGuessed": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "leftover": {
+      "type": "string",
+      "maxLength": 500,
+      "examples": [""]
     }
   }
 },

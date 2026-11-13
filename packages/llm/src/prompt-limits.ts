@@ -39,6 +39,14 @@ export const MAX_OUTPUT_TOKENS_CEILING = 32_768;
 export const DEFAULT_COMMITMENT_PARSE_MAX_OUTPUT_TOKENS = 2_000;
 export const DEFAULT_COMMITMENT_PARSE_TIMEOUT_MS = 20_000;
 
+/**
+ * CAL-05: task_parse answers are smaller still (at most 10 items of a title and
+ * two short fields plus a 500-character leftover), so it shares the
+ * commitment_parse bounds.
+ */
+export const DEFAULT_TASK_PARSE_MAX_OUTPUT_TOKENS = DEFAULT_COMMITMENT_PARSE_MAX_OUTPUT_TOKENS;
+export const DEFAULT_TASK_PARSE_TIMEOUT_MS = DEFAULT_COMMITMENT_PARSE_TIMEOUT_MS;
+
 export const DEFAULT_PROMPT_LIMIT_OVERRIDES: PromptLimitOverrides = Object.freeze({
   decomposition: Object.freeze({
     maxOutputTokens: DEFAULT_DECOMPOSITION_MAX_OUTPUT_TOKENS,
@@ -47,6 +55,10 @@ export const DEFAULT_PROMPT_LIMIT_OVERRIDES: PromptLimitOverrides = Object.freez
   commitment_parse: Object.freeze({
     maxOutputTokens: DEFAULT_COMMITMENT_PARSE_MAX_OUTPUT_TOKENS,
     timeoutMs: DEFAULT_COMMITMENT_PARSE_TIMEOUT_MS,
+  }),
+  task_parse: Object.freeze({
+    maxOutputTokens: DEFAULT_TASK_PARSE_MAX_OUTPUT_TOKENS,
+    timeoutMs: DEFAULT_TASK_PARSE_TIMEOUT_MS,
   }),
 });
 

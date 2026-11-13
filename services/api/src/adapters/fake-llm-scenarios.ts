@@ -6,6 +6,7 @@ import {
   type LlmPort,
 } from '@ohmydate/llm';
 import { fakeCommitmentParseOutput } from './fake-commitment-parse.js';
+import { fakeTaskParseOutput } from './fake-task-parse.js';
 
 /**
  * E2E-only fake LLM scenarios (M6-03 scope amendment, coordinator-approved).
@@ -33,6 +34,8 @@ import { fakeCommitmentParseOutput } from './fake-commitment-parse.js';
  *
  * - `llm.commitment_parse.v1` (CAL-02) answers the deterministic reader of
  *   fake-commitment-parse.ts (a few fixed phrase shapes; the rest -> leftover).
+ * - `llm.task_parse.v1` (CAL-05) answers the deterministic to-do reader of
+ *   fake-task-parse.ts (every part a task; a named day / time is its deadline).
  *
  * Every other schema (including the ungrounded `llm.decomposition.v1`) keeps
  * the default `FakeLlm` behaviour: no fixture, `LlmUnavailable`, manual draft.
@@ -186,6 +189,7 @@ const TYPE_DETECTION_OUTPUT = { classification: 'new', confidence: 0.5, reasons:
 const TYPE_DETECTION_SCHEMA_ID = 'llm.type_detection.v1';
 const GROUNDED_DECOMPOSITION_SCHEMA_ID = 'llm.decomposition.v2';
 const COMMITMENT_PARSE_SCHEMA_ID = 'llm.commitment_parse.v1';
+const TASK_PARSE_SCHEMA_ID = 'llm.task_parse.v1';
 
 function respond(output: unknown): LlmCompleteResponse {
   return {
@@ -231,6 +235,10 @@ export class E2eGroundedFakeLlm implements LlmPort {
     if (request.schemaId === COMMITMENT_PARSE_SCHEMA_ID) {
       request.onDispatch?.();
       return respond(fakeCommitmentParseOutput(request.input));
+    }
+    if (request.schemaId === TASK_PARSE_SCHEMA_ID) {
+      request.onDispatch?.();
+      return respond(fakeTaskParseOutput(request.input));
     }
     return this.#fallback.complete(request);
   }

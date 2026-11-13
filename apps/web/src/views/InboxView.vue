@@ -8,6 +8,9 @@ import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
 import QuickAddForm from '../components/QuickAddForm.vue';
 import TaskList from '../components/TaskList.vue';
+import TaskParseSection from '../components/TaskParseSection.vue';
+import { browserTimeZone } from '../i18n/format';
+import { useAuthStore } from '../stores/auth';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -16,6 +19,7 @@ import { t, tp } from '../i18n';
 
 const offline = useOfflineStore();
 const ui = useUiStore();
+const auth = useAuthStore();
 const queryClient = useQueryClient();
 const quickAdd = ref<InstanceType<typeof QuickAddForm> | null>(null);
 const {
@@ -56,6 +60,16 @@ const openCount = computed(() => tasks.value.filter((task) => task.status !== 'd
 const quickAddDisabled = computed(
   () => !offline.mutationsEnabled || createBusy.value,
 );
+
+/**
+ * CAL-05: the zone 말로 적기 reads deadlines in — the one the task detail
+ * shows `dueAt` in. One filled button on the page: the quick add while it has
+ * text, otherwise 말로 적기's next step when it has one, otherwise the quick add.
+ */
+const timeZone = computed(() => auth.user?.timeZone ?? browserTimeZone());
+const quickAddFilled = ref(false);
+const parseWantsPrimary = ref(false);
+const quickAddPrimary = computed(() => quickAddFilled.value || !parseWantsPrimary.value);
 
 async function refetchAll(): Promise<void> {
   const pending: Promise<unknown>[] = [inboxQuery.refetch()];
@@ -107,8 +121,20 @@ async function refresh(): Promise<void> {
       </div>
     </header>
 
-    <QuickAddForm ref="quickAdd" :disabled="quickAddDisabled" @submit="addTask" />
+    <QuickAddForm
+      ref="quickAdd"
+      :disabled="quickAddDisabled"
+      :primary="quickAddPrimary"
+      @submit="addTask"
+      @filled-change="quickAddFilled = $event"
+    />
     <UiBanner v-if="createError" tone="error" role="alert">{{ createError }}</UiBanner>
+
+    <TaskParseSection
+      :quick-add-active="quickAddFilled"
+      :time-zone="timeZone"
+      @primary-change="parseWantsPrimary = $event"
+    />
 
     <div v-if="isLoading" class="list-loading">
       <p class="visually-hidden" role="status">{{ t('inbox.loading') }}</p>

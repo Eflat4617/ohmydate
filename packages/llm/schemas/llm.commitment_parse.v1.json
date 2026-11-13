@@ -17,7 +17,8 @@
             "endDate": null,
             "weeklyDays": null,
             "untilDate": null,
-            "dateWasGuessed": false
+            "dateWasGuessed": false,
+            "meridiemWasGuessed": false
           }
         ]
       ],
@@ -32,7 +33,8 @@
           "endDate",
           "weeklyDays",
           "untilDate",
-          "dateWasGuessed"
+          "dateWasGuessed",
+          "meridiemWasGuessed"
         ],
         "properties": {
           "title": {
@@ -80,6 +82,9 @@
             ]
           },
           "dateWasGuessed": {
+            "type": "boolean"
+          },
+          "meridiemWasGuessed": {
             "type": "boolean"
           }
         }

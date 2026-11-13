@@ -50,6 +50,12 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     optionalHeaders: [],
     statuses: [201, 400, 401, 403, 404, 409, 422, 503],
   },
+  // CAL-05: reads task drafts only; 409 idempotency_in_progress, 503 LLM.
+  parseTasks: {
+    requiredHeaders: ['Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 409, 422, 503],
+  },
   getTask: {
     requiredHeaders: [],
     optionalHeaders: ['If-None-Match'],
@@ -484,6 +490,7 @@ test('route table covers task and project endpoints from 08 §2.2', () => {
     'POST /projects',
     'GET /tasks',
     'POST /tasks',
+    'POST /tasks:parse',
     'GET /tasks/{id}',
     'PATCH /tasks/{id}',
     'POST /tasks/{id}:complete',
@@ -753,6 +760,7 @@ test('creation POSTs require Idempotency-Key without If-Match', () => {
     'createPlan',
     'createCommitment',
     'parseCommitments',
+    'parseTasks',
     'createSession',
     'createPushSubscription',
     'createExport',

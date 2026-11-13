@@ -119,6 +119,9 @@ export const ko = {
     completeAria: '{title} 완료로 표시',
     delete: '삭제',
     deleteAria: '{title} 삭제',
+    // CAL-05: the deadline line of an inbox row (shown only when the task has one).
+    due: '마감 {when}',
+    overdue: '지났어요',
   },
 
   taskList: {
@@ -168,6 +171,67 @@ export const ko = {
     loadError: '작업을 불러오지 못했어요.',
     missing: '인박스 프로젝트가 없어요. 프로젝트가 생기기 전에는 작업을 보여 드릴 수 없어요.',
     empty: '인박스가 비었어요. 떠오르는 다음 일을 위에 적어 보세요.',
+  },
+
+  // CAL-05: natural-language task entry in the inbox ("말로 적기").
+  taskParse: {
+    heading: '말로 적기',
+    label: '할 일 메모',
+    placeholder: '무엇을 언제까지 해야 하나요?',
+    help: '예: 금요일까지 보고서 초안, 내일 교수님께 메일. Enter로 읽고 Shift+Enter로 줄을 바꿔요.',
+    read: '읽기',
+    sendNote: '읽기를 누르면 이 메모를 AI로 보내 할 일 초안을 만들어요. 추가하기 전까지 저장되지 않아요.',
+    disclosure: 'AI에 보내는 내용',
+    waitTitle: 'AI가 메모를 읽고 있어요',
+    waitElapsed: '{seconds}초 지났어요',
+    waitHint: '보통 몇 초면 끝나요.',
+    cancel: '취소',
+    cancelled: '읽기를 멈췄어요. 메모는 그대로 있어요.',
+    empty: '읽을 메모를 적어 주세요.',
+    resultHeading: '읽은 할 일',
+    resultCount: plural({ other: '할 일 {count}개를 읽었어요.' }),
+    resultNone: '할 일로 읽을 부분을 찾지 못했어요.',
+    leftover: '읽지 못한 부분: {text}',
+    titleLabel: '할 일 제목',
+    titleEmpty: '제목을 적어야 추가할 수 있어요.',
+    due: '마감 {when}',
+    noDue: '마감 없음',
+    dueLabel: '마감',
+    dueHelp: '비워 두면 마감 없이 추가해요.',
+    changeDue: '마감 바꾸기',
+    closeDue: '마감 바꾸기 닫기',
+    clearDue: '마감 없애기',
+    add: '추가',
+    addAll: plural({ other: '{count}개 모두 추가' }),
+    remove: '빼기',
+    added: '추가했어요',
+    rowActions: '{title} 초안',
+    note: {
+      due_time_defaulted: '시간이 없어 그날 밤 11시 59분까지로 잡았어요.',
+      date_assumed: '날짜가 분명하지 않아 가장 가까운 날로 잡았어요.',
+      due_dropped: '마감 날짜를 쓸 수 없어 마감 없이 두었어요.',
+    },
+    addedOne: '‘{title}’ 할 일을 인박스에 추가했어요.',
+    addedMany: plural({ other: '할 일 {count}개를 인박스에 추가했어요.' }),
+    addError: '‘{title}’ 초안을 추가하지 못했어요. 다시 시도해 주세요.',
+    removed: '‘{title}’ 초안을 뺐어요.',
+    unavailable: '지금은 AI로 읽을 수 없어요. 메모는 그대로 두었으니 위 빠른 추가로 하나씩 적어 주세요.',
+    budget: 'AI 사용 한도에 닿아 지금은 읽을 수 없어요. 위 빠른 추가로 하나씩 적어 주세요.',
+    consentOff: 'AI를 쓰지 않도록 설정되어 있어요. 위 빠른 추가로 적거나 AI 설정에서 켤 수 있어요.',
+    consentLink: 'AI 설정 열기',
+    readError: '메모를 읽지 못했어요. 다시 시도하거나 위 빠른 추가로 적어 주세요.',
+  },
+
+  // CAL-05 addendum: a bare "7시" read as AM, on both 말로 적기 screens.
+  nlRead: {
+    meridiem: {
+      assumedAm: '오전인지 오후인지 적혀 있지 않아 오전으로 잡았어요.',
+      switchedPm: '오전인지 오후인지 적혀 있지 않아 오후로 바꿨어요.',
+      toPm: '오후로 바꾸기',
+      toAm: '오전으로 바꾸기',
+      statusPm: '‘{title}’ 시간을 오후로 바꿨어요: {when}',
+      statusAm: '‘{title}’ 시간을 오전으로 되돌렸어요: {when}',
+    },
   },
 
   projects: {
@@ -1046,7 +1110,8 @@ export const ko = {
       data: '보내는 데이터',
       // FU-91: also the AI-allowed notes linked to the plan (M6-03), as the GU-1 guide states.
       // CAL-02: also the note typed into 약속 > 말로 적기.
-      dataValue: '계획 마법사에 입력한 내용(제목·마감·설명·질문 답변), 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 이 계획에 연결한 노트의 관련 구간 일부, 그리고 약속 화면의 ‘말로 적기’에 적은 메모(오늘 날짜·시간대와 함께)만 보내요.',
+      // CAL-05: and the note typed into 인박스 > 말로 적기.
+      dataValue: '계획 마법사에 입력한 내용(제목·마감·설명·질문 답변), 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 이 계획에 연결한 노트의 관련 구간 일부, 그리고 약속·인박스 화면의 ‘말로 적기’에 적은 메모(오늘 날짜·시간대와 함께)만 보내요.',
       masking: '마스킹은 최선 노력이에요',
       // {kinds} is built from MASKED_KINDS (i18n/redaction.ts), the mirror of
       // RedactionKind in packages/llm/src/privacy.ts. Never name a kind here
@@ -1070,7 +1135,7 @@ export const ko = {
     },
     settings: {
       title: 'AI 설정',
-      lede: 'AI 계획 도움은 {provider} 게이트웨이를 거쳐 {model}({modelId})을 써요. 요청에는 계획 마법사 입력, 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 계획에 연결한 노트의 관련 구간 일부, 약속 화면의 ‘말로 적기’ 메모만 담겨요.',
+      lede: 'AI 계획 도움은 {provider} 게이트웨이를 거쳐 {model}({modelId})을 써요. 요청에는 계획 마법사 입력, 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 계획에 연결한 노트의 관련 구간 일부, 약속·인박스 화면의 ‘말로 적기’ 메모만 담겨요.',
       noConsentTitle: 'AI 동의가 필요 없어요',
       noConsentBody: '이 빌드는 AI 없이 동작하는 결정형 플래너를 쓰기 때문에 AI 동의가 필요 없어요.',
       consentLegend: '동의',

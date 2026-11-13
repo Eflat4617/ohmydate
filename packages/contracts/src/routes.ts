@@ -13,6 +13,7 @@ import {
   CommitmentParseRequestSchema,
   CommitmentParseResponseSchema,
 } from './commitment-parse.js';
+import { TaskDraftSchema, TaskParseRequestSchema, TaskParseResponseSchema } from './task-parse.js';
 import { DiversityNoteItemSchema, ExplanationItemSchema } from './explanation.js';
 import {
   ApprovePlanRequestSchema,
@@ -352,6 +353,21 @@ const coreRoutes: readonly RouteDefinition[] = [
     responses: {
       201: { description: 'Created task', schema: TaskSchema },
       ...problems(400, 401, 403, 404, 409, 422, 503),
+    },
+  },
+  // CAL-05: natural-language task entry in the inbox (08 §2.1b). Reads drafts only.
+  {
+    method: 'post',
+    path: '/tasks:parse',
+    operationId: 'parseTasks',
+    summary: 'Read a natural-language to-do note into task drafts (AI; nothing is saved)',
+    description:
+      'Reads up to 500 characters ("금요일까지 보고서 초안, 내일까지 교수님께 메일") into at most 10 task drafts with the task_parse@v1 prompt. Nothing is written: each draft is a proposal the client adds with POST /tasks. Idempotency-Key is required (a replay returns the stored answer without a second LLM call); there is no If-Match because no resource version exists. A to-do without a date is a draft without dueAt; a date without a time is due at 23:59 local (note due_time_defaulted). A deadline the server cannot validate (no real date, more than 1 day in the past, more than 2 years ahead) is removed and the task kept (note due_dropped). 503 llm_unavailable (no provider, consent missing, timeout, cancelled) and 503 budget_exceeded are not stored, so the same key can retry.',
+    headers: IdempotencyHeadersSchema,
+    body: TaskParseRequestSchema,
+    responses: {
+      200: { description: 'Task drafts and the unread leftover', schema: TaskParseResponseSchema },
+      ...problems(400, 401, 403, 409, 422, 503),
     },
   },
   {
@@ -1492,6 +1508,10 @@ export const schemaRegistry = {
   CommitmentParseRequest: CommitmentParseRequestSchema,
   CommitmentDraft: CommitmentDraftSchema,
   CommitmentParseResponse: CommitmentParseResponseSchema,
+  // CAL-05
+  TaskParseRequest: TaskParseRequestSchema,
+  TaskDraft: TaskDraftSchema,
+  TaskParseResponse: TaskParseResponseSchema,
   PlanScope: PlanScopeSchema,
   PlanHorizon: PlanHorizonSchema,
   PlanCreate: PlanCreateSchema,

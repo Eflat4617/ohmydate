@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, ref, watch } from 'vue';
 import { RouterLink, routerKey } from 'vue-router';
+import { getActivePinia } from 'pinia';
 import type { Task } from '../api';
 import UiBadge from './ui/UiBadge.vue';
 import UiButton from './ui/UiButton.vue';
 import UiIcon from './ui/UiIcon.vue';
 import { t } from '../i18n';
+import { browserTimeZone, formatDateTime } from '../i18n/format';
+import { useAuthStore } from '../stores/auth';
 
 const props = withDefaults(
   defineProps<{
@@ -34,6 +37,18 @@ const editInput = ref<HTMLInputElement | null>(null);
 const hasRouter = inject(routerKey, null) !== null;
 
 const isDone = computed(() => props.task.status === 'done');
+
+// CAL-05: the deadline, in the user's zone like the task detail (isolated
+// mounts without a store fall back to the browser's zone).
+const auth = getActivePinia() === undefined ? null : useAuthStore();
+const dueText = computed(() => {
+  const dueAt = props.task.dueAt;
+  if (dueAt === undefined) return null;
+  return t('task.due', { when: formatDateTime(dueAt, auth?.user?.timeZone ?? browserTimeZone()) });
+});
+const overdue = computed(
+  () => !isDone.value && props.task.dueAt !== undefined && Date.parse(props.task.dueAt) < Date.now(),
+);
 const statusLabel = computed(() => {
   switch (props.task.status) {
     case 'done':
@@ -123,6 +138,9 @@ function onInput(event: Event): void {
         </RouterLink>
         <span v-else class="task-title">{{ task.title }}</span>
         <UiBadge class="task-status" :tone="statusTone" :data-status="task.status">{{ statusLabel }}</UiBadge>
+        <span v-if="dueText" class="task-due tabular" data-testid="task-due">
+          {{ dueText }}<UiBadge v-if="overdue" tone="warn" class="task-due-overdue">{{ t('task.overdue') }}</UiBadge>
+        </span>
       </div>
       <div class="task-actions">
         <UiButton

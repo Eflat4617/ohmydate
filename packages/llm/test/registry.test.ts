@@ -24,10 +24,12 @@ const expectedSchemas = [
   'llm.layout_suggestion.v1',
   'llm.questions.v1',
   'llm.replan_explanation.v1',
+  // CAL-05: natural-language task entry.
+  'llm.task_parse.v1',
   'llm.type_detection.v1',
 ];
 
-test('all seven contract schemas are registered (six + CAL-02 commitment_parse)', () => {
+test('all eight contract schemas are registered (six + CAL-02 commitment_parse + CAL-05 task_parse)', () => {
   expect(SCHEMA_IDS).toEqual(expectedSchemas);
   for (const schemaId of expectedSchemas) expect(hasSchema(schemaId)).toBe(true);
 });
@@ -41,6 +43,7 @@ test('every schema file compiles under Ajv strict mode', () => {
     'llm.replan_explanation.v1.json',
     'llm.layout_suggestion.v1.json',
     'llm.commitment_parse.v1.json',
+    'llm.task_parse.v1.json',
   ];
   for (const file of files) {
     const schema = JSON.parse(readFileSync(join(SCHEMA_DIR, file), 'utf8')) as {
@@ -61,6 +64,7 @@ test('generated schema map matches the checked-in JSON files', () => {
     'llm.replan_explanation.v1.json',
     'llm.layout_suggestion.v1.json',
     'llm.commitment_parse.v1.json',
+    'llm.task_parse.v1.json',
   ];
   expect(Object.keys(SCHEMA_SOURCES).sort()).toEqual(expectedSchemas);
   for (const file of files) {
@@ -127,6 +131,7 @@ test('prompt files are available through the pure registry', () => {
     'layout_suggestion@v1',
     'questions@v1',
     'replan_explanation@v1',
+    'task_parse@v1',
     'type_detection@v1',
     'type_detection@v2',
   ]);

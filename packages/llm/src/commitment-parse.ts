@@ -80,6 +80,12 @@ export interface CommitmentParseItem {
   readonly weeklyDays: readonly WeekdayCode[] | null;
   readonly untilDate: string | null;
   readonly dateWasGuessed: boolean;
+  /**
+   * CAL-05 addendum: the start was a bare hour from 7 to 11 read as AM (no
+   * 오전/오후 word, no 24-hour form, no evening context). The API marks the
+   * draft `meridiem_assumed` so the person sees that the half-day was a guess.
+   */
+  readonly meridiemWasGuessed: boolean;
 }
 
 export interface CommitmentParseOutput {
@@ -133,10 +139,16 @@ export function commitmentCalendar(today: string, days: number = COMMITMENT_CALE
 }
 
 /**
- * The structured input of commitment_parse@v1. The note is masked (ADR-019)
- * and fenced; everything else is caller-computed, non-free-text data.
+ * The structured input shared by the natural-language readers
+ * (commitment_parse@v1, CAL-05 task_parse@v1): the note masked (ADR-019) and
+ * fenced in one block named `blockId`; everything else is caller-computed,
+ * non-free-text data.
  */
-export function buildCommitmentParseInput(request: CommitmentParseInputRequest): CommitmentParseInputBundle {
+export function buildNoteReadInput(
+  configVersion: string,
+  blockId: string,
+  request: CommitmentParseInputRequest,
+): CommitmentParseInputBundle {
   const redacted = redact(request.text);
   const report: Record<string, number> = {};
   for (const entry of redacted.report as readonly { readonly kind: RedactionKind; readonly count: number }[]) {
@@ -144,13 +156,18 @@ export function buildCommitmentParseInput(request: CommitmentParseInputRequest):
   }
   return {
     input: {
-      configVersion: COMMITMENT_PARSE_CONFIG_VERSION,
+      configVersion,
       outputLanguage: request.outputLanguage,
       timeZone: request.timeZone,
       now: { date: request.now.date, weekday: request.now.weekday, time: request.now.time },
       calendar: request.calendar.map((day) => ({ date: day.date, weekday: day.weekday, week: day.week })),
-      text: buildUntrustedBlock(COMMITMENT_TEXT_BLOCK_ID, redacted.text),
+      text: buildUntrustedBlock(blockId, redacted.text),
     },
     redactionReport: report,
   };
+}
+
+/** The structured input of commitment_parse@v1. */
+export function buildCommitmentParseInput(request: CommitmentParseInputRequest): CommitmentParseInputBundle {
+  return buildNoteReadInput(COMMITMENT_PARSE_CONFIG_VERSION, COMMITMENT_TEXT_BLOCK_ID, request);
 }

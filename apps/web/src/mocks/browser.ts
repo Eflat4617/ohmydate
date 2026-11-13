@@ -6,6 +6,8 @@ import {
   setCommitmentParseDelay,
   setCommitmentParseFailure,
 } from './commitment-parse';
+// CAL-05: the inbox's 말로 적기 (the same delay / failure knobs hold it too).
+import { createTaskParseHandlers, setTaskParseDelay, setTaskParseFailure } from './task-parse';
 import { createIntakeHandlers } from './intake-handlers';
 import { createNotesHandlers, seedFocusNote } from './notes';
 import { createPlanningHandlers } from './planning-handlers';
@@ -51,9 +53,13 @@ if (overrides?.today === 'risk') seedTodayRisk(mockDb);
 if (overrides?.notes === 'focus') seedFocusNote(mockDb);
 if (overrides?.parseDelayMs !== undefined) setCommitmentParseDelay(overrides.parseDelayMs);
 if (overrides?.parseFailure !== undefined) setCommitmentParseFailure(overrides.parseFailure);
+if (overrides?.parseDelayMs !== undefined) setTaskParseDelay(overrides.parseDelayMs);
+if (overrides?.parseFailure !== undefined) setTaskParseFailure(overrides.parseFailure);
 if (typeof window !== 'undefined') window.__OHMYDATE_MOCK_DB__ = mockDb;
 
 export const worker = setupWorker(
+  // CAL-05: before the task handlers so /tasks:parse never reaches /tasks.
+  ...createTaskParseHandlers(mockDb),
   ...createHandlers(mockDb),
   ...createIntakeHandlers(mockDb),
   // CAL-02: before the planning handlers so /commitments:parse never reaches /commitments.

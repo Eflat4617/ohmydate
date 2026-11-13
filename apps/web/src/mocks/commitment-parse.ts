@@ -27,7 +27,7 @@ const WEEKDAYS: Readonly<Record<string, WeekdayCode>> = {
   토: 'SA',
   일: 'SU',
 };
-const TIME = /(오전|오후|아침|저녁|밤|새벽)?\s*(\d{1,2})\s*시(?:\s*(반)|\s*(\d{1,2})\s*분)?/u;
+export const TIME = /(오전|오후|아침|저녁|밤|새벽)?\s*(\d{1,2})\s*시(?:\s*(반)|\s*(\d{1,2})\s*분)?/u;
 const RANGE_END = /(?:부터|~|-)\s*(오전|오후|아침|저녁|밤|새벽)?\s*(\d{1,2})\s*시(?:\s*(반)|\s*(\d{1,2})\s*분)?/u;
 const STRIP = [
   /(?:오늘|내일|모레)/gu,
@@ -53,13 +53,13 @@ export function setCommitmentParseFailure(code: 'llm_unavailable' | 'budget_exce
   parseFailure = code;
 }
 
-interface CalendarDay {
+export interface CalendarDay {
   readonly date: string;
   readonly weekday: WeekdayCode;
   readonly week: number;
 }
 
-function calendarFrom(today: string): CalendarDay[] {
+export function calendarFrom(today: string): CalendarDay[] {
   const monday = weekdayOfDate(today) - 1;
   return Array.from({ length: CALENDAR_DAYS }, (_, offset) => {
     const date = addDaysToDate(today, offset);
@@ -67,7 +67,7 @@ function calendarFrom(today: string): CalendarDay[] {
   });
 }
 
-function hourOf(marker: string | undefined, hour: number, evening: boolean): number {
+export function hourOf(marker: string | undefined, hour: number, evening: boolean): number {
   if (marker === '오후' || marker === '저녁' || marker === '밤') return hour === 12 ? 12 : (hour % 12) + 12;
   if (marker === '오전' || marker === '아침' || marker === '새벽') return hour % 12;
   if (hour > 12) return hour;
@@ -76,12 +76,22 @@ function hourOf(marker: string | undefined, hour: number, evening: boolean): num
   return hour;
 }
 
-function minuteOf(half: string | undefined, minutes: string | undefined): number {
+/**
+ * CAL-05 addendum: a bare hour from 7 to 11 read as AM (no 오전/오후 word, no
+ * 24-hour "09시", no evening context) is a guessed half-day.
+ */
+export function meridiemGuessed(marker: string | undefined, rawHour: string, evening: boolean): boolean {
+  if (marker !== undefined || evening || rawHour.startsWith('0')) return false;
+  const hour = Number(rawHour);
+  return hour >= 7 && hour <= 11;
+}
+
+export function minuteOf(half: string | undefined, minutes: string | undefined): number {
   if (half !== undefined) return 30;
   return minutes === undefined ? 0 : Number(minutes);
 }
 
-function dayOf(part: string, calendar: readonly CalendarDay[]): { date: string; guessed: boolean; weekly: WeekdayCode | null } | null {
+export function dayOf(part: string, calendar: readonly CalendarDay[]): { date: string; guessed: boolean; weekly: WeekdayCode | null } | null {
   const first = calendar[0] as CalendarDay;
   if (part.includes('모레')) return { date: calendar[2]?.date ?? first.date, guessed: false, weekly: null };
   if (part.includes('내일')) return { date: calendar[1]?.date ?? first.date, guessed: false, weekly: null };
@@ -151,6 +161,7 @@ function draftOf(part: string, calendar: readonly CalendarDay[], nowMinutes: num
     }
     draft.startAt = zonedWallClockToInstant(day.date, start, timeZone);
     draft.endAt = zonedWallClockToInstant(day.date, end, timeZone);
+    if (time !== null && meridiemGuessed(time[1], time[2] as string, evening)) notes.push('meridiem_assumed');
   }
   return draft;
 }
@@ -173,7 +184,7 @@ export function readCommitmentNote(text: string, timeZone: string, nowMs: number
   return { drafts, leftover: leftover.join(' / ') };
 }
 
-function wait(ms: number, signal: AbortSignal): Promise<void> {
+export function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (ms <= 0) {
       resolve();

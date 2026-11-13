@@ -1181,6 +1181,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tasks:parse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Read a natural-language to-do note into task drafts (AI; nothing is saved)
+         * @description Reads up to 500 characters ("금요일까지 보고서 초안, 내일까지 교수님께 메일") into at most 10 task drafts with the task_parse@v1 prompt. Nothing is written: each draft is a proposal the client adds with POST /tasks. Idempotency-Key is required (a replay returns the stored answer without a second LLM call); there is no If-Match because no resource version exists. A to-do without a date is a draft without dueAt; a date without a time is due at 23:59 local (note due_time_defaulted). A deadline the server cannot validate (no real date, more than 1 day in the past, more than 2 years ahead) is removed and the task kept (note due_dropped). 503 llm_unavailable (no provider, consent missing, timeout, cancelled) and 503 budget_exceeded are not stored, so the same key can retry.
+         */
+        post: operations["parseTasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/templates": {
         parameters: {
             query?: never;
@@ -1462,7 +1482,7 @@ export interface components {
             date: string;
             /** Format: date-time */
             endAt?: string;
-            notes: ("duration_defaulted" | "date_assumed" | "repeats_weekly")[];
+            notes: ("duration_defaulted" | "date_assumed" | "repeats_weekly" | "meridiem_assumed")[];
             rrule?: string;
             /** Format: date-time */
             startAt?: string;
@@ -1528,7 +1548,7 @@ export interface components {
                 date: string;
                 /** Format: date-time */
                 endAt?: string;
-                notes: ("duration_defaulted" | "date_assumed" | "repeats_weekly")[];
+                notes: ("duration_defaulted" | "date_assumed" | "repeats_weekly" | "meridiem_assumed")[];
                 rrule?: string;
                 /** Format: date-time */
                 startAt?: string;
@@ -3085,6 +3105,12 @@ export interface components {
             /** Format: uuid */
             dependsOnTaskId: string;
         };
+        TaskDraft: {
+            /** Format: date-time */
+            dueAt?: string;
+            notes: ("due_time_defaulted" | "date_assumed" | "meridiem_assumed" | "due_dropped")[];
+            title: string;
+        };
         TaskIdParams: {
             /** Format: uuid */
             id: string;
@@ -3095,6 +3121,20 @@ export interface components {
             /** Format: uuid */
             projectId?: string;
             status?: "todo" | "in_progress" | "done";
+        };
+        TaskParseRequest: {
+            text: string;
+            /** Format: iana-time-zone */
+            timeZone?: string;
+        };
+        TaskParseResponse: {
+            drafts: {
+                /** Format: date-time */
+                dueAt?: string;
+                notes: ("due_time_defaulted" | "date_assumed" | "meridiem_assumed" | "due_dropped")[];
+                title: string;
+            }[];
+            leftover: string;
         };
         TaskPatch: {
             dependsOn?: string[];
@@ -9497,6 +9537,86 @@ export interface operations {
             };
             /** @description If-Match header required */
             428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Provider unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    parseTasks: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskParseRequest"];
+            };
+        };
+        responses: {
+            /** @description Task drafts and the unread leftover */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskParseResponse"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -33,6 +33,7 @@ import {
   type CommitmentCreate,
   type CommitmentListQuery,
   type CommitmentParseRequest,
+  type TaskParseRequest,
   type CommitmentPatch,
   type DecompositionDraftDto,
   type DecompositionDraftPatch,
@@ -114,6 +115,7 @@ import { DailyProblemError } from '../application/daily-errors.js';
 import { ReplanSuppressedError } from '../application/replan-errors.js';
 import { IntakeService } from '../application/intake/intake-service.js';
 import { CommitmentParseService } from '../application/commitment-parse/commitment-parse-service.js';
+import { TaskParseService } from '../application/task-parse/task-parse-service.js';
 import { currentAbortSignal } from '@ohmydate/provider-vikunja';
 import { InProcessIntakeApprovalLock } from '../application/intake/in-process-approval-lock.js';
 import { PgAgentRunRepository } from '../adapters/pg-agent-run-repository.js';
@@ -180,6 +182,8 @@ export interface RouteRuntime {
   readonly intake: IntakeService;
   /** CAL-02: natural-language commitment entry (drafts only). */
   readonly commitmentParse: CommitmentParseService;
+  /** CAL-05: natural-language task entry in the inbox (drafts only). */
+  readonly taskParse: TaskParseService;
   readonly today: TodayService;
   readonly workSessions: SessionService;
   readonly notifications: NotificationStore;
@@ -868,6 +872,19 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       }
     });
 
+  // CAL-05: task drafts only; the same idempotent replay and cancel rules as parseCommitments.
+  const parseTasks = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const abort = clientAbortSignal(reply);
+      try {
+        const result = await runtime.taskParse.parse(auth.userId, request.body as TaskParseRequest, abort.signal);
+        return { status: 200, body: result };
+      } finally {
+        abort.dispose();
+      }
+    });
+
   const updateCommitment = async (request: FastifyRequest, reply: FastifyReply) =>
     runIdempotent(runtime, request, reply, async () => {
       const auth = currentAuth(request);
@@ -1253,6 +1270,7 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
     },
     createCommitment,
     parseCommitments,
+    parseTasks,
     updateCommitment,
     deleteCommitment,
     getToday: async (request, reply) => {
@@ -2009,6 +2027,19 @@ export function createRuntime(options: {
     ownerLocales: { localeOf: async (ownerId) => (await options.users.get(ownerId))?.locale ?? null },
     ownerZone: async (ownerId) => (await planningService.getAvailability(ownerId)).timeZone,
   });
+  // CAL-05: tasks are read in the owner's own zone (the one the task detail shows `dueAt` in).
+  const taskParse = new TaskParseService({
+    clock: options.clock,
+    ids: options.ids,
+    agentRuns: new PgAgentRunRepository(options.db),
+    llm: options.llm,
+    llmProvider: options.config.llmProvider,
+    budgetGuard: options.budgetGuard,
+    promptLimits: llmPromptLimits(options.config),
+    ownerLocales: { localeOf: async (ownerId) => (await options.users.get(ownerId))?.locale ?? null },
+    ownerZone: async (ownerId) =>
+      (await options.users.get(ownerId))?.timeZone ?? (await planningService.getAvailability(ownerId)).timeZone,
+  });
   const todayStore = new PgTodayStore({
     db: options.db,
     clock: options.clock,
@@ -2068,6 +2099,7 @@ export function createRuntime(options: {
     planning: planningService,
     intake,
     commitmentParse,
+    taskParse,
     today,
     workSessions: sessions,
     notifications,
