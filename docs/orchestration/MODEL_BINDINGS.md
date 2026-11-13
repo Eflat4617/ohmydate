@@ -102,3 +102,11 @@
 - 예외(계열 분리 유지): 구현자가 Fable인 작업(FU-77 등)은 Fable이 자기 작업을 리뷰하지 않도록 Opus 5.5 xhigh로 리뷰하고 원장에 사유 기록.
 - 리뷰 요청서는 동일 형식(REVIEW VERDICT, 읽기 전용). 확인: `claude -p --model claude-fable-5-2 --effort xhigh` → FABLE_OK.
 - Sol 한도가 다시 풀리면 Sol medium으로 복귀.
+
+## 13. 작업자 = Fable 5.2 xhigh (2026-11-13 21:55, 사용자 지시)
+- 사용자: "가능하면 워커는 그냥 페이블로 써줬으면 해." (HOLO 재디자인 지시와 함께)
+- 적용: 이 시점부터 구현 작업자는 `--agent claude --model claude-fable-5-2 --effort xhigh`(§8·§9의 Opus 5.5, DeepSeek 대신). 실행: `MODEL=claude-fable-5-2 EFFORT=xhigh scripts/orca/start-claude-worker.sh <task> <worktree>` 또는 기존 worktree에 `worker-start --agent claude --model claude-fable-5-2 --effort xhigh`.
+- 진행 중이던 HOLO-01 Opus 작업자(ctx_bdf8fcd62684, 시작 5분 뒤, 변경 없음)는 중지하고 Fable로 다시 시작.
+- 리뷰(계열 분리 유지): 구현자가 Fable이므로 별도 리뷰가 필요한 위험 변경은 Sol 6.1 medium, Sol 한도 시 Opus 5.5 xhigh(§12의 예외 조항과 같음).
+- 영수증의 model/effort를 원장에 기록.
+
