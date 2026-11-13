@@ -388,7 +388,7 @@ Below 1024px small text is 15px and the two numeral sizes step down (36 and 48px
 
 From 1024px a fixed sidebar (15rem; 4.5rem folded to icons) stands at the left and the canvas scrolls beside it. The canvas opens with the top bar, 4rem high and sticky, on one hairline. Below 1024px the sidebar is replaced by a fixed bottom nav (3.75rem plus the safe area) and the top bar scrolls with the page.
 
-- **Sidebar:** the brand (a link to 개요), 새 작업, then four groups: 메인 (개요, 오늘, 한달, 인박스, 프로젝트, 노트), 계획 (계획 세우기, 일정안 만들기, 재계획 제안, 약속, 가용 시간), AI 분석 (내 패턴), 설정 (캘린더 연동, AI 설정, 레이아웃); at the foot 검색, 도움말, 로그아웃. On a short window only the groups scroll. `src/layout/navigation.ts` is the one list; the sidebar, the phone's 더 보기 sheet and the breadcrumb read it.
+- **Sidebar:** the brand (a link to 개요), 새 작업, then four groups: 메인 (개요, 오늘, 플래너, 인박스, 프로젝트, 노트), 계획 (계획 세우기, 일정안 만들기, 재계획 제안, 약속, 가용 시간), AI 분석 (내 패턴), 설정 (캘린더 연동, AI 설정, 레이아웃); at the foot 검색, 도움말, 로그아웃. On a short window only the groups scroll. `src/layout/navigation.ts` is the one list; the sidebar, the phone's 더 보기 sheet and the breadcrumb read it.
 - **Top bar:** sidebar toggle and breadcrumb (group / screen) at the left; theme switch, notifications and the account at the right. It holds no page action.
 - **Page:** `.page` is 46rem wide, `.page--wide` 84rem, starting at the canvas's left edge. Page padding is 16px, 24px from 640px, 32px from 1024px. A page opens with its title at the left and its actions at the right, with no rule under it.
 - **Dashboard grid:** 12 columns, 16px gaps (12px below 1024px). A dashboard page is a size container (`container: <name> / inline-size`) and its cards change span by the canvas's width, not the window's: three columns from 66rem, two from 44rem, one below. Cards in a row stretch to one height; what a card ends with sits on its floor (`margin-top: auto`).
@@ -482,8 +482,24 @@ OhMyDate's own: three nested bands of glass turning around a small core, the bra
 ### Brand Mark
 `BrandMark.vue`: an open ring (the O, a day) with a dot in its opening (the date, now), dark on a lime-to-cyan rounded tile. Beside it the wordmark "OhMyDate" in the text face at weight 600.
 
-### Time Marks (not yet restyled)
-The day timetable, the week calendar, the month page, the availability grid and the focus meter keep the structure they had before HOLO-01 and take the new colours through the old token names: planned blocks are lime with dark text, 약속 are a cyan tint, focus windows violet, a 쉼 exception a red tint, the now line lime. HOLO-02 and HOLO-03 restyle them.
+### Planner (new in HOLO-02, `src/components/planner`)
+플래너 is the calendar screen with three views (일, 주, 월) behind one address (`/planner?view=…`; `/month` is its month view). Layout is pure and tested: `domain/weekGrid.ts` places items, `domain/plannerRoute.ts` says what an address means.
+
+- **Head** (`PlannerHeader`): the dates on show are the page's `h1`; then, in one row, back / 오늘 / forward, the view switch (a segmented control) and the screen's one primary button, 약속 추가. The view owns its dates; the head only asks for "previous", "next", "current".
+- **Week grid** (`WeekGrid`, `.wg`): one card. Day names on a sticky row, an hour rail (06:00 to 24:00; the earlier hours open by themselves when something is there, or with the chevron in the corner), and seven columns on hour hairlines. The hours scroll inside the card, which fits the window, so the head stays put. Under 38rem of its own width it is a strip of three days that scrolls sideways and snaps; the page never scrolls sideways.
+  - **Marks:** an approved block is a lime fill with dark text; a finished one is the lime tint with a tick and quieter words; a 약속 is a cyan fill; a deadline is an orange flag on a line at its time. Today's date sits on a lime disc and its column has the faintest lime; the now line is lime with a dot. An item is never shorter than half an hour of the axis; a short one shows only its title.
+  - **Overlaps** sit side by side in lanes; an item widens over the lanes beside it that are free for its whole time.
+  - **Keyboard:** the grid is one tab stop (a roving `tabindex` over its items). Up and down walk a day's items, left and right go to the nearest day that holds anything, Home and End to the day's ends; Enter or Space opens the detail card. An item's accessible name says what it is and when (`블록, 연구 노트 요약, 11월 14일 (토) 오후 7:00~8:30`); a column's name says its date and counts.
+- **Floating detail card** (`PlannerItemCard`, `.planner-card`): one at a time, anchored to its item (to its right, else left, else under, else over; `placeCard`). It is the screen's one frosted thing. It holds the kind and project tags, the title, the time, and the item's actions as secondary buttons — never a filled one. Escape and 닫기 give focus back to the item; a press outside, Tab out of it, or opening another item closes it. The day view opens the same card from a row of its list.
+- **Day** (`PlannerDay`): the day's list as a card (a row is one button: mark, time and kind, title) beside the day timetable as a card.
+- **Month** (`MonthView`): one card of day cells on hairlines. A planned block is a lime-tinted line led by a bar, a finished one a quiet line led by a tick, a 약속 a line led by a cyan dot, a deadline one led by the flag. Today's date is on the lime disc; the picked day is ringed; gone days are only quieter. The picked day is a card beside the grid.
+- **약속 추가** (`CommitmentAddDialog`): one dialog, two ways in — 말로 적기 on top, the fields under 직접 입력 (title, start, end, weekdays). The time zone and the raw rule are behind 고급. One filled button: the next step of 말로 적기, or 약속 추가 once a title is typed.
+
+The three kinds are a shape each, wherever they are listed: a bar (block), a dot (약속), a flag (deadline); done is a tick.
+
+### Time Marks
+- **Day timetable** (`DayTimetable`, `.tt`): one row per hour, six ten-minute cells on hairlines. The next block is the lime fill, other planned blocks its tint, a finished one the neutral fill with a tick in the legend; a 약속 is cyan with a hatch (its second signal). The now line is lime and the current hour's label takes its colour. Time gone is not shaded.
+- **Not yet restyled** (HOLO-03): the week calendar of the plan comparison (`WeekCalendar`) and the availability grid keep the structure they had before HOLO-01 and take the new colours through the old token names: planned blocks are lime with dark text, 약속 are a cyan tint, focus windows violet, a 쉼 exception a red tint.
 
 ## Motion
 

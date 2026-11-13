@@ -7,10 +7,10 @@ import InboxView from './views/InboxView.vue';
 import LayoutSettingsView from './views/LayoutSettingsView.vue';
 import LlmSettingsView from './views/LlmSettingsView.vue';
 import LoginView from './views/LoginView.vue';
-import MonthView from './views/MonthView.vue';
 import OverviewView from './views/OverviewView.vue';
 import PlanComparisonView from './views/PlanComparisonView.vue';
 import PlanNewView from './views/PlanNewView.vue';
+import PlannerView from './views/PlannerView.vue';
 import ProjectDetailView from './views/ProjectDetailView.vue';
 import ProjectListView from './views/ProjectListView.vue';
 import PlanningWizardView from './views/PlanningWizardView.vue';
@@ -36,8 +36,12 @@ export const routes: RouteRecordRaw[] = [
   { path: '/plan/new', name: 'plan-new', component: PlanningWizardView },
   { path: '/plan/:sessionId', name: 'plan-session', component: PlanningWizardView, props: true },
   { path: '/today', name: 'today', component: TodayView },
-  // CAL-01: the month page; the month is in the query (`?m=2026-11`).
-  { path: '/month', name: 'month', component: MonthView },
+  // HOLO-02: 플래너, the calendar screen with three views (`?view=day|week|month`,
+  // 주 by default; the day, week or month is in the query too).
+  { path: '/planner', name: 'planner', component: PlannerView },
+  // CAL-01: the month page; the month is in the query (`?m=2026-11`). It is
+  // the planner's 월 view and stays a valid address.
+  { path: '/month', name: 'month', component: PlannerView },
   { path: '/focus/:sessionId', name: 'focus', component: FocusView, props: true },
   { path: '/commitments', name: 'commitments', component: CommitmentsView },
   { path: '/settings/availability', name: 'availability', component: AvailabilityView },

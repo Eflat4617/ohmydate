@@ -34,6 +34,10 @@ import { readState } from '../helpers/state';
 // HOLO-01 adds 개요 (/overview), the dashboard, at both widths in the default
 // (dark) theme: its five cards have finished loading, exactly one filled
 // button is on the screen, and one sentence names what is next.
+// HOLO-02 adds 플래너 (/planner): the week grid (the 약속 seeded below is on
+// it, under its own accessible name) and the day view beside its timetable,
+// at both widths; 약속 추가 is the screen's one filled button. `/month` above
+// is the same screen's month view.
 
 const state = readState();
 const account = { email: state.plansEmail, password: state.plansPassword };
@@ -258,6 +262,33 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
           page.locator('[data-month-detail]').getByRole('link', { name: commitmentTitle }),
         ).toBeVisible();
         await expectAccessible(page, `month ${size}`);
+      });
+
+      await test.step(`planner week + day (${size})`, async () => {
+        await page.goto(`${state.webUrl}/planner`);
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+          /^(\d{4}년 )?\d{1,2}월 \d{1,2}일 ~ \d{1,2}월 \d{1,2}일$/,
+        );
+        const week = page.locator('[data-week-grid]');
+        await expect(week).toBeVisible();
+        await expect(week).not.toHaveAttribute('aria-busy', 'true');
+        await expect(page.getByRole('group', { name: /주간 일정$/ })).toBeVisible();
+        // The 약속 seeded at 00:00 opens the early hours by itself and is named in full.
+        await expect(
+          week.getByRole('button', { name: new RegExp(`^약속, ${commitmentTitle}, `) }),
+        ).toBeAttached();
+        // One tab stop in the grid; one filled button on the screen (07 §4, DESIGN.md).
+        await expect(week.locator('.wg-item[tabindex="0"]')).toHaveCount(1);
+        await expect(page.locator('main .btn--primary')).toHaveCount(1);
+        await expect(page.locator('main .btn--primary')).toHaveText('약속 추가');
+        await expectAccessible(page, `planner week ${size}`);
+
+        await page.getByRole('button', { name: '일', exact: true }).click();
+        await expect(page).toHaveURL(/\/planner\?view=day/);
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^(\d{4}년 )?\d{1,2}월 \d{1,2}일 \(.\)$/);
+        await expect(page.getByRole('heading', { name: '타임테이블', level: 2 })).toBeVisible();
+        await expect(page.locator('[data-planner-day-list]')).toBeVisible();
+        await expectAccessible(page, `planner day ${size}`);
       });
 
       await test.step(`AI settings (${size})`, async () => {

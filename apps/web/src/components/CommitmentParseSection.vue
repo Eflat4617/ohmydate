@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { RouterLink } from 'vue-router';
+import type { QueryKey } from '@tanstack/vue-query';
 import { plannerClient, type CommitmentCreate, type CommitmentDraft, type CommitmentDraftNote } from '../api';
 import { useNlDraftRead, type NlDraftRow } from '../composables/useNlDraftRead';
 import {
@@ -38,7 +39,16 @@ import UiField from './ui/UiField.vue';
  *   one small switch to the PM reading (and back).
  * - Owner isolation (ADR-023): every request runs in an owner-bound task.
  */
-const props = defineProps<{ manualActive: boolean }>();
+const props = withDefaults(
+  defineProps<{
+    manualActive: boolean;
+    /** HOLO-02: more query keys to refresh after a draft was added (the planner's lists). Read once, at setup. */
+    alsoRefresh?: readonly QueryKey[];
+    /** HOLO-02: the heading's level where the section is not a page's own `h2` (inside a dialog). */
+    headingLevel?: 2 | 3;
+  }>(),
+  { alsoRefresh: () => [], headingLevel: 2 },
+);
 const emit = defineEmits<{ edit: [values: DraftFormValues] }>();
 
 interface DraftRow extends NlDraftRow<CommitmentDraft> {
@@ -88,7 +98,7 @@ const {
   create: (input, key) => plannerClient.createCommitment(input, key),
   rowTitle: (row) => row.draft.title,
   inputTitle: (input) => input.title,
-  refresh: [['commitments'], ['availability']],
+  refresh: [['commitments'], ['availability'], ...props.alsoRefresh],
   messages: {
     empty: () => t('commitments.parse.empty'),
     consentOff: () => t('commitments.parse.consentOff'),
@@ -184,7 +194,9 @@ function edit(row: DraftRow): void {
 
 <template>
   <section class="nl-entry" aria-labelledby="nl-entry-heading" data-testid="nl-entry">
-    <h2 id="nl-entry-heading" class="settings-group-title nl-entry-heading">{{ t('commitments.parse.heading') }}</h2>
+    <component :is="`h${headingLevel}`" id="nl-entry-heading" class="settings-group-title nl-entry-heading">
+      {{ t('commitments.parse.heading') }}
+    </component>
     <p class="nl-entry-lede">{{ t('commitments.parse.lede') }}</p>
 
     <form class="nl-entry-form" @submit.prevent="read">
@@ -250,9 +262,15 @@ function edit(row: DraftRow): void {
     </UiBanner>
 
     <section v-if="showResult" class="nl-result" aria-labelledby="nl-result-heading" data-testid="nl-result">
-      <h3 id="nl-result-heading" ref="resultHeading" class="nl-result-heading" tabindex="-1">
+      <component
+        :is="`h${headingLevel + 1}`"
+        id="nl-result-heading"
+        ref="resultHeading"
+        class="nl-result-heading"
+        tabindex="-1"
+      >
         {{ t('commitments.parse.resultHeading') }}
-      </h3>
+      </component>
       <p v-if="readEmpty" class="muted">{{ t('commitments.parse.resultNone') }}</p>
       <ul v-if="rows.length > 0" class="nl-draft-list">
         <li

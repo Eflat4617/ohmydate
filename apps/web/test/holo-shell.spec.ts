@@ -84,7 +84,7 @@ describe('sidebar', () => {
       items: group.findAll('.nav-link-label').map((label) => label.text()),
     }));
     expect(groups).toEqual([
-      { id: 'main', label: '메인', items: ['개요', '오늘', '한달', '인박스', '프로젝트', '노트'] },
+      { id: 'main', label: '메인', items: ['개요', '오늘', '플래너', '인박스', '프로젝트', '노트'] },
       { id: 'planning', label: '계획', items: ['계획 세우기', '일정안 만들기', '재계획 제안', '약속', '가용 시간'] },
       { id: 'ai', label: 'AI 분석', items: ['내 패턴'] },
       { id: 'settings', label: '설정', items: ['캘린더 연동', 'AI 설정', '레이아웃'] },
@@ -285,12 +285,13 @@ describe('top bar', () => {
 });
 
 describe('shortcuts', () => {
-  it('o, t and m open 개요, 오늘 and 한달', async () => {
+  // HOLO-02: the sidebar entry beside `m` is 플래너 now (the calendar screen, 일 · 주 · 월).
+  it('o, t and m open 개요, 오늘 and 플래너', async () => {
     const { router } = await mountShell('/inbox');
     for (const [key, name] of [
       ['o', 'overview'],
       ['t', 'today'],
-      ['m', 'month'],
+      ['m', 'planner'],
     ] as const) {
       press(key);
       await vi.waitFor(() => expect(router.currentRoute.value.name).toBe(name));
@@ -357,7 +358,7 @@ describe('phone navigation', () => {
     expect(links[0]).toBe('개요');
     expect(links).toEqual([
       '개요',
-      '한달',
+      '플래너',
       '프로젝트',
       '노트',
       '일정안 만들기',
@@ -378,8 +379,8 @@ describe('phone navigation', () => {
       expect.arrayContaining(['알림', '검색', '도움말', '로그아웃']),
     );
 
-    await sheet.get('a.nav-link[href="/month"]').trigger('click');
-    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('month'));
+    await sheet.get('a.nav-link[href="/planner"]').trigger('click');
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('planner'));
   });
 
   it('on a phone the top bar’s mark opens 개요', async () => {

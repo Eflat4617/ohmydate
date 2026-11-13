@@ -11,6 +11,7 @@
 //   node scripts/ui-screenshots.mjs --label cal-01 --flows month,daily      # CAL-01 한달 + Today's 약속/마감
 //   node scripts/ui-screenshots.mjs --label cal-04 --flows calendar --tablet # CAL-04 캘린더 연동, every status (+1024px)
 //   node scripts/ui-screenshots.mjs --label holo-01 --flows overview --tablet # HOLO-01 개요, every state (+1024px)
+//   node scripts/ui-screenshots.mjs --label holo-02 --flows planner,tracker --tablet # HOLO-02 플래너 (일·주·월), 타임 트래커
 //
 // Output: docs/ui-polish/<label>/<screen>-<viewport>[-light][-full].png and
 //         docs/ui-polish/<label>/sweep-report.json
@@ -39,7 +40,7 @@ function arg(name, fallback) {
 
 const label = arg('label', 'after');
 const only = arg('only', '');
-// Comma-separated subset of flows (overview, main, daily, ai, replan, patterns, adaptive, notes, month, calendar); default: all.
+// Comma-separated subset of flows (overview, main, daily, ai, replan, patterns, adaptive, notes, month, calendar, planner, tracker); default: all.
 const flowFilter = arg('flows', '')
   .split(',')
   .map((name) => name.trim())
@@ -58,8 +59,8 @@ const VIEWPORTS = [
 if (process.argv.includes('--tablet')) VIEWPORTS.push({ name: 'tablet', width: 1024, height: 768, capture: true });
 // HOLO-01: the theme is the user's choice (dark by default), not the system's.
 const SCHEMES = ['dark', 'light'];
-const LIGHT_CAPTURES = /^(00-overview|14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-wizard-evidence|52-month|56-calendar|57-calendar|58-calendar|59-calendar|60-calendar|61-calendar|64-commitments-google|66-month-labels)/;
-const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|14-today|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns|34-layout-overview|38-layout-deadline-risk|39-layout-review|43-notes-editor|50-wizard-evidence|52-month|53-month-day|56-calendar-not-configured|58-calendar-connected|60-calendar-needs-reauth|64-commitments-google)/;
+const LIGHT_CAPTURES = /^(70-planner|71-planner|72-planner|73-planner|74-planner|75-tracker|76-tracker|00-overview|14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-wizard-evidence|52-month|56-calendar|57-calendar|58-calendar|59-calendar|60-calendar|61-calendar|64-commitments-google|66-month-labels)/;
+const FULL_CAPTURES = /^(73-planner-day|74-planner-month|75-tracker|09-wizard-step4|11-plan-comparison|12-availability|13-commitments|14-today|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns|34-layout-overview|38-layout-deadline-risk|39-layout-review|43-notes-editor|50-wizard-evidence|52-month|53-month-day|56-calendar-not-configured|58-calendar-connected|60-calendar-needs-reauth|64-commitments-google)/;
 // The mock's signed-in owner (src/mocks/db.ts USER_ID): the theme is stored per owner.
 const MOCK_OWNER_ID = '01900000-0000-7000-8000-000000000002';
 // Synthetic ids from src/mocks/notes-seed.ts (M6-03).
@@ -738,6 +739,43 @@ async function flowMonth(browser, run) {
   await context.close();
 }
 
+// HOLO-02: 플래너 in its three views on the seeded November (this week holds
+// the pinned today): the week grid, the detail card of today's next block,
+// the 약속 추가 dialog, the day beside its timetable, and the month.
+async function flowPlanner(browser, run) {
+  const { context, page } = await newPage(browser, run);
+  await go(page, '/planner');
+  await page.locator('[data-week-grid]:not([aria-busy])').waitFor();
+  await page.locator('.wg-day--today .wg-item').first().waitFor();
+  await dismissToasts(page);
+  await checkpoint(page, '70-planner-week', run);
+
+  await page.locator('.wg-day--today .wg-item--block').first().click();
+  await page.locator('[data-planner-card]').waitFor();
+  await checkpoint(page, '71-planner-week-card', run);
+  await page.keyboard.press('Escape');
+  await page.locator('[data-planner-card]').waitFor({ state: 'detached' });
+
+  await page.locator('[data-planner-add]').click();
+  await page.locator('[data-planner-add-dialog]').waitFor();
+  await checkpoint(page, '72-planner-add', run);
+  await page.keyboard.press('Escape');
+  await page.locator('[data-planner-add-dialog]').waitFor({ state: 'detached' });
+
+  await go(page, '/planner?view=day');
+  await page.locator('.planner-agenda-item').first().waitFor();
+  await page.locator('.day-timetable').waitFor();
+  await dismissToasts(page);
+  await checkpoint(page, '73-planner-day', run);
+
+  await go(page, '/planner?view=month');
+  await monthReady(page);
+  await page.locator('[data-month-detail] .month-agenda-item').first().waitFor();
+  await dismissToasts(page);
+  await checkpoint(page, '74-planner-month', run);
+  await context.close();
+}
+
 // CAL-04: 캘린더 연동 in every status of the mock state machine
 // (src/mocks/google.ts, picked through __OHMYDATE_MOCK__.google), the
 // messages after coming back from Google, the disconnect dialog, and the
@@ -859,6 +897,7 @@ async function main() {
           notes: flowNotes,
           month: flowMonth,
           calendar: flowCalendar,
+          planner: flowPlanner,
         };
         for (const [name, flow] of Object.entries(flows)) {
           if (flowFilter.length > 0 && !flowFilter.includes(name)) continue;

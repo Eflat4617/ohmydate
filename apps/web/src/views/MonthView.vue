@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import UiBadge from '../components/ui/UiBadge.vue';
+import PlannerHeader from '../components/planner/PlannerHeader.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
 import UiDeadlineFlag from '../components/ui/UiDeadlineFlag.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
 import { usePlannerRange, useOwnerTimeZone } from '../composables/usePlannerRange';
+import { usePlannerQueryFix } from '../composables/usePlannerQueryFix';
 import { useCalendarDayEvents } from '../composables/useGoogleCalendar';
 import {
   MONTH_CELL_LINES,
@@ -18,13 +19,13 @@ import {
   monthGridRange,
   monthOfDate,
   monthWeeks,
-  parseMonthKey,
   shiftMonth,
   type MonthDay,
   type MonthDayLabel,
   type MonthItem,
   type MonthKey,
 } from '../domain/monthGrid';
+import { plannerLocation, plannerMonthOf } from '../domain/plannerRoute';
 import { todayInZone } from '../domain/time';
 import { t, tp } from '../i18n';
 import {
@@ -46,6 +47,9 @@ import { useOfflineStore } from '../stores/offline';
  * the month, and in each day its approved blocks, 약속 and deadlines, in time
  * order. The month is in the URL (`/month?m=2026-11`; plain `/month` is the
  * current month in the owner's zone). The screen only reads.
+ *
+ * HOLO-02: it is the 월 view of 플래너 (also at `/planner?view=month`), under
+ * the head the three views share; 약속 추가 there is its one primary button.
  */
 const route = useRoute();
 const router = useRouter();
@@ -55,19 +59,13 @@ const { timeZone, ready } = useOwnerTimeZone();
 
 const today = computed(() => todayInZone(timeZone.value, now.value));
 const currentMonth = computed(() => monthOfDate(today.value));
-const month = computed<MonthKey>(() => parseMonthKey(route.query['m']) ?? currentMonth.value);
+const month = computed<MonthKey>(() => plannerMonthOf(route.query, today.value));
 const isCurrentMonth = computed(() => month.value === currentMonth.value);
 /** The legend's sample of the today mark is today's own date. */
 const todayNumber = computed(() => Number(today.value.slice(8, 10)));
 
 // A month the URL cannot mean is dropped from it (the page shows this month).
-watch(
-  () => route.query['m'],
-  (value) => {
-    if (value !== undefined && parseMonthKey(value) === null) void router.replace({ name: 'month', query: {} });
-  },
-  { immediate: true },
-);
+usePlannerQueryFix();
 
 const range = computed(() => (ready.value ? monthGridRange(month.value, timeZone.value) : null));
 const query = usePlannerRange(range);
@@ -174,7 +172,13 @@ watch(today, (next, previous) => {
 const selectedDay = computed<MonthDay | null>(() => dayByDate.value.get(selected.value) ?? null);
 
 function goToMonth(target: MonthKey): void {
-  void router.push({ name: 'month', query: target === currentMonth.value ? {} : { m: target } });
+  void router.push(plannerLocation('month', firstDateOfMonth(target), today.value, route.name));
+}
+
+/** 오늘: this month, with today picked. */
+function goToToday(): void {
+  select(today.value);
+  if (!isCurrentMonth.value) goToMonth(currentMonth.value);
 }
 
 function shift(delta: number): void {
@@ -271,23 +275,23 @@ function retry(): void {
 </script>
 
 <template>
-  <section class="page page--wide month-page">
-    <header class="page-header month-header">
-      <div class="page-heading">
-        <h1 data-month-title>{{ formatCivilYearMonth(month) }}</h1>
-        <p v-if="data && !grid.empty" class="page-lede month-summary">{{ summary }}</p>
-      </div>
-      <div class="page-actions month-nav" role="group" :aria-label="t('month.navigation')">
-        <UiBadge v-if="!offline.online" tone="offline" class="chip--offline" role="status">
-          {{ t('common.readOnlyOffline') }}
-        </UiBadge>
-        <UiButton icon="chevron-left" icon-only :aria-label="t('month.previous')" data-month-previous @click="shift(-1)" />
-        <UiButton :disabled="isCurrentMonth" data-month-current @click="goToMonth(currentMonth)">
-          {{ t('month.thisMonth') }}
-        </UiButton>
-        <UiButton icon="chevron-right" icon-only :aria-label="t('month.next')" data-month-next @click="shift(1)" />
-      </div>
-    </header>
+  <section class="page page--wide month-page planner-page planner-page--month" data-planner="month">
+    <PlannerHeader
+      view="month"
+      hooks="month"
+      :title="formatCivilYearMonth(month)"
+      :summary="data && !grid.empty ? summary : null"
+      :anchor="selected"
+      :today="today"
+      :time-zone="timeZone"
+      :is-current="isCurrentMonth && selected === today"
+      :navigation-label="t('month.navigation')"
+      :previous-label="t('month.previous')"
+      :next-label="t('month.next')"
+      @previous="shift(-1)"
+      @next="shift(1)"
+      @current="goToToday"
+    />
 
     <p class="visually-hidden" role="status" aria-live="polite">
       {{ loading ? t('month.loading') : announcement }}
@@ -396,6 +400,7 @@ function retry(): void {
                       <span v-if="item.kind === 'commitment'" class="month-mark month-mark--commitment"></span>
                       <UiDeadlineFlag v-else-if="item.kind === 'deadline'" class="month-mark month-mark--deadline" />
                       <UiIcon v-else-if="item.done" name="check" :size="11" class="month-item-check" />
+                      <span v-else class="month-mark month-mark--block"></span>
                       <span class="month-item-time tabular">{{ cellTime(item) }}</span>
                       <span class="month-item-title">{{ itemTitle(item) }}</span>
                     </span>
@@ -431,7 +436,7 @@ function retry(): void {
         </ul>
       </div>
 
-      <section v-if="selectedDay" class="month-detail" aria-labelledby="month-detail-title" data-month-detail>
+      <section v-if="selectedDay" class="card month-detail" aria-labelledby="month-detail-title" data-month-detail>
         <header class="month-detail-head">
           <h2 id="month-detail-title">
             {{ formatCivilDate(selectedDay.date) }}

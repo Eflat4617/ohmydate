@@ -157,8 +157,9 @@ function onKeydown(event: KeyboardEvent): void {
       void router.push({ name: 'today' });
       break;
     case 'm':
+      // HOLO-02: 플래너 (the sidebar entry the key stands beside).
       event.preventDefault();
-      void router.push({ name: 'month' });
+      void router.push({ name: 'planner' });
       break;
     case '/':
       event.preventDefault();
