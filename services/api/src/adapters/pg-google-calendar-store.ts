@@ -279,15 +279,20 @@ export class PgGoogleCalendarStore implements GoogleCalendarStore {
   }
 
   async setExportCalendar(ownerId: Id, calendarId: string | null, now: Instant): Promise<void> {
-    await this.#db
-      .updateTable('google_calendar_connection')
-      .set({
-        export_calendar_id: calendarId,
-        updated_at: toDate(now),
-        version: sql<number>`version + 1`,
-      })
-      .where('owner_id', '=', ownerId)
-      .execute();
+    // One write: a calendars.insert result is never lost between two steps,
+    // and no mapping of an older calendar survives the switch.
+    await this.#db.transaction().execute(async (trx) => {
+      await trx
+        .updateTable('google_calendar_connection')
+        .set({
+          export_calendar_id: calendarId,
+          updated_at: toDate(now),
+          version: sql<number>`version + 1`,
+        })
+        .where('owner_id', '=', ownerId)
+        .execute();
+      await trx.deleteFrom('google_export_mapping').where('owner_id', '=', ownerId).execute();
+    });
   }
 
   async disconnect(ownerId: Id, expectedVersion: number, now: Instant): Promise<void> {
@@ -523,6 +528,15 @@ export class PgGoogleCalendarStore implements GoogleCalendarStore {
     );
   }
 
+  async removeAllImports(
+    ownerId: Id,
+    now: Instant,
+  ): Promise<{ readonly commitments: number; readonly dayEvents: number }> {
+    return this.#db.transaction().execute(async (trx) =>
+      this.#softDeleteImports(trx, ownerId, null, toDate(now)),
+    );
+  }
+
   async listImportedDayEvents(ownerId: Id, calendarId: string): Promise<readonly ImportedDayEventRow[]> {
     const rows = await this.#db
       .selectFrom('calendar_day_event')
@@ -684,7 +698,9 @@ export class PgGoogleCalendarStore implements GoogleCalendarStore {
       .selectFrom('commitment_event')
       .select(['id', 'title', 'start_at', 'end_at', 'time_zone', 'rrule'])
       .where('owner_id', '=', ownerId)
-      .where('source', '<>', 'google')
+      // Manual 약속 only: imported (google) and provider-synced (caldav,
+      // vikunja) rows are not the user's own entries to push (ADR-024).
+      .where('source', '=', 'manual')
       .where('deleted_at', 'is', null)
       .where((eb) =>
         eb.or([
@@ -784,10 +800,6 @@ export class PgGoogleCalendarStore implements GoogleCalendarStore {
       .where('local_kind', '=', kind)
       .where('local_key', '=', localKey)
       .execute();
-  }
-
-  async deleteAllMappings(ownerId: Id): Promise<void> {
-    await this.#db.deleteFrom('google_export_mapping').where('owner_id', '=', ownerId).execute();
   }
 
   /**

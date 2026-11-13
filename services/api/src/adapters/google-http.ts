@@ -21,7 +21,8 @@ import {
  *
  * Every call has a per-attempt timeout and bounded retries with exponential
  * backoff + jitter on 429, 5xx, 403 `rateLimitExceeded`/`userRateLimitExceeded`
- * and network failures (Retry-After honoured up to the cap). Error messages
+ * and network failures (Retry-After honoured up to the cap), except
+ * `calendars.insert`, which is attempted once (not idempotent). Error messages
  * carry the operation, kind, status and Google's `reason` token only.
  */
 export const GOOGLE_OAUTH_BASE_URL = 'https://oauth2.googleapis.com';
@@ -57,6 +58,11 @@ interface RequestSpec {
   readonly body?: string;
   /** False for non-idempotent creates whose duplicate would not be detected. */
   readonly retryOnNetwork?: boolean;
+  /**
+   * True for a create that must never be repeated: no retry at all, not even
+   * on 429/5xx (a 5xx or a lost answer can follow a create that happened).
+   */
+  readonly singleAttempt?: boolean;
 }
 
 interface RawResponse {
@@ -236,9 +242,10 @@ export class GoogleHttpClient implements GoogleOAuthPort, GoogleCalendarPort {
         method: 'POST',
         url: `${this.#calendarBaseUrl}/calendars`,
         body: JSON.stringify(body),
-        // A lost response after a successful create would make a second
-        // "OhMyDate" calendar; only definite rejections (429/5xx) retry.
-        retryOnNetwork: false,
+        // Not idempotent: a retry after a lost response or a 5xx that came
+        // after the create would make a second "OhMyDate" calendar. One
+        // attempt; the next sync run tries again.
+        singleAttempt: true,
       },
       options,
     );
@@ -376,7 +383,8 @@ export class GoogleHttpClient implements GoogleOAuthPort, GoogleCalendarPort {
     const signal = options?.signal;
     const aborted = (): GoogleApiError => new GoogleApiError(spec.operation, 'aborted', 0);
     let failure = new GoogleApiError(spec.operation, 'unavailable', 0);
-    for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
+    const maxAttempts = spec.singleAttempt === true ? 1 : this.#maxAttempts;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       if (isAborted(signal)) throw aborted();
       let waitMs: number | null = null;
       let response: (RawResponse & { readonly retryAfterMs: number | null }) | undefined;
@@ -386,7 +394,7 @@ export class GoogleHttpClient implements GoogleOAuthPort, GoogleCalendarPort {
         // Network failure or per-attempt timeout (no body, no token in the error).
         if (isAborted(signal)) throw aborted();
         failure = new GoogleApiError(spec.operation, 'unavailable', 0, 'network');
-        if (spec.retryOnNetwork === false) throw failure;
+        if (spec.retryOnNetwork === false || spec.singleAttempt === true) throw failure;
       }
       if (response !== undefined) {
         if (response.status >= 200 && response.status < 300) return response.json;
@@ -400,7 +408,7 @@ export class GoogleHttpClient implements GoogleOAuthPort, GoogleCalendarPort {
         if (!retryable(failure.kind)) throw failure;
         waitMs = response.retryAfterMs;
       }
-      if (attempt === this.#maxAttempts) break;
+      if (attempt === maxAttempts) break;
       const backoff = Math.min(
         this.#maxBackoffMs,
         this.#baseBackoffMs * 2 ** (attempt - 1) * (1 + this.#random()),
@@ -454,7 +462,13 @@ function pageOf<T>(json: unknown, operation: string): GooglePage<T> {
     throw new GoogleApiError(operation, 'rejected', 200, 'malformed_response');
   }
   const record = json as Record<string, unknown>;
-  const items = Array.isArray(record['items']) ? (record['items'] as T[]) : [];
+  // An absent list is an empty page (Google omits empty fields); anything
+  // else that is not an array is a malformed answer, never "no items".
+  const raw = record['items'];
+  if (raw !== undefined && !Array.isArray(raw)) {
+    throw new GoogleApiError(operation, 'rejected', 200, 'malformed_response');
+  }
+  const items = raw === undefined ? [] : (raw as T[]);
   const next = record['nextPageToken'];
   return { items, ...(typeof next === 'string' && next.length > 0 ? { nextPageToken: next } : {}) };
 }

@@ -46,7 +46,9 @@ export class FakeGoogle implements GoogleOAuthPort, GoogleCalendarPort {
   readonly calls: FakeCall[] = [];
   /** Granted scopes returned by the code exchange. */
   grantedScopes: readonly string[] | null = [...GOOGLE_SCOPES];
-  refreshFails: 'invalid_grant' | 'unavailable' | null = null;
+  refreshFails: 'invalid_grant' | 'unavailable' | 'rate_limited' | null = null;
+  /** The next N calendars.insert calls fail with 503 (nothing is created). */
+  insertCalendarFailures = 0;
   exchangeFails = false;
   omitRefreshToken = false;
   readonly refreshToken = `1//refresh-${randomBytes(12).toString('hex')}`;
@@ -105,6 +107,7 @@ export class FakeGoogle implements GoogleOAuthPort, GoogleCalendarPort {
       throw new GoogleApiError('token refresh', 'auth_revoked', 400, 'invalid_grant');
     }
     if (this.refreshFails === 'unavailable') throw new GoogleApiError('token refresh', 'unavailable', 503);
+    if (this.refreshFails === 'rate_limited') throw new GoogleApiError('token refresh', 'rate_limited', 429);
     if (refreshToken !== this.refreshToken) {
       throw new GoogleApiError('token refresh', 'auth_revoked', 400, 'invalid_grant');
     }
@@ -165,6 +168,11 @@ export class FakeGoogle implements GoogleOAuthPort, GoogleCalendarPort {
     options?: CallOptions,
   ): Promise<{ readonly id: string }> {
     this.#checkAbort(options, 'calendars.insert');
+    if (this.insertCalendarFailures > 0) {
+      this.insertCalendarFailures -= 1;
+      this.#record('insertCalendar', { ...body, failed: true });
+      throw new GoogleApiError('calendars.insert', 'unavailable', 503);
+    }
     this.#calendarCounter += 1;
     const id = `ohmydate-${String(this.#calendarCounter)}@group.calendar.google.com`;
     this.#record('insertCalendar', { ...body, id });

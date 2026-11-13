@@ -8,6 +8,7 @@ import {
 } from '../src/application/google-export.js';
 import type { ExportSource } from '../src/application/google-calendar-ports.js';
 import { GOOGLE_EXPORT_NUDGE_OPERATIONS } from '../src/http/routes.js';
+import { PgGoogleCalendarStore } from '../src/adapters/pg-google-calendar-store.js';
 import { jsonb } from '../src/db/types.js';
 import {
   FakeGoogle,
@@ -469,6 +470,93 @@ describe.skipIf(!hasDatabase)('Google export through the API (CAL-03)', () => {
     expect(result.exported.created).toBe(2);
     const status = await ctx.app.inject({ method: 'GET', url: '/api/v1/integrations/google', headers: authHeaders(sessionA) });
     expect(status.json()).toMatchObject({ lastError: 'google_rejected', exportCalendarName: 'OhMyDate' });
+  });
+
+  test('CAL-03F: only manual 약속 are exported, never caldav or vikunja rows', async () => {
+    for (const source of ['caldav', 'vikunja'] as const) {
+      await ctx.db
+        .insertInto('commitment_event')
+        .values({
+          id: ctx.ids.next(),
+          owner_id: ownerA,
+          title: `${source} 약속`,
+          start_at: new Date('2026-01-03T01:00:00Z'),
+          end_at: new Date('2026-01-03T02:00:00Z'),
+          time_zone: 'Asia/Seoul',
+          source,
+        })
+        .execute();
+    }
+    const own = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/commitments',
+      headers: authHeaders(sessionA, { 'idempotency-key': newIdempotencyKey() }),
+      payload: { title: '직접 약속', startAt: '2026-01-04T01:00:00Z', endAt: '2026-01-04T02:00:00Z', timeZone: 'Asia/Seoul' },
+    });
+    expect(own.statusCode).toBe(201);
+    expect((await sync()).exported).toEqual({ created: 1, updated: 0, removed: 0 });
+    expect(exportedSummaries()).toEqual(['직접 약속']);
+    expect(google.exported().has(exportEventId('commitment', (own.json() as { id: string }).id))).toBe(true);
+  });
+
+  test('CAL-03F: a failed calendars.insert fails the export step; the next run creates exactly one calendar', async () => {
+    await seedBlock('2026-01-02T01:00:00Z', '2026-01-02T02:00:00Z');
+    await sync();
+    // The user deletes the "OhMyDate" calendar in Google: the next run forgets it.
+    google.ownCalendars.clear();
+    await ctx.db.updateTable('schedule_block').set({ end_at: new Date('2026-01-02T02:30:00Z') }).execute();
+    await sync();
+    const exportCalendarId = async () =>
+      (
+        await ctx.db
+          .selectFrom('google_calendar_connection')
+          .select('export_calendar_id')
+          .where('owner_id', '=', ownerA)
+          .executeTakeFirstOrThrow()
+      ).export_calendar_id;
+    expect(await exportCalendarId()).toBeNull();
+
+    google.insertCalendarFailures = 1;
+    const inserts = google.callCount('insertCalendar');
+    const failed = await ctx.app.inject({
+      method: 'POST',
+      url: '/api/v1/integrations/google:sync',
+      headers: authHeaders(sessionA, { 'idempotency-key': newIdempotencyKey() }),
+    });
+    expect(failed.statusCode).toBe(503);
+    expect(failed.json()).toMatchObject({ code: 'provider_unavailable' });
+    expect(google.callCount('insertCalendar')).toBe(inserts + 1);
+    expect(await exportCalendarId()).toBeNull();
+    const status = await ctx.app.inject({ method: 'GET', url: '/api/v1/integrations/google', headers: authHeaders(sessionA) });
+    expect(status.json()).toMatchObject({ lastError: 'google_unavailable', exportCalendarName: null });
+
+    await sync();
+    expect(google.callCount('insertCalendar')).toBe(inserts + 2);
+    expect(google.ownCalendars.size).toBe(1);
+    expect(await exportCalendarId()).toBe([...google.ownCalendars.keys()][0]);
+    expect(google.exported().size).toBe(2);
+  });
+
+  test('CAL-03F: storing a new export calendar id drops the old calendar mappings in the same write', async () => {
+    await seedBlock('2026-01-02T01:00:00Z', '2026-01-02T02:00:00Z');
+    await sync();
+    expect(await ctx.db.selectFrom('google_export_mapping').select('id').execute()).toHaveLength(2);
+    const store = new PgGoogleCalendarStore({
+      db: ctx.db,
+      clock: ctx.clock,
+      ids: ctx.ids,
+      availability: async () => {
+        throw new Error('not used');
+      },
+    });
+    const before = await store.getConnection(ownerA);
+    await store.setExportCalendar(ownerA, 'replacement@group.calendar.google.com', ctx.clock.now());
+    const after = await store.getConnection(ownerA);
+    expect(after).toMatchObject({
+      exportCalendarId: 'replacement@group.calendar.google.com',
+      version: (before?.version ?? 0) + 1,
+    });
+    expect(await ctx.db.selectFrom('google_export_mapping').select('id').execute()).toEqual([]);
   });
 
   test('commitment mutations nudge a debounced export; a failed mutation or a read does not', async () => {
