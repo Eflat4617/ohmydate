@@ -393,7 +393,9 @@ function remove(row: DraftRow): void {
       <div class="ai-wait-track" aria-hidden="true"><span class="ai-wait-track-fill"></span></div>
       <p class="nl-wait-text">
         <span>{{ t('commitments.parse.waitTitle') }}</span>
-        <span class="nl-wait-elapsed" role="timer" :aria-label="elapsedText">{{ elapsedText }}</span>
+        <span v-if="elapsedSeconds > 0" class="nl-wait-elapsed" role="timer" :aria-label="elapsedText">{{
+          elapsedText
+        }}</span>
         <span class="muted">{{ t('commitments.parse.waitHint') }}</span>
       </p>
       <UiButton size="sm" @click="cancel">{{ t('commitments.parse.cancel') }}</UiButton>

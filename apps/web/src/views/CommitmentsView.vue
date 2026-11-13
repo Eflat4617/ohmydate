@@ -394,10 +394,9 @@ function onFromChange(event: Event): void {
         </ul>
       </div>
 
-      <form class="settings-form commitment-editor" aria-labelledby="commitment-manual-heading" @submit.prevent="save">
-        <h2 id="commitment-manual-heading" class="settings-group-title commitment-manual-heading">{{ t('commitments.manualHeading') }}</h2>
+      <form class="settings-form commitment-editor" @submit.prevent="save">
         <fieldset class="settings-group">
-          <legend>{{ form.id === null ? t('commitments.newLegend') : t('commitments.editLegend') }}</legend>
+          <legend>{{ form.id === null ? t('commitments.manualHeading') : t('commitments.editLegend') }}</legend>
           <h2 ref="formHeading" class="sr-only" tabindex="-1">
             {{ form.id === null ? t('commitments.newForm') : t('commitments.editForm') }}
           </h2>

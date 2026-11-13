@@ -1,7 +1,11 @@
 import { setupWorker } from 'msw/browser';
 import type { User } from '../api';
 import { createHandlers } from './handlers';
-import { createCommitmentParseHandlers, setCommitmentParseDelay } from './commitment-parse';
+import {
+  createCommitmentParseHandlers,
+  setCommitmentParseDelay,
+  setCommitmentParseFailure,
+} from './commitment-parse';
 import { createIntakeHandlers } from './intake-handlers';
 import { createNotesHandlers, seedFocusNote } from './notes';
 import { createPlanningHandlers } from './planning-handlers';
@@ -23,6 +27,8 @@ declare global {
       notes?: 'focus';
       /** CAL-02: hold each "말로 적기" read this long (ms), to see the wait state. */
       parseDelayMs?: number;
+      /** CAL-02: answer every "말로 적기" read with this 503. */
+      parseFailure?: 'llm_unavailable' | 'budget_exceeded';
     };
     /** Mock-mode only: the in-page synthetic database, for screenshot/state scripts. */
     __OHMYDATE_MOCK_DB__?: MockDb;
@@ -40,6 +46,7 @@ if (overrides?.estimation === 'cold') seedColdEstimation(mockDb);
 if (overrides?.today === 'risk') seedTodayRisk(mockDb);
 if (overrides?.notes === 'focus') seedFocusNote(mockDb);
 if (overrides?.parseDelayMs !== undefined) setCommitmentParseDelay(overrides.parseDelayMs);
+if (overrides?.parseFailure !== undefined) setCommitmentParseFailure(overrides.parseFailure);
 if (typeof window !== 'undefined') window.__OHMYDATE_MOCK_DB__ = mockDb;
 
 export const worker = setupWorker(

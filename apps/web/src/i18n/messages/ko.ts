@@ -1502,7 +1502,7 @@ export const ko = {
     changedElsewhere: '다른 곳에서 이 약속이 바뀌었어요. 목록을 새로 고친 뒤 다시 수정해 주세요.',
     saveError: '약속을 저장하지 못했어요.',
     deleteError: '약속을 삭제하지 못했어요.',
-    // CAL-02: the manual form's visible heading ("직접 입력").
+    // CAL-02: the manual form's legend while it makes a new commitment ("직접 입력").
     manualHeading: '직접 입력',
     // CAL-02: natural-language entry ("말로 적기").
     parse: {
@@ -1535,8 +1535,8 @@ export const ko = {
       remove: '빼기',
       added: '추가했어요',
       rowActions: '{title} 초안',
-      repeatWeekly: '매주 {days}',
-      repeatUntil: '매주 {days} · {date}까지',
+      repeatWeekly: '매주 {days}요일',
+      repeatUntil: '매주 {days}요일 · {date}까지',
       note: {
         duration_defaulted: '끝 시간을 1시간 뒤로 잡았어요.',
         date_assumed: '날짜를 가장 가까운 날로 잡았어요.',

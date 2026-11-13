@@ -41,9 +41,16 @@ const STRIP = [
 
 let parseDelayMs = 0;
 
+let parseFailure: 'llm_unavailable' | 'budget_exceeded' | null = null;
+
 /** Mock-mode knob (browser.ts): hold every read this long, to show the wait state. */
 export function setCommitmentParseDelay(ms: number): void {
   parseDelayMs = Math.max(0, Math.floor(ms));
+}
+
+/** Mock-mode knob (browser.ts): answer every read with this 503, to show the failure line. */
+export function setCommitmentParseFailure(code: 'llm_unavailable' | 'budget_exceeded' | null): void {
+  parseFailure = code;
 }
 
 interface CalendarDay {
@@ -201,6 +208,7 @@ export function createCommitmentParseHandlers(db: MockDb) {
       ) {
         return problem(400, 'validation_failed', 'text must be 1-500 characters with something other than spaces');
       }
+      if (parseFailure !== null) return problem(503, parseFailure, 'the AI cannot read notes right now (mock)');
       const timeZone = typeof body.timeZone === 'string' ? body.timeZone : db.availability.timeZone;
       db.pendingIdempotency.add(token.key);
       try {

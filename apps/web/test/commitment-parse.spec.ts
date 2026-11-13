@@ -366,7 +366,11 @@ describe('/commitments 말로 적기', () => {
     await settle();
     const wait = wrapper.get('[data-testid="nl-wait"]');
     expect(wait.text()).toContain('AI가 메모를 읽고 있어요');
-    expect(wait.find('[role="timer"]').exists()).toBe(true);
+    // The elapsed time appears from the first second on (no "0초").
+    expect(wait.find('[role="timer"]').exists()).toBe(false);
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="nl-wait"] [role="timer"]').text()).toBe('1초 지났어요'), {
+      timeout: 3_000,
+    });
     await buttonIn(wait as unknown as VueWrapper, '취소').trigger('click');
     await settle();
     resolveHeld();

@@ -693,9 +693,12 @@
   gap: var(--space-3);
 }
 
+/* The note grows with what is written (where supported), so no line hides. */
 .nl-entry-note {
   min-height: 5.5rem;
+  max-height: 16rem;
   resize: vertical;
+  field-sizing: content;
 }
 
 .nl-entry-actions {
@@ -877,10 +880,6 @@
 .nl-add-all {
   display: flex;
   padding-top: var(--space-1);
-}
-
-.commitment-manual-heading {
-  margin: 0;
 }
 
 @media (max-width: 479px) {

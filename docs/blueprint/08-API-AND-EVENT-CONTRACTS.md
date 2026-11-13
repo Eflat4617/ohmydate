@@ -93,6 +93,15 @@
 - 입력 상한(스케줄러 계약과 일치): 분 값은 정수 0..100000, horizon ≤ 366일(`MAX_HORIZON_DAYS`).
 - Plan(§2.4) 생성 시 서버가 위 데이터 + 승인된 활성 블록(locked/history)으로 `ScheduleInput`을 조립한다. 클라이언트는 ScheduleInput을 직접 보내지 않는다.
 
+### 2.4b 약속 말로 적기 (CAL-02, 2026-11-13)
+| 메서드 경로 | 헤더 | 입력 → 출력 | 코드 |
+|---|---|---|---|
+| POST /commitments:parse (`parseCommitments`) | Idem(If-Match 없음: 리소스 version이 없다), CSRF | `{text(1–500자, 공백만은 400/422), timeZone?(IANA, 기본=소유자 availability tz)}` → `{drafts: CommitmentDraft[](0–10), leftover(≤3,000)}` | 200/400/401/403/409(`idempotency_in_progress`)/422(`idempotency_mismatch`, 공백 글)/503 |
+- `CommitmentDraft = {title, timeZone, date(로컬 YYYY-MM-DD), startAt?, endAt?, rrule?, notes: ('duration_defaulted'|'date_assumed'|'repeats_weekly')[]}`. `startAt`/`endAt`는 서버가 모델의 로컬 날짜·시각을 그 시간대에서 변환한 UTC instant이며 둘 다 있거나 둘 다 없다. 없으면 글에 시각이 없었다는 뜻이고 클라이언트가 시각을 받은 뒤에야 추가할 수 있다. 변환·검증 규칙은 05 §8.1.
+- **아무것도 쓰지 않는다**(`commitment_event`·`availability_version` 불변). 초안은 제안이며 추가는 일반 `POST /commitments`(초안마다 Idempotency-Key)로 한다.
+- 멱등: 200은 저장되어 같은 키·같은 본문 재전송은 LLM을 다시 부르지 않고(과금 없음) 같은 답을 돌려준다. 다른 본문은 422 `idempotency_mismatch`. 503(동의 없음·공급자 없음·장애·시간 초과·취소 `llm_unavailable`, 예산 `budget_exceeded`)은 저장하지 않아 같은 키로 다시 시도할 수 있다. 키는 소유자 범위라 다른 사용자가 같은 키를 써도 남의 답을 받지 않는다.
+- 클라이언트가 응답 전에 연결을 끊으면 서버는 모델 호출을 중단하고 `agent_run`을 `cancelled`로 정산한다(웹의 "취소"). 요청 로그는 path만 남고 글·제목은 남지 않는다.
+
 ### 2.5 Today/Session (M4)
 | 메서드 경로 | 설명 |
 |---|---|
