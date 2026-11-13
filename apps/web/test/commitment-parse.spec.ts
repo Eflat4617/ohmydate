@@ -4,7 +4,7 @@
  * consent, failures that keep the note and the manual form, offline, the one
  * filled button, and the section's a11y. MSW mock API (mocks/commitment-parse.ts).
  */
-import type { VueWrapper } from '@vue/test-utils';
+import type { DOMWrapper, VueWrapper } from '@vue/test-utils';
 import { HttpResponse, http } from 'msw';
 import { createPinia, type Pinia } from 'pinia';
 import { defineComponent, h, onUnmounted } from 'vue';
@@ -86,7 +86,13 @@ function rows(wrapper: VueWrapper) {
   return wrapper.findAll('[data-testid="nl-draft"]');
 }
 
-function buttonIn(scope: Pick<VueWrapper, 'findAll'>, label: string) {
+function row(wrapper: VueWrapper, index: number): DOMWrapper<Element> {
+  const found = rows(wrapper)[index];
+  if (found === undefined) throw new Error(`draft row ${index} not found`);
+  return found;
+}
+
+function buttonIn(scope: { findAll(selector: string): DOMWrapper<Element>[] }, label: string) {
   const found = scope.findAll('button').find((item) => item.text().endsWith(label) || item.text() === label);
   if (found === undefined) throw new Error(`button not found: ${label}`);
   return found;
@@ -207,7 +213,7 @@ describe('/commitments 말로 적기', () => {
     const wrapper = await mountView();
     await read(wrapper, TWO);
     await vi.waitFor(() => expect(rows(wrapper)).toHaveLength(2));
-    await buttonIn(rows(wrapper)[0] as VueWrapper, '추가').trigger('click');
+    await buttonIn(row(wrapper, 0), '추가').trigger('click');
     await settle();
     await vi.waitFor(() => expect(rows(wrapper)[0]?.text()).toContain('추가했어요'));
     const created = [...mockDb.commitments.values()].find((item) => item.title === '치과');
@@ -246,7 +252,7 @@ describe('/commitments 말로 적기', () => {
     const wrapper = await mountView();
     await read(wrapper, '내일 오후 3시에 치과');
     await vi.waitFor(() => expect(rows(wrapper)).toHaveLength(1));
-    await buttonIn(rows(wrapper)[0] as VueWrapper, '고치기').trigger('click');
+    await buttonIn(row(wrapper, 0), '고치기').trigger('click');
     await settle();
     expect((wrapper.get('#commitment-title').element as HTMLInputElement).value).toBe('치과');
     const start = (wrapper.get('#commitment-start').element as HTMLInputElement).value;
@@ -266,7 +272,7 @@ describe('/commitments 말로 적기', () => {
     const before = mockDb.commitments.size;
     await read(wrapper, TWO);
     await vi.waitFor(() => expect(rows(wrapper)).toHaveLength(2));
-    await buttonIn(rows(wrapper)[0] as VueWrapper, '빼기').trigger('click');
+    await buttonIn(row(wrapper, 0), '빼기').trigger('click');
     await settle();
     expect(rows(wrapper)).toHaveLength(1);
     expect(rows(wrapper)[0]?.text()).toContain('동창 모임');
@@ -279,23 +285,23 @@ describe('/commitments 말로 적기', () => {
     const wrapper = await mountView();
     await read(wrapper, '다음 주 토요일 영화 보기');
     await vi.waitFor(() => expect(rows(wrapper)).toHaveLength(1));
-    const row = rows(wrapper)[0] as VueWrapper;
-    expect(row.text()).toContain('시간 필요');
-    expect(row.text()).toContain('시작 시간을 넣으면 추가할 수 있어요');
-    const add = buttonIn(row, '추가');
+    const untimed = row(wrapper, 0);
+    expect(untimed.text()).toContain('시간 필요');
+    expect(untimed.text()).toContain('시작 시간을 넣으면 추가할 수 있어요');
+    const add = buttonIn(untimed, '추가');
     expect(add.attributes('disabled')).toBeDefined();
-    const [start, end] = row.findAll('input[type="time"]');
-    expect(row.find(`label[for="${start?.attributes('id')}"]`).text()).toBe('시작 시간');
+    const [start, end] = untimed.findAll('input[type="time"]');
+    expect(untimed.find(`label[for="${start?.attributes('id')}"]`).text()).toBe('시작 시간');
     await end?.setValue('20:00');
     await start?.setValue('21:00');
     await settle();
-    expect(row.text()).toContain('끝 시간이 시작보다 늦어야 해요.');
-    expect(buttonIn(rows(wrapper)[0] as VueWrapper, '추가').attributes('disabled')).toBeDefined();
+    expect(untimed.text()).toContain('끝 시간이 시작보다 늦어야 해요.');
+    expect(buttonIn(row(wrapper, 0), '추가').attributes('disabled')).toBeDefined();
     await end?.setValue('');
     await start?.setValue('19:30');
     await settle();
     expect(rows(wrapper)[0]?.text()).toContain('끝 시간을 1시간 뒤로 잡았어요.');
-    await buttonIn(rows(wrapper)[0] as VueWrapper, '추가').trigger('click');
+    await buttonIn(row(wrapper, 0), '추가').trigger('click');
     await settle();
     await vi.waitFor(() => expect([...mockDb.commitments.values()].some((item) => item.title === '영화 보기')).toBe(true));
     const created = [...mockDb.commitments.values()].find((item) => item.title === '영화 보기');
@@ -343,7 +349,7 @@ describe('/commitments 말로 적기', () => {
     await settle();
     expect(filledButtons(wrapper)).toEqual(['약속 만들기']);
     await wrapper.get('#commitment-title').setValue('');
-    await buttonIn(rows(wrapper)[1] as VueWrapper, '빼기').trigger('click');
+    await buttonIn(row(wrapper, 1), '빼기').trigger('click');
     await settle();
     // One ready draft: its own 추가 is the filled button.
     expect(filledButtons(wrapper)).toEqual(['치과 추가']);
@@ -371,7 +377,7 @@ describe('/commitments 말로 적기', () => {
     await vi.waitFor(() => expect(wrapper.find('[data-testid="nl-wait"] [role="timer"]').text()).toBe('1초 지났어요'), {
       timeout: 3_000,
     });
-    await buttonIn(wait as unknown as VueWrapper, '취소').trigger('click');
+    await buttonIn(wrapper.get('[data-testid="nl-wait"]'), '취소').trigger('click');
     await settle();
     resolveHeld();
     await vi.waitFor(() => expect(wrapper.find('[data-testid="nl-wait"]').exists()).toBe(false));
@@ -407,10 +413,10 @@ describe('/commitments 말로 적기', () => {
     useOfflineStore(pinia).setOnline(false);
     await settle();
     expect(readButton(wrapper).attributes('disabled')).toBeDefined();
-    expect(buttonIn(rows(wrapper)[0] as VueWrapper, '추가').attributes('disabled')).toBeDefined();
+    expect(buttonIn(row(wrapper, 0), '추가').attributes('disabled')).toBeDefined();
     expect(wrapper.get('[data-testid="nl-add-all"]').attributes('disabled')).toBeDefined();
     const before = mockDb.commitments.size;
-    await buttonIn(rows(wrapper)[0] as VueWrapper, '추가').trigger('click');
+    await buttonIn(row(wrapper, 0), '추가').trigger('click');
     await settle();
     expect(mockDb.commitments.size).toBe(before);
     wrapper.unmount();
@@ -430,7 +436,7 @@ describe('/commitments 말로 적기', () => {
     expect(wrapper.get('#nl-result-heading').attributes('tabindex')).toBe('-1');
     const group = rows(wrapper)[0]?.get('[role="group"]');
     expect(group?.attributes('aria-label')).toBe('치과 초안');
-    expect(buttonIn(rows(wrapper)[0] as VueWrapper, '추가').text()).toBe('치과 추가');
+    expect(buttonIn(row(wrapper, 0), '추가').text()).toBe('치과 추가');
     wrapper.unmount();
   });
 });
