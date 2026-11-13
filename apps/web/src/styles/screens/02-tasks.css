@@ -1,32 +1,46 @@
-/* ── Quick add & task list: a ruled checklist ──────────────────────── */
-/* Quick add is a writing line: the 2px ink rule under it is the field. */
+/* ── 인박스, 프로젝트, 작업 (HOLO-02) ─────────────────────────────────
+   The quick add is the top field of the page, in a card of its own, with
+   말로 적기 folded under one disclosure. Tasks are a quiet list inside a
+   card: one line each, the actions at the row's end appearing on hover or
+   focus (always there on touch). Projects are cards with what is still open. */
+.inbox-add {
+  gap: var(--space-3);
+}
+
 .quick-add {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-1-5);
 }
 
 .quick-add-label {
-  color: var(--color-muted);
+  color: var(--color-text-3);
   font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
 }
 
+/* One field: the plus, the words, and the button inside its edge. */
 .quick-add-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding-bottom: var(--space-1-5);
-  border-bottom: var(--rule-hair) solid var(--color-line-strong);
+  min-height: 3.25rem;
+  padding: var(--space-1-5) var(--space-1-5) var(--space-1-5) var(--space-3);
+  border: var(--rule-pen) solid var(--color-edge);
+  border-radius: var(--radius-md);
+  background: var(--color-inset);
+  transition: border-color var(--duration-fast) var(--ease-standard);
 }
 
 .quick-add-row:has(.quick-add-input:focus-visible) {
+  border-color: var(--color-focus);
   outline: var(--focus-ring);
-  outline-offset: var(--focus-offset);
+  outline-offset: -1px;
 }
 
 .quick-add-icon {
   flex: none;
-  color: var(--color-ink);
+  color: var(--color-text-3);
 }
 
 .quick-add-input,
@@ -34,6 +48,7 @@
 .quick-add-input:focus-visible,
 .quick-add-input:disabled {
   flex: 1;
+  min-width: 0;
   padding-inline: 0;
   border-color: transparent;
   background: transparent;
@@ -41,17 +56,58 @@
 }
 
 .quick-add-input {
-  font-size: var(--text-lg);
+  font-size: var(--text-md);
 }
 
-/* Read-only (offline): the line is pencilled. */
+/* Read-only (offline): the edge is dashed, "not real yet". */
 .quick-add--disabled .quick-add-row {
-  border-bottom-style: dashed;
-  border-bottom-color: var(--color-edge);
+  border-style: dashed;
 }
 
-.quick-add--disabled .quick-add-icon {
-  color: var(--color-muted);
+/* The one disclosure 말로 적기 is folded under. */
+.inbox-fold-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-height: var(--control-height-sm);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  list-style: none;
+  cursor: pointer;
+}
+
+.inbox-fold-summary::-webkit-details-marker {
+  display: none;
+}
+
+.inbox-fold-summary:hover {
+  color: var(--color-text);
+}
+
+.inbox-fold-icon {
+  color: var(--color-text-3);
+  transform: rotate(-90deg);
+}
+
+.inbox-fold[open] .inbox-fold-icon {
+  transform: none;
+}
+
+.inbox-fold[open] > .inbox-fold-summary {
+  color: var(--color-text);
+}
+
+.inbox-fold > .nl-entry.task-parse {
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-4);
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+@media (pointer: coarse) {
+  .inbox-fold-summary {
+    min-height: var(--hit-target);
+  }
 }
 
 .task-list {
@@ -60,40 +116,50 @@
   gap: var(--space-3);
 }
 
+/* The list is one card; its rows are separated by hairlines. (The padding is
+   said in full: the plain-list reset in primitives.css zeroes it.) */
+.task-items {
+  gap: 0;
+  padding: var(--space-2) var(--card-pad);
+}
+
+.task-list-empty {
+  padding: var(--card-pad);
+}
+
 /* One task, one line: mark, title, status, and the actions at the row's end. */
 .task-item {
   display: flex;
   align-items: center;
   gap: var(--space-1) var(--space-3);
-  min-height: 2.75rem;
-  padding: var(--space-1) 0;
-  border-bottom: var(--rule-hair) solid var(--color-rule);
+  min-height: 3.25rem;
+  padding: var(--space-2) 0;
+}
+
+.task-item + .task-item {
+  border-top: var(--rule-hair) solid var(--color-line);
 }
 
 .task-item--editing {
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-paper-2);
+  margin-inline: calc(-1 * var(--space-3));
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-inset);
 }
 
-/* A small pen box: empty while open, inked and ticked when done. */
+/* A small tick box: only a finished task shows it (an empty one would look
+   like a checkbox to click; finishing is the 완료 action at the row's end). */
 .task-mark {
   display: grid;
   flex: none;
   place-items: center;
-  width: 0.8125rem;
-  height: 0.8125rem;
-  border: var(--rule-pen) solid var(--color-edge);
+  width: 1.125rem;
+  height: 1.125rem;
   border-radius: var(--radius-xs);
-  color: var(--color-on-ink);
+  background: var(--green-soft);
+  color: var(--color-ok-text);
 }
 
-.task-mark--done {
-  border-color: var(--color-ink);
-  background: var(--color-ink);
-}
-
-/* An open task shows no box: an empty one would look like a checkbox to click.
-   Finishing a task is the 완료 action at the end of the row. */
 .task-mark:not(.task-mark--done) {
   display: none;
 }
@@ -108,7 +174,7 @@
 }
 
 .task-title {
-  color: var(--color-ink);
+  color: var(--color-text);
   font-weight: var(--weight-medium);
   overflow-wrap: anywhere;
 }
@@ -121,20 +187,21 @@
   text-decoration: underline;
 }
 
-/* "To do" is the resting state, so it is written plainly; the other two
-   are marked (sky for in progress, mint for done). */
+/* "할 일" is the resting state, so it is written plainly; the other two
+   are tags (sky for in progress, green for done). */
 .task-status[data-status='todo'] {
   --badge-bg: transparent;
 
   padding: 0;
-  color: var(--color-muted);
+  color: var(--color-text-3);
   font-weight: var(--weight-regular);
 }
 
-/* CAL-05: the deadline under the title, quiet; past due on an open task adds the word 지났어요. */
+/* CAL-05: the deadline under the title, quiet; past due on an open task adds
+   the red word 지났어요 (red is only ever "overdue"). */
 .task-due {
   grid-column: 1 / -1;
-  color: var(--color-muted);
+  color: var(--color-text-3);
   font-size: var(--text-xs);
 }
 
@@ -143,7 +210,7 @@
 }
 
 .task-item--done .task-title {
-  color: var(--color-muted);
+  color: var(--color-text-3);
   text-decoration: line-through;
 }
 
@@ -156,6 +223,20 @@
 .task-actions .btn {
   min-width: var(--control-height-sm);
   padding-inline: var(--space-1-5);
+}
+
+/* With a mouse the actions wait until the row is pointed at or holds the
+   focus; they are always in the tab order and always there on touch. */
+@media (hover: hover) and (pointer: fine) {
+  .task-actions {
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease-standard);
+  }
+
+  .task-item:hover .task-actions,
+  .task-item:focus-within .task-actions {
+    opacity: 1;
+  }
 }
 
 /* Deleting stands apart from finishing. */
@@ -205,6 +286,10 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
+
+  .quick-add-row .btn {
+    padding-inline: var(--space-3);
+  }
 }
 
 @media (pointer: coarse) {
@@ -218,38 +303,75 @@
   width: 100%;
 }
 
-/* ── Projects: an index of names ───────────────────────────────────── */
+/* ── 프로젝트: cards with what is still open ────────────────────────── */
+.projects-page {
+  container: projects / inline-size;
+}
+
+.project-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--grid-gap);
+}
+
+@container projects (min-width: 36rem) {
+  .project-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container projects (min-width: 60rem) {
+  .project-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .project-item {
+  gap: var(--space-3);
+  min-height: 8.5rem;
+}
+
+.project-item:hover {
+  background: var(--card-sheen), linear-gradient(var(--color-hover), var(--color-hover)), var(--color-surface);
+}
+
+/* The whole card is the link. */
+.project-link {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  border-bottom: var(--rule-hair) solid var(--color-rule);
-}
-
-.project-link {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: var(--space-2-5);
   min-width: 0;
-  min-height: 2.75rem;
-  padding: var(--space-1) 0;
-  color: var(--color-ink);
-  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
   text-decoration: none;
 }
 
-.project-link:hover .project-title {
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.2em;
+.project-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.project-link:focus-visible {
+  outline: none;
+}
+
+.project-link:focus-visible::after {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
 .project-icon {
   display: grid;
   flex: none;
   place-items: center;
-  color: var(--color-muted);
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+  color: var(--color-text-2);
 }
 
 .project-title {
@@ -258,9 +380,186 @@
   overflow-wrap: anywhere;
 }
 
-.project-chevron {
-  flex: none;
-  color: var(--color-muted);
+.project-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: auto;
+}
+
+.project-count {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1-5);
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.project-count-number {
+  color: var(--color-text);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-light);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-num);
+  line-height: 1.2;
+}
+
+/* A project's two views (작업 · 노트) are the system's segmented control. */
+.project-tabs {
+  align-self: flex-start;
+}
+
+.project-panel {
+  min-width: 0;
+}
+
+.project-panel:focus {
+  outline: none;
+}
+
+.project-panel:focus-visible {
+  border-radius: var(--radius-xl);
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+/* ── 작업 상세: the task at the left, what belongs to it at the right ─ */
+.task-page {
+  container: task-page / inline-size;
+}
+
+.task-page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--grid-gap);
+  align-items: start;
+}
+
+@container task-page (min-width: 56rem) {
+  .task-page-grid {
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  }
+}
+
+.task-page-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-gap);
+  min-width: 0;
+}
+
+.task-fields {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3) var(--space-5);
+  margin: 0;
+}
+
+.task-fields > div {
+  display: contents;
+}
+
+.task-fields dt {
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.task-fields dd a.badge {
+  text-decoration: none;
+}
+
+.task-fields dd a.badge:hover {
+  text-decoration: underline;
+}
+
+.task-fields dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+  margin: 0;
+  color: var(--color-text);
+}
+
+.task-describe,
+.task-describe-promote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.task-describe {
+  padding-top: var(--space-4);
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.task-describe-text {
+  color: var(--color-text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.task-describe-promote .btn {
+  align-self: flex-start;
+}
+
+.task-related-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task-related-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) 0;
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+.task-related-item + .task-related-item {
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.task-related-when {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.task-related-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.task-related-note {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.task-related-figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.task-related-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
 }
 
 /* ── Inbox: 말로 적기 (CAL-05) ─────────────────────────────────────────

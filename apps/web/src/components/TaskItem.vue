@@ -99,7 +99,7 @@ function onInput(event: Event): void {
 </script>
 
 <template>
-  <li class="task-item" :class="{ 'task-item--done': isDone, 'task-item--editing': editing }">
+  <li class="task-item" :class="{ 'task-item--done': isDone, 'task-item--editing': editing, 'task-item--overdue': overdue }">
     <template v-if="editing">
       <form class="inline-edit" @submit.prevent="emit('save')">
         <label :for="`task-title-${task.id}`" class="field-label">{{ t('task.titleLabel') }}</label>
@@ -139,7 +139,7 @@ function onInput(event: Event): void {
         <span v-else class="task-title">{{ task.title }}</span>
         <UiBadge class="task-status" :tone="statusTone" :data-status="task.status">{{ statusLabel }}</UiBadge>
         <span v-if="dueText" class="task-due tabular" data-testid="task-due">
-          {{ dueText }}<UiBadge v-if="overdue" tone="warn" class="task-due-overdue">{{ t('task.overdue') }}</UiBadge>
+          {{ dueText }}<UiBadge v-if="overdue" tone="danger" class="task-due-overdue">{{ t('task.overdue') }}</UiBadge>
         </span>
       </div>
       <div class="task-actions">

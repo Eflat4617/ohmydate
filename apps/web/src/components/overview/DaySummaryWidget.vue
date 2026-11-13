@@ -107,7 +107,7 @@ function share(value: number): string {
     widget="summary"
     icon="ring"
     :title="t('overview.summary.title')"
-    to="/month"
+    to="/planner?view=day"
     :open-label="t('overview.summary.open')"
     :state="state"
     @retry="retry"

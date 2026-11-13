@@ -97,6 +97,27 @@ Today's 약속 are drawn on it too, as hatched taken time (CAL-01), and under th
 block list Today lists *오늘 약속* and *오늘 마감* (tasks due today that are not
 done) when there are any.
 
+## HOLO-02: 플래너, 타임 트래커 and the daily screens (2026-11-14)
+
+What follows in this file describes the screens as they were built; where it
+differs from this section, this section and `DESIGN.md` are current.
+
+- **플래너** (`/planner`, key `m`, sidebar 메인) is the calendar screen with
+  three views: 일, 주 (the default) and 월. The view and its date are in the
+  query (`?view=day&d=`, `?w=` a Monday, `?view=month&m=`). `/month` stays
+  valid and is the 월 view (the "한달" page below). 약속 추가 is its one filled
+  button; an item's actions are in one floating detail card.
+- **타임 트래커** (`/tracker`): the timer card with the task picker, and the
+  week's focus sessions by day.
+- **오늘, 집중, 인박스, 프로젝트, 작업 상세** are cards in the dashboard
+  system (`DESIGN.md` → Components). 말로 적기 in 인박스 is folded under
+  "말로 여러 개 적기".
+- **The app opens on 개요** (`/`). Signing in still goes to 인박스 (LoginView)
+  and an owner reset reloads to 인박스.
+- Sweep: `node scripts/ui-screenshots.mjs --label holo-02 --flows planner,tracker --tablet`
+  (dark and light, 390 / 1440 / 360 and 1024px). The captures under
+  `docs/ui-polish/*/` predate HOLO-01 and HOLO-02 and are stale.
+
 ## 한달 (CAL-01)
 
 `/month` (route `month`, key `m`, rail under 오늘, first item of the phone's

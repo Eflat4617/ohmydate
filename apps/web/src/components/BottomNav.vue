@@ -15,7 +15,7 @@ const route = useRoute();
 const moreOpen = ref(false);
 
 // HOLO-01: the sheet lists every sidebar link the bar does not hold itself,
-// in the sidebar's order — 개요 first (CAL-01: 한달 is here too).
+// in the sidebar's order — 개요 first (HOLO-02: 플래너 is here too).
 const moreLinks = MORE_LINKS;
 
 const MORE_ROUTES = new Set([...MORE_LINKS.flatMap((link) => link.routes), 'task']);

@@ -24,7 +24,7 @@ const describedby = computed(() => {
   const ids = [helpId.value, errorId.value].filter((value): value is string => value !== undefined);
   return ids.length === 0 ? undefined : ids.join(' ');
 });
-const invalid = computed(() => (props.error ? 'true' : undefined));
+const invalid = computed<'true' | undefined>(() => (props.error ? 'true' : undefined));
 </script>
 
 <template>

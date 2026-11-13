@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { dayTimetable, timetableNow, type TimetableBlock } from '../domain/dayTimetable';
 import { t, tp } from '../i18n';
 import { formatHour } from '../i18n/format';
+import UiIcon from './ui/UiIcon.vue';
 
 /**
  * Today's blocks drawn on a planner's time table: one row per hour, six
@@ -18,10 +19,12 @@ const props = withDefaults(
     timeZone: string;
     nextBlockId: string | null;
     nowMs: number;
-    /** CAL-01: the day's 약속, drawn as taken time (hatched), not as planned work. */
+    /** CAL-01: the day's 약속, drawn as taken time (cyan), not as planned work. */
     commitments?: readonly (TimetableBlock & { readonly title: string })[];
+    /** HOLO-02: `day` names the table for a day that is not today (플래너 · 일). */
+    scope?: 'today' | 'day';
   }>(),
-  { commitments: () => [] },
+  { commitments: () => [], scope: 'today' },
 );
 
 const TEN_MINUTE_MARKS = [10, 20, 30, 40, 50, 60] as const;
@@ -54,17 +57,28 @@ const takenLegend = computed(() => {
   return props.commitments.filter((commitment) => shown.has(commitment.id));
 });
 
-const tableLabel = computed(() =>
-  takenLegend.value.length === 0
+const tableLabel = computed(() => {
+  if (props.scope === 'day') {
+    return takenLegend.value.length === 0
+      ? tp('planner.day.timetableLabel', legend.value.length)
+      : tp('planner.day.timetableLabelWithCommitments', legend.value.length, { commitments: takenLegend.value.length });
+  }
+  return takenLegend.value.length === 0
     ? tp('today.timetableLabel', legend.value.length)
-    : tp('today.timetableLabelWithCommitments', legend.value.length, { commitments: takenLegend.value.length }),
-);
+    : tp('today.timetableLabelWithCommitments', legend.value.length, { commitments: takenLegend.value.length });
+});
+
+/** Finished blocks carry a tick in the legend: done is not said by colour alone. */
+const doneIds = computed(() => new Set(props.blocks.filter((block) => block.status === 'done').map((block) => block.id)));
 </script>
 
 <template>
   <section class="day-timetable" aria-labelledby="day-timetable-title">
     <header class="day-timetable-head">
-      <h2 id="day-timetable-title">{{ t('today.timetable') }}</h2>
+      <h2 id="day-timetable-title" class="card-title">
+        <UiIcon name="clock" :size="18" />
+        {{ t('today.timetable') }}
+      </h2>
       <p class="day-timetable-unit">{{ t('today.timetableUnit') }}</p>
     </header>
     <div class="tt" role="img" :aria-label="tableLabel">
@@ -107,8 +121,10 @@ const tableLabel = computed(() =>
       </div>
     </div>
     <ul v-if="legend.length > 0 || takenLegend.length > 0" class="tt-legend" aria-hidden="true">
-      <li v-for="item in legend" :key="item.id">
-        <span class="tt-swatch" :class="`tt-series--${item.series}`"></span>
+      <li v-for="item in legend" :key="item.id" :class="{ 'tt-legend-done': doneIds.has(item.id) }">
+        <span class="tt-swatch" :class="`tt-series--${item.series}`">
+          <UiIcon v-if="doneIds.has(item.id)" name="check" :size="10" />
+        </span>
         <span class="tt-legend-title">{{ item.title }}</span>
       </li>
       <li v-for="item in takenLegend" :key="`taken-${item.id}`" class="tt-legend-taken">

@@ -48,7 +48,10 @@ export const ko = {
     groupSettings: '설정',
     overview: '개요',
     today: '오늘',
-    month: '한달',
+    // HOLO-02: the timer and the week's record of it.
+    tracker: '타임 트래커',
+    // HOLO-02: the calendar screen (일 · 주 · 월); `/month` is its 월 view.
+    planner: '플래너',
     inbox: '인박스',
     projects: '프로젝트',
     notifications: '알림',
@@ -135,7 +138,7 @@ export const ko = {
     },
     tracker: {
       title: '타임 트래커',
-      open: '오늘 열기',
+      open: '타임 트래커 열기',
       idle: '대기 중',
       active: '집중하는 중',
       paused: '잠시 멈춤',
@@ -154,7 +157,7 @@ export const ko = {
     },
     summary: {
       title: '오늘 요약',
-      open: '한달 열기',
+      open: '플래너에서 오늘 열기',
       legend: '오늘 시간의 종류',
       planned: '집중 블록',
       commitment: '약속',
@@ -221,7 +224,7 @@ export const ko = {
     newTask: '새 작업',
     overview: '개요',
     today: '오늘',
-    month: '한달',
+    planner: '플래너',
     focus: '집중 세션',
     search: '검색',
     help: '이 도움말',
@@ -320,6 +323,8 @@ export const ko = {
     loadError: '작업을 불러오지 못했어요.',
     missing: '인박스 프로젝트가 없어요. 프로젝트가 생기기 전에는 작업을 보여 드릴 수 없어요.',
     empty: '인박스가 비었어요. 떠오르는 다음 일을 위에 적어 보세요.',
+    // HOLO-02: the one disclosure 말로 적기 is folded under.
+    parseFold: '말로 여러 개 적기',
   },
 
   // CAL-05: natural-language task entry in the inbox ("말로 적기").
@@ -393,6 +398,8 @@ export const ko = {
     back: '프로젝트',
     fallbackTitle: '프로젝트',
     taskCount: plural({ other: '작업 {count}개' }),
+    // HOLO-02: the caption under a project card's count of tasks that are not done.
+    openTasks: '열린 작업',
     tasksLoading: '작업을 불러오는 중…',
     tasksLoadError: '프로젝트 작업을 불러오지 못했어요.',
     tasksEmpty: '이 프로젝트에는 아직 작업이 없어요.',
@@ -729,8 +736,7 @@ export const ko = {
     unavailable: '이 집중 세션을 열 수 없어요.',
     fallbackTitle: '집중 세션',
     planned: '계획 {range} · {duration}',
-    sessionForTask: '작업 {taskId}의 세션',
-    sessionBlock: ' · 블록 {blockId}',
+    startedAt: '{when}에 시작했어요',
     timer: '집중 타이머',
     progress: '계획 {planned} 중 {focused} 집중',
     announce: '{duration} 집중했어요',
@@ -1560,10 +1566,142 @@ export const ko = {
   },
 
   // CAL-01: the month page of the planner.
+  // HOLO-02: 작업 상세 — the task at the left, what belongs to it at the right.
+  // The fields' own words (상태, 마감, 프로젝트, 설명) are `notes.task.*` (M6-03).
+  taskDetail: {
+    startFocus: '집중 시작',
+    blocks: {
+      title: '일정',
+      open: '플래너 열기',
+      empty: '앞으로 잡힌 블록이 없어요.',
+      emptyBody: '일정안을 확정하면 이 작업의 블록이 여기에 보여요.',
+      done: plural({ other: '지난 2주 동안 끝낸 블록 {count}개' }),
+      more: plural({ other: '그 뒤로 {count}개 더 있어요' }),
+    },
+    sessions: {
+      title: '집중 기록',
+      total: '최근 4주 집중 시간',
+      count: plural({ other: '세션 {count}개' }),
+      empty: '최근 4주 동안 집중한 기록이 없어요.',
+      truncated: '기록이 많아서 최근 것만 더했어요.',
+    },
+    relatedError: '일정과 집중 기록을 불러오지 못했어요.',
+  },
+
+  // HOLO-02: 타임 트래커 — the timer card and the week's sessions. The words
+  // for a session's state and the table's columns are 개요's (`overview.*`).
+  tracker: {
+    title: '타임 트래커',
+    lede: '지금 하는 일에 타이머를 켜고, 한 주의 기록을 돌아봐요.',
+    timer: {
+      title: '타이머',
+      question: '무엇을 하고 있나요?',
+      nextBlock: '다음 블록이에요 · {time}',
+      runningOn: '지금 집중하고 있는 작업',
+      pausedOn: '잠시 멈춰 둔 작업',
+      pickFirst: '작업을 고르면 시작할 수 있어요.',
+      planError: '오늘 계획을 불러오지 못해서 다음 블록을 미리 고르지 못했어요.',
+    },
+    picker: {
+      placeholder: '작업 이름으로 찾기',
+      loading: '작업을 불러오는 중…',
+      loadError: '작업 목록을 불러오지 못했어요.',
+      toggle: '작업 목록 열기',
+      next: '다음 블록',
+      none: '맞는 작업이 없어요.',
+      count: plural({ other: '작업 {count}개' }),
+      countMore: plural({ other: '작업 {count}개를 보여 드려요. {more}개가 더 있어요.' }),
+      more: plural({ other: '{count}개 더 있어요. 이름을 더 적어 좁혀 보세요.' }),
+    },
+    log: {
+      title: '기록',
+      week: '기록을 볼 주',
+      weekAnnounce: '{range} 기록',
+      filterProject: '프로젝트로 거르기',
+      filterState: '상태로 거르기',
+      allProjects: '모든 프로젝트',
+      allStates: '모든 상태',
+      caption: '{range} 집중 세션',
+      subtotal: '이날 합계',
+      count: plural({ other: '세션 {count}개' }),
+      filtered: '거른 결과',
+      loading: '기록을 불러오는 중…',
+      loadError: '기록을 불러오지 못했어요.',
+      staleError: '최신 기록을 다시 불러오지 못했어요. 마지막으로 불러온 내용이에요.',
+      offline: '오프라인이라 기록을 불러올 수 없어요. 연결되면 다시 불러와요.',
+      empty: '이 주에는 집중 기록이 없어요.',
+      emptyBody: '위에서 작업을 골라 집중을 시작하면 여기에 남아요.',
+      noMatch: '조건에 맞는 기록이 없어요.',
+      clearFilters: '거르기 풀기',
+      truncated: '기록이 많아서 최근 2,000개까지만 읽었어요. 합계가 실제보다 적을 수 있어요.',
+    },
+  },
+
+  // HOLO-02: 플래너, the calendar screen with three views (일 · 주 · 월). The
+  // month view keeps its own copy (`month.*`, CAL-01).
+  planner: {
+    today: '오늘',
+    views: '보기 바꾸기',
+    view: {
+      day: '일',
+      week: '주',
+      month: '월',
+    },
+    add: {
+      open: '약속 추가',
+      title: '약속 추가',
+      lede: '말로 적거나 직접 넣어요. 추가한 약속은 계획이 피해 가요.',
+      start: '시작',
+      end: '종료',
+      repeat: '매주 반복할 요일 (선택)',
+      advanced: '고급 · 시간대와 반복 규칙',
+      save: '약속 추가',
+      saved: '‘{title}’ 약속을 추가했어요.',
+    },
+    card: {
+      dueAt: '{when}까지',
+      google: '구글 캘린더에서 가져온 약속이에요. 고치려면 구글 캘린더에서 바꿔 주세요.',
+      openTask: '작업 열기',
+      openCommitments: '약속 화면에서 열기',
+    },
+    week: {
+      navigation: '주 옮기기',
+      previous: '이전 주',
+      next: '다음 주',
+      summary: '블록 {blocks}개 · 약속 {commitments}개 · 마감 {deadlines}개',
+      grid: '{range} 주간 일정',
+      hint: '위아래 방향키로 그날의 일정을, 좌우 방향키로 다른 날을 옮겨 다녀요. Home·End는 그날의 처음과 끝이에요. Enter나 Space로 자세히 보고 Esc로 닫아요.',
+      dueName: '{date} {time}까지',
+      from: '{time}부터',
+      early: '오전 6시 이전 시간 보기',
+      loading: '이 주 일정을 불러오는 중…',
+      loadError: '이 주 일정을 불러오지 못했어요.',
+      offline: '오프라인이라 이 주 일정을 불러올 수 없어요. 연결되면 다시 불러와요.',
+      empty: '이 주에는 블록도, 약속도, 마감도 없어요.',
+      announce: '{range} 주',
+    },
+    day: {
+      navigation: '날 옮기기',
+      previous: '이전 날',
+      next: '다음 날',
+      list: '이날 일정',
+      listToday: '오늘 일정',
+      openToday: '오늘 열기',
+      count: plural({ other: '일정 {count}개' }),
+      loading: '이날 일정을 불러오는 중…',
+      loadError: '이날 일정을 불러오지 못했어요.',
+      offline: '오프라인이라 이날 일정을 불러올 수 없어요. 연결되면 다시 불러와요.',
+      timetableLabel: plural({
+        other: '이날 블록 {count}개를 10분 칸에 칠한 표',
+      }),
+      timetableLabelWithCommitments: plural({
+        other: '이날 블록 {count}개를 10분 칸에 칠하고 약속 {commitments}개를 빗금으로 그린 표',
+      }),
+    },
+  },
   month: {
     previous: '이전 달',
     next: '다음 달',
-    thisMonth: '이번 달',
     navigation: '달 옮기기',
     summary: '이 달 · 블록 {blocks}개 · 약속 {commitments}개 · 마감 {deadlines}개',
     grid: '{month} 달력',

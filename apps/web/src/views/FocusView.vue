@@ -17,12 +17,11 @@ import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
 import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiSpinner from '../components/ui/UiSpinner.vue';
-import I18nT from '../i18n/I18nT';
-import { focusContextFor } from '../composables/focusContext';
+import { focusContextFor, focusTaskTitle } from '../composables/focusContext';
 import { markSessionReviewed } from '../layout/localSignals';
 import { calmMode, setCalmMode } from '../composables/useCalmMode';
 import { t, tp } from '../i18n';
-import { formatDuration, formatTimeRange, formatTimer, minutesBetween } from '../i18n/format';
+import { browserTimeZone, formatDateTime, formatDuration, formatTimeRange, formatTimer, minutesBetween } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
 import { focusClientId } from '../session/clientId';
 import {
@@ -44,6 +43,7 @@ import {
   quarantineRevision,
 } from '../session/quarantine';
 
+import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 import { useToastStore } from '../stores/toast';
@@ -53,6 +53,9 @@ const router = useRouter();
 const offline = useOfflineStore();
 const sessions = useSessionStore();
 const toast = useToastStore();
+const auth = useAuthStore();
+/** A session without a remembered block says when it started, in the user's zone. */
+const timeZone = computed(() => auth.user?.timeZone ?? browserTimeZone());
 
 const sessionId = computed(() => String(route.params.sessionId ?? ''));
 const isNew = computed(() => sessionId.value === 'new');
@@ -114,6 +117,31 @@ const context = computed(() => {
   if (current === null) return null;
   return focusContextFor(sessions.ownerId, current.blockId, current.taskId);
 });
+/*
+ * HOLO-02: the task's name, never its id. A session started on a block has
+ * it in its context; one started on a bare task (타임 트래커) was given it by
+ * the screen that started it; after a reload it is read from the task itself.
+ */
+const fetchedTitle = ref<string | null>(null);
+const taskTitle = computed(() => {
+  const current = session.value;
+  if (current === null) return null;
+  return context.value?.title ?? focusTaskTitle(sessions.ownerId, current.taskId) ?? fetchedTitle.value;
+});
+watch(
+  () => (taskTitle.value === null ? (session.value?.taskId ?? null) : null),
+  (taskId) => {
+    if (taskId === null || !offline.online) return;
+    const binding = captureOwnerBinding();
+    plannerClient.getTask(taskId, { signal: binding.signal }).then(
+      (task) => {
+        if (isOwnerBindingCurrent(binding) && session.value?.taskId === taskId) fetchedTitle.value = task.title;
+      },
+      () => undefined,
+    );
+  },
+  { immediate: true },
+);
 const plannedMinutes = computed(() => {
   const current = context.value;
   return current === null ? null : minutesBetween(current.startAt, current.endAt);
@@ -565,7 +593,7 @@ watch(
 <template>
   <section
     class="page focus-page"
-    :class="{ 'focus-page--calm': calmMode, [`focus-page--${session?.state ?? 'idle'}`]: true }"
+    :class="{ 'focus-page--calm': calmMode, 'scheme-dark': calmMode, [`focus-page--${session?.state ?? 'idle'}`]: true }"
     aria-labelledby="focus-heading"
   >
     <header class="page-header focus-header">
@@ -633,10 +661,10 @@ watch(
     </UiBanner>
 
     <template v-if="session">
-      <div class="focus-stage">
+      <div class="card focus-stage">
         <div class="focus-task">
           <p class="focus-task-title">
-            <span class="focus-task-title-text">{{ context?.title ?? t('focus.fallbackTitle') }}</span>
+            <span class="focus-task-title-text">{{ taskTitle ?? t('focus.fallbackTitle') }}</span>
           </p>
           <p class="focus-task-meta">
             <template v-if="context">
@@ -647,12 +675,7 @@ watch(
                 })
               }}
             </template>
-            <template v-else>
-              <I18nT keypath="focus.sessionForTask">
-                <template #taskId><span class="mono">{{ session.taskId }}</span></template>
-              </I18nT>
-              <span v-if="session.blockId">{{ t('focus.sessionBlock', { blockId: session.blockId }) }}</span>
-            </template>
+            <template v-else>{{ t('focus.startedAt', { when: formatDateTime(session.startedAt, timeZone) }) }}</template>
           </p>
         </div>
 

@@ -23,10 +23,10 @@ import UiButton from '../components/ui/UiButton.vue';
 import UiDialog from '../components/ui/UiDialog.vue';
 import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiField from '../components/ui/UiField.vue';
+import UiIcon from '../components/ui/UiIcon.vue';
 import UiDeadlineFlag from '../components/ui/UiDeadlineFlag.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { useDayAgenda } from '../composables/usePlannerRange';
-import { blockSeries } from '../domain/dayTimetable';
 import { addDaysToDate, localParts, zonedWallClockToInstant } from '../domain/time';
 import { rememberFocusBlocks } from '../composables/focusContext';
 import { t, tp } from '../i18n';
@@ -243,8 +243,6 @@ const nextBlockId = computed(() => {
   );
   return next?.id ?? null;
 });
-// Presentational only: a row and its run on the day timetable share a highlighter.
-const seriesByBlock = computed(() => blockSeries(blocks.value, nextBlockId.value));
 const plannedMinutes = computed(() =>
   blocks.value.reduce((sum, block) => sum + minutesBetween(block.startAt, block.endAt), 0),
 );
@@ -556,7 +554,7 @@ function resumeActive(): void {
           <UiBadge v-if="readOnly" tone="offline" dot class="chip--offline" role="status">
             {{ t('common.readOnlyOffline') }}
           </UiBadge>
-          <UiButton v-if="today" icon="check" :disabled="readOnly || busy" @click="acceptToday()">
+          <UiButton v-if="today" icon="check" :disabled="readOnly || busy" data-today-accept @click="acceptToday()">
             {{ t('today.acceptPlan') }}
           </UiButton>
         </div>
@@ -612,47 +610,52 @@ function resumeActive(): void {
       <template v-else-if="today">
         <aside class="today-summary" aria-labelledby="today-summary-title">
           <h2 id="today-summary-title" class="visually-hidden">{{ t('today.summaryTitle') }}</h2>
-          <dl class="stat-grid">
-            <div class="stat">
+          <dl class="stat-grid today-stats">
+            <div class="stat card card--compact today-stat">
               <dt>{{ t('today.slack') }}</dt>
               <dd class="stat-value">{{ formatDuration(today.slackMin) }}</dd>
             </div>
-            <div class="stat">
+            <div class="stat card card--compact today-stat">
               <dt>{{ t('today.planned') }}</dt>
               <dd class="stat-value">{{ formatDuration(plannedMinutes) }}</dd>
             </div>
-            <div class="stat">
+            <div class="stat card card--compact today-stat">
               <dt>{{ t('today.blocks') }}</dt>
               <dd class="stat-value">{{ blocks.length }}</dd>
             </div>
           </dl>
-          <ul class="today-risk" :aria-label="t('today.riskList')">
-            <li class="chip badge" :class="[`chip--risk-${today.risk.level}`, `badge--${riskTone}`]">
-              {{ t('risk.label', { level: riskLevel }) }}
-            </li>
-            <li
-              v-for="reason in riskReasons"
-              :key="reason.key"
-              class="today-risk-reason"
-              :lang="reason.translated ? undefined : 'en'"
-            >
-              {{ reason.text }}
-            </li>
-          </ul>
-          <ReplanRequestButton v-if="replanPlanId" :plan-id="replanPlanId" variant="ghost" size="sm" />
+          <div class="card card--compact today-risk-card">
+            <ul class="today-risk" :aria-label="t('today.riskList')">
+              <li class="chip badge badge--lg" :class="[`chip--risk-${today.risk.level}`, `badge--${riskTone}`]">
+                {{ t('risk.label', { level: riskLevel }) }}
+              </li>
+              <li
+                v-for="reason in riskReasons"
+                :key="reason.key"
+                class="today-risk-reason"
+                :lang="reason.translated ? undefined : 'en'"
+              >
+                {{ reason.text }}
+              </li>
+            </ul>
+            <ReplanRequestButton v-if="replanPlanId" :plan-id="replanPlanId" variant="ghost" size="sm" />
+          </div>
         </aside>
 
         <div class="today-list">
           <ul v-if="blocks.length > 0" class="today-blocks" :aria-label="t('today.blockList')">
             <li
-              v-for="(block, index) in blocks"
+              v-for="block in blocks"
               :key="block.id"
-              class="today-card"
-              :class="[{ 'today-card--next': block.id === nextBlockId }, `tt-series--${seriesByBlock.get(block.id) ?? 1}`]"
+              class="card today-card"
+              :class="{ 'today-card--next': block.id === nextBlockId, 'today-card--done': block.status === 'done' }"
               :data-block-id="block.id"
             >
-              <span class="today-index tabular" aria-hidden="true">{{ index + 1 }}</span>
               <div class="today-card-text">
+                <p v-if="block.id === nextBlockId || block.status === 'done'" class="today-card-tags">
+                  <UiBadge v-if="block.id === nextBlockId" tone="accent" class="today-next-label">{{ t('today.nextUp') }}</UiBadge>
+                  <UiBadge v-if="block.status === 'done'" tone="success">{{ t('plan.blockStatus.done') }}</UiBadge>
+                </p>
                 <h2 :id="`today-block-${block.id}-title`" class="today-title">
                   <span class="today-title-text">{{ block.title }}</span>
                 </h2>
@@ -663,12 +666,13 @@ function resumeActive(): void {
                   <span class="today-duration tabular">{{
                     formatDuration(minutesBetween(block.startAt, block.endAt))
                   }}</span>
-                  <span v-if="block.id === nextBlockId" class="today-next-label">{{ t('today.nextUp') }}</span>
                 </p>
               </div>
               <div class="today-card-actions">
+                <!-- One filled button on the screen: starting the next block (or, while a
+                     session waits, 세션 이어가기 in the banner above). -->
                 <UiButton
-                  variant="primary"
+                  :variant="block.id === nextBlockId && !activeSession ? 'primary' : 'secondary'"
                   icon="play"
                   :disabled="readOnly || startingBlockId !== null"
                   :busy="startingBlockId === block.id"
@@ -695,7 +699,7 @@ function resumeActive(): void {
               </div>
             </li>
           </ul>
-          <UiEmptyState v-else icon="today" :title="t('today.empty')">
+          <UiEmptyState v-else icon="today" :title="t('today.empty')" class="card today-empty">
             <template #actions>
               <RouterLink class="btn btn--secondary" to="/inbox">{{ t('today.openInbox') }}</RouterLink>
             </template>
@@ -704,13 +708,15 @@ function resumeActive(): void {
           <div v-if="todayCommitments.length > 0 || dueToday.length > 0" class="today-agendas">
             <section
               v-if="todayCommitments.length > 0"
-              class="today-agenda"
+              class="card card--compact today-agenda"
               aria-labelledby="today-commitments-title"
               data-today-commitments
             >
-              <header class="today-agenda-head">
-                <h2 id="today-commitments-title">{{ t('today.commitmentsTitle') }}</h2>
-                <RouterLink to="/commitments">{{ t('today.commitmentsLink') }}</RouterLink>
+              <header class="card-header today-agenda-head">
+                <h2 id="today-commitments-title" class="card-title">{{ t('today.commitmentsTitle') }}</h2>
+                <RouterLink to="/commitments" class="icon-link" :aria-label="t('today.commitmentsLink')">
+                  <UiIcon name="open" :size="16" />
+                </RouterLink>
               </header>
               <ul class="today-agenda-list">
                 <li v-for="item in todayCommitments" :key="item.id" class="today-agenda-item">
@@ -721,9 +727,14 @@ function resumeActive(): void {
               </ul>
             </section>
 
-            <section v-if="dueToday.length > 0" class="today-agenda" aria-labelledby="today-due-title" data-today-due>
-              <header class="today-agenda-head">
-                <h2 id="today-due-title">{{ t('today.dueTitle') }}</h2>
+            <section
+              v-if="dueToday.length > 0"
+              class="card card--compact today-agenda"
+              aria-labelledby="today-due-title"
+              data-today-due
+            >
+              <header class="card-header today-agenda-head">
+                <h2 id="today-due-title" class="card-title">{{ t('today.dueTitle') }}</h2>
               </header>
               <ul class="today-agenda-list">
                 <li v-for="task in dueToday" :key="task.id" class="today-agenda-item">
@@ -742,7 +753,7 @@ function resumeActive(): void {
 
     <DayTimetable
       v-if="today && !isLoading && !isError"
-      class="today-timetable"
+      class="card today-timetable"
       :blocks="blocks"
       :date="today.date"
       :time-zone="today.timeZone"

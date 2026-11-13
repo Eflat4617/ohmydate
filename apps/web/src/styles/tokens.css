@@ -20,6 +20,10 @@
   src: url('../assets/fonts/PretendardVariable.woff2') format('woff2-variations');
 }
 
+/* `.scheme-dark` gives a part of the page the dark scheme whatever the page
+   is in (Focus calm mode, HOLO-02): it declares every token again, so the
+   subtree does not inherit the light ones. */
+.scheme-dark,
 :root {
   color-scheme: dark;
 
@@ -348,7 +352,8 @@
 
 /* Phones and tablets: small text one step up (no zoom on focus). */
 @media (max-width: 63.99rem) {
-  :root {
+  :root,
+  .scheme-dark {
     --text-sm: 0.9375rem;
     --text-num: 2.25rem;
     --text-num-lg: 3rem;
@@ -358,20 +363,23 @@
 }
 
 @media (min-width: 40rem) {
-  :root {
+  :root,
+  .scheme-dark {
     --text-display-calm: 9rem;
   }
 }
 
 @media (min-width: 80rem) {
-  :root {
+  :root,
+  .scheme-dark {
     --text-display: 7.5rem;
     --text-display-calm: 11rem;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root {
+  :root,
+  .scheme-dark {
     --duration-fast: 0ms;
     --duration-base: 0ms;
     --duration-slow: 0ms;

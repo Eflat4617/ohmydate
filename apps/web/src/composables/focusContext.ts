@@ -62,6 +62,27 @@ export function focusContextFor(
   return contexts.get(key(ownerId, 'task', taskId)) ?? null;
 }
 
+/**
+ * HOLO-02: a session started on a task without a block (타임 트래커, "다시
+ * 시작") has no planned time to show, only the task's name. Same rules as the
+ * block contexts: in memory, keyed by owner, sent nowhere.
+ */
+const titles = shallowReactive(new Map<string, string>());
+
+export function rememberFocusTask(ownerId: string | null, taskId: string, title: string): void {
+  titles.set(key(ownerId, 'task', taskId), title);
+  while (titles.size > MAX_ENTRIES) {
+    const oldest = titles.keys().next().value;
+    if (oldest === undefined) break;
+    titles.delete(oldest);
+  }
+}
+
+export function focusTaskTitle(ownerId: string | null, taskId: string): string | null {
+  return titles.get(key(ownerId, 'task', taskId)) ?? null;
+}
+
 export function clearFocusContexts(): void {
   contexts.clear();
+  titles.clear();
 }

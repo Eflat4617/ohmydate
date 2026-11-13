@@ -53,7 +53,7 @@ function submit(): void {
 </script>
 
 <template>
-  <section class="review-sheet" aria-labelledby="review-title">
+  <section class="card review-sheet" aria-labelledby="review-title">
     <header class="review-sheet-header">
       <h2 id="review-title">{{ t('review.title') }}</h2>
       <p class="muted">{{ t('review.lede') }}</p>

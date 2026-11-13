@@ -1,42 +1,49 @@
-/* ── Adaptive layout panels (M6-02): ruled lists ───────────────────────
-   A panel is a heading on the 2px rule and a short list under it. No box.
-   The related-notes list is styled here too, under .layout-panel, so the
-   panel reads as one thing whatever the notes screens do with those names. */
+/* ── Adaptive layout panels (M6-02; cards since HOLO-02) ───────────────
+   A panel is a compact card: a small title with its mark, and a short list
+   under it. The related-notes list is styled here too, under .layout-panel,
+   so the panel reads as one thing whatever the notes screens do with those
+   names. */
 .layout-panel {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   min-width: 0;
+  padding: var(--space-4) var(--space-5);
+  border: var(--rule-hair) solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--card-sheen) var(--color-surface);
 }
 
 .layout-panel-title {
   display: flex;
   align-items: center;
-  gap: var(--space-1-5);
-  padding-bottom: var(--space-2);
-  border-bottom: var(--rule-hair) solid var(--color-line-strong);
+  gap: var(--space-2);
   font-size: var(--text-md);
-  font-weight: var(--weight-bold);
+  font-weight: var(--weight-medium);
   line-height: var(--leading-snug);
 }
 
 .layout-panel-title svg {
   flex: none;
+  color: var(--color-text-3);
 }
 
-/* Something is running or waiting for you: the heading is marked. */
-.layout-panel--accent .layout-panel-title > span,
-.layout-panel--warn .layout-panel-title > span {
-  padding: 0 var(--space-1);
-  color: var(--color-on-hl);
+/* Something is running or waiting for you: the mark takes the colour and
+   the card its edge. The title's own words say what it is. */
+.layout-panel--accent {
+  border-color: color-mix(in oklab, var(--color-accent-text) 35%, transparent);
 }
 
-.layout-panel--accent .layout-panel-title > span {
-  background: var(--hl-yellow);
+.layout-panel--accent .layout-panel-title svg {
+  color: var(--color-accent-text);
 }
 
-.layout-panel--warn .layout-panel-title > span {
-  background: var(--hl-pink);
+.layout-panel--warn {
+  border-color: color-mix(in oklab, var(--color-warn-text) 40%, transparent);
+}
+
+.layout-panel--warn .layout-panel-title svg {
+  color: var(--color-warn-text);
 }
 
 .layout-panel-lede,
@@ -96,7 +103,7 @@
 .layout-panel .layout-related-item {
   padding: var(--space-2) 0;
   border: 0;
-  border-bottom: var(--rule-hair) solid var(--color-rule);
+  border-top: var(--rule-hair) solid var(--color-line);
   border-radius: 0;
   background: transparent;
 }
@@ -105,6 +112,13 @@
 .layout-review-list > :first-child,
 .layout-panel .layout-related-list > :first-child {
   padding-top: 0;
+  border-top: 0;
+}
+
+.layout-next-list > :last-child,
+.layout-review-list > :last-child,
+.layout-panel .layout-related-list > :last-child {
+  padding-bottom: 0;
 }
 
 .layout-next-item,
@@ -118,8 +132,8 @@
 .layout-current-title,
 .layout-review-title,
 .layout-panel .layout-related-title {
-  color: var(--color-ink);
-  font-weight: var(--weight-semibold);
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
   overflow-wrap: anywhere;
 }
 
