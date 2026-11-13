@@ -31,9 +31,22 @@ export interface TimetableRun {
   readonly to: number;
 }
 
+/**
+ * Time that is taken but is not planned work (a 약속, CAL-01): drawn as its
+ * own mark under the block runs, never in a block's highlighter.
+ */
+export interface TimetableTakenRun {
+  readonly id: string;
+  /** Fractions of the hour, `0 <= from < to <= 1`. */
+  readonly from: number;
+  readonly to: number;
+}
+
 export interface TimetableRow {
   readonly hour: number;
   readonly runs: readonly TimetableRun[];
+  /** 약속 on this hour (empty unless `taken` spans were given). */
+  readonly taken: readonly TimetableTakenRun[];
 }
 
 /** Where "now" falls on the page: the hour row and the fraction inside it. */
@@ -95,38 +108,63 @@ export function blockSeries(
   return series;
 }
 
-/** Hour rows of `date` (to midnight) with the runs each block leaves on them. */
+interface MinuteSpan {
+  readonly id: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+function spansOnDate(items: readonly TimetableBlock[], date: string, timeZone: string): MinuteSpan[] {
+  const spans: MinuteSpan[] = [];
+  for (const item of items) {
+    const span = spanOnDate(item, date, timeZone);
+    if (span !== null) spans.push({ id: item.id, start: span[0], end: span[1] });
+  }
+  return spans;
+}
+
+/** The part of `span` inside the hour that starts at `rowStart`, as fractions of it. */
+function clipToHour(span: MinuteSpan, rowStart: number): { from: number; to: number } | null {
+  const from = Math.max(span.start, rowStart);
+  const to = Math.min(span.end, rowStart + 60);
+  if (to <= from) return null;
+  return { from: (from - rowStart) / 60, to: (to - rowStart) / 60 };
+}
+
+/**
+ * Hour rows of `date` (to midnight) with the runs each block leaves on them,
+ * and, when `taken` is given, the 약속 of the day as their own marks. Both
+ * start the page early when they start before 06:00.
+ */
 export function dayTimetable(
   blocks: readonly TimetableBlock[],
   date: string,
   timeZone: string,
   nextBlockId: string | null,
+  taken: readonly TimetableBlock[] = [],
 ): readonly TimetableRow[] {
   const series = blockSeries(blocks, nextBlockId);
-  const spans: { readonly id: string; readonly start: number; readonly end: number }[] = [];
-  for (const block of blocks) {
-    const span = spanOnDate(block, date, timeZone);
-    if (span !== null) spans.push({ id: block.id, start: span[0], end: span[1] });
-  }
+  const spans = spansOnDate(blocks, date, timeZone);
+  const takenSpans = spansOnDate(taken, date, timeZone);
 
-  const earliest = spans.reduce((min, span) => Math.min(min, Math.floor(span.start / 60)), TIMETABLE_FIRST_HOUR);
+  const earliest = [...spans, ...takenSpans].reduce(
+    (min, span) => Math.min(min, Math.floor(span.start / 60)),
+    TIMETABLE_FIRST_HOUR,
+  );
   const rows: TimetableRow[] = [];
   for (let hour = earliest; hour < 24; hour += 1) {
     const rowStart = hour * 60;
-    const rowEnd = rowStart + 60;
     const runs: TimetableRun[] = [];
     for (const span of spans) {
-      const from = Math.max(span.start, rowStart);
-      const to = Math.min(span.end, rowEnd);
-      if (to <= from) continue;
-      runs.push({
-        blockId: span.id,
-        series: series.get(span.id) ?? 1,
-        from: (from - rowStart) / 60,
-        to: (to - rowStart) / 60,
-      });
+      const part = clipToHour(span, rowStart);
+      if (part !== null) runs.push({ blockId: span.id, series: series.get(span.id) ?? 1, ...part });
     }
-    rows.push({ hour, runs });
+    const takenRuns: TimetableTakenRun[] = [];
+    for (const span of takenSpans) {
+      const part = clipToHour(span, rowStart);
+      if (part !== null) takenRuns.push({ id: span.id, ...part });
+    }
+    rows.push({ hour, runs, taken: takenRuns });
   }
   return rows;
 }

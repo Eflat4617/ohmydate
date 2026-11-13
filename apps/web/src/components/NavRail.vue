@@ -52,6 +52,13 @@ function newTask(): void {
             </RouterLink>
           </li>
           <li>
+            <RouterLink to="/month" class="nav-link">
+              <UiIcon name="month" class="nav-link-icon" />
+              <span class="nav-link-label">{{ t('nav.month') }}</span>
+              <kbd>m</kbd>
+            </RouterLink>
+          </li>
+          <li>
             <RouterLink to="/inbox" class="nav-link">
               <UiIcon name="inbox" class="nav-link-icon" />
               <span class="nav-link-label">{{ t('nav.inbox') }}</span>

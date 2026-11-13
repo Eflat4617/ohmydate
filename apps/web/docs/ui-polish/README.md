@@ -78,6 +78,32 @@ Shrink, the Availability conflict and the bottom-nav More sheet all use it.
 Today's time table (`DayTimetable`, `src/domain/dayTimetable.ts`) draws the
 day's blocks on hour rows of six ten-minute cells. A row in the list and its
 run on the table share a highlighter; the next block is always yellow.
+Today's 약속 are drawn on it too, as hatched taken time (CAL-01), and under the
+block list Today lists *오늘 약속* and *오늘 마감* (tasks due today that are not
+done) when there are any.
+
+## 한달 (CAL-01)
+
+`/month` (route `month`, key `m`, rail under 오늘, first item of the phone's
+More sheet; the bottom bar's own slots are unchanged) is a month page of the
+planner. The month is in the URL (`/month?m=2026-11`; plain `/month` is the
+current month in the availability time zone, and a month the URL cannot mean is
+dropped). The grid (`src/domain/monthGrid.ts`) has one Monday-first row per
+week that touches the month (4 to 6) and places, in the owner's zone, approved
+blocks (planned and done; a block over midnight on both days), every
+occurrence of every 약속 whatever its `source`, and the deadlines of tasks that
+are not done. It reads all pages of the three lists for the visible range only
+(`src/composables/usePlannerRange.ts`: owner-keyed, `ownerFenced`, at most 20
+pages a list, a note when that cuts the list). The grid is one tab stop
+(`role="grid"`, roving `tabindex`): arrows move by day and week, Home/End to
+the week's ends, PageUp/PageDown change the month (focus follows into another
+month), Enter/Space select. Each cell is named like *11월 14일 토요일, 오늘, 블록
+2개, 약속 2개, 마감 1개*; its visible lines are `aria-hidden`. The picked day
+(today at first) lists times, kinds and titles that lead to the task (blocks,
+deadlines) or to `/commitments` (약속), with *오늘 보기* on today. States: a
+skeleton in the shape of the grid, an error with retry (a failed re-read keeps
+the last data and says so), one line for a month with nothing planned, and an
+offline line when nothing was read yet. The screen only reads.
 
 Focus has a **calm mode**: the shell steps back (no rail, no bottom nav), the
 timer is set in display type, and the planned time shows under it as
@@ -363,6 +389,13 @@ node scripts/ui-screenshots.mjs --label m6-02 --flows adaptive
 # M6-03 notes screens (42–51) into m6-03/
 node scripts/ui-screenshots.mjs --label m6-03 --flows notes
 ```
+
+`--flows month` (CAL-01) captures the month page on the mock's seeded
+November (`seedMonth` in `src/mocks/db.ts`, on by default in mock mode; seed
+`window.__OHMYDATE_MOCK__ = { month: 'none' }` to leave it out): this month
+with today picked (52, light/dark, full), another day picked (53, full), the
+next month (54) and a month with nothing planned (55). Run with
+`--flows month,daily` to see Today's 약속 and 오늘 마감 too (14).
 
 `m6-03/` holds the notes screens: the list (42, light/dark; on desktop beside
 an open note), the editor with the side-by-side preview (43, light/dark, full

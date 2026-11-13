@@ -965,6 +965,26 @@
   padding: var(--space-3) 0;
 }
 
+/* ── Deadline flag (CAL-01): a pennant on a pole ───────────────────── */
+.deadline-flag {
+  flex: none;
+  overflow: visible;
+}
+
+.deadline-flag-cloth {
+  fill: var(--color-warn);
+  stroke: var(--color-ink);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+.deadline-flag-pole {
+  fill: none;
+  stroke: var(--color-ink);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
 /* ── Skeleton & spinner ────────────────────────────────────────────── */
 .skeleton {
   display: block;

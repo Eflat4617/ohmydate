@@ -40,6 +40,8 @@ const EXEMPT: Record<string, string> = {
   'src/components/notes/NoteAiUsage.vue': 'Reads only, through ownerFenced lookups; writes nothing.',
   'src/components/ReplanBanner.vue': 'Reads only (owner-keyed query); writes nothing.',
   'src/composables/relatedNotes.ts': 'Reads only, through ownerFenced lookups; writes nothing.',
+  'src/composables/usePlannerRange.ts':
+    'Reads only (CAL-01 month page and Today agenda), through owner-keyed ownerFenced lookups; writes nothing.',
   'src/composables/useLatestReplanPlan.ts': 'Reads only (owner-keyed query); writes nothing.',
   'src/layout/useTodaySnapshot.ts': 'Reads only (owner-keyed query); writes nothing.',
   'src/views/ProjectDetailView.vue': 'Reads only; its task edits are TaskList / useTaskActions (inbox cases).',

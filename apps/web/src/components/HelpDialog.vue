@@ -24,6 +24,8 @@ defineEmits<{ close: [] }>();
       <dd>{{ t('help.newTask') }}</dd>
       <dt><kbd>t</kbd></dt>
       <dd>{{ t('help.today') }}</dd>
+      <dt><kbd>m</kbd></dt>
+      <dd>{{ t('help.month') }}</dd>
       <dt><kbd>f</kbd></dt>
       <dd>{{ t('help.focus') }}</dd>
       <dt><kbd>/</kbd></dt>

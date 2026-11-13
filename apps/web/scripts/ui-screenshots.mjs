@@ -8,6 +8,7 @@
 //   node scripts/ui-screenshots.mjs --label m5-03 --flows replan,patterns   # M5-03 screens only
 //   node scripts/ui-screenshots.mjs --label m6-02 --flows adaptive          # M6-02 layout modes
 //   node scripts/ui-screenshots.mjs --label m6-03 --flows notes             # M6-03 notes screens
+//   node scripts/ui-screenshots.mjs --label cal-01 --flows month,daily      # CAL-01 한달 + Today's 약속/마감
 //
 // Output: docs/ui-polish/<label>/<screen>-<viewport>[-dark][-full].png and
 //         docs/ui-polish/<label>/sweep-report.json
@@ -35,7 +36,7 @@ function arg(name, fallback) {
 
 const label = arg('label', 'after');
 const only = arg('only', '');
-// Comma-separated subset of flows (main, daily, ai, replan, patterns, adaptive, notes); default: all.
+// Comma-separated subset of flows (main, daily, ai, replan, patterns, adaptive, notes, month); default: all.
 const flowFilter = arg('flows', '')
   .split(',')
   .map((name) => name.trim())
@@ -51,8 +52,8 @@ const VIEWPORTS = [
   { name: 'narrow', width: 360, height: 780, capture: false },
 ];
 const SCHEMES = ['light', 'dark'];
-const DARK_CAPTURES = /^(14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-wizard-evidence)/;
-const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns|34-layout-overview|38-layout-deadline-risk|39-layout-review|43-notes-editor|50-wizard-evidence)/;
+const DARK_CAPTURES = /^(14-today|16-focus|22-today-replan|23-replan-detail|29-patterns|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-wizard-evidence|52-month)/;
+const FULL_CAPTURES = /^(09-wizard-step4|11-plan-comparison|12-availability|13-commitments|14-today|17-review|23-replan-detail|25-replan-list|28-replan-suppressed|29-patterns|34-layout-overview|38-layout-deadline-risk|39-layout-review|43-notes-editor|50-wizard-evidence|52-month|53-month-day)/;
 // Synthetic ids from src/mocks/notes-seed.ts (M6-03).
 const NOTE_THESIS_ID = '01900000-0000-7000-8000-0000000003a1';
 const NOTE_MEETING_ID = '01900000-0000-7000-8000-0000000003a2';
@@ -634,6 +635,38 @@ async function flowNotes(browser, run) {
   }
 }
 
+// CAL-01: the month page (한달) on the seeded November (src/mocks/db.ts
+// seedMonth): this month with today picked, another day picked, the next
+// month, and a month with nothing planned (October has none).
+async function monthReady(page) {
+  await page.locator('.month-grid:not([aria-busy])').waitFor();
+}
+
+async function flowMonth(browser, run) {
+  const { context, page } = await newPage(browser, run);
+  await go(page, '/month');
+  await monthReady(page);
+  await page.locator('[data-month-detail] .month-agenda-item').first().waitFor();
+  await dismissToasts(page);
+  await checkpoint(page, '52-month', run);
+
+  await page.locator('[role="gridcell"][data-date="2026-11-20"]').click();
+  await page.locator('[data-month-detail] h2', { hasText: '11월 20일' }).waitFor();
+  await checkpoint(page, '53-month-day', run);
+
+  await page.locator('[data-month-next]').click();
+  await page.getByRole('heading', { name: '2026년 12월', level: 1 }).waitFor();
+  await monthReady(page);
+  await checkpoint(page, '54-month-next', run);
+
+  await go(page, '/month?m=2026-10');
+  await monthReady(page);
+  await page.locator('[data-month-empty]').waitFor();
+  await dismissToasts(page);
+  await checkpoint(page, '55-month-empty', run);
+  await context.close();
+}
+
 // The dev server can reload a page while it optimises deps; retry a flow once
 // (findings from the failed attempt are discarded).
 async function withRetry(flow, browser, run) {
@@ -673,6 +706,7 @@ async function main() {
           patterns: flowPatterns,
           adaptive: flowAdaptive,
           notes: flowNotes,
+          month: flowMonth,
         };
         for (const [name, flow] of Object.entries(flows)) {
           if (flowFilter.length > 0 && !flowFilter.includes(name)) continue;

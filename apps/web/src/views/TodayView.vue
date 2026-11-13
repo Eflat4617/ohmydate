@@ -23,12 +23,14 @@ import UiButton from '../components/ui/UiButton.vue';
 import UiDialog from '../components/ui/UiDialog.vue';
 import UiEmptyState from '../components/ui/UiEmptyState.vue';
 import UiField from '../components/ui/UiField.vue';
+import UiDeadlineFlag from '../components/ui/UiDeadlineFlag.vue';
 import UiSkeleton from '../components/ui/UiSkeleton.vue';
+import { useDayAgenda } from '../composables/usePlannerRange';
 import { blockSeries } from '../domain/dayTimetable';
-import { addDaysToDate, zonedWallClockToInstant } from '../domain/time';
+import { addDaysToDate, localParts, zonedWallClockToInstant } from '../domain/time';
 import { rememberFocusBlocks } from '../composables/focusContext';
 import { t, tp } from '../i18n';
-import { formatCivilDate, formatDuration, formatTimeRange, minutesBetween } from '../i18n/format';
+import { formatCivilDate, formatDuration, formatTime, formatTimeRange, minutesBetween } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
 import { riskReasonText } from '../i18n/server';
 import { localDateAt, useLayoutNow } from '../layout/now';
@@ -171,6 +173,56 @@ const blocks = computed<TodayCardBlock[]>(() => {
           },
         };
   });
+});
+
+/*
+ * CAL-01: what else is on today — the day's 약속 and the tasks due today
+ * that are not done. Read-only, owner-keyed and fenced (usePlannerRange);
+ * shown under the block list only when there is something to show.
+ */
+const agendaRange = computed(() => {
+  const current = today.value;
+  if (current === null) return null;
+  return {
+    from: zonedWallClockToInstant(current.date, 0, current.timeZone),
+    to: zonedWallClockToInstant(addDaysToDate(current.date, 1), 0, current.timeZone),
+  };
+});
+const agendaQuery = useDayAgenda(agendaRange);
+
+const todayCommitments = computed(() => {
+  const range = agendaRange.value;
+  const agenda = agendaQuery.data.value;
+  if (range === null || agenda === undefined) return [];
+  const fromMs = Date.parse(range.from);
+  const toMs = Date.parse(range.to);
+  return agenda.commitments
+    .flatMap((commitment) =>
+      (commitment.occurrences ?? []).map((occurrence) => ({
+        id: `${commitment.id}:${occurrence.startAt}`,
+        title: commitment.title,
+        startAt: occurrence.startAt,
+        endAt: occurrence.endAt,
+      })),
+    )
+    .filter((item) => Date.parse(item.startAt) < toMs && Date.parse(item.endAt) > fromMs)
+    .sort((left, right) => Date.parse(left.startAt) - Date.parse(right.startAt));
+});
+
+const dueToday = computed(() => {
+  const current = today.value;
+  const agenda = agendaQuery.data.value;
+  if (current === null || agenda === undefined) return [];
+  return agenda.tasks
+    .flatMap((task) =>
+      task.status !== 'done' &&
+      task.dueAt !== undefined &&
+      Number.isFinite(Date.parse(task.dueAt)) &&
+      localParts(task.dueAt, current.timeZone).date === current.date
+        ? [{ id: task.id, title: task.title, dueAt: task.dueAt }]
+        : [],
+    )
+    .sort((left, right) => Date.parse(left.dueAt) - Date.parse(right.dueAt));
 });
 
 // Presentational only: lets Focus show the task title / planned length.
@@ -648,6 +700,42 @@ function resumeActive(): void {
               <RouterLink class="btn btn--secondary" to="/inbox">{{ t('today.openInbox') }}</RouterLink>
             </template>
           </UiEmptyState>
+
+          <div v-if="todayCommitments.length > 0 || dueToday.length > 0" class="today-agendas">
+            <section
+              v-if="todayCommitments.length > 0"
+              class="today-agenda"
+              aria-labelledby="today-commitments-title"
+              data-today-commitments
+            >
+              <header class="today-agenda-head">
+                <h2 id="today-commitments-title">{{ t('today.commitmentsTitle') }}</h2>
+                <RouterLink to="/commitments">{{ t('today.commitmentsLink') }}</RouterLink>
+              </header>
+              <ul class="today-agenda-list">
+                <li v-for="item in todayCommitments" :key="item.id" class="today-agenda-item">
+                  <span class="today-agenda-mark today-agenda-mark--commitment" aria-hidden="true"></span>
+                  <span class="today-agenda-time tabular">{{ formatTimeRange(item.startAt, item.endAt, today.timeZone) }}</span>
+                  <span class="today-agenda-title">{{ item.title }}</span>
+                </li>
+              </ul>
+            </section>
+
+            <section v-if="dueToday.length > 0" class="today-agenda" aria-labelledby="today-due-title" data-today-due>
+              <header class="today-agenda-head">
+                <h2 id="today-due-title">{{ t('today.dueTitle') }}</h2>
+              </header>
+              <ul class="today-agenda-list">
+                <li v-for="task in dueToday" :key="task.id" class="today-agenda-item">
+                  <UiDeadlineFlag class="today-agenda-mark today-agenda-mark--deadline" :size="13" />
+                  <span class="today-agenda-time tabular">{{
+                    t('today.dueAt', { time: formatTime(task.dueAt, today.timeZone) })
+                  }}</span>
+                  <RouterLink :to="`/tasks/${task.id}`" class="today-agenda-title">{{ task.title }}</RouterLink>
+                </li>
+              </ul>
+            </section>
+          </div>
         </div>
       </template>
     </div>
@@ -660,6 +748,7 @@ function resumeActive(): void {
       :time-zone="today.timeZone"
       :next-block-id="nextBlockId"
       :now-ms="now"
+      :commitments="todayCommitments"
     />
 
     <ProposalPreview
