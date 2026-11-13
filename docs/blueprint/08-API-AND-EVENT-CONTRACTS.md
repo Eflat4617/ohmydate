@@ -45,6 +45,14 @@
 | DELETE /tasks/{id} | — | 204 | soft |
 | POST /tasks/{id}/dependencies | {dependsOnTaskId} | 201 | 422 dependency_cycle |
 
+### 2.2b 할 일 말로 적기 (CAL-05, 2026-11-13)
+| 메서드 경로 | 헤더 | 입력 → 출력 | 코드 |
+|---|---|---|---|
+| POST /tasks:parse (`parseTasks`) | Idem(If-Match 없음), CSRF | `{text(1–500자, 공백만은 400/422), timeZone?(IANA, 기본=소유자 User.timeZone)}` → `{drafts: TaskDraft[](0–10), leftover(≤3,000)}` | 200/400/401/403/409(`idempotency_in_progress`)/422(`idempotency_mismatch`, 공백 글)/503 |
+- `TaskDraft = {title, dueAt?, notes: ('due_time_defaulted'|'date_assumed'|'meridiem_assumed'|'due_dropped')[]}`. `dueAt`은 서버가 모델의 로컬 마감 날짜·시각을 그 시간대에서 변환한 UTC instant이고, 없으면 마감 없는 작업이다. 날짜만 있으면 그날 23:59(`due_time_defaulted`), 쓸 수 없는 마감은 지우고 `due_dropped`. 규칙은 05 §8.2.
+- **아무것도 쓰지 않는다**(tasks 불변). 추가는 빠른 추가와 같은 `POST /tasks`(projectId 없음 = 인박스, 초안마다 Idempotency-Key)로 한다.
+- 멱등·503·연결 끊김(`cancelled`)·로그 규칙은 §2.4b `POST /commitments:parse`와 같다(구현을 공유한다).
+
 ### 2.3 Intake (M2)
 | 메서드 경로 | 설명 |
 |---|---|
@@ -97,7 +105,7 @@
 | 메서드 경로 | 헤더 | 입력 → 출력 | 코드 |
 |---|---|---|---|
 | POST /commitments:parse (`parseCommitments`) | Idem(If-Match 없음: 리소스 version이 없다), CSRF | `{text(1–500자, 공백만은 400/422), timeZone?(IANA, 기본=소유자 availability tz)}` → `{drafts: CommitmentDraft[](0–10), leftover(≤3,000)}` | 200/400/401/403/409(`idempotency_in_progress`)/422(`idempotency_mismatch`, 공백 글)/503 |
-- `CommitmentDraft = {title, timeZone, date(로컬 YYYY-MM-DD), startAt?, endAt?, rrule?, notes: ('duration_defaulted'|'date_assumed'|'repeats_weekly')[]}`. `startAt`/`endAt`는 서버가 모델의 로컬 날짜·시각을 그 시간대에서 변환한 UTC instant이며 둘 다 있거나 둘 다 없다. 없으면 글에 시각이 없었다는 뜻이고 클라이언트가 시각을 받은 뒤에야 추가할 수 있다. 변환·검증 규칙은 05 §8.1.
+- `CommitmentDraft = {title, timeZone, date(로컬 YYYY-MM-DD), startAt?, endAt?, rrule?, notes: ('duration_defaulted'|'date_assumed'|'repeats_weekly'|'meridiem_assumed')[]}` (`meridiem_assumed`: CAL-05 추가, 맨 시각 7–11시를 오전으로 읽음 — 05 §8.1). `startAt`/`endAt`는 서버가 모델의 로컬 날짜·시각을 그 시간대에서 변환한 UTC instant이며 둘 다 있거나 둘 다 없다. 없으면 글에 시각이 없었다는 뜻이고 클라이언트가 시각을 받은 뒤에야 추가할 수 있다. 변환·검증 규칙은 05 §8.1.
 - **아무것도 쓰지 않는다**(`commitment_event`·`availability_version` 불변). 초안은 제안이며 추가는 일반 `POST /commitments`(초안마다 Idempotency-Key)로 한다.
 - 멱등: 200은 저장되어 같은 키·같은 본문 재전송은 LLM을 다시 부르지 않고(과금 없음) 같은 답을 돌려준다. 다른 본문은 422 `idempotency_mismatch`. 503(동의 없음·공급자 없음·장애·시간 초과·취소 `llm_unavailable`, 예산 `budget_exceeded`)은 저장하지 않아 같은 키로 다시 시도할 수 있다. 키는 소유자 범위라 다른 사용자가 같은 키를 써도 남의 답을 받지 않는다.
 - 클라이언트가 응답 전에 연결을 끊으면 서버는 모델 호출을 중단하고 `agent_run`을 `cancelled`로 정산한다(웹의 "취소"). 요청 로그는 path만 남고 글·제목은 남지 않는다.
