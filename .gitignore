@@ -19,3 +19,6 @@ deploy/secrets/local/
 
 # local run artifacts (PIDs, logs)
 .local/
+
+# Rust core build output
+core/target/

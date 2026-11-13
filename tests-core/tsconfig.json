@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["vitest/globals", "node"],
+    "paths": {
+      "@ohmydate/contracts": ["../packages/contracts/src/index.ts"],
+      "ajv": ["../packages/contracts/node_modules/ajv/dist/ajv.d.ts"],
+      "ajv-formats": ["../packages/contracts/node_modules/ajv-formats/dist/index.d.ts"]
+    }
+  },
+  "include": ["**/*.ts"]
+}

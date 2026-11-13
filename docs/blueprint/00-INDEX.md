@@ -17,8 +17,11 @@
 | [10 License & Migration](10-LICENSE-AND-MIGRATION.md) | 위험 등록부, 전환 3단계 | 설계 완료 | **법률 검토 필요** |
 | [11 Test & Eval](11-TEST-AND-EVALUATION.md) | 계층, E2E, AI 평가 | 설계 완료 | — |
 | [12 Roadmap & Backlog](12-ROADMAP-AND-BACKLOG.md) | 게이트, M0–M8, M1 티켓, DAG | 설계 완료 | — |
-| [13 ADR](13-ADR.md) | ADR-001~015 (Proposed) | 승인 대기 | — |
+| [13 ADR](13-ADR.md) | ADR-001~025. **ADR-025(2026-11-13): 데스크톱 앱 + Rust 코어, Vikunja 제거** | 025 Accepted | — |
 | [14 Implementation Handoff](14-IMPLEMENTATION-HANDOFF.md) | M0-01/02, 패킷 M0-03·M1-01·M1-02, 리뷰 템플릿 | 완료 | — |
+| [15 Desktop & Rust Core](15-DESKTOP-RUST-CORE.md) | RC 프로그램 계획: 아키텍처, 라우트 패리티 84개, 데이터 모델 대응 53 테이블, 스케줄러 포팅·차분 테스트, 가져오기·전환, 단계 DAG | 계획 완료 + 골격 구현(RC-00) | Tauri 셸·WebKitGTK(미검증), 스케줄러 생성기 포팅 |
+
+> **2026-11-13:** 사용자 결정으로 방향이 바뀌었다(ADR-025). 03·04·09·10의 서버/PostgreSQL/Vikunja 구성은 전환 전까지의 기준 구현(TypeScript 코어) 설명이고, 앞으로 만드는 것은 15를 따른다. Rust 코드 규칙은 루트 `AGENTS.md`의 `core/` 절.
 
 오케스트레이션: [ORCA-RUNTIME-AUDIT](../orchestration/ORCA-RUNTIME-AUDIT.md) · [MODEL_BINDINGS](../orchestration/MODEL_BINDINGS.md) · [AGENT-ROLES](../orchestration/AGENT-ROLES.md) · [RUN-AND-TASK-DAG](../orchestration/RUN-AND-TASK-DAG.md) · [WORKER-AND-REVIEW-CONTRACT](../orchestration/WORKER-AND-REVIEW-CONTRACT.md) · [FAILURE-AND-RECOVERY](../orchestration/FAILURE-AND-RECOVERY.md) · [PERMISSION-AND-COST-POLICY](../orchestration/PERMISSION-AND-COST-POLICY.md) · [EXECUTION-LEDGER](../orchestration/EXECUTION-LEDGER.md) · 코딩 규칙 초안 [AGENTS-DRAFT](../AGENTS-DRAFT.md)
 
