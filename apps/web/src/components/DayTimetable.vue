@@ -10,24 +10,31 @@ import { formatHour } from '../i18n/format';
  * picture of the list beside it, so assistive tech gets one sentence, not a
  * second copy of every block.
  */
-const props = defineProps<{
-  blocks: readonly (TimetableBlock & { readonly title: string })[];
-  /** `YYYY-MM-DD`, the day being shown. */
-  date: string;
-  timeZone: string;
-  nextBlockId: string | null;
-  nowMs: number;
-}>();
+const props = withDefaults(
+  defineProps<{
+    blocks: readonly (TimetableBlock & { readonly title: string })[];
+    /** `YYYY-MM-DD`, the day being shown. */
+    date: string;
+    timeZone: string;
+    nextBlockId: string | null;
+    nowMs: number;
+    /** CAL-01: the day's 약속, drawn as taken time (hatched), not as planned work. */
+    commitments?: readonly (TimetableBlock & { readonly title: string })[];
+  }>(),
+  { commitments: () => [] },
+);
 
 const TEN_MINUTE_MARKS = [10, 20, 30, 40, 50, 60] as const;
 
-const rows = computed(() => dayTimetable(props.blocks, props.date, props.timeZone, props.nextBlockId));
+const rows = computed(() =>
+  dayTimetable(props.blocks, props.date, props.timeZone, props.nextBlockId, props.commitments),
+);
 const firstHour = computed(() => rows.value[0]?.hour ?? 0);
 const now = computed(() => timetableNow(props.nowMs, props.date, props.timeZone, firstHour.value));
 
 /** Hours before both now and the first block: left out where the table is stacked under the list. */
 const compactFrom = computed(() => {
-  const firstRun = rows.value.find((row) => row.runs.length > 0)?.hour;
+  const firstRun = rows.value.find((row) => row.runs.length > 0 || row.taken.length > 0)?.hour;
   const candidates = [firstRun, now.value?.hour].filter((hour): hour is number => hour !== undefined);
   return candidates.length > 0 ? Math.min(...candidates) : null;
 });
@@ -39,6 +46,19 @@ const legend = computed(() => {
     .filter((block) => seriesOf.has(block.id))
     .map((block) => ({ id: block.id, title: block.title, series: seriesOf.get(block.id) ?? 1 }));
 });
+
+/** 약속 that are on the page, once each, in the order given. */
+const takenLegend = computed(() => {
+  const shown = new Set<string>();
+  for (const row of rows.value) for (const run of row.taken) shown.add(run.id);
+  return props.commitments.filter((commitment) => shown.has(commitment.id));
+});
+
+const tableLabel = computed(() =>
+  takenLegend.value.length === 0
+    ? tp('today.timetableLabel', legend.value.length)
+    : tp('today.timetableLabelWithCommitments', legend.value.length, { commitments: takenLegend.value.length }),
+);
 </script>
 
 <template>
@@ -47,7 +67,7 @@ const legend = computed(() => {
       <h2 id="day-timetable-title">{{ t('today.timetable') }}</h2>
       <p class="day-timetable-unit">{{ t('today.timetableUnit') }}</p>
     </header>
-    <div class="tt" role="img" :aria-label="tp('today.timetableLabel', legend.length)">
+    <div class="tt" role="img" :aria-label="tableLabel">
       <div class="tt-row tt-row--head" aria-hidden="true">
         <span class="tt-hour"></span>
         <span class="tt-marks">
@@ -69,6 +89,13 @@ const legend = computed(() => {
         <span class="tt-cells">
           <span v-if="now && now.hour === row.hour" class="tt-elapsed" :style="{ '--at': now.at }"></span>
           <span
+            v-for="mark in row.taken"
+            :key="`taken-${mark.id}`"
+            class="tt-taken"
+            data-timetable-commitment
+            :style="{ '--from': mark.from, '--to': mark.to }"
+          ></span>
+          <span
             v-for="run in row.runs"
             :key="run.blockId"
             class="tt-run"
@@ -79,10 +106,14 @@ const legend = computed(() => {
         </span>
       </div>
     </div>
-    <ul v-if="legend.length > 0" class="tt-legend" aria-hidden="true">
+    <ul v-if="legend.length > 0 || takenLegend.length > 0" class="tt-legend" aria-hidden="true">
       <li v-for="item in legend" :key="item.id">
         <span class="tt-swatch" :class="`tt-series--${item.series}`"></span>
         <span class="tt-legend-title">{{ item.title }}</span>
+      </li>
+      <li v-for="item in takenLegend" :key="`taken-${item.id}`" class="tt-legend-taken">
+        <span class="tt-swatch tt-swatch--taken"></span>
+        <span class="tt-legend-title">{{ t('today.timetableCommitment', { title: item.title }) }}</span>
       </li>
     </ul>
   </section>

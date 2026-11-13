@@ -20,7 +20,9 @@ interface MoreLink {
   readonly icon: IconName;
 }
 
+// CAL-01: 한달 opens the sheet (the bar's four slots stay Today, Inbox, add, Plan).
 const moreLinks: readonly MoreLink[] = [
+  { to: '/month', label: 'nav.month', icon: 'month' },
   { to: '/projects', label: 'nav.projects', icon: 'projects' },
   { to: '/notes', label: 'nav.notes', icon: 'note' },
   { to: '/plans/new', label: 'nav.newPlan', icon: 'compare' },
@@ -33,6 +35,7 @@ const moreLinks: readonly MoreLink[] = [
 ];
 
 const MORE_ROUTES = new Set([
+  'month',
   'projects',
   'project',
   'plans-new',

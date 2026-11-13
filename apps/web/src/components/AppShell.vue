@@ -149,6 +149,10 @@ function onKeydown(event: KeyboardEvent): void {
       event.preventDefault();
       void router.push({ name: 'today' });
       break;
+    case 'm':
+      event.preventDefault();
+      void router.push({ name: 'month' });
+      break;
     case '/':
       event.preventDefault();
       ui.openSearch();

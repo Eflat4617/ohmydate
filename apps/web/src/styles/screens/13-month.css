@@ -1,0 +1,481 @@
+/* ── 한달: the month page of the planner (CAL-01) ─────────────────────
+   Weeks are ruled rows of seven day cells, Monday first. In a cell a
+   planned block is a highlighter run over its words (yellow, mint once it
+   is finished), a 약속 carries the week calendar's ink hatch and a deadline
+   a pink flag: three shapes, so no kind is told by colour alone. Days that
+   are gone are shaded in pencil, as on the day time table, and today's date
+   takes the yellow that means "current". Below 640px a cell holds its date
+   and one mark per kind; the selected day's list carries the words. */
+.month-page .page-heading {
+  flex-flow: row wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-4);
+}
+
+.month-summary {
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.month-nav {
+  gap: var(--space-1-5);
+}
+
+.month-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-width: 0;
+}
+
+.month-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.month-note {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.month-empty {
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+}
+
+.month-empty a {
+  padding-inline: var(--space-0-5);
+}
+
+/* ── The grid ──────────────────────────────────────────────────────── */
+.month-grid {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.month-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-bottom: var(--rule-hair) solid var(--color-cal-grid);
+}
+
+.month-row--head {
+  border-bottom-color: var(--color-ink);
+}
+
+.month-weekday {
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-ink);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+}
+
+.month-weekday + .month-weekday,
+.month-cell + .month-cell {
+  border-left: var(--rule-hair) solid var(--color-cal-grid);
+}
+
+.month-cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  min-height: 6.75rem;
+  padding: var(--space-1-5) var(--space-1) var(--space-2);
+  background: var(--color-paper);
+  cursor: pointer;
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.month-cell:hover {
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--color-edge);
+}
+
+/* Days already gone: pencil shade, as elapsed time on the day time table. */
+.month-cell--past {
+  background: var(--color-paper-2);
+}
+
+/* The picked day is boxed in pen; the focus ring sits inside the box. */
+.month-cell--selected,
+.month-cell--selected:hover {
+  box-shadow: inset 0 0 0 var(--rule-bar) var(--color-ink);
+}
+
+.month-cell:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: calc(-1 * (var(--rule-bar) + var(--focus-width) + var(--space-0-5)));
+}
+
+.month-cell-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  padding-inline: var(--space-1);
+}
+
+.month-day {
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+}
+
+/* Days of the neighbouring months: there, but quiet. */
+.month-cell--other .month-day {
+  color: var(--color-muted);
+  font-weight: var(--weight-regular);
+}
+
+/* Today: the date in the yellow that means "current", and the word. */
+.month-cell--today .month-day {
+  margin-left: calc(-1 * var(--space-1));
+  padding: 0 var(--space-1);
+  background: var(--hl-yellow);
+  color: var(--color-on-hl);
+  font-weight: var(--weight-bold);
+}
+
+.month-today-word {
+  color: var(--color-ink);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+}
+
+.month-cell-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  padding: var(--space-1);
+}
+
+/* ── What a day holds ──────────────────────────────────────────────── */
+.month-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.month-item {
+  display: flex;
+  min-width: 0;
+  font-size: var(--text-2xs);
+  line-height: var(--leading-snug);
+}
+
+.month-item-ink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 var(--space-1);
+  color: var(--color-ink-2);
+}
+
+.month-item-time {
+  flex: none;
+  color: var(--color-muted);
+}
+
+.month-item-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A planned block is a highlighter run over its words; ink stays dark on it. */
+.month-item--block .month-item-ink {
+  --color-muted: var(--color-on-hl-muted);
+
+  background: var(--color-cal-block);
+  color: var(--color-on-cal-block);
+}
+
+.month-item--done .month-item-ink {
+  background: var(--color-ok);
+}
+
+.month-item-check {
+  flex: none;
+}
+
+.month-cell--other .month-item-ink {
+  color: var(--color-muted);
+}
+
+.month-cell--other .month-item--block .month-item-ink {
+  color: var(--color-on-hl-muted);
+}
+
+.month-more {
+  padding: 0 var(--space-1);
+  color: var(--color-muted);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-snug);
+}
+
+/* Marks: the shapes of the legend, also used alone on a phone. */
+.month-mark {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+}
+
+.month-mark--block {
+  width: 0.875rem;
+  height: 0.5rem;
+  background: var(--color-cal-block);
+  box-shadow: inset 0 0 0 var(--rule-hair) color-mix(in oklab, var(--color-cal-block) 50%, var(--color-on-hl));
+}
+
+.month-mark--block.month-mark--done {
+  background: var(--color-ok);
+  box-shadow: inset 0 0 0 var(--rule-hair) color-mix(in oklab, var(--color-ok) 50%, var(--color-on-hl));
+}
+
+/* A 약속 is inked in, as on the week calendar. */
+.month-mark--commitment {
+  width: 0.625rem;
+  height: 0.625rem;
+  border: var(--rule-hair) solid var(--color-ink);
+  background:
+    repeating-linear-gradient(135deg, var(--color-cal-commitment-stripe) 0 1px, transparent 1px 3px),
+    var(--color-cal-commitment);
+}
+
+/* A deadline: a pennant in the caution highlighter (UiDeadlineFlag). */
+.month-mark--deadline {
+  display: inline-block;
+}
+
+.month-marks {
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+}
+
+/* ── Legend, said once ─────────────────────────────────────────────── */
+.month-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-5);
+  margin: 0;
+  padding: 0;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  list-style: none;
+}
+
+.month-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.month-legend-run {
+  flex: none;
+  width: 1.25rem;
+  height: 0.75rem;
+  background: var(--color-cal-block);
+  box-shadow: inset 0 0 0 var(--rule-hair) color-mix(in oklab, var(--color-cal-block) 50%, var(--color-on-hl));
+}
+
+.month-legend-run--done {
+  background: var(--color-ok);
+  box-shadow: inset 0 0 0 var(--rule-hair) color-mix(in oklab, var(--color-ok) 50%, var(--color-on-hl));
+}
+
+.month-legend-today {
+  padding: 0 var(--space-1);
+  background: var(--hl-yellow);
+  color: var(--color-on-hl);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-bold);
+}
+
+/* ── The picked day ────────────────────────────────────────────────── */
+.month-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.month-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--rule-bar) solid var(--color-ink);
+}
+
+.month-detail-head h2 {
+  font-size: var(--text-lg);
+}
+
+.month-detail-today {
+  margin-left: var(--space-1);
+  padding: 0 var(--space-1);
+  background: var(--hl-yellow);
+  color: var(--color-on-hl);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0;
+}
+
+.month-detail-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+
+.month-detail-empty {
+  padding: var(--space-3) 0;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.month-agenda {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.month-agenda-item {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2-5);
+  padding: var(--space-2-5) 0;
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.month-agenda-item > .month-mark,
+.month-agenda-item > .month-legend-run {
+  justify-self: center;
+  margin-top: var(--space-1);
+}
+
+.month-agenda-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.month-agenda-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-2);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.month-agenda-title {
+  color: var(--color-ink);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.month-agenda-title:hover {
+  text-decoration: underline;
+}
+
+.month-agenda-item--done .month-agenda-title {
+  color: var(--color-ink-2);
+  font-weight: var(--weight-regular);
+}
+
+/* ── Widths ────────────────────────────────────────────────────────── */
+/* A phone: the date and a mark per kind, centred; the words are below. */
+@media (max-width: 639px) {
+  .month-weekday {
+    padding-inline: 0;
+    text-align: center;
+  }
+
+  .month-cell {
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 3.5rem;
+    padding: var(--space-1) 0;
+  }
+
+  .month-cell-head {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .month-cell--today .month-day {
+    margin-left: 0;
+  }
+
+  .month-today-word,
+  .month-items,
+  .month-cell-skeleton .skeleton + .skeleton {
+    display: none;
+  }
+
+  .month-cell-skeleton {
+    width: 100%;
+    padding: 0 var(--space-2);
+  }
+
+  .month-marks {
+    display: flex;
+  }
+}
+
+@media (min-width: 640px) and (pointer: coarse) {
+  .month-cell {
+    min-height: 7.25rem;
+  }
+}
+
+/* From 1280px the picked day is the page's one context column. It stays
+   narrow so the day cells keep room for their words. */
+@media (min-width: 1280px) {
+  .month-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 15rem;
+    align-items: start;
+    column-gap: var(--space-6);
+  }
+
+  .month-detail {
+    position: sticky;
+    top: var(--space-8);
+  }
+}
+
+@media (min-width: 1440px) {
+  .month-layout {
+    grid-template-columns: minmax(0, 1fr) 17rem;
+    column-gap: var(--space-8);
+  }
+
+  .month-cell {
+    min-height: 7rem;
+  }
+}

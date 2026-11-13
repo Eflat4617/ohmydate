@@ -5,7 +5,7 @@ import { createIntakeHandlers } from './intake-handlers';
 import { createNotesHandlers, seedFocusNote } from './notes';
 import { createPlanningHandlers } from './planning-handlers';
 import { createReplanHandlers, seedColdEstimation, seedReplanScenario } from './replan';
-import { mockDb, seedTodayRisk, type MockDb } from './db';
+import { mockDb, seedMonth, seedTodayRisk, type MockDb } from './db';
 
 declare global {
   interface Window {
@@ -20,6 +20,8 @@ declare global {
       today?: 'risk';
       /** M6-03: link a seeded note to the first Today task (Focus → RelatedNotes). */
       notes?: 'focus';
+      /** CAL-01: leave out the November month (blocks, 약속, deadlines) that mock mode seeds by default. */
+      month?: 'none';
     };
     /** Mock-mode only: the in-page synthetic database, for screenshot/state scripts. */
     __OHMYDATE_MOCK_DB__?: MockDb;
@@ -27,6 +29,8 @@ declare global {
 }
 
 const overrides = typeof window === 'undefined' ? undefined : window.__OHMYDATE_MOCK__;
+// CAL-01: mock mode opens on a believable month (src/mocks/db.ts seedMonth).
+if (overrides?.month !== 'none') seedMonth(mockDb);
 if (overrides?.llmProvider !== undefined) {
   mockDb.user = { ...mockDb.user, llmProvider: overrides.llmProvider };
 }

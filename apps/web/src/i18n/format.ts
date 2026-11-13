@@ -107,6 +107,30 @@ export function formatCivilMonthDay(date: string): string {
   return formatCivilDate(date, { weekday: false });
 }
 
+/** Full weekday (`토요일`) for a civil date. */
+export function formatCivilWeekdayLong(date: string): string {
+  const noon = new Date(`${date}T12:00:00Z`);
+  if (Number.isNaN(noon.getTime())) return date;
+  return dateTimeFormatter('UTC', { weekday: 'long' }).format(noon);
+}
+
+/** `2026년 11월` for a civil month (`YYYY-MM`). */
+export function formatCivilYearMonth(month: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (match === null) return month;
+  const noon = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1, 12));
+  if (Number.isNaN(noon.getTime())) return month;
+  return dateTimeFormatter('UTC', { year: 'numeric', month: 'long' }).format(noon);
+}
+
+/**
+ * `19:05`: a 24-hour clock for dense time grids (the month page's day
+ * cells), where `오후 7:05` does not fit. Running text keeps `formatTime`.
+ */
+export function formatClock(instant: string | number | Date, timeZone: string): string {
+  return dateTimeFormatter(timeZone, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(toDate(instant));
+}
+
 /** `오후 7:00` for an instant, in `timeZone`. */
 export function formatTime(instant: string | number | Date, timeZone: string): string {
   return dateTimeFormatter(timeZone, TIME_OPTIONS).format(toDate(instant));

@@ -268,7 +268,7 @@ A cool, nearly neutral paper and ink (hues 215 to 255) under six saturated highl
 
 ### Secondary
 - **Mint Highlighter** (`hl-mint`): done, saved, ok, feasible. The "saved" word, success badges and banners, a finished wizard step, a finished block on the day time table, and the focus meter once the session is complete.
-- **Pink Highlighter** (`hl-pink`): caution. Warning badges and banners, a conflict, a sync conflict on Focus, an AI wait that is running long, and (thinned to 22%, striped at 70%) a 쉼 exception on the week calendar.
+- **Pink Highlighter** (`hl-pink`): caution. Warning badges and banners, a conflict, a sync conflict on Focus, an AI wait that is running long, and (thinned to 22%, striped at 70%) a 쉼 exception on the week calendar. It is also the cloth of the deadline pennant (마감) on the month page and on Today, a flag drawn in ink so the shape says "deadline" without the colour.
 - **Sky Highlighter** (`hl-sky`): information, the default banner, and the 작업 paint on the availability grid.
 
 ### Tertiary
@@ -425,11 +425,13 @@ There are none. The section primitive has no edge, no fill and no padding; it is
 - **Toast:** ink fill, paper text, 4px corners, at most 30rem; bottom centre above the bottom nav, bottom right from 1024px.
 
 ### Time Cells (signature)
-Time is drawn as ten-minute cells that fill with highlighter. The same device appears four times.
+Time is drawn as ten-minute cells that fill with highlighter. The same device appears four times, and the month page reuses its marks.
 - **Day time table (Today):** hour rows of six cells under a 2px ink rule, with a header row marked 10 to 60. Each planned block is a run filled in its series highlighter; the ten-minute lines are drawn over the fill, as on paper. Elapsed time is shaded in the paper well up to a 2px ink line at now, and the current hour's label is highlighted yellow. A legend below pairs each swatch with its title.
 - **Meter (Focus progress):** a strip with a 1px control edge, ruled into as many cells as the plan has ten-minute units, filling with yellow from the left; mint once complete. The AI wait strip is the same strip with a run that travels while waiting.
 - **Availability grid:** cells painted by dragging; 작업 is a plain sky fill, 집중 is lilac with upright lines, erase is a dashed box.
 - **Week calendar:** planned blocks are yellow over their cells; commitments are paper pressed with ink stripes; focus windows are thinned lilac; a 쉼 exception is thinned pink with stripes and a red edge.
+- **Day time table, 약속 (CAL-01):** a commitment of the day is time that is taken but is not planned work: paper pressed with the week calendar's ink stripes and a 1px ink edge, drawn under the block runs, with its own legend entry (약속 · title).
+- **Month page (한달, CAL-01):** one ruled row per week (Monday first), seven day cells. In a cell a planned block is a yellow highlighter run over its time and title (mint with a tick once finished), a 약속 carries the striped ink box and a deadline the pink pennant; past days are shaded in pencil, today's date takes yellow and the word 오늘, and the picked day is boxed in a 2px ink line. A cell holds four lines and folds the rest into "+N개". Below 640px a cell shows its date and one mark per kind. From 1280px the picked day's list is the page's one context column (15rem, 17rem from 1440px); below that it sits under the grid. The legend is said once, under the grid.
 
 ### Motion
 State only. Durations are 120, 180 and 260ms on `cubic-bezier(0.2, 0, 0, 1)` or the softer `cubic-bezier(0.16, 1, 0.3, 1)`.

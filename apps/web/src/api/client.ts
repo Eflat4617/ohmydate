@@ -462,7 +462,7 @@ export class PlannerClient {
   }
 
   async listCommitments(
-    options: { from: string; to: string; cursor?: string; limit?: number },
+    options: { from: string; to: string; cursor?: string; limit?: number; signal?: AbortSignal },
   ): Promise<Page<Commitment>> {
     const query: { from: string; to: string; cursor?: string; limit?: number } = {
       from: options.from,
@@ -472,6 +472,7 @@ export class PlannerClient {
     if (options.limit !== undefined) query.limit = options.limit;
     const { data, error, response } = await this.client.GET('/commitments', {
       params: { query },
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty commitment page');

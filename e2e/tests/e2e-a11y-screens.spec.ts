@@ -26,6 +26,8 @@ import { readState } from '../helpers/state';
 // checks that "Back to Today" and the navigation come back (UI-POLISHR-1).
 // M5-03 adds the replan list and "내 패턴" at both widths (the proposal
 // detail, reject dialog and suppressed state are scanned by E2E-5R).
+// CAL-01 adds the month page (한달) at both widths: today is picked at first
+// and its list holds the 약속 seeded below.
 
 const state = readState();
 const account = { email: state.plansEmail, password: state.plansPassword };
@@ -213,6 +215,21 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expect(page.getByRole('heading', { name: '약속', level: 1 })).toBeVisible();
         await expect(page.locator('.commitment-title', { hasText: commitmentTitle })).toBeVisible();
         await expectAccessible(page, `commitments ${size}`);
+      });
+
+      await test.step(`month (${size})`, async () => {
+        await page.goto(`${state.webUrl}/month`);
+        await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^\d{4}년 \d{1,2}월$/);
+        const grid = page.getByRole('grid', { name: /달력$/ });
+        await expect(grid).toBeVisible();
+        await expect(grid.getByRole('columnheader')).toHaveCount(7);
+        await expect(grid.getByRole('gridcell', { selected: true })).toHaveCount(1);
+        await expect(grid.getByRole('gridcell', { selected: true })).toHaveAttribute('aria-label', /오늘/);
+        await expect(grid).not.toHaveAttribute('aria-busy', 'true');
+        await expect(
+          page.locator('[data-month-detail]').getByRole('link', { name: commitmentTitle }),
+        ).toBeVisible();
+        await expectAccessible(page, `month ${size}`);
       });
 
       await test.step(`AI settings (${size})`, async () => {

@@ -409,6 +409,129 @@ export function todayScheduleBlock(
   };
 }
 
+/** CAL-01: synthetic ids of the November month (`seedMonth`). */
+export const MONTH_TASK_THESIS_ID = '01900000-0000-7000-8000-0000000004a1';
+export const MONTH_TASK_SLIDES_ID = '01900000-0000-7000-8000-0000000004a2';
+export const MONTH_TASK_SCHOLARSHIP_ID = '01900000-0000-7000-8000-0000000004a3';
+export const MONTH_TASK_ENGLISH_ID = '01900000-0000-7000-8000-0000000004a4';
+export const MONTH_TASK_SUMMARY_ID = '01900000-0000-7000-8000-0000000004a5';
+export const MONTH_TASK_REPORT_ID = '01900000-0000-7000-8000-0000000004a6';
+export const MONTH_COMMITMENT_YOGA_ID = '01900000-0000-7000-8000-0000000004c1';
+export const MONTH_COMMITMENT_DENTIST_ID = '01900000-0000-7000-8000-0000000004c2';
+export const MONTH_COMMITMENT_CALL_ID = '01900000-0000-7000-8000-0000000004c3';
+export const MONTH_COMMITMENT_SEMINAR_ID = '01900000-0000-7000-8000-0000000004c4';
+export const MONTH_COMMITMENT_ADVISOR_ID = '01900000-0000-7000-8000-0000000004c5';
+const MONTH_PLAN_VERSION_ID = '01900000-0000-7000-8000-0000000000d1';
+
+/** A Seoul wall-clock time (UTC+9, no DST) as an instant. */
+function seoulInstant(date: string, time: string): string {
+  return new Date(`${date}T${time}:00+09:00`).toISOString();
+}
+
+/**
+ * CAL-01: a believable November 2026 around the pinned mock day (11-14,
+ * Asia/Seoul) for the month page and the screenshot sweep — finished blocks
+ * before today, planned ones after, a weekly 약속 next to the seeded team
+ * meeting, one-off 약속 (two of them today), and deadlines (one today, one
+ * overdue, one in the next month's first week). The same database and
+ * handlers serve it; the unit tests start without it (`createMockDb`).
+ */
+export function seedMonth(db: MockDb): void {
+  const createdAt = '2026-11-02T00:00:00.000Z';
+  const task = (
+    id: string,
+    title: string,
+    dueAt: string,
+    status: Task['status'] = 'todo',
+    projectId: string = db.inboxProjectId,
+  ): Task => ({
+    ...seedTask(title, 1, id),
+    projectId,
+    status,
+    dueAt,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  const tasks = [
+    task(MONTH_TASK_THESIS_ID, '졸업 논문 3장 초고', seoulInstant('2026-11-27', '18:00'), 'in_progress', SAMPLE_PROJECT_ID),
+    task(MONTH_TASK_SLIDES_ID, '세미나 발표 자료', seoulInstant('2026-11-20', '14:00'), 'in_progress'),
+    task(MONTH_TASK_SCHOLARSHIP_ID, '장학금 신청서 제출', seoulInstant('2026-11-14', '23:00')),
+    task(MONTH_TASK_ENGLISH_ID, '영어 회화 과제', seoulInstant('2026-11-06', '18:00')),
+    task(MONTH_TASK_SUMMARY_ID, '세미나 논문 요약', seoulInstant('2026-11-10', '18:00'), 'done'),
+    task(MONTH_TASK_REPORT_ID, '실험 보고서', seoulInstant('2026-12-04', '17:00'), 'todo', SAMPLE_PROJECT_ID),
+  ];
+  for (const item of tasks) db.tasks.set(item.id, item);
+  db.taskRevision += 1;
+
+  const blocks: [string, string, string, string, ScheduleBlock['status']][] = [
+    [MONTH_TASK_THESIS_ID, '2026-11-02', '19:00', '20:30', 'done'],
+    [MONTH_TASK_ENGLISH_ID, '2026-11-03', '20:00', '21:00', 'done'],
+    [MONTH_TASK_THESIS_ID, '2026-11-04', '19:30', '21:00', 'done'],
+    [MONTH_TASK_ENGLISH_ID, '2026-11-05', '20:00', '21:00', 'done'],
+    [MONTH_TASK_THESIS_ID, '2026-11-07', '10:00', '12:00', 'done'],
+    [MONTH_TASK_SUMMARY_ID, '2026-11-09', '19:00', '20:00', 'done'],
+    [MONTH_TASK_SLIDES_ID, '2026-11-10', '19:00', '20:30', 'done'],
+    [MONTH_TASK_THESIS_ID, '2026-11-12', '20:00', '21:30', 'done'],
+    [MONTH_TASK_SLIDES_ID, '2026-11-13', '19:00', '20:00', 'done'],
+    [MONTH_TASK_THESIS_ID, '2026-11-15', '14:00', '16:00', 'planned'],
+    [MONTH_TASK_SLIDES_ID, '2026-11-16', '19:00', '20:30', 'planned'],
+    [MONTH_TASK_SLIDES_ID, '2026-11-17', '20:00', '21:00', 'planned'],
+    [MONTH_TASK_THESIS_ID, '2026-11-18', '19:00', '20:00', 'planned'],
+    [MONTH_TASK_SLIDES_ID, '2026-11-18', '20:30', '21:30', 'planned'],
+    [MONTH_TASK_SLIDES_ID, '2026-11-19', '19:00', '20:00', 'planned'],
+    [MONTH_TASK_THESIS_ID, '2026-11-19', '20:30', '22:00', 'planned'],
+    [MONTH_TASK_THESIS_ID, '2026-11-20', '19:00', '20:00', 'planned'],
+    [MONTH_TASK_THESIS_ID, '2026-11-21', '10:00', '12:00', 'planned'],
+    [MONTH_TASK_REPORT_ID, '2026-11-21', '14:00', '15:30', 'planned'],
+    [MONTH_TASK_THESIS_ID, '2026-11-23', '19:00', '20:30', 'planned'],
+    [MONTH_TASK_THESIS_ID, '2026-11-24', '20:00', '21:30', 'planned'],
+    [MONTH_TASK_REPORT_ID, '2026-11-25', '13:00', '14:00', 'planned'],
+    [MONTH_TASK_THESIS_ID, '2026-11-25', '15:00', '16:00', 'planned'],
+    [MONTH_TASK_THESIS_ID, '2026-11-25', '19:00', '20:30', 'planned'],
+    [MONTH_TASK_REPORT_ID, '2026-11-25', '21:00', '22:00', 'planned'],
+    [MONTH_TASK_THESIS_ID, '2026-11-26', '19:00', '21:00', 'planned'],
+    [MONTH_TASK_THESIS_ID, '2026-11-27', '10:00', '12:00', 'planned'],
+    [MONTH_TASK_REPORT_ID, '2026-11-30', '19:00', '20:30', 'planned'],
+    [MONTH_TASK_REPORT_ID, '2026-12-02', '19:00', '20:30', 'planned'],
+  ];
+  db.extraScheduleBlocks = [
+    ...db.extraScheduleBlocks,
+    ...blocks.map(([taskId, date, start, end, status], index): ScheduleBlock => ({
+      id: `01900000-0000-7000-8000-0000000004${(0xd0 + index).toString(16)}`,
+      planVersionId: MONTH_PLAN_VERSION_ID,
+      taskId,
+      startAt: seoulInstant(date, start),
+      endAt: seoulInstant(date, end),
+      locked: false,
+      status,
+      version: 1,
+    })),
+  ];
+
+  const commitment = (id: string, title: string, date: string, start: string, end: string, rrule?: string): Commitment => ({
+    id,
+    ownerId: db.user.id,
+    title,
+    startAt: seoulInstant(date, start),
+    endAt: seoulInstant(date, end),
+    timeZone: 'Asia/Seoul',
+    ...(rrule === undefined ? {} : { rrule }),
+    source: 'manual',
+    version: 1,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  for (const item of [
+    commitment(MONTH_COMMITMENT_YOGA_ID, '요가', '2026-11-03', '07:30', '08:30', 'FREQ=WEEKLY;BYDAY=TU,TH'),
+    commitment(MONTH_COMMITMENT_DENTIST_ID, '치과 예약', '2026-11-14', '15:00', '15:40'),
+    commitment(MONTH_COMMITMENT_CALL_ID, '가족 통화', '2026-11-14', '22:00', '22:30'),
+    commitment(MONTH_COMMITMENT_SEMINAR_ID, '세미나 발표', '2026-11-20', '15:00', '16:30'),
+    commitment(MONTH_COMMITMENT_ADVISOR_ID, '지도 교수 면담', '2026-11-25', '17:00', '18:00'),
+  ]) {
+    db.commitments.set(item.id, item);
+  }
+}
+
 /** M6-02 screenshots: Today with a deadline risk (same reason codes as the API). */
 export function seedTodayRisk(db: MockDb): void {
   db.today = {
