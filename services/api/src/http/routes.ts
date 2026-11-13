@@ -1,4 +1,11 @@
 import {
+  GOOGLE_OAUTH_CALLBACK_PATH,
+  integrationRoutes,
+  type CalendarDayEventListQuery,
+  type GoogleDisconnectQuery,
+  type GoogleIntegrationSettingsPut,
+} from '@ohmydate/contracts';
+import {
   dailyRoutes,
   notesRoutes,
   planningRoutes,
@@ -130,6 +137,7 @@ import { PgNoteStore } from '../adapters/pg-note-store.js';
 import { NotesService } from '../application/notes/notes-service.js';
 import type { NoteRecord, NoteUsageRecord } from '../application/notes/ports.js';
 import { resolvePushKey } from '../application/push-crypto.js';
+import type { GoogleIntegrationService } from '../application/google-integration.js';
 import { sessionSecretMatches } from '../application/session-tokens.js';
 import type { Database } from '../db/types.js';
 import type { BudgetGuard, LlmPort } from '@ohmydate/llm';
@@ -175,6 +183,8 @@ export interface RouteRuntime {
   readonly replan: ReplanService;
   readonly estimation: EstimationService;
   readonly notes: NotesService;
+  /** CAL-03 Google Calendar integration (08 §2.11). */
+  readonly google: GoogleIntegrationService;
 }
 
 interface RouteMeta {
@@ -1638,7 +1648,132 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
       return reply.code(200).header('ETag', etag).send(template);
     },
+    ...buildGoogleHandlers(runtime),
   };
+}
+
+/** CAL-03 Google Calendar integration handlers (08 §2.11). */
+function buildGoogleHandlers(
+  runtime: RouteRuntime,
+): Record<string, (request: FastifyRequest, reply: FastifyReply) => Promise<FastifyReply>> {
+  return {
+    getGoogleIntegration: async (request, reply) => {
+      const auth = currentAuth(request);
+      const integration = await runtime.google.status(auth.userId);
+      const etag = etagForVersion(integration.version);
+      reply.header('Cache-Control', 'private, no-store');
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(integration);
+    },
+    connectGoogleIntegration: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const body = await runtime.google.connect(auth.userId);
+        return { status: 200, body, headers: { 'Cache-Control': 'no-store' } };
+      }),
+    updateGoogleIntegrationSettings: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const integration = await runtime.google.updateSettings(
+          auth.userId,
+          request.body as GoogleIntegrationSettingsPut,
+          requireIfMatch(request),
+        );
+        return {
+          status: 200,
+          body: integration,
+          headers: { ETag: etagForVersion(integration.version) },
+        };
+      }),
+    syncGoogleIntegration: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        return { status: 200, body: await runtime.google.syncNow(auth.userId) };
+      }),
+    disconnectGoogleIntegration: async (request, reply) =>
+      runIdempotent(runtime, request, reply, async () => {
+        const auth = currentAuth(request);
+        const query = (request.query ?? {}) as GoogleDisconnectQuery;
+        await runtime.google.disconnect(
+          auth.userId,
+          requireIfMatch(request),
+          query.removeExported !== 'false',
+        );
+        return { status: 204 };
+      }),
+    listCalendarDayEvents: async (request, reply) => {
+      const auth = currentAuth(request);
+      const query = request.query as CalendarDayEventListQuery;
+      const page = await runtime.google.listDayEvents(auth.userId, query.from, query.to);
+      const etag = etagForBody(page);
+      if (ifNoneMatch(request, etag)) return reply.code(304).header('ETag', etag).send();
+      return reply.code(200).header('ETag', etag).send(page);
+    },
+  };
+}
+
+/**
+ * Mutations after which the "OhMyDate" calendar may need an export (CAL-03 E).
+ * Block lock/unlock is not one: it never changes block times.
+ */
+const GOOGLE_EXPORT_NUDGE_OPERATIONS: ReadonlySet<string> = new Set([
+  'approvePlanCandidate',
+  'approveReplanProposal',
+  'acceptToday',
+  'shrinkToday',
+  'rescheduleToday',
+  'approveTodayProposal',
+  'createCommitment',
+  'updateCommitment',
+  'deleteCommitment',
+]);
+
+/**
+ * CAL-03: the OAuth callback is a top-level browser redirect, not a JSON
+ * operation (no CSRF header, no Problem body). It always answers 302 to the
+ * fixed settings path; the session cookie (SameSite=Lax) identifies the owner,
+ * and the service compares it with the owner bound to the single-use state.
+ * After-response export nudges run once the reply is sent and can never change
+ * or delay it.
+ */
+function registerGoogleRoutes(app: FastifyInstance, runtime: RouteRuntime): void {
+  app.get(toFastifyPath(GOOGLE_OAUTH_CALLBACK_PATH), async (request, reply) => {
+    const query = (request.query ?? {}) as Record<string, unknown>;
+    const text = (value: unknown): string | undefined =>
+      typeof value === 'string' && value.length > 0 && value.length <= 4_096 ? value : undefined;
+    let sessionOwnerId: Id | null = null;
+    try {
+      const sessionId = request.cookies[SID_COOKIE];
+      if (sessionId !== undefined && sessionId !== '') {
+        const session = await runtime.sessions.touch(sessionId);
+        sessionOwnerId = session === null ? null : (session.userId as Id);
+      }
+    } catch {
+      sessionOwnerId = null;
+    }
+    const result = await runtime.google.handleCallback({
+      sessionOwnerId,
+      code: text(query['code']),
+      state: text(query['state']),
+      error: text(query['error']),
+    });
+    return reply
+      .code(302)
+      .header('Location', runtime.google.redirectLocation(result))
+      .header('Cache-Control', 'no-store')
+      .header('Referrer-Policy', 'no-referrer')
+      .send();
+  });
+
+  app.addHook('onResponse', async (request, reply) => {
+    const operationId = (request.routeOptions.config as { operationId?: unknown } | undefined)
+      ?.operationId;
+    if (typeof operationId !== 'string' || !GOOGLE_EXPORT_NUDGE_OPERATIONS.has(operationId)) return;
+    if (reply.statusCode < 200 || reply.statusCode >= 300) return;
+    const ownerId = request.authSession?.userId;
+    if (ownerId === undefined) return;
+    runtime.google.nudgeExport(ownerId as Id);
+  });
 }
 
 /**
@@ -1747,6 +1882,7 @@ export function registerRoutes(app: FastifyInstance, runtime: RouteRuntime): voi
     ...dailyRoutes,
     ...replanningRoutes,
     ...notesRoutes,
+    ...integrationRoutes,
   ]) {
     const meta = routeMeta(route);
     const handler = handlers[meta.operationId];
@@ -1762,10 +1898,12 @@ export function registerRoutes(app: FastifyInstance, runtime: RouteRuntime): voi
       method: route.method.toUpperCase() as 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
       url: toFastifyPath(route.path),
       schema: schema as never,
+      config: { operationId: meta.operationId },
       preValidation: buildPreHandler(runtime, meta),
       handler,
     });
   }
+  registerGoogleRoutes(app, runtime);
 }
 
 export function createRuntime(options: {
@@ -1781,6 +1919,8 @@ export function createRuntime(options: {
   planningStore: PlanningStore;
   llm: LlmPort | null;
   budgetGuard: BudgetGuard;
+  /** CAL-03 Google Calendar integration, composed in app.ts. */
+  google: GoogleIntegrationService;
   /** Ids-only operational logger for background use-cases (never bodies). */
   logger?: { warn(message: string, details?: Readonly<Record<string, unknown>>): void };
 }): RouteRuntime {
@@ -1883,5 +2023,6 @@ export function createRuntime(options: {
       projects: options.repos.projects,
       ids: options.ids,
     }),
+    google: options.google,
   };
 }

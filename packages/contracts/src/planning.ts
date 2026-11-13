@@ -115,12 +115,28 @@ export const AvailabilityPutSchema = Type.Object(
   { additionalProperties: false, $id: 'AvailabilityPut' },
 );
 
-export const COMMITMENT_SOURCES = ['manual', 'caldav', 'vikunja'] as const;
+/**
+ * `google` (CAL-03) marks a 약속 imported from Google Calendar. It is read-only
+ * here: clients cannot create or patch a commitment into it, and an imported
+ * row cannot be edited or deleted through the API (409 `illegal_transition`).
+ */
+export const COMMITMENT_SOURCES = ['manual', 'caldav', 'vikunja', 'google'] as const;
 
 export type CommitmentSourceName = (typeof COMMITMENT_SOURCES)[number];
 
 export const CommitmentSourceSchema = Type.Union(
   COMMITMENT_SOURCES.map((source) => Type.Literal(source)) as TLiteral<CommitmentSourceName>[],
+);
+
+/** Sources a client may write (create/patch); `google` is import-only. */
+export const COMMITMENT_WRITABLE_SOURCES = ['manual', 'caldav', 'vikunja'] as const;
+
+export type CommitmentWritableSourceName = (typeof COMMITMENT_WRITABLE_SOURCES)[number];
+
+export const CommitmentWritableSourceSchema = Type.Union(
+  COMMITMENT_WRITABLE_SOURCES.map((source) =>
+    Type.Literal(source),
+  ) as TLiteral<CommitmentWritableSourceName>[],
 );
 
 export const CommitmentOccurrenceSchema = Type.Object(
@@ -161,7 +177,7 @@ export const CommitmentCreateSchema = Type.Object(
     endAt: InstantSchema,
     timeZone: IanaTimeZoneSchema,
     rrule: Type.Optional(RRuleSchema),
-    source: Type.Optional(CommitmentSourceSchema),
+    source: Type.Optional(CommitmentWritableSourceSchema),
   },
   { additionalProperties: false, $id: 'CommitmentCreate' },
 );
@@ -173,7 +189,7 @@ export const CommitmentPatchSchema = Type.Object(
     endAt: Type.Optional(InstantSchema),
     timeZone: Type.Optional(IanaTimeZoneSchema),
     rrule: Type.Optional(Type.Union([RRuleSchema, Type.Null()])),
-    source: Type.Optional(CommitmentSourceSchema),
+    source: Type.Optional(CommitmentWritableSourceSchema),
   },
   { additionalProperties: false, $id: 'CommitmentPatch' },
 );

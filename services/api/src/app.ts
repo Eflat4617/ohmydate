@@ -101,6 +101,7 @@ import {
   PlanConflictError,
 } from './application/planning-errors.js';
 import { installShutdownContext } from './http/shutdown-context.js';
+import { NotConfiguredGoogleIntegration } from './application/google-integration.js';
 import { loggedPath, loggedUrl } from './http/log-url.js';
 import './http/fastify-augment.js';
 
@@ -770,6 +771,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     planningStore,
     llm,
     budgetGuard,
+    google: new NotConfiguredGoogleIntegration(),
     logger: {
       warn: (message, details) => app.log.warn(details ?? {}, message),
     },
