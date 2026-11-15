@@ -20,7 +20,6 @@ export function m5Router(): Router {
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
       { path: '/replan', name: 'replan', component: Stub },
       { path: '/replan/:id', name: 'replan-proposal', component: Stub },
-      { path: '/patterns', name: 'patterns', component: Stub },
       { path: '/insights', name: 'insights', component: Stub },
       { path: '/plan', name: 'plan', component: Stub },
       { path: '/plan/schedule/:id', name: 'plan-schedule', component: Stub },

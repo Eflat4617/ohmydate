@@ -14,7 +14,7 @@ import PlannerView from './views/PlannerView.vue';
 import ProjectDetailView from './views/ProjectDetailView.vue';
 import ProjectListView from './views/ProjectListView.vue';
 import PlanView from './views/PlanView.vue';
-import PatternsView from './views/PatternsView.vue';
+import InsightsView from './views/InsightsView.vue';
 import ReplanView from './views/ReplanView.vue';
 import TaskDetailView from './views/TaskDetailView.vue';
 import TodayView from './views/TodayView.vue';
@@ -74,7 +74,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/replan', name: 'replan', component: ReplanView },
   { path: '/replan/:id', name: 'replan-proposal', component: ReplanView, props: true },
   // HOLO-03A: AI 분석 (was 내 패턴 at /patterns).
-  { path: '/insights', name: 'insights', component: PatternsView },
+  { path: '/insights', name: 'insights', component: InsightsView },
   { path: '/patterns', redirect: '/insights' },
   // An address the app does not know opens the dashboard.
   { path: '/:pathMatch(.*)*', redirect: '/overview' },

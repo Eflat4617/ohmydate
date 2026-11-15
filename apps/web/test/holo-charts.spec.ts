@@ -2,8 +2,10 @@ import { mount } from '@vue/test-utils';
 import { describe, expect, it } from 'vitest';
 import BarWeekChart from '../src/components/charts/BarWeekChart.vue';
 import RingChart from '../src/components/charts/RingChart.vue';
+import RatioBar from '../src/components/charts/RatioBar.vue';
 import TrendChart from '../src/components/charts/TrendChart.vue';
 import {
+  ratioSpan,
   areaPath,
   barGeometry,
   linePath,
@@ -269,5 +271,55 @@ describe('TrendChart', () => {
     expect(none.find('.trend-dot').exists()).toBe(false);
     expect(none.find('.trend-guide').exists()).toBe(false);
     expect(none.get('svg').attributes('aria-label')).toBe('기록 없음');
+  });
+});
+
+// HOLO-03A (AI 분석): a ratio against "as estimated".
+describe('ratio geometry', () => {
+  it('grows from the mark at 1 toward the ratio: to the right above 1, to the left below', () => {
+    // Scale 0..2: the mark stands in the middle.
+    expect(ratioSpan(1.5, 2)).toEqual({ tick: 50, left: 50, width: 25 });
+    expect(ratioSpan(0.5, 2)).toEqual({ tick: 50, left: 25, width: 25 });
+    expect(ratioSpan(1, 2)).toEqual({ tick: 50, left: 50, width: 0 });
+    // Another scale moves the mark, never the meaning.
+    expect(ratioSpan(3, 4)).toEqual({ tick: 25, left: 25, width: 50 });
+  });
+
+  it('stops at the edge of the scale, and draws nothing for no ratio (negative)', () => {
+    expect(ratioSpan(9, 2)).toEqual({ tick: 50, left: 50, width: 50 });
+    expect(ratioSpan(-1, 2)).toEqual({ tick: 50, left: 0, width: 50 });
+    expect(ratioSpan(null, 2)).toBeNull();
+    expect(ratioSpan(undefined, 2)).toBeNull();
+    expect(ratioSpan(Number.NaN, 2)).toBeNull();
+    // A scale that could not hold the mark falls back to 0..2.
+    expect(ratioSpan(1.5, 0.5)).toEqual({ tick: 50, left: 50, width: 25 });
+    expect(ratioSpan(1.5, Number.NaN)).toEqual({ tick: 50, left: 50, width: 25 });
+  });
+});
+
+describe('RatioBar', () => {
+  it('is a picture of a number written beside it: hidden from assistive technology, with the side as data', () => {
+    const over = mount(RatioBar, { props: { ratio: 1.5, max: 2 } });
+    expect(over.attributes('aria-hidden')).toBe('true');
+    expect(over.attributes('data-chart')).toBe('ratio');
+    expect(over.attributes('data-side')).toBe('over');
+    expect(over.get('.ratio-bar-fill').attributes('style')).toContain('left: 50%');
+    expect(over.get('.ratio-bar-fill').attributes('style')).toContain('width: 25%');
+    expect(over.get('.ratio-bar-tick').attributes('style')).toContain('left: 50%');
+
+    const under = mount(RatioBar, { props: { ratio: 0.8 } });
+    expect(under.attributes('data-side')).toBe('under');
+    expect(under.get('.ratio-bar-fill').attributes('style')).toContain('left: 40%');
+  });
+
+  it('draws only the mark at exactly 1, and nothing at all without a ratio (negative)', () => {
+    const even = mount(RatioBar, { props: { ratio: 1 } });
+    expect(even.find('.ratio-bar-fill').exists()).toBe(false);
+    expect(even.find('.ratio-bar-tick').exists()).toBe(true);
+
+    const none = mount(RatioBar, { props: { ratio: null } });
+    expect(none.attributes('data-side')).toBe('none');
+    expect(none.find('.ratio-bar-fill').exists()).toBe(false);
+    expect(none.find('.ratio-bar-tick').exists()).toBe(false);
   });
 });

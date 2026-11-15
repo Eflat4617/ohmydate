@@ -359,3 +359,35 @@
 .load-strip-mark {
   fill: var(--orange);
 }
+
+/* ── Ratio bar (HOLO-03A): a ratio against "as estimated" ──────────── */
+.ratio-bar {
+  position: relative;
+  display: block;
+  height: 0.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-fill);
+}
+
+.ratio-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--radius-pill);
+  background: var(--data-2);
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--data-2-edge);
+}
+
+/* Faster than estimated reads the other way, and in another series. */
+.ratio-bar[data-side='under'] .ratio-bar-fill {
+  background: var(--data-1);
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--data-1-edge);
+}
+
+.ratio-bar-tick {
+  position: absolute;
+  top: calc(-1 * var(--space-1));
+  bottom: calc(-1 * var(--space-1));
+  width: 0;
+  border-left: var(--rule-hair) dashed var(--color-text-3);
+}

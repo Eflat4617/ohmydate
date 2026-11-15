@@ -3,7 +3,7 @@ import ReplanRequestButton from '../src/components/ReplanRequestButton.vue';
 import { TODAY_TASK_ONE_ID, TODAY_TASK_TWO_ID, mockDb } from '../src/mocks/db';
 import { MOCK_PLAN_ID, REPLAN_PENDING_ID, seedReplanScenario } from '../src/mocks/replan';
 import { FEEDBACK_IDS } from '../src/mocks/replan-seed';
-import PatternsView from '../src/views/PatternsView.vue';
+import InsightsView from '../src/views/InsightsView.vue';
 import ReplanView from '../src/views/ReplanView.vue';
 import { buttonWith, mountView, waitForText } from './m5-test-utils';
 
@@ -246,12 +246,12 @@ describe('M5-03R-1 M1: transient answers keep the logical Idempotency-Key', () =
     mounted.wrapper.unmount();
   });
 
-  it('내 패턴 toggle and reset: timeout → in-progress → success replays with one key each', async () => {
+  it('AI 분석 toggle and reset: timeout → in-progress → success replays with one key each', async () => {
     const patch = vi.spyOn(plannerClient, 'patchEstimationFeedback');
     const [lostP, busyP] = transient();
     patch.mockRejectedValueOnce(lostP).mockRejectedValueOnce(busyP);
-    const { wrapper } = await mountView(PatternsView, { path: '/patterns' });
-    await vi.waitFor(() => expect(wrapper.findAll('.patterns-item').length).toBe(6));
+    const { wrapper } = await mountView(InsightsView, { path: '/insights' });
+    await vi.waitFor(() => expect(wrapper.findAll('.insights-record').length).toBe(6));
     const toggle = () => wrapper.get(`[data-feedback-id="${FEEDBACK_IDS.one}"] [data-include]`);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await vi.waitFor(() => expect(toggle().attributes('disabled')).toBeUndefined());

@@ -1,0 +1,418 @@
+/* ── AI 분석 (HOLO-03A) ─────────────────────────────────────────────────
+   A dashboard of the owner's own records. Cards on a 12-column grid: the
+   one big number (실제 ÷ 예상) with its trend first, what the AI does with
+   it beside it; then the charts by kind, week, weekday, time of day and
+   plans kept; the records last, full width.
+
+   Charts take the data series colours; lime marks only the bar that is
+   "now" or the peak. An empty card says so in the same place its chart
+   would be. */
+
+.insights-page {
+  container: insights / inline-size;
+}
+
+.insights-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.insights-card {
+  grid-column: 1 / -1;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+@container insights (min-width: 44rem) {
+  .insights-weeks,
+  .insights-weekday,
+  .insights-hours,
+  .insights-kept {
+    grid-column: span 6;
+    align-self: stretch;
+  }
+}
+
+/* Wide: the number and what is done with it; three bar charts in a row;
+   the plans kept beside the kinds; the records across. */
+@container insights (min-width: 64rem) {
+  .insights-estimate {
+    grid-column: span 8;
+  }
+
+  .insights-uses {
+    grid-column: span 4;
+    align-self: stretch;
+  }
+
+  .insights-weeks,
+  .insights-weekday,
+  .insights-hours {
+    grid-column: span 4;
+  }
+
+  .insights-groups {
+    grid-column: span 8;
+    align-self: stretch;
+  }
+
+  .insights-kept {
+    grid-column: span 4;
+  }
+}
+
+.insights-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.insights-card-head .card-title:focus-visible {
+  outline-offset: var(--space-1);
+}
+
+.insights-period,
+.insights-note {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+}
+
+/* Small facts beside a card's title: a quiet label, then its value. */
+.insights-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  margin: 0;
+}
+
+.insights-fact {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1-5);
+  font-size: var(--text-sm);
+}
+
+.insights-fact dt {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.insights-fact dd {
+  margin: 0;
+  color: var(--color-text);
+}
+
+/* ── 예상과 실제 ───────────────────────────────────────────────────── */
+.insights-estimate-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4) var(--space-8);
+  align-items: end;
+}
+
+@container insights (min-width: 44rem) {
+  .insights-estimate-body {
+    grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
+  }
+}
+
+.insights-estimate-figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.insights-estimate-number {
+  margin: 0;
+}
+
+.insights-estimate-number .numeral {
+  font-size: var(--text-num-lg);
+}
+
+.insights-estimate-unit {
+  font-size: var(--text-xl);
+}
+
+.insights-estimate-lean {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+
+.insights-trend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0;
+}
+
+.insights-trend .trend {
+  height: 7.5rem;
+}
+
+.insights-trend-caption,
+.insights-trend-axis {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.insights-trend-guide {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.insights-guide-mark {
+  width: 1.25rem;
+  height: 0;
+  border-top: var(--rule-hair) dashed var(--color-line-strong);
+}
+
+/* ── Empty: the same place the chart would be ──────────────────────── */
+.insights-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+  padding: var(--space-4);
+  border: var(--rule-hair) dashed var(--color-line-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+.insights-empty p {
+  margin: 0;
+}
+
+.insights-empty-title {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.insights-empty .btn {
+  margin-top: var(--space-1-5);
+}
+
+.insights-empty-line {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.insights-part-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  color: var(--color-danger-text);
+  font-size: var(--text-sm);
+}
+
+.insights-part-error p {
+  margin: 0;
+}
+
+/* ── AI가 이 기록으로 하는 일 ──────────────────────────────────────── */
+.insights-uses-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  list-style: none;
+}
+
+.insights-uses-list li {
+  position: relative;
+  padding-left: var(--space-4);
+}
+
+.insights-uses-list li::before {
+  position: absolute;
+  top: 0.55em;
+  left: 0;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--color-text-3);
+  content: '';
+}
+
+/* ── 종류별 ────────────────────────────────────────────────────────── */
+.insights-group-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: var(--space-5) var(--space-8);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.insights-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+
+.insights-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.insights-group-title {
+  min-width: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.insights-group-value {
+  flex: none;
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-light);
+  letter-spacing: var(--tracking-num);
+}
+
+.insights-group-meta {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.insights-group-reset {
+  align-self: flex-start;
+  margin-left: calc(-1 * var(--space-2));
+}
+
+/* ── Charts inside the cards ───────────────────────────────────────── */
+.insights-peak {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.insights-kept .ring {
+  align-self: center;
+  width: 100%;
+}
+
+/* ── 기록 ──────────────────────────────────────────────────────────── */
+.insights-record-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.insights-record {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-2-5) 0;
+  border-bottom: var(--rule-hair) solid var(--color-line);
+}
+
+.insights-record-main {
+  min-width: 0;
+}
+
+.insights-record-title {
+  margin: 0;
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.insights-record--off .insights-record-title {
+  color: var(--color-text-3);
+  font-weight: var(--weight-regular);
+}
+
+.insights-record-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.insights-record-ratio {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.insights-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height-sm);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+/* In a narrow card the badge and the switch go under the record. */
+@container insights (max-width: 40rem) {
+  .insights-record {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'main main'
+      'quality switch';
+  }
+
+  .insights-record-main {
+    grid-area: main;
+  }
+
+  .insights-record > .badge {
+    grid-area: quality;
+    justify-self: start;
+  }
+
+  .insights-switch {
+    grid-area: switch;
+    justify-self: end;
+  }
+}
+
+.insights-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.insights-record-actions > .btn--danger-ghost {
+  margin-left: auto;
+}

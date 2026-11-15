@@ -683,9 +683,9 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
   },
   {
-    name: 'patterns: exclude a record',
-    covers: ['src/views/PatternsView.vue'],
-    path: '/patterns',
+    name: 'insights: exclude a record',
+    covers: ['src/views/InsightsView.vue'],
+    path: '/insights',
     ready: patternsReady,
     hold: { method: 'PATCH', path: '/estimation/feedback/' },
     act: async (wrapper) => {
@@ -693,9 +693,9 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
   },
   {
-    name: 'patterns: reset everything',
-    covers: ['src/views/PatternsView.vue'],
-    path: '/patterns',
+    name: 'insights: reset everything',
+    covers: ['src/views/InsightsView.vue'],
+    path: '/insights',
     ready: async (wrapper) => {
       await patternsReady(wrapper);
       await wrapper.get('[data-reset-all]').trigger('click');

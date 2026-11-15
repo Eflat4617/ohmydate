@@ -8,7 +8,6 @@
 @import './screens/05-notifications.css';
 @import './screens/08-availability.css';
 @import './screens/09-dialogs-ai.css';
-@import './screens/10-replan-patterns.css';
 @import './screens/11-layout-panels.css';
 @import './screens/12-notes.css';
 @import './screens/13-month.css';
@@ -18,3 +17,4 @@
 @import './screens/17-tracker.css';
 @import './screens/18-plan.css';
 @import './screens/19-replan.css';
+@import './screens/20-insights.css';
