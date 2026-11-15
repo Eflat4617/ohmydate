@@ -41,11 +41,13 @@ const route = useRoute();
           :class="{ 'nav-link--current': isNavItemCurrent(item, route.name) }"
           :aria-current="isNavItemCurrent(item, route.name) ? 'page' : undefined"
           :title="ui.navCollapsed ? t(item.label) : undefined"
+          :aria-keyshortcuts="item.shortcut"
           :data-nav-place="item.id"
         >
           <UiIcon :name="item.icon" class="nav-link-icon" />
           <span class="nav-link-label">{{ t(item.label) }}</span>
-          <kbd v-if="item.shortcut">{{ item.shortcut }}</kbd>
+          <!-- The key is a hint for the eye; the link's name stays the place's (aria-keyshortcuts says the key). -->
+          <kbd v-if="item.shortcut" aria-hidden="true">{{ item.shortcut }}</kbd>
         </RouterLink>
       </li>
     </ul>
@@ -66,11 +68,12 @@ const route = useRoute();
         type="button"
         class="nav-link nav-link--quiet"
         :title="ui.navCollapsed ? t('nav.help') : undefined"
+        aria-keyshortcuts="?"
         @click="ui.openHelp"
       >
         <UiIcon name="help" class="nav-link-icon" />
         <span class="nav-link-label">{{ t('nav.help') }}</span>
-        <kbd>?</kbd>
+        <kbd aria-hidden="true">?</kbd>
       </button>
     </div>
   </nav>

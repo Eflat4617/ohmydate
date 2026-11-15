@@ -272,6 +272,13 @@ const riskReasons = computed(() => {
     ...riskReasonText(reason, (taskId) => titles.get(taskId)),
   }));
 });
+// An empty day has nothing to add up and nothing to accept: its figures and
+// the 수락 button wait for a plan. A risk that says something (an overdue
+// task, a day past its limit) is still shown.
+const hasBlocks = computed(() => blocks.value.length > 0);
+const riskShown = computed(
+  () => hasBlocks.value || (today.value !== null && (today.value.risk.level !== 'low' || riskReasons.value.length > 0)),
+);
 const riskTone = computed(() => {
   switch (today.value?.risk.level) {
     case 'high':
@@ -573,7 +580,7 @@ function resumeActive(): void {
           <UiBadge v-if="readOnly" tone="offline" dot class="chip--offline" role="status">
             {{ t('common.readOnlyOffline') }}
           </UiBadge>
-          <UiButton v-if="today" icon="check" :disabled="readOnly || busy" data-today-accept @click="acceptToday()">
+          <UiButton v-if="today && hasBlocks" icon="check" :disabled="readOnly || busy" data-today-accept @click="acceptToday()">
             {{ t('today.acceptPlan') }}
           </UiButton>
         </div>
@@ -635,9 +642,9 @@ function resumeActive(): void {
       </UiBanner>
 
       <template v-else-if="today">
-        <aside class="today-summary" aria-labelledby="today-summary-title">
+        <aside v-if="riskShown" class="today-summary" aria-labelledby="today-summary-title" data-today-summary>
           <h2 id="today-summary-title" class="visually-hidden">{{ t('today.summaryTitle') }}</h2>
-          <dl class="stat-grid today-stats">
+          <dl v-if="hasBlocks" class="stat-grid today-stats">
             <div class="stat card card--compact today-stat">
               <dt>{{ t('today.slack') }}</dt>
               <dd class="stat-value">{{ formatDuration(today.slackMin) }}</dd>

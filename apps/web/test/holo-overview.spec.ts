@@ -193,6 +193,31 @@ describe('개요 — greeting and the one primary button', () => {
     expect(wrapper.find('[data-tracker-start]').exists()).toBe(false);
   });
 
+  it('an empty day shows no row of zeros and nothing to accept; a risk that says something still shows (HOLO-04)', async () => {
+    mockDb.today = { ...mockDb.today, blocks: [], risk: { level: 'low', reasons: [] } };
+    const { wrapper } = await mountOverview();
+    await vi.waitFor(() => expect(wrapper.find('[data-today-empty]').exists()).toBe(true));
+    expect(wrapper.find('.today-stats').exists()).toBe(false);
+    expect(wrapper.find('[data-today-summary]').exists()).toBe(false);
+    expect(wrapper.find('[data-today-accept]').exists()).toBe(false);
+    wrapper.unmount();
+
+    // Negative: with no block today but a deadline at risk, the risk is not hidden with the figures.
+    mockDb.today = { ...mockDb.today, blocks: [], risk: { level: 'high', reasons: [] } };
+    const risky = await mountOverview();
+    await vi.waitFor(() => expect(risky.wrapper.find('[data-today-empty]').exists()).toBe(true));
+    expect(risky.wrapper.get('[data-today-summary]').text()).toContain('위험도: 높음');
+    expect(risky.wrapper.find('.today-stats').exists()).toBe(false);
+    expect(risky.wrapper.find('[data-today-accept]').exists()).toBe(false);
+  });
+
+  it('a day with blocks keeps its figures and 오늘 계획 수락', async () => {
+    const { wrapper } = await mountOverview();
+    await vi.waitFor(() => expect(wrapper.find('[data-primary="start"]').exists()).toBe(true));
+    expect(wrapper.findAll('.today-stats .today-stat')).toHaveLength(3);
+    expect(wrapper.find('[data-today-accept]').exists()).toBe(true);
+  });
+
   it('says so when the server refuses because a session is already running (negative)', async () => {
     seedWeek();
     server.use(

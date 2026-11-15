@@ -105,6 +105,9 @@ describe('sidebar', () => {
     // Every place has its line icon, and the shortcuts are shown.
     expect(wrapper.findAll('.nav-rail [data-nav-places] .nav-link').every((link) => link.find('svg.nav-link-icon').exists())).toBe(true);
     expect(wrapper.findAll('.nav-rail [data-nav-places] kbd').map((key) => key.text())).toEqual(['o', 't', 'p', 'm', 'f']);
+    // The key hints are for the eye: a link is named by its place alone, and says its key as a shortcut.
+    expect(wrapper.findAll('.nav-rail kbd').every((key) => key.attributes('aria-hidden') === 'true')).toBe(true);
+    expect(wrapper.findAll('.nav-rail [data-nav-places] a').map((link) => link.attributes('aria-keyshortcuts') ?? null)).toEqual(['o', 't', 'p', 'm', 'f', null, null]);
     // The brand opens 개요.
     expect(wrapper.get('.nav-brand').attributes('href')).toBe('/overview');
     // No "새 작업" button and no search entry in the sidebar (negative): both live in the top bar's capture bar.

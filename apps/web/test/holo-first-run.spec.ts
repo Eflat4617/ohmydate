@@ -189,6 +189,9 @@ describe('시작 안내 — a new owner is met by three steps', () => {
     expect(guideStep()).toBe('hours');
     // The shell says so for scripts that have to wait for the decision.
     expect(wrapper.get('.app-shell').attributes('data-first-run-state')).toBe('open');
+    // The question holds the focus, not 닫기: a keyboard or screen-reader user starts on what is asked.
+    await vi.waitFor(() => expect(document.activeElement?.id).toBe('first-run-title'));
+    expect(document.activeElement?.hasAttribute('data-first-run-close')).toBe(false);
     expect(guide()?.classList.contains('glass')).toBe(true);
     expect(guide()?.getAttribute('role')).toBe('dialog');
     expect(inGuide('h2').textContent).toBe('언제 일할 수 있나요?');

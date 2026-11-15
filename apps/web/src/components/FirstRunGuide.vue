@@ -208,7 +208,10 @@ function close(): void {
     <header class="dialog-header">
       <div class="dialog-heading">
         <p class="first-run-eyebrow">{{ t('firstRun.eyebrow') }}</p>
-        <h2 id="first-run-title" ref="heading" class="dialog-title" tabindex="-1">{{ t(`firstRun.${at}.title`) }}</h2>
+        <!-- The question takes the focus when the guide opens (not 닫기, the first control); the ending's button keeps it. -->
+        <h2 id="first-run-title" ref="heading" class="dialog-title" tabindex="-1" :data-autofocus="at === 'ready' ? undefined : ''">
+          {{ t(`firstRun.${at}.title`) }}
+        </h2>
         <p class="muted">{{ t(`firstRun.${at}.lede`) }}</p>
       </div>
       <button type="button" class="btn btn--ghost btn--icon" :aria-label="t('firstRun.close')" :disabled="busy" data-first-run-close @click="close">
