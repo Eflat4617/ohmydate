@@ -1,65 +1,40 @@
 //! Differential tests against the TypeScript scheduler (blueprint 15 §5).
 //!
-//! Every `tests/oracle/*.json` pack was written by
-//! `packages/scheduler/scripts/export-oracle.mts`. Each ported module must
-//! reproduce what the reference recorded, exactly: floats are compared by bit
-//! pattern, text byte for byte. As modules land, this file gains the
-//! comparison for their part of a case (`slots`, `result`, `validation`).
+//! Every pack was written by `packages/scheduler/scripts/export-oracle.mts`
+//! from the reference implementation. Each ported module must reproduce what
+//! the reference recorded, exactly: floats are compared by bit pattern, text
+//! byte for byte. The committed sample runs with every `cargo test`; a large
+//! pack is added with `OHMYDATE_ORACLE_DIR` (`corepack pnpm run core:diff`).
+//!
+//! Layers, lowest first — a mismatch in one explains mismatches above it:
+//! primitives → input round trip → `inputHash` → `slots` → `inputIssues` →
+//! `deficit` → `validation` and `probes` (the validator on the reference's
+//! candidates and on deliberately broken plans) → `result`, itself compared
+//! in layers: candidates and their policies → blocks → metrics →
+//! explanation → diversity note → the rest (`resultHash`).
 
-// Test code: a failed unwrap is a failed test.
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+// Test code: a failed unwrap is a failed test, and the layer numbers are
+// printed for the task report (`cargo test -- --nocapture`).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::print_stdout)]
 
-use std::path::PathBuf;
+mod support;
 
 use ohmydate_scheduler::canonical::{canonical_json, sha256_hex};
-use ohmydate_scheduler::input_hash::input_hash;
+use ohmydate_scheduler::explain::deficit;
+use ohmydate_scheduler::generate::generate;
+use ohmydate_scheduler::input_hash::{input_hash, input_hash_of};
 use ohmydate_scheduler::prng::Prng;
-use ohmydate_scheduler::time::{instant_to_utc, parse_instant, partition_by_local_date};
-use serde_json::Value;
-
-const FORMAT: &str = "ohmydate-scheduler-oracle";
-const FORMAT_VERSION: u64 = 1;
-
-fn check_header(pack: &Value) -> Result<(), String> {
-    if pack["format"] != FORMAT {
-        return Err(format!("not an oracle pack: format {}", pack["format"]));
-    }
-    if pack["formatVersion"] != FORMAT_VERSION {
-        return Err(format!(
-            "unsupported formatVersion {}",
-            pack["formatVersion"]
-        ));
-    }
-    Ok(())
-}
-
-fn packs() -> Vec<(String, Value)> {
-    let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle");
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&directory)
-        .unwrap_or_else(|error| panic!("cannot read {}: {error}", directory.display()))
-        .map(|entry| entry.unwrap().path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "json")
-        })
-        .collect();
-    files.sort();
-    assert!(
-        !files.is_empty(),
-        "no oracle packs in {}",
-        directory.display()
-    );
-    files
-        .into_iter()
-        .map(|path| {
-            let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            let pack: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap())
-                .unwrap_or_else(|error| panic!("{name} is not JSON: {error}"));
-            check_header(&pack).unwrap_or_else(|reason| panic!("{name}: {reason}"));
-            (name, pack)
-        })
-        .collect()
-}
+use ohmydate_scheduler::replay::{audit, history_blocks, read_plan, replay};
+use ohmydate_scheduler::sessions::{auto_split_min_session_min, max_legal_session_min};
+use ohmydate_scheduler::slots::compute_available_slots;
+use ohmydate_scheduler::time::{
+    LocalDate, TimeError, instant_nanoseconds, instant_to_utc, is_plain_date, is_valid_time_zone,
+    parse_clock, parse_instant, partition_by_local_date,
+};
+use ohmydate_scheduler::types::{GenerateOptions, ScheduleInput, Slot};
+use ohmydate_scheduler::validate::{InputIssue, validate_input};
+use serde_json::{Value, json};
+use support::packs::{FORMAT, FORMAT_VERSION, Tally, check_header, first_difference, packs};
 
 fn array<'a>(value: &'a Value, what: &str) -> &'a Vec<Value> {
     value
@@ -67,113 +42,228 @@ fn array<'a>(value: &'a Value, what: &str) -> &'a Vec<Value> {
         .unwrap_or_else(|| panic!("{what} is not an array"))
 }
 
-/// Fails with every mismatch at once, so one run shows the whole picture.
-fn report(mismatches: Vec<String>) {
-    assert!(
-        mismatches.is_empty(),
-        "{} mismatch(es):\n{}",
-        mismatches.len(),
-        mismatches.join("\n")
-    );
+fn typed(case: &Value) -> (ScheduleInput, GenerateOptions) {
+    let input = ScheduleInput::from_json(&case["input"])
+        .unwrap_or_else(|error| panic!("{}: input {error}", case["id"]));
+    let options = GenerateOptions::from_json(&case["options"])
+        .unwrap_or_else(|error| panic!("{}: options {error}", case["id"]));
+    (input, options)
 }
 
 #[test]
 fn the_prng_reproduces_the_reference_streams() {
-    let mut mismatches = Vec::new();
-    for (name, pack) in packs() {
-        for entry in array(&pack["primitives"]["prng"], "prng") {
+    let mut tally = Tally::new("primitives.prng");
+    for pack in packs() {
+        for entry in pack.primitives("prng") {
             let seed = entry["seed"].as_f64().unwrap();
             let mut prng = Prng::new(seed);
             for (index, expected) in array(&entry["floats"], "floats").iter().enumerate() {
                 let actual = prng.next_float();
-                if actual.to_bits() != expected.as_f64().unwrap().to_bits() {
-                    mismatches.push(format!(
-                        "{name} seed {seed} float #{index}: {actual} != {expected}"
-                    ));
-                }
+                tally.check(
+                    (actual.to_bits() != expected.as_f64().unwrap().to_bits()).then(|| {
+                        format!(
+                            "{} seed {seed} float #{index}: {actual} != {expected}",
+                            pack.name
+                        )
+                    }),
+                );
             }
             for ints in array(&entry["ints"], "ints") {
                 let max = ints["maxExclusive"].as_f64().unwrap();
                 let mut prng = Prng::new(seed);
-                let actual: Vec<f64> = array(&ints["values"], "values")
-                    .iter()
-                    .map(|_| prng.next_int(max))
-                    .collect();
                 let expected: Vec<f64> = array(&ints["values"], "values")
                     .iter()
-                    .map(|v| v.as_f64().unwrap())
+                    .map(|value| value.as_f64().unwrap())
                     .collect();
-                if actual != expected {
-                    mismatches.push(format!(
-                        "{name} seed {seed} ints below {max}: {actual:?} != {expected:?}"
-                    ));
-                }
+                let actual: Vec<f64> = expected.iter().map(|_| prng.next_int(max)).collect();
+                tally.check((actual != expected).then(|| {
+                    format!(
+                        "{} seed {seed} ints below {max}: {actual:?} != {expected:?}",
+                        pack.name
+                    )
+                }));
             }
         }
     }
-    report(mismatches);
+    tally.finish(100);
 }
 
 #[test]
 fn canonical_json_and_hashes_match_the_reference() {
-    let mut mismatches = Vec::new();
-    for (name, pack) in packs() {
-        for entry in array(&pack["primitives"]["canonical"], "canonical") {
+    let mut tally = Tally::new("primitives.canonical");
+    for pack in packs() {
+        for entry in pack.primitives("canonical") {
             let text = canonical_json(&entry["value"]);
-            if text != entry["text"].as_str().unwrap() {
-                mismatches.push(format!(
-                    "{name} canonical text: {text} != {}",
-                    entry["text"]
-                ));
-            }
-            if sha256_hex(&text) != entry["sha256"].as_str().unwrap() {
-                mismatches.push(format!("{name} sha256 of {text}"));
-            }
+            tally.check(
+                (text != entry["text"].as_str().unwrap())
+                    .then(|| format!("{} canonical text: {text} != {}", pack.name, entry["text"])),
+            );
+            tally.check(
+                (sha256_hex(&text) != entry["sha256"].as_str().unwrap())
+                    .then(|| format!("{} sha256 of {text}", pack.name)),
+            );
         }
     }
-    report(mismatches);
+    tally.finish(50);
 }
 
 #[test]
 fn instants_parse_and_print_like_the_reference() {
-    let mut mismatches = Vec::new();
-    for (name, pack) in packs() {
-        for entry in array(&pack["primitives"]["instants"], "instants") {
+    let mut tally = Tally::new("primitives.instants");
+    for pack in packs() {
+        for entry in pack.primitives("instants") {
             let text = entry["text"].as_str().unwrap();
-            let parsed = parse_instant(text).ok();
-            if parsed != entry["epochMs"].as_i64() {
-                mismatches.push(format!(
-                    "{name} parse {text:?}: {parsed:?} != {}",
-                    entry["epochMs"]
-                ));
-            }
-            let printed = parsed.and_then(|epoch_ms| instant_to_utc(epoch_ms).ok());
-            if printed.as_deref() != entry["utc"].as_str() {
-                mismatches.push(format!(
-                    "{name} print {text:?}: {printed:?} != {}",
-                    entry["utc"]
-                ));
+            let parsed = parse_instant(text);
+            tally.check((parsed.ok() != entry["epochMs"].as_i64()).then(|| {
+                format!(
+                    "{} parse {text:?}: {parsed:?} != {}",
+                    pack.name, entry["epochMs"]
+                )
+            }));
+            let printed = parsed
+                .ok()
+                .and_then(|epoch_ms| instant_to_utc(epoch_ms).ok());
+            tally.check((printed.as_deref() != entry["utc"].as_str()).then(|| {
+                format!(
+                    "{} print {text:?}: {printed:?} != {}",
+                    pack.name, entry["utc"]
+                )
+            }));
+            // The validators tell "finer than a millisecond" from "not an
+            // instant", so the two failures must be the reference's.
+            let sub_millisecond = parsed == Err(TimeError::SubMillisecond);
+            let nanoseconds = instant_nanoseconds(text);
+            tally.check(
+                (sub_millisecond != entry["subMillisecond"].as_bool().unwrap()
+                    || sub_millisecond != nanoseconds.is_ok_and(|value| value % 1_000_000 != 0))
+                .then(|| {
+                    format!(
+                        "{} sub-millisecond {text:?}: {parsed:?} / {nanoseconds:?} != {}",
+                        pack.name, entry["subMillisecond"]
+                    )
+                }),
+            );
+        }
+    }
+    tally.finish(100);
+}
+
+#[test]
+fn time_zone_ids_are_accepted_like_the_reference() {
+    let mut tally = Tally::new("primitives.zones");
+    for pack in packs() {
+        for entry in pack.primitives("zones") {
+            let id = entry["id"].as_str().unwrap();
+            let valid = is_valid_time_zone(id);
+            tally.check(
+                (valid != entry["valid"].as_bool().unwrap())
+                    .then(|| format!("{} zone {id:?}: {valid} != {}", pack.name, entry["valid"])),
+            );
+        }
+    }
+    tally.finish(50);
+}
+
+#[test]
+fn calendar_dates_are_accepted_and_printed_like_the_reference() {
+    let mut tally = Tally::new("primitives.dates");
+    for pack in packs() {
+        for entry in pack.primitives("dates") {
+            let text = entry["text"].as_str().unwrap();
+            let valid = is_plain_date(text);
+            tally
+                .check((valid != entry["valid"].as_bool().unwrap()).then(|| {
+                    format!("{} date {text:?}: {valid} != {}", pack.name, entry["valid"])
+                }));
+            // A date names a day of the partition only in its printed form.
+            let printed = entry["printed"].as_str();
+            let names_itself = LocalDate::from_printed(text).map(|date| date.to_string());
+            let expected = printed.filter(|printed| *printed == text);
+            tally.check((names_itself.as_deref() != expected).then(|| {
+                format!(
+                    "{} printed {text:?}: {names_itself:?} != {expected:?}",
+                    pack.name
+                )
+            }));
+        }
+    }
+    tally.finish(50);
+}
+
+#[test]
+fn local_clocks_parse_like_the_reference() {
+    let mut tally = Tally::new("primitives.clocks");
+    for pack in packs() {
+        for entry in pack.primitives("clocks") {
+            let text = entry["text"].as_str().unwrap();
+            let minutes = parse_clock(text).ok().map(|clock| clock.minutes());
+            tally.check((minutes != entry["minutes"].as_i64()).then(|| {
+                format!(
+                    "{} clock {text:?}: {minutes:?} != {}",
+                    pack.name, entry["minutes"]
+                )
+            }));
+        }
+    }
+    tally.finish(20);
+}
+
+#[test]
+fn legal_session_limits_match_the_reference() {
+    let mut tally = Tally::new("primitives.sessions");
+    for pack in packs() {
+        for entry in pack.primitives("sessions") {
+            let break_after_min = entry["breakAfterMin"].as_f64().unwrap();
+            let max_daily_focus_min = entry["maxDailyFocusMin"].as_f64().unwrap();
+            let limit = max_legal_session_min(break_after_min, max_daily_focus_min);
+            let actual = limit.map_or(
+                Value::Null,
+                |limit| json!({"capMin": limit.cap_min, "reason": limit.reason.as_str()}),
+            );
+            tally.check(
+                first_difference(&actual, &entry["limit"]).map(|difference| {
+                    format!(
+                        "{} limit({break_after_min}, {max_daily_focus_min}) {difference}",
+                        pack.name
+                    )
+                }),
+            );
+            for split in array(&entry["autoSplitMin"], "autoSplitMin") {
+                let default_min = split["defaultMin"].as_f64().unwrap();
+                let actual = auto_split_min_session_min(limit.unwrap().cap_min, default_min);
+                tally.check(
+                    (actual.to_bits() != split["minSessionMin"].as_f64().unwrap().to_bits()).then(
+                        || {
+                            format!(
+                                "{} autoSplitMin({}, {default_min}): {actual} != {}",
+                                pack.name,
+                                limit.unwrap().cap_min,
+                                split["minSessionMin"]
+                            )
+                        },
+                    ),
+                );
             }
         }
     }
-    report(mismatches);
+    tally.finish(50);
 }
 
 #[test]
 fn local_date_partitions_match_the_reference_across_dst_transitions() {
-    let mut mismatches = Vec::new();
-    let mut compared = 0;
-    for (name, pack) in packs() {
-        for entry in array(&pack["primitives"]["partitions"], "partitions") {
+    let mut tally = Tally::new("primitives.partitions");
+    let mut segments = 0;
+    for pack in packs() {
+        for entry in pack.primitives("partitions") {
             let zone = entry["timeZone"].as_str().unwrap();
             let start = parse_instant(entry["start"].as_str().unwrap()).unwrap();
             let end = parse_instant(entry["end"].as_str().unwrap()).unwrap();
             let actual: Vec<Value> = partition_by_local_date(start, end, zone)
-                .unwrap_or_else(|error| panic!("{name} {zone}: {error}"))
+                .unwrap_or_else(|error| panic!("{} {zone}: {error}", pack.name))
                 .into_iter()
                 .map(|segment| {
-                    serde_json::json!({
-                        "date": segment.date,
+                    json!({
+                        "date": segment.date.to_string(),
                         "weekday": segment.weekday,
                         "offsetMs": segment.offset_ms,
                         "startMs": segment.start_ms,
@@ -182,95 +272,465 @@ fn local_date_partitions_match_the_reference_across_dst_transitions() {
                     })
                 })
                 .collect();
-            let expected = array(&entry["segments"], "segments");
-            compared += expected.len();
-            if &actual != expected {
-                let first = actual
-                    .iter()
-                    .zip(expected)
-                    .position(|(a, e)| a != e)
-                    .unwrap_or(actual.len().min(expected.len()));
-                mismatches.push(format!(
-                    "{name} {zone} {}..{}: {} vs {} segments, first difference at #{first}: {:?} != {:?} \
-                     (reference tzdata {})",
-                    entry["start"], entry["end"], actual.len(), expected.len(),
-                    actual.get(first), expected.get(first), pack["oracle"]["tzdata"],
-                ));
-            }
+            segments += actual.len();
+            tally.check(
+                first_difference(&Value::Array(actual), &entry["segments"]).map(|difference| {
+                    format!(
+                        "{} {zone} {}..{} {difference} (reference tzdata {})",
+                        pack.name, entry["start"], entry["end"], pack.header["oracle"]["tzdata"],
+                    )
+                }),
+            );
         }
     }
-    assert!(compared > 400, "only {compared} segments compared");
-    report(mismatches);
+    assert!(segments > 450, "only {segments} segments compared");
+    tally.finish(29);
+}
+
+#[test]
+fn every_input_reads_into_the_typed_model_and_writes_back_unchanged() {
+    let mut tally = Tally::new("input round trip");
+    for pack in packs() {
+        for case in pack.cases() {
+            let (input, _) = typed(&case);
+            let written = canonical_json(&input.to_json());
+            tally.check((written != canonical_json(&case["input"])).then(|| {
+                format!(
+                    "{} {}: the typed input writes back differently",
+                    pack.name, case["id"]
+                )
+            }));
+        }
+    }
+    tally.finish(27);
 }
 
 #[test]
 fn input_hashes_of_every_case_match_the_reference() {
-    let mut mismatches = Vec::new();
-    let mut compared = 0;
-    for (name, pack) in packs() {
-        for case in array(&pack["cases"], "cases") {
-            let expected_hash = input_hash(&case["input"], &case["options"]);
+    let mut tally = Tally::new("inputHash");
+    for pack in packs() {
+        for case in pack.cases() {
+            let (input, options) = typed(&case);
+            let from_typed = input_hash_of(&input, &options);
+            let from_json = input_hash(&case["input"], &case["options"]);
             for candidate in array(&case["result"]["candidates"], "candidates") {
-                compared += 1;
-                if candidate["inputHash"] != expected_hash.as_str() {
-                    mismatches.push(format!(
-                        "{name} {} {}: {expected_hash} != {}",
-                        case["id"], candidate["policy"], candidate["inputHash"]
+                tally.check(
+                    (candidate["inputHash"] != from_typed.as_str()
+                        || candidate["inputHash"] != from_json.as_str())
+                    .then(|| {
+                        format!(
+                            "{} {} {}: {from_typed} / {from_json} != {}",
+                            pack.name, case["id"], candidate["policy"], candidate["inputHash"]
+                        )
+                    }),
+                );
+            }
+        }
+    }
+    tally.finish(20);
+}
+
+#[test]
+fn available_slots_match_the_reference() {
+    let mut tally = Tally::new("slots");
+    let (mut unreadable, mut intervals) = (0, 0);
+    for pack in packs() {
+        for case in pack.cases() {
+            let (input, _) = typed(&case);
+            // The reference records `null` where `computeAvailableSlots` throws.
+            let actual = match compute_available_slots(&input) {
+                Ok(slots) => {
+                    intervals += slots.len();
+                    Value::Array(slots.iter().map(Slot::to_json).collect())
+                }
+                Err(_) => {
+                    unreadable += 1;
+                    Value::Null
+                }
+            };
+            tally.check(
+                first_difference(&actual, &case["slots"])
+                    .map(|difference| format!("{} {} slots{difference}", pack.name, case["id"])),
+            );
+        }
+    }
+    println!("oracle layer slots: {intervals} interval(s), {unreadable} unreadable input(s)");
+    assert!(intervals > 100, "only {intervals} slot intervals compared");
+    assert!(unreadable > 0, "no case exercises an unreadable input");
+    tally.finish(27);
+}
+
+#[test]
+fn input_issues_match_the_reference() {
+    let mut tally = Tally::new("inputIssues");
+    let mut issues = 0;
+    for pack in packs() {
+        for case in pack.cases() {
+            let (input, _) = typed(&case);
+            let found = validate_input(&input);
+            issues += found.len();
+            let actual = Value::Array(found.iter().map(InputIssue::to_json).collect());
+            tally.check(
+                first_difference(&actual, &case["inputIssues"]).map(|difference| {
+                    format!("{} {} inputIssues{difference}", pack.name, case["id"])
+                }),
+            );
+        }
+    }
+    println!("oracle layer inputIssues: {issues} issue(s)");
+    assert!(issues > 0, "no case has an input issue");
+    tally.finish(27);
+}
+
+#[test]
+fn capacity_reports_match_the_reference() {
+    let mut tally = Tally::new("deficit");
+    let (mut unreadable, mut tasks) = (0, 0);
+    for pack in packs() {
+        for case in pack.cases() {
+            let (input, _) = typed(&case);
+            // The reference records `null` where `deficit` throws.
+            let actual = match deficit(&input) {
+                Ok(report) => {
+                    tasks += report.tasks.len();
+                    report.to_json()
+                }
+                Err(_) => {
+                    unreadable += 1;
+                    Value::Null
+                }
+            };
+            tally.check(
+                first_difference(&actual, &case["deficit"])
+                    .map(|difference| format!("{} {} deficit{difference}", pack.name, case["id"])),
+            );
+        }
+    }
+    println!("oracle layer deficit: {tasks} task row(s), {unreadable} unreadable input(s)");
+    assert!(tasks > 50, "only {tasks} task rows compared");
+    tally.finish(27);
+}
+
+/// Audits `blocks` and compares with the recorded verdict; returns how many
+/// violations the reference reported.
+fn check_audit(
+    tally: &mut Tally,
+    input: &ScheduleInput,
+    blocks: &Value,
+    expected: &Value,
+    place: &str,
+) -> usize {
+    let history = history_blocks(input);
+    let plan = read_plan(blocks, "").unwrap_or_else(|error| panic!("{place}: blocks {error}"));
+    let actual = audit(input, &history, &plan);
+    tally.check(
+        first_difference(&actual, expected).map(|difference| format!("{place}{difference}")),
+    );
+    expected.as_array().map_or(0, Vec::len)
+}
+
+#[test]
+fn the_validator_agrees_on_every_reference_candidate() {
+    let mut tally = Tally::new("validation");
+    let mut violations = 0;
+    for pack in packs() {
+        for case in pack.cases() {
+            let (input, _) = typed(&case);
+            let candidates = array(&case["result"]["candidates"], "candidates");
+            let validation = array(&case["validation"], "validation");
+            assert_eq!(candidates.len(), validation.len(), "{}", case["id"]);
+            for (candidate, recorded) in candidates.iter().zip(validation) {
+                violations += check_audit(
+                    &mut tally,
+                    &input,
+                    &candidate["blocks"],
+                    &recorded["violations"],
+                    &format!(
+                        "{} {} validation of {} ",
+                        pack.name, case["id"], recorded["policy"]
+                    ),
+                );
+            }
+        }
+    }
+    println!("oracle layer validation: {violations} violation(s)");
+    assert!(violations > 20, "only {violations} violations compared");
+    tally.finish(40);
+}
+
+#[test]
+fn the_validator_agrees_on_deliberately_broken_plans() {
+    let mut tally = Tally::new("probes");
+    let mut violations = 0;
+    for pack in packs() {
+        for case in pack.cases() {
+            let (input, _) = typed(&case);
+            for (index, probe) in array(&case["probes"], "probes").iter().enumerate() {
+                violations += check_audit(
+                    &mut tally,
+                    &input,
+                    &probe["blocks"],
+                    &probe["violations"],
+                    &format!("{} {} probe #{index} ", pack.name, case["id"]),
+                );
+            }
+        }
+    }
+    println!("oracle layer probes: {violations} violation(s)");
+    assert!(violations > 200, "only {violations} violations compared");
+    tally.finish(100);
+}
+
+/// The first layer of a generated result that differs from the recorded
+/// one, with the place of the difference.
+fn result_difference(actual: &Value, expected: &Value) -> Option<(&'static str, String)> {
+    let policies = |result: &Value| -> Vec<Value> {
+        array(&result["candidates"], "candidates")
+            .iter()
+            .map(|candidate| candidate["policy"].clone())
+            .collect()
+    };
+    if let Some(difference) = first_difference(
+        &Value::Array(policies(actual)),
+        &Value::Array(policies(expected)),
+    ) {
+        return Some(("candidates", difference));
+    }
+    let per_candidate = |layer: &'static str, fields: &[&str]| {
+        for (index, (ours, theirs)) in array(&actual["candidates"], "candidates")
+            .iter()
+            .zip(array(&expected["candidates"], "candidates"))
+            .enumerate()
+        {
+            for field in fields {
+                if let Some(difference) = first_difference(&ours[*field], &theirs[*field]) {
+                    return Some((
+                        layer,
+                        format!(
+                            "{} /candidates/{index}/{field}{difference}",
+                            theirs["policy"]
+                        ),
                     ));
                 }
             }
         }
+        None
+    };
+    per_candidate("blocks", &["blocks"])
+        .or_else(|| {
+            per_candidate(
+                "metrics",
+                &["metrics", "feasible", "deficitMin", "capacityDeficitMin"],
+            )
+        })
+        .or_else(|| per_candidate("explanation", &["explanation", "explanationItems"]))
+        .or_else(|| {
+            ["diversityNote", "diversityNoteItems"]
+                .iter()
+                .find_map(|field| {
+                    let absent = Value::Null;
+                    first_difference(
+                        actual.get(*field).unwrap_or(&absent),
+                        expected.get(*field).unwrap_or(&absent),
+                    )
+                    .map(|difference| ("diversity", format!("/{field}{difference}")))
+                })
+        })
+        .or_else(|| first_difference(actual, expected).map(|difference| ("rest", difference)))
+}
+
+/// A replan is an input that carries blocks of an earlier plan, whichever
+/// way the exporter made it.
+fn is_replan(case: &Value) -> bool {
+    case["input"]["existingBlocks"]
+        .as_array()
+        .is_some_and(|blocks| !blocks.is_empty())
+}
+
+/// Generates every wanted case and compares with the recorded result.
+fn check_results(layer: &'static str, wanted: impl Fn(&Value) -> bool, at_least: usize) {
+    let mut tally = Tally::new(layer);
+    let mut by_layer: Vec<(&'static str, usize)> = Vec::new();
+    let (mut candidates, mut feasible) = (0, 0);
+    for pack in packs() {
+        for case in pack.cases() {
+            if !wanted(&case) {
+                continue;
+            }
+            let (input, options) = typed(&case);
+            let actual = generate(&input, &options)
+                .unwrap_or_else(|error| panic!("{} {}: {error}", pack.name, case["id"]))
+                .to_json();
+            for candidate in array(&case["result"]["candidates"], "candidates") {
+                candidates += 1;
+                feasible += usize::from(candidate["feasible"] == true);
+            }
+            let difference = result_difference(&actual, &case["result"]);
+            if let Some((result_layer, _)) = &difference {
+                match by_layer.iter_mut().find(|(known, _)| known == result_layer) {
+                    Some(entry) => entry.1 += 1,
+                    None => by_layer.push((result_layer, 1)),
+                }
+            }
+            tally.check(difference.map(|(result_layer, place)| {
+                format!("{} {} [{result_layer}] {place}", pack.name, case["id"])
+            }));
+            // The hash is the definition of "the same result".
+            let hash = sha256_hex(&canonical_json(&actual));
+            tally.check((case["resultHash"] != hash.as_str()).then(|| {
+                format!(
+                    "{} {} resultHash {hash} != {}",
+                    pack.name, case["id"], case["resultHash"]
+                )
+            }));
+        }
     }
-    assert!(compared >= 20, "only {compared} candidates compared");
-    report(mismatches);
+    println!(
+        "oracle layer {layer}: {candidates} candidate(s), {feasible} feasible; mismatching cases by first differing layer: {by_layer:?}"
+    );
+    tally.finish(at_least);
+}
+
+#[test]
+fn new_plans_match_the_reference() {
+    check_results("result (new plans)", |case| !is_replan(case), 46);
+}
+
+#[test]
+fn replans_match_the_reference() {
+    check_results("result (replans)", is_replan, 4);
+}
+
+#[test]
+fn replaying_a_case_gives_the_recorded_layers() {
+    // The path `sched-diff` and the shrinker use: JSON in, JSON out.
+    let mut tally = Tally::new("replay");
+    for pack in packs() {
+        for case in pack.cases().take(40) {
+            let plans: Vec<Value> = array(&case["probes"], "probes")
+                .iter()
+                .map(|probe| probe["blocks"].clone())
+                .collect();
+            let output = replay(&case["input"], &case["options"], &plans)
+                .unwrap_or_else(|error| panic!("{} {}: {error}", pack.name, case["id"]));
+            for layer in [
+                "inputIssues",
+                "slots",
+                "deficit",
+                "result",
+                "resultHash",
+                "validation",
+            ] {
+                tally.check(
+                    first_difference(&output[layer], &case[layer]).map(|difference| {
+                        format!("{} {} replay {layer}{difference}", pack.name, case["id"])
+                    }),
+                );
+            }
+            let recorded: Vec<Value> = array(&case["probes"], "probes")
+                .iter()
+                .map(|probe| json!({"violations": probe["violations"]}))
+                .collect();
+            tally.check(
+                first_difference(&output["plans"], &Value::Array(recorded)).map(|difference| {
+                    format!("{} {} replay plans{difference}", pack.name, case["id"])
+                }),
+            );
+        }
+    }
+    tally.finish(100);
 }
 
 #[test]
 fn recorded_results_hash_to_their_recorded_result_hash() {
     // Exercises canonical JSON on full results (float metrics, nested
     // explanation items) and guards the pack against hand edits.
-    let mut mismatches = Vec::new();
-    for (name, pack) in packs() {
-        for case in array(&pack["cases"], "cases") {
+    let mut tally = Tally::new("resultHash of the recorded result");
+    for pack in packs() {
+        for case in pack.cases() {
             let actual = sha256_hex(&canonical_json(&case["result"]));
-            if case["resultHash"] != actual.as_str() {
-                mismatches.push(format!(
-                    "{name} {}: {actual} != {}",
-                    case["id"], case["resultHash"]
-                ));
-            }
+            tally.check((case["resultHash"] != actual.as_str()).then(|| {
+                format!(
+                    "{} {}: {actual} != {}",
+                    pack.name, case["id"], case["resultHash"]
+                )
+            }));
         }
     }
-    report(mismatches);
+    tally.finish(27);
 }
 
 #[test]
 fn a_changed_input_no_longer_matches_its_recorded_hash() {
-    let (_, pack) = packs().remove(0);
-    let case = array(&pack["cases"], "cases")
-        .iter()
+    let pack = packs().remove(0);
+    let case = pack
+        .cases()
         .find(|case| !array(&case["result"]["candidates"], "candidates").is_empty())
         .unwrap();
     let recorded = case["result"]["candidates"][0]["inputHash"]
         .as_str()
         .unwrap();
-    assert_eq!(input_hash(&case["input"], &case["options"]), recorded);
-    let mut changed = case["input"].clone();
-    changed["seed"] = serde_json::json!(case["input"]["seed"].as_f64().unwrap() + 1.0);
-    assert_ne!(input_hash(&changed, &case["options"]), recorded);
+    let (mut input, options) = typed(&case);
+    assert_eq!(input_hash_of(&input, &options), recorded);
+    input.seed += 1.0;
+    assert_ne!(input_hash_of(&input, &options), recorded);
+}
+
+#[test]
+fn a_changed_pack_is_reported_as_a_mismatch_with_its_place() {
+    // The comparison itself: equal values pass, a changed leaf, a missing
+    // key and a shorter list are each found and located.
+    let recorded = json!({"slots": [{"start": "a", "end": "b"}], "n": 1.5});
+    assert_eq!(first_difference(&recorded, &recorded.clone()), None);
+    let mut changed = recorded.clone();
+    changed["slots"][0]["end"] = json!("c");
+    let difference = first_difference(&changed, &recorded).unwrap();
+    assert!(difference.starts_with("/slots/0/end"), "{difference}");
+    let mut number = recorded.clone();
+    number["n"] = json!(1.500_000_000_000_000_2);
+    assert!(
+        first_difference(&number, &recorded)
+            .unwrap()
+            .starts_with("/n")
+    );
+    let mut shorter = recorded.clone();
+    shorter["slots"] = json!([]);
+    assert!(
+        first_difference(&shorter, &recorded)
+            .unwrap()
+            .contains("0 item(s) != 1 item(s)")
+    );
+    let mut missing = recorded.clone();
+    missing.as_object_mut().unwrap().remove("n");
+    assert!(
+        first_difference(&missing, &recorded)
+            .unwrap()
+            .contains("absent")
+    );
+    assert!(first_difference(&Value::Null, &json!([])).is_some());
+
+    let mut tally = Tally::new("self-test");
+    tally.check(None);
+    tally.check(Some("difference".to_owned()));
+    assert_eq!(tally.compared(), 2);
+    assert!(std::panic::catch_unwind(move || tally.finish(1)).is_err());
+    let empty = Tally::new("self-test");
+    assert!(std::panic::catch_unwind(move || empty.finish(1)).is_err());
 }
 
 #[test]
 fn packs_of_another_format_or_version_are_refused() {
-    let good = serde_json::json!({"format": FORMAT, "formatVersion": FORMAT_VERSION});
+    let good = json!({"format": FORMAT, "formatVersion": FORMAT_VERSION});
     assert_eq!(check_header(&good), Ok(()));
-    let newer = serde_json::json!({"format": FORMAT, "formatVersion": FORMAT_VERSION + 1});
+    let newer = json!({"format": FORMAT, "formatVersion": FORMAT_VERSION + 1});
     assert!(
         check_header(&newer)
             .unwrap_err()
             .contains("unsupported formatVersion")
     );
-    let other = serde_json::json!({"format": "ohmydate-export", "formatVersion": 1});
+    let older = json!({"format": FORMAT, "formatVersion": 1});
+    assert!(check_header(&older).unwrap_err().contains("regenerate"));
+    let other = json!({"format": "ohmydate-export", "formatVersion": FORMAT_VERSION});
     assert!(
         check_header(&other)
             .unwrap_err()

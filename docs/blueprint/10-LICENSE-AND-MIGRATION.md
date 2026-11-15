@@ -51,7 +51,7 @@
 ## 8. 업스트림 갱신 전략
 포크 브랜치 `ohmydate/v2.8.0-patches` = 태그 + 패치. 신규 릴리스 시 패치 리베이스 → 계약 테스트·E2E → 승격. 보안 릴리스는 즉시 검토.
 
-## 9. Rust 코어의 의존성 라이선스 (RC-00, 2026-11-13, ADR-025)
+## 9. Rust 코어의 의존성 라이선스 (RC-00, 2026-11-13, ADR-025 · RC-31에서 갱신, 2026-11-16)
 
 > ADR-025로 이 문서의 §2 L1–L3·L5·L6, §3–§8(Vikunja 포크·전환)은 전환이 끝나면 대상이 없어진다. 전환 계획은 `15-DESKTOP-RUST-CORE.md` §8이 대신한다. Vikunja 코드는 Rust 코어로 복사하지 않는다(규칙 유지).
 
@@ -59,7 +59,7 @@
 
 | 라이선스 표기 | 크레이트 수 | 판단 |
 |---|---|---|
-| MIT OR Apache-2.0 (표기 변형 포함) | 76 | 허용 |
+| MIT OR Apache-2.0 (표기 변형 포함) | 83 | 허용. RC-31에서 +7: `proptest`와 그것이 끌어오는 `rand`, `rand_core`, `rand_xorshift`, `chacha20`, `core_detect`, `unarray` — 스케줄러 크레이트의 **테스트 전용**(`dev-dependencies`)이라 배포 바이너리에 들어가지 않는다 |
 | MIT | 37 | 허용 |
 | Apache-2.0 | 2 | 허용 |
 | Unlicense OR MIT — `jiff`, `jiff-core`, `jiff-tzdb`, `memchr`, `aho-corasick` | 5 | 허용(MIT로 사용) |
@@ -69,7 +69,7 @@
 | **Zlib — `foldhash`** | 1 | **사용자 확인.** 허용적(고지 의무도 MIT보다 가볍다). `hashbrown`을 거쳐 `rusqlite`·`jsonschema`가 쓴다 |
 | **MIT-0 — `borrow-or-share`** | 1 | **사용자 확인.** MIT에서 고지 조건을 뺀 것. `jsonschema`의 URI 처리가 쓴다 |
 | **(MIT OR Apache-2.0) AND Unicode-3.0 — `unicode-ident`** | 1 | **사용자 확인.** 유니코드 데이터 표 라이선스(허용적). proc-macro가 빌드 때만 쓰고 배포 바이너리에 들어가지 않는다 |
-| 합계 | 126 | |
+| 합계 | 133 | |
 
 크레이트가 아닌 포함물:
 
@@ -78,7 +78,7 @@
 | SQLite 소스 | `libsqlite3-sys`의 `bundled` 기능이 함께 컴파일 | 퍼블릭 도메인 | **사용자 확인**(목록 밖이지만 제약 없음) |
 | IANA 시간대 데이터베이스 | `jiff-tzdb` | 퍼블릭 도메인 | **사용자 확인**(같음) |
 
-직접 의존은 11개다: `axum`, `tokio`, `rusqlite`, `jsonschema`, `serde_json`, `sha2`, `getrandom`, `jiff`, `ryu-js`, `tracing`, `tracing-subscriber`. 나머지 115개는 이들이 끌어온다. GPL·LGPL·MPL·AGPL 계열은 없다.
+직접 의존은 12개다: `axum`, `tokio`, `rusqlite`, `jsonschema`, `serde_json`, `sha2`, `getrandom`, `jiff`, `ryu-js`, `tracing`, `tracing-subscriber`, 그리고 테스트 전용 `proptest`(RC-31, 기본 기능을 끄고 `std`만 — fork·timeout 기능과 그 의존성은 들이지 않았다). 나머지 121개는 이들이 끌어온다. GPL·LGPL·MPL·AGPL 계열은 없다.
 
 아직 정하지 않은 것: HTTPS 클라이언트의 TLS 라이브러리(RC-70a). 후보에 따라 허용 목록 밖 라이선스(예: OpenSSL 계열 조항)가 들어올 수 있어, 고르기 전에 후보별 표를 사용자에게 올린다(15 §11 Q4). Tauri 셸의 의존성은 RC-100a에서 같은 방식으로 표를 만든다.
 

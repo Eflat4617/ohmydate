@@ -1,31 +1,40 @@
 /**
- * Oracle exporter for the Rust scheduler port (RC-00, blueprint 15 §5).
+ * Oracle exporter for the Rust scheduler port (blueprint 15 §5).
  *
  * Runs the TypeScript scheduler — the reference implementation — over seeded
  * scenarios and writes inputs with everything it computed for them. The Rust
  * differential tests (`core/crates/scheduler/tests/oracle.rs`) replay each
  * input and must reproduce every value exactly.
  *
- * One output file is a "pack":
+ * One output file is a "pack" (`formatVersion` 2):
  *
  *   {
- *     format: "ohmydate-scheduler-oracle", formatVersion: 1,
+ *     format: "ohmydate-scheduler-oracle", formatVersion: 2,
  *     oracle:  { generatorVersion, policyVersion, node, tzdata, seed, count },
  *     primitives: {
  *       prng:       [{ seed, floats[8], ints: [{ maxExclusive, values[8] }] }],
  *       canonical:  [{ value, text, sha256 }],            // canonicalJson + sha256Hex
- *       instants:   [{ text, epochMs | null, utc }],      // parseInstant + instantToUtc
+ *       instants:   [{ text, epochMs | null, utc | null, subMillisecond }],
+ *       zones:      [{ id, valid }],                      // isValidTimeZone
+ *       dates:      [{ text, valid, printed | null }],    // Temporal.PlainDate.from
+ *       clocks:     [{ text, minutes | null }],           // parseClock
+ *       sessions:   [{ breakAfterMin, maxDailyFocusMin, limit | null, autoSplitMin[] }],
  *       partitions: [{ timeZone, start, end, segments[] }] // partitionByLocalDate
  *     },
- *     cases: [{
- *       id, kind: "golden" | "generated" | "replan" | "invalid",
- *       input, options | null,
- *       inputIssues[],          // validateInput(input)
- *       slots[] | null,         // computeAvailableSlots(input); null if it throws
- *       result,                 // generate(input, options)
- *       validation[],           // validate(input, candidate.blocks, …) per candidate
- *       resultHash              // sha256Hex(canonicalJson(result))
- *     }]
+ *     cases: [                                             // one per line
+ *       {
+ *         id, kind: "golden" | "generated" | "replan" | "invalid" | "reference-test" | "path",
+ *         input, options | null,
+ *         inputIssues[],          // validateInput(input)
+ *         slots[] | null,         // computeAvailableSlots(input); null if it throws
+ *         deficit | null,         // deficit(input); null if it throws
+ *         result,                 // generate(input, options)
+ *         validation[],           // validate(input, candidate.blocks, …) per candidate;
+ *                                 //   `violations` is null where validate throws
+ *         probes[],               // validate() of deliberately broken plans
+ *         resultHash              // sha256Hex(canonicalJson(result))
+ *       }
+ *     ]
  *   }
  *
  * The same seed and count always produce the same pack on the same Node
@@ -35,6 +44,7 @@
  * Usage (from the repository root):
  *   corepack pnpm run core:oracle -- [--count 12] [--seed 20261113] [--name sample]
  *                                    [--out core/crates/scheduler/tests/oracle]
+ *                                    [--corpus core/target/oracle-corpus/reference-tests.jsonl]
  *
  * This file is tooling: it is not imported by the package and is not a test.
  */
@@ -44,15 +54,16 @@ import { fileURLToPath } from 'node:url';
 import {
   GENERATOR_VERSION,
   POLICY_VERSION,
-  computeAvailableSlots,
+  autoSplitMinSessionMin,
   generate,
-  validate,
-  validateInput,
+  maxLegalSessionMin,
+  taskRequiredMinutes,
   type AvailabilityRule,
   type Block,
   type ExceptionRule,
   type GenerateOptions,
   type PolicyName,
+  type Preferences,
   type ScheduleInput,
   type Task,
   type Weekday,
@@ -60,20 +71,40 @@ import {
 } from '../src/index.js';
 import { canonicalJson, sha256Hex } from '../src/hash.js';
 import { createPrng, type Prng } from '../src/prng.js';
-import { instantToUtc, parseInstant, partitionByLocalDate } from '../src/time.js';
+import {
+  DAY_MS,
+  FORMAT,
+  FORMAT_VERSION,
+  GRID_MS,
+  MINUTE_MS,
+  chance,
+  evaluate,
+  isPortableInput,
+  iso,
+  orNull,
+  packText,
+  pick,
+  type OracleCase,
+} from './oracle-lib.mjs';
+import { Temporal } from 'temporal-polyfill';
+import {
+  instantToUtc,
+  isValidTimeZone,
+  parseClock,
+  parseInstant,
+  partitionByLocalDate,
+} from '../src/time.js';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '../../..');
-
-const MINUTE_MS = 60_000;
-const DAY_MS = 24 * 60 * MINUTE_MS;
-const GRID_MS = 5 * MINUTE_MS;
 
 interface Args {
   readonly out: string;
   readonly count: number;
   readonly seed: number;
   readonly name: string;
+  /** JSON-lines file of `{ file, input, options }` written by `harvest-setup.mts`. */
+  readonly corpus: string | null;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -83,7 +114,7 @@ function parseArgs(argv: readonly string[]): Args {
     if (flag === '--') continue;
     const value = argv[index + 1];
     if (flag === undefined || !flag.startsWith('--') || value === undefined) {
-      throw new Error(`usage: export-oracle [--out DIR] [--count N] [--seed N] [--name NAME]`);
+      throw new Error(`usage: export-oracle [--out DIR] [--count N] [--seed N] [--name NAME] [--corpus FILE]`);
     }
     values.set(flag.slice(2), value);
     index += 1;
@@ -104,6 +135,7 @@ function parseArgs(argv: readonly string[]): Args {
     count: integer('count', 12, 0, 100_000),
     seed: integer('seed', 20_261_113, 0, 0xffff_ffff),
     name,
+    corpus: values.has('corpus') ? resolve(repoRoot, values.get('corpus') ?? '') : null,
   };
 }
 
@@ -139,44 +171,45 @@ const WINDOWS: ReadonlyArray<readonly [string, string]> = [
   ['08:30', '11:45'],
   ['00:00', '24:00'],
   ['06:00', '07:30'],
+  ['09:02', '11:47'], // off the 5-minute grid
 ];
 
 const PREFERRED: readonly WindowKind[] = ['morning', 'afternoon', 'evening'];
 const POLICIES: readonly PolicyName[] = ['front_loaded', 'balanced', 'focus_blocked'];
-
-function pick<T>(prng: Prng, items: readonly T[]): T {
-  const item = items[prng.nextInt(items.length)];
-  if (item === undefined) throw new Error('pick from an empty list');
-  return item;
-}
-
-function chance(prng: Prng, probability: number): boolean {
-  return prng.next() < probability;
-}
-
-function iso(epochMs: number): string {
-  return new Date(epochMs).toISOString();
-}
 
 /** The same instant written with a +09:00 offset, to exercise canonicalisation. */
 function isoWithOffset(epochMs: number): string {
   return `${new Date(epochMs + 9 * 60 * MINUTE_MS).toISOString().slice(0, 19)}+09:00`;
 }
 
-function generateTasks(prng: Prng, startMs: number, endMs: number): Task[] {
+function generateTasks(prng: Prng, startMs: number, endMs: number, prefs: Preferences): Task[] {
   // A quarter of the cases are overloaded on purpose, so that infeasible
   // candidates, deficits and their explanations are part of the oracle.
   const heavy = chance(prng, 0.25);
   const count = 1 + prng.nextInt(heavy ? 8 : 4);
   const tasks: Task[] = [];
   for (let index = 0; index < count; index += 1) {
-    const p50Min = 15 + 5 * prng.nextInt(heavy ? 70 : 20);
-    const minSessionMin = pick(prng, [15, 25, 30, 45, 60]);
-    const maxSessionMin = Math.max(minSessionMin, pick(prng, [60, 90, 120, 180]));
+    let p50Min = 15 + 5 * prng.nextInt(heavy ? 70 : 20);
+    const splittable = chance(prng, 0.7);
+    let minSessionMin = pick(prng, [15, 25, 30, 45, 60]);
+    let maxSessionMin = Math.max(minSessionMin, pick(prng, [60, 90, 120, 180]));
+    // Most tasks are possible on their own: one block fits the break rule and
+    // its own bounds, a splittable task is at least one session long. The
+    // rest keep whatever was drawn, which is often impossible (H5, H6).
+    const sane = chance(prng, 0.85);
+    if (sane && !splittable && prefs.breakAfterMin > 0) {
+      p50Min = Math.min(p50Min, prefs.breakAfterMin - 10);
+    }
+    const p90Min =
+      p50Min + (sane && !splittable ? 5 * prng.nextInt(3) : 5 * prng.nextInt(heavy ? 25 : 7));
+    if (sane) {
+      minSessionMin = Math.min(minSessionMin, 5 * Math.floor(p50Min / 5));
+      if (!splittable) maxSessionMin = Math.max(maxSessionMin, p90Min);
+    }
     const task: Task = {
       id: `t${String(index + 1).padStart(2, '0')}`,
-      estimate: { p50Min, p90Min: p50Min + 5 * prng.nextInt(heavy ? 25 : 7) },
-      splittable: chance(prng, 0.7),
+      estimate: { p50Min, p90Min },
+      splittable,
       minSessionMin,
       maxSessionMin,
       priority: pick(prng, [1, 2, 3, 4] as const),
@@ -195,6 +228,17 @@ function generateTasks(prng: Prng, startMs: number, endMs: number): Task[] {
     if (chance(prng, 0.3)) {
       task.preferredWindows = PREFERRED.filter(() => chance(prng, 0.5));
     }
+    // Rarer shapes: estimates off the grid or below one cell, a caller-capped
+    // long task (FU-96), a remaining amount that differs from the estimate.
+    if (chance(prng, 0.03)) {
+      const extra = pick(prng, [1, 2, 3, 4]);
+      task.estimate = { p50Min: p50Min + extra, p90Min: p90Min + extra };
+    }
+    if (chance(prng, 0.015)) task.estimate = { p50Min: 3, p90Min: 4 };
+    if (task.splittable && chance(prng, 0.06)) {
+      task.autoSplit = chance(prng, 0.5) ? 'break_after' : 'daily_cap';
+    }
+    if (chance(prng, 0.04)) task.remainingMin = 5 * prng.nextInt(1 + Math.floor(p50Min / 5));
     tasks.push(task);
   }
   return tasks;
@@ -230,10 +274,15 @@ function generateInput(prng: Prng): ScheduleInput {
   const exceptions: ExceptionRule[] = [];
   for (let index = prng.nextInt(3); index > 0; index -= 1) {
     const date = iso(startMs + prng.nextInt(10) * DAY_MS).slice(0, 10);
+    const shape = prng.nextInt(4);
     exceptions.push(
-      chance(prng, 0.5)
+      shape === 0
         ? { date, kind: 'off' }
-        : { date, kind: 'extra', startLocal: '20:00', endLocal: '23:00' },
+        : shape === 1
+          ? { date, kind: 'off', startLocal: '12:00', endLocal: '13:30' }
+          : shape === 2
+            ? { date, kind: 'extra' }
+            : { date, kind: 'extra', startLocal: '20:00', endLocal: '23:00' },
     );
   }
   const commitments = [];
@@ -242,52 +291,245 @@ function generateInput(prng: Prng): ScheduleInput {
     const start = startMs + prng.nextInt(Math.floor((endMs - startMs) / MINUTE_MS)) * MINUTE_MS;
     commitments.push({ start: iso(start), end: iso(start + (30 + 5 * prng.nextInt(31)) * MINUTE_MS) });
   }
+  const prefs: Preferences = {
+    maxDailyFocusMin: pick(prng, [120, 240, 360, 480]),
+    breakAfterMin: pick(prng, [0, 50, 60, 90, 120]),
+    breakMin: pick(prng, [5, 10, 15]),
+    riskLevel: chance(prng, 0.5) ? 'p50' : 'p90',
+    dayStartLocal: '08:00',
+    dayEndLocal: '18:00',
+  };
   return {
     now: iso(startMs + prng.nextInt(17) * 30 * MINUTE_MS),
     timeZone: pick(prng, ZONES),
     horizon: { start: iso(startMs), end: iso(endMs) },
-    tasks: generateTasks(prng, startMs, endMs),
+    tasks: generateTasks(prng, startMs, endMs, prefs),
     availability: generateAvailability(prng),
     exceptions,
     commitments,
     lockedBlocks: [],
-    prefs: {
-      maxDailyFocusMin: pick(prng, [120, 240, 360, 480]),
-      breakAfterMin: pick(prng, [0, 50, 60, 90, 120]),
-      breakMin: pick(prng, [5, 10, 15]),
-      riskLevel: chance(prng, 0.5) ? 'p50' : 'p90',
-      dayStartLocal: '08:00',
-      dayEndLocal: '18:00',
-    },
+    prefs,
     seed: prng.nextInt(0x7fff_ffff),
   };
 }
 
-/** A replan: an approved plan, then a new commitment on top of its first block. */
+// ---------------------------------------------------------------------------
+// Replans: an approved plan, then one to three things that changed since.
+// ---------------------------------------------------------------------------
+
+function minutesOf(block: Block): number {
+  return (parseInstant(block.end) - parseInstant(block.start)) / MINUTE_MS;
+}
+
+type ReplanChange = (prng: Prng, replan: ScheduleInput, approved: Block[]) => void;
+
+/** A new commitment on top of one approved block. */
+const addCommitment: ReplanChange = (prng, replan, approved) => {
+  const block = pick(prng, approved);
+  replan.commitments = [...replan.commitments, { start: block.start, end: block.end }];
+  if (chance(prng, 0.3)) {
+    replan.affectedTaskIds = [...(replan.affectedTaskIds ?? []), block.taskId];
+  }
+};
+
+/**
+ * Time has passed: blocks that started before the new `now` are history. For
+ * half of the tasks with history the caller sends what is left (06 §7.1).
+ */
+const advanceNow: ReplanChange = (prng, replan, approved) => {
+  const starts = approved.map((block) => parseInstant(block.start)).sort((a, b) => a - b);
+  const anchor = starts[prng.nextInt(starts.length)] ?? parseInstant(replan.now);
+  const nowMs = Math.max(parseInstant(replan.now), anchor + prng.nextInt(7) * 15 * MINUTE_MS);
+  replan.now = iso(nowMs);
+  replan.tasks = replan.tasks.map((task) => {
+    const historyMin = approved
+      .filter((block) => block.taskId === task.id && parseInstant(block.start) < nowMs)
+      .reduce((sum, block) => sum + minutesOf(block), 0);
+    if (historyMin === 0 || !chance(prng, 0.5)) return task;
+    const required = taskRequiredMinutes(task, replan.prefs.riskLevel);
+    return { ...task, remainingMin: Math.max(0, required - historyMin) };
+  });
+};
+
+/** The user locked some approved blocks; half of them also stay in existingBlocks. */
+const lockBlocks: ReplanChange = (prng, replan, approved) => {
+  const locked = approved.filter(() => chance(prng, 0.3));
+  if (locked.length === 0) locked.push(pick(prng, approved));
+  replan.lockedBlocks = [...replan.lockedBlocks, ...locked];
+  if (chance(prng, 0.5)) {
+    replan.existingBlocks = (replan.existingBlocks ?? []).filter((block) => !locked.includes(block));
+  }
+};
+
+/** A task turned out longer or shorter than estimated. */
+const changeEstimate: ReplanChange = (prng, replan) => {
+  const index = prng.nextInt(replan.tasks.length);
+  replan.tasks = replan.tasks.map((task, position) => {
+    if (position !== index) return task;
+    const delta = pick(prng, [-30, -15, 15, 30, 60, 120]);
+    const p50Min = Math.max(5, task.estimate.p50Min + delta);
+    return { ...task, estimate: { p50Min, p90Min: Math.max(p50Min, task.estimate.p90Min + delta) } };
+  });
+};
+
+/** A new dependency edge between two existing tasks (kept acyclic by id order). */
+const addDependency: ReplanChange = (prng, replan) => {
+  if (replan.tasks.length < 2) return;
+  const later = 1 + prng.nextInt(replan.tasks.length - 1);
+  const earlier = replan.tasks[prng.nextInt(later)];
+  if (earlier === undefined) return;
+  replan.tasks = replan.tasks.map((task, position) =>
+    position === later && !task.dependsOn.includes(earlier.id)
+      ? { ...task, dependsOn: [...task.dependsOn, earlier.id] }
+      : task,
+  );
+  if (chance(prng, 0.5)) {
+    const dependent = replan.tasks[later];
+    if (dependent !== undefined) {
+      replan.affectedTaskIds = [...(replan.affectedTaskIds ?? []), dependent.id, earlier.id];
+    }
+  }
+};
+
+/** A day with approved work becomes a day off, fully or around noon. */
+const addDayOff: ReplanChange = (prng, replan, approved) => {
+  const date = Temporal.Instant.from(pick(prng, approved).start)
+    .toZonedDateTimeISO(replan.timeZone)
+    .toPlainDate()
+    .toString();
+  replan.exceptions = [
+    ...replan.exceptions,
+    chance(prng, 0.5)
+      ? { date, kind: 'off' }
+      : { date, kind: 'off', startLocal: '10:00', endLocal: '15:00' },
+  ];
+};
+
+/** A task that did not exist when the plan was approved. */
+const addTask: ReplanChange = (prng, replan) => {
+  const p50Min = 30 + 15 * prng.nextInt(8);
+  replan.tasks = [
+    ...replan.tasks,
+    {
+      id: 'new',
+      estimate: { p50Min, p90Min: p50Min + 15 },
+      splittable: chance(prng, 0.7),
+      minSessionMin: 30,
+      maxSessionMin: 90,
+      priority: pick(prng, [1, 2, 3, 4] as const),
+      dependsOn: replan.tasks.filter(() => chance(prng, 0.15)).map((task) => task.id),
+    },
+  ];
+};
+
+/**
+ * The user tightened a preference after approving: a lower daily cap, an
+ * earlier break or a longer one. Approved blocks that were fine can now be
+ * too much for a day or a run.
+ */
+const tightenPreferences: ReplanChange = (prng, replan) => {
+  const prefs = { ...replan.prefs };
+  const change = prng.nextInt(3);
+  if (change === 0) prefs.maxDailyFocusMin = Math.max(60, prefs.maxDailyFocusMin - pick(prng, [60, 120, 180]));
+  else if (change === 1) prefs.breakAfterMin = pick(prng, [30, 45, 50, 60]);
+  else prefs.breakMin = pick(prng, [20, 30, 45]);
+  replan.prefs = prefs;
+};
+
+/** The caller releases tasks explicitly (FU-59), including one it no longer has. */
+const releaseTasks: ReplanChange = (prng, replan) => {
+  const ids = replan.tasks.filter(() => chance(prng, 0.3)).map((task) => task.id);
+  if (chance(prng, 0.2)) ids.push('gone');
+  replan.affectedTaskIds = [...(replan.affectedTaskIds ?? []), ...ids];
+};
+
+const REPLAN_CHANGES: readonly ReplanChange[] = [
+  addCommitment,
+  addCommitment,
+  advanceNow,
+  advanceNow,
+  lockBlocks,
+  changeEstimate,
+  addDependency,
+  addDayOff,
+  addTask,
+  releaseTasks,
+  tightenPreferences,
+  tightenPreferences,
+];
+
 function toReplan(prng: Prng, base: ScheduleInput): ScheduleInput | null {
-  const approved = generate(base).candidates.find(
+  const feasible = generate(base).candidates.filter(
     (candidate) => candidate.feasible && candidate.blocks.length > 0,
   );
-  const first = approved?.blocks[0];
-  if (approved === undefined || first === undefined) return null;
-  const replan: ScheduleInput = {
-    ...base,
-    existingBlocks: approved.blocks,
-    commitments: [...base.commitments, { start: first.start, end: first.end }],
-  };
-  if (chance(prng, 0.3)) replan.affectedTaskIds = [first.taskId];
+  if (feasible.length === 0) return null;
+  const approved = pick(prng, feasible).blocks;
+  const replan: ScheduleInput = { ...base, existingBlocks: approved };
+  for (let changes = 1 + prng.nextInt(3); changes > 0; changes -= 1) {
+    pick(prng, REPLAN_CHANGES)(prng, replan, approved);
+  }
   return replan;
 }
 
 function invalidVariants(base: ScheduleInput): ScheduleInput[] {
   const first = base.tasks[0];
   if (first === undefined) return [];
+  const rest = base.tasks.slice(1);
+  const block = { taskId: first.id, start: base.horizon.start, end: base.horizon.end };
+  const offGrid = iso(parseInstant(base.horizon.start) + MINUTE_MS);
   return [
     { ...base, timeZone: 'Mars/Olympus_Mons' },
     { ...base, horizon: { start: base.horizon.end, end: base.horizon.start } },
     { ...base, tasks: [...base.tasks, { ...first }] },
-    { ...base, tasks: [{ ...first, dependsOn: [first.id] }, ...base.tasks.slice(1)] },
-    { ...base, tasks: [{ ...first, estimate: { p50Min: 12.5, p90Min: 1e21 } }, ...base.tasks.slice(1)] },
+    { ...base, tasks: [{ ...first, dependsOn: [first.id] }, ...rest] },
+    { ...base, tasks: [{ ...first, estimate: { p50Min: 12.5, p90Min: 1e21 } }, ...rest] },
+    { ...base, now: 'yesterday' },
+    { ...base, horizon: { start: base.horizon.start, end: '2028-06-01T00:00:00Z' } },
+    { ...base, tasks: [{ ...first, dependsOn: ['nobody'] }, ...rest] },
+    { ...base, tasks: [{ ...first, minSessionMin: 90, maxSessionMin: 30, bufferBeforeDueMin: -5 }, ...rest] },
+    { ...base, tasks: [{ ...first, dueAt: base.horizon.start, earliestStartAt: base.horizon.end }, ...rest] },
+    { ...base, tasks: [{ ...first, dueAt: '2026-13-01T00:00:00Z' }, ...rest] },
+    { ...base, prefs: { ...base.prefs, maxDailyFocusMin: 240.5, breakMin: -1 } },
+    {
+      ...base,
+      availability: [
+        ...base.availability,
+        { weekday: 9 as Weekday, startLocal: '09:00', endLocal: '10:00', kind: 'work' },
+        { weekday: 1, startLocal: '18:00', endLocal: '09:00', kind: 'work' },
+        { weekday: 2, startLocal: '9am', endLocal: '24:30', kind: 'focus' },
+      ],
+    },
+    {
+      ...base,
+      exceptions: [
+        ...base.exceptions,
+        { date: '2026-02-30', kind: 'off' },
+        { date: base.horizon.start.slice(0, 10), kind: 'extra', startLocal: '10:00' },
+        { date: base.horizon.start.slice(0, 10), kind: 'off', startLocal: '15:00', endLocal: '14:00' },
+      ],
+    },
+    {
+      ...base,
+      commitments: [
+        ...base.commitments,
+        { start: 'soon', end: base.horizon.end },
+        { start: base.horizon.end, end: base.horizon.start },
+      ],
+    },
+    { ...base, lockedBlocks: [{ ...block, taskId: 'nobody' }] },
+    { ...base, lockedBlocks: [{ ...block, start: offGrid }] },
+    { ...base, existingBlocks: [{ ...block, start: `${base.horizon.start.slice(0, 19)}.0001Z` }] },
+    { ...base, existingBlocks: [{ ...block, start: base.horizon.end, end: base.horizon.start }] },
+    { ...base, existingBlocks: [{ ...block, end: 'later' }] },
+    { ...base, horizon: { start: 'whenever', end: base.horizon.end } },
+    { ...base, tasks: [{ ...first, minSessionMin: 22.5, maxSessionMin: 1e9 }, ...rest] },
+    // The span cap of a commitment only applies when the horizon cannot clip it.
+    {
+      ...base,
+      horizon: { start: base.horizon.end, end: base.horizon.start },
+      commitments: [{ start: '2020-01-01T00:00:00Z', end: '2030-01-01T00:00:00Z' }],
+    },
+    { ...base, existingBlocks: [{ ...block, end: iso(parseInstant(base.horizon.start) + 367 * DAY_MS) }] },
   ];
 }
 
@@ -300,93 +542,305 @@ function generateOptions(prng: Prng): GenerateOptions | null {
   return options;
 }
 
-// ---------------------------------------------------------------------------
-// Reference evaluation.
-// ---------------------------------------------------------------------------
-
-interface OracleCase {
-  readonly id: string;
-  readonly kind: 'golden' | 'generated' | 'replan' | 'invalid';
-  readonly input: ScheduleInput;
-  readonly options: GenerateOptions | null;
-}
-
-function historyBlocks(input: ScheduleInput): Block[] {
-  try {
-    const nowMs = parseInstant(input.now);
-    return (input.existingBlocks ?? []).filter((block) => parseInstant(block.start) < nowMs);
-  } catch {
-    return [];
-  }
-}
-
-function evaluate(testCase: OracleCase): Record<string, unknown> {
-  const { input, options } = testCase;
-  const result = generate(input, options ?? {});
-  const slots = ((): unknown => {
-    try {
-      return computeAvailableSlots(input);
-    } catch {
-      return null;
-    }
-  })();
-  const inputIssues = validateInput(input);
-  const history = historyBlocks(input);
-  const validation = result.candidates.map((candidate) => ({
-    policy: candidate.policy,
-    violations:
-      inputIssues.length > 0
-        ? null
-        : validate(input, candidate.blocks, {
-            riskLevel: input.prefs.riskLevel,
-            historyBlocks: history,
-          }).map(({ code, message, messageCode, params, taskId }) => ({
-            code,
-            message,
-            messageCode,
-            params,
-            ...(taskId === undefined ? {} : { taskId }),
-          })),
-  }));
-  return {
-    id: testCase.id,
-    kind: testCase.kind,
-    input,
-    options,
-    inputIssues,
-    slots,
-    result,
-    validation,
-    resultHash: sha256Hex(canonicalJson(result)),
-  };
-}
-
 function goldenCases(): OracleCase[] {
   const directory = join(scriptDir, '../test/golden');
   return readdirSync(directory)
     .filter((file) => file.endsWith('.json'))
     .sort()
-    .map((file) => {
+    .map((file, index) => {
       const fixture = JSON.parse(readFileSync(join(directory, file), 'utf8')) as {
         id: string;
         input: ScheduleInput;
       };
-      return { id: `golden-${fixture.id}`, kind: 'golden' as const, input: fixture.input, options: null };
+      return {
+        id: `golden-${fixture.id}`,
+        kind: 'golden' as const,
+        input: fixture.input,
+        options: null,
+        probeSeed: 0x51ed_270b + index,
+      };
     });
+}
+
+/**
+ * The inputs the reference's own tests give to `generate`, as harvested by
+ * `harvest-setup.mts`: the scenarios the reference was fixed against. Inputs
+ * the port cannot be given as they are (see `isPortableInput`) are left out
+ * and counted.
+ */
+function corpusCases(file: string): { cases: OracleCase[]; skipped: number } {
+  const cases: OracleCase[] = [];
+  const seen = new Set<string>();
+  const counters = new Map<string, number>();
+  let skipped = 0;
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (line === '') continue;
+    const entry = JSON.parse(line) as { file: string; input: unknown; options: unknown };
+    const options = (entry.options ?? null) as GenerateOptions | null;
+    if (!isPortableInput(entry.input, options)) {
+      skipped += 1;
+      continue;
+    }
+    const key = sha256Hex(canonicalJson({ input: entry.input, options }));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const source = entry.file.replace(/\.test\.ts$/, '').replace(/[^a-z0-9]+/gi, '-');
+    const number = (counters.get(source) ?? 0) + 1;
+    counters.set(source, number);
+    cases.push({
+      id: `ref-${source}-${String(number).padStart(4, '0')}`,
+      kind: 'reference-test',
+      input: entry.input,
+      options,
+      probeSeed: Number.parseInt(key.slice(0, 8), 16),
+    });
+  }
+  return { cases, skipped };
+}
+
+/**
+ * The 06 §11 budget workload (50 tasks, 14 days, 3 policies), as in
+ * `test/performance.test.ts`: the largest input of a pack.
+ */
+function budgetWorkloadCase(): OracleCase {
+  const tasks: Task[] = [];
+  for (let index = 0; index < 50; index += 1) {
+    tasks.push({
+      id: `T${String(index).padStart(2, '0')}`,
+      dueAt: '2026-11-23T00:00:00Z',
+      estimate: { p50Min: 60, p90Min: 60 },
+      splittable: true,
+      minSessionMin: 30,
+      maxSessionMin: 120,
+      priority: ((index % 4) + 1) as 1 | 2 | 3 | 4,
+      dependsOn: [],
+      preferredWindows: index % 3 === 0 ? ['morning'] : [],
+    });
+  }
+  return {
+    id: 'budget-workload',
+    kind: 'generated',
+    input: {
+      now: '2026-11-09T00:00:00Z',
+      timeZone: 'Asia/Seoul',
+      horizon: { start: '2026-11-09T00:00:00Z', end: '2026-11-23T00:00:00Z' },
+      tasks,
+      availability: ([1, 2, 3, 4, 5] as const).map((weekday) => ({
+        weekday,
+        startLocal: '08:00',
+        endLocal: '18:00',
+        kind: 'work' as const,
+      })),
+      exceptions: [],
+      commitments: [],
+      lockedBlocks: [],
+      prefs: {
+        maxDailyFocusMin: 480,
+        breakAfterMin: 240,
+        breakMin: 15,
+        riskLevel: 'p50',
+        dayStartLocal: '00:00',
+        dayEndLocal: '24:00',
+      },
+      seed: 50,
+    },
+    options: { policies: [...POLICIES], seed: 50 },
+    probeSeed: 0x0b0d_6e75,
+  };
+}
+
+/**
+ * Hand-written inputs, one per generator path that random inputs reach
+ * rarely and that deserves a case in every pack, the committed sample
+ * included (blueprint 15 §5.3). Each id names its path and runs the policy
+ * for which that path decides the plan (with every policy at once, similar
+ * candidates would be dropped from the result). All are one or two UTC days
+ * from Monday 2026-11-09.
+ */
+function pathCases(): OracleCase[] {
+  const utc = (clock: string, day = 9): string => `2026-11-${String(day).padStart(2, '0')}T${clock}:00Z`;
+  const prefs = (overrides: Partial<Preferences> = {}): Preferences => ({
+    maxDailyFocusMin: 480,
+    breakAfterMin: 480,
+    breakMin: 15,
+    riskLevel: 'p50',
+    dayStartLocal: '00:00',
+    dayEndLocal: '24:00',
+    ...overrides,
+  });
+  const task = (id: string, minutes: number, overrides: Partial<Task> = {}): Task => ({
+    id,
+    estimate: { p50Min: minutes, p90Min: minutes },
+    splittable: true,
+    minSessionMin: 30,
+    maxSessionMin: 120,
+    priority: 1,
+    dependsOn: [],
+    ...overrides,
+  });
+  const everyDay = (startLocal: string, endLocal: string): AvailabilityRule[] =>
+    ([1, 2, 3, 4, 5, 6, 7] as const).map((weekday) => ({ weekday, startLocal, endLocal, kind: 'work' as const }));
+  const block = (taskId: string, start: string, end: string): Block => ({ taskId, start, end });
+  const input = (
+    end: string,
+    members: Partial<ScheduleInput> & Pick<ScheduleInput, 'tasks'>,
+  ): ScheduleInput => ({
+    now: utc('09:00'),
+    timeZone: 'UTC',
+    horizon: { start: utc('09:00'), end },
+    availability: everyDay('09:00', '17:00'),
+    exceptions: [],
+    commitments: [],
+    lockedBlocks: [],
+    prefs: prefs(),
+    seed: 7,
+    ...members,
+  });
+
+  const inputs: Array<[string, PolicyName, ScheduleInput]> = [
+    // Gap-fitted split, time-order retry. Two gaps 15 minutes apart, each
+    // with room for one 90-minute session. focus_blocked fills the longer,
+    // later gap first from its first cell; the session in the earlier gap
+    // would then join it into 195 minutes of focus, and nothing beside the
+    // later gap suggests another start. Only the search in time order knows
+    // the first session when it places the second.
+    [
+      'gap-time-order-retry',
+      'focus_blocked',
+      input(utc('13:15'), {
+        tasks: [task('A', 180, { minSessionMin: 90 })],
+        availability: [{ weekday: 1, startLocal: '09:00', endLocal: '13:15', kind: 'work' }],
+        commitments: [{ start: utc('10:30'), end: utc('10:45') }],
+        prefs: prefs({ breakAfterMin: 120, breakMin: 30 }),
+      }),
+    ],
+    // Replan seeds, rejection by the day's rules. Three approved hours on
+    // Monday, then the daily cap drops to two: no task changed, so the seeds
+    // are taken in time order until one no longer passes, and only that task
+    // is released.
+    [
+      'replan-seed-rejected',
+      'balanced',
+      input(utc('00:00', 11), {
+        now: utc('00:00'),
+        horizon: { start: utc('00:00'), end: utc('00:00', 11) },
+        tasks: [task('A', 60), task('B', 60), task('C', 60)],
+        existingBlocks: [
+          block('A', utc('09:00'), utc('10:00')),
+          block('B', utc('10:00'), utc('11:00')),
+          block('C', utc('11:00'), utc('12:00')),
+        ],
+        prefs: prefs({ maxDailyFocusMin: 120 }),
+      }),
+    ],
+    // Staged expansion, one level. P2 <- P1 <- X; X grew to 90 minutes and
+    // is due at 12:00. With P1 frozen X cannot fit; releasing P1 (depth 1)
+    // is enough, and P2 (depth 2) stays where it was.
+    [
+      'replan-expansion-depth-1',
+      'front_loaded',
+      input(utc('00:00', 11), {
+        now: utc('00:00'),
+        horizon: { start: utc('00:00'), end: utc('00:00', 11) },
+        tasks: [
+          task('P2', 30, { priority: 2 }),
+          task('P1', 60, { priority: 2, dependsOn: ['P2'] }),
+          task('X', 90, { priority: 2, dependsOn: ['P1'], dueAt: utc('12:00') }),
+        ],
+        existingBlocks: [
+          block('P2', utc('09:00'), utc('09:30')),
+          block('P1', utc('10:00'), utc('11:00')),
+          block('X', utc('11:00'), utc('12:00')),
+        ],
+        affectedTaskIds: ['X'],
+      }),
+    ],
+    // Successor bound. F and G hold Monday's and Tuesday's mornings; the
+    // horizon ends an hour into Wednesday. S was planned before P and now
+    // depends on it: the released P must not take the Wednesday tail that S
+    // needs after it.
+    [
+      'successor-bound-tail',
+      'balanced',
+      input(utc('10:00', 11), {
+        tasks: ['F', 'G', 'P', 'S'].map((id) =>
+          task(id, id === 'F' || id === 'G' ? 240 : 60, {
+            dueAt: utc('10:00', 11),
+            earliestStartAt: utc('09:00'),
+            maxSessionMin: id === 'F' || id === 'G' ? 240 : 120,
+            dependsOn: id === 'S' ? ['P'] : [],
+          }),
+        ),
+        existingBlocks: [
+          block('F', utc('09:00'), utc('13:00')),
+          block('G', utc('09:00', 10), utc('13:00', 10)),
+          block('S', utc('13:00'), utc('14:00')),
+          block('P', utc('13:00', 10), utc('14:00', 10)),
+        ],
+      }),
+    ],
+    // Gap-fitted split, break-offset start. A grew from 60 to 120 minutes
+    // next to the frozen F under a 120-minute focus limit: right after F at
+    // most 60 minutes fit, and only a session that starts a break later
+    // (10:15) leaves a remainder the last gap can hold.
+    [
+      'gap-break-offset-start',
+      'focus_blocked',
+      input(utc('12:45'), {
+        tasks: [
+          task('F', 60, { minSessionMin: 15, maxSessionMin: 60, priority: 2 }),
+          task('A', 120, { minSessionMin: 45 }),
+        ],
+        availability: [{ weekday: 1, startLocal: '09:00', endLocal: '12:45', kind: 'work' }],
+        commitments: [{ start: utc('11:30'), end: utc('12:00') }],
+        existingBlocks: [block('F', utc('09:00'), utc('10:00')), block('A', utc('10:15'), utc('11:15'))],
+        prefs: prefs({ breakAfterMin: 120 }),
+      }),
+    ],
+    // Change bound. T0 grew by 150 minutes between five frozen half hours:
+    // five new sessions, more than 2 x 1 + 2 changed blocks, which the
+    // candidate and the diversity note have to say.
+    [
+      'replan-change-bound-exceeded',
+      'front_loaded',
+      input(utc('00:00', 10), {
+        now: utc('00:00'),
+        horizon: { start: utc('00:00'), end: utc('00:00', 10) },
+        availability: everyDay('09:00', '15:00'),
+        tasks: [
+          task('T0', 210, { maxSessionMin: 240 }),
+          ...[0, 1, 2, 3, 4].map((index) => task(`F${index}`, 30, { maxSessionMin: 30 })),
+        ],
+        existingBlocks: [
+          block('T0', utc('09:00'), utc('10:00')),
+          ...[10, 11, 12, 13, 14].map((hour, index) => block(`F${index}`, utc(`${hour}:00`), utc(`${hour}:30`))),
+        ],
+      }),
+    ],
+  ];
+  return inputs.map(([name, policy, caseInput], index) => ({
+    id: `path-${name}`,
+    kind: 'path' as const,
+    input: caseInput,
+    options: { policies: [policy] },
+    probeSeed: 0x9a7c_0000 + index,
+  }));
 }
 
 function generatedCases(masterSeed: number, count: number): OracleCase[] {
   const cases: OracleCase[] = [];
   for (let index = 0; index < count; index += 1) {
     // One independent stream per case: case N does not change when the count does.
-    const prng = createPrng((masterSeed + 0x9e37_79b9 * (index + 1)) >>> 0);
+    const caseSeed = (masterSeed + 0x9e37_79b9 * (index + 1)) >>> 0;
+    const prng = createPrng(caseSeed);
+    const probeSeed = (caseSeed ^ 0x5bd1_e995) >>> 0;
     const id = String(index + 1).padStart(6, '0');
     const base = generateInput(prng);
     const options = generateOptions(prng);
     if (index % 3 === 1) {
       const replan = toReplan(prng, base);
       if (replan !== null) {
-        cases.push({ id: `replan-${id}`, kind: 'replan', input: replan, options });
+        cases.push({ id: `replan-${id}`, kind: 'replan', input: replan, options, probeSeed });
         continue;
       }
     }
@@ -394,11 +848,11 @@ function generatedCases(masterSeed: number, count: number): OracleCase[] {
       const variants = invalidVariants(base);
       const variant = variants[prng.nextInt(variants.length)];
       if (variant !== undefined) {
-        cases.push({ id: `invalid-${id}`, kind: 'invalid', input: variant, options });
+        cases.push({ id: `invalid-${id}`, kind: 'invalid', input: variant, options, probeSeed });
         continue;
       }
     }
-    cases.push({ id: `gen-${id}`, kind: 'generated', input: base, options });
+    cases.push({ id: `gen-${id}`, kind: 'generated', input: base, options, probeSeed });
   }
   return cases;
 }
@@ -457,6 +911,11 @@ function canonicalPrimitives(): unknown[] {
   });
 }
 
+/**
+ * Spellings `Temporal.Instant.from` takes or refuses. Left out on purpose:
+ * years outside 0000–9999 and the critical flag (`[!u-ca=…]`), where the Rust
+ * side is documented to differ (blueprint 15 §5.2).
+ */
 function instantPrimitives(): unknown[] {
   return [
     '2026-11-13T00:00:00Z',
@@ -471,13 +930,224 @@ function instantPrimitives(): unknown[] {
     '2026-11-13',
     'not an instant',
     '',
+    '2026-11-13t00:00:00z',
+    '2026-11-13 00:00:00Z',
+    '2026-11-13T00:00:00,5Z',
+    '20261113T000000Z',
+    '2026-11-13T000000Z',
+    '2026-11-13T0000Z',
+    '20261113T00:00:00Z',
+    '2026-11-13T00Z',
+    '2026-11-13T00:00:00+0900',
+    '2026-11-13T00:00:00+09',
+    '2026-11-13T00:00:00-00:00',
+    '2026-11-13T00:00:00+09:00:00',
+    '2026-11-13T00:00:00+09:00:30',
+    '2026-11-13T00:00:00+09:00[Asia/Seoul]',
+    '2026-11-13T00:00:00+09:00[America/New_York]',
+    '2026-11-13T00:00:00Z[UTC]',
+    '2026-11-13T00:00:00Z[Mars/Olympus]',
+    '2026-11-13T00:00:00Z[u-ca=iso8601]',
+    '2026-11-13T00:00:60Z',
+    '2026-11-13T24:00:00Z',
+    '2026-11-13T00:00:00.123456789Z',
+    '2026-11-13T00:00:00.1234Z',
+    '2026-11-13T00:00:00.000000001Z',
+    '1969-12-31T23:59:59.9995Z',
+    '1969-12-31T23:59:59.999Z',
+    '+002026-11-13T00:00:00Z',
+    '0000-01-01T00:00:00Z',
+    '0099-03-01T00:00:00Z',
+    ' 2026-11-13T00:00:00Z',
+    '2026-11-13T00:00:00Z ',
+    '2026-02-30T00:00:00Z',
+    '2026-11-13T00:00:00',
+    '2026-11-13T00:00:00[Asia/Seoul]',
+    '2026-W46-5T00:00:00Z',
+    '2026-11-13T00:00:00.Z',
+    '2026-11-13T00:00:00−09:00',
+    '2026-11-13T25:00:00Z',
+    '2026-11-13T00:61:00Z',
   ].map((text) => {
+    let subMillisecond = false;
+    try {
+      subMillisecond = Temporal.Instant.from(text).epochNanoseconds % 1_000_000n !== 0n;
+    } catch {
+      // Not an instant at all.
+    }
     try {
       const epochMs = parseInstant(text);
-      return { text, epochMs, utc: instantToUtc(epochMs) };
+      return { text, epochMs, utc: instantToUtc(epochMs), subMillisecond };
     } catch {
-      return { text, epochMs: null, utc: null };
+      return { text, epochMs: null, utc: null, subMillisecond };
     }
+  });
+}
+
+function zonePrimitives(): unknown[] {
+  return [
+    'Asia/Seoul',
+    'asia/seoul',
+    'ASIA/SEOUL',
+    'UTC',
+    'utc',
+    'GMT',
+    'Etc/UTC',
+    'Etc/GMT+5',
+    'Etc/GMT-14',
+    'US/Eastern',
+    'Asia/Calcutta',
+    'Asia/Saigon',
+    'Europe/Kyiv',
+    'Europe/Kiev',
+    'America/Buenos_Aires',
+    'America/Ciudad_Juarez',
+    'Antarctica/Troll',
+    'EST',
+    'EST5EDT',
+    'PST8PDT',
+    'CET',
+    'ROK',
+    'Japan',
+    'W-SU',
+    '+09:00',
+    '+0900',
+    '+09',
+    '-05:30',
+    '-00:00',
+    '+23:59',
+    '2026-11-13T00:00:00+09:00[Asia/Seoul]',
+    '2026-11-13T00:00:00Z',
+    '2026-11-13T00:00:00+05:30',
+    'Z',
+    '',
+    ' Asia/Seoul',
+    'Asia/Seoul ',
+    'Mars/Olympus_Mons',
+    '+09:00:00',
+    '+09:00:30',
+    '+24:00',
+    '+09:60',
+    '+9',
+    '09:00',
+    'UTC+9',
+    'GMT+9',
+    'Etc/Unknown',
+    'Factory',
+    'posixrules',
+    'local',
+    'Asia/Seoul[u-ca=iso8601]',
+    '2026-11-13T00:00:00',
+    '2026-11-13T00:00:00+09:00[Mars/Olympus_Mons]',
+    '2026-11-13T00:00:00+09:00:30',
+  ].map((id) => ({ id, valid: isValidTimeZone(id) }));
+}
+
+function datePrimitives(): unknown[] {
+  return [
+    '2026-11-13',
+    '2024-02-29',
+    '2026-02-28',
+    '2026-11-13T10:00',
+    '2026-11-13 10:00',
+    '2026-11-13T10:00:60',
+    '2026-11-13T10:00+09:00',
+    '2026-11-13[Asia/Seoul]',
+    '2026-11-13[u-ca=iso8601]',
+    '20261113',
+    '+002026-11-13',
+    '0000-01-01',
+    '2026-11-13Z',
+    '2026-11-13T10:00Z',
+    '2026-11-13T24:00',
+    '2026-02-30',
+    '2025-02-29',
+    '2026-13-01',
+    '2026-00-10',
+    '2026-11-00',
+    '2026-11',
+    '11-13',
+    '2026-1-3',
+    '2026/11/13',
+    ' 2026-11-13',
+    '2026-11-13 ',
+    '',
+    'today',
+  ].map((text) => {
+    try {
+      return { text, valid: true, printed: Temporal.PlainDate.from(text).toString() };
+    } catch {
+      return { text, valid: false, printed: null };
+    }
+  });
+}
+
+function clockPrimitives(): unknown[] {
+  return [
+    '00:00',
+    '09:00',
+    '9:00',
+    '0:05',
+    '23:59',
+    '24:00',
+    '24:01',
+    '25:00',
+    '9:5',
+    '09:60',
+    '09:99',
+    ' 09:00',
+    '09:00 ',
+    '09:00\n',
+    '099:00',
+    '-1:00',
+    '+9:00',
+    '09:00:00',
+    '0900',
+    '9',
+    '',
+    ':',
+    '٠٩:٠٠',
+  ].map((text) => ({
+    text,
+    minutes: orNull(() => {
+      const clock = parseClock(text);
+      return clock.hour * 60 + clock.minute;
+    }),
+  }));
+}
+
+function sessionPrimitives(): unknown[] {
+  const pairs: ReadonlyArray<readonly [number, number]> = [
+    [90, 240],
+    [300, 240],
+    [120, 120],
+    [0, 240],
+    [-5, 240],
+    [52, 240],
+    [90, 44.9],
+    [5, 240],
+    [4, 240],
+    [90, 0],
+    [90, -30],
+    [50, 120],
+    [60, 360],
+    [7.5, 12.5],
+    [100_000, 100_000],
+  ];
+  return pairs.map(([breakAfterMin, maxDailyFocusMin]) => {
+    const limit = maxLegalSessionMin({ breakAfterMin, maxDailyFocusMin }) ?? null;
+    return {
+      breakAfterMin,
+      maxDailyFocusMin,
+      limit,
+      autoSplitMin:
+        limit === null
+          ? []
+          : [0, 5, 15, 25, 30, 45, 60, 240].map((defaultMin) => ({
+              defaultMin,
+              minSessionMin: autoSplitMinSessionMin(limit.capMin, defaultMin),
+            })),
+    };
   });
 }
 
@@ -501,6 +1171,22 @@ function partitionPrimitives(): unknown[] {
     ['Pacific/Apia', '2011-12-29T00:00:00Z', '2012-01-01T00:00:00Z'],
     ['Asia/Kolkata', '2026-06-01T18:29:00Z', '2026-06-01T18:31:00Z'],
     ['Asia/Seoul', '2026-11-13T00:00:00Z', '2026-11-13T00:00:00Z'],
+    // Offsets that are not whole minutes or hours, and zones given as offsets.
+    ['Asia/Seoul', '1908-03-31T00:00:00Z', '1908-04-02T00:00:00Z'],
+    ['Africa/Monrovia', '1972-01-06T00:00:00Z', '1972-01-08T00:00:00Z'],
+    ['Asia/Kathmandu', '2026-11-13T00:00:00Z', '2026-11-15T00:00:00Z'],
+    ['+09:00', '2026-11-13T00:00:00Z', '2026-11-14T12:00:00Z'],
+    ['-05:30', '2026-11-13T00:00:00Z', '2026-11-14T12:00:00Z'],
+    ['asia/seoul', '2026-11-13T00:00:00Z', '2026-11-14T00:00:00Z'],
+    // Other rule shapes: Ramadan in Morocco, Seoul's 1988 DST, a two-hour step.
+    ['Africa/Casablanca', '2026-02-13T00:00:00Z', '2026-02-17T00:00:00Z'],
+    ['Africa/Casablanca', '2026-03-20T00:00:00Z', '2026-03-24T00:00:00Z'],
+    ['Asia/Seoul', '1988-05-07T00:00:00Z', '1988-05-09T00:00:00Z'],
+    ['Antarctica/Troll', '2026-03-28T00:00:00Z', '2026-03-30T00:00:00Z'],
+    // Beyond the tables: the recurring rule of the zone.
+    ['America/New_York', '2037-10-30T00:00:00Z', '2037-11-03T00:00:00Z'],
+    ['America/New_York', '2100-03-12T00:00:00Z', '2100-03-16T00:00:00Z'],
+    ['Europe/Berlin', '2060-03-27T00:00:00Z', '2060-03-29T00:00:00Z'],
   ];
   return ranges.map(([timeZone, start, end]) => ({
     timeZone,
@@ -514,10 +1200,19 @@ function partitionPrimitives(): unknown[] {
 
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
-  const cases = [...goldenCases(), ...generatedCases(args.seed, args.count)];
+  const corpus = args.corpus === null ? { cases: [], skipped: 0 } : corpusCases(args.corpus);
+  // The budget workload is large: it goes into the big packs, not the
+  // committed sample.
+  const cases = [
+    ...goldenCases(),
+    ...pathCases(),
+    ...corpus.cases,
+    ...(args.corpus === null ? [] : [budgetWorkloadCase()]),
+    ...generatedCases(args.seed, args.count),
+  ];
   const header = {
-    format: 'ohmydate-scheduler-oracle',
-    formatVersion: 1,
+    format: FORMAT,
+    formatVersion: FORMAT_VERSION,
     oracle: {
       generatorVersion: GENERATOR_VERSION,
       policyVersion: POLICY_VERSION,
@@ -530,14 +1225,14 @@ function main(): void {
       prng: prngPrimitives(),
       canonical: canonicalPrimitives(),
       instants: instantPrimitives(),
+      zones: zonePrimitives(),
+      dates: datePrimitives(),
+      clocks: clockPrimitives(),
+      sessions: sessionPrimitives(),
       partitions: partitionPrimitives(),
     },
   };
-  // One case per line keeps the committed sample reviewable and diffable.
-  const lines = cases.map((testCase) => JSON.stringify(evaluate(testCase)));
-  const head = JSON.stringify(header, null, 1).replace(/\n}$/, '');
-  const text = `${head},\n "cases": [\n${lines.join(',\n')}\n ]\n}\n`;
-  JSON.parse(text);
+  const text = packText(header, cases.map(evaluate));
   mkdirSync(args.out, { recursive: true });
   const file = join(args.out, `${args.name}.json`);
   writeFileSync(file, text);
@@ -545,7 +1240,8 @@ function main(): void {
   for (const testCase of cases) kinds.set(testCase.kind, (kinds.get(testCase.kind) ?? 0) + 1);
   console.log(
     `wrote ${file}: ${cases.length} cases (${[...kinds].map(([kind, n]) => `${kind} ${n}`).join(', ')}), ` +
-      `${Math.round(Buffer.byteLength(text) / 1024)} KiB, tzdata ${header.oracle.tzdata}`,
+      `${Math.round(Buffer.byteLength(text) / 1024)} KiB, tzdata ${header.oracle.tzdata}` +
+      (args.corpus === null ? '' : `; ${corpus.skipped} corpus input(s) left out as not portable`),
   );
 }
 

@@ -33,6 +33,21 @@ pub fn js_number(number: f64) -> String {
     }
 }
 
+/// The JSON value of a JavaScript number: `null` for NaN and the infinities,
+/// as `JSON.stringify` writes them. Whole numbers up to 2^53 become JSON
+/// integers so that the value equals what a JSON parser reads back.
+#[must_use]
+pub fn number_value(number: f64) -> Value {
+    const EXACT: f64 = 9_007_199_254_740_992.0;
+    if number.is_finite() && number.fract() == 0.0 && number.abs() <= EXACT {
+        // An integer of at most 54 bits: the cast is exact.
+        #[allow(clippy::cast_possible_truncation)]
+        let integer = number as i64;
+        return Value::from(integer);
+    }
+    serde_json::Number::from_f64(number).map_or(Value::Null, Value::Number)
+}
+
 /// `JSON.stringify` of a string.
 fn write_string(text: &str, output: &mut String) {
     output.push('"');
@@ -135,6 +150,25 @@ mod tests {
         }
         assert_eq!(js_number(f64::NAN), "null");
         assert_eq!(js_number(f64::INFINITY), "null");
+    }
+
+    #[test]
+    fn number_values_are_what_a_json_parser_reads_back() {
+        for (number, text) in [
+            (5.0, "5"),
+            (-0.0, "0"),
+            (-17.0, "-17"),
+            (12.5, "12.5"),
+            (9_007_199_254_740_991.0, "9007199254740991"),
+            (1e21, "1e+21"),
+        ] {
+            let value = number_value(number);
+            assert_eq!(canonical_json(&value), text);
+            let reparsed: Value = serde_json::from_str(text).unwrap();
+            assert_eq!(value, reparsed, "{text}");
+        }
+        assert_eq!(number_value(f64::NAN), Value::Null);
+        assert_eq!(number_value(f64::NEG_INFINITY), Value::Null);
     }
 
     #[test]
