@@ -40,6 +40,12 @@ import { readState } from '../helpers/state';
 // at both widths; 약속 추가 is the screen's one filled button. `/month` above
 // is the same screen's month view. It also adds 타임 트래커 (/tracker): the
 // timer card with its task picker and the week's record, at both widths.
+// HOLO-04 walks the same screens where they live now — the places of the loop:
+// 개요 holds 오늘 (one filled button, on the next block), 할 일 holds the inbox
+// and the projects, the planner's 목록 holds the 약속 (the old addresses still
+// lead there), 집중 is the timer and its record, and one 설정 has four
+// sections. It adds the capture bar (the top bar's field, or the nav's sheet on
+// a phone) and 설정 › 화면's 투명 효과 줄이기, which turns the glass opaque.
 
 const state = readState();
 const account = { email: state.plansEmail, password: state.plansPassword };
@@ -134,7 +140,7 @@ function blocksAroundBusy(
 test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
   test.describe.configure({ mode: 'serial', timeout: 240_000 });
 
-  test('projects, availability, commitments, focus, review, notifications and AI settings have no critical or serious axe violations; Calm mode keeps an exit after completing', async ({
+  test('개요, 담기, 할 일, the planner (incl. its 약속), 집중, 설정, notifications, focus and review have no critical or serious axe violations; Calm mode keeps an exit after completing', async ({
     browser,
   }) => {
     const suffix = Date.now().toString(36);
@@ -202,14 +208,34 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         // sentence, and exactly one filled button acts on it (07 §4, DESIGN.md).
         await expect(page.locator('[data-next]')).toHaveText(/(블록|세션|집중)/);
         await expect(page.locator('main .btn--primary')).toHaveCount(1);
-        await expect(page.locator('main .btn--primary')).toHaveText(/^(집중 시작|이어서 보기)$/);
+        // HOLO-04: that button is 오늘's — the next block's start, or the running session.
+        await expect(page.locator('main .btn--primary')).toHaveText(/^(집중 시작|세션 이어가기)$/);
+        await expect(page.locator('[data-today-board] [data-primary]')).toHaveCount(1);
+        await expect(page.locator('[data-today-board] .today-card').first()).toBeVisible();
         // Dark is the default theme; the shell says so on the root element.
         await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
         await expectAccessible(page, `overview ${size}`);
       });
 
-      await test.step(`projects + project detail (${size})`, async () => {
-        await page.goto(`${state.webUrl}/projects`);
+      await test.step(`담기: the capture bar (${size})`, async () => {
+        // A wide window has the field in the top bar; below that the nav's 담기 opens it as a sheet.
+        if (viewport === PHONE) await page.locator('[data-nav-capture]').click();
+        else await page.locator('.app-topbar [data-capture-input]').click();
+        const panel = page.locator('[data-capture-panel]').filter({ visible: true });
+        await expect(panel).toHaveCount(1);
+        await expect(page.locator('[data-capture-input]').filter({ visible: true })).toBeFocused();
+        await expectAccessible(page, `capture ${size}`);
+        await page.keyboard.press('Escape');
+        await expect(panel).toHaveCount(0);
+      });
+
+      await test.step(`할 일: inbox, projects + project detail (${size})`, async () => {
+        await page.goto(`${state.webUrl}/tasks`);
+        await expect(page.locator('[data-tasks-place]')).toHaveAttribute('data-tasks-view', 'inbox');
+        await expect(page.getByRole('heading', { name: '인박스', level: 1 })).toBeVisible();
+        await expectAccessible(page, `tasks inbox ${size}`);
+        await page.locator('[data-tasks-view-link="projects"]').click();
+        await expect(page).toHaveURL(/\/tasks\?view=projects$/);
         await expect(page.getByRole('heading', { name: '프로젝트', level: 1 })).toBeVisible();
         const firstProject = page.locator('.project-link').first();
         await expect(firstProject).toBeVisible();
@@ -224,7 +250,8 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
 
       await test.step(`availability (${size})`, async () => {
         await page.goto(`${state.webUrl}/settings/availability`);
-        await expect(page.getByRole('heading', { name: '가용 시간', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '설정', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '가용 시간', level: 2 })).toBeVisible();
         await expect(page.getByRole('button', { name: '가용 시간 저장' })).toBeVisible();
         // FU-97 weekly grid: continuous 00:00–24:00 rules (seeded above) show the
         // early hours by themselves and fill every cell; the row editor stays
@@ -244,11 +271,24 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expectAccessible(page, `availability ${size}`);
       });
 
-      await test.step(`commitments (${size})`, async () => {
+      await test.step(`약속: the planner's list (${size})`, async () => {
+        // The old address leads to the planner's 목록, which shows this week's 약속.
         await page.goto(`${state.webUrl}/commitments`);
-        await expect(page.getByRole('heading', { name: '약속', level: 1 })).toBeVisible();
-        await expect(page.locator('.commitment-title', { hasText: commitmentTitle })).toBeVisible();
-        await expectAccessible(page, `commitments ${size}`);
+        await page.waitForURL(/\/planner\?view=list/);
+        await expect(page.locator('[data-planner="list"]')).toBeVisible();
+        const row = page.locator('[data-planner-list] [data-commitment]').filter({ hasText: commitmentTitle });
+        await expect(row).toHaveCount(1);
+        await expect(row).toBeVisible();
+        await expect(page.locator('main .btn--primary')).toHaveCount(1);
+        await expect(page.locator('main .btn--primary')).toHaveText('약속 추가');
+        await expectAccessible(page, `planner list ${size}`);
+        // Its own dialog: 고치기 and 삭제 are there, and nothing is sent by looking.
+        await row.locator('[data-commitment-edit]').click();
+        await expect(page.locator('[data-planner-edit]')).toBeVisible();
+        await expectAccessible(page, `planner edit dialog ${size}`);
+        await page.keyboard.press('Escape');
+        await expect(page.locator('[data-planner-edit]')).toHaveCount(0);
+        await expect(row).toHaveCount(1);
       });
 
       await test.step(`month (${size})`, async () => {
@@ -293,9 +333,11 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expectAccessible(page, `planner day ${size}`);
       });
 
-      await test.step(`time tracker (${size})`, async () => {
+      await test.step(`집중: the timer and its record (${size})`, async () => {
+        // The old address leads to the place.
         await page.goto(`${state.webUrl}/tracker`);
-        await expect(page.getByRole('heading', { name: '타임 트래커', level: 1 })).toBeVisible();
+        await page.waitForURL(/\/focus$/);
+        await expect(page.getByRole('heading', { name: '집중', level: 1 })).toBeVisible();
         await expect(page.getByRole('heading', { name: '타이머', level: 2 })).toBeVisible();
         await expect(page.getByRole('heading', { name: '기록', level: 2 })).toBeVisible();
         const log = page.locator('[data-tracker-log]');
@@ -324,26 +366,49 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
 
       await test.step(`AI settings (${size})`, async () => {
         await page.goto(`${state.webUrl}/settings/ai`);
-        await expect(page.getByRole('heading', { name: 'AI 설정', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'AI 설정', level: 2 })).toBeVisible();
         await expectAccessible(page, `AI settings ${size}`);
       });
 
       await test.step(`calendar settings (${size})`, async () => {
         await page.goto(`${state.webUrl}/settings/calendar`);
-        await expect(page.getByRole('heading', { name: '캘린더 연동', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '캘린더 연동', level: 2 })).toBeVisible();
         const status = page.locator('[data-google-status]');
         await expect(status).toBeVisible();
         await expect(status).toHaveAttribute('data-google-status', /^(not_configured|disconnected|connected|needs_reauth)$/);
-        // At most one filled button on the page (07 §4, DESIGN.md); the shell's 새 작업 is the rail's own.
+        // At most one filled button on the page (07 §4, DESIGN.md).
         await expect(page.locator('main button.btn--primary')).toHaveCount(
           (await status.getAttribute('data-google-status')) === 'not_configured' ? 0 : 1,
         );
         await expectAccessible(page, `calendar settings ${size}`);
       });
 
+      await test.step(`설정 › 화면: 투명 효과 줄이기 turns the glass opaque (${size})`, async () => {
+        // The old address of the layout settings leads here.
+        await page.goto(`${state.webUrl}/settings/layout`);
+        await page.waitForURL(/\/settings\/display$/);
+        const reduce = page.locator('[data-display-transparency]');
+        await expect(reduce).not.toBeChecked();
+        await expect(page.locator('html')).not.toHaveAttribute('data-transparency', 'reduce');
+        const blurOf = (): Promise<string> =>
+          page.locator('.app-topbar').evaluate((bar) => {
+            const own = getComputedStyle(bar).backdropFilter;
+            const layer = getComputedStyle(bar, '::before').backdropFilter;
+            return [own, layer].find((value) => value !== undefined && value !== '' && value !== 'none') ?? 'none';
+          });
+        if (viewport !== PHONE) expect(await blurOf()).toContain('blur');
+        await expectAccessible(page, `display settings ${size}`);
+        await reduce.check();
+        await expect(page.locator('html')).toHaveAttribute('data-transparency', 'reduce');
+        expect(await blurOf()).toBe('none');
+        await expectAccessible(page, `display settings, opaque ${size}`);
+        await reduce.uncheck();
+        await expect(page.locator('html')).not.toHaveAttribute('data-transparency', 'reduce');
+      });
+
       await test.step(`notifications panel (${size})`, async () => {
-        await page.goto(`${state.webUrl}/today`);
-        await expect(page.getByRole('heading', { name: '오늘', level: 1 })).toBeVisible();
+        await page.goto(`${state.webUrl}/overview`);
+        await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
         if (viewport === PHONE) {
           await page.getByRole('button', { name: '더 보기', exact: true }).click();
           await page
@@ -373,7 +438,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
       const size = `${run.viewport.width}x${run.viewport.height}`;
       await test.step(`focus, calm mode, complete and review while calm (${size})`, async () => {
         await page.setViewportSize(run.viewport);
-        await page.goto(`${state.webUrl}/today`);
+        await page.goto(`${state.webUrl}/overview`);
         const card = page.locator('.today-card', { hasText: run.block });
         await expect(card).toBeVisible({ timeout: 20_000 });
         await card.getByRole('button', { name: '집중 시작' }).click();
@@ -403,13 +468,14 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expectAccessible(page, `review sheet after calm ${size}`);
 
         await page.getByRole('button', { name: '회고 저장' }).click();
-        await expect(page.getByRole('heading', { name: '추정 피드백' })).toBeVisible();
+        await expect(page.locator('[data-focus-next-feedback]')).toBeVisible();
         await expect(back).toBeVisible();
         await expect(nav).toBeVisible();
         await expectAccessible(page, `review feedback after calm ${size}`);
 
         await back.click();
-        await expect(page.getByRole('heading', { name: '오늘', level: 1 })).toBeVisible();
+        await page.waitForURL(/\/overview$/);
+        await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
         await expect(nav).toBeVisible();
       });
     }
@@ -442,7 +508,8 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
           await expect(weeks.locator('[data-chart-table] tbody tr')).toHaveCount(8);
           await expect(weeks.locator('[data-insights-empty]')).toHaveCount(0);
         } else {
-          await expect(weeks.locator('[data-insights-empty="weeks"] a')).toHaveAttribute('href', '/today');
+          // HOLO-04: the empty state leads back a stage — to 집중, where sessions are made.
+          await expect(weeks.locator('[data-insights-empty="weeks"] a')).toHaveAttribute('href', '/focus');
           await expect(weeks.locator('[data-chart]')).toHaveCount(0);
         }
         // Two reviews are not yet a pattern: either the number (three or more) or the honest empty state.

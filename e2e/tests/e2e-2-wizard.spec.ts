@@ -108,7 +108,7 @@ test.describe('E2E-2 — 계획 세우기 (목표 → 질문 → 단계) against
     await page.locator('[data-plan-approve-steps]').click();
     await expectScheduleStage(page);
 
-    await page.goto(`${state.webUrl}/inbox`);
+    await page.goto(`${state.webUrl}/tasks`);
     await expect(page.getByText(editedStep, { exact: true })).toBeVisible();
 
     const plannerTask = await waitForPlannerTask(page, state, editedStep);

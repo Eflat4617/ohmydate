@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { type Page } from '@playwright/test';
 import { expect, test } from '../helpers/test';
-import { login } from '../helpers/app';
+import { login, openPlace } from '../helpers/app';
 import { installBrowserClockAt, testClock } from '../helpers/clock';
 import { nextLocalMorningMs } from '../helpers/day-clock';
 import {
@@ -67,7 +67,7 @@ async function completeAndReview(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: '이번 세션은 어땠나요?' })).toBeVisible();
   await page.getByRole('radio', { name: '일부만' }).check();
   await page.getByRole('button', { name: '회고 저장' }).click();
-  await expect(page.getByRole('heading', { name: '추정 피드백' })).toBeVisible();
+  await expect(page.locator('[data-focus-next-feedback]')).toBeVisible();
 }
 
 test.describe('E2E-6 — adaptive layout: focus switch, undo, auto switch off', () => {
@@ -97,9 +97,10 @@ test.describe('E2E-6 — adaptive layout: focus switch, undo, auto switch off', 
     );
     expect(approved.blocks.length).toBeGreaterThanOrEqual(2);
 
-    await test.step('overview on Today (axe)', async () => {
-      await page.goto(`${state.webUrl}/today`);
-      await expect(page.getByRole('heading', { name: '오늘', level: 1 })).toBeVisible();
+    await test.step('overview on 개요, which holds 오늘 (axe)', async () => {
+      // HOLO-04: 오늘 lives on 개요, the adaptive layout's daily workspace.
+      await page.goto(`${state.webUrl}/overview`);
+      await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
       await expect(page.locator('.today-card').first()).toBeVisible({ timeout: 20_000 });
       await expectMode(page, 'overview');
       await expect(page.locator('.nav-rail')).toBeVisible();
@@ -126,9 +127,9 @@ test.describe('E2E-6 — adaptive layout: focus switch, undo, auto switch off', 
 
     await test.step('toast undo restores Today; the session keeps running', async () => {
       await layoutToast(page).getByRole('button', { name: '되돌리기' }).click();
-      await page.waitForURL(/\/today$/);
+      await page.waitForURL(/\/overview$/);
       await expectMode(page, 'overview');
-      await expect(page.getByRole('heading', { name: '오늘', level: 1 })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
       await expect(layoutToast(page)).toHaveCount(0);
       await expect(page.locator('[data-layout-announcer]')).toHaveText('화면 배치를 되돌렸어요: 기본');
       // Focus is kept inside the layout, not dropped on <body>.
@@ -140,7 +141,7 @@ test.describe('E2E-6 — adaptive layout: focus switch, undo, auto switch off', 
     });
 
     await test.step('planning and notes layouts (axe)', async () => {
-      await page.locator('.nav-rail').getByRole('link', { name: '계획 세우기' }).click();
+      await openPlace(page, '계획');
       await expect(page.getByRole('heading', { name: '계획 세우기', level: 1 })).toBeVisible();
       await expect(page.locator('#plan-goal-title')).toBeVisible();
       // The undo turned this session's focus layout down, so the planning rule
@@ -165,7 +166,7 @@ test.describe('E2E-6 — adaptive layout: focus switch, undo, auto switch off', 
       // The Focus screen (with its feedback) stays until the user leaves it.
       await expect(page).toHaveURL(new RegExp(`/focus/${firstSession}$`));
       await page.getByRole('button', { name: '오늘로 돌아가기' }).click();
-      await page.waitForURL(/\/today$/);
+      await page.waitForURL(/\/overview$/);
       await expectMode(page, 'overview');
     });
 
@@ -185,8 +186,11 @@ test.describe('E2E-6 — adaptive layout: focus switch, undo, auto switch off', 
     await test.step('the setting persists across a reload', async () => {
       await page.reload();
       await expect(page.locator('.focus-timer')).toBeVisible();
-      await page.locator('.nav-rail').getByRole('link', { name: '레이아웃' }).click();
-      await expect(page.getByRole('heading', { name: '레이아웃', level: 1 })).toBeVisible();
+      // HOLO-04: one 설정; the layout switch is in its 화면 section.
+      await openPlace(page, '설정');
+      await page.locator('[data-settings-link="display"]').click();
+      await page.waitForURL(/\/settings\/display$/);
+      await expect(page.getByRole('heading', { name: '설정', level: 1 })).toBeVisible();
       await expect(page.getByRole('switch', { name: '상황에 맞춰 화면 배치를 자동으로 바꾸기' })).not.toBeChecked();
       expect(await blockingAxeViolations(page)).toEqual([]);
     });
@@ -196,7 +200,7 @@ test.describe('E2E-6 — adaptive layout: focus switch, undo, auto switch off', 
       await expect(page.locator('.focus-timer')).toBeVisible();
       await completeAndReview(page);
       await page.getByRole('button', { name: '오늘로 돌아가기' }).click();
-      await page.waitForURL(/\/today$/);
+      await page.waitForURL(/\/overview$/);
       const cards = page.locator('.today-card');
       const target = (await cards.count()) > 2 ? cards.nth(2) : cards.first();
       await target.getByRole('button', { name: '집중 시작' }).click();

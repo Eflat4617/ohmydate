@@ -125,7 +125,7 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     const sessionBlock = approved.blocks[1];
     if (sessionBlock === undefined) throw new Error('approved plan has no block to start from');
 
-    await page.goto(`${state.webUrl}/today`);
+    await page.goto(`${state.webUrl}/overview`);
     await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
     const cards = page.locator('.today-card');
     await expect(cards).toHaveCount(3, { timeout: 20_000 });
@@ -152,7 +152,7 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     await page.getByRole('checkbox', { name: '생각보다 컸어요' }).check();
     await page.getByLabel('메모 (선택, 나만 볼 수 있어요)').fill('E2E focus review note.');
     await page.getByRole('button', { name: '회고 저장' }).click();
-    await expect(page.getByRole('heading', { name: '추정 피드백' })).toBeVisible();
+    await expect(page.locator('[data-focus-next-feedback]')).toBeVisible();
     await expect(page.getByText(/예상 .* · 실제/)).toBeVisible();
 
     let notificationId = '';
@@ -201,7 +201,7 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     const page = await context.newPage();
     await login(page, state, account);
 
-    await page.goto(`${state.webUrl}/today`);
+    await page.goto(`${state.webUrl}/overview`);
     const cards = page.locator('.today-card');
     await expect(cards).toHaveCount(3, { timeout: 20_000 });
     await cards.first().getByRole('button', { name: '집중 시작' }).click();
@@ -274,7 +274,7 @@ test.describe('E2E-4 — Today focus flow, feedback and notification dedupe', ()
     const currentApproved = await approveCandidateWithBlocks(page, state, secondPlan, secondEdited);
     if (currentApproved.blocks[0] === undefined) throw new Error('current plan has no block');
 
-    await page.goto(`${state.webUrl}/today`);
+    await page.goto(`${state.webUrl}/overview`);
     const cards = page.locator('.today-card');
     await expect(cards).toHaveCount(Math.min(currentApproved.blocks.length, 3), {
       timeout: 20_000,

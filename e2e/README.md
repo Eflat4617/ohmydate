@@ -28,8 +28,37 @@ Artifacts:
 
 The suite covers the E2E-1 flow (create -> Vikunja check -> edit -> second
 context edit -> 412 conflict dialog -> overwrite -> complete -> Vikunja check),
-offline mutation gating, a Tab/Enter-only login + quick-add flow, and
-`@axe-core/playwright` scans of login and inbox (zero critical/serious).
+offline mutation gating, a keyboard-only sign-in and capture (Tab/Enter to sign
+in, `n` to the capture bar, Enter to add, Enter again for the hand-off to 계획),
+and `@axe-core/playwright` scans of login, 개요 and the inbox (zero
+critical/serious).
+
+## Where the specs walk since HOLO-04
+
+The product is one flow (`apps/web/FLOW.md`); the specs follow it.
+
+- **Signing in lands on 개요** (`/overview`), which holds 오늘. `helpers/app.ts`
+  `login()` waits for it.
+- **The start guide.** An owner without hours is met by the start guide the
+  first time a device sees them, and every test starts on a fresh device.
+  `login()` calls `settleStartGuide()`: it waits until the shell has decided
+  (`.app-shell[data-first-run-state]` is no longer `pending`) and, if the guide
+  opened, puts it away with 닫기 — 개요 then keeps the rest as its 시작 마무리
+  card. A test that signs in by hand does the same (E2E-1 closes it with
+  Escape, as a keyboard user would).
+- **Places.** `openPlace(page, '할 일')` clicks the sidebar link (named by the
+  place alone); `openInbox()` is 할 일 › 인박스. The inbox is `/tasks`, the
+  projects `/tasks?view=projects`, the 약속 list `/planner?view=list`, the timer
+  and its record `/focus`, the settings `/settings/<section>`. The old
+  addresses redirect; the a11y spec checks three of them on purpose.
+- **Signing out** is in the account menu: `signOut(page)`.
+- **약속 in words** (E2E-7) runs in the planner's 약속 추가 dialog, and removes
+  what it added through the row's own dialog (삭제, then its in-place confirm).
+- **The capture bar** has its own real-API test in E2E-8: one line read by the
+  (slow, fake) AI as a to-do, nothing saved before 담기, then the hand-off to
+  `/plan/schedule?taskIds=<id>`.
+- **After a review** the estimate feedback is on the next-step card
+  (`[data-focus-next-feedback]`), once.
 
 ## E2E-3 and wall-clock time (FU-55)
 
@@ -128,8 +157,9 @@ hard reload; the test never calls `page.reload`) and shows B. The spec then
 checks real session state from tab 1: `GET /me` returns B, the `sid` cookie
 was replaced, the active-owner pointer is B, B's Focus namespace is empty, A's
 namespace is preserved but not rendered, and A's task title is absent from the
-DOM (checked only after tab 1's own `GET /tasks` after the reset has answered
-and B's list has rendered) and from B's task list. Signing out in tab 2 makes
+DOM and from B's task list. Since HOLO-04 the reset brings tab 1 back on 개요;
+the spec then opens 할 일 in tab 1 and checks the title only after the
+`GET /tasks` tab 1 sends as B has answered and B's list has rendered. Signing out in tab 2 makes
 tab 1 return to the login screen and `GET /me` answer 401, still without a
 test-driven reload. The response waiters time out after 20 s, so a broken
 reset fails at the wait that never matched rather than at the test timeout.
@@ -157,7 +187,7 @@ detection sweep, which runs every 300 s from API start (up to 11 minutes, so a
 tick skipped by a contended advisory lock is tolerated), and checks:
 
 - exactly one `commitment_conflict` proposal and one `replan_proposal`
-  notification; 오늘 shows one replan card (a link, never the filled button)
+  notification; 오늘 (on 개요) shows one replan card (a link, never the filled button)
   and the notification links to the proposal;
 - 재계획 (one screen since HOLO-03A) lists only the overlapped block as moved
   and the locked block as unchanged, shows 전 → 후 as numbers and on the week
@@ -213,9 +243,9 @@ Flow, all in the UI unless noted:
 4. Confirm the steps (the flow goes on to 일정안). The note's AI usage history
    lists one succeeded call with the same section hash.
 5. Create and approve a plan for the goal (API helpers). Starting a focus
-   session from Today switches to the focus layout, where RelatedNotes lists
-   the note (*이 프로젝트*, titles only). The toast's *되돌리기* restores
-   Today.
+   session from 오늘 (on 개요) switches to the focus layout, where RelatedNotes
+   lists the note (*이 프로젝트*, titles only). The toast's *되돌리기* restores
+   개요.
 
 A second test scans every notes screen with axe at 1280×860 and 390×844
 (0 critical/serious, no horizontal page scroll).
