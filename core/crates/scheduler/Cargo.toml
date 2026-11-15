@@ -10,8 +10,15 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[[bin]]
+name = "sched-diff"
+path = "src/bin/sched-diff.rs"
+
 [dependencies]
 jiff.workspace = true
 ryu-js.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

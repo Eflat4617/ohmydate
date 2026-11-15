@@ -410,6 +410,19 @@ impl Zone {
         }
     }
 
+    /// The zone as a `jiff` time zone, for code that converts to civil time
+    /// itself (the validator, which must not share the partition below).
+    #[must_use]
+    pub fn to_time_zone(&self) -> TimeZone {
+        match &self.rules {
+            ZoneRules::Named(zone) => zone.clone(),
+            ZoneRules::Fixed(offset_ms) => i32::try_from(offset_ms / 1000)
+                .ok()
+                .and_then(|seconds| jiff::tz::Offset::from_seconds(seconds).ok())
+                .map_or(TimeZone::UTC, TimeZone::fixed),
+        }
+    }
+
     /// The UTC offset in effect at an instant, in milliseconds.
     pub fn offset_ms_at(&self, epoch_ms: i64) -> Result<i64, TimeError> {
         match &self.rules {

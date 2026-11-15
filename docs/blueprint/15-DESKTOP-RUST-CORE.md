@@ -420,9 +420,10 @@ TypeScript에 그대로 남는 것: `apps/web`, `packages/contracts`(계약의 �
 | `types.ts` (입력) | 331 | `types.rs` — 입력 타입과 JSON 읽기·쓰기 | **있음**(RC-30) | 입력 왕복(`to_json`의 정규 JSON = 입력) |
 | `slots.ts` | 249 | `slots.rs` | **있음**(RC-30) | `slots` |
 | `requirements.ts`, `sessions.ts` | 79 | 같은 이름 | **있음**(RC-30) | `primitives.sessions`, 단위 테스트 |
-| `codes.ts` | 278 | `codes.rs` (닫힌 enum + params) | RC-31 | 계약의 enum 목록과 일치 테스트 |
-| `validate.ts` | 1,407 | `validate.rs` — 생성기와 **다른 구현**이라는 규칙 유지(자체 분할 로직을 따로 둔다) | RC-31 | `inputIssues`, `validation`, `probes` |
-| `explain.ts` | 238 | `explain.rs` | RC-31 | `deficit`, 후보의 `capacityDeficitMin` |
+| `codes.ts` | 278 | `codes.rs` — 닫힌 enum(위반 종류 10, 위반 문장 24, 입력 문제 종류 11·문장 29, 생성기 문장 15, 다양성 3)과 `Params` | **있음**(RC-31) | `packages/contracts/openapi.json`의 코드 목록과 순서까지 일치(`codes::tests`) |
+| `validate.ts` | 1,407 | `validate/{mod,input,local}.rs` — 생성기와 **다른 구현**이라는 규칙 유지: `local.rs`가 자기 분할을 따로 갖고, 날짜·요일은 `jiff`의 로컬 시각 변환에서 얻는다(`time.rs`는 벽시계 산술). H2는 구간 합집합을 만들지 않고 조각의 중점을 하나씩 판정한다 | **있음**(RC-31) | `inputIssues`, `validation`, `probes` |
+| `explain.ts` | 238 | `explain.rs` | **있음**(RC-31) | `deficit`(후보의 `capacityDeficitMin`은 RC-32에서 `result`와 함께) |
+| — | — | `replay.rs` + `src/bin/sched-diff.rs` — 한 건을 받아 옮긴 층 전부를 팩과 같은 JSON으로 돌려준다(차분 테스트와 최소화 도구가 같이 쓴다) | **있음**(RC-31) | `replay` 층 |
 | `policies.ts` | 97 | `policies.rs` | RC-32 | — |
 | `generate.ts` (새 계획) | 약 2,400 | `generate/{mod,context,order,place,h6,improve,metrics,lines}.rs` | RC-32 | `result`(재계획 아닌 건) |
 | `generate.ts` (재계획·빈틈 맞춤) | 약 1,600 | `generate/{replan,gapfit}.rs` | RC-33 | `result`(재계획 건) |
@@ -498,7 +499,8 @@ Rust 쪽이 기준 구현과 **다르게 답하지 않고 거부하는** 입력(
 - 실행: `corepack pnpm run core:diff` = 2,000건 팩을 만들고 `OHMYDATE_ORACLE_DIR=target/oracle cargo test -p ohmydate-scheduler --test oracle -- --nocapture`. 층마다 "비교 수, 불일치 수"를 찍는다. `ORACLE_COUNT`·`ORACLE_SEED`로 개수와 시드를 바꾼다.
 - 개수: 스케줄러 슬라이스의 "Exact tests"는 2,000건, 전환 관문은 10,000건 + golden 15(§7.7). 불일치 허용 0.
 - 대조 순서(앞 층이 틀리면 뒤는 보지 않는다): 원시값 → 입력 왕복 → `inputHash` → `slots` → `inputIssues` → `deficit` → `validation`·`probes` → 정책별 `blocks` → `metrics` → `explanation`/`explanationItems` → `diversityNote` → `resultHash`. 보고는 건 id + 층 + JSON 포인터 + 양쪽 값. 한 층의 비교 수가 기대보다 적어도 실패한다(빈 팩이 통과하지 못하게).
-- 최소화(RC-31): `packages/scheduler/scripts/shrink-oracle.mts`가 불일치 건의 입력에서 작업·약속·가용 규칙·예외를 하나씩 빼 보며, 빼도 불일치가 남으면 뺀 채로 둔다(delta debugging). 양쪽 실행은 TypeScript 함수와 Rust 쪽 작은 CLI(`sched-diff`: 입력 JSON → 결과 JSON). 남은 최소 입력을 `tests/oracle/regressions/`에 건 하나짜리 팩으로 커밋한다.
+- 최소화(**있음**, RC-31): `corepack pnpm run core:shrink -- --pack core/target/oracle/diff.json --case <id> [--layer …] [--name …] [--note …]`. `packages/scheduler/scripts/shrink-oracle.mts`가 불일치 건의 입력에서 작업(그 id를 가리키는 의존·블록·`affectedTaskIds`도 함께)·약속·가용 규칙·예외·블록을 절반씩, 다음엔 4분의 1씩, 마지막엔 하나씩 빼 보고(ddmin), 선택 필드와 옵션도 빼 보며, **같은 층의 불일치가 남을 때만** 뺀 채로 둔다. 양쪽 실행은 TypeScript 함수와 Rust 쪽 작은 CLI `sched-diff`(표준 입력 `{input, options, plans}` → 표준 출력 `{inputIssues, slots, deficit, plans[].violations}`; 오류 문구에 값을 되풀이하지 않는다). 남은 최소 입력을 기준 구현의 값과 함께 `tests/oracle/regressions/<이름>.json`에 건 하나짜리 팩으로 쓴다 — Rust 테스트가 그 디렉터리를 항상 읽으므로, 고치기 전에는 실패하고 고친 뒤에는 회귀를 막는다. 불일치가 없는 건은 종료 코드 1.
+  - 확인(RC-31): 도구 자체의 `--self-test`(최소 입력이 알려진 가짜 불일치로 12개 검사), 그리고 Rust validator를 일부러 한 글자 틀리게 한 뒤(`>` → `>=`) 실제 불일치 건을 돌려 작업 4·규칙 9·예외 2·약속 3 → 작업 3·규칙 1(33회 시도)로 줄고, 만들어진 팩이 틀린 코드에서 실패·되돌린 코드에서 통과하는 것을 봤다. RC-31까지 실제 불일치는 나오지 않아 커밋한 회귀 팩은 아직 없다.
 
 ### 5.4 옮길 테스트
 
@@ -517,15 +519,21 @@ TypeScript 테스트 파일 → Rust 테스트(스케줄러 크레이트의 원�
 
 | TypeScript (`packages/scheduler/test`) | Rust (`core/crates/scheduler`) | 상태 |
 |---|---|---|
-| `slots.test.ts`(5) | `tests/slots.rs` — 슬롯 단언 5건 + 기준 동작을 고정한 3건(예외 종류별 효과, 약속·잠금 블록 빼기와 그리드 정렬, 읽을 수 없는 입력이 오류가 되는 지점) | 슬롯 부분 옮김(RC-30). 같은 블록의 `validate` 단언은 RC-31 |
-| `transitions.test.ts`(17) | `tests/transitions.rs` — 슬롯·1분 오라클 단언 9건(고정 7개 표는 한 테스트), `time::tests::a_runaway_transition_walk_stops_at_the_guard`(전환 4096개 상한) | 슬롯·분 오라클 부분 옮김(RC-30). `validate` 코드 단언과 validator 쪽 상한은 RC-31 |
+| `slots.test.ts`(5) | `tests/slots.rs`(슬롯 단언 5건 + 기준 동작을 고정한 3건: 예외 종류별 효과, 약속·잠금 블록 빼기와 그리드 정렬, 읽을 수 없는 입력이 오류가 되는 지점), `tests/validate_slots.rs`(같은 블록의 `validate` 단언 3건) | 옮김(RC-30, RC-31) |
+| `transitions.test.ts`(17) | `tests/transitions.rs`(슬롯·1분 오라클 단언 9건, 고정 7개 표는 한 테스트), `tests/validate_slots.rs`(H2·H6 코드 단언 5건), 전환 4096개 상한 2건은 걷는 코드 옆에: `time::tests::a_runaway_transition_walk_stops_at_the_guard`, `validate::local::tests::a_runaway_transition_walk_stops_at_the_guard`(Temporal을 바꿔치기하는 대신 합성 전환 목록을 넣는다) | 옮김(RC-30, RC-31) |
 | `minuteOracle.ts` | `tests/support/minute_oracle.rs` — `jiff`의 로컬 시각 변환만 쓰는 1분 단위 오라클(크레이트의 분할·투영 코드를 쓰지 않는다) | 옮김(RC-30) |
-| 나머지 19개 파일 | — | RC-31~33 |
+| `validate.test.ts`(33) | `tests/validate.rs` — 같은 33건(일부는 한 테스트로 묶어 31개) + 기준 동작을 고정한 4건(발견 하나의 코드·문장·params·블록 전체, 입력 문제 하나 전체, 순환·긴 사슬, 이력은 후보 블록과만 대조) | 옮김(RC-31) |
+| `explain.test.ts`(4) | `tests/explain.rs` — 4건 + 2건(입력 순서와 무관한 선후 순서, 읽을 수 없는 입력은 오류) | 옮김(RC-31) |
+| `property.test.ts`(속성 7) | `tests/properties.rs` — 속성 7개를 `proptest`로(arbitrary는 손으로 옮김) + 속성이 쓰는 오라클 자체를 답이 알려진 경우로 검사하는 1건. 시드는 고정(`SCHED_PROPERTY_SEED`로 바꿈), 횟수는 `SCHED_PROPERTY_RUNS`(기본 1,000 — 기준 구현의 fast-check와 같은 변수) | 옮김(RC-31) |
+| `explanation-codes.test.ts`(8, 속성 1) | `tests/codes.rs` — 코드 목록, validator 발견 24종·입력 문제 29종 각각이 문장 틀과 1:1이고 전부 도달 가능, 무작위로 고친 블록의 모든 발견(속성), 문장과 params가 어긋나면 잡는지(네거티브). 문장 틀은 `tests/support/templates.rs`에 **한 번 더** 적었다(크레이트의 문장 조립과 독립). 생성기 문장 절반(3건)은 RC-32 | validator·입력 절반 옮김(RC-31) |
+| `history-exemption.test.ts`(9) | — (전부 `generate`를 쓴다) | RC-33. validator 쪽 이력 면제 규칙은 `tests/validate.rs`와 오라클 팩의 재계획 건이 이미 본다 |
+| 나머지 13개 파일(`golden`, `generate*`, `replan*`, `fu39r`…`fu96`, `performance`, `smoke`) | — | RC-32~33 |
 
 | 단계 | 팩 | 층별 비교 수 → 불일치 | Rust 테스트(스케줄러) |
 |---|---|---|---|
 | RC-00 | sample 27건 | 원시값·`inputHash`·`resultHash` → 0 | 단위 19 + 오라클 8 |
 | RC-30 | sample 27건 + 시드 20261113의 2,015건(golden 15, 생성 1,260, 재계획 407, 잘못된 입력 333; 후보 feasible 2,005 / infeasible 2,169) | 원시값 1,214(prng 260, canonical 108, instants 300, zones 108, dates 112, clocks 46, sessions 222, partitions 58) → 0 · 입력 왕복 2,042 → 0 · `inputHash` 4,216(후보) → 0 · `slots` 2,042건(구간 25,881개, 읽을 수 없어 `null`인 입력 64건 포함) → 0 | 단위 49 + 오라클 15 + `slots` 8 + `transitions` 8 |
+| RC-31 | 같은 팩(2,042건) | `inputIssues` 2,042건(문제 464개) → 0 · `deficit` 2,042건(작업 행 5,907개, 읽을 수 없는 입력 81건 포함) → 0 · `validation` 4,216회(위반 4,798개) → 0 · `probes` 8,168회(위반 39,681개) → 0 · `replay`(JSON 입출력 경로) 268 → 0. 변이 확인: validator를 세 군데 일부러 틀리게 했을 때(H2 중점 판정 일부 생략, 휴식 경계 `>=`→`>`, 일일 상한 `>`→`>=`) 속성·단위·오라클이 각각 실패 | 단위 57 + `sched-diff` 1 + 오라클 20 + `validate` 31 + `explain` 6 + `codes` 5 + `validate_slots` 8 + 속성 8(7개 × 1,000회 + 오라클 자체 검사) + `slots` 8 + `transitions` 8 = 152 |
 
 ## 6. 영역별로 Rust에서 필요한 것
 

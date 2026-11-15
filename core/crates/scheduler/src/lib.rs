@@ -17,7 +17,12 @@
 //! * [`slots`]: available time of a horizon;
 //! * [`sessions`], [`requirements`]: H6-legal session lengths and the minutes
 //!   a task needs;
-//! * [`input_hash`]: the `inputHash` of a `ScheduleInput`.
+//! * [`input_hash`]: the `inputHash` of a `ScheduleInput`;
+//! * [`codes`]: the closed explanation, violation and input-issue codes;
+//! * [`validate`]: the hard-constraint validator and the input validator;
+//! * [`explain`]: the capacity report made before generation;
+//! * [`replay`]: every ported layer on one input, in the oracle's JSON shape
+//!   (used by the differential test and the `sched-diff` binary).
 //!
 //! Like the TypeScript package, this crate is pure: no I/O, no clock, no
 //! global state. The time zone database is compiled in.
@@ -30,12 +35,19 @@
 //! both `sort_unstable*` and `HashMap`/`HashSet`), and orders text with
 //! [`canonical::compare_utf16`], not `str::cmp`.
 
+#[macro_use]
+mod macros;
+
 pub mod canonical;
+pub mod codes;
+pub mod explain;
 pub mod input_hash;
 pub mod js;
 pub mod prng;
+pub mod replay;
 pub mod requirements;
 pub mod sessions;
 pub mod slots;
 pub mod time;
 pub mod types;
+pub mod validate;

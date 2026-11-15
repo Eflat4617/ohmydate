@@ -25,44 +25,6 @@ pub type Id = String;
 /// An ISO-8601 instant with an offset, for example `2026-11-13T09:00:00Z`.
 pub type Instant = String;
 
-macro_rules! string_enum {
-    ($(#[$meta:meta])* $name:ident { $($variant:ident => $text:literal),+ $(,)? }) => {
-        $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub enum $name {
-            $($variant),+
-        }
-
-        impl $name {
-            /// Every value, in the reference's declaration order.
-            pub const ALL: &'static [Self] = &[$(Self::$variant),+];
-
-            /// The reference's spelling.
-            #[must_use]
-            pub const fn as_str(self) -> &'static str {
-                match self {
-                    $(Self::$variant => $text),+
-                }
-            }
-
-            /// The value spelled `text`, if any.
-            #[must_use]
-            pub fn parse(text: &str) -> Option<Self> {
-                match text {
-                    $($text => Some(Self::$variant),)+
-                    _ => None,
-                }
-            }
-        }
-
-        impl fmt::Display for $name {
-            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str(self.as_str())
-            }
-        }
-    };
-}
-
 string_enum! {
     /// Which estimate a plan must cover.
     RiskLevel { P50 => "p50", P90 => "p90" }

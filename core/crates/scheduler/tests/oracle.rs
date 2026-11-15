@@ -7,8 +7,10 @@
 //! pack is added with `OHMYDATE_ORACLE_DIR` (`corepack pnpm run core:diff`).
 //!
 //! Layers, lowest first — a mismatch in one explains mismatches above it:
-//! primitives → input round trip → `inputHash` → `slots`. As modules land,
-//! this file gains `inputIssues`, `validation`, `deficit` and `result`.
+//! primitives → input round trip → `inputHash` → `slots` → `inputIssues` →
+//! `deficit` → `validation` and `probes` (the validator on the reference's
+//! candidates and on deliberately broken plans). `result` follows with the
+//! generator.
 
 // Test code: a failed unwrap is a failed test, and the layer numbers are
 // printed for the task report (`cargo test -- --nocapture`).
@@ -17,8 +19,10 @@
 mod support;
 
 use ohmydate_scheduler::canonical::{canonical_json, sha256_hex};
+use ohmydate_scheduler::explain::deficit;
 use ohmydate_scheduler::input_hash::{input_hash, input_hash_of};
 use ohmydate_scheduler::prng::Prng;
+use ohmydate_scheduler::replay::{audit, history_blocks, read_plan, replay};
 use ohmydate_scheduler::sessions::{auto_split_min_session_min, max_legal_session_min};
 use ohmydate_scheduler::slots::compute_available_slots;
 use ohmydate_scheduler::time::{
@@ -26,6 +30,7 @@ use ohmydate_scheduler::time::{
     parse_clock, parse_instant, partition_by_local_date,
 };
 use ohmydate_scheduler::types::{GenerateOptions, ScheduleInput, Slot};
+use ohmydate_scheduler::validate::{InputIssue, validate_input};
 use serde_json::{Value, json};
 use support::packs::{FORMAT, FORMAT_VERSION, Tally, check_header, first_difference, packs};
 
@@ -351,6 +356,160 @@ fn available_slots_match_the_reference() {
     assert!(intervals > 100, "only {intervals} slot intervals compared");
     assert!(unreadable > 0, "no case exercises an unreadable input");
     tally.finish(27);
+}
+
+#[test]
+fn input_issues_match_the_reference() {
+    let mut tally = Tally::new("inputIssues");
+    let mut issues = 0;
+    for pack in packs() {
+        for case in pack.cases() {
+            let (input, _) = typed(&case);
+            let found = validate_input(&input);
+            issues += found.len();
+            let actual = Value::Array(found.iter().map(InputIssue::to_json).collect());
+            tally.check(
+                first_difference(&actual, &case["inputIssues"]).map(|difference| {
+                    format!("{} {} inputIssues{difference}", pack.name, case["id"])
+                }),
+            );
+        }
+    }
+    println!("oracle layer inputIssues: {issues} issue(s)");
+    assert!(issues > 0, "no case has an input issue");
+    tally.finish(27);
+}
+
+#[test]
+fn capacity_reports_match_the_reference() {
+    let mut tally = Tally::new("deficit");
+    let (mut unreadable, mut tasks) = (0, 0);
+    for pack in packs() {
+        for case in pack.cases() {
+            let (input, _) = typed(&case);
+            // The reference records `null` where `deficit` throws.
+            let actual = match deficit(&input) {
+                Ok(report) => {
+                    tasks += report.tasks.len();
+                    report.to_json()
+                }
+                Err(_) => {
+                    unreadable += 1;
+                    Value::Null
+                }
+            };
+            tally.check(
+                first_difference(&actual, &case["deficit"])
+                    .map(|difference| format!("{} {} deficit{difference}", pack.name, case["id"])),
+            );
+        }
+    }
+    println!("oracle layer deficit: {tasks} task row(s), {unreadable} unreadable input(s)");
+    assert!(tasks > 50, "only {tasks} task rows compared");
+    tally.finish(27);
+}
+
+/// Audits `blocks` and compares with the recorded verdict; returns how many
+/// violations the reference reported.
+fn check_audit(
+    tally: &mut Tally,
+    input: &ScheduleInput,
+    blocks: &Value,
+    expected: &Value,
+    place: &str,
+) -> usize {
+    let history = history_blocks(input);
+    let plan = read_plan(blocks, "").unwrap_or_else(|error| panic!("{place}: blocks {error}"));
+    let actual = audit(input, &history, &plan);
+    tally.check(
+        first_difference(&actual, expected).map(|difference| format!("{place}{difference}")),
+    );
+    expected.as_array().map_or(0, Vec::len)
+}
+
+#[test]
+fn the_validator_agrees_on_every_reference_candidate() {
+    let mut tally = Tally::new("validation");
+    let mut violations = 0;
+    for pack in packs() {
+        for case in pack.cases() {
+            let (input, _) = typed(&case);
+            let candidates = array(&case["result"]["candidates"], "candidates");
+            let validation = array(&case["validation"], "validation");
+            assert_eq!(candidates.len(), validation.len(), "{}", case["id"]);
+            for (candidate, recorded) in candidates.iter().zip(validation) {
+                violations += check_audit(
+                    &mut tally,
+                    &input,
+                    &candidate["blocks"],
+                    &recorded["violations"],
+                    &format!(
+                        "{} {} validation of {} ",
+                        pack.name, case["id"], recorded["policy"]
+                    ),
+                );
+            }
+        }
+    }
+    println!("oracle layer validation: {violations} violation(s)");
+    assert!(violations > 20, "only {violations} violations compared");
+    tally.finish(40);
+}
+
+#[test]
+fn the_validator_agrees_on_deliberately_broken_plans() {
+    let mut tally = Tally::new("probes");
+    let mut violations = 0;
+    for pack in packs() {
+        for case in pack.cases() {
+            let (input, _) = typed(&case);
+            for (index, probe) in array(&case["probes"], "probes").iter().enumerate() {
+                violations += check_audit(
+                    &mut tally,
+                    &input,
+                    &probe["blocks"],
+                    &probe["violations"],
+                    &format!("{} {} probe #{index} ", pack.name, case["id"]),
+                );
+            }
+        }
+    }
+    println!("oracle layer probes: {violations} violation(s)");
+    assert!(violations > 200, "only {violations} violations compared");
+    tally.finish(100);
+}
+
+#[test]
+fn replaying_a_case_gives_the_recorded_layers() {
+    // The path `sched-diff` and the shrinker use: JSON in, JSON out.
+    let mut tally = Tally::new("replay");
+    for pack in packs() {
+        for case in pack.cases().take(40) {
+            let plans: Vec<Value> = array(&case["probes"], "probes")
+                .iter()
+                .map(|probe| probe["blocks"].clone())
+                .collect();
+            let output = replay(&case["input"], &case["options"], &plans)
+                .unwrap_or_else(|error| panic!("{} {}: {error}", pack.name, case["id"]));
+            for layer in ["inputIssues", "slots", "deficit"] {
+                tally.check(
+                    first_difference(&output[layer], &case[layer]).map(|difference| {
+                        format!("{} {} replay {layer}{difference}", pack.name, case["id"])
+                    }),
+                );
+            }
+            let recorded: Vec<Value> = array(&case["probes"], "probes")
+                .iter()
+                .map(|probe| json!({"violations": probe["violations"]}))
+                .collect();
+            tally.check(
+                first_difference(&output["plans"], &Value::Array(recorded)).map(|difference| {
+                    format!("{} {} replay plans{difference}", pack.name, case["id"])
+                }),
+            );
+        }
+    }
+    tally.finish(100);
 }
 
 #[test]

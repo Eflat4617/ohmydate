@@ -50,6 +50,8 @@ DB가 필요한 테스트는 `DATABASE_URL`(planner_test)과 `VIKUNJA_URL`이 �
   - `corepack pnpm run core:parity` = 바이너리 빌드 + `tests-core/`(블랙박스 계약 패리티, 계획 문서 표 검사).
   - `corepack pnpm run core:oracle -- --count N` = TypeScript 스케줄러로 오라클 팩 다시 만들기(인자 없이 = 커밋하는 `sample.json`).
   - `corepack pnpm run core:diff` = 2,000건 팩을 `core/target/oracle/`에 만들고(커밋하지 않는다) Rust 스케줄러와 층별로 대조. `ORACLE_COUNT`·`ORACLE_SEED`로 개수·시드를 바꾼다. 불일치 허용 0.
+  - `corepack pnpm run core:shrink -- --pack <팩> --case <건 id>` = 불일치 건의 입력을 최소로 줄여 `core/crates/scheduler/tests/oracle/regressions/`에 건 하나짜리 팩으로 쓴다(15 §5.3). 스케줄러 불일치를 고칠 때는 그 팩을 함께 커밋한다.
+  - 속성 테스트 횟수는 `SCHED_PROPERTY_RUNS`(기본 1,000, 관문 10,000), 시드는 `SCHED_PROPERTY_SEED`.
   - 이 명령들은 아직 `pnpm run ci`에 들어 있지 않다(15 §7.6). RC Task는 "Exact tests"에 적어 돌린다.
 
 ## Dev infrastructure (orchestrator-managed; workers must not run docker/sudo)

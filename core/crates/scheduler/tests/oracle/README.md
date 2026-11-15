@@ -9,7 +9,15 @@ layer by layer; nothing may differ.
 | `sample.json` | 15 golden fixtures + 12 seeded cases; runs with every `cargo test` | `corepack pnpm run core:oracle` (seed 20261113, count 12) |
 
 `tests/oracle/regressions/*.json` is read too when it exists: one-case packs
-of mismatches that were found and fixed.
+of mismatches that were found and fixed. They are made by the shrinker, which
+takes a mismatching case of a large pack and removes everything the mismatch
+does not need:
+
+```sh
+corepack pnpm run core:shrink -- --pack core/target/oracle/diff.json --case gen-000123 \
+  --name short-slug --note "what was wrong"
+corepack pnpm run core:shrink -- --self-test
+```
 
 Large packs are not committed. They are generated into `core/target/oracle/`
 and read through `OHMYDATE_ORACLE_DIR`:
