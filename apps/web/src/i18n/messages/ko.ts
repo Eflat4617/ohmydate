@@ -1673,6 +1673,15 @@ export const ko = {
       hint: '위아래 방향키로 그날의 일정을, 좌우 방향키로 다른 날을 옮겨 다녀요. Home·End는 그날의 처음과 끝이에요. Enter나 Space로 자세히 보고 Esc로 닫아요.',
       dueName: '{date} {time}까지',
       from: '{time}부터',
+      // HOLO-03A: what the planning screens draw on the same grid.
+      kind: {
+        proposal: '일정안 블록',
+        proposalInvalid: '확인이 필요한 일정안 블록',
+        ghost: '옮기기 전 자리',
+        blockLocked: '고정된 블록',
+      },
+      proposals: plural({ other: '일정안 블록 {count}개' }),
+      editHint: '일정안 블록은 Alt와 위아래 방향키로 5분씩 옮기고, Shift를 함께 누르면 길이를 바꿔요.',
       early: '오전 6시 이전 시간 보기',
       loading: '이 주 일정을 불러오는 중…',
       loadError: '이 주 일정을 불러오지 못했어요.',

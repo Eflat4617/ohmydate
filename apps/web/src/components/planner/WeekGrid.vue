@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { EDIT_GRID_MINUTES, dragMinutes, movedInterval, resizedInterval, type BlockInterval } from '../../domain/planDraft';
 import {
   initialItemKey,
   isWeekGridKey,
   itemAfterKey,
   type Rect,
+  type WeekBand,
   type WeekDay,
   type WeekGrid,
   type WeekItem,
@@ -24,10 +26,23 @@ import UiDeadlineFlag from '../ui/UiDeadlineFlag.vue';
 import UiIcon from '../ui/UiIcon.vue';
 
 /**
- * 플래너 주 (HOLO-02): Monday to Sunday over one time axis. Approved blocks
- * are lime, 약속 cyan, a deadline an orange flag at its time; a finished
- * block is quieter and ticked; today's column and the now line are marked.
- * What overlaps sits side by side (domain/weekGrid.ts did the placing).
+ * The week grid (HOLO-02), the product's one calendar: Monday to Sunday over
+ * one time axis. Approved blocks are lime, 약속 cyan, a deadline an orange
+ * flag at its time; a finished block is quieter and ticked; today's column
+ * and the now line are marked. What overlaps sits side by side
+ * (domain/weekGrid.ts did the placing).
+ *
+ * The planning screens (HOLO-03A) draw on the same grid what is not real
+ * yet: a proposal is a dashed outline over the faintest tint, never a fill —
+ * an approved block and a proposed one cannot be mistaken for each other —
+ * and a ghost is where a block stood before a 재계획. Behind the items a day
+ * can carry its available hours, focus windows and 쉼.
+ *
+ * `editable`: a proposal can be moved and made longer or shorter in steps of
+ * five minutes — by dragging it (its lower edge resizes), or with Alt and the
+ * up / down arrows (Shift as well: its length). The grid only says what the
+ * block would become (`edit`); the screen owns the list. While `editable` is
+ * off a try says so (`edit-blocked`) and changes nothing.
  *
  * The grid is one tab stop. Inside it the arrows move: up and down through a
  * day's items, left and right to the nearest day that holds anything; Home
@@ -49,10 +64,25 @@ const props = withDefaults(
     openKey?: string | null;
     /** The hours before 06:00 are on show because they were asked for. */
     showEarly?: boolean;
+    /** Proposals can be moved and resized. */
+    editable?: boolean;
+    /** Id of a note that describes every proposal (why it cannot be edited right now). */
+    proposalDescribedBy?: string | undefined;
+    /** Where the hours open: an hour before now, or at the first proposal (a schedule being compared). */
+    openAt?: 'now' | 'proposal';
+    /** When this changes (another candidate, another proposal) the hours open again. */
+    scrollKey?: string | null;
   }>(),
-  { loading: false, openKey: null, showEarly: false },
+  { loading: false, openKey: null, showEarly: false, editable: false, openAt: 'now', scrollKey: null },
 );
-const emit = defineEmits<{ open: [item: WeekItem, element: HTMLElement]; 'toggle-early': [] }>();
+const emit = defineEmits<{
+  open: [item: WeekItem, element: HTMLElement];
+  'toggle-early': [];
+  /** What a proposal would become; the screen applies it. */
+  edit: [item: WeekItem, next: BlockInterval];
+  /** An edit was tried while `editable` is off: nothing changed. */
+  'edit-blocked': [item: WeekItem];
+}>();
 
 const scroller = ref<HTMLElement | null>(null);
 const content = ref<HTMLElement | null>(null);
@@ -89,7 +119,11 @@ function focusItem(key: string): void {
 }
 
 function onItemKeydown(event: KeyboardEvent, item: WeekItem): void {
-  if (event.altKey || event.ctrlKey || event.metaKey) return;
+  if (event.ctrlKey || event.metaKey) return;
+  if (event.altKey) {
+    onEditKey(event, item);
+    return;
+  }
   if (!isWeekGridKey(event.key)) return;
   event.preventDefault();
   const next = itemAfterKey(props.grid.days, item.key, event.key);
@@ -98,9 +132,103 @@ function onItemKeydown(event: KeyboardEvent, item: WeekItem): void {
 
 function onItemClick(event: MouseEvent, item: WeekItem): void {
   if (!(event.currentTarget instanceof HTMLElement)) return;
+  // The press was a drag: it moved the block, it does not open its card.
+  if (dragged) {
+    dragged = false;
+    return;
+  }
   activeKey.value = item.key;
   emit('open', item, event.currentTarget);
 }
+
+// ── Editing a proposal ─────────────────────────────────────────────────
+function intervalOf(item: WeekItem): BlockInterval | null {
+  return item.kind === 'proposal' && item.endAt !== null ? { startAt: item.startAt, endAt: item.endAt } : null;
+}
+
+/** Alt + up / down moves a proposal five minutes; with Shift its end moves instead. */
+function onEditKey(event: KeyboardEvent, item: WeekItem): void {
+  if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+  const interval = intervalOf(item);
+  if (interval === null) return;
+  event.preventDefault();
+  if (!props.editable) {
+    emit('edit-blocked', item);
+    return;
+  }
+  const delta = event.key === 'ArrowDown' ? EDIT_GRID_MINUTES : -EDIT_GRID_MINUTES;
+  emit('edit', item, event.shiftKey ? resizedInterval(interval, delta) : movedInterval(interval, delta));
+}
+
+interface Drag {
+  readonly mode: 'move' | 'resize';
+  readonly key: string;
+  readonly startY: number;
+  /** Px of one hour of the axis when the drag began. */
+  readonly hourPx: number;
+  readonly from: BlockInterval;
+}
+
+let drag: Drag | null = null;
+/** The press that is ending moved its block (so its click is not an "open"). */
+let dragged = false;
+
+function dragItem(): WeekItem | null {
+  const key = drag?.key;
+  if (key === undefined) return null;
+  for (const day of props.grid.days) {
+    const found = day.items.find((item) => item.kind === 'proposal' && item.key.split('@')[0] === key);
+    if (found !== undefined) return found;
+  }
+  return null;
+}
+
+function onDragMove(event: PointerEvent): void {
+  if (drag === null) return;
+  const delta = dragMinutes(event.clientY - drag.startY, drag.hourPx);
+  if (delta === 0 && !dragged) return;
+  const item = dragItem();
+  if (item === null) return;
+  dragged = true;
+  // Editing was turned off while the drag was under way: the block stays as
+  // it is (later moves apply again once editing is back).
+  if (!props.editable) {
+    emit('edit-blocked', item);
+    return;
+  }
+  emit('edit', item, drag.mode === 'move' ? movedInterval(drag.from, delta) : resizedInterval(drag.from, delta));
+}
+
+function endDrag(): void {
+  drag = null;
+  window.removeEventListener('pointermove', onDragMove);
+  window.removeEventListener('pointerup', endDrag);
+  window.removeEventListener('pointercancel', endDrag);
+}
+
+function onItemPointerDown(event: PointerEvent, item: WeekItem, mode: 'move' | 'resize'): void {
+  const interval = intervalOf(item);
+  if (interval === null || event.button !== 0) return;
+  dragged = false;
+  if (!props.editable) {
+    emit('edit-blocked', item);
+    return;
+  }
+  const area = body.value;
+  if (area === null || hours.value.length === 0) return;
+  drag = {
+    mode,
+    key: item.key.split('@')[0] ?? item.key,
+    startY: event.clientY,
+    hourPx: area.clientHeight / hours.value.length,
+    from: interval,
+  };
+  window.addEventListener('pointermove', onDragMove);
+  window.addEventListener('pointerup', endDrag);
+  window.addEventListener('pointercancel', endDrag);
+}
+
+onUnmounted(endDrag);
 
 // ── What an item and a day say ─────────────────────────────────────────
 function itemTitle(item: WeekItem): string {
@@ -121,7 +249,12 @@ function itemTime(item: WeekItem): { lead: string; rest: string } {
 }
 
 function itemKind(item: WeekItem): string {
-  if (item.kind === 'block') return item.done ? t('month.detail.kind.blockDone') : t('month.detail.kind.block');
+  if (item.kind === 'proposal') return item.invalid ? t('planner.week.kind.proposalInvalid') : t('planner.week.kind.proposal');
+  if (item.kind === 'ghost') return t('planner.week.kind.ghost');
+  if (item.kind === 'block') {
+    if (item.done) return t('month.detail.kind.blockDone');
+    return item.block?.locked === true ? t('planner.week.kind.blockLocked') : t('month.detail.kind.block');
+  }
   if (item.kind === 'commitment') {
     return item.fromGoogle ? t('month.detail.kind.commitmentGoogle') : t('month.detail.kind.commitment');
   }
@@ -144,6 +277,8 @@ function dayName(day: WeekDay): string {
   const parts = [`${formatCivilMonthDay(day.date)} ${formatCivilWeekdayLong(day.date)}`];
   if (day.today) parts.push(t('month.cell.today'));
   for (const label of day.labels) parts.push(t('month.cell.dayEvent', { title: label.title }));
+  if (day.off) parts.push(t('calendar.off'));
+  if (day.counts.proposal > 0) parts.push(tp('planner.week.proposals', day.counts.proposal));
   if (day.counts.block > 0) parts.push(tp('month.cell.blocks', day.counts.block));
   if (day.counts.commitment > 0) parts.push(tp('month.cell.commitments', day.counts.commitment));
   if (day.counts.deadline > 0) parts.push(tp('month.cell.deadlines', day.counts.deadline));
@@ -165,10 +300,39 @@ function nowStyle(minutes: number): Record<string, string> {
   return { '--top': String((minutes - startMin.value) / 60) };
 }
 
+/** The part of a band that is on the page (the early hours may be folded away). */
+function bandStyle(band: WeekBand): Record<string, string> | null {
+  const top = Math.max(band.startMin, startMin.value);
+  if (band.endMin <= top) return null;
+  return { '--top': String((top - startMin.value) / 60), '--height': String((band.endMin - top) / 60) };
+}
+
+function bandsOf(day: WeekDay): { band: WeekBand; style: Record<string, string> }[] {
+  return day.bands.flatMap((band) => {
+    const style = bandStyle(band);
+    return style === null ? [] : [{ band, style }];
+  });
+}
+
+/** `쉼 하루 종일`, `쉼 10:00~18:00`. */
+function offLabel(band: WeekBand): string {
+  if (band.allDay) return t('availability.exceptionAllDay');
+  const clock = (minutes: number): string =>
+    `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  return t('format.timeRange', { start: clock(band.startMin), end: clock(band.endMin) });
+}
+
 // ── Where the page opens ───────────────────────────────────────────────
 /** An hour before now when today is on show, else half an hour before the first item, else 08:00. */
 const openAtMin = computed(() => {
-  if (props.grid.now !== null) return props.grid.now.minutes - 60;
+  if (props.openAt === 'proposal') {
+    const proposals = props.grid.days.flatMap((day) =>
+      day.items.filter((item) => item.kind === 'proposal').map((item) => item.top),
+    );
+    if (proposals.length > 0) return Math.min(...proposals) - 60;
+  } else if (props.grid.now !== null) {
+    return props.grid.now.minutes - 60;
+  }
   const tops = props.grid.days.flatMap((day) => day.items.map((item) => item.top));
   return tops.length > 0 ? Math.min(...tops) - 30 : 8 * 60;
 });
@@ -189,7 +353,8 @@ function scrollToOpening(): void {
 
 onMounted(() => void nextTick(scrollToOpening));
 // Reopen when other days are on show, and when they first get their items.
-watch([() => props.grid.days[0]?.date, () => props.grid.empty, () => props.grid.startHour], () => {
+// Moving or resizing a proposal changes none of these, so an edit never moves the page.
+watch([() => props.grid.days[0]?.date, () => props.grid.empty, () => props.grid.startHour, () => props.scrollKey], () => {
   void nextTick(scrollToOpening);
 });
 
@@ -238,6 +403,7 @@ defineExpose({ content, focusItem, visibleRect });
           >
             <span class="wg-weekday">{{ formatCivilWeekday(day.date) }}</span>
             <span class="wg-daynum tabular">{{ day.day }}</span>
+            <span v-if="day.off" class="wg-day-off" data-day-off>{{ t('calendar.off') }}</span>
             <span v-if="day.labels.length > 0" class="wg-allday" data-week-labels>
               <span v-for="dayLabel in day.labels" :key="dayLabel.key" class="wg-allday-label">{{ dayLabel.title }}</span>
             </span>
@@ -267,6 +433,19 @@ defineExpose({ content, focusItem, visibleRect });
             :aria-label="dayName(day)"
             :data-date="day.date"
           >
+            <span
+              v-for="(entry, bandIndex) in bandsOf(day)"
+              :key="`band-${bandIndex}`"
+              class="wg-band"
+              :class="`wg-band--${entry.band.kind}`"
+              :style="entry.style"
+              aria-hidden="true"
+              :data-band="entry.band.kind"
+            >
+              <span v-if="entry.band.kind === 'off'" class="wg-band-label">
+                <strong>{{ t('calendar.off') }}</strong> {{ offLabel(entry.band) }}
+              </span>
+            </span>
             <template v-if="loading">
               <span class="skeleton wg-skeleton wg-skeleton--a" aria-hidden="true"></span>
               <span v-if="day.weekday % 2 === 1" class="skeleton wg-skeleton wg-skeleton--b" aria-hidden="true"></span>
@@ -285,6 +464,9 @@ defineExpose({ content, focusItem, visibleRect });
                   'wg-item--continues': item.continues,
                   'wg-item--short': item.bottom - item.top < 45,
                   'wg-item--open': item.key === openKey,
+                  'wg-item--invalid': item.invalid,
+                  'wg-item--locked': item.block?.locked === true,
+                  'wg-item--editable': editable && item.kind === 'proposal',
                 },
               ]"
               :style="itemStyle(item)"
@@ -292,19 +474,33 @@ defineExpose({ content, focusItem, visibleRect });
               :aria-label="itemName(item)"
               aria-haspopup="dialog"
               :aria-expanded="item.key === openKey ? 'true' : 'false'"
+              :aria-invalid="item.invalid ? 'true' : undefined"
+              :aria-describedby="item.kind === 'proposal' ? proposalDescribedBy : undefined"
               :data-item="item.key"
               :data-kind="item.kind"
               :data-source="item.fromGoogle ? 'google' : undefined"
+              :data-change="item.change ?? undefined"
+              :data-proposal="item.proposalIndex ?? undefined"
               @click="onItemClick($event, item)"
               @keydown="onItemKeydown($event, item)"
               @focus="activeKey = item.key"
+              @pointerdown="onItemPointerDown($event, item, 'move')"
             >
               <UiDeadlineFlag v-if="item.kind === 'deadline'" class="wg-item-mark" :size="12" />
               <UiIcon v-else-if="item.done" name="check" :size="12" class="wg-item-mark" />
+              <UiIcon v-else-if="item.block?.locked" name="lock" :size="12" class="wg-item-mark wg-item-lock" />
+              <UiIcon v-else-if="item.invalid" name="warn" :size="12" class="wg-item-mark" />
               <span class="wg-item-title">{{ itemTitle(item) }}</span>
               <span v-if="item.kind !== 'deadline'" class="wg-item-time tabular">
                 {{ itemTime(item).lead }}<span class="wg-item-time-rest">{{ itemTime(item).rest }}</span>
               </span>
+              <span
+                v-if="editable && item.kind === 'proposal' && !item.continues"
+                class="wg-item-resize"
+                aria-hidden="true"
+                data-resize
+                @pointerdown.stop="onItemPointerDown($event, item, 'resize')"
+              ></span>
             </button>
             <span
               v-if="grid.now && grid.now.date === day.date"
@@ -318,6 +514,8 @@ defineExpose({ content, focusItem, visibleRect });
         <slot name="card" />
       </div>
     </div>
-    <p id="week-grid-hint" class="visually-hidden">{{ t('planner.week.hint') }}</p>
+    <p id="week-grid-hint" class="visually-hidden">
+      {{ t('planner.week.hint') }}<template v-if="editable"> {{ t('planner.week.editHint') }}</template>
+    </p>
   </div>
 </template>

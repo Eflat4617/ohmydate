@@ -108,7 +108,8 @@ describe('week grid: days, kinds and the visible hours', () => {
     // The block whose task is not in the list has no title (the view names it), and done reads as done.
     const tuesday = itemsOf(result, '2026-11-10');
     expect(tuesday[0]).toMatchObject({ title: null, done: true, block: { locked: true } });
-    expect(result.days.find((day) => day.date === TODAY)?.counts).toEqual({ block: 1, commitment: 1, deadline: 1 });
+    // HOLO-03A: a day also counts what is not real yet; the planner never has any.
+    expect(result.days.find((day) => day.date === TODAY)?.counts).toEqual({ block: 1, commitment: 1, deadline: 1, proposal: 0, ghost: 0 });
     expect(result.empty).toBe(false);
   });
 

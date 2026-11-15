@@ -79,7 +79,13 @@ const rangeText = computed(() =>
 const summary = computed(() => {
   if (data.value === null || grid.value.empty) return null;
   const seen = { block: new Set<string>(), commitment: new Set<string>(), deadline: new Set<string>() };
-  for (const day of grid.value.days) for (const item of day.items) seen[item.kind].add(item.key.split('@')[0] ?? item.key);
+  for (const day of grid.value.days) {
+    for (const item of day.items) {
+      // The planner draws only what is real: no proposals, no ghosts.
+      if (item.kind === 'proposal' || item.kind === 'ghost') continue;
+      seen[item.kind].add(item.key.split('@')[0] ?? item.key);
+    }
+  }
   return t('planner.week.summary', {
     blocks: seen.block.size,
     commitments: seen.commitment.size,
