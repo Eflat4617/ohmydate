@@ -176,7 +176,8 @@ type Renderer = (read: ParamReader) => string;
 const RENDERERS: { readonly [C in ExplanationCode]: Renderer } = {
   policy_summary: (r) => {
     const policy = r.policy('policy');
-    return t('explain.policy_summary', { policy: policy.label, version: r.token('policyVersion'), summary: policy.summary });
+    // The scheduler's version (`policyVersion`) is for logs; a person reads the way and what it does.
+    return t('explain.policy_summary', { policy: policy.label, summary: policy.summary });
   },
   placement_summary: (r) =>
     t('explain.placement_summary', {

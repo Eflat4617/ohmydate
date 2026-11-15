@@ -16,8 +16,16 @@ export function testRouter() {
       { path: '/projects', name: 'projects', component: Stub },
       { path: '/commitments', name: 'commitments', component: Stub },
       { path: '/settings/availability', name: 'availability', component: Stub },
-      { path: '/plans/new', name: 'plan-new', component: Stub },
-      { path: '/plans/:id', name: 'plan', component: Stub },
+      { path: '/planner', name: 'planner', component: Stub },
+      { path: '/tasks/:id', name: 'task', component: Stub },
+      { path: '/focus/:sessionId', name: 'focus', component: Stub },
+      { path: '/replan/:id', name: 'replan-proposal', component: Stub },
+      { path: '/settings/calendar', name: 'calendar-settings', component: Stub },
+      // HOLO-03A: 계획 세우기 is one flow.
+      { path: '/plan', name: 'plan', component: Stub },
+      { path: '/plan/schedule', name: 'plan-scope', component: Stub },
+      { path: '/plan/schedule/:id', name: 'plan-schedule', component: Stub },
+      { path: '/plan/:sessionId', name: 'plan-session', component: Stub },
     ],
   });
 }

@@ -38,11 +38,14 @@ const CASES = OWNER_SWITCH_CASES;
 const EXEMPT: Record<string, string> = {
   'src/components/notes/EvidenceList.vue': 'Reads only, through ownerFenced lookups; writes nothing.',
   'src/components/notes/NoteAiUsage.vue': 'Reads only, through ownerFenced lookups; writes nothing.',
-  'src/components/ReplanBanner.vue': 'Reads only (owner-keyed query); writes nothing.',
+  'src/components/plan/PlanResumeList.vue':
+    'HOLO-03A “하던 계획”: reads through one ownerFenced lookup. Its only writes drop an entry from the owner’s own list (planFlowMemory) — with that lookup’s binding, which the slot refuses once stale, or synchronously at the press. plan-resume.spec.ts covers the owner scoping.',
   'src/composables/relatedNotes.ts': 'Reads only, through ownerFenced lookups; writes nothing.',
   'src/composables/usePlannerRange.ts':
     'Reads only (CAL-01 month page and Today agenda), through owner-keyed ownerFenced lookups; writes nothing.',
   'src/composables/useLatestReplanPlan.ts': 'Reads only (owner-keyed query); writes nothing.',
+  'src/composables/usePlanScope.ts':
+    'Reads only (HOLO-03A: the tasks and goals a plan can be made of), through owner-keyed ownerFenced lookups; writes nothing.',
   'src/composables/useGoogleCalendar.ts':
     'Reads only (CAL-04 Google connection and all-day events), through owner-keyed ownerFenced lookups; writes nothing.',
   'src/layout/useTodaySnapshot.ts': 'Reads only (owner-keyed query); writes nothing.',

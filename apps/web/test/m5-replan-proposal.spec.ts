@@ -12,7 +12,7 @@ import {
 } from '../src/mocks/replan';
 import { server } from '../src/mocks/server';
 import { useOfflineStore } from '../src/stores/offline';
-import ReplanProposalView from '../src/views/ReplanProposalView.vue';
+import ReplanView from '../src/views/ReplanView.vue';
 import { bodyText, buttonWith, mountView, waitForText, type Mounted } from './m5-test-utils';
 
 interface Captured {
@@ -36,13 +36,19 @@ function captureRequests(): Captured[] {
 }
 
 async function mountPending(id = REPLAN_PENDING_ID): Promise<Mounted> {
-  const mounted = await mountView(ReplanProposalView, { path: `/replan/${id}`, props: { id } });
+  const mounted = await mountView(ReplanView, { path: `/replan/${id}`, props: { id } });
   await waitForText(mounted.wrapper, '바뀌는 블록');
   await vi.waitFor(() => expect(mounted.wrapper.findAll('.replan-change').length).toBeGreaterThan(0));
   return mounted;
 }
 
-describe('Replan proposal detail (M5-03)', () => {
+/**
+ * 재계획 (HOLO-03A; M5-03): one proposal on show — why, 전 → 후 as numbers, on
+ * the week grid and in words, and the decision. The same view serves `/replan`
+ * (the newest that waits) and `/replan/:id`; the list beside it is covered in
+ * m5-replan-entry.spec.ts.
+ */
+describe('재계획 — one proposal (M5-03)', () => {
   beforeEach(() => {
     localStorage.clear();
     seedReplanScenario(mockDb);
@@ -53,7 +59,9 @@ describe('Replan proposal detail (M5-03)', () => {
     const text = wrapper.text();
     expect(text).toContain('약속과 겹침');
     expect(text).toContain('새로 생긴 약속이 계획된 블록과 겹쳐요.');
-    expect(text).toContain('약속과 겹치는 블록이 있어요');
+    // The usual reason of a trigger is said once, by that sentence — not again as a badge.
+    expect(wrapper.find('[data-replan-reason]').exists()).toBe(false);
+    expect(wrapper.get('[data-replan-trigger]').text()).toBe('약속과 겹침');
     expect(text).toContain('승인 대기');
     expect(text).not.toContain('commitment_overlap');
     expect(text).not.toContain('commitment_conflict');
@@ -75,14 +83,99 @@ describe('Replan proposal detail (M5-03)', () => {
     expect(wrapper.findAll('.replan-change').some((item) => item.text().includes('오전 9:00~10:00'))).toBe(false);
     expect(text).toContain('그 밖의 블록 2개는 그대로예요.');
 
+    // 전 → 후 as numbers: the value after approval is the card's number, the value now sits under it.
     const slack = wrapper.get('[data-metric="slack"]');
     expect(slack.text()).toContain('마감 여유');
-    expect(slack.findAll('td').map((cell) => cell.text())).toEqual(['7시간 15분', '7시간 15분']);
-    expect(wrapper.get('[data-metric="planned"]').findAll('td').map((cell) => cell.text())).toEqual([
-      '3시간 55분',
-      '3시간 55분',
-    ]);
-    expect(wrapper.get('[data-metric="changed"]').text()).toBe('2개 · 상한 4개');
+    expect(slack.get('[data-after]').text()).toBe('+7시간 15분');
+    expect(slack.get('[data-before]').text()).toBe('전 +7시간 15분');
+    // Nothing moved the figure, so no difference is claimed (negative).
+    expect(slack.find('[data-delta]').exists()).toBe(false);
+    const planned = wrapper.get('[data-metric="planned"]');
+    expect(planned.get('[data-after]').text()).toBe('3시간 55분');
+    expect(planned.get('[data-before]').text()).toBe('전 3시간 55분');
+    expect(planned.find('[data-delta]').exists()).toBe(false);
+    const changed = wrapper.get('[data-metric="changed"]');
+    expect(changed.get('[data-after]').text()).toBe('2개');
+    expect(changed.find('[data-before]').exists()).toBe(false);
+    // The scheduler's own bound is not a number the owner decides by.
+    expect(text).not.toContain('상한');
+    wrapper.unmount();
+  });
+
+  it('names a finer reason than the trigger’s own beside it', async () => {
+    const current = mockDb.replanProposals.get(REPLAN_PENDING_ID);
+    if (current === undefined) throw new Error('seeded proposal missing');
+    mockDb.replanProposals.set(current.id, {
+      ...current,
+      trigger: { ...current.trigger, kind: 'deadline_risk', reason: 'dependency_change' },
+    });
+    const { wrapper } = await mountPending();
+    expect(wrapper.get('[data-replan-trigger]').text()).toBe('마감 위험');
+    expect(wrapper.get('[data-replan-reason]').text()).toBe('선행 관계가 바뀌었어요');
+    expect(wrapper.text()).not.toContain('dependency_change');
+    wrapper.unmount();
+  });
+
+  it('draws 전 → 후 on the week grid: where the block stood, where it goes, and what stays', async () => {
+    const { wrapper } = await mountPending();
+    await vi.waitFor(() => expect(wrapper.find('.wg-item[data-kind="proposal"]').exists()).toBe(true));
+    // Seven days from the day of the first change, so Saturday → Monday is on one screen.
+    expect(wrapper.get('.replan-week').attributes('data-week-start')).toBe('2026-11-14');
+    expect(wrapper.get('#replan-week-title').text()).toBe('11월 14일 ~ 11월 20일 전 → 후');
+
+    const ghosts = wrapper.findAll('.wg-item[data-kind="ghost"]');
+    expect(ghosts).toHaveLength(1);
+    expect(ghosts[0]?.attributes('data-change')).toBe('moved');
+    expect(ghosts[0]?.attributes('aria-label')).toBe(`옮기기 전 자리, ${TODAY_TASK_TWO_TITLE}, 11월 14일 (토) 오후 9:00~9:40`);
+    const proposals = wrapper.findAll('.wg-item[data-kind="proposal"]');
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0]?.attributes('data-change')).toBe('moved');
+    expect(proposals[0]?.attributes('aria-label')).toBe(`일정안 블록, ${TODAY_TASK_TWO_TITLE}, 11월 16일 (월) 오전 11:00~11:40`);
+    // Nothing on this grid can be dragged or nudged: a proposal is approved or rejected as a whole.
+    expect(wrapper.find('.wg-item--editable').exists()).toBe(false);
+    expect(wrapper.find('[data-resize]').exists()).toBe(false);
+
+    // What stays is drawn as it is — the locked block with its lock — and is neither a ghost nor a proposal.
+    const blocks = wrapper.findAll('.wg-item[data-kind="block"]');
+    expect(blocks).toHaveLength(3);
+    const locked = blocks.filter((item) => item.classes().includes('wg-item--locked'));
+    expect(locked).toHaveLength(1);
+    expect(locked[0]?.attributes('aria-label')).toContain(TODAY_TASK_ONE_TITLE);
+    expect(locked[0]?.attributes('aria-label')).toContain('11월 16일 (월) 오전 9:00~10:00');
+    // The 약속 that caused it is there for context.
+    expect(wrapper.findAll('.wg-item[data-kind="commitment"]').some((item) => item.text().includes('저녁 약속'))).toBe(true);
+
+    // The legend says which is which in words.
+    const legend = wrapper.get('.replan-week .planner-legend').text();
+    expect(legend).toContain('옮기기 전 자리');
+    expect(legend).toContain('제안한 자리 (승인 전)');
+    expect(legend).toContain('고정된 블록');
+    wrapper.unmount();
+  });
+
+  it('opens a read-only card for a mark on the grid and moves the days on show', async () => {
+    const { wrapper } = await mountPending();
+    await vi.waitFor(() => expect(wrapper.find('.wg-item[data-kind="proposal"]').exists()).toBe(true));
+    await wrapper.get('.wg-item[data-kind="proposal"]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-planner-card="proposal"]').exists()).toBe(true));
+    const card = wrapper.get('[data-planner-card="proposal"]');
+    expect(card.get('[data-planner-card-kind]').text()).toBe('제안한 자리');
+    expect(card.text()).toContain('옮김');
+    expect(card.get('#planner-card-title').text()).toBe(TODAY_TASK_TWO_TITLE);
+    expect(card.get('#planner-card-when').text()).toBe('11월 16일 (월) 오전 11:00~11:40');
+    // Read-only: the card has a close button and nothing that edits, locks or starts.
+    expect(card.findAll('button').map((item) => item.attributes('aria-label'))).toEqual(['닫기']);
+    await card.trigger('keydown', { key: 'Escape' });
+    await vi.waitFor(() => expect(wrapper.find('[data-planner-card]').exists()).toBe(false));
+
+    expect(wrapper.get('[data-replan-week-home]').attributes('disabled')).toBeDefined();
+    await wrapper.get('[data-replan-week-next]').trigger('click');
+    expect(wrapper.get('.replan-week').attributes('data-week-start')).toBe('2026-11-21');
+    expect(wrapper.find('.wg-item[data-kind="proposal"]').exists()).toBe(false);
+    await wrapper.get('[data-replan-week-home]').trigger('click');
+    expect(wrapper.get('.replan-week').attributes('data-week-start')).toBe('2026-11-14');
+    await wrapper.get('[data-replan-week-previous]').trigger('click');
+    expect(wrapper.get('.replan-week').attributes('data-week-start')).toBe('2026-11-07');
     wrapper.unmount();
   });
 
@@ -92,7 +185,7 @@ describe('Replan proposal detail (M5-03)', () => {
     expect(details.attributes('data-explanation')).toBe('coded');
     expect(details.get('summary').text()).toBe('계산 근거');
     expect(details.get('ul').attributes('lang')).toBeUndefined();
-    expect(details.text()).toContain('하드 제약(H1~H8)을 모두 지켰어요.');
+    expect(details.text()).toContain('지켜야 하는 규칙을 모두 지켰어요.');
     expect(details.text()).toContain('기존 블록 2개는 그대로 뒀어요.');
     expect(details.text()).not.toContain('Placed 175');
     expect(wrapper.get('.replan-why').text()).not.toMatch(/[A-Za-z]{4,}/);
@@ -101,7 +194,7 @@ describe('Replan proposal detail (M5-03)', () => {
 
   it('keeps a pre-FU-62 proposal’s lines under “계산 근거 (원문)” marked lang="en" (negative)', async () => {
     seedReplanScenario(mockDb, { history: true });
-    const { wrapper } = await mountView(ReplanProposalView, {
+    const { wrapper } = await mountView(ReplanView, {
       path: `/replan/${REPLAN_REJECTED_ID}`,
       props: { id: REPLAN_REJECTED_ID },
     });
@@ -140,7 +233,7 @@ describe('Replan proposal detail (M5-03)', () => {
     await buttonWith(wrapper, '승인').trigger('click');
     await waitForText(wrapper, '일정 규칙에 맞지 않아요.');
     const findings = wrapper.get('.replan-violations');
-    expect(findings.text()).toContain('H1');
+    expect(findings.get('li').attributes('data-code')).toBe('H1');
     expect(findings.get('[data-coded]').attributes('data-coded')).toBe('true');
     expect(findings.text()).toContain(TODAY_TASK_TWO_TITLE);
     expect(findings.text()).toContain('오전 11:00~11:40');
@@ -162,11 +255,20 @@ describe('Replan proposal detail (M5-03)', () => {
     expect(approve?.headers.get('If-Match')).toBe(`W/"availability:${proposal.availabilityVersion}"`);
     expect(isUuidV7Key(approve?.headers.get('Idempotency-Key') ?? '')).toBe(true);
 
-    await waitForText(wrapper, '읽기 전용');
+    await waitForText(wrapper, '제안을 승인했어요. 새 일정이 반영됐어요.');
     expect(wrapper.get('[data-proposal-state]').text()).toBe('승인됨');
-    expect(wrapper.text()).toContain('제안을 승인했어요. 새 일정이 반영됐어요.');
     expect(wrapper.find('[data-replan-approve]').exists()).toBe(false);
     expect(wrapper.find('[data-replan-reject]').exists()).toBe(false);
+    // The hand-off (FLOW §2 ⑥ → ③): the one filled control now leads to 오늘.
+    const filled = wrapper.findAll('.btn--primary');
+    expect(filled).toHaveLength(1);
+    expect(filled[0]?.attributes('data-replan-today')).toBeDefined();
+    expect(filled[0]?.text()).toBe('오늘 보기');
+    expect(filled[0]?.attributes('href')).toBe('/today');
+    // What was proposed is real now: it is drawn as blocks, never as a proposal.
+    await vi.waitFor(() => expect(wrapper.find('.wg-item[data-kind="proposal"]').exists()).toBe(false));
+    expect(wrapper.get('.replan-week .planner-legend').text()).toContain('바뀐 자리');
+    expect(wrapper.get('.replan-week .planner-legend').text()).not.toContain('승인 전');
     // The plan id comes from the server (proposal.planId); nothing is stored locally.
     expect(Object.keys(localStorage).some((key) => key.startsWith('ohmydate.plan'))).toBe(false);
     // Only the overlapped block moved: the locked block row and the untouched blocks stay.
@@ -205,6 +307,8 @@ describe('Replan proposal detail (M5-03)', () => {
     expect(wrapper.get('[data-proposal-state]').text()).toBe('만료됨');
     expect(wrapper.get('[data-readonly]').text()).toContain('더는 승인할 수 없어요');
     expect(wrapper.find('[data-replan-approve]').exists()).toBe(false);
+    // Nothing was approved, so nothing sends the owner to 오늘 as if it had been (negative).
+    expect(wrapper.find('[data-replan-today]').exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -250,7 +354,7 @@ describe('Replan proposal detail (M5-03)', () => {
     const current = mockDb.replanProposals.get(REPLAN_PENDING_ID);
     if (current === undefined) throw new Error('seeded proposal missing');
     mockDb.replanProposals.set(current.id, { ...current, state, version: 2 });
-    const { wrapper } = await mountView(ReplanProposalView, {
+    const { wrapper } = await mountView(ReplanView, {
       path: `/replan/${current.id}`,
       props: { id: current.id },
     });

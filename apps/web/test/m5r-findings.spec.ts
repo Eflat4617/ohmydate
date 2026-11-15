@@ -3,8 +3,8 @@ import ReplanRequestButton from '../src/components/ReplanRequestButton.vue';
 import { TODAY_TASK_ONE_ID, TODAY_TASK_TWO_ID, mockDb } from '../src/mocks/db';
 import { MOCK_PLAN_ID, REPLAN_PENDING_ID, seedReplanScenario } from '../src/mocks/replan';
 import { FEEDBACK_IDS } from '../src/mocks/replan-seed';
-import PatternsView from '../src/views/PatternsView.vue';
-import ReplanProposalView from '../src/views/ReplanProposalView.vue';
+import InsightsView from '../src/views/InsightsView.vue';
+import ReplanView from '../src/views/ReplanView.vue';
 import { buttonWith, mountView, waitForText } from './m5-test-utils';
 
 /**
@@ -88,7 +88,7 @@ function reviewerProposal(overrides: Partial<ReplanProposal> = {}): ReplanPropos
 
 async function mountProposal(proposal: ReplanProposal) {
   mockDb.replanProposals.set(proposal.id, proposal);
-  const mounted = await mountView(ReplanProposalView, { path: `/replan/${proposal.id}`, props: { id: proposal.id } });
+  const mounted = await mountView(ReplanView, { path: `/replan/${proposal.id}`, props: { id: proposal.id } });
   await waitForText(mounted.wrapper, '왜 제안했나요');
   return mounted;
 }
@@ -120,14 +120,14 @@ describe('M5-03R-1 H1: diff only from the authoritative before snapshot', () => 
   it('shows before metrics from the server snapshot next to the candidate metrics', async () => {
     const { wrapper } = await mountProposal(reviewerProposal());
     await vi.waitFor(() => expect(wrapper.find('[data-metric="slack"]').exists()).toBe(true));
-    expect(wrapper.get('[data-metric="slack"]').findAll('td').map((cell) => cell.text())).toEqual([
-      '−45분',
-      '1일 9시간',
-    ]);
-    expect(wrapper.get('[data-metric="planned"]').findAll('td').map((cell) => cell.text().replace(/\s+/g, ' ').trim())).toEqual([
-      '3시간 40분',
-      '2시간 40분 (−1시간)',
-    ]);
+    const slack = wrapper.get('[data-metric="slack"]');
+    expect(slack.get('[data-before]').text()).toBe('전 −45분');
+    expect(slack.get('[data-after]').text()).toBe('+1일 9시간');
+    expect(slack.get('[data-delta]').text()).toBe('+1일 10시간');
+    const planned = wrapper.get('[data-metric="planned"]');
+    expect(planned.get('[data-before]').text()).toBe('전 3시간 40분');
+    expect(planned.get('[data-after]').text()).toBe('2시간 40분');
+    expect(planned.get('[data-delta]').text()).toBe('−1시간');
     wrapper.unmount();
   });
 
@@ -137,9 +137,17 @@ describe('M5-03R-1 H1: diff only from the authoritative before snapshot', () => 
     const { wrapper } = await mountProposal(legacy);
     await waitForText(wrapper, '이 제안은 비교 정보 없이 저장돼서');
     expect(wrapper.find('.replan-change').exists()).toBe(false);
-    expect(wrapper.find('[data-metric="slack"]').exists()).toBe(false);
+    // The proposal's own figures are shown; no "전" value and no difference is made up for them.
+    expect(wrapper.get('[data-metric="slack"] [data-after]').text()).toBe('+1일 9시간');
+    expect(wrapper.find('[data-before]').exists()).toBe(false);
+    expect(wrapper.find('[data-delta]').exists()).toBe(false);
     expect(wrapper.find('[data-locked]').exists()).toBe(false);
     expect(wrapper.findAll('[data-proposed-block]')).toHaveLength(2);
+    // On the grid too: the proposed blocks, with no "where it stood" and no kind of change.
+    await vi.waitFor(() => expect(wrapper.findAll('.wg-item[data-kind="proposal"]')).toHaveLength(2));
+    expect(wrapper.find('.wg-item[data-kind="ghost"]').exists()).toBe(false);
+    expect(wrapper.find('.wg-item[data-change]').exists()).toBe(false);
+    expect(wrapper.get('.replan-week .planner-legend').text()).not.toContain('옮기기 전 자리');
     // Approval itself stays possible; it is only the comparison that is unavailable.
     expect(wrapper.find('[data-replan-approve]').exists()).toBe(true);
     wrapper.unmount();
@@ -204,7 +212,7 @@ describe('M5-03R-1 M1: transient answers keep the logical Idempotency-Key', () =
     const approveSpy = vi.spyOn(plannerClient, 'approveReplanProposal');
     const [lostA, busyA] = transient();
     approveSpy.mockRejectedValueOnce(lostA).mockRejectedValueOnce(busyA);
-    const { wrapper } = await mountView(ReplanProposalView, { path: `/replan/${REPLAN_PENDING_ID}`, props: { id: REPLAN_PENDING_ID } });
+    const { wrapper } = await mountView(ReplanView, { path: `/replan/${REPLAN_PENDING_ID}`, props: { id: REPLAN_PENDING_ID } });
     await vi.waitFor(() => expect(wrapper.find('[data-replan-approve]').exists()).toBe(true));
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await vi.waitFor(() => expect(wrapper.get('[data-replan-approve]').attributes('disabled')).toBeUndefined());
@@ -238,12 +246,12 @@ describe('M5-03R-1 M1: transient answers keep the logical Idempotency-Key', () =
     mounted.wrapper.unmount();
   });
 
-  it('내 패턴 toggle and reset: timeout → in-progress → success replays with one key each', async () => {
+  it('AI 분석 toggle and reset: timeout → in-progress → success replays with one key each', async () => {
     const patch = vi.spyOn(plannerClient, 'patchEstimationFeedback');
     const [lostP, busyP] = transient();
     patch.mockRejectedValueOnce(lostP).mockRejectedValueOnce(busyP);
-    const { wrapper } = await mountView(PatternsView, { path: '/patterns' });
-    await vi.waitFor(() => expect(wrapper.findAll('.patterns-item').length).toBe(6));
+    const { wrapper } = await mountView(InsightsView, { path: '/insights' });
+    await vi.waitFor(() => expect(wrapper.findAll('.insights-record').length).toBe(6));
     const toggle = () => wrapper.get(`[data-feedback-id="${FEEDBACK_IDS.one}"] [data-include]`);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await vi.waitFor(() => expect(toggle().attributes('disabled')).toBeUndefined());

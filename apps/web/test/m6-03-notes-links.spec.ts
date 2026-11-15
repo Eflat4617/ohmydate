@@ -230,33 +230,36 @@ describe('Task detail — 설명을 노트로 승격 (07 §7)', () => {
   });
 });
 
-describe('Planning wizard — reference notes and draft evidence (05 §9/§10)', () => {
+describe('계획 세우기 — reference notes and draft evidence (05 §9/§10)', () => {
   async function openSession(): Promise<{ app: MountedApp; goalId: string }> {
     const session = await plannerClient.createIntakeSession({ title: '졸업 논문 실험 계획' }, newActionId('intake'));
     const app = await open(`/plan/${session.id}`, '[data-wizard-notes]');
     return { app, goalId: String(session.goalId) };
   }
 
+  /** HOLO-03A: go on to 단계 the way someone in a hurry does — a new kind of work, every question left blank. */
   async function skipToDraft(app: MountedApp): Promise<void> {
-    const atDraft = () => app.wrapper.find('#step4-heading').exists();
+    const atDraft = () => app.wrapper.find('[data-plan-steps-card] #step-title-s1').exists();
     for (let guard = 0; guard < 20 && !atDraft(); guard += 1) {
-      if (app.wrapper.find('#step2-heading').exists()) {
-        // "Similar to an earlier type?" — no: plan it as a new type.
-        await button(app.wrapper.get('.similar-card'), '아니오').trigger('click');
-        await vi.waitFor(() => expect(app.wrapper.find('#step2-heading').exists()).toBe(false));
+      if (app.wrapper.find('[data-plan-type]').exists()) {
+        // "Similar to an earlier kind?" — no: plan it as a new kind.
+        await app.wrapper.get('[data-plan-type-no]').trigger('click');
+        await vi.waitFor(() => expect(app.wrapper.find('[data-plan-type]').exists()).toBe(false));
         continue;
       }
-      const card = app.wrapper.find('.question-card');
-      if (!card.exists()) {
-        await vi.waitFor(() => expect(atDraft() || app.wrapper.find('.question-card').exists()).toBe(true));
+      const form = app.wrapper.find('form[data-plan-questions]');
+      if (!form.exists()) {
+        await vi.waitFor(() => expect(atDraft() || app.wrapper.find('form[data-plan-questions]').exists()).toBe(true));
         continue;
       }
-      const question = card.get('legend').text();
-      await button(card, '건너뛰기').trigger('click');
-      // Wait for the answer to land (the buttons stay disabled while it is in flight).
-      await vi.waitFor(() =>
-        expect(atDraft() || app.wrapper.find('.question-card legend').text() !== question).toBe(true),
-      );
+      const round = form.findAll('.plan-question').map((item) => item.attributes('data-question')).join(',');
+      await form.trigger('submit');
+      // Wait for the answers to land (the form is held while they are in flight).
+      await vi.waitFor(() => {
+        const next = app.wrapper.find('form[data-plan-questions]');
+        const now = next.exists() ? next.findAll('.plan-question').map((item) => item.attributes('data-question')).join(',') : '';
+        expect(atDraft() || now !== round).toBe(true);
+      });
       await settle();
     }
     await vi.waitFor(() => expect(atDraft()).toBe(true));
@@ -308,6 +311,8 @@ describe('Planning wizard — reference notes and draft evidence (05 §9/§10)',
     expect(evidence.find('script').exists()).toBe(false);
     expect((window as { __evidence?: number }).__evidence).toBeUndefined();
     expect(app.wrapper.get('[data-wizard-notes]').text()).toContain('단계 초안은 이미 만들어졌어요.');
+    // The evidence sits under the steps it supports, on the same page.
+    expect(app.wrapper.get('[data-plan-stage]').attributes('data-plan-stage')).toBe('steps');
   });
 
   it('marks evidence whose note changed since, and a note that is gone (negative)', async () => {

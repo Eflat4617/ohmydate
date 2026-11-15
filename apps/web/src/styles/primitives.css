@@ -480,8 +480,7 @@
 
 /* Checkbox / radio rendered as a selectable chip: picked takes the lime tint
    and edge, and the box inside it is ticked. */
-.choice-chip,
-.checkbox-chip {
+.choice-chip {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -499,27 +498,23 @@
     border-color var(--duration-fast) var(--ease-standard);
 }
 
-.choice-chip:hover,
-.checkbox-chip:hover {
+.choice-chip:hover {
   border-color: var(--color-text-2);
   background: var(--color-hover);
 }
 
-.choice-chip:has(input:checked),
-.checkbox-chip:has(input:checked) {
+.choice-chip:has(input:checked) {
   border-color: var(--color-accent-text);
   background: var(--color-accent-soft);
   font-weight: var(--weight-semibold);
 }
 
-.choice-chip:has(input:disabled),
-.checkbox-chip:has(input:disabled) {
+.choice-chip:has(input:disabled) {
   cursor: not-allowed;
   opacity: 0.5;
 }
 
-.choice-chip:has(input:focus-visible),
-.checkbox-chip:has(input:focus-visible) {
+.choice-chip:has(input:focus-visible) {
   outline: var(--focus-ring);
   outline-offset: var(--focus-offset);
 }
@@ -544,8 +539,7 @@
 @media (pointer: coarse) {
   .check,
   .checkbox-label,
-  .choice-chip,
-  .checkbox-chip {
+  .choice-chip {
     min-height: var(--hit-target);
   }
 }
@@ -631,17 +625,6 @@
   gap: var(--space-2);
   padding-top: var(--space-4);
   border-top: var(--rule-hair) solid var(--color-line);
-}
-
-/* A heading with something beside it, over a hairline. */
-.section-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-1) var(--space-4);
-  padding-bottom: var(--space-3);
-  border-bottom: var(--rule-hair) solid var(--color-line);
 }
 
 /* Fieldset as a settings section: its legend sits on a hairline. */
@@ -925,6 +908,18 @@
   );
   opacity: 0.7;
   pointer-events: none;
+}
+
+/* ── Done: a small green tick tile beside the words that say so ────── */
+.success-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--green-soft);
+  color: var(--green-text);
 }
 
 /* ── Switch: a pill whose knob slides; on is lime ──────────────────── */
@@ -1260,11 +1255,8 @@
 .notification-list,
 .today-blocks,
 .proposal-blocks,
-.question-list,
-.draft-step-list,
 .task-picker,
-.scope-list,
-.approved-schedule-list {
+.scope-list {
   display: flex;
   flex-direction: column;
   margin: 0;

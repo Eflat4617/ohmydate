@@ -44,7 +44,7 @@ describe('diversity note code catalog (FU-68)', () => {
     expect(
       diversityNoteItemsText([item('diversity_distinct'), item('replan_bound_exceeded')]),
     ).toBe(
-      '후보 3개가 모두 서로 충분히 달라요. 바뀐 블록이 6개로, 변경 상한 4개(영향받은 기존 블록 1개 × 2 + 2)를 넘어요. 영향받지 않은 블록은 그대로 두었고, 이 안이 그중 가장 나아요.',
+      '일정안 3개가 모두 서로 충분히 달라요. 바뀐 블록이 6개로, 변경 상한 4개(영향받은 기존 블록 1개 × 2 + 2)를 넘어요. 영향받지 않은 블록은 그대로 두었고, 이 안이 그중 가장 나아요.',
     );
   });
 

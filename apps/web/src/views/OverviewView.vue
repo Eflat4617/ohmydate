@@ -7,6 +7,7 @@ import DaySummaryWidget from '../components/overview/DaySummaryWidget.vue';
 import ProgressWidget from '../components/overview/ProgressWidget.vue';
 import SessionLogWidget from '../components/overview/SessionLogWidget.vue';
 import TimeTrackerWidget from '../components/overview/TimeTrackerWidget.vue';
+import PlanResumeList from '../components/plan/PlanResumeList.vue';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -194,7 +195,7 @@ const startingNext = computed(() => nextBlock.value !== null && focus.startingTa
         >
           {{ startingNext ? t('overview.starting') : t('overview.startFocus') }}
         </UiButton>
-        <RouterLink v-else class="btn btn--primary" to="/plan/new" data-primary="plan">
+        <RouterLink v-else class="btn btn--primary" to="/plan" data-primary="plan">
           <UiIcon name="plan" :size="18" class="btn-icon" />
           {{ t('overview.makePlan') }}
         </RouterLink>
@@ -208,6 +209,9 @@ const startingNext = computed(() => nextBlock.value !== null && focus.startingTa
       </template>
     </UiBanner>
     <p v-if="!offline.mutationsEnabled" class="visually-hidden" role="status">{{ t('overview.startOffline') }}</p>
+
+    <!-- HOLO-03A (FLOW §5 되돌아오기): a plan that was started and not finished, with the way back in. -->
+    <PlanResumeList :limit="1" compact />
 
     <div class="overview-grid">
       <ProgressWidget

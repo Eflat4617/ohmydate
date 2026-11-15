@@ -1,0 +1,1652 @@
+/*
+ * 계획 세우기 (HOLO-03A): one flow —
+ *
+ *   목표 → 질문 → 단계 → 일정안 → 확정
+ *
+ * Every stage is the same page: a title, the rail that says where the flow
+ * is, and cards. The one lime button of a stage is its next step. What is
+ * not real yet (a candidate schedule) is a dashed outline; what is confirmed
+ * is the lime fill — the two never look alike.
+ *
+ * The page is its own size container: the layout follows the canvas (a
+ * folded sidebar gives it more), not the window.
+ */
+.plan-page {
+  container: plan / inline-size;
+}
+
+/* ── The rail ──────────────────────────────────────────────────────── */
+.plan-rail {
+  min-width: 0;
+}
+
+.plan-rail-list {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-rail-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+/* A hairline joins a stage to the next. */
+.plan-rail-item + .plan-rail-item::before {
+  content: '';
+  flex: none;
+  width: clamp(var(--space-3), 3cqi, var(--space-8));
+  height: var(--rule-hair);
+  background: var(--color-line-strong);
+}
+
+.plan-rail-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 1.375rem;
+  height: 1.375rem;
+  border: var(--rule-hair) solid var(--color-line-strong);
+  border-radius: 50%;
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.plan-rail-label {
+  overflow: hidden;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.plan-rail-label {
+  text-decoration: underline;
+  text-decoration-color: var(--color-line-strong);
+  text-underline-offset: 0.2em;
+}
+
+a.plan-rail-label:hover {
+  color: var(--color-text);
+}
+
+.plan-rail-item--done {
+  color: var(--color-text-2);
+}
+
+.plan-rail-item--done .plan-rail-mark {
+  border-color: transparent;
+  background: var(--color-fill-2);
+  color: var(--color-text);
+}
+
+/* A stage the flow did not go through (a plan made straight from tasks). */
+.plan-rail-item--skipped .plan-rail-mark {
+  border-style: dashed;
+}
+
+/* Where the flow is now: the lime mark (a "now" mark, not an action). */
+.plan-rail-item--current {
+  color: var(--color-text);
+  font-weight: var(--weight-semibold);
+}
+
+.plan-rail-item--current .plan-rail-mark {
+  border-color: var(--data-1-edge);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  font-weight: var(--weight-semibold);
+}
+
+/* Narrow: every mark stays, only the current stage keeps its word. */
+@container plan (max-width: 34rem) {
+  .plan-rail-item:not(.plan-rail-item--current) .plan-rail-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .plan-rail-item + .plan-rail-item::before {
+    width: var(--space-3);
+  }
+}
+
+/* ── 목표 → 질문 → 단계: one column of work, and what goes with it ── */
+.plan-flow-grid {
+  display: grid;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.plan-flow-main,
+.plan-flow-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+@container plan (min-width: 62rem) {
+  .plan-flow-grid {
+    grid-template-columns: minmax(0, 1fr) 22rem;
+  }
+
+  .plan-flow-grid:not(:has(.plan-flow-side)) {
+    grid-template-columns: minmax(0, 52rem);
+  }
+
+  .plan-flow-side {
+    position: sticky;
+    top: var(--sticky-top);
+  }
+}
+
+.plan-stage-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.plan-stage-lede {
+  max-width: 44rem;
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+.plan-stage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* 목표: the sentence that starts everything is the largest thing on the page. */
+.plan-goal {
+  gap: var(--space-5);
+}
+
+.plan-goal-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.plan-goal-label {
+  color: var(--color-text-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.plan-goal-title {
+  width: 100%;
+  min-height: 3.5rem;
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+  letter-spacing: -0.015em;
+}
+
+.plan-goal-more {
+  display: grid;
+  gap: var(--space-4);
+}
+
+@container plan (min-width: 44rem) {
+  .plan-goal-more {
+    grid-template-columns: 16rem minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.plan-goal-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+}
+
+.plan-goal-ai {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.plan-goal-ai > .icon {
+  flex: none;
+}
+
+.plan-goal-ai-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-link);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.plan-goal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* AI consent, asked in the card: a well inside it. */
+.plan-consent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: var(--rule-hair) solid var(--color-line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-inset);
+}
+
+.plan-consent:focus {
+  outline: none;
+}
+
+.plan-consent-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+
+.plan-consent-title > .icon {
+  color: var(--color-text-3);
+}
+
+.plan-consent-lede {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+/* 질문: the type check, then the questions as one list. */
+.plan-type-body {
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  line-height: var(--leading-snug);
+}
+
+.plan-type-meter {
+  max-width: 20rem;
+}
+
+.plan-type-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-type-question {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+.plan-question-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-question {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.plan-question:last-child {
+  border-bottom: var(--rule-hair) solid var(--color-line);
+}
+
+.plan-question-prompt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.plan-question-answer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plan-question-answer > input:not([type='checkbox']),
+.plan-question-answer > select {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+
+.plan-question-answer > input[type='number'] {
+  flex: 0 1 9rem;
+}
+
+.plan-question-idk {
+  flex: none;
+  min-height: var(--control-height);
+}
+
+.plan-question-yes {
+  min-height: var(--control-height);
+}
+
+/* 단계: rows a person reads down. */
+.plan-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.plan-steps-total {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+
+.plan-steps-total-label {
+  flex: 0 0 100%;
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.plan-steps-total-note {
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.plan-steps-cols,
+.plan-step-row {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr) 6.5rem 5.5rem 5.5rem auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.plan-steps-cols {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.plan-steps-cols > span:last-child {
+  width: 6.25rem;
+}
+
+.plan-step-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.plan-step:last-child {
+  border-bottom: var(--rule-hair) solid var(--color-line);
+}
+
+.plan-step-index {
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.plan-step-name {
+  font-weight: var(--weight-medium);
+}
+
+.plan-step-minutes {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.plan-step-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.plan-step-more-icon {
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.plan-step-more[aria-expanded='true'] .plan-step-more-icon {
+  transform: rotate(180deg);
+}
+
+.plan-step-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-left: calc(1.5rem + var(--space-2));
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--color-inset);
+}
+
+.plan-step-deps > legend {
+  flex: 0 0 100%;
+}
+
+.plan-step-issue {
+  margin-left: calc(1.5rem + var(--space-2));
+}
+
+.plan-steps-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.plan-steps-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+  padding-top: var(--space-4);
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.plan-steps-confirm-lede {
+  flex: 1 1 16rem;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+/* Narrow: a step is two lines — its name, then kind and the two times. */
+@container plan (max-width: 44rem) {
+  .plan-steps-cols {
+    display: none;
+  }
+
+  .plan-step-row {
+    grid-template-columns: 1.5rem minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .plan-step-name {
+    grid-column: 2 / -1;
+  }
+
+  .plan-step-kind {
+    grid-column: 2;
+  }
+
+  .plan-step-tools {
+    grid-column: 2 / -1;
+    justify-content: space-between;
+  }
+
+  .plan-step-details,
+  .plan-step-issue {
+    margin-left: 0;
+  }
+}
+
+/* What was taken for granted, beside the steps it shaped. */
+.plan-assumption-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.plan-assumption {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  padding: var(--space-2) 0;
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.plan-assumption dt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.plan-assumption dd {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+/* 하던 계획: the way back in. */
+.plan-resume-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan-resume-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2-5) 0;
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.plan-resume-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.plan-resume-name {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-resume-state {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+/* 개요 drops in one line of it. */
+.plan-resume--compact {
+  flex-flow: row wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.plan-resume--compact .plan-resume-list {
+  flex: 1 1 18rem;
+}
+
+.plan-resume--compact .plan-resume-item {
+  padding: 0;
+  border-top: 0;
+}
+
+/* ── Waiting for the AI (FU-76): calm, with the time said ──────────── */
+.ai-wait {
+  gap: var(--space-4);
+}
+
+.ai-wait-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  min-width: 0;
+}
+
+.ai-wait-text h2 {
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-snug);
+}
+
+.ai-wait-text h2:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.ai-wait-elapsed {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Busy: a run of lime crossing an empty track. It says "working", never an amount done. */
+.ai-wait-track {
+  position: relative;
+  height: 0.375rem;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--data-track);
+}
+
+.ai-wait-track-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 25%;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-text);
+  animation: ai-wait-slide 2.8s var(--ease-standard) infinite;
+}
+
+/* Taking longer than usual: the run turns to caution. */
+.ai-wait--slow .ai-wait-track-fill,
+.ai-wait--overdue .ai-wait-track-fill {
+  background: var(--amber-text);
+}
+
+.ai-wait-message {
+  margin: 0;
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+.ai-wait-cancelling {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.ai-wait-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+@keyframes ai-wait-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+/* ── 일정안 만들기: what goes in ───────────────────────────────────── */
+.plan-scope-grid {
+  display: grid;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.plan-scope-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.plan-scope-side {
+  min-width: 0;
+}
+
+@container plan (min-width: 58rem) {
+  .plan-scope-grid {
+    grid-template-columns: minmax(0, 1fr) 22rem;
+  }
+
+  .plan-scope-side {
+    position: sticky;
+    top: var(--sticky-top);
+  }
+}
+
+.plan-scope-summary {
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-snug);
+}
+
+/* The task picker: groups on hairlines, tasks hanging under their group. */
+.picker-groups {
+  display: flex;
+  flex-direction: column;
+  border-bottom: var(--rule-hair) solid var(--color-line);
+}
+
+.picker-group {
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.picker-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.picker-group-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+  min-height: var(--control-height-lg);
+  padding: var(--space-1) var(--space-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: start;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.picker-group-toggle:hover {
+  background: var(--color-hover);
+}
+
+.picker-group-toggle > .icon {
+  flex: none;
+  color: var(--color-text-3);
+}
+
+.picker-group-chevron {
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.picker-group-toggle[aria-expanded='true'] .picker-group-chevron {
+  transform: rotate(90deg);
+}
+
+.picker-group-text {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-3);
+  min-width: 0;
+}
+
+.picker-group-title {
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.picker-group-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.picker-group-selected {
+  color: var(--color-accent-text);
+  font-weight: var(--weight-semibold);
+}
+
+.picker-group-all {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-1);
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.picker-group-all:hover {
+  color: var(--color-text);
+}
+
+.task-picker {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0 0 var(--space-2) var(--space-8);
+  list-style: none;
+}
+
+.task-picker > li + li {
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.task-picker-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  min-height: var(--control-height);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.task-picker-row:hover {
+  background: var(--color-hover);
+}
+
+.task-picker-row:has(input:checked) {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.scope-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  list-style: none;
+}
+
+.scope-list > li {
+  padding: var(--space-2) 0;
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+/* A prep card: asked here so nobody is sent to a settings screen. */
+.plan-prep-lede {
+  max-width: 44rem;
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+.plan-prep-total {
+  flex: none;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.plan-prep-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.plan-prep-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--green-text);
+  font-size: var(--text-sm);
+}
+
+.plan-presets {
+  gap: var(--space-2);
+}
+
+.plan-preset {
+  align-items: center;
+  min-height: 3.25rem;
+  padding: var(--space-2) var(--space-3);
+}
+
+.plan-preset-text {
+  display: flex;
+  flex-direction: column;
+  line-height: var(--leading-snug);
+}
+
+.plan-preset-name {
+  font-size: var(--text-sm);
+}
+
+.plan-preset-hint {
+  color: var(--color-text-3);
+  font-weight: var(--weight-regular);
+}
+
+.plan-paint > summary,
+.plan-how-options > summary {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.plan-paint > summary:hover,
+.plan-how-options > summary:hover {
+  color: var(--color-text);
+}
+
+.plan-paint[open] > summary,
+.plan-how-options[open] > summary {
+  margin-bottom: var(--space-3);
+}
+
+.plan-how-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-snug);
+}
+
+.plan-how-summary > span + span {
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+}
+
+.plan-how-options {
+  display: flex;
+  flex-direction: column;
+}
+
+.plan-how-options[open] {
+  gap: var(--space-3);
+}
+
+.plan-policies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.plan-policies > legend {
+  margin-bottom: var(--space-2);
+  padding: 0;
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.plan-policy {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2-5);
+  padding: var(--space-2) var(--space-1);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.plan-policy:hover {
+  background: var(--color-hover);
+}
+
+.plan-policy > input {
+  flex: none;
+  margin-top: var(--space-0-5);
+}
+
+.plan-policy-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.plan-policy-name {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.plan-policy-summary {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+}
+
+.plan-how-blocker {
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+/* ── 일정안: the candidates ────────────────────────────────────────── */
+.plan-options {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.plan-options--loading .skeleton-stack {
+  display: contents;
+}
+
+@container plan (min-width: 44rem) {
+  .plan-options {
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  }
+}
+
+.plan-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+  padding: var(--card-pad);
+  border: var(--rule-hair) solid var(--color-line);
+  border-radius: var(--radius-xl);
+  background: var(--card-sheen) var(--color-surface);
+  color: var(--color-text-2);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    background-color var(--duration-fast) var(--ease-standard);
+}
+
+.plan-option:hover {
+  border-color: var(--color-line-strong);
+}
+
+.plan-option--disabled {
+  cursor: default;
+}
+
+/* Picked: the lime edge and the faintest lime — a state, not an action. */
+.plan-option--selected {
+  border-color: var(--color-accent-text);
+  background-color: color-mix(in oklab, var(--color-accent) 5%, var(--color-surface));
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--color-accent-text);
+}
+
+.plan-option:has(.plan-option-radio:focus-visible) {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.plan-option-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2-5);
+  min-height: 1.5rem;
+}
+
+.plan-option-radio {
+  flex: none;
+}
+
+.plan-option-radio:focus-visible {
+  outline: none;
+}
+
+.plan-option-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.plan-option-summary {
+  min-height: calc(2 * var(--leading-snug) * 1em);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.plan-option-figures {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.plan-option-finish {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.plan-option-label {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}
+
+.plan-option-number {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.plan-option-number .numeral-unit {
+  color: var(--color-text-3);
+  font-size: var(--text-lg);
+}
+
+.plan-option-number--none {
+  color: var(--color-text-3);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-light);
+  line-height: 1.9;
+}
+
+.plan-option-load {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.plan-option-load-note {
+  color: var(--color-text-3);
+  font-size: var(--text-2xs);
+}
+
+.plan-option-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding-top: var(--space-3);
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.plan-option-stats .stat dd {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.plan-option-risk {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.plan-option-risk > .icon {
+  flex: none;
+  margin-top: 0.15em;
+}
+
+.plan-option-risk--ok > .icon {
+  color: var(--green-text);
+}
+
+.plan-option-risk--tight > .icon {
+  color: var(--sky-text);
+}
+
+.plan-option-risk--late > .icon {
+  color: var(--amber-text);
+}
+
+.plan-option-risk--unplaced {
+  color: var(--color-danger-text);
+}
+
+.plan-option-diff,
+.plan-option-note {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+}
+
+/* The one filled button of the stage, with what is picked said beside it. */
+.plan-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+}
+
+.plan-confirm-pick {
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+
+.plan-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+@container plan (max-width: 34rem) {
+  .plan-confirm-actions {
+    width: 100%;
+  }
+
+  .plan-confirm-actions > .btn--primary {
+    flex: 1 1 100%;
+    order: -1;
+  }
+}
+
+/* ── The week ──────────────────────────────────────────────────────── */
+.plan-week {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.plan-week-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.plan-week-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.plan-week-title {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+
+.plan-week-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The note that an edit is held floats over the grid's lower edge (out of
+   flow in every state), so showing it never moves the grid (FU-86F). */
+.plan-week-frame {
+  position: relative;
+  min-width: 0;
+  isolation: isolate;
+}
+
+/* The grid of a schedule being compared need not fill the window. */
+.plan-week .wg-scroll {
+  max-height: max(24rem, min(40rem, calc(100dvh - var(--topbar-height) - 10rem)));
+}
+
+.plan-week-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  line-height: var(--leading-snug);
+}
+
+.plan-week-hint > .icon {
+  flex: none;
+  margin-top: 0.1em;
+}
+
+.block-lock-hint {
+  margin: 0;
+}
+
+.block-lock-saving {
+  position: absolute;
+  right: 0;
+  bottom: var(--space-3);
+  left: 0;
+  z-index: 6;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: fit-content;
+  max-width: calc(100% - 2 * var(--space-3));
+  margin: 0 auto;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule-hair) solid var(--color-line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-raised);
+  box-shadow: var(--shadow-float);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  pointer-events: none;
+}
+
+.block-lock-saving .icon {
+  flex: none;
+  margin-top: var(--space-0-5);
+  color: var(--sky-text);
+}
+
+/* Idle: an empty live region, kept in the accessibility tree but not painted. */
+.block-lock-saving:not(.block-lock-saving--shown) {
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  box-shadow: none;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.block-lock-saving--shown {
+  animation: block-lock-saving-in var(--duration-base) var(--ease-out);
+}
+
+@keyframes block-lock-saving-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--space-1));
+  }
+}
+
+/* ── What has to be fixed, and why it was laid out this way ────────── */
+.plan-problems {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.plan-problems:empty {
+  display: none;
+}
+
+.plan-valid {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+.plan-valid > .icon {
+  color: var(--green-text);
+}
+
+.violation-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0 0 0 var(--space-4);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+/* A disclosure, said with a chevron that turns when it opens. */
+.candidate-explanation > summary,
+.plan-paint > summary,
+.plan-how-options > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height-sm);
+  list-style: none;
+  cursor: pointer;
+}
+
+.candidate-explanation > summary::-webkit-details-marker,
+.plan-paint > summary::-webkit-details-marker,
+.plan-how-options > summary::-webkit-details-marker {
+  display: none;
+}
+
+.candidate-explanation > summary::after,
+.plan-paint > summary::after,
+.plan-how-options > summary::after {
+  content: '';
+  flex: none;
+  width: 0.4rem;
+  height: 0.4rem;
+  margin-top: -0.2rem;
+  border-right: var(--rule-bar) solid currentColor;
+  border-bottom: var(--rule-bar) solid currentColor;
+  opacity: 0.7;
+  transform: rotate(45deg);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.candidate-explanation[open] > summary::after,
+.plan-paint[open] > summary::after,
+.plan-how-options[open] > summary::after {
+  margin-top: 0.2rem;
+  transform: rotate(-135deg);
+}
+
+.candidate-explanation > summary {
+  color: var(--color-text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.candidate-explanation[open] > summary {
+  margin-bottom: var(--space-2);
+}
+
+.explanation-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  margin: 0;
+  padding-left: var(--space-4);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.plan-after {
+  display: grid;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@container plan (min-width: 58rem) {
+  .plan-after {
+    grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  }
+}
+
+/* ── 확정: the hand-off ────────────────────────────────────────────── */
+.plan-next {
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-8);
+  border-color: color-mix(in oklab, var(--color-accent-text) 45%, var(--color-line));
+}
+
+.plan-next:focus {
+  outline: none;
+}
+
+.plan-next-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.plan-next-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-2);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.plan-next-today {
+  color: var(--color-text);
+  font-size: var(--text-num);
+  font-weight: var(--weight-light);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
+
+.plan-next-first {
+  color: var(--color-text);
+  font-size: var(--text-md);
+}
+
+.plan-next-note {
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.plan-next-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+}
+
+.plan-next-link {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-decoration-color: var(--color-line-strong);
+  text-underline-offset: 0.2em;
+}
+
+.plan-next-link:hover {
+  color: var(--color-text);
+}
+
+.plan-confirmed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+/* ── A proposal's detail card ──────────────────────────────────────── */
+.planner-card-problem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--amber-text);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.planner-card-problem > .icon {
+  flex: none;
+  margin-top: 0.1em;
+}
+
+.planner-card-edit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.planner-card-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+.planner-card-edit-label {
+  flex: none;
+  width: 3rem;
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+@media (pointer: coarse) {
+  .picker-group-toggle,
+  .picker-group-all,
+  .task-picker-row {
+    min-height: var(--hit-target);
+  }
+}
+
+@media (max-width: 63.99rem) {
+  .plan-next-today {
+    font-size: 2.25rem;
+  }
+}
+
+/* Still: the run is parked as a hatch across the track, which reads as
+   "working", not as an amount done. */
+@media (prefers-reduced-motion: reduce) {
+  .ai-wait-track-fill,
+  .ai-wait--slow .ai-wait-track-fill,
+  .ai-wait--overdue .ai-wait-track-fill {
+    width: 100%;
+    background: repeating-linear-gradient(
+      135deg,
+      var(--color-accent-text) 0,
+      var(--color-accent-text) var(--space-1-5),
+      transparent var(--space-1-5),
+      transparent var(--space-3)
+    );
+    animation: none;
+  }
+
+  .ai-wait--slow .ai-wait-track-fill,
+  .ai-wait--overdue .ai-wait-track-fill {
+    background: repeating-linear-gradient(
+      135deg,
+      var(--amber-text) 0,
+      var(--amber-text) var(--space-1-5),
+      transparent var(--space-1-5),
+      transparent var(--space-3)
+    );
+  }
+
+  .plan-step-more-icon {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-group-chevron,
+  .plan-option,
+  .candidate-explanation > summary::after,
+  .plan-paint > summary::after,
+  .plan-how-options > summary::after {
+    transition: none;
+  }
+
+  .block-lock-saving--shown {
+    animation: none;
+  }
+}

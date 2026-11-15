@@ -78,7 +78,7 @@ export function validateDraft(draft: DecompositionDraft): DraftValidationResult 
     else keys.push(step.key);
   }
   for (const key of duplicates) {
-    issues.push({ code: 'duplicate_key', message: t('draft.duplicateKey', { key }), stepKey: key });
+    issues.push({ code: 'duplicate_key', message: t('draft.duplicateKey'), stepKey: key });
   }
 
   const known = new Set(keys);
@@ -101,7 +101,7 @@ export function validateDraft(draft: DecompositionDraft): DraftValidationResult 
       if (!known.has(ref)) {
         issues.push({
           code: 'unknown_ref',
-          message: t('draft.unknownRef', { ref }),
+          message: t('draft.unknownRef'),
           stepKey: step.key,
           ref,
         });
@@ -118,7 +118,9 @@ export function validateDraft(draft: DecompositionDraft): DraftValidationResult 
 
   const cycle = hasCycle(steps);
   if (cycle !== null) {
-    issues.push({ code: 'cycle', message: t('draft.cycle', { cycle: cycle.join(' → ') }) });
+    // A person reads step numbers, not the draft's internal keys.
+    const position = (key: string): string => t('planSteps.step', { index: steps.findIndex((step) => step.key === key) + 1 });
+    issues.push({ code: 'cycle', message: t('draft.cycle', { cycle: cycle.map(position).join(' → ') }) });
   }
 
   return { valid: issues.length === 0, issues };

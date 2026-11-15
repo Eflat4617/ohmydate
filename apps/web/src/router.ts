@@ -8,15 +8,14 @@ import LayoutSettingsView from './views/LayoutSettingsView.vue';
 import LlmSettingsView from './views/LlmSettingsView.vue';
 import LoginView from './views/LoginView.vue';
 import OverviewView from './views/OverviewView.vue';
-import PlanComparisonView from './views/PlanComparisonView.vue';
-import PlanNewView from './views/PlanNewView.vue';
+import PlanScheduleView from './views/PlanScheduleView.vue';
+import PlanScopeView from './views/PlanScopeView.vue';
 import PlannerView from './views/PlannerView.vue';
 import ProjectDetailView from './views/ProjectDetailView.vue';
 import ProjectListView from './views/ProjectListView.vue';
-import PlanningWizardView from './views/PlanningWizardView.vue';
-import PatternsView from './views/PatternsView.vue';
-import ReplanListView from './views/ReplanListView.vue';
-import ReplanProposalView from './views/ReplanProposalView.vue';
+import PlanView from './views/PlanView.vue';
+import InsightsView from './views/InsightsView.vue';
+import ReplanView from './views/ReplanView.vue';
 import TaskDetailView from './views/TaskDetailView.vue';
 import TodayView from './views/TodayView.vue';
 import TrackerView from './views/TrackerView.vue';
@@ -36,8 +35,11 @@ export const routes: RouteRecordRaw[] = [
   { path: '/inbox', name: 'inbox', component: InboxView },
   { path: '/projects', name: 'projects', component: ProjectListView },
   { path: '/projects/:id', name: 'project', component: ProjectDetailView, props: true },
-  { path: '/plan/new', name: 'plan-new', component: PlanningWizardView },
-  { path: '/plan/:sessionId', name: 'plan-session', component: PlanningWizardView, props: true },
+  // HOLO-03A: 계획 세우기, one flow: 목표 (`/plan`), then 질문 and 단계 of a
+  // planning session; its schedules and their confirmation are below.
+  { path: '/plan', name: 'plan', component: PlanView },
+  { path: '/plan/new', redirect: '/plan' },
+  { path: '/plan/:sessionId', name: 'plan-session', component: PlanView, props: true },
   { path: '/today', name: 'today', component: TodayView },
   // HOLO-02: the timer card and the week's focus sessions.
   { path: '/tracker', name: 'tracker', component: TrackerView },
@@ -60,11 +62,20 @@ export const routes: RouteRecordRaw[] = [
   { path: '/notes/new', name: 'notes-new', component: NotesView },
   { path: '/notes/:id', name: 'notes-detail', component: NotesView },
   { path: '/tasks/:id', name: 'task', component: TaskDetailView, props: true },
-  { path: '/plans/new', name: 'plans-new', component: PlanNewView },
-  { path: '/plans/:id', name: 'plan', component: PlanComparisonView, props: true },
-  { path: '/replan', name: 'replan', component: ReplanListView },
-  { path: '/replan/:id', name: 'replan-proposal', component: ReplanProposalView, props: true },
-  { path: '/patterns', name: 'patterns', component: PatternsView },
+  // What goes into the schedules (`?goalId`, `?taskIds`; `?session` names the
+  // planning session it came from), then the three schedules of a plan and
+  // its confirmation.
+  { path: '/plan/schedule', name: 'plan-scope', component: PlanScopeView },
+  { path: '/plan/schedule/:id', name: 'plan-schedule', component: PlanScheduleView, props: true },
+  // The addresses these screens had before HOLO-03A.
+  { path: '/plans/new', redirect: (to) => ({ name: 'plan-scope', query: to.query }) },
+  { path: '/plans/:id', redirect: (to) => ({ name: 'plan-schedule', params: { id: to.params['id'] }, query: to.query }) },
+  // HOLO-03A: one 재계획 screen — the proposal on show beside the list of them all.
+  { path: '/replan', name: 'replan', component: ReplanView },
+  { path: '/replan/:id', name: 'replan-proposal', component: ReplanView, props: true },
+  // HOLO-03A: AI 분석 (was 내 패턴 at /patterns).
+  { path: '/insights', name: 'insights', component: InsightsView },
+  { path: '/patterns', redirect: '/insights' },
   // An address the app does not know opens the dashboard.
   { path: '/:pathMatch(.*)*', redirect: '/overview' },
 ];

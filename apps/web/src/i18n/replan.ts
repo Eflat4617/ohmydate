@@ -11,7 +11,7 @@ import { formatDateTime, formatDuration, formatNumber, formatPercent } from './f
 import { t } from './index';
 
 /**
- * Korean labels for the M5-03 replan and "내 패턴" screens. Every contract
+ * Korean labels for 재계획 and AI 분석 (M5-03). Every contract
  * enum value has a catalog entry (checked by test/i18n-catalog.spec.ts), so
  * these never fall back to raw codes.
  */
@@ -57,20 +57,20 @@ export function confidenceLevel(confidence: number): ConfidenceLevel {
 /** `보통 (50%)`. */
 export function confidenceText(confidence: number): string {
   const percent = formatPercent(Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0, 0);
-  return t(`patterns.confidenceLevel.${confidenceLevel(confidence)}`, { percent });
+  return t(`insights.confidenceLevel.${confidenceLevel(confidence)}`, { percent });
 }
 
 /** `1.42배` (actual ÷ estimate). */
 export function ratioText(ratio: number): string {
-  return t('patterns.ratio', { value: formatNumber(Number.isFinite(ratio) ? ratio : 0, 2) });
+  return t('insights.ratio', { value: formatNumber(Number.isFinite(ratio) ? ratio : 0, 2) });
 }
 
 export function groupDimensionLabel(group: Pick<EstimationProfileGroup, 'dimension'>): string {
-  return t(`patterns.dimension.${group.dimension}`);
+  return t(`insights.groups.dimension.${group.dimension}`);
 }
 
 export function stepKindLabel(kind: NonNullable<EstimationProfileGroup['taskKind']>): string {
-  return t(`wizard.kinds.${kind}`);
+  return t(`planSteps.kinds.${kind}`);
 }
 
 /**

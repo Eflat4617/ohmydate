@@ -3,7 +3,6 @@ import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { defineComponent, h, nextTick, ref } from 'vue';
 import AppShell from '../src/components/AppShell.vue';
-import WeekCalendar from '../src/components/WeekCalendar.vue';
 import UiBanner from '../src/components/ui/UiBanner.vue';
 import UiButton from '../src/components/ui/UiButton.vue';
 import UiDialog from '../src/components/ui/UiDialog.vue';
@@ -453,35 +452,6 @@ describe('calm mode', () => {
     setCalmMode(false);
     await nextTick();
     expect(wrapper.get('.app-shell').classes()).not.toContain('app-shell--calm');
-    wrapper.unmount();
-  });
-});
-
-describe('week calendar opening position', () => {
-  it('opens at the first planned block, not at midnight', async () => {
-    const wrapper = mount(WeekCalendar, {
-      props: {
-        timeZone: 'UTC',
-        weekStart: '2026-11-09',
-        blocks: [
-          { taskId: 'task', startAt: '2026-11-10T19:00:00.000Z', endAt: '2026-11-10T20:00:00.000Z' },
-          { taskId: 'task', startAt: '2026-11-11T09:30:00.000Z', endAt: '2026-11-11T10:00:00.000Z' },
-        ],
-      },
-      attachTo: document.body,
-    });
-    await ticks();
-    expect((wrapper.get('.week-calendar').element as HTMLElement).scrollTop).toBe(9 * 60 + 30 - 60);
-    wrapper.unmount();
-  });
-
-  it('falls back to 07:00 when the week has no blocks or availability (negative)', async () => {
-    const wrapper = mount(WeekCalendar, {
-      props: { timeZone: 'UTC', weekStart: '2026-11-09', blocks: [] },
-      attachTo: document.body,
-    });
-    await ticks();
-    expect((wrapper.get('.week-calendar').element as HTMLElement).scrollTop).toBe(6 * 60);
     wrapper.unmount();
   });
 });

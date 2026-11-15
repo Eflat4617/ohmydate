@@ -141,7 +141,8 @@ test.describe('E2E-6 — adaptive layout: focus switch, undo, auto switch off', 
 
     await test.step('planning and notes layouts (axe)', async () => {
       await page.locator('.nav-rail').getByRole('link', { name: '계획 세우기' }).click();
-      await expect(page.getByRole('heading', { name: '1단계 · 기본정보' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '계획 세우기', level: 1 })).toBeVisible();
+      await expect(page.locator('#plan-goal-title')).toBeVisible();
       // The undo turned this session's focus layout down, so the planning rule
       // decides; the page stays primary and the running session stays reachable.
       await expectMode(page, 'planning');

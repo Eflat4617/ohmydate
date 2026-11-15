@@ -179,13 +179,6 @@ export function koreanDateLabel(date: string, withYear = false): string {
   return `${withYear ? `${year}년 ` : ''}${month}월 ${day}일 (${weekday})`;
 }
 
-/** Inverse of `koreanDateLabel(…, true)` for the first such date in `text`. */
-export function dateFromKoreanLabel(text: string): string | undefined {
-  const match = /(\d{4})년 (\d{1,2})월 (\d{1,2})일/.exec(text);
-  if (match === null) return undefined;
-  return `${match[1]}-${pad(Number(match[2]))}-${pad(Number(match[3]))}`;
-}
-
 /** Local 12-hour clock as the UI renders it (ko-KR): `오전 1:30`, `오후 12:05`. */
 export function koreanClock(instant: string, timeZone: string): string {
   const { minutes } = localPoint(instantMs(instant), timeZone);
@@ -196,15 +189,16 @@ export function koreanClock(instant: string, timeZone: string): string {
 }
 
 /**
- * CSS selector for the rendered calendar button of `block`. The calendar's
- * aria-label is `<task>, <date> <start>~<end> (<UTC offset>)`, e.g.
- * `논문 요약, 11월 13일 (금) 오전 1:30~2:00 (GMT+9)`; feasible candidates never
- * contain two blocks that start at the same instant.
+ * The block of the schedule being chosen as the week grid draws it
+ * (HOLO-03A, `WeekGrid`). Its accessible name is
+ * `일정안 블록, <task>, <date> <start>~<end>`, e.g.
+ * `일정안 블록, 논문 요약, 11월 13일 (금) 오전 1:30~2:00`; feasible candidates
+ * never contain two blocks that start at the same instant.
  */
 export function calendarBlockSelector(block: Interval, timeZone: string): string {
   const date = koreanDateLabel(localDate(block.startAt, timeZone));
   const clock = koreanClock(block.startAt, timeZone);
-  return `.calendar-block[aria-label*=", ${date} ${clock}~"]`;
+  return `.wg-item[data-kind="proposal"][aria-label*=", ${date} ${clock}~"]`;
 }
 
 export function sameBlock(left: EditableBlock | undefined, right: EditableBlock): boolean {

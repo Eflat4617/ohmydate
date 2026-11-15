@@ -333,3 +333,61 @@
   box-shadow: 0 0 0 3px var(--color-accent-soft);
   transform: translate(-50%, -50%);
 }
+
+/* ── Load strip (HOLO-03A): one small bar per day ──────────────────── */
+.load-strip {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.load-strip-track {
+  fill: var(--data-track);
+}
+
+.load-strip-bar {
+  fill: var(--data-rest);
+}
+
+/* The strip of the schedule that is picked takes the leading series. */
+.load-strip--lead .load-strip-bar {
+  fill: var(--data-1);
+  stroke: var(--data-1-edge);
+  stroke-width: 1;
+}
+
+.load-strip-mark {
+  fill: var(--orange);
+}
+
+/* ── Ratio bar (HOLO-03A): a ratio against "as estimated" ──────────── */
+.ratio-bar {
+  position: relative;
+  display: block;
+  height: 0.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-fill);
+}
+
+.ratio-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--radius-pill);
+  background: var(--data-2);
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--data-2-edge);
+}
+
+/* Faster than estimated reads the other way, and in another series. */
+.ratio-bar[data-side='under'] .ratio-bar-fill {
+  background: var(--data-1);
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--data-1-edge);
+}
+
+.ratio-bar-tick {
+  position: absolute;
+  top: calc(-1 * var(--space-1));
+  bottom: calc(-1 * var(--space-1));
+  width: 0;
+  border-left: var(--rule-hair) dashed var(--color-text-3);
+}

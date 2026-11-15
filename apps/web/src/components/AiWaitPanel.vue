@@ -7,10 +7,10 @@ import { t } from '../i18n';
 import { formatElapsed, type AiWaitKind, type AiWaitPhase } from '../composables/useAiWait';
 
 /**
- * FU-76: calm waiting state for a long AI call in the planning wizard.
+ * FU-76: calm waiting state for a long AI call in 계획 세우기.
  *
  * - The visible timer is `role="timer"` (implicitly aria-live off), so it can
- *   tick every second without being read out; the wizard owns the polite live
+ *   tick every second without being read out; the screen owns the polite live
  *   region and updates it only at milestones (useAiWait).
  * - 취소 and 직접 작성으로 계속 stay available the whole time; both land on
  *   the manual path with the user's inputs kept.
@@ -53,19 +53,17 @@ defineExpose({ focus });
 
 <template>
   <UiCard
-    class="wizard-card ai-wait"
+    class="ai-wait"
     :class="`ai-wait--${phase}`"
     aria-labelledby="ai-wait-heading"
     aria-busy="true"
     data-testid="ai-wait"
   >
-    <div class="ai-wait-head">
-      <div class="ai-wait-text">
-        <h2 id="ai-wait-heading" ref="heading" tabindex="-1">{{ title }}</h2>
-        <p class="ai-wait-elapsed">
-          <span role="timer" :aria-label="elapsedText">{{ elapsedText }}</span>
-        </p>
-      </div>
+    <div class="ai-wait-text">
+      <h2 id="ai-wait-heading" ref="heading" tabindex="-1">{{ title }}</h2>
+      <p class="ai-wait-elapsed">
+        <span role="timer" :aria-label="elapsedText">{{ elapsedText }}</span>
+      </p>
     </div>
 
     <div class="ai-wait-track" aria-hidden="true">

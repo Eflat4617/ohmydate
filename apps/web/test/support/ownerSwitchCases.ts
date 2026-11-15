@@ -443,7 +443,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'replan: approve a proposal',
-    covers: ['src/views/ReplanProposalView.vue'],
+    covers: ['src/views/ReplanView.vue'],
     path: `/replan/${REPLAN_PENDING_ID}`,
     seed: () => {
       seedReplanScenario(mockDb);
@@ -456,7 +456,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'replan: reject a proposal',
-    covers: ['src/views/ReplanProposalView.vue'],
+    covers: ['src/views/ReplanView.vue'],
     path: `/replan/${REPLAN_PENDING_ID}`,
     seed: () => {
       seedReplanScenario(mockDb);
@@ -475,10 +475,12 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'replan: request a new proposal',
-    covers: ['src/components/ReplanRequestButton.vue', 'src/composables/useReplanRequest.ts', 'src/views/ReplanListView.vue'],
+    covers: ['src/components/ReplanRequestButton.vue', 'src/composables/useReplanRequest.ts', 'src/views/ReplanView.vue'],
     path: '/replan',
+    // Nothing waits (the proposal ran out), so 재계획 offers to ask for a new one.
     seed: () => {
-      seedReplanScenario(mockDb);
+      const proposal = seedReplanScenario(mockDb);
+      mockDb.replanProposals.set(proposal.id, { ...proposal, state: 'expired', version: proposal.version + 1 });
     },
     ready: async (wrapper) => {
       await until(() => expect(wrapper.findAll('button').some((item) => item.text().includes('재계획 요청'))).toBe(true));
@@ -553,38 +555,91 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       buttonInElement(dialogByTitle('연결할 대상 고르기'), '연결').click();
     },
   },
+  // HOLO-03A: 계획 세우기 · 목표 → 질문 → 단계 (PlanView).
   {
-    name: 'wizard: create a planning session (AI wait)',
-    covers: ['src/views/PlanningWizardView.vue', 'src/composables/useAiWait.ts'],
-    path: '/plan/new',
+    name: 'plan: start a planning session (AI wait)',
+    covers: ['src/views/PlanView.vue', 'src/composables/useAiWait.ts', 'src/composables/planFlowMemory.ts'],
+    path: '/plan',
     seed: useTodayClock,
     ready: async (wrapper) => {
-      await until(() => expect(wrapper.find('#wizard-title').exists()).toBe(true));
-      await wrapper.get('#wizard-title').setValue('A-private-goal');
-      await wrapper.get('#wizard-description').setValue('A-private-description');
+      await until(() => expect(wrapper.find('#plan-goal-title').exists()).toBe(true));
+      await wrapper.get('#plan-goal-title').setValue('A-private-goal');
+      await wrapper.get('#plan-goal-description').setValue('A-private-description');
     },
     hold: { method: 'POST', path: /\/intake-sessions$/ },
     act: async (wrapper) => {
-      await wrapper.get('form').trigger('submit');
+      await wrapper.get('form[data-plan-goal]').trigger('submit');
     },
     markers: ['A-private-goal', 'A-private-description'],
   },
   {
-    name: 'plans: generate candidates',
-    covers: ['src/views/PlanNewView.vue'],
-    path: () => `/plans/new?taskIds=${seedTaskId()}`,
+    name: 'plan: answer AI consent in the goal card, then start',
+    covers: ['src/views/PlanView.vue'],
+    path: '/plan',
+    seed: async (stage) => {
+      useTodayClock();
+      // Consent never answered: starting a plan asks right in the card.
+      mockDb.user = { ...mockDb.user, llmProvider: 'deepseek' };
+      await useAuthStore(stage.pinia).loadCurrent();
+      server.use(
+        http.patch('*/api/v1/me/settings', () => {
+          const next: User = {
+            ...mockDb.user,
+            version: mockDb.user.version + 1,
+            llm: { consent: { granted: true, at: '2026-11-12T09:30:00.000Z', provider: 'deepseek' } },
+          };
+          mockDb.user = next;
+          return HttpResponse.json(next as unknown as Record<string, unknown>, { headers: { ETag: `W/"${next.version}"` } });
+        }),
+      );
+    },
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('#plan-goal-title').exists()).toBe(true));
+      await wrapper.get('#plan-goal-title').setValue('A-private-goal');
+      await wrapper.get('form[data-plan-goal]').trigger('submit');
+      await until(() => expect(wrapper.find('[data-plan-consent-allow]').exists()).toBe(true));
+    },
+    hold: { method: 'PATCH', path: '/me/settings' },
+    act: async (wrapper) => {
+      await wrapper.get('[data-plan-consent-allow]').trigger('click');
+    },
+    markers: ['A-private-goal'],
+  },
+  // HOLO-03A: 계획 세우기 · 일정안 만들기 and 일정안 (one flow, two screens).
+  {
+    name: 'plans: make the schedules',
+    covers: ['src/views/PlanScopeView.vue', 'src/composables/usePlanCreate.ts', 'src/composables/planFlowMemory.ts'],
+    path: () => `/plan/schedule?taskIds=${seedTaskId()}`,
     ready: async (wrapper) => {
       await until(() => expect(wrapper.text()).toContain('작업 1개'));
+      await until(() => expect(buttonByText(wrapper, '일정안 만들기').attributes('disabled')).toBeUndefined());
     },
     hold: { method: 'POST', path: /\/plans$/ },
     act: async (wrapper) => {
-      await buttonByText(wrapper, '후보 만들기').trigger('click');
+      await wrapper.get('form.plan-scope-grid').trigger('submit');
     },
   },
   {
-    name: 'plans: approve a candidate',
-    covers: ['src/views/PlanComparisonView.vue'],
-    path: async () => `/plans/${(await createPlan()).id}`,
+    name: 'plans: save the hours asked in place, then make the schedules',
+    covers: ['src/views/PlanScopeView.vue', 'src/composables/usePlanCreate.ts', 'src/composables/planFlowMemory.ts'],
+    path: () => `/plan/schedule?taskIds=${seedTaskId()}`,
+    seed: () => {
+      mockDb.availability = { ...mockDb.availability, rules: [] };
+    },
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('input[data-preset="weekdayEvening"]').exists()).toBe(true));
+      await wrapper.get('input[data-preset="weekdayEvening"]').setValue(true);
+      await until(() => expect(buttonByText(wrapper, '일정안 만들기').attributes('disabled')).toBeUndefined());
+    },
+    hold: { method: 'PUT', path: '/availability' },
+    act: async (wrapper) => {
+      await wrapper.get('form.plan-scope-grid').trigger('submit');
+    },
+  },
+  {
+    name: 'plans: confirm a schedule',
+    covers: ['src/views/PlanScheduleView.vue', 'src/composables/planFlowMemory.ts'],
+    path: async () => `/plan/schedule/${(await createPlan()).id}`,
     ready: planReady,
     hold: { method: 'POST', path: /\/candidates\/[^/]+:approve$/ },
     act: async (wrapper) => {
@@ -593,34 +648,44 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'plans: preview a keyboard edit',
-    covers: ['src/views/PlanComparisonView.vue'],
-    path: async () => `/plans/${(await createPlan()).id}`,
+    covers: ['src/views/PlanScheduleView.vue'],
+    path: async () => `/plan/schedule/${(await createPlan()).id}`,
     ready: planReady,
     hold: { method: 'POST', path: ':preview-edit' },
     act: async (wrapper) => {
-      await wrapper.findAll('.calendar-block')[0]?.trigger('keydown', { key: 'ArrowDown' });
+      await wrapper.findAll('[data-kind="proposal"]')[0]?.trigger('keydown', { key: 'ArrowDown', altKey: true });
     },
   },
   {
-    name: 'plans: lock an approved block',
-    covers: ['src/views/PlanComparisonView.vue', 'src/composables/useBlockLock.ts'],
-    path: async () => `/plans/${(await createPlan()).id}`,
+    name: 'plans: make the schedules again',
+    covers: ['src/views/PlanScheduleView.vue'],
+    path: async () => `/plan/schedule/${(await createPlan()).id}`,
+    ready: planReady,
+    hold: { method: 'POST', path: ':regenerate' },
+    act: async (wrapper) => {
+      await wrapper.get('[data-plan-regenerate]').trigger('click');
+    },
+  },
+  {
+    name: 'plans: lock a confirmed block from its card',
+    covers: ['src/views/PlanScheduleView.vue', 'src/composables/useBlockLock.ts'],
+    path: async () => `/plan/schedule/${(await createPlan()).id}`,
     seed: useTodayClock,
     ready: async (wrapper) => {
       await planReady(wrapper);
-      await until(() =>
-        expect(wrapper.find(`[data-approved-block-id="${TODAY_BLOCK_ONE_ID}"] [data-block-lock]`).exists()).toBe(true),
-      );
+      await until(() => expect(wrapper.find(`[data-item^="block:${TODAY_BLOCK_ONE_ID}@"]`).exists()).toBe(true));
+      await wrapper.get(`[data-item^="block:${TODAY_BLOCK_ONE_ID}@"]`).trigger('click');
+      await until(() => expect(wrapper.find('[data-planner-card="block"] [data-block-lock]').exists()).toBe(true));
     },
     hold: { method: 'POST', path: /\/schedule-blocks\/[^/]+:lock$/ },
     act: async (wrapper) => {
-      await wrapper.get(`[data-approved-block-id="${TODAY_BLOCK_ONE_ID}"] [data-block-lock]`).trigger('click');
+      await wrapper.get('[data-planner-card="block"] [data-block-lock]').trigger('click');
     },
   },
   {
-    name: 'patterns: exclude a record',
-    covers: ['src/views/PatternsView.vue'],
-    path: '/patterns',
+    name: 'insights: exclude a record',
+    covers: ['src/views/InsightsView.vue'],
+    path: '/insights',
     ready: patternsReady,
     hold: { method: 'PATCH', path: '/estimation/feedback/' },
     act: async (wrapper) => {
@@ -628,9 +693,9 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
   },
   {
-    name: 'patterns: reset everything',
-    covers: ['src/views/PatternsView.vue'],
-    path: '/patterns',
+    name: 'insights: reset everything',
+    covers: ['src/views/InsightsView.vue'],
+    path: '/insights',
     ready: async (wrapper) => {
       await patternsReady(wrapper);
       await wrapper.get('[data-reset-all]').trigger('click');
@@ -762,8 +827,24 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
   },
   {
-    name: 'wizard: save the edited draft',
-    covers: ['src/views/PlanningWizardView.vue'],
+    name: 'plan: send the answers of a round',
+    covers: ['src/views/PlanView.vue'],
+    path: async () =>
+      `/plan/${(await plannerClient.createIntakeSession({ title: '논문 요약', dueAt: '2026-11-30T18:00:00.000Z' }, newActionId('create'))).id}`,
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('#answer-deliverable').exists()).toBe(true));
+      await wrapper.get('#answer-deliverable').setValue('A-private-answer');
+    },
+    hold: { method: 'POST', path: /\/answers$/ },
+    act: async (wrapper) => {
+      await wrapper.get('form[data-plan-questions]').trigger('submit');
+    },
+    markers: ['A-private-answer'],
+  },
+  {
+    name: 'plan: save the edited steps',
+    covers: ['src/views/PlanView.vue'],
     path: async () => `/plan/${(await draftSession()).id}`,
     seed: useTodayClock,
     ready: async (wrapper) => {
@@ -772,12 +853,13 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
     hold: { method: 'PATCH', path: '/draft' },
     act: async (wrapper) => {
-      await buttonByText(wrapper, '초안 저장').trigger('click');
+      await wrapper.get('[data-plan-save]').trigger('click');
     },
+    markers: ['A-private-step'],
   },
   {
-    name: 'wizard: approve the draft',
-    covers: ['src/views/PlanningWizardView.vue'],
+    name: 'plan: confirm the steps',
+    covers: ['src/views/PlanView.vue'],
     path: async () => `/plan/${(await draftSession()).id}`,
     seed: useTodayClock,
     ready: async (wrapper) => {
@@ -785,21 +867,50 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
     hold: { method: 'POST', path: '/draft:approve' },
     act: async (wrapper) => {
-      await buttonByText(wrapper, '초안 승인').trigger('click');
+      await wrapper.get('[data-plan-approve-steps]').trigger('click');
     },
   },
   {
-    name: 'wizard: switch to manual mode',
-    covers: ['src/views/PlanningWizardView.vue'],
-    path: async () =>
-      `/plan/${(await plannerClient.createIntakeSession({ title: '보고서 작성', dueAt: '2026-11-30T18:00:00.000Z' }, newActionId('create'))).id}`,
+    // The second request of the same press: the steps are confirmed, the schedules are being made.
+    name: 'plan: confirm the steps, then make the schedules',
+    covers: ['src/views/PlanView.vue', 'src/composables/usePlanCreate.ts', 'src/composables/planFlowMemory.ts'],
+    path: async () => `/plan/${(await draftSession()).id}`,
     seed: useTodayClock,
     ready: async (wrapper) => {
-      await until(() => expect(wrapper.findAll('button').some((item) => item.text().includes('직접 작성으로 전환'))).toBe(true));
+      await until(() => expect(wrapper.find('#step-title-s1').exists()).toBe(true));
+    },
+    hold: { method: 'POST', path: /\/plans$/ },
+    act: async (wrapper) => {
+      await wrapper.get('[data-plan-approve-steps]').trigger('click');
+    },
+  },
+  {
+    name: 'plan: go on without the AI',
+    covers: ['src/views/PlanView.vue'],
+    path: async () =>
+      `/plan/${(await plannerClient.createIntakeSession({ title: '논문 요약', dueAt: '2026-11-30T18:00:00.000Z' }, newActionId('create'))).id}`,
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('[data-plan-manual]').exists()).toBe(true));
     },
     hold: { method: 'POST', path: ':manual' },
     act: async (wrapper) => {
-      await buttonByText(wrapper, '직접 작성으로 전환').trigger('click');
+      await wrapper.get('[data-plan-manual]').trigger('click');
+    },
+  },
+  {
+    name: 'plan: give a planning session up',
+    covers: ['src/views/PlanView.vue', 'src/composables/planFlowMemory.ts'],
+    path: async () =>
+      `/plan/${(await plannerClient.createIntakeSession({ title: '논문 요약', dueAt: '2026-11-30T18:00:00.000Z' }, newActionId('create'))).id}`,
+    seed: useTodayClock,
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('[data-plan-stop]').exists()).toBe(true));
+      await until(() => expect(wrapper.get('[data-plan-stop]').attributes('disabled')).toBeUndefined());
+    },
+    hold: { method: 'POST', path: ':cancel' },
+    act: async (wrapper) => {
+      await wrapper.get('[data-plan-stop]').trigger('click');
     },
   },
   {
@@ -946,8 +1057,8 @@ function createPlan(): Promise<Plan> {
 }
 
 async function planReady(wrapper: VueWrapper): Promise<void> {
-  await until(() => expect(wrapper.findAll('.candidate-card').length).toBeGreaterThan(0));
-  await until(() => expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0));
+  await until(() => expect(wrapper.findAll('.plan-option').length).toBeGreaterThan(0));
+  await until(() => expect(wrapper.findAll('[data-kind="proposal"]').length).toBeGreaterThan(0));
 }
 
 async function patternsReady(wrapper: VueWrapper): Promise<void> {

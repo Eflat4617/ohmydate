@@ -155,3 +155,25 @@ export function areaPath(points: readonly ChartPoint[], height: number): string 
   if (first === undefined || last === undefined || points.length < 2) return '';
   return `${linePath(points)} L${round(last.x)} ${round(height)} L${round(first.x)} ${round(height)} Z`;
 }
+
+export interface RatioSpan {
+  /** Where "as estimated" (1) stands on the scale, in % from the left. */
+  readonly tick: number;
+  /** The bar: from the mark toward the ratio (to the right when above 1, to the left when below). */
+  readonly left: number;
+  readonly width: number;
+}
+
+/**
+ * A ratio against "as estimated" (HOLO-03A, AI 분석): the bar grows from the
+ * mark at 1 toward the ratio on a scale from 0 to `max`, so longer-than-
+ * estimated and shorter-than-estimated read as opposite directions. A ratio
+ * beyond the scale stops at its edge; no ratio is no bar.
+ */
+export function ratioSpan(ratio: ChartValue, max: number): RatioSpan | null {
+  if (!present(ratio)) return null;
+  const top = present(max) && max > 1 ? max : 2;
+  const tick = (1 / top) * 100;
+  const position = (Math.min(top, Math.max(0, ratio)) / top) * 100;
+  return { tick, left: Math.min(tick, position), width: Math.abs(position - tick) };
+}

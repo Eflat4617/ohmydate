@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import ReplanCard from '../replan/ReplanCard.vue';
 import UiBanner from '../ui/UiBanner.vue';
 import UiButton from '../ui/UiButton.vue';
 import UiDeadlineFlag from '../ui/UiDeadlineFlag.vue';
@@ -79,7 +80,13 @@ const rangeText = computed(() =>
 const summary = computed(() => {
   if (data.value === null || grid.value.empty) return null;
   const seen = { block: new Set<string>(), commitment: new Set<string>(), deadline: new Set<string>() };
-  for (const day of grid.value.days) for (const item of day.items) seen[item.kind].add(item.key.split('@')[0] ?? item.key);
+  for (const day of grid.value.days) {
+    for (const item of day.items) {
+      // The planner draws only what is real: no proposals, no ghosts.
+      if (item.kind === 'proposal' || item.kind === 'ghost') continue;
+      seen[item.kind].add(item.key.split('@')[0] ?? item.key);
+    }
+  }
   return t('planner.week.summary', {
     blocks: seen.block.size,
     commitments: seen.commitment.size,
@@ -178,9 +185,12 @@ function retry(): void {
     </p>
     <p v-if="showEmpty" class="planner-note planner-empty" data-planner-empty>
       {{ t('planner.week.empty') }}
-      <RouterLink to="/plans/new">{{ t('month.emptyPlan') }}</RouterLink>
+      <RouterLink to="/plan/schedule">{{ t('month.emptyPlan') }}</RouterLink>
     </p>
     <p v-if="data?.truncated" class="planner-note">{{ t('month.truncated') }}</p>
+
+    <!-- HOLO-03A (FLOW §2 ⑥): a proposal to re-plan is said where the plan is looked at. -->
+    <ReplanCard />
 
     <WeekGrid
       ref="gridView"

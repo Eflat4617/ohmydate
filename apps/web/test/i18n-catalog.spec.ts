@@ -1,5 +1,5 @@
 import { parse } from 'vue/compiler-sfc';
-import type { IntakeField, Notification, PlanCandidate, PlanVersion, ScheduleBlock, SessionReviewRequest, Task, Today, Violation } from '../src/api';
+import type { IntakeField, Notification, PlanCandidate, ScheduleBlock, SessionReviewRequest, Task, Today, Violation } from '../src/api';
 import { PROBLEM_CODE_LIST, type ApiErrorCode } from '../src/api/errors';
 import {
   DEFAULT_LOCALE,
@@ -71,20 +71,13 @@ describe('message catalog (ko)', () => {
       'format.dateTime',
       'format.timeRange',
       'format.dateRange',
-      'calendar.blockLabel',
       'notifications.meta',
-      'plan.blockError',
       'availability.riskP50',
       'availability.riskP90',
-      'wizard.p50',
-      'wizard.p90',
-      'metrics.p90CoverageRatio',
       'llm.disclosure.providerValue',
       'commitments.hiddenTitle',
       'sync.keptOnDevice',
       'focus.sessionBlock',
-      'wizard.llmCode',
-      'wizard.refreshedAfterConflict',
       'toast.dismiss',
     ]);
     const english = leaves(ko).filter(
@@ -186,7 +179,6 @@ describe('catalog coverage of contract enums', () => {
       ScheduleBlock['status'],
       true
     >;
-    const authors = { user: true, replan: true } satisfies Record<PlanVersion['createdBy'], true>;
     const levels = { low: true, medium: true, high: true } satisfies Record<Today['risk']['level'], true>;
     for (const code of Object.keys(violations) as Violation['code'][]) expectKorean(`violation.${code}`);
     for (const policy of Object.keys(policies) as PlanCandidate['policy'][]) {
@@ -194,7 +186,7 @@ describe('catalog coverage of contract enums', () => {
       expectKorean(`policy.${policy}.summary`);
     }
     for (const status of Object.keys(statuses) as ScheduleBlock['status'][]) expectKorean(`plan.blockStatus.${status}`);
-    for (const author of Object.keys(authors) as PlanVersion['createdBy'][]) expectKorean(`plan.createdBy.${author}`);
+    // HOLO-03A: who made a plan version ("만든 주체") is no longer shown anywhere, so it has no copy.
     for (const level of Object.keys(levels) as Today['risk']['level'][]) expectKorean(`risk.level.${level}`);
   });
 
@@ -222,11 +214,11 @@ describe('catalog coverage of contract enums', () => {
 
   it('asks every intake question in Korean and labels every intake field', () => {
     const fields = Object.keys(QUESTION_PROMPTS) as IntakeField[];
-    expect(Object.keys(ko.wizard.questions).sort()).toEqual([...fields].sort());
-    expect(Object.keys(ko.wizard.fields).sort()).toEqual([...fields].sort());
+    expect(Object.keys(ko.planAsk.questions).sort()).toEqual([...fields].sort());
+    expect(Object.keys(ko.planAsk.fields).sort()).toEqual([...fields].sort());
     for (const field of fields) {
-      expectKorean(`wizard.questions.${field}`);
-      expectKorean(`wizard.fields.${field}`);
+      expectKorean(`planAsk.questions.${field}`);
+      expectKorean(`planAsk.fields.${field}`);
     }
   });
 });
@@ -236,10 +228,11 @@ describe('server codes shown on Korean screens', () => {
     for (const [field, value] of Object.entries(CONSERVATIVE_DEFAULTS) as [IntakeField, string][]) {
       const text = assumptionValueText(field, value);
       expect(text.translated, `${field}=${value}`).toBe(true);
-      expect(/[A-Za-z]{3,}/.test(text.text.replace(/P90/g, '')), `${field}=${value} → ${text.text}`).toBe(false);
+      // HOLO-03A: plain words only — not even "P90".
+      expect(/[A-Za-z]{2,}/.test(text.text), `${field}=${value} → ${text.text}`).toBe(false);
     }
     expect(assumptionValueText('maxFocusMinutes', '60').text).toBe('1시간');
-    expect(assumptionValueText('reviewNeeded', 'true').text).toBe('필요함');
+    expect(assumptionValueText('reviewNeeded', 'true').text).toBe('필요해요');
     // A value the user typed is shown as-is.
     expect(assumptionValueText('deliverable', '최종 보고서').text).toBe('최종 보고서');
   });
@@ -257,8 +250,8 @@ describe('server codes shown on Korean screens', () => {
 
   it('turns type-detection reasons into Korean and hides internal config tags', () => {
     expect(detectionReasonText('config:v1')).toBeNull();
-    expect(detectionReasonText('tag_jaccard=0.500')?.text).toBe('이름 일치도 50%');
-    expect(detectionReasonText('text_similarity=0.333')?.text).toBe('내용 유사도 33%');
+    expect(detectionReasonText('tag_jaccard=0.500')?.text).toBe('이름이 50% 겹쳐요');
+    expect(detectionReasonText('text_similarity=0.333')?.text).toBe('내용이 33% 비슷해요');
     expect(detectionReasonText('template=보고서 작성')?.text).toBe('비교한 유형: 보고서 작성');
     expect(detectionReasonText('weak_similarity')?.text).toBe('비슷한 정도가 약해요');
     expect(detectionReasonText('user_rejected_similarity')?.text).toBe('다른 유형으로 고르셨어요');
@@ -271,7 +264,7 @@ describe('server codes shown on Korean screens', () => {
         .text,
     ).toBe('서로 다른 일정안 2개를 남겼어요. 후보 3개 중 1개는 너무 비슷해서 뺐어요.');
     expect(diversityNoteText('3 distinct plans from 3 policy candidates (pairwise distance >= 0.15).').text).toBe(
-      '후보 3개가 모두 서로 충분히 달라요.',
+      '일정안 3개가 모두 서로 충분히 달라요.',
     );
     expect(diversityNoteText('Only two distinct plans are possible.')).toEqual({
       text: 'Only two distinct plans are possible.',

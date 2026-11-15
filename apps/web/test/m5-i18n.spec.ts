@@ -75,12 +75,12 @@ describe('M5-03 catalog coverage of replan and estimation enums', () => {
     const qualities = { ok: true, outlier: true, excluded: true } satisfies Record<EstimationProfileItem['quality'], true>;
     const levels = { low: true, medium: true, high: true } satisfies Record<ConfidenceLevel, true>;
     for (const dimension of Object.keys(dimensions) as EstimationProfileGroup['dimension'][]) {
-      expectKorean(`patterns.dimension.${dimension}`);
+      expectKorean(`insights.groups.dimension.${dimension}`);
     }
     for (const quality of Object.keys(qualities) as EstimationProfileItem['quality'][]) {
-      expectKorean(`patterns.quality.${quality}`);
+      expectKorean(`insights.records.quality.${quality}`);
     }
-    for (const level of Object.keys(levels) as ConfidenceLevel[]) expectKorean(`patterns.confidenceLevel.${level}`);
+    for (const level of Object.keys(levels) as ConfidenceLevel[]) expectKorean(`insights.confidenceLevel.${level}`);
   });
 
   it('formats confidence, ratios and Retry-After waits through Intl', () => {

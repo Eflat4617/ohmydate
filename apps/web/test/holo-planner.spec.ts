@@ -366,7 +366,7 @@ describe('플래너 · 주 — the week grid', () => {
     const { wrapper } = await mountPlanner('/planner?w=2027-01-04');
     const empty = wrapper.get('[data-planner-empty]');
     expect(empty.text()).toContain('이 주에는 블록도, 약속도, 마감도 없어요.');
-    expect(empty.get('a').attributes('href')).toBe('/plans/new');
+    expect(empty.get('a').attributes('href')).toBe('/plan/schedule');
     expect(wrapper.findAll('.wg-item')).toHaveLength(0);
     expect(wrapper.find('.planner-summary').exists()).toBe(false);
     expect(wrapper.get('[data-week-body]').attributes('tabindex')).toBe('0');

@@ -116,10 +116,13 @@ describe('routes as layout signals', () => {
   it('classifies routes', () => {
     expect(routeKindOf({ name: 'today', params: {} })).toBe('today');
     expect(routeKindOf({ name: 'focus', params: { sessionId: SESSION } })).toBe('focus');
-    expect(routeKindOf({ name: 'plan-new', params: {} })).toBe('planning');
+    expect(routeKindOf({ name: 'plan', params: {} })).toBe('planning');
     expect(routeKindOf({ name: 'plan-session', params: { sessionId: SESSION } })).toBe('planning');
-    expect(routeKindOf({ name: 'plans-new', params: {} })).toBe('planning');
-    expect(routeKindOf({ name: 'plan', params: { id: SESSION } })).toBe('planning');
+    // HOLO-03A: 계획 세우기 is one flow; its schedule stages are planning too.
+    expect(routeKindOf({ name: 'plan-scope', params: {} })).toBe('planning');
+    expect(routeKindOf({ name: 'plan-schedule', params: { id: SESSION } })).toBe('planning');
+    // The names those screens had before are no routes any more (negative).
+    expect(routeKindOf({ name: 'plans-new', params: {} })).toBe('other');
     expect(routeKindOf({ name: 'notes', params: {} })).toBe('notes');
     expect(routeKindOf({ name: 'inbox', params: {} })).toBe('other');
     expect(routeKindOf({ name: 'replan', params: {} })).toBe('other');

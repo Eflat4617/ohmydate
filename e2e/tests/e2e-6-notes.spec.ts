@@ -18,11 +18,11 @@ import { readState } from '../helpers/state';
 // E2E-6 (M6-03 part, 11 §2) against the real API + PostgreSQL + Vikunja:
 // a note with an injection-style body and "AI에 보내기 허용" on is created and
 // linked to a project (Inbox) in the UI, then linked to a plan's goal from the
-// planning wizard. The decomposition goes through the real note-grounded
+// 계획 세우기 flow. The decomposition goes through the real note-grounded
 // pipeline (context builder → fenced prompt → schema check → grounded
 // sanitiser) with the E2E-only fake `LLM_FAKE_SCENARIO=e2e-grounded`, which
 // answers from the request: one fact citing the sent note section, one
-// inference with a planted link, one forged reference. The wizard shows the
+// inference with a planted link, one forged reference. The flow shows the
 // evidence with the note link while the forged ref and the link are gone and
 // the injection text is only data; the note's AI usage history lists the call.
 // A focus session on the plan's task then switches the layout to focus with
@@ -92,29 +92,27 @@ function localDateTimeIn(days: number): string {
   return date.toISOString().slice(0, 16);
 }
 
+/** HOLO-03A: a new kind of work, every question left blank (skipped), until the steps are there. */
 async function skipQuestionsToDraft(page: Page): Promise<void> {
-  const draftHeading = page.getByRole('heading', { name: '4단계 · 단계 초안' });
+  const steps = page.locator('#step-title-s1');
   for (let guard = 0; guard < 16; guard += 1) {
-    if (await draftHeading.isVisible()) return;
-    if (await page.getByRole('heading', { name: /2단계/ }).isVisible()) {
-      await page.locator('.similar-card').getByRole('button', { name: '아니오' }).click();
+    await expect(page.locator('#step-title-s1, form[data-plan-questions], [data-plan-type]').first()).toBeVisible({
+      timeout: 30_000,
+    });
+    if (await steps.isVisible()) return;
+    if (await page.locator('[data-plan-type]').isVisible()) {
+      await page.locator('[data-plan-type-no]').click();
       await page.waitForTimeout(150);
       continue;
     }
-    const card = page.locator('.question-card').first();
-    if ((await card.count()) === 0) {
-      await page.waitForTimeout(150);
-      continue;
-    }
-    const question = await card.locator('legend').innerText();
-    await card.getByRole('button', { name: '건너뛰기' }).click();
-    await expect
-      .poll(async () =>
-        (await draftHeading.isVisible()) ? 'draft' : await page.locator('.question-card legend').first().innerText().catch(() => ''),
-      )
-      .not.toBe(question);
+    const answered = page.waitForResponse(
+      (response) => response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/answers'),
+    );
+    await page.locator('[data-plan-answer]').click();
+    await answered;
+    await page.waitForTimeout(150);
   }
-  await expect(draftHeading).toBeVisible();
+  await expect(steps).toBeVisible();
 }
 
 test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related notes in focus', () => {
@@ -192,13 +190,13 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
 
     let sessionId = '';
     let evidenceSection = '';
-    await test.step('plan wizard: link the note to the plan goal, then the draft shows grounded evidence', async () => {
+    await test.step('계획 세우기: link the note to the plan goal, then the steps show grounded evidence', async () => {
       await page.locator('.nav-rail').getByRole('link', { name: '계획 세우기' }).click();
-      await expect(page.getByRole('heading', { name: '1단계 · 기본정보' })).toBeVisible();
-      await page.locator('#wizard-title').fill(planTitle);
-      await page.locator('#wizard-due').fill(localDateTimeIn(7));
-      await page.locator('#wizard-description').fill('발표 자료를 조사하고 슬라이드로 정리하는 과제');
-      await page.getByRole('button', { name: '다음' }).click();
+      await expect(page.locator('#plan-goal-title')).toBeVisible();
+      await page.locator('#plan-goal-title').fill(planTitle);
+      await page.locator('#plan-goal-due').fill(localDateTimeIn(7));
+      await page.locator('#plan-goal-description').fill('발표 자료를 조사하고 슬라이드로 정리하는 과제');
+      await page.locator('[data-plan-start]').click();
       await page.waitForURL(/\/plan\/[0-9a-f-]{36}$/);
       sessionId = new URL(page.url()).pathname.split('/').at(-1) ?? '';
 
@@ -211,10 +209,10 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
       await picker.getByLabel('노트 검색').fill(suffix);
       await picker.getByRole('button', { name: `“${noteTitle}” 이 계획에 연결` }).click();
       await expect(picker.locator(`[data-wizard-candidate="${noteId}"]`)).toContainText('연결됨');
-      await expectAccessible(page, 'wizard note picker');
+      await expectAccessible(page, 'plan note picker');
       await picker.getByRole('button', { name: '닫기' }).click();
       await expect(panel.locator(`[data-wizard-note="${noteId}"]`)).toContainText('AI 전송 허용');
-      await expectAccessible(page, 'wizard with reference notes');
+      await expectAccessible(page, 'plan with reference notes');
 
       await skipQuestionsToDraft(page);
       const evidence = page.locator('[data-wizard-evidence]');
@@ -239,16 +237,18 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
       await expect(page.locator('body')).not.toContainText(PLANTED_LINK);
       await expect(page.locator('body')).not.toContainText(FORGED_HASH);
       // The draft itself is intact: three steps, none deleted by the note's instruction.
-      await expect(page.locator('.draft-step-card')).toHaveCount(3);
-      await expectAccessible(page, 'wizard draft with evidence');
+      await expect(page.locator('.plan-step')).toHaveCount(3);
+      await expectAccessible(page, 'plan steps with evidence');
 
       const session = (await expectOk(await apiFetch(page, state, `/intake-sessions/${sessionId}`), 'GET intake')) as IntakeSessionDto & {
         draft?: { evidence?: { source: { docId: string } }[] };
       };
       expect(session.draft?.evidence?.map((item) => item.source.docId)).toEqual([noteId, noteId]);
 
-      await page.getByRole('button', { name: '초안 승인' }).click();
-      await expect(page.getByRole('heading', { name: '초안 승인 완료' })).toBeVisible();
+      // Confirming the steps makes the tasks and leads on to 일정안.
+      await page.locator('[data-plan-approve-steps]').click();
+      await page.waitForURL(/\/plan\/schedule(\/|\?|$)/, { timeout: 30_000 });
+      await expect(page.locator('[data-plan-rail] [data-stage="steps"]')).toHaveAttribute('data-state', 'done');
     });
 
     await test.step('the note’s AI usage history lists the call (hashes only)', async () => {

@@ -90,6 +90,43 @@
   box-shadow: inset 0 0 0 var(--rule-hair) var(--data-2-edge);
 }
 
+.planner-swatch--proposal {
+  border: var(--rule-hair) dashed var(--color-accent-text);
+  background: color-mix(in oklab, var(--color-accent) 9%, var(--color-surface));
+  box-shadow: none;
+}
+
+.planner-swatch--ghost {
+  border: var(--rule-hair) dotted var(--color-edge);
+  background: transparent;
+  box-shadow: none;
+}
+
+.planner-swatch--work,
+.planner-swatch--focus,
+.planner-swatch--off {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: var(--radius-xs);
+  background: color-mix(in oklab, var(--color-text) 9%, transparent);
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--color-line-strong);
+}
+
+.planner-swatch--focus {
+  background: var(--violet-soft);
+  box-shadow: inset 2px 0 0 var(--violet);
+}
+
+.planner-swatch--off {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-text) 30%, transparent) 0,
+    color-mix(in oklab, var(--color-text) 30%, transparent) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+}
+
 /* ── 주: the week grid ─────────────────────────────────────────────── */
 .wg {
   --wg-hour: 3.25rem; /* one hour of the time axis */
@@ -437,6 +474,152 @@
   border-bottom-style: dashed;
   border-bottom-right-radius: 0;
   border-bottom-left-radius: 0;
+}
+
+/* ── What is not real yet (HOLO-03A) ───────────────────────────────── */
+/* A proposal: a dashed outline over the faintest tint, with the page's own
+   text. It never takes the fill — that is what "approved" looks like. */
+.wg-item--proposal {
+  --wg-fill: color-mix(in oklab, var(--color-accent) 9%, var(--color-surface));
+  --wg-fill-hover: color-mix(in oklab, var(--color-accent) 16%, var(--color-surface));
+  --wg-edge: var(--color-accent-text);
+  --wg-ink: var(--color-text);
+  --wg-ink-2: var(--color-text-3);
+
+  border-style: dashed;
+}
+
+.wg-item--editable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.wg-item--editable:active {
+  cursor: grabbing;
+}
+
+/* The server refused it as it stands: amber, and a warning mark. */
+.wg-item--invalid {
+  --wg-fill: var(--amber-soft);
+  --wg-fill-hover: color-mix(in oklab, var(--amber) 24%, var(--color-surface));
+  --wg-edge: var(--amber-text);
+}
+
+.wg-item--invalid .wg-item-mark {
+  color: var(--amber-text);
+}
+
+/* Where a block stood before a 재계획: an empty outline and struck words. */
+.wg-item--ghost {
+  --wg-fill: transparent;
+  --wg-fill-hover: var(--color-hover);
+  --wg-edge: var(--color-edge);
+  --wg-ink: var(--color-text-3);
+  --wg-ink-2: var(--color-text-3);
+
+  border-style: dotted;
+}
+
+.wg-item--ghost .wg-item-title {
+  font-weight: var(--weight-regular);
+  text-decoration: line-through;
+}
+
+/* A locked block keeps the fill and carries a lock. */
+.wg-item-lock {
+  position: absolute;
+  top: var(--space-1-5);
+  right: var(--space-1-5);
+}
+
+.wg-item--locked .wg-item-title {
+  padding-right: var(--space-4);
+}
+
+.wg-item--short .wg-item-lock {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* The lower edge of a proposal that can be resized. */
+.wg-item-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 0.5rem;
+  cursor: ns-resize;
+}
+
+.wg-item-resize::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 1.25rem;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent-text);
+  opacity: 0.6;
+  transform: translateX(-50%);
+}
+
+/* ── Behind the items: hours that can be planned, and 쉼 ───────────── */
+.wg-band {
+  position: absolute;
+  top: calc(var(--top) * var(--wg-hour));
+  right: 0;
+  left: 0;
+  height: calc(var(--height) * var(--wg-hour));
+  pointer-events: none;
+}
+
+.wg-band--work,
+.wg-band--extra {
+  background: color-mix(in oklab, var(--color-text) 4%, transparent);
+}
+
+.wg-band--focus {
+  background: var(--violet-soft);
+  box-shadow: inset 2px 0 0 var(--violet);
+}
+
+/* 쉼: a hatch (its second signal) and its own words. */
+.wg-band--off {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--color-text) 9%, transparent) 0,
+    color-mix(in oklab, var(--color-text) 9%, transparent) 1px,
+    transparent 1px,
+    transparent 7px
+  );
+}
+
+.wg-band-label {
+  position: absolute;
+  top: var(--space-1);
+  left: var(--space-1-5);
+  max-width: calc(100% - var(--space-3));
+  overflow: hidden;
+  color: var(--color-text-3);
+  font-size: var(--text-2xs);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wg-band-label strong {
+  color: var(--color-text-2);
+  font-weight: var(--weight-medium);
+}
+
+.wg-day-off {
+  padding-inline: var(--space-1-5);
+  border: var(--rule-hair) dashed var(--color-edge);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-3);
+  font-size: var(--text-2xs);
+  line-height: 1.5;
 }
 
 /* Now: the lime line across today's column, with its dot on the edge. */

@@ -318,7 +318,7 @@ function retry(): void {
       <div class="month-main">
         <p v-if="showEmpty" class="month-empty" data-month-empty>
           {{ t('month.empty') }}
-          <RouterLink to="/plans/new">{{ t('month.emptyPlan') }}</RouterLink>
+          <RouterLink to="/plan/schedule">{{ t('month.emptyPlan') }}</RouterLink>
           <span aria-hidden="true">·</span>
           <RouterLink to="/commitments">{{ t('month.emptyCommitments') }}</RouterLink>
         </p>

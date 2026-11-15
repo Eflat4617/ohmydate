@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { rememberFocusBlocks } from '../../composables/focusContext';
-import { isBlockLockable, useBlockLock } from '../../composables/useBlockLock';
+import { isBlockLockable, useBlockLock, type BlockLock } from '../../composables/useBlockLock';
 import { useFocusStart, useRunningSession } from '../../composables/useOverview';
 import type { ProjectHue } from '../../domain/overview';
 import type { WeekItem } from '../../domain/weekGrid';
@@ -28,17 +28,29 @@ import UiIcon from '../ui/UiIcon.vue';
  * It is a small dialog that does not block the page: Escape and 닫기 give the
  * focus back to the item, and leaving it with Tab closes it.
  */
-const props = defineProps<{
-  item: WeekItem;
-  timeZone: string;
-  nowMs: number;
-  /** The task's project, when it is known. */
-  project: { readonly title: string; readonly hue: ProjectHue } | null;
-  /** Re-read what the planner shows (a lock moves the block's version). */
-  refresh: () => Promise<unknown>;
-  /** Which side of its item the card stands on (for the small entrance). */
-  side: 'right' | 'left' | 'below' | 'above';
-}>();
+const props = withDefaults(
+  defineProps<{
+    item: WeekItem;
+    timeZone: string;
+    nowMs: number;
+    /** The task's project, when it is known. */
+    project: { readonly title: string; readonly hue: ProjectHue } | null;
+    /** Re-read what the planner shows (a lock moves the block's version). */
+    refresh: () => Promise<unknown>;
+    /** Which side of its item the card stands on (for the small entrance). */
+    side: 'right' | 'left' | 'below' | 'above';
+    /**
+     * The screen's own lock requests (HOLO-03A): a screen that has to know
+     * while a lock is out — 일정안 holds edits meanwhile — passes its
+     * `useBlockLock` here; without one the card keeps its own.
+     */
+    lock?: BlockLock | undefined;
+    /** The lock cannot be changed right now (the screen says why in `lockNote`). */
+    lockDisabled?: boolean;
+    lockNote?: string | null;
+  }>(),
+  { lock: undefined, lockDisabled: false, lockNote: null },
+);
 const emit = defineEmits<{ close: [restoreFocus: boolean] }>();
 
 const router = useRouter();
@@ -46,7 +58,7 @@ const sessionStore = useSessionStore();
 const offline = useOfflineStore();
 const { running, refetch: refetchRunning } = useRunningSession();
 const focus = useFocusStart({ onActiveExists: refetchRunning });
-const lock = useBlockLock({ refresh: () => props.refresh() });
+const lock = props.lock ?? useBlockLock({ refresh: () => props.refresh() });
 
 const title = computed(() => props.item.title ?? t('month.untitledTask'));
 const overdue = computed(() => props.item.kind === 'deadline' && Date.parse(props.item.startAt) < props.nowMs);
@@ -147,6 +159,7 @@ function onFocusOut(event: FocusEvent): void {
     </p>
     <p v-if="item.fromGoogle" class="planner-card-note" data-planner-card-google>{{ t('planner.card.google') }}</p>
 
+    <p v-if="lockNote" class="planner-card-note block-lock-hint" data-planner-card-lock-note>{{ lockNote }}</p>
     <UiBanner v-if="focus.error.value" tone="error" inline role="alert" data-planner-card-error>
       {{ focus.error.value }}
     </UiBanner>
@@ -174,7 +187,7 @@ function onFocusOut(event: FocusEvent): void {
           v-if="block && lockable"
           :locked="lock.displayLocked(block)"
           :pending="lock.isPending(block.id)"
-          :disabled="!offline.mutationsEnabled"
+          :disabled="!offline.mutationsEnabled || lockDisabled"
           described-by="planner-card-title planner-card-when"
           @toggle="lock.toggle(block)"
         />

@@ -156,8 +156,10 @@ describe('오늘 — the day as cards', () => {
   });
 
   it('has no filled button when every block of the day is over (negative)', async () => {
-    // TodayView reads "what is next" from the real clock at mount (as before HOLO-02).
-    vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-14T15:30:00.000Z'));
+    // TodayView reads "what is next" from the app's clock as it was at mount
+    // (HOLO-03A: no longer the device's own clock, which made the test above
+    // fail on any real day after the mock's 2026-11-14).
+    setLayoutClock({ now: () => Date.parse('2026-11-14T15:30:00.000Z') });
     const wrapper = await mountToday();
     expect(wrapper.findAll('.today-card--next')).toHaveLength(0);
     expect(wrapper.findAll('.btn--primary')).toHaveLength(0);

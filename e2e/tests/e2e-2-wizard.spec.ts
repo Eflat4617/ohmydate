@@ -12,7 +12,7 @@ import { readState } from '../helpers/state';
 
 const state = readState();
 
-async function tabUntil(page: Page, predicate: () => Promise<boolean>, attempts = 40): Promise<void> {
+async function tabUntil(page: Page, predicate: () => Promise<boolean>, attempts = 80): Promise<void> {
   for (let index = 0; index < attempts; index += 1) {
     if (await predicate()) return;
     await page.keyboard.press('Tab');
@@ -24,16 +24,35 @@ async function activeId(page: Page): Promise<string> {
   return page.evaluate(() => document.activeElement?.id ?? '');
 }
 
+const STEPS = '#step-title-s1';
+const QUESTIONS = 'form[data-plan-questions]';
+
+/** HOLO-03A: the questions are one form; left blank, each is skipped. */
 async function skipAllQuestions(page: Page): Promise<void> {
   for (let guard = 0; guard < 8; guard += 1) {
-    if (await page.getByRole('heading', { name: /4단계 · 단계 초안/ }).isVisible()) return;
-    const cards = page.locator('.question-card');
-    const count = await cards.count();
-    if (count === 0) return;
-    await cards.first().getByRole('button', { name: '건너뛰기' }).click();
+    await expect(page.locator(`${STEPS}, ${QUESTIONS}, [data-plan-type]`).first()).toBeVisible();
+    if (await page.locator(STEPS).isVisible()) return;
+    if (await page.locator('[data-plan-type]').isVisible()) {
+      await page.locator('[data-plan-type-no]').click();
+      continue;
+    }
+    const answered = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/answers'),
+    );
+    await page.locator('[data-plan-answer]').click();
+    expect((await answered).ok()).toBe(true);
     await page.waitForTimeout(120);
   }
-  throw new Error('the interview did not reach the draft step');
+  throw new Error('the questions did not reach the steps');
+}
+
+/** Confirming the steps leads straight into 일정안: the rail shows 단계 done and 일정안 current. */
+async function expectScheduleStage(page: Page): Promise<void> {
+  await page.waitForURL(/\/plan\/schedule(\/|\?|$)/, { timeout: 30_000 });
+  const rail = page.locator('[data-plan-rail]');
+  await expect(rail.locator('[data-stage="steps"]')).toHaveAttribute('data-state', 'done');
+  await expect(rail.locator('[data-stage="schedule"]')).toHaveAttribute('data-state', 'current');
 }
 
 async function blockingAxeViolations(page: Page) {
@@ -49,10 +68,10 @@ async function blockingAxeViolations(page: Page) {
     }));
 }
 
-test.describe('E2E-2 — planning wizard against the real API', () => {
+test.describe('E2E-2 — 계획 세우기 (목표 → 질문 → 단계) against the real API', () => {
   test.describe.configure({ mode: 'serial', timeout: 180_000 });
 
-  test('creates an assignment, never asks a provided due date, edits and approves the draft', async ({
+  test('creates an assignment, never asks a provided due date, edits and confirms the steps', async ({
     browser,
   }) => {
     const suffix = Date.now().toString(36);
@@ -62,17 +81,19 @@ test.describe('E2E-2 — planning wizard against the real API', () => {
     const page = await context.newPage();
     await login(page, state);
 
+    // The old address still works: it leads to the one flow.
     await page.goto(`${state.webUrl}/plan/new`);
-    await expect(page.getByRole('heading', { name: '1단계 · 기본정보' })).toBeVisible();
+    await page.waitForURL(/\/plan$/);
+    await expect(page.getByRole('heading', { name: '계획 세우기', level: 1 })).toBeVisible();
+    await expect(page.locator('[data-plan-rail] [data-stage="goal"]')).toHaveAttribute('data-state', 'current');
 
-    await page.locator('#wizard-title').fill(title);
-    await page.locator('#wizard-due').fill('2026-11-30T18:00');
-    await page.locator('#wizard-description').fill('E2E-2 assignment description sent as description.');
-    await page.getByRole('button', { name: '다음' }).click();
+    await page.locator('#plan-goal-title').fill(title);
+    await page.locator('#plan-goal-due').fill('2026-11-30T18:00');
+    await page.locator('#plan-goal-description').fill('E2E-2 assignment description sent as description.');
+    await page.locator('[data-plan-start]').click();
 
-    await expect(
-      page.getByRole('heading', { name: /3단계 · 질문|4단계 · 단계 초안/ }),
-    ).toBeVisible();
+    await expect(page.locator(`${QUESTIONS}, ${STEPS}`).first()).toBeVisible();
+    await page.waitForURL(/\/plan\/[0-9a-f-]{36}$/);
     const bodyText = await page.locator('body').innerText();
     // Questions render in Korean by field; the provided due date is never asked.
     expect(bodyText).not.toContain('언제까지 끝내야 하나요?');
@@ -80,11 +101,12 @@ test.describe('E2E-2 — planning wizard against the real API', () => {
     expect(bodyText).toContain('무엇을 결과물로 만들어야 하나요?');
 
     await skipAllQuestions(page);
-    await expect(page.getByRole('heading', { name: '4단계 · 단계 초안' })).toBeVisible();
+    await expect(page.locator(STEPS)).toBeVisible();
+    await expect(page.locator('[data-plan-rail] [data-stage="steps"]')).toHaveAttribute('data-state', 'current');
 
-    await page.locator('#step-title-s1').fill(editedStep);
-    await page.getByRole('button', { name: '초안 승인' }).click();
-    await expect(page.getByRole('heading', { name: '초안 승인 완료' })).toBeVisible();
+    await page.locator(STEPS).fill(editedStep);
+    await page.locator('[data-plan-approve-steps]').click();
+    await expectScheduleStage(page);
 
     await page.goto(`${state.webUrl}/inbox`);
     await expect(page.getByText(editedStep, { exact: true })).toBeVisible();
@@ -100,78 +122,85 @@ test.describe('E2E-2 — planning wizard against the real API', () => {
     await context.close();
   });
 
-  test('completes the wizard with the keyboard from step 1 through approval', async ({ browser }) => {
+  test('goes from the goal to confirmed steps with the keyboard only', async ({ browser }) => {
     const suffix = Date.now().toString(36);
     const context = await browser.newContext();
     const page = await context.newPage();
     await login(page, state);
 
-    await page.goto(`${state.webUrl}/plan/new`);
-    await expect(page.getByRole('heading', { name: '1단계 · 기본정보' })).toBeVisible();
+    await page.goto(`${state.webUrl}/plan`);
+    await expect(page.locator('#plan-goal-title')).toBeVisible();
 
-    await tabUntil(page, async () => (await activeId(page)) === 'wizard-title');
-    await page.keyboard.type(`Keyboard wizard ${suffix}`);
+    await tabUntil(page, async () => (await activeId(page)) === 'plan-goal-title');
+    await page.keyboard.type(`Keyboard plan ${suffix}`);
 
-    await tabUntil(page, async () => (await activeId(page)) === 'wizard-description');
+    await tabUntil(page, async () => (await activeId(page)) === 'plan-goal-description');
     await page.keyboard.type('Keyboard-only description');
-    await tabUntil(
-      page,
-      async () =>
-        page.evaluate(() => document.activeElement?.textContent?.includes('다음') ?? false),
+    await tabUntil(page, async () =>
+      page.evaluate(() => document.activeElement?.hasAttribute('data-plan-start') ?? false),
     );
     await page.keyboard.press('Enter');
 
-    await expect(
-      page.getByRole('heading', { name: /3단계 · 질문|4단계 · 단계 초안/ }),
-    ).toBeVisible();
+    await expect(page.locator(`${QUESTIONS}, ${STEPS}, [data-plan-type]`).first()).toBeVisible();
 
     for (let guard = 0; guard < 12; guard += 1) {
-      if (await page.getByRole('heading', { name: '4단계 · 단계 초안' }).isVisible()) break;
-      await tabUntil(
-        page,
-        async () =>
-          page.evaluate(() => {
-            const element = document.activeElement;
-            return (
-              element instanceof HTMLButtonElement &&
-              !element.disabled &&
-              (element.textContent?.includes('건너뛰기') ?? false)
-            );
-          }),
+      await expect(page.locator(`${QUESTIONS}, ${STEPS}, [data-plan-type]`).first()).toBeVisible();
+      if (await page.locator(STEPS).isVisible()) break;
+      // The next enabled control that moves the flow on: "new kind" or the questions' own button.
+      await tabUntil(page, async () =>
+        page.evaluate(() => {
+          const element = document.activeElement;
+          return (
+            element instanceof HTMLButtonElement &&
+            !element.disabled &&
+            (element.hasAttribute('data-plan-answer') || element.hasAttribute('data-plan-type-no'))
+          );
+        }),
       );
-      const answered = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'POST' &&
-          new URL(response.url()).pathname.endsWith('/answers'),
-      );
-      await page.keyboard.press('Enter');
-      expect((await answered).ok()).toBe(true);
+      const isAnswer = await page.evaluate(() => document.activeElement?.hasAttribute('data-plan-answer') ?? false);
+      if (isAnswer) {
+        const answered = page.waitForResponse(
+          (response) =>
+            response.request().method() === 'POST' &&
+            new URL(response.url()).pathname.endsWith('/answers'),
+        );
+        await page.keyboard.press('Enter');
+        expect((await answered).ok()).toBe(true);
+      } else {
+        await page.keyboard.press('Enter');
+      }
       await page.waitForTimeout(100);
     }
-    await expect(page.getByRole('heading', { name: '4단계 · 단계 초안' })).toBeVisible();
+    await expect(page.locator(STEPS)).toBeVisible();
 
     await tabUntil(page, async () => (await activeId(page)) === 'step-title-s1');
     await page.keyboard.press('ControlOrMeta+a');
     await page.keyboard.type(`Keyboard edited ${suffix}`);
-    await tabUntil(
-      page,
-      async () =>
-        page.evaluate(() => document.activeElement?.textContent?.includes('초안 승인') ?? false),
+    await tabUntil(page, async () =>
+      page.evaluate(() => document.activeElement?.hasAttribute('data-plan-approve-steps') ?? false),
     );
     await page.keyboard.press('Enter');
 
-    await expect(page.getByRole('heading', { name: '초안 승인 완료' })).toBeVisible();
+    await expectScheduleStage(page);
 
     await context.close();
   });
 
-  test('wizard page has no critical or serious axe violations', async ({ browser }) => {
+  test('계획 세우기 has no critical or serious axe violations at the goal, the questions and the steps', async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
     await login(page, state);
-    await page.goto(`${state.webUrl}/plan/new`);
-    await expect(page.getByRole('heading', { name: '1단계 · 기본정보' })).toBeVisible();
+    await page.goto(`${state.webUrl}/plan`);
+    await expect(page.locator('#plan-goal-title')).toBeVisible();
+    expect(await blockingAxeViolations(page)).toEqual([]);
 
+    await page.locator('#plan-goal-title').fill(`Axe plan ${Date.now().toString(36)}`);
+    await page.locator('[data-plan-start]').click();
+    await expect(page.locator(`${QUESTIONS}, ${STEPS}, [data-plan-type]`).first()).toBeVisible();
+    if (await page.locator(QUESTIONS).isVisible()) expect(await blockingAxeViolations(page)).toEqual([]);
+
+    await skipAllQuestions(page);
+    await expect(page.locator(STEPS)).toBeVisible();
     expect(await blockingAxeViolations(page)).toEqual([]);
 
     await context.close();

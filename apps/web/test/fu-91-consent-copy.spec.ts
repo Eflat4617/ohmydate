@@ -28,7 +28,7 @@ import { sessionJournal } from '../src/session/journal';
 import { useAuthStore } from '../src/stores/auth';
 import { useLlmConsentStore } from '../src/stores/llmConsent';
 import LlmSettingsView from '../src/views/LlmSettingsView.vue';
-import PlanningWizardView from '../src/views/PlanningWizardView.vue';
+import PlanView from '../src/views/PlanView.vue';
 
 // ── 1. The disclosure names exactly what privacy.ts masks ────────────────────
 
@@ -100,9 +100,11 @@ function testRouter(): Router {
       { path: '/today', name: 'today', component: Stub },
       { path: '/inbox', name: 'inbox', component: Stub },
       { path: '/projects', name: 'projects', component: Stub },
-      { path: '/plans/new', name: 'plans-new', component: Stub },
-      { path: '/plan/new', name: 'plan-new', component: PlanningWizardView },
-      { path: '/plan/:sessionId', name: 'plan-session', component: PlanningWizardView, props: true },
+      { path: '/settings/ai', name: 'ai-settings', component: Stub },
+      { path: '/plan', name: 'plan', component: PlanView },
+      { path: '/plan/schedule', name: 'plan-scope', component: Stub },
+      { path: '/plan/schedule/:id', name: 'plan-schedule', component: Stub },
+      { path: '/plan/:sessionId', name: 'plan-session', component: PlanView, props: true },
     ],
   });
 }
@@ -305,8 +307,10 @@ describe('consent dialog dismissal is remembered per owner for the session (FU-9
     settings.unmount();
   });
 
-  it('starting the wizard after a dismissal asks first, then creates the session with the answer', async () => {
-    let user = deepseekOwner('wizard');
+  // HOLO-03A (FLOW §2): 계획 세우기 asks for consent right in its goal card —
+  // the same disclosure, not the dialog and not a settings screen.
+  it('starting a plan after a dismissal asks in the goal card first, then creates the session with the answer', async () => {
+    let user = deepseekOwner('plan');
     const pinia = createPinia();
     await signIn(pinia, user);
     const auth = useAuthStore(pinia);
@@ -317,40 +321,102 @@ describe('consent dialog dismissal is remembered per owner for the session (FU-9
       },
     );
     const create = vi.spyOn(plannerClient, 'createIntakeSession');
-    const { wrapper } = await mountShell(pinia, '/plan/new');
+    const { wrapper } = await mountShell(pinia, '/plan');
     await vi.waitFor(() => expect(dialogShown()).toBe(true));
     pressEscapeOnDialog();
     await vi.waitFor(() => expect(dialogShown()).toBe(false));
+    // Undecided: the card says it will ask once.
+    expect(wrapper.get('[data-plan-goal] [data-ai]').attributes('data-ai')).toBe('ask');
+    expect(wrapper.find('[data-plan-consent]').exists()).toBe(false);
 
-    await wrapper.get('#wizard-title').setValue('논문 요약');
-    await wrapper.get('form').trigger('submit');
-    await vi.waitFor(() => expect(dialogShown()).toBe(true));
+    await wrapper.get('#plan-goal-title').setValue('논문 요약');
+    await wrapper.get('[data-plan-goal]').trigger('submit');
+    await vi.waitFor(() => expect(wrapper.find('[data-plan-consent]').exists()).toBe(true));
     expect(create).not.toHaveBeenCalled();
+    // Asked in place: no dialog, and what is sent is disclosed in the same words.
+    expect(dialogShown()).toBe(false);
+    expect(wrapper.get('[data-plan-consent]').text()).toContain(MASKING_COPY);
+    expect(document.activeElement).toBe(wrapper.get('[data-plan-consent]').element);
+    // One filled button while it is asked: the answer that goes on with the AI.
+    expect(wrapper.findAll('[data-plan-goal] .btn--primary').map((item) => item.text())).toEqual(['AI 도움 받고 시작']);
 
-    bodyButton('AI 계획 도움 허용').click();
+    await wrapper.get('[data-plan-consent-allow]').trigger('click');
     await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect(auth.user?.llm?.consent?.granted).toBe(true);
     expect(dialogShown()).toBe(false);
     wrapper.unmount();
   });
 
-  it('negative: after an explicit 직접 작성 answer the wizard starts without asking again', async () => {
-    const user = deepseekOwner('manual', {
+  it('“AI 없이 시작” records the refusal and starts the plan without the AI', async () => {
+    let user = deepseekOwner('plan-manual');
+    const pinia = createPinia();
+    await signIn(pinia, user);
+    const auth = useAuthStore(pinia);
+    consentEndpoint(
+      () => auth.user ?? user,
+      (next) => {
+        user = next;
+      },
+    );
+    const create = vi.spyOn(plannerClient, 'createIntakeSession');
+    sessionStorage.setItem(`ohmydate.llm.consentPrompt:${user.id}`, '1');
+    const { wrapper } = await mountShell(pinia, '/plan');
+    await wrapper.get('#plan-goal-title').setValue('논문 요약');
+    await wrapper.get('[data-plan-goal]').trigger('submit');
+    await vi.waitFor(() => expect(wrapper.find('[data-plan-consent]').exists()).toBe(true));
+    expect(create).not.toHaveBeenCalled();
+
+    await wrapper.get('[data-plan-consent-manual]').trigger('click');
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(auth.user?.llm?.consent?.granted).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('negative: after an explicit 직접 작성 answer a plan starts without asking again; AI 도움 켜기 asks without starting anything', async () => {
+    let user = deepseekOwner('manual', {
       llm: { consent: { granted: false, at: '2026-11-12T09:00:00.000Z', provider: 'deepseek' } },
     });
     const pinia = createPinia();
     await signIn(pinia, user);
+    const auth = useAuthStore(pinia);
+    consentEndpoint(
+      () => auth.user ?? user,
+      (next) => {
+        user = next;
+      },
+    );
     const create = vi.spyOn(plannerClient, 'createIntakeSession');
     // Already answered this session: the dialog does not open by itself either.
     sessionStorage.setItem(`ohmydate.llm.consentPrompt:${user.id}`, '1');
-    const { wrapper } = await mountShell(pinia, '/plan/new');
+    const { wrapper } = await mountShell(pinia, '/plan');
     expect(dialogShown()).toBe(false);
+    // The card says the AI is off, and offers to turn it on right there.
+    expect(wrapper.get('[data-plan-goal] [data-ai]').attributes('data-ai')).toBe('off');
 
-    await wrapper.get('#wizard-title').setValue('논문 요약');
-    await wrapper.get('form').trigger('submit');
-    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
-    expect(dialogShown()).toBe(false);
+    await wrapper.get('[data-plan-ai-on]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-plan-consent]').exists()).toBe(true));
+    // No goal typed yet: turning the AI on is all the answer does.
+    await wrapper.get('[data-plan-consent-allow]').trigger('click');
+    await vi.waitFor(() => expect(auth.user?.llm?.consent?.granted).toBe(true));
+    await vi.waitFor(() => expect(wrapper.find('[data-plan-consent]').exists()).toBe(false));
+    expect(create).not.toHaveBeenCalled();
+    expect(wrapper.get('[data-plan-goal] [data-ai]').attributes('data-ai')).toBe('on');
     wrapper.unmount();
+
+    // Declined and left declined: starting asks nothing.
+    const declined = deepseekOwner('declined', {
+      llm: { consent: { granted: false, at: '2026-11-12T09:00:00.000Z', provider: 'deepseek' } },
+    });
+    const second = createPinia();
+    await signIn(second, declined);
+    sessionStorage.setItem(`ohmydate.llm.consentPrompt:${declined.id}`, '1');
+    const again = await mountShell(second, '/plan');
+    await again.wrapper.get('#plan-goal-title').setValue('논문 요약');
+    await again.wrapper.get('[data-plan-goal]').trigger('submit');
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(again.wrapper.find('[data-plan-consent]').exists()).toBe(false);
+    expect(dialogShown()).toBe(false);
+    again.wrapper.unmount();
   });
 });
 
@@ -402,7 +468,7 @@ describe('type-detection reason lang (FU-91)', () => {
 
     const { wrapper } = await mountShell(pinia, `/plan/${created.id}`);
     await vi.waitFor(() => expect(wrapper.text()).toContain('no_similar_template'));
-    const chips = wrapper.findAll('.reason-list li');
+    const chips = wrapper.findAll('.plan-type-reasons li');
     const ai = chips.filter((chip) => chip.text() !== 'no_similar_template');
     const legacy = chips.filter((chip) => chip.text() === 'no_similar_template');
     expect(ai.map((chip) => chip.text())).toContain('태그: 보고서');

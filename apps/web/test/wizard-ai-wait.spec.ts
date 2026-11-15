@@ -1,5 +1,6 @@
 /**
- * FU-76: the planning wizard while it waits for a long AI call (30–45 s
+ * FU-76: 계획 세우기 (HOLO-03A: the plan flow that replaced the wizard) while
+ * it waits for a long AI call (30–45 s
  * typical, up to the server bound): calm progress with elapsed time, sane
  * aria-live cadence, 취소 / 직접 작성으로 계속 (POST :manual), resume after a
  * reload or a lost connection by polling (never re-submitting), and the
@@ -20,7 +21,7 @@ import {
   type DecompositionDraft,
   type IntakeSession,
 } from '../src/api';
-import PlanningWizardView from '../src/views/PlanningWizardView.vue';
+import PlanView from '../src/views/PlanView.vue';
 import { aiWaitStorageKey } from '../src/composables/useAiWait';
 import { useAuthStore } from '../src/stores/auth';
 import { mockDb, type MockIntakeSession } from '../src/mocks/db';
@@ -72,8 +73,11 @@ function testRouter() {
     routes: [
       { path: '/inbox', name: 'inbox', component: Stub },
       { path: '/projects', name: 'projects', component: Stub },
-      { path: '/plan/new', name: 'plan-new', component: PlanningWizardView },
-      { path: '/plan/:sessionId', name: 'plan-session', component: PlanningWizardView, props: true },
+      { path: '/settings/ai', name: 'ai-settings', component: Stub },
+      { path: '/plan', name: 'plan', component: PlanView },
+      { path: '/plan/schedule', name: 'plan-scope', component: Stub },
+      { path: '/plan/schedule/:id', name: 'plan-schedule', component: Stub },
+      { path: '/plan/:sessionId', name: 'plan-session', component: PlanView, props: true },
     ],
   });
 }
@@ -99,7 +103,7 @@ async function mountAt(path: string, sessionId?: string) {
   const router = testRouter();
   await router.push(path);
   await router.isReady();
-  const wrapper = mount(PlanningWizardView, {
+  const wrapper = mount(PlanView, {
     ...(sessionId === undefined ? {} : { props: { sessionId } }),
     global: { plugins: [pinia, router, VueQueryPlugin] },
     attachTo: document.body,
@@ -196,12 +200,15 @@ function serverLikeManual(sessionId: string) {
   return state;
 }
 
+/** Answer 모름 to the first question and send the round (HOLO-03A: the questions go in one request). */
 async function answerFirstQuestionWithIdk(wrapper: VueWrapper): Promise<void> {
-  const card = wrapper.get('.question-card');
-  const idk = card.findAll('button').find((item) => item.text().includes('모름'));
-  if (idk === undefined) throw new Error('missing idk button');
-  await idk.trigger('click');
+  await wrapper.get('input[data-idk]').setValue(true);
+  await wrapper.get('[data-plan-questions]').trigger('submit');
   await settle();
+}
+
+function stageOf(wrapper: VueWrapper): string | undefined {
+  return wrapper.attributes('data-plan-stage');
 }
 
 function liveText(wrapper: VueWrapper): string {
@@ -231,7 +238,7 @@ describe('AI wait: progress', () => {
     const session = await createClarificationSession('긴 분해 과제');
     const hold = holdAnswers(session.id);
     const { wrapper } = await mountAt(`/plan/${session.id}`, session.id);
-    expect(wrapper.text()).toContain('3단계 · 질문');
+    expect(stageOf(wrapper)).toBe('questions');
 
     await answerFirstQuestionWithIdk(wrapper);
     // A quick answer never flashes the panel.
@@ -244,7 +251,7 @@ describe('AI wait: progress', () => {
     expect(document.activeElement?.id).toBe('ai-wait-heading');
     expect(liveText(wrapper)).toBe(DECOMPOSITION_TITLE);
     // Other mutations are paused, the wait itself stays actionable.
-    expect(button(wrapper, '일시정지').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[data-plan-stop]').attributes('disabled')).toBeDefined();
     const panelButtons = panel.findAll('button');
     const panelCancel = panelButtons.find((item) => item.text() === '취소');
     const panelManual = panelButtons.find((item) => item.text() === '직접 작성으로 계속');
@@ -266,10 +273,10 @@ describe('AI wait: progress', () => {
     await vi.waitFor(() => {
       expect(wrapper.find('[data-testid="ai-wait"]').exists()).toBe(false);
     });
-    expect(wrapper.text()).toContain('4단계 · 단계 초안');
+    expect(stageOf(wrapper)).toBe('steps');
     expect(wrapper.get('#step-title-s2').element).toHaveProperty('value', 'AI 작성 단계');
     expect(liveText(wrapper)).toBe('AI 작업이 끝났어요.');
-    expect(document.activeElement?.id).toBe('wizard-heading');
+    expect(document.activeElement?.id).toBe('plan-heading');
     expect(hold.posts).toBe(1);
     expect(sessionStorage.getItem(aiWaitStorageKey(mockDb.user.id))).toBeNull();
     wrapper.unmount();
@@ -295,7 +302,7 @@ describe('AI wait: cancel and manual fallback', () => {
 
       expect(hold.aborted).toBe(true);
       expect(manual.ifMatch).toEqual([`W/"${session.version + 1}"`]);
-      expect(wrapper.text()).toContain('4단계 · 단계 초안');
+      expect(stageOf(wrapper)).toBe('steps');
       expect(wrapper.get('#step-title-s1').element).toHaveProperty('value', '직접 s1');
       expect(wrapper.get('[data-testid="ai-cancelled"]').text()).toContain('AI 작업을 취소했어요');
       expect(liveText(wrapper)).toBe('AI 작업을 취소했어요. 직접 작성으로 계속해요.');
@@ -306,17 +313,20 @@ describe('AI wait: cancel and manual fallback', () => {
     });
   }
 
-  it('the footer 직접 작성으로 전환 also works while waiting', async () => {
-    const session = await createClarificationSession('푸터 수동 과제');
+  it('“AI 없이 직접 짜기” in the question form also works while an answer is out (before the panel shows)', async () => {
+    const session = await createClarificationSession('질문 수동 과제');
     const hold = holdAnswers(session.id);
     const manual = serverLikeManual(session.id);
     const { wrapper } = await mountAt(`/plan/${session.id}`, session.id);
     await answerFirstQuestionWithIdk(wrapper);
-    await advance(3_000);
-    await button(wrapper, '직접 작성으로 전환').trigger('click');
+    // The request is out but quick so far: the form is still on show, held, with its way out.
+    expect(wrapper.find('[data-testid="ai-wait"]').exists()).toBe(false);
+    expect(wrapper.get('[data-plan-answer]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[data-plan-manual]').attributes('disabled')).toBeUndefined();
+    await wrapper.get('[data-plan-manual]').trigger('click');
     await advance(0);
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('4단계 · 단계 초안');
+      expect(stageOf(wrapper)).toBe('steps');
     });
     expect(hold.aborted).toBe(true);
     expect(manual.ifMatch).toHaveLength(1);
@@ -376,7 +386,7 @@ describe('AI wait: resume after reload or lost connection (no re-submit)', () =>
     stored(session.id).draft = draft;
     await advance(3_000);
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('4단계 · 단계 초안');
+      expect(stageOf(wrapper)).toBe('steps');
     });
     expect(wrapper.find('[data-testid="ai-wait"]').exists()).toBe(false);
     expect(posts).toBe(1);
@@ -417,12 +427,12 @@ describe('AI wait: resume after reload or lost connection (no re-submit)', () =>
         create: {
           key: '01936d2e-7c4a-7b2e-8f00-000000000001',
           input,
-          form: { title: '복원 과제', dueAt: '', description: '설명 그대로', fileName: '' },
+          form: { title: '복원 과제', dueAt: '', description: '설명 그대로' },
         },
       }),
     );
 
-    const { wrapper, router } = await mountAt('/plan/new');
+    const { wrapper, router } = await mountAt('/plan');
     expect(wrapper.get('[data-testid="ai-wait"]').text()).toContain('AI가 비슷한 작업을 찾고 있어요');
     await advance(1_000);
     await vi.waitFor(() => {
@@ -478,12 +488,14 @@ describe('AI wait: interrupted and unknown codes', () => {
     wrapper.unmount();
   });
 
-  it('negative: an unknown session error code falls back to generic Korean copy with the code', async () => {
+  it('negative: an unknown session error code falls back to generic Korean copy; the code is data, not copy', async () => {
     const session = await createClarificationSession('알 수 없는 코드 과제');
     stored(session.id).error = { code: 'mystery_failure', message: 'x' };
     const { wrapper } = await mountAt(`/plan/${session.id}`, session.id);
     expect(wrapper.text()).toContain('AI 작업을 끝내지 못했어요.');
-    expect(wrapper.text()).toContain('(코드: mystery_failure)');
+    // HOLO-03A: the code is kept for whoever looks into it, but not shown to the owner.
+    expect(wrapper.get('[data-plan-llm-issue]').attributes('data-code')).toBe('mystery_failure');
+    expect(wrapper.text()).not.toContain('mystery_failure');
     expect(wrapper.find('[data-testid="ai-wait"]').exists()).toBe(false);
     wrapper.unmount();
   });

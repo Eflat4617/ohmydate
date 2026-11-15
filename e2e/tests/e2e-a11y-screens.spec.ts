@@ -18,14 +18,15 @@ import {
 import { readState } from '../helpers/state';
 
 // UI-POLISH: axe sweep of the screens E2E-1..4 do not scan, against the real
-// API + Vikunja. E2E-1 covers login/inbox, E2E-2 the wizard, E2E-3 the plan
-// comparison and E2E-4 Today/Focus; this adds projects, availability,
+// API + Vikunja. E2E-1 covers login/inbox, E2E-2 계획 세우기 (목표·질문·단계), E2E-3
+// its 일정안 and E2E-4 Today/Focus; this adds projects, availability,
 // commitments, focus (incl. calm mode), the review sheet, notifications and
 // AI settings, at desktop width (nav rail) and phone width (bottom nav). It
 // also completes and reviews a session with Calm mode on at both widths and
 // checks that "Back to Today" and the navigation come back (UI-POLISHR-1).
-// M5-03 adds the replan list and "내 패턴" at both widths (the proposal
-// detail, reject dialog and suppressed state are scanned by E2E-5R).
+// HOLO-03A (was M5-03): 재계획 with nothing waiting and AI 분석 at both widths
+// (a proposal, its reject dialog and the suppressed state are scanned by
+// E2E-5R), and the first two stages of 계획 세우기 at both widths.
 // CAL-01 adds the month page (한달) at both widths: today is picked at first
 // and its list holds the 약속 seeded below.
 // CAL-04 adds 캘린더 연동 (/settings/calendar) at both widths, in whatever
@@ -413,20 +414,53 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
       });
     }
 
-    // M5-03: the replan list and "내 패턴" (now learned from the two reviews above).
+    // HOLO-03A: 재계획 with nothing waiting, AI 분석 (learned from the two reviews and
+    // sessions above), and where a plan starts — at both widths.
     for (const viewport of [DESKTOP, PHONE]) {
       const size = `${viewport.width}x${viewport.height}`;
-      await test.step(`replan proposals + 내 패턴 (${size})`, async () => {
+      await test.step(`재계획 + AI 분석 + 계획 세우기 (${size})`, async () => {
         await page.setViewportSize(viewport);
         await page.goto(`${state.webUrl}/replan`);
-        await expect(page.getByRole('heading', { name: '재계획 제안', level: 1 })).toBeVisible();
-        await expect(page.getByRole('heading', { name: '기다리는 제안', level: 2 })).toBeVisible();
-        await expectAccessible(page, `replan list ${size}`);
+        await expect(page.getByRole('heading', { name: '재계획', level: 1 })).toBeVisible();
+        await expect(page.locator('[data-replan-none]')).toContainText('지금은 계획대로예요');
+        await expect(page.locator('[data-replan-list]')).toBeVisible();
+        // An empty state never carries the filled button.
+        await expect(page.locator('[data-replan] .btn--primary')).toHaveCount(0);
+        await expectAccessible(page, `replan ${size}`);
 
+        // The old address leads to the new page.
         await page.goto(`${state.webUrl}/patterns`);
-        await expect(page.getByRole('heading', { name: '내 패턴', level: 1 })).toBeVisible();
-        await expect(page.locator('.patterns-item').first()).toBeVisible();
-        await expectAccessible(page, `patterns ${size}`);
+        await page.waitForURL(/\/insights$/);
+        await expect(page.getByRole('heading', { name: 'AI 분석', level: 1 })).toBeVisible();
+        await expect(page.locator('.insights-record').first()).toBeVisible();
+        // The sessions above were completed on a clamped clock (FU-79), so they may hold no focused minute:
+        // either the week chart drawn from them (its numbers also a table of eight weeks), or the honest
+        // empty state that leads back to 오늘 — never a chart drawn from nothing.
+        const weeks = page.locator('[data-insight="weeks"]');
+        await expect(weeks.locator('[data-chart="bars"], [data-insights-empty="weeks"]').first()).toBeVisible();
+        if (await weeks.locator('[data-chart="bars"]').isVisible()) {
+          await expect(weeks.locator('[data-chart-table] tbody tr')).toHaveCount(8);
+          await expect(weeks.locator('[data-insights-empty]')).toHaveCount(0);
+        } else {
+          await expect(weeks.locator('[data-insights-empty="weeks"] a')).toHaveAttribute('href', '/today');
+          await expect(weeks.locator('[data-chart]')).toHaveCount(0);
+        }
+        // Two reviews are not yet a pattern: either the number (three or more) or the honest empty state.
+        await expect(page.locator('[data-estimate-ratio], [data-insights-empty="estimate"]').first()).toBeVisible();
+        await expect(page.locator('[data-insight="uses"]')).toContainText('회고 메모의 내용은 쓰지 않아요.');
+        await expectAccessible(page, `insights ${size}`);
+
+        await page.goto(`${state.webUrl}/plan`);
+        await expect(page.getByRole('heading', { name: '계획 세우기', level: 1 })).toBeVisible();
+        await expect(page.locator('#plan-goal-title')).toBeVisible();
+        await expect(page.locator('.plan-page .btn--primary')).toHaveCount(1);
+        await expectAccessible(page, `plan goal ${size}`);
+
+        await page.goto(`${state.webUrl}/plan/schedule`);
+        await expect(page.locator('[data-plan-create]')).toBeVisible();
+        await expect(page.locator('[data-scope-summary]')).toBeVisible();
+        await expect(page.locator('.plan-page .btn--primary')).toHaveCount(1);
+        await expectAccessible(page, `plan scope ${size}`);
       });
     }
 

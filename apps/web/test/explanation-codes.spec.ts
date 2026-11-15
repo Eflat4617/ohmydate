@@ -15,7 +15,7 @@ import {
 } from '../src/i18n/explanation';
 import { mockDb } from '../src/mocks/db';
 import { server } from '../src/mocks/server';
-import PlanComparisonView from '../src/views/PlanComparisonView.vue';
+import PlanScheduleView from '../src/views/PlanScheduleView.vue';
 import { buttonByText, mountWithPlugins, settle, testRouter } from './planning-test-utils';
 
 const HANGUL = /[가-힣]/;
@@ -132,7 +132,8 @@ describe('explanation code catalog (FU-62)', () => {
       // No raw IDs, ISO instants or bare English words leak into the sentence.
       expect(text, code).not.toContain(TASK);
       expect(text, code).not.toMatch(/\d{4}-\d{2}-\d{2}/);
-      expect((text ?? '').replace(/\b(?:H1|H8|IANA|v1\.0\.0)\b/g, ''), code).not.toMatch(/[A-Za-z]{2,}/);
+      // HOLO-03A: neither a rule's code (H1…H8) nor the scheduler's version is in a sentence any more.
+      expect((text ?? '').replace(/\bIANA\b/g, ''), code).not.toMatch(/[A-Za-z]{2,}/);
     }
   });
 
@@ -155,7 +156,7 @@ describe('explanation code catalog (FU-62)', () => {
       '필요한 2시간 30분 중 1시간 30분을 블록 2개에 배치했어요. 기존 블록 1개는 그대로 뒀어요.',
     );
     expect(explanationItemText(item('policy_summary'), context)).toBe(
-      '‘앞당겨 끝내기’ 정책 (v1.0.0): 일을 최대한 일찍 끝내서 마감까지 여유를 넉넉히 둬요.',
+      '‘앞당겨 끝내기’ 방식: 일을 최대한 일찍 끝내서 마감까지 여유를 넉넉히 둬요.',
     );
     expect(explanationItemText(item('input_invalid_estimate'), context)).toBe(
       '“보고서” 작업의 예상 시간은 0분부터 100,000분까지의 정수여야 해요.',
@@ -233,7 +234,7 @@ describe('ExplanationList component (FU-62)', () => {
     expect(wrapper.get('summary').text()).toBe('계산 근거');
     expect(wrapper.get('details').attributes('data-explanation')).toBe('coded');
     expect(wrapper.findAll('li').map((entry) => entry.text())).toEqual([
-      '‘앞당겨 끝내기’ 정책 (v1.0.0): 일을 최대한 일찍 끝내서 마감까지 여유를 넉넉히 둬요.',
+      '‘앞당겨 끝내기’ 방식: 일을 최대한 일찍 끝내서 마감까지 여유를 넉넉히 둬요.',
       '배치하지 못한 시간은 1시간이에요.',
     ]);
     expect(wrapper.find('[lang="en"]').exists()).toBe(false);
@@ -271,16 +272,19 @@ describe('ExplanationList component (FU-62)', () => {
     ];
     const wrapper = mount(ExplanationList, { props: { violations, timeZone: TZ, taskNames: NAMES } });
     const [first, second] = wrapper.findAll('.violation-list li');
-    expect(first?.text()).toBe('H1 — “보고서” 작업의 블록(11월 14일 (토) 오후 6:00~7:30)이 약속과 겹쳐요.');
+    // HOLO-03A: a finding is a sentence; the rule's code is its `data-code`, not a word on the page.
+    expect(first?.text()).toBe('“보고서” 작업의 블록(11월 14일 (토) 오후 6:00~7:30)이 약속과 겹쳐요.');
+    expect(first?.attributes('data-code')).toBe('H1');
     expect(first?.find('[lang="en"]').exists()).toBe(false);
-    expect(second?.text()).toContain('H2');
+    expect(second?.attributes('data-code')).toBe('H2');
+    expect(second?.text()).not.toMatch(/\bH2\b/);
     expect(second?.text()).toContain('블록이 가용 시간 밖에 있어요.');
     expect(second?.get('[lang="en"]').text()).toBe('Block is outside availability.');
     expect(wrapper.find('details').exists()).toBe(false);
   });
 });
 
-describe('plan comparison with coded explanations (FU-62)', () => {
+describe('일정안 with coded explanations (FU-62)', () => {
   const HORIZON = { start: '2026-11-11T00:00:00.000Z', end: '2026-11-25T00:00:00.000Z' };
 
   async function createPlan(): Promise<Plan> {
@@ -294,12 +298,12 @@ describe('plan comparison with coded explanations (FU-62)', () => {
 
   async function mountPlan(planId: string) {
     const router = testRouter();
-    await router.push(`/plans/${planId}`);
+    await router.push(`/plan/schedule/${planId}`);
     await router.isReady();
-    const wrapper = mountWithPlugins(PlanComparisonView, { router });
+    const wrapper = mountWithPlugins(PlanScheduleView, { router, props: { id: planId } });
     await settle();
     await vi.waitFor(() => {
-      expect(wrapper.findAll('.candidate-card').length).toBeGreaterThan(0);
+      expect(wrapper.findAll('.plan-option').length).toBeGreaterThan(0);
     });
     return wrapper;
   }
@@ -310,8 +314,10 @@ describe('plan comparison with coded explanations (FU-62)', () => {
     expect(candidate?.explanationItems).toHaveLength(candidate?.explanation.length ?? -1);
     const wrapper = await mountPlan(plan.id);
     const details = wrapper.get('.candidate-explanation');
-    expect(details.get('summary').text()).toBe('계산 근거');
-    expect(details.text()).toContain('‘앞당겨 끝내기’ 정책 (v1.0.0)');
+    // HOLO-03A: on this screen the reasons are called what they are, and say no version.
+    expect(details.get('summary').text()).toBe('이렇게 짠 이유');
+    expect(details.text()).toContain('‘앞당겨 끝내기’ 방식: ');
+    expect(details.text()).not.toMatch(/v\d+\.\d+/);
     expect(details.find('[lang="en"]').exists()).toBe(false);
     expect(details.text()).not.toContain('Policy front_loaded');
     wrapper.unmount();
@@ -410,9 +416,10 @@ describe('today proposal dialog with coded findings (FU-62)', () => {
     });
     const findings = wrapper.findAll('.violation-list li').map((entry) => entry.text());
     expect(findings).toEqual([
-      'H1 — 확정하려는 블록이 이미 확정된 다른 블록과 겹쳐요. 새로 고친 뒤 다시 시도해 주세요.',
-      'H2 — “보고서” 작업의 블록(11월 14일 (토) 오후 6:00~7:30)이 가용 시간 밖에 있어요.',
+      '확정하려는 블록이 이미 확정된 다른 블록과 겹쳐요. 새로 고친 뒤 다시 시도해 주세요.',
+      '“보고서” 작업의 블록(11월 14일 (토) 오후 6:00~7:30)이 가용 시간 밖에 있어요.',
     ]);
+    expect(wrapper.findAll('.violation-list li').map((entry) => entry.attributes('data-code'))).toEqual(['H1', 'H2']);
     expect(wrapper.find('.violation-list [lang="en"]').exists()).toBe(false);
     wrapper.unmount();
   });

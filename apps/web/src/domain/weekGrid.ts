@@ -1,8 +1,15 @@
 /**
- * 플래너 주 (HOLO-02): a run of days side by side over one time axis, and on
- * each day what is on it — approved blocks, every occurrence of every 약속,
- * and the deadlines of tasks that are not done — placed where it is on the
- * wall clock, with what overlaps set side by side.
+ * The week grid (HOLO-02; HOLO-03A made it the product's one calendar): a run
+ * of days side by side over one time axis, and on each day what is on it —
+ * approved blocks, every occurrence of every 약속, and the deadlines of tasks
+ * that are not done — placed where it is on the wall clock, with what
+ * overlaps set side by side.
+ *
+ * The planning screens draw two more kinds on the same grid: a `proposal` (a
+ * block of a schedule that is not approved yet — a candidate of 계획 세우기,
+ * the "after" of a 재계획) and a `ghost` (where a block stood before a 재계획
+ * moved it). Behind the items a day can carry `bands`: the owner's available
+ * hours, focus windows and 쉼.
  *
  * Pure. Civil dates are `YYYY-MM-DD`, instants are ISO strings, and every
  * wall-clock question is answered in the owner's IANA zone through
@@ -13,7 +20,10 @@
 import { dayEventDates, type MonthDayEventInput, type MonthDayLabel } from './monthGrid';
 import { addDaysToDate, localParts, weekdayOfDate } from './time';
 
-export type WeekItemKind = 'block' | 'commitment' | 'deadline';
+export type WeekItemKind = 'block' | 'commitment' | 'deadline' | 'proposal' | 'ghost';
+
+/** What a 재계획 does to a block (domain/replan.ts `BlockChangeKind`). */
+export type WeekItemChange = 'moved' | 'shrunk' | 'extended' | 'added' | 'removed';
 
 /** The page starts at 06:00 unless something starts earlier, or the earlier hours are asked for. */
 export const WEEK_GRID_FIRST_HOUR = 6;
@@ -47,6 +57,56 @@ export interface WeekTaskInput {
   readonly status: string;
   readonly projectId?: string;
   readonly dueAt?: string;
+}
+
+/** A block of a schedule that is not approved yet. */
+export interface WeekProposalInput {
+  /** Its place in the list it came from (a candidate's blocks): how an edit finds it again. */
+  readonly index: number;
+  readonly taskId: string;
+  readonly startAt: string;
+  readonly endAt: string;
+  /** The server refused this block as it stands. */
+  readonly invalid?: boolean;
+  /** 재계획: what approving does to the block that was here before. */
+  readonly change?: WeekItemChange;
+}
+
+/** Where a block stood before a 재계획 moved, shortened or dropped it. */
+export interface WeekGhostInput {
+  readonly key: string;
+  readonly taskId: string;
+  readonly startAt: string;
+  readonly endAt: string;
+  readonly change?: WeekItemChange;
+}
+
+/** The parts of the owner's availability the grid draws (the API's `Availability`). */
+export interface WeekAvailabilityInput {
+  readonly rules: readonly {
+    readonly weekday: number;
+    readonly startLocal: string;
+    readonly endLocal: string;
+    readonly kind: string;
+  }[];
+  readonly exceptions: readonly {
+    readonly date: string;
+    readonly kind: string;
+    readonly startLocal?: string | undefined;
+    readonly endLocal?: string | undefined;
+  }[];
+}
+
+export type WeekBandKind = 'work' | 'focus' | 'extra' | 'off';
+
+/** A stretch of a day's background: hours that can be planned, or a 쉼. */
+export interface WeekBand {
+  readonly kind: WeekBandKind;
+  /** Minutes since local midnight, `0 <= startMin < endMin <= 1440`. */
+  readonly startMin: number;
+  readonly endMin: number;
+  /** A 쉼 with no times of its own covers the day. */
+  readonly allDay: boolean;
 }
 
 /** What the lock toggle of an approved block needs (composables/useBlockLock.ts). */
@@ -88,6 +148,12 @@ export interface WeekItem {
   readonly fromGoogle: boolean;
   /** The approved row of a block, for its lock toggle; null for the other kinds. */
   readonly block: WeekItemBlock | null;
+  /** A proposal's place in the list it came from; null for the other kinds. */
+  readonly proposalIndex: number | null;
+  /** A proposal the server refused as it stands. */
+  readonly invalid: boolean;
+  /** 재계획: what approving does here (a proposal or a ghost); null otherwise. */
+  readonly change: WeekItemChange | null;
   /** Side by side: this item's column among `lanes`, and how many columns it may take. */
   readonly lane: number;
   readonly lanes: number;
@@ -107,6 +173,10 @@ export interface WeekDay {
   readonly counts: Readonly<Record<WeekItemKind, number>>;
   /** All-day labels of the day (a holiday, a trip): never placed on the time axis. */
   readonly labels: readonly MonthDayLabel[];
+  /** Available hours, focus windows and 쉼, in time order (empty unless availability was given). */
+  readonly bands: readonly WeekBand[];
+  /** The day has a 쉼 (its head says so). */
+  readonly off: boolean;
 }
 
 export interface WeekGrid {
@@ -137,11 +207,17 @@ export interface WeekGridInput {
   readonly dayEvents?: readonly MonthDayEventInput[];
   /** Show the hours before 06:00 whether or not anything is there. */
   readonly showEarly?: boolean;
+  /** Blocks of a schedule that is not approved yet. */
+  readonly proposals?: readonly WeekProposalInput[];
+  /** Where blocks stood before a 재계획. */
+  readonly ghosts?: readonly WeekGhostInput[];
+  /** Drawn behind the items as bands; without it a day has none. */
+  readonly availability?: WeekAvailabilityInput | null;
 }
 
 /** Blocks that still describe time on the page; skipped, moved and superseded rows do not. */
 const SHOWN_BLOCK_STATUSES: ReadonlySet<string> = new Set(['planned', 'done']);
-const KIND_ORDER: Readonly<Record<WeekItemKind, number>> = { commitment: 0, block: 1, deadline: 2 };
+const KIND_ORDER: Readonly<Record<WeekItemKind, number>> = { commitment: 0, ghost: 1, block: 2, proposal: 3, deadline: 4 };
 
 function instantMs(value: string): number {
   return CIVIL_DATE.test(value) ? Number.NaN : Date.parse(value);
@@ -200,6 +276,68 @@ function drawnExtent(startMin: number, endMin: number): { top: number; bottom: n
 }
 
 type Unplaced = Omit<WeekItem, 'lane' | 'lanes' | 'span'>;
+
+/** The proposal fields of an item that is not one. */
+const NOT_A_PROPOSAL = { proposalIndex: null, invalid: false, change: null } as const;
+
+function clockMinutes(value: string | undefined): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec((value ?? '').trim());
+  if (match === null) return null;
+  const minutes = Number(match[1]) * 60 + Number(match[2]);
+  return minutes >= 0 && minutes <= MINUTES_PER_DAY ? minutes : null;
+}
+
+type Window = { kind: WeekBandKind; startMin: number; endMin: number };
+
+function cut(windows: readonly Window[], startMin: number, endMin: number): Window[] {
+  const next: Window[] = [];
+  for (const window of windows) {
+    if (endMin <= window.startMin || startMin >= window.endMin) {
+      next.push(window);
+      continue;
+    }
+    if (startMin > window.startMin) next.push({ ...window, endMin: startMin });
+    if (endMin < window.endMin) next.push({ ...window, startMin: endMin });
+  }
+  return next;
+}
+
+/**
+ * The background of one day: the weekly rules of its weekday (작업 and 집중),
+ * with the day's exceptions applied — a 추가 adds hours, a 쉼 takes them away
+ * and is a band of its own, so a day off shows on a day no rule covers too
+ * (FU-97). A 쉼 without times covers the whole day.
+ */
+export function availabilityBands(date: string, availability: WeekAvailabilityInput): WeekBand[] {
+  const weekday = weekdayOfDate(date);
+  let windows: Window[] = [];
+  for (const rule of availability.rules) {
+    if (rule.weekday !== weekday) continue;
+    const startMin = clockMinutes(rule.startLocal);
+    const endMin = clockMinutes(rule.endLocal);
+    if (startMin === null || endMin === null || endMin <= startMin) continue;
+    windows.push({ kind: rule.kind === 'focus' ? 'focus' : 'work', startMin, endMin });
+  }
+  const off: WeekBand[] = [];
+  for (const exception of availability.exceptions) {
+    if (exception.date !== date) continue;
+    const from = clockMinutes(exception.startLocal);
+    const to = clockMinutes(exception.endLocal);
+    const allDay = from === null && to === null;
+    const startMin = from ?? 0;
+    const endMin = to ?? MINUTES_PER_DAY;
+    if (endMin <= startMin) continue;
+    if (exception.kind === 'off') {
+      windows = cut(windows, startMin, endMin);
+      off.push({ kind: 'off', startMin, endMin, allDay });
+    } else if (!allDay) {
+      windows.push({ kind: 'extra', startMin, endMin });
+    }
+  }
+  return [...windows.map((window) => ({ ...window, allDay: false })), ...off].sort(
+    (left, right) => left.startMin - right.startMin || left.endMin - right.endMin,
+  );
+}
 
 /** Time order; at the same minute a continued item first, then 약속, 블록, 마감; then the longer one; then by title. */
 export function compareWeekItems(left: Unplaced, right: Unplaced): number {
@@ -291,6 +429,7 @@ export function buildWeekGrid(input: WeekGridInput): WeekGrid {
           status: block.status,
           startAt: block.startAt,
         },
+        ...NOT_A_PROPOSAL,
       });
     }
   }
@@ -312,6 +451,7 @@ export function buildWeekGrid(input: WeekGridInput): WeekGrid {
           commitmentId: commitment.id,
           fromGoogle: commitment.source === 'google',
           block: null,
+          ...NOT_A_PROPOSAL,
         });
       }
     }
@@ -340,7 +480,56 @@ export function buildWeekGrid(input: WeekGridInput): WeekGrid {
       commitmentId: null,
       fromGoogle: false,
       block: null,
+      ...NOT_A_PROPOSAL,
     });
+  }
+
+  for (const proposal of input.proposals ?? []) {
+    const task = tasks.get(proposal.taskId);
+    for (const piece of spanPieces(proposal.startAt, proposal.endAt, input.timeZone, firstDate, lastDate)) {
+      add({
+        key: `proposal:${proposal.index}@${piece.date}`,
+        kind: 'proposal',
+        title: task?.title ?? null,
+        ...piece,
+        ...drawnExtent(piece.startMin, piece.endMin),
+        startAt: proposal.startAt,
+        endAt: proposal.endAt,
+        done: false,
+        taskId: proposal.taskId,
+        projectId: task?.projectId ?? null,
+        commitmentId: null,
+        fromGoogle: false,
+        block: null,
+        proposalIndex: proposal.index,
+        invalid: proposal.invalid === true,
+        change: proposal.change ?? null,
+      });
+    }
+  }
+
+  for (const ghost of input.ghosts ?? []) {
+    const task = tasks.get(ghost.taskId);
+    for (const piece of spanPieces(ghost.startAt, ghost.endAt, input.timeZone, firstDate, lastDate)) {
+      add({
+        key: `ghost:${ghost.key}@${piece.date}`,
+        kind: 'ghost',
+        title: task?.title ?? null,
+        ...piece,
+        ...drawnExtent(piece.startMin, piece.endMin),
+        startAt: ghost.startAt,
+        endAt: ghost.endAt,
+        done: false,
+        taskId: ghost.taskId,
+        projectId: task?.projectId ?? null,
+        commitmentId: null,
+        fromGoogle: false,
+        block: null,
+        proposalIndex: null,
+        invalid: false,
+        change: ghost.change ?? null,
+      });
+    }
   }
 
   const labelsByDate = new Map<string, MonthDayLabel[]>();
@@ -365,7 +554,8 @@ export function buildWeekGrid(input: WeekGridInput): WeekGrid {
   let earliest = MINUTES_PER_DAY;
   const days = dates.map((date): WeekDay => {
     const items = placeInLanes(byDate.get(date) ?? []);
-    const counts: Record<WeekItemKind, number> = { block: 0, commitment: 0, deadline: 0 };
+    const counts: Record<WeekItemKind, number> = { block: 0, commitment: 0, deadline: 0, proposal: 0, ghost: 0 };
+    const bands = input.availability == null ? [] : availabilityBands(date, input.availability);
     for (const item of items) {
       counts[item.kind] += 1;
       earliest = Math.min(earliest, item.top);
@@ -382,6 +572,8 @@ export function buildWeekGrid(input: WeekGridInput): WeekGrid {
       labels: (labelsByDate.get(date) ?? []).sort(
         (left, right) => left.firstDate.localeCompare(right.firstDate) || left.title.localeCompare(right.title, 'ko'),
       ),
+      bands,
+      off: bands.some((band) => band.kind === 'off'),
     };
   });
 

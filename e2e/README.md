@@ -38,16 +38,21 @@ they land. After generation it reads the plan, availability, commitments,
 approved schedule blocks and task due dates through the public API, and
 `helpers/plan-edit.ts` picks every keyboard edit from that real schedule:
 
-- **feasible**: one ArrowUp/ArrowDown press on a block that has 5 free
-  minutes on that side (same window, no overlap, not in the past, not past the
-  due time), trying the next candidate when one is fully packed;
+- **feasible**: one Alt+ArrowUp/Alt+ArrowDown press on a block that has 5
+  free minutes on that side (same window, no overlap, not in the past, not past
+  the due time), trying the next candidate when one is fully packed;
 - **H2 negative**: the fewest presses that push a block over its window edge;
 - **H1 negative**: the fewest presses that slide a block into its same-day
   neighbour.
 
-The week view is navigated to the edited block's week, and each edit waits for
-the `:preview-edit` response of exactly that edited state (plus the
-"Validating edits…" live-region update) instead of sleeping.
+Since HOLO-03A the schedule being chosen is drawn on the planner's week grid
+(`WeekGrid`): a plain arrow walks between items, Alt+arrow moves a block of the
+picked schedule by five minutes. The grid is paged to the edited block's week
+(`section.plan-week[data-week-start]`), the block is found by its accessible
+name (`일정안 블록, <task>, <date> <start>~…`), and each edit waits for the
+`:preview-edit` response of exactly that edited state (plus the "고친 내용을
+확인하는 중…" live-region update) instead of sleeping. A finding is asserted by
+its code as data (`li[data-code="H2"]`): the page says it in words.
 `tests/plan-edit-helpers.spec.ts` covers the pickers without a browser.
 
 ### Simulated start time (opt-in)
@@ -141,26 +146,36 @@ not the channel — are what keep owners apart.
 `tests/e2e-5r-replan.spec.ts` uses its own planner/Vikunja owner (`replan`
 fixture) because replan proposals are capped at two a day per owner. It
 approves a four-task plan whose steps have P50 = P90 (so no deadline-risk
-trigger), locks the first block in the UI (the plan page's approved schedule,
-`POST /schedule-blocks/{id}:lock` with the block's `If-Match` and a UUIDv7
-key), keeps the next hours busy with a commitment
+trigger), locks the first block in the UI (the confirmed plan draws its blocks
+on the week grid; the block's card carries the lock: `POST
+/schedule-blocks/{id}:lock` with the block's `If-Match` and a UUIDv7 key; the
+hand-off card, the grid, the card and the toggle must not move while the answer
+is out), keeps the next hours busy with a commitment
 (so a moved block can never start while the proposal is open) and adds a
 commitment over the second block. It then waits for the API's leader-only
 detection sweep, which runs every 300 s from API start (up to 11 minutes, so a
 tick skipped by a contended advisory lock is tolerated), and checks:
 
 - exactly one `commitment_conflict` proposal and one `replan_proposal`
-  notification; Today shows one banner and the notification links to it;
-- the detail lists only the overlapped block as moved and the locked block as
-  unchanged; approval sends `If-Match: W/"availability:<n>"` + a UUIDv7 key,
-  moves only that block, and the locked block keeps its row and times;
+  notification; 오늘 shows one replan card (a link, never the filled button)
+  and the notification links to the proposal;
+- 재계획 (one screen since HOLO-03A) lists only the overlapped block as moved
+  and the locked block as unchanged, shows 전 → 후 as numbers and on the week
+  grid (a ghost where the block stood, a proposal where it goes), and has one
+  filled button, 승인; approval sends `If-Match: W/"availability:<n>"` + a
+  UUIDv7 key, moves only that block, the locked block keeps its row and times,
+  and the filled button becomes 오늘 보기;
 - *재계획 요청* → reject (24 h explanation) → asking again is
-  `409 replan_suppressed` with `Retry-After` ≈ 24 h, shown as a wait.
+  `409 replan_suppressed` with `Retry-After` ≈ 24 h, shown as a wait;
+- the list beside the proposal holds the history, and `/replan` with nothing
+  waiting says the plan is on track.
 
 Locking goes through the real UI and API (FU-71; it used to be a direct
 `UPDATE` fixture step); every assertion goes through the API or the UI.
-The spec, the a11y additions (`/replan`, `/patterns`) and the axe scans of the
-detail, reject dialog and suppressed state all require 0 critical/serious.
+The spec, the a11y additions (`/replan`, `/insights` — AI 분석, reached through
+the old `/patterns` address — and the first two stages of 계획 세우기) and the
+axe scans of the proposal, reject dialog and suppressed state all require 0
+critical/serious.
 
 ## E2E-6 notes (M6-03)
 
@@ -179,8 +194,7 @@ from the request: one `fact` citing the first note block actually sent, one
 prompt, including the ungrounded `decomposition@v1`, keeps the fixture-less
 fake: `llm_unavailable`, then a manual draft. Other owners, and so every other
 suite, get exactly the plain fake as before. Without the scope, answered
-type detection changes the wizard's timing, and E2E-2's skip loop then races
-a disappearing question card.
+type detection changes the flow's timing for E2E-2.
 
 Flow, all in the UI unless noted:
 
@@ -189,15 +203,15 @@ Flow, all in the UI unless noted:
    pixel, with *AI에 보내기 허용* on. The preview shows the script as text,
    no `javascript:` anchor and no image.
 2. Link it to the Inbox project with the picker.
-3. In the planning wizard, link it to the plan's goal (*이 계획에 참고할
-   노트*), then skip the questions. The real pipeline (context builder →
+3. In 계획 세우기, link it to the plan's goal (*이 계획에 참고할 노트*), then
+   leave the questions blank. The real pipeline (context builder →
    fenced prompt → schema → grounded sanitiser) yields two evidence items:
    *사실* with the note title, section and *노트 열기* link, and *추론*
    with `[link removed]`. The forged ref is gone, and the injection is shown
    verbatim as data (`window.__pwned` stays undefined; the draft keeps its 3
    steps).
-4. Approve the draft. The note's AI usage history lists one succeeded call
-   with the same section hash.
+4. Confirm the steps (the flow goes on to 일정안). The note's AI usage history
+   lists one succeeded call with the same section hash.
 5. Create and approve a plan for the goal (API helpers). Starting a focus
    session from Today switches to the focus layout, where RelatedNotes lists
    the note (*이 프로젝트*, titles only). The toast's *되돌리기* restores

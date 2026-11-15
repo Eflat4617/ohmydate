@@ -106,7 +106,7 @@ const state = computed(() => {
           <p class="ai-cold-title">{{ t('overview.ai.notEnough') }}</p>
           <p class="ai-cold-body">{{ tp('overview.ai.notEnoughBody', ESTIMATE_MIN_SAMPLES) }}</p>
         </template>
-        <RouterLink class="ai-link" to="/patterns">{{ t('overview.ai.patternsLink') }}</RouterLink>
+        <RouterLink class="ai-link" to="/insights">{{ t('overview.ai.insightsLink') }}</RouterLink>
       </div>
 
       <ul class="ai-facts">
