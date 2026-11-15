@@ -203,7 +203,8 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expect(cards).toHaveCount(5);
         await expect(page.locator('[data-overview] [data-widget][data-state="ready"]')).toHaveCount(5);
         for (const title of ['진행', '타임 트래커', '오늘 요약', 'AI 도우미', '작업 기록']) {
-          await expect(page.getByRole('heading', { name: title, level: 2 })).toBeVisible();
+          // The cards are parts of 이번 주 (an h2): their titles are h3.
+          await expect(page.getByRole('heading', { name: title, level: 3 })).toBeVisible();
         }
         // The plan seeded above has blocks today (earlier suites may have left
         // others on this account): the dashboard names what is next in one
