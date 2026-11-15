@@ -1,0 +1,544 @@
+/* ── 재계획 (HOLO-03A) ──────────────────────────────────────────────────
+   One screen: the proposal on show at the left — why it came, 전 → 후 as
+   three numbers, the same on the week grid, each change in words, then the
+   decision — and the list of every proposal at the right.
+
+   What is not real yet is dashed (the proposed places); where a block stood
+   is dotted; lime is the one filled control, 승인. */
+
+.replan-page {
+  container: replan / inline-size;
+}
+
+.replan-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.replan-main {
+  container: replan-main / inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.replan-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+/* The list sits beside the proposal only when the page (not the window: the
+   sidebar may be open) has room for both. */
+@container replan (min-width: 60rem) {
+  .replan-layout {
+    grid-template-columns: minmax(0, 1fr) var(--aside-width);
+  }
+
+  .replan-side {
+    position: sticky;
+    top: var(--sticky-top);
+  }
+}
+
+.replan-state {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.replan-state:empty {
+  display: none;
+}
+
+.replan-state:focus-visible {
+  outline: none;
+}
+
+.replan-readonly p {
+  margin: 0;
+}
+
+/* ── Why ───────────────────────────────────────────────────────────── */
+.replan-why {
+  gap: var(--space-3);
+}
+
+.replan-why-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.replan-why-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.replan-why-label {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.replan-why-title {
+  color: var(--color-text);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-snug);
+}
+
+.replan-why-body {
+  max-width: 44rem;
+  margin: 0;
+  color: var(--color-text-2);
+}
+
+.replan-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.replan-affected {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5) var(--space-3);
+}
+
+.replan-affected-title {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-regular);
+}
+
+.replan-affected-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ── 전 → 후, as numbers ───────────────────────────────────────────── */
+.replan-figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+/* In a narrow column the three become rows of one card each: the label and
+   the value now at the left, the number at the right. */
+@container replan-main (max-width: 38rem) {
+  .replan-figures {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .replan-figure {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'label value'
+      'before value';
+    align-items: center;
+    gap: var(--space-0-5) var(--space-3);
+  }
+
+  .replan-figure-label {
+    grid-area: label;
+  }
+
+  .replan-figure-before {
+    grid-area: before;
+  }
+
+  .replan-figure-value {
+    grid-area: value;
+    justify-content: flex-end;
+  }
+
+  .replan-figure-value .numeral {
+    font-size: var(--text-2xl);
+  }
+}
+
+.replan-figure {
+  gap: var(--space-1);
+}
+
+.replan-figure-label {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.replan-figure-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+}
+
+.replan-figure-value .numeral {
+  font-size: var(--text-3xl);
+}
+
+.replan-figure-delta {
+  align-self: center;
+}
+
+.replan-figure-before {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.replan-figures-help {
+  margin: calc(-1 * var(--space-1)) 0 0;
+}
+
+.replan-task-slack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.replan-deficit {
+  margin: 0;
+  color: var(--color-warn-text);
+  font-size: var(--text-sm);
+}
+
+/* ── 전 → 후, on the grid ──────────────────────────────────────────── */
+.replan-week .wg-scroll {
+  max-height: max(22rem, min(34rem, calc(100dvh - var(--topbar-height) - 12rem)));
+}
+
+/* ── 전 → 후, in words ─────────────────────────────────────────────── */
+.replan-diff {
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.replan-diff-lede {
+  margin: 0;
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+.replan-changes,
+.replan-locked-list,
+.replan-proposed-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.replan-change {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1) var(--space-5);
+  padding: var(--space-2-5) 0;
+  border-bottom: var(--rule-hair) solid var(--color-line);
+}
+
+.replan-change:last-child {
+  border-bottom: 0;
+}
+
+@container replan-main (min-width: 40rem) {
+  .replan-change {
+    grid-template-columns: minmax(10rem, 1fr) minmax(0, 1.5fr);
+    align-items: baseline;
+  }
+}
+
+.replan-change-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+
+.replan-change-head .badge {
+  align-self: center;
+}
+
+.replan-change-title {
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.replan-change-times {
+  display: grid;
+  gap: var(--space-0-5);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.replan-change-time {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.replan-change-time dt {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.replan-change-time dd {
+  margin: 0;
+}
+
+.replan-change-time del {
+  color: var(--color-text-3);
+}
+
+.replan-change-time ins {
+  background: none;
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+
+.replan-locked {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-4);
+}
+
+.replan-locked-title {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.replan-locked-list li,
+.replan-proposed-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) 0;
+  border-bottom: var(--rule-hair) solid var(--color-line);
+  font-size: var(--text-sm);
+}
+
+.replan-locked-list .badge {
+  align-self: center;
+}
+
+.replan-locked-time {
+  color: var(--color-text-2);
+}
+
+.replan-unchanged,
+.replan-diff-empty {
+  margin: 0;
+  padding-top: var(--space-2);
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.replan-explanation {
+  margin-top: var(--space-3);
+}
+
+.replan-violations .violation-list {
+  margin-top: var(--space-2);
+}
+
+/* ── The decision ──────────────────────────────────────────────────── */
+.replan-actions {
+  gap: var(--space-3);
+}
+
+.replan-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+}
+
+.replan-action-help {
+  flex: 1 1 16rem;
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.replan-action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+@container replan-main (max-width: 34rem) {
+  .replan-action-buttons {
+    width: 100%;
+  }
+
+  .replan-action-buttons > .btn--primary {
+    flex: 1 1 100%;
+    order: -1;
+  }
+}
+
+.replan-again {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── Every proposal ────────────────────────────────────────────────── */
+.replan-items {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.replan-item + .replan-item {
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.replan-item-link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  margin-inline: calc(-1 * var(--space-2));
+  padding: var(--space-2-5) var(--space-2);
+  border-radius: var(--radius-md);
+  color: inherit;
+  text-decoration: none;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+
+.replan-item-link:hover {
+  background: var(--color-hover);
+}
+
+.replan-item--current .replan-item-link {
+  background: var(--color-fill);
+}
+
+.replan-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
+}
+
+.replan-item-title {
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.replan-item--past .replan-item-title {
+  color: var(--color-text-2);
+  font-weight: var(--weight-regular);
+}
+
+.replan-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--space-3);
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.replan-list-empty {
+  margin: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.replan-policy {
+  margin: 0;
+}
+
+/* ── Shared: the request control, and the card other screens drop in ── */
+.replan-request {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+}
+
+.replan-request-status {
+  align-self: stretch;
+}
+
+.replan-request-status:empty {
+  display: none;
+}
+
+.replan-suppressed p {
+  margin: 0;
+}
+
+.replan-card {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--color-accent-text) 45%, var(--color-line));
+}
+
+.replan-card-text {
+  display: flex;
+  flex: 1 1 16rem;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.replan-card-reason,
+.replan-card-more {
+  margin: 0;
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+.replan-card-more {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .replan-item-link {
+    transition: none;
+  }
+}

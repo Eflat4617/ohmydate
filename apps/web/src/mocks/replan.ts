@@ -172,8 +172,10 @@ export function mockBefore(db: MockDb, since: string): ReplanBefore {
 /** Candidate metrics with the same rules: history + locked + candidate placements. */
 function candidateMetrics(db: MockDb, since: string, blocks: readonly PlanBlock[]): Pick<ReplanCandidate['metrics'], 'totalFocusMin' | 'minSlackMin'> {
   const sinceMs = Date.parse(since);
+  // The same blocks as `mockBefore` counts (done ones are history on both sides), so a move adds no hours.
   const fixed = mockScheduleBlocks(db).filter(
-    (block) => block.status !== 'superseded' && (block.locked || Date.parse(block.startAt) < sinceMs),
+    (block) =>
+      block.status !== 'superseded' && block.status !== 'done' && (block.locked || Date.parse(block.startAt) < sinceMs),
   );
   const metrics = mockMetrics(db, [...fixed, ...blocks]);
   return { totalFocusMin: metrics.totalFocusMin, minSlackMin: metrics.minSlackMin };
@@ -370,12 +372,16 @@ export function seedReplanScenario(db: MockDb, options: ReplanScenarioOptions = 
   db.availabilityVersion += 1;
   db.availability = { ...db.availability, version: db.availabilityVersion };
 
-  const first = db.today.blocks[0];
-  const blocks: PlanBlock[] = [
-    ...(first === undefined ? [] : [{ taskId: first.taskId, startAt: first.startAt, endAt: first.endAt }]),
-    { taskId: TODAY_TASK_TWO_ID, startAt: MOVED_START, endAt: MOVED_END },
-    { taskId: TODAY_TASK_TWO_ID, startAt: '2026-11-17T01:00:00.000Z', endAt: '2026-11-17T01:45:00.000Z' },
-  ];
+  // The proposal keeps every block it does not have to touch (최소 변경): the plan
+  // as it stands, with only the block under the dinner moved to Monday.
+  const overlapped = db.today.blocks.find((block) => block.taskId === TODAY_TASK_TWO_ID);
+  const blocks: PlanBlock[] = mockBefore(db, createdAt)
+    .blocks.filter((block) => !block.locked)
+    .map((block) =>
+      block.id === overlapped?.id
+        ? { taskId: block.taskId, startAt: MOVED_START, endAt: MOVED_END }
+        : { taskId: block.taskId, startAt: block.startAt, endAt: block.endAt },
+    );
   const pending = proposalDto(
     REPLAN_PENDING_ID,
     'pending',

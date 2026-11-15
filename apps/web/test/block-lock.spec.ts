@@ -20,7 +20,7 @@ import { server } from '../src/mocks/server';
 import { useOfflineStore } from '../src/stores/offline';
 import { useToastStore } from '../src/stores/toast';
 import PlanScheduleView from '../src/views/PlanScheduleView.vue';
-import ReplanProposalView from '../src/views/ReplanProposalView.vue';
+import ReplanView from '../src/views/ReplanView.vue';
 import TodayView from '../src/views/TodayView.vue';
 import { useTestClock } from './m6-layout-utils';
 import { mountView, waitForText } from './m5-test-utils';
@@ -790,7 +790,7 @@ describe('일정안: lock a confirmed block from its card', () => {
 describe('Replan proposal: locks are read-only', () => {
   it('lists the locked block with its badge and offers no lock toggle', async () => {
     seedReplanScenario(mockDb);
-    const { wrapper } = await mountView(ReplanProposalView, {
+    const { wrapper } = await mountView(ReplanView, {
       path: `/replan/${REPLAN_PENDING_ID}`,
       props: { id: REPLAN_PENDING_ID },
     });
@@ -801,6 +801,17 @@ describe('Replan proposal: locks are read-only', () => {
     expect(wrapper.find('button[data-block-lock]').exists()).toBe(false);
     expect(wrapper.findAll('button').some((item) => ['블록 고정', '고정 해제'].includes(item.text()))).toBe(false);
     expect(wrapper.text()).toContain('고정은 오늘 화면이나 일정안 비교 화면의 확정된 일정에서 바꿀 수 있어요.');
+    // On the grid the locked block stays where it is, drawn as a block with its lock — never as a change.
+    await vi.waitFor(() => expect(wrapper.find('.wg-item--locked').exists()).toBe(true));
+    const onGrid = wrapper.get('.wg-item--locked');
+    expect(onGrid.attributes('data-kind')).toBe('block');
+    expect(onGrid.attributes('data-change')).toBeUndefined();
+    await onGrid.trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-planner-card="block"]').exists()).toBe(true));
+    const card = wrapper.get('[data-planner-card="block"]');
+    expect(card.get('[data-planner-card-kind]').text()).toBe('고정된 블록');
+    expect(card.find('[data-block-lock]').exists()).toBe(false);
+    expect(card.findAll('button').map((item) => item.attributes('aria-label'))).toEqual(['닫기']);
     wrapper.unmount();
   });
 });

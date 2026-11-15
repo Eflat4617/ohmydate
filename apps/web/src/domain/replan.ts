@@ -125,3 +125,68 @@ export function retryWait(retryAfterSeconds: number, nowMs: number): RetryWait |
     untilMs: nowMs + Math.ceil(retryAfterSeconds * 1000),
   };
 }
+
+/** A before block that a proposal changes, as the week grid draws it: where it stood. */
+export interface ReplanGhost extends TimedBlock {
+  readonly key: string;
+  readonly change: BlockChangeKind;
+}
+
+/** Where a changed (or added) block goes. `index` is its place among the changes. */
+export interface ReplanAfter extends TimedBlock {
+  readonly index: number;
+  readonly change: BlockChangeKind;
+}
+
+export interface ReplanMarks<B extends SnapshotBlock = SnapshotBlock> {
+  /** Snapshot blocks the proposal leaves exactly where they are (the locked ones among them). */
+  readonly kept: readonly B[];
+  readonly ghosts: readonly ReplanGhost[];
+  readonly afters: readonly ReplanAfter[];
+  /** The earliest instant anything changes (a before or an after); null when nothing does. */
+  readonly firstChangeAt: string | null;
+}
+
+function intervalKey(block: TimedBlock): string {
+  return `${block.taskId}|${ms(block.startAt)}|${ms(block.endAt)}`;
+}
+
+/**
+ * The same diff as `replanDiff`, as marks for the week grid (HOLO-03A): what
+ * stays (drawn as it is), where each changed block stood (a ghost) and where
+ * it goes. Nothing is guessed: with no snapshot there are no marks to make.
+ */
+export function replanMarks<B extends SnapshotBlock>(
+  beforeBlocks: readonly B[],
+  candidateBlocks: readonly TimedBlock[],
+): ReplanMarks<B> {
+  const diff = replanDiff(beforeBlocks, candidateBlocks);
+  // Each changed "before" takes one snapshot block of that task and interval off the kept list.
+  const changed = new Map<string, number>();
+  for (const change of diff.changes) {
+    if (change.before === undefined) continue;
+    const key = intervalKey(change.before);
+    changed.set(key, (changed.get(key) ?? 0) + 1);
+  }
+  const kept: B[] = [];
+  for (const block of [...beforeBlocks].sort(byStart)) {
+    const key = intervalKey(block);
+    const left = block.locked ? 0 : (changed.get(key) ?? 0);
+    if (left > 0) changed.set(key, left - 1);
+    else kept.push(block);
+  }
+  const ghosts: ReplanGhost[] = [];
+  const afters: ReplanAfter[] = [];
+  let first = Number.POSITIVE_INFINITY;
+  diff.changes.forEach((change, index) => {
+    if (change.before !== undefined) {
+      ghosts.push({ ...change.before, key: String(index), change: change.kind });
+      first = Math.min(first, ms(change.before.startAt));
+    }
+    if (change.after !== undefined) {
+      afters.push({ ...change.after, index, change: change.kind });
+      first = Math.min(first, ms(change.after.startAt));
+    }
+  });
+  return { kept, ghosts, afters, firstChangeAt: Number.isFinite(first) ? new Date(first).toISOString() : null };
+}

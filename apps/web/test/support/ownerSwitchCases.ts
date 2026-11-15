@@ -443,7 +443,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'replan: approve a proposal',
-    covers: ['src/views/ReplanProposalView.vue'],
+    covers: ['src/views/ReplanView.vue'],
     path: `/replan/${REPLAN_PENDING_ID}`,
     seed: () => {
       seedReplanScenario(mockDb);
@@ -456,7 +456,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'replan: reject a proposal',
-    covers: ['src/views/ReplanProposalView.vue'],
+    covers: ['src/views/ReplanView.vue'],
     path: `/replan/${REPLAN_PENDING_ID}`,
     seed: () => {
       seedReplanScenario(mockDb);
@@ -475,10 +475,12 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'replan: request a new proposal',
-    covers: ['src/components/ReplanRequestButton.vue', 'src/composables/useReplanRequest.ts', 'src/views/ReplanListView.vue'],
+    covers: ['src/components/ReplanRequestButton.vue', 'src/composables/useReplanRequest.ts', 'src/views/ReplanView.vue'],
     path: '/replan',
+    // Nothing waits (the proposal ran out), so 재계획 offers to ask for a new one.
     seed: () => {
-      seedReplanScenario(mockDb);
+      const proposal = seedReplanScenario(mockDb);
+      mockDb.replanProposals.set(proposal.id, { ...proposal, state: 'expired', version: proposal.version + 1 });
     },
     ready: async (wrapper) => {
       await until(() => expect(wrapper.findAll('button').some((item) => item.text().includes('재계획 요청'))).toBe(true));

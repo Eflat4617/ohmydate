@@ -15,8 +15,7 @@ import ProjectDetailView from './views/ProjectDetailView.vue';
 import ProjectListView from './views/ProjectListView.vue';
 import PlanView from './views/PlanView.vue';
 import PatternsView from './views/PatternsView.vue';
-import ReplanListView from './views/ReplanListView.vue';
-import ReplanProposalView from './views/ReplanProposalView.vue';
+import ReplanView from './views/ReplanView.vue';
 import TaskDetailView from './views/TaskDetailView.vue';
 import TodayView from './views/TodayView.vue';
 import TrackerView from './views/TrackerView.vue';
@@ -71,8 +70,9 @@ export const routes: RouteRecordRaw[] = [
   // The addresses these screens had before HOLO-03A.
   { path: '/plans/new', redirect: (to) => ({ name: 'plan-scope', query: to.query }) },
   { path: '/plans/:id', redirect: (to) => ({ name: 'plan-schedule', params: { id: to.params['id'] }, query: to.query }) },
-  { path: '/replan', name: 'replan', component: ReplanListView },
-  { path: '/replan/:id', name: 'replan-proposal', component: ReplanProposalView, props: true },
+  // HOLO-03A: one 재계획 screen — the proposal on show beside the list of them all.
+  { path: '/replan', name: 'replan', component: ReplanView },
+  { path: '/replan/:id', name: 'replan-proposal', component: ReplanView, props: true },
   // HOLO-03A: AI 분석 (was 내 패턴 at /patterns).
   { path: '/insights', name: 'insights', component: PatternsView },
   { path: '/patterns', redirect: '/insights' },

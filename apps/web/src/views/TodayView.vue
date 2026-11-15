@@ -15,8 +15,8 @@ import {
 import BlockLockToggle from '../components/BlockLockToggle.vue';
 import DayTimetable from '../components/DayTimetable.vue';
 import ProposalPreview from '../components/ProposalPreview.vue';
-import ReplanBanner from '../components/ReplanBanner.vue';
 import ReplanRequestButton from '../components/ReplanRequestButton.vue';
+import ReplanCard from '../components/replan/ReplanCard.vue';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -571,7 +571,7 @@ function resumeActive(): void {
 
       <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
       <UiBanner v-if="lockError" tone="error" role="alert" class="block-lock-error">{{ lockError }}</UiBanner>
-      <ReplanBanner />
+      <ReplanCard />
       <UiBanner v-if="resumeOffer && activeSession" tone="info" inline class="resume-banner">
         <span>{{ t('today.alreadyRunning') }}</span>
         <template #actions>

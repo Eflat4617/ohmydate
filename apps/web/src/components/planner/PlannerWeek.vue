@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import ReplanCard from '../replan/ReplanCard.vue';
 import UiBanner from '../ui/UiBanner.vue';
 import UiButton from '../ui/UiButton.vue';
 import UiDeadlineFlag from '../ui/UiDeadlineFlag.vue';
@@ -187,6 +188,9 @@ function retry(): void {
       <RouterLink to="/plan/schedule">{{ t('month.emptyPlan') }}</RouterLink>
     </p>
     <p v-if="data?.truncated" class="planner-note">{{ t('month.truncated') }}</p>
+
+    <!-- HOLO-03A (FLOW §2 ⑥): a proposal to re-plan is said where the plan is looked at. -->
+    <ReplanCard />
 
     <WeekGrid
       ref="gridView"
