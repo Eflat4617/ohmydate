@@ -54,7 +54,7 @@ import {
   formatPercent,
 } from '../i18n/format';
 import { errorMessage } from '../i18n/problem';
-import { confidenceText, ratioText, stepKindLabel } from '../i18n/replan';
+import { confidenceText, groupDimensionLabel, ratioText, stepKindLabel } from '../i18n/replan';
 import { useLayoutNow } from '../layout/now';
 import { ownerFenced, runOwnerBound, useOwnerKey, type OwnerSteps } from '../session/ownerBound';
 import { useAuthStore } from '../stores/auth';
@@ -167,7 +167,7 @@ function templateName(templateId: string | undefined): string {
 function groupTitle(group: EstimationProfileGroup): string {
   if (group.dimension === 'template') return t('insights.groups.template', { name: templateName(group.templateId) });
   return t('insights.groups.kind', {
-    kind: group.taskKind === undefined ? t('insights.groups.dimension.kind') : stepKindLabel(group.taskKind),
+    kind: group.taskKind === undefined ? groupDimensionLabel(group) : stepKindLabel(group.taskKind),
   });
 }
 

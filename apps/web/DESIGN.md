@@ -390,7 +390,7 @@ Below 1024px small text is 15px and the two numeral sizes step down (36 and 48px
 
 From 1024px a fixed sidebar (15rem; 4.5rem folded to icons) stands at the left and the canvas scrolls beside it. The canvas opens with the top bar, 4rem high and sticky, on one hairline. Below 1024px the sidebar is replaced by a fixed bottom nav (3.75rem plus the safe area) and the top bar scrolls with the page.
 
-- **Sidebar:** the brand (a link to 개요), 새 작업, then four groups: 메인 (개요, 오늘, 타임 트래커, 플래너, 인박스, 프로젝트, 노트), 계획 (계획 세우기, 일정안 만들기, 재계획 제안, 약속, 가용 시간), AI 분석 (내 패턴), 설정 (캘린더 연동, AI 설정, 레이아웃); at the foot 검색, 도움말, 로그아웃. On a short window only the groups scroll. `src/layout/navigation.ts` is the one list; the sidebar, the phone's 더 보기 sheet and the breadcrumb read it.
+- **Sidebar:** the brand (a link to 개요), 새 작업, then four groups: 메인 (개요, 오늘, 타임 트래커, 플래너, 인박스, 프로젝트, 노트), 계획 (계획 세우기, 재계획, 약속, 가용 시간), 분석 (AI 분석), 설정 (캘린더 연동, AI 설정, 레이아웃); at the foot 검색, 도움말, 로그아웃. On a short window only the groups scroll. `src/layout/navigation.ts` is the one list; the sidebar, the phone's 더 보기 sheet and the breadcrumb read it.
 - **Top bar:** sidebar toggle and breadcrumb (group / screen) at the left; theme switch, notifications and the account at the right. It holds no page action.
 - **Page:** `.page` is 46rem wide, `.page--wide` 84rem, starting at the canvas's left edge. Page padding is 16px, 24px from 640px, 32px from 1024px. A page opens with its title at the left and its actions at the right, with no rule under it.
 - **Dashboard grid:** 12 columns, 16px gaps (12px below 1024px). A dashboard page is a size container (`container: <name> / inline-size`) and its cards change span by the canvas's width, not the window's: three columns from 66rem, two from 44rem, one below. Cards in a row stretch to one height; what a card ends with sits on its floor (`margin-top: auto`).
@@ -470,6 +470,8 @@ Hand-written SVG, no library. Each takes plain numbers, handles zero, one and mi
 - **`BarWeekChart`:** a set of vertical bars on one scale. One bar may be highlighted (lime), with a value callout above it and a comparison chip. A zero is an empty track; a missing value is a dashed track. The numbers are repeated in a visually hidden table; the picture is hidden from assistive technology.
 - **`RingChart`:** up to four parts of a whole, clockwise from the top in the order given, with a legend (dot, name, dotted leader, value). The legend is the text alternative and carries each share. One part closes the ring; none leaves the track.
 - **`TrendChart`:** a small area under a line, oldest at the left, with a dot on the newest value and an optional dashed reference line. Its summary is the SVG's accessible name.
+- **`LoadStrip`** (HOLO-03A): one small bar per day on one scale — how a schedule spreads its hours. It sits in a card beside the number it explains and is hidden from assistive technology (the number is in words next to it).
+- **`RatioBar`** (HOLO-03A): one ratio against "as estimated". A track with a dashed mark at 1 and a bar from the mark toward the ratio — to the right (cyan) when it took longer, to the left (lime) when it took less. Every bar of one list shares one scale. Hidden from assistive technology: the ratio is written beside it.
 - **Legend** (`.legend`): the list used by the ring; use it wherever a mark needs a name.
 
 ### Glass Object (new, `src/components/ui/GlassOrb.vue`)
@@ -497,7 +499,50 @@ OhMyDate's own: three nested bands of glass turning around a small core, the bra
 - **Month** (`MonthView`): one card of day cells on hairlines. A planned block is a lime-tinted line led by a bar, a finished one a quiet line led by a tick, a 약속 a line led by a cyan dot, a deadline one led by the flag. Today's date is on the lime disc; the picked day is ringed; gone days are only quieter. The picked day is a card beside the grid.
 - **약속 추가** (`CommitmentAddDialog`): one dialog, two ways in — 말로 적기 on top, the fields under 직접 입력 (title, start, end, weekdays). The time zone and the raw rule are behind 고급. One filled button: the next step of 말로 적기, or 약속 추가 once a title is typed.
 
+- **Marks of what is not real yet** (HOLO-03A): the same grid draws a schedule that is only proposed, so there is one calendar in the app.
+  - A **proposal** (`.wg-item--proposal`) is a dashed lime outline on the faintest lime, never a fill: dashed means "not confirmed". One the server refused (`--invalid`) takes the red edge and `aria-invalid`.
+  - A **ghost** (`.wg-item--ghost`) is a dotted outline with struck-through words: where a block stood before a 재계획.
+  - A **locked** block (`.wg-item--locked`) carries a small lock.
+  - **Available hours** are bands behind the items (`[data-band]`): work hours the faintest fill, focus windows a violet tint, a 쉼 day hatched. They are drawn only where a schedule is being chosen.
+  - With `editable`, a proposal moves by drag or Alt+Arrow (5 minutes) and resizes by its lower edge or Alt+Shift+Arrow. Nothing else on the grid can be edited. Its accessible name says `일정안 블록, …`; a ghost's says `옮기기 전 자리, …`.
+
 The three kinds are a shape each, wherever they are listed: a bar (block), a dot (약속), a flag (deadline); done is a tick.
+
+### Plan Flow (HOLO-03A, `views/Plan*.vue`, `components/plan`)
+계획 세우기 is one flow with one entry in the sidebar: 목표 → 질문 → 단계 → 일정안 → 확정. It is stage 2 of the product loop (담기 → 계획 → 오늘 → 집중 → 돌아보기 → 다시 맞추기), and every stage's one filled button is the next step of that loop.
+
+- **Rail** (`PlanFlowHeader`, `.plan-rail`): the five stages as numbered marks under the page title. The current one is lime, a finished one a tick, one that was skipped (a plan made straight from tasks has no 목표·질문·단계) a quiet dash. It is a list with `aria-current="step"`, not a set of tabs: a finished stage is a link back.
+- **목표** (`PlanGoalForm`): one large field for what must be finished, the deadline and a note beside it. AI consent is asked in the same card when it is missing (`LlmDisclosure` inline, 허용 / AI 없이), never on another screen.
+- **질문** (`PlanTypeCheck`, `PlanQuestionForm`): the AI's reading of the kind of work, then a few questions answered together. A blank is "skip"; 모름 is an answer. AI 없이 직접 짜기 is always there as a quiet button.
+- **단계** (`PlanStepsEditor`): rows of a name, a kind and two times (보통, 넉넉히) with the total as the card's number; a row's details (deliverable, done-when, what must come first) are a disclosure. The notes the plan may use and what the AI assumed sit in the aside.
+- **일정안 만들기** (`PlanScopeView`): what to place (given, or picked in `TaskScopePicker`) and, only if they are missing, the questions the flow needs answered: when can you work (`PlanAvailabilityStep`: presets and the grid, saved with the plan) and any fixed appointments (`PlanCommitmentStep`). The period and method are one line with a disclosure.
+- **일정안** (`PlanScheduleView`): the comparison is the hero.
+  - **Candidate cards** (`CandidateCards`, `.plan-option`): a radio group of three cards. Each leads with when the work ends as its number, says its one big difference in words, then two or three real figures (여유, 가장 바쁜 날, 작업 전환) and a `LoadStrip`. The picked card takes the lime edge. A card that cannot be confirmed says why.
+  - The picked candidate is drawn on the week grid as proposals over the hours available, beside what is already confirmed and the 약속. Editing a block marks the schedule 고친 일정안 and checks it with the server; a block put back is the schedule as made.
+  - One filled button: 이 일정으로 확정.
+- **확정** (`PlanNextStep`): the hand-off. A card says how many things are to do today and its filled button is 첫 블록 시작 (or 세션 이어가기, or 오늘 보기 when nothing is today). The phone calendar is mentioned only when the integration is connected and exports blocks.
+- **하던 계획** (`PlanResumeList`): a plan left unfinished is offered again on 계획 세우기 and on 개요. The device remembers ids only, per owner.
+- **AI wait** (`AiWaitPanel`, `.ai-wait`): a calm strip with what is happening, how long it usually takes, and 취소. It appears only after a moment, so a fast answer never flashes it.
+
+### 재계획 (HOLO-03A, `views/ReplanView.vue`)
+One screen for `/replan` and `/replan/:id`: the proposal on show at the left, every proposal (waiting first, then the history) in a card at the right, under it on a narrow page.
+
+- **Order:** why it came (the trigger as the title, one sentence, when it was made and until when it can be approved) → 전 → 후 as three small cards → 전 → 후 on the week grid → the decision → the account in words (each change with its old time struck through and its new time, the locked blocks, the reasons).
+- **Figures** (`.replan-figure`): the value after approval is the card's number and the value now sits under it as `전 …`; a tag carries the difference only when there is one. In a narrow column the three become rows.
+- **Grid:** seven days from the day of the first change, so a block moved across a weekend is on one screen. Ghosts, proposals and what stays (locked blocks with their lock); the 약속 of those days for context. Nothing on it can be edited.
+- **Decision:** 거절 (a danger ghost button, with a dialog that explains the 24-hour pause) and 승인, the one filled button. After approval the filled button is 오늘 보기 and the proposal is drawn as real blocks.
+- **`ReplanCard`** (`components/replan`): the compact card other screens drop in (오늘, 플래너). A dashed lime edge, the reason and how many blocks would move, and a secondary link to the comparison. It renders nothing while no proposal waits and is never a filled button.
+
+### AI 분석 (HOLO-03A, `views/InsightsView.vue`)
+An analytics page of the owner's own records on the dashboard grid. The numbers are computed in `domain/insights.ts` (pure, tested) from routes other screens already use.
+
+- **예상과 실제:** actual ÷ estimated as the page's one large number with which way it leans in words, and the records behind it as a `TrendChart` against a dashed line at 1.
+- **주간 · 요일별 · 시간대별 집중:** three `BarWeekChart` cards over the last eight weeks; the highlighted bar is this week, or the peak, and the peak is also said in words.
+- **지킨 계획:** a `RingChart` of the confirmed blocks whose time has come — done, moved, skipped, passed without a record.
+- **종류별:** per template and kind, a `RatioBar` with what is applied and the owner's own mean.
+- **기록:** every review record as a row with a switch to take it out of the statistics, and the reset as a danger ghost button behind a confirmation.
+- **AI가 이 기록으로 하는 일:** a short list in plain words.
+- **Empty:** a card with too few records keeps its place and says 아직 기록이 부족해요 in a dashed box with a secondary link back to where records are made. No number, bar or line is drawn from nothing, and no statistic's internal name (P50, z-score) is shown.
 
 ### Today and Focus (HOLO-02)
 - **오늘:** the day's figures are a row of three small stat cards (`.today-stat`: a 13px label over the light figure) with the risk as a card of its own under them. Each block is a card; the next one carries the lime mark (a 3px bar on its leading edge and a 다음 차례 tag) and the screen's one filled button, 집중 시작 — the other blocks' start buttons are secondary, and while a session waits the filled button is 세션 이어가기 in the banner instead. 오늘 약속 and 오늘 마감 are two compact cards; the day timetable is a card in the right column from 1280px.
@@ -521,7 +566,7 @@ Two cards. The numbers are computed in `domain/tracker.ts` (pure, tested) from t
 
 ### Time Marks
 - **Day timetable** (`DayTimetable`, `.tt`): one row per hour, six ten-minute cells on hairlines. The next block is the lime fill, other planned blocks its tint, a finished one the neutral fill with a tick in the legend; a 약속 is cyan with a hatch (its second signal). The now line is lime and the current hour's label takes its colour. Time gone is not shaded.
-- **Not yet restyled** (HOLO-03): the week calendar of the plan comparison (`WeekCalendar`) and the availability grid keep the structure they had before HOLO-01 and take the new colours through the old token names: planned blocks are lime with dark text, 약속 are a cyan tint, focus windows violet, a 쉼 exception a red tint.
+- **Not yet restyled** (HOLO-03B): the availability grid (`AvailabilityWeekGrid`) keeps the structure it had before HOLO-01 and takes the new colours through the old token names: focus windows violet, a 쉼 exception a red tint. The plan flow shows it inside a disclosure as it is. (The old week calendar of the plan comparison is gone: every schedule is drawn on the planner's `WeekGrid`.)
 
 ## Motion
 

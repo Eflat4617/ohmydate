@@ -357,6 +357,26 @@ describe('editing the picked candidate', () => {
     wrapper.unmount();
   });
 
+  it('a block put back where it was is the schedule as it was made: no finding stays and nothing is sent (negative)', async () => {
+    const plan = await createPlan();
+    const previews = vi.spyOn(plannerClient, 'previewCandidateEdit');
+    const wrapper = await mountPlan(plan.id);
+    const block = (await proposals(wrapper))[0]!;
+    const before = block.attributes('aria-label');
+    await block.trigger('keydown', { key: 'ArrowDown', altKey: true });
+    expect(wrapper.get('[data-plan-draft-state]').text()).toBe('고친 일정안');
+    expect((await proposals(wrapper))[0]!.attributes('aria-label')).not.toBe(before);
+
+    await (await proposals(wrapper))[0]!.trigger('keydown', { key: 'ArrowUp', altKey: true });
+    expect(wrapper.get('[data-plan-draft-state]').text()).toBe('만들어진 그대로');
+    expect((await proposals(wrapper))[0]!.attributes('aria-label')).toBe(before);
+    expect(wrapper.get('[data-plan-reset]').attributes('disabled')).toBeDefined();
+    // The check that was waiting for the first move is dropped with it.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(previews).not.toHaveBeenCalled();
+    wrapper.unmount();
+  });
+
   it('maps preview 422 errors to the right block: it is marked on the grid and named in the list', async () => {
     const plan = await createPlan();
     server.use(

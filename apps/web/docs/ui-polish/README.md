@@ -20,6 +20,17 @@ screen's structure, not its look.
 The captures under `redesign/` are from the paper system and are stale; they
 are kept until the whole set is regenerated (`scripts/ui-screenshots.mjs`).
 
+HOLO-03A (2026-11-16) rebuilt the planning side instead of restyling it:
+계획 세우기 is one flow (`/plan`, `/plan/:sessionId`, `/plan/schedule`,
+`/plan/schedule/:id`), 재계획 is one screen (`/replan`, `/replan/:id`), and
+내 패턴 became AI 분석 (`/insights`). `DESIGN.md` describes them (Plan Flow,
+재계획, AI 분석). The sections below on the planning wizard, the plan
+comparison, the replan list and detail, and 내 패턴 describe the screens they
+replaced: what they say about data rules still holds (approval only by the
+owner, `If-Match`, idempotent replay, the before snapshot as the only source of
+a diff, no note text in statistics); what they say about layout, headings,
+`/plan/new`, `/plans/…` and `/patterns` does not. Those addresses redirect.
+
 ## Stylesheet layers
 
 `src/styles.css` imports these in order, and each layer may only use the ones
@@ -446,8 +457,8 @@ to 2026-11-14 Asia/Seoul. There are no real accounts or personal data.
 # from apps/web; starts vite in mock mode on :5199
 node scripts/ui-screenshots.mjs --label after-ko
 node scripts/ui-screenshots.mjs --label after-ko --only 14-today
-# M5-03 screens (22–33) into m5-03/
-node scripts/ui-screenshots.mjs --label m5-03 --flows replan,patterns
+# HOLO-03A: 계획 세우기 (06–11), 재계획 (22–28, 32–33), AI 분석 (29–31)
+node scripts/ui-screenshots.mjs --label holo-03a --flows plan,replan,insights --tablet
 # M6-02 layout modes (34–41) into m6-02/
 node scripts/ui-screenshots.mjs --label m6-02 --flows adaptive
 # M6-03 notes screens (42–51) into m6-03/

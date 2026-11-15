@@ -48,6 +48,7 @@ import {
   firstStartAt,
   horizonDates,
   loadWindow,
+  sameBlocks,
   withBlock,
   type BlockInterval,
 } from '../domain/planDraft';
@@ -359,8 +360,16 @@ function applyEdit(item: WeekItem, next: BlockInterval): void {
     noticeLockHold();
     return;
   }
-  draftBlocks.value = withBlock(draftBlocks.value, item.proposalIndex, next);
-  dirty.value = true;
+  const edited = withBlock(draftBlocks.value, item.proposalIndex, next);
+  // A block put back where it was is the schedule as it was made: nothing to check or to undo.
+  if (sameBlocks(edited, selectedCandidate.value?.blocks ?? [])) {
+    clearPreviewTimer();
+    previewToken += 1;
+    resetDraft();
+  } else {
+    draftBlocks.value = edited;
+    dirty.value = true;
+  }
   // The open card follows its block.
   if (card.openKey.value !== null) void nextTick(card.place);
 }

@@ -511,9 +511,7 @@ export const ko = {
     stale: '이 블록이 다른 곳에서 바뀌었어요. 최신 일정을 다시 불러왔어요.',
     notLockable: '이미 시작했거나 끝난 블록은 고정을 바꿀 수 없어요. 최신 일정을 다시 불러왔어요.',
     error: '블록 고정을 바꾸지 못했어요.',
-    editingHint: '일정안을 편집하는 동안에는 고정을 바꿀 수 없어요. 확정하거나 편집을 되돌린 뒤에 바꿔 주세요.',
-    savingHint: '블록 고정을 저장하는 동안에는 일정안을 편집할 수 없어요. 저장이 끝나면 다시 편집할 수 있어요.',
-    readOnlyHint: '고정은 오늘 화면이나 일정안 비교 화면의 확정된 일정에서 바꿀 수 있어요.',
+    readOnlyHint: '고정은 오늘이나 플래너에서 블록을 눌러 바꿀 수 있어요.',
   },
 
   replan: {
@@ -528,10 +526,8 @@ export const ko = {
     },
     listTitle: '제안 기록',
     listEmpty: '아직 제안이 없어요.',
-    current: '지금 보는 제안',
     figures: '전과 후',
     was: '전 {value}',
-    same: '그대로',
     week: '{range} 전 → 후',
     weekNav: '날짜 옮기기',
     previousWeek: '이전 7일',
@@ -559,10 +555,6 @@ export const ko = {
     loading: '재계획 제안을 불러오는 중…',
     loadError: '재계획 제안을 불러오지 못했어요.',
     detailLoadError: '이 재계획 제안을 불러오지 못했어요.',
-    pendingTitle: '기다리는 제안',
-    historyTitle: '지난 제안',
-    pendingEmpty: '지금 기다리는 재계획 제안이 없어요.',
-    historyEmpty: '아직 지난 제안이 없어요.',
     createdAt: '{time}에 만들었어요',
     expiresAt: '{time}까지 승인할 수 있어요',
     changedCount: plural({ other: '바뀌는 블록 {count}개' }),
@@ -609,13 +601,7 @@ export const ko = {
     readOnly: '읽기 전용',
     why: '왜 제안했나요',
     affected: '영향받는 작업',
-    metricsTitle: '핵심 지표',
-    metricsTable: '지금 일정과 제안 일정 비교',
-    colMetric: '지표',
-    colNow: '지금',
-    colProposed: '제안',
     slack: '마감 여유 (가장 빠듯한 작업)',
-    slackNone: '마감 없음',
     slackHelp: '마감 여유는 작업 마감에서 마지막 블록이 끝나는 시각까지예요.',
     planned: '계획된 집중 시간',
     changed: '바뀌는 블록',
@@ -691,7 +677,6 @@ export const ko = {
     lede: '집중 기록과 회고로 배운 내 작업 습관이에요. 이 계정에만 있고, 회고 메모 내용은 쓰지 않아요.',
     loading: 'AI 분석을 불러오는 중…',
     loadError: 'AI 분석을 불러오지 못했어요.',
-    partLoading: '불러오는 중…',
     partError: '이 부분을 불러오지 못했어요.',
     offline: '오프라인 · 읽기 전용이에요. 기록을 바꾸거나 지울 수 없어요.',
     notEnough: '아직 기록이 부족해요',
@@ -1003,7 +988,7 @@ export const ko = {
       order: {
         locked: '직접 고정한 배치',
         focus: '진행 중인 집중 세션이 있으면 집중',
-        planning: '계획 마법사나 일정안 비교 화면이면 계획',
+        planning: '계획 세우기 화면이면 계획',
         risk: '마감 위험이 있고 오늘 아직 확인하지 않았으면 마감 위험',
         review: '저녁 8시 이후에 회고하지 않은 세션이 있으면 회고',
         notes: '노트 화면이면 노트',
@@ -1180,7 +1165,7 @@ export const ko = {
         cancel: '취소',
         already: '이미 연결됨',
         listLabel: '연결할 대상',
-        goalHint: '계획 목표는 계획 마법사의 “이 계획에 참고할 노트”에서 연결해요.',
+        goalHint: '계획 목표는 계획 세우기의 “이 계획에 참고할 노트”에서 연결해요.',
       },
     },
     ai: {
@@ -1360,7 +1345,7 @@ export const ko = {
       // FU-91: also the AI-allowed notes linked to the plan (M6-03), as the GU-1 guide states.
       // CAL-02: also the note typed into 약속 > 말로 적기.
       // CAL-05: and the note typed into 인박스 > 말로 적기.
-      dataValue: '계획 마법사에 입력한 내용(제목·마감·설명·질문 답변), 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 이 계획에 연결한 노트의 관련 구간 일부, 그리고 약속·인박스 화면의 ‘말로 적기’에 적은 메모(오늘 날짜·시간대와 함께)만 보내요.',
+      dataValue: '계획 세우기에 입력한 내용(제목·마감·설명·질문 답변), 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 이 계획에 연결한 노트의 관련 구간 일부, 그리고 약속·인박스 화면의 ‘말로 적기’에 적은 메모(오늘 날짜·시간대와 함께)만 보내요.',
       masking: '마스킹은 최선 노력이에요',
       // {kinds} is built from MASKED_KINDS (i18n/redaction.ts), the mirror of
       // RedactionKind in packages/llm/src/privacy.ts. Never name a kind here
@@ -1384,7 +1369,7 @@ export const ko = {
     },
     settings: {
       title: 'AI 설정',
-      lede: 'AI 계획 도움은 {provider} 게이트웨이를 거쳐 {model}({modelId})을 써요. 요청에는 계획 마법사 입력, 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 계획에 연결한 노트의 관련 구간 일부, 약속·인박스 화면의 ‘말로 적기’ 메모만 담겨요.',
+      lede: 'AI 계획 도움은 {provider} 게이트웨이를 거쳐 {model}({modelId})을 써요. 요청에는 계획 세우기 입력, 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 계획에 연결한 노트의 관련 구간 일부, 약속·인박스 화면의 ‘말로 적기’ 메모만 담겨요.',
       noConsentTitle: 'AI 동의가 필요 없어요',
       noConsentBody: '이 빌드는 AI 없이 동작하는 결정형 플래너를 쓰기 때문에 AI 동의가 필요 없어요.',
       consentLegend: '동의',
@@ -1531,19 +1516,6 @@ export const ko = {
     h8_off_grid: '{task}의 블록이 5분 단위에 맞지 않아요.',
     h8_end_before_start: '{task}의 블록이 시작하기 전에 끝나요.',
   } as const satisfies Record<components['schemas']['ExplanationItem']['code'], string>,
-
-  metrics: {
-    totalFocusMin: '총 집중 시간',
-    minSlackMin: '최소 여유',
-    maxDailyLoadMin: '하루 최대 부담',
-    avgDailyLoadMin: '하루 평균 부담',
-    contextSwitches: '작업 전환',
-    changedBlocks: '바뀐 블록',
-    deficitMin: '부족한 시간',
-    p90CoverageRatio: 'P90 충족률',
-    times: plural({ other: '{count}회' }),
-    blocks: plural({ other: '{count}개' }),
-  },
 
   // Statuses of a schedule block, in words (오늘 marks a finished block with it).
   plan: {
@@ -1723,7 +1695,6 @@ export const ko = {
     title: '단계 다듬기',
     lede: '이렇게 나눠 봤어요. 이름과 시간을 고치고, 단계를 더하거나 빼도 돼요.',
     count: plural({ other: '{count}단계' }),
-    totalUsual: '보통 {duration}',
     totalCautious: '넉넉히 {duration}',
     rules: '단계는 3–12개, 한 단계는 보통 4시간 이하로 잡고, 검토나 여유 단계가 하나는 있어야 해요.',
     step: '{index}단계',
@@ -1740,7 +1711,6 @@ export const ko = {
     deliverable: '결과물',
     doneCriteria: '끝났다고 볼 기준',
     dependencies: '먼저 끝낼 단계',
-    dependenciesNone: '먼저 끝낼 단계가 없어요',
     dependencyOption: '{index}단계 · {title}',
     remove: '단계 빼기',
     removeAria: '{index}단계 빼기',
@@ -1851,7 +1821,6 @@ export const ko = {
     title: '일정안',
     lede: '{date}에 만든 일정안이에요. 하나를 골라 확정하면 오늘과 플래너에 들어가요.',
     ledeConfirmed: '확정한 일정이에요. 오늘과 플래너에서 볼 수 있어요.',
-    offline: '오프라인이라 읽기만 할 수 있어요. 다시 연결되면 고치거나 확정할 수 있어요.',
     loading: '일정안을 불러오는 중…',
     loadError: '이 일정안을 불러오지 못했어요.',
     missing: '이 일정안을 찾을 수 없어요',
@@ -1861,7 +1830,6 @@ export const ko = {
     optionSelected: '고른 안',
     picked: '‘{policy}’ 일정안 · {date}에 끝나요',
     pickedNoEnd: '‘{policy}’ 일정안',
-    optionOf: '{policy} 일정안',
     finish: '끝나는 날',
     finishNone: '넣지 못했어요',
     slack: '마감까지 여유',
@@ -1946,7 +1914,6 @@ export const ko = {
       length: '길이',
       shorter: '5분 짧게',
       longer: '5분 길게',
-      readOnly: '확정한 일정이에요. 고치려면 다른 일정안으로 바꿔 주세요.',
     },
     blockMessage: {
       outsideHorizon: '일정안 기간을 벗어났어요',
@@ -1954,7 +1921,6 @@ export const ko = {
       invalidInstant: '시각 형식이 올바르지 않아요',
       minutePrecision: '시각은 분 단위여야 해요',
       outsidePlan: '일정안에 없는 작업이나 시간을 가리켜요',
-      unknown: '이 블록은 확정할 수 없어요',
     },
     diversity: {
       dropped: '서로 다른 일정안 {kept}개를 남겼어요. 후보 {total}개 중 {dropped}개는 너무 비슷해서 뺐어요.',

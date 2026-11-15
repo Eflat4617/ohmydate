@@ -6,7 +6,7 @@ import { login } from '../helpers/app';
 import { readState } from '../helpers/state';
 
 /**
- * FU-76 E2E-AI — the planning wizard waiting for a slow AI (the API's fake
+ * FU-76 E2E-AI — 계획 세우기 waiting for a slow AI (the API's fake
  * provider answers the AI-wait owner after `aiWaitLatencyMs`, ~5 s): calm
  * progress with elapsed time, 취소 lands on the manual path (server run
  * cancelled), and a reload mid-call resumes by polling — the run completes
@@ -26,41 +26,54 @@ async function blockingAxeViolations(page: Page) {
     .map((violation) => ({ id: violation.id, targets: violation.nodes.map((node) => node.target) }));
 }
 
+const QUESTIONS = 'form[data-plan-questions]';
+const STEPS = '#step-title-s1';
+
 async function startPlan(page: Page, title: string): Promise<Locator> {
-  await page.goto(`${state.webUrl}/plan/new`);
-  await expect(page.getByRole('heading', { name: '1단계 · 기본정보' })).toBeVisible();
-  await page.locator('#wizard-title').fill(title);
-  await page.locator('#wizard-due').fill('2026-12-20T18:00');
-  await page.getByRole('button', { name: '다음' }).click();
+  await page.goto(`${state.webUrl}/plan`);
+  await expect(page.locator('#plan-goal-title')).toBeVisible();
+  await page.locator('#plan-goal-title').fill(title);
+  await page.locator('#plan-goal-due').fill('2026-12-20T18:00');
+  await page.locator('[data-plan-start]').click();
 
   // Type detection waits for the slow AI with a calm progress state.
   const panel = page.getByTestId('ai-wait');
   await expect(panel).toContainText('AI가 비슷한 작업을 찾고 있어요');
   await expect(panel.getByRole('timer')).toContainText('지났어요');
-  await expect(page.getByRole('heading', { name: '3단계 · 질문' })).toBeVisible({
+  // The wait belongs to 질문: the rail already says so.
+  await expect(page.locator('[data-plan-rail] [data-stage="questions"]')).toHaveAttribute('data-state', 'current');
+  await expect(page.locator(`${QUESTIONS}, [data-plan-type]`).first()).toBeVisible({
     timeout: state.aiWaitLatencyMs + 15_000,
   });
   return panel;
 }
 
-/** Answer 모름 until the request that starts the decomposition is waiting. */
+/** Answer 모름 to every question until the request that starts the decomposition is waiting. */
 async function answerUntilDecompositionWait(page: Page, panel: Locator): Promise<void> {
   for (let guard = 0; guard < 15; guard += 1) {
     if (await panel.isVisible()) return;
-    if (await page.getByRole('heading', { name: '4단계 · 단계 초안' }).isVisible()) {
-      throw new Error('reached the draft without waiting for the AI');
+    if (await page.locator(STEPS).isVisible()) {
+      throw new Error('reached the steps without waiting for the AI');
     }
-    const cards = page.locator('.question-card');
-    if ((await cards.count()) > 0) {
-      const idk = cards.first().getByRole('button', { name: '모름' });
-      if (await idk.isEnabled()) await idk.click();
+    if (await page.locator('[data-plan-type]').isVisible()) {
+      await page.locator('[data-plan-type-no]').click();
+    } else if (await page.locator(QUESTIONS).isVisible()) {
+      const send = page.locator('[data-plan-answer]');
+      if (await send.isEnabled()) {
+        const unknown = page.locator(`${QUESTIONS} input[data-idk]`);
+        for (let index = 0; index < (await unknown.count()); index += 1) {
+          const box = unknown.nth(index);
+          if ((await box.isEnabled()) && !(await box.isChecked())) await box.check();
+        }
+        await send.click();
+      }
     }
     await page.waitForTimeout(1_000);
   }
   throw new Error('the decomposition wait never started');
 }
 
-test.describe('E2E-AI — long AI calls in the planning wizard (FU-76)', () => {
+test.describe('E2E-AI — long AI calls in 계획 세우기 (FU-76)', () => {
   test.describe.configure({ mode: 'serial', timeout: 150_000 });
 
   test('shows progress with elapsed time and 취소 lands on the manual path; the server run is cancelled', async ({
@@ -82,7 +95,8 @@ test.describe('E2E-AI — long AI calls in the planning wizard (FU-76)', () => {
     expect(await blockingAxeViolations(page)).toEqual([]);
 
     await panel.getByRole('button', { name: '취소' }).click();
-    await expect(page.getByRole('heading', { name: '4단계 · 단계 초안' })).toBeVisible();
+    await expect(page.locator(STEPS)).toBeVisible();
+    await expect(page.locator('[data-plan-rail] [data-stage="steps"]')).toHaveAttribute('data-state', 'current');
     await expect(page.getByTestId('ai-cancelled')).toContainText('AI 작업을 취소했어요');
     await expect(panel).toBeHidden();
     // Manual draft, inputs kept (the work step is the user's own title).

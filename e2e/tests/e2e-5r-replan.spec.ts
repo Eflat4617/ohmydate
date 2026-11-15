@@ -23,13 +23,15 @@ import { readState } from '../helpers/state';
  * E2E-5R (M5-03): replanning against the real API + Vikunja.
  *
  * 1. Approve a four-task plan (P50 = P90, so no deadline-risk trigger), lock
- *    the first block in the UI (the plan page's approved schedule, FU-71:
- *    `POST /schedule-blocks/{id}:lock`) and add a commitment over the second
- *    block.
+ *    the first block in the UI (the confirmed plan's week grid: the block's
+ *    card, FU-71: `POST /schedule-blocks/{id}:lock`) and add a commitment over
+ *    the second block.
  * 2. The leader-only detection sweep (05 §11, every 5 min) creates exactly one
- *    commitment_conflict proposal; Today and the notifications surface it.
- * 3. Approving it in the UI moves only the overlapped block; the locked block
- *    keeps its row and times, the others keep their times.
+ *    commitment_conflict proposal; 오늘 (the replan card) and the notifications
+ *    surface it.
+ * 3. 재계획 shows 전 → 후 in words and on the week grid; approving it moves
+ *    only the overlapped block; the locked block keeps its row and times, the
+ *    others keep their times; the hand-off leads to 오늘.
  * 4. "재계획 요청" → reject (24 h same-reason suppression explained) → asking
  *    again is 409 replan_suppressed, shown with a human-readable wait.
  */
@@ -61,13 +63,18 @@ interface ProposalDto {
   readonly candidate: { readonly blocks: readonly { taskId: string; startAt: string; endAt: string }[] };
 }
 
-async function blockingAxeViolations(page: Page) {
+/** Wait for entrance animations to end (a card slides in); infinite ones (a spinner) are ignored. */
+async function settleAnimations(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const finite = document
       .getAnimations()
       .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity);
     await Promise.all(finite.map((animation) => animation.finished.catch(() => undefined)));
   });
+}
+
+async function blockingAxeViolations(page: Page) {
+  await settleAnimations(page);
   const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
   return results.violations
     .filter((violation) => violation.impact === 'critical' || violation.impact === 'serious')
@@ -108,10 +115,10 @@ interface Box {
 }
 
 /**
- * FU-86F: page-relative boxes (scroll-independent) of the plan page's calendar
- * and of every approved-schedule row and its lock toggle.
+ * FU-86F: page-relative boxes (scroll-independent) of the confirmed plan's
+ * hand-off, its week grid, and the open block card with its lock toggle.
  */
-async function approvedLayout(page: Page): Promise<Record<string, Box>> {
+async function lockLayout(page: Page): Promise<Record<string, Box>> {
   return page.evaluate(() => {
     const boxes: Record<string, Box> = {};
     const add = (key: string, element: Element | null) => {
@@ -119,18 +126,16 @@ async function approvedLayout(page: Page): Promise<Record<string, Box>> {
       const rect = element.getBoundingClientRect();
       boxes[key] = { x: rect.x + window.scrollX, y: rect.y + window.scrollY, width: rect.width, height: rect.height };
     };
-    add('calendar', document.querySelector('.week-calendar'));
-    for (const row of document.querySelectorAll('[data-approved-block-id]')) {
-      const id = row.getAttribute('data-approved-block-id') ?? '';
-      add(`row ${id}`, row);
-      add(`toggle ${id}`, row.querySelector('button[data-block-lock]'));
-    }
+    add('next', document.querySelector('[data-plan-next]'));
+    add('grid', document.querySelector('.plan-week-frame'));
+    add('card', document.querySelector('[data-planner-card="block"]'));
+    add('toggle', document.querySelector('[data-planner-card="block"] button[data-block-lock]'));
     return boxes;
   });
 }
 
 function expectSameLayout(actual: Record<string, Box>, expected: Record<string, Box>, when: string): void {
-  expect(Object.keys(actual).sort(), `${when}: the same rows and toggles`).toEqual(Object.keys(expected).sort());
+  expect(Object.keys(actual).sort(), `${when}: the same parts`).toEqual(Object.keys(expected).sort());
   for (const [key, box] of Object.entries(expected)) {
     for (const side of ['x', 'y', 'width', 'height'] as const) {
       const moved = Math.abs((actual[key]?.[side] ?? Number.NaN) - box[side]);
@@ -140,8 +145,13 @@ function expectSameLayout(actual: Record<string, Box>, expected: Record<string, 
 }
 
 /**
- * FU-71: lock a block the way a user does — the plan page's approved schedule,
- * paging forward to the block's week when the plan starts in an earlier one.
+ * FU-71: lock a block the way a user does (HOLO-03A) — the confirmed plan
+ * draws its blocks on the week grid; a block's card carries the lock. The grid
+ * is paged forward to the block's week when the plan starts in an earlier one.
+ *
+ * (That an edit of a schedule being chosen is held while a lock is being
+ * saved — FU-86F — needs a proposal and a confirmed block on one grid, which
+ * one plan never has; apps/web/test/block-lock.spec.ts covers it.)
  */
 async function lockInUi(page: Page, planId: string, block: ApprovedBlockDto): Promise<void> {
   const weekRead = () =>
@@ -149,28 +159,39 @@ async function lockInUi(page: Page, planId: string, block: ApprovedBlockDto): Pr
       (candidate) => candidate.request().method() === 'GET' && candidate.url().includes('/schedule-blocks?'),
     );
   let read = weekRead();
+  // The old address of a plan still leads to it.
   await page.goto(`${state.webUrl}/plans/${planId}`);
-  await expect(page.getByRole('heading', { name: '일정안 비교', level: 1 })).toBeVisible();
-  const row = page.locator(`[data-approved-block-id="${block.id}"]`);
+  await page.waitForURL(new RegExp(`/plan/schedule/${planId}`));
+  await expect(page.locator('[data-plan-next]')).toBeVisible();
+  await expect(page.locator('[data-plan-rail] [data-stage="confirmed"]')).toHaveAttribute('data-state', 'done');
+  const item = page.locator(`.wg-item[data-item^="block:${block.id}@"]`).first();
   for (let week = 0; week < 3; week += 1) {
     await read;
-    const shown = await row.waitFor({ state: 'visible', timeout: 3_000 }).then(
+    const shown = await item.waitFor({ state: 'attached', timeout: 3_000 }).then(
       () => true,
       () => false,
     );
     if (shown) break;
     read = weekRead();
-    await page.getByRole('button', { name: '다음 주' }).click();
+    await page.locator('[data-plan-week-next]').click();
   }
-  await expect(row).toBeVisible();
-  const toggle = row.getByRole('button', { name: '블록 고정', exact: true });
+  // A confirmed block is drawn as a block: never as a proposal.
+  await expect(item).toHaveAttribute('data-kind', 'block');
+  await expect(page.locator('.wg-item[data-kind="proposal"]')).toHaveCount(0);
+  await item.click();
+  const card = page.locator('[data-planner-card="block"]');
+  await expect(card).toBeVisible();
+  const toggle = card.getByRole('button', { name: '블록 고정', exact: true });
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  // FU-86: the row's task title and time describe the toggle, so rows differ for a screen reader.
-  const title = (await row.locator('.approved-schedule-title').innerText()).trim();
+  // FU-86: the card's task title and time describe the toggle, so blocks differ for a screen reader.
+  const title = (await card.locator('#planner-card-title').innerText()).trim();
   expect(title.length).toBeGreaterThan(0);
   await expect(toggle).toHaveAccessibleDescription(new RegExp(`^${escapeRegExp(title)} .*\\d{1,2}:\\d{2}`));
   // FU-86F: the lock answer is held so the page can be measured while it is out.
-  const layoutBefore = await approvedLayout(page);
+  // (The card slides in over a few frames: measure it once it has arrived.)
+  await settleAnimations(page);
+  const layoutBefore = await lockLayout(page);
+  expect(Object.keys(layoutBefore).sort()).toEqual(['card', 'grid', 'next', 'toggle']);
   let releaseLock: () => void = () => {};
   const lockHeld = new Promise<void>((resolve) => {
     releaseLock = resolve;
@@ -187,29 +208,10 @@ async function lockInUi(page: Page, planId: string, block: ApprovedBlockDto): Pr
   await toggle.focus();
   await page.keyboard.press('Enter');
   await expect(toggle).toHaveAttribute('aria-busy', 'true');
-  // Pressing a toggle moves nothing: the calendar, every row and every toggle keep their boxes
-  // (FU-86R: a note above the calendar pushed them down, and a second click hit the next row).
-  expectSameLayout(await approvedLayout(page), layoutBefore, 'lock out');
-  const calendarBlock = page.locator('.calendar-block').first();
-  if ((await calendarBlock.count()) > 0) {
-    // An edit tried meanwhile is held; the reason floats over the calendar and still moves nothing.
-    // (The candidate's blocks are usually in this week; near a week boundary they may not be.)
-    await calendarBlock.evaluate((element) => (element as HTMLElement).focus({ preventScroll: true }));
-    await page.keyboard.press('ArrowDown');
-    const note = page.locator('#plan-lock-saving-note');
-    await expect(note).toHaveText(
-      '블록 고정을 저장하는 동안에는 일정안을 편집할 수 없어요. 저장이 끝나면 다시 편집할 수 있어요.',
-    );
-    await expect(note).toHaveAttribute('role', 'status');
-    await expect(calendarBlock).toHaveAccessibleDescription(/^블록 고정을 저장하는 동안에는/);
-    expectSameLayout(await approvedLayout(page), layoutBefore, 'reason shown');
-    const noteBox = await note.boundingBox();
-    const calendarBox = await page.locator('.week-calendar').boundingBox();
-    if (noteBox === null || calendarBox === null) throw new Error('note or calendar has no box');
-    expect(noteBox.y).toBeGreaterThanOrEqual(calendarBox.y);
-    expect(noteBox.y + noteBox.height).toBeLessThanOrEqual(calendarBox.y + calendarBox.height);
-    await expect(page.locator('.calendar-toolbar')).toContainText('생성된 블록');
-  }
+  await settleAnimations(page);
+  // Pressing the toggle moves nothing: the hand-off, the grid, the card and the toggle keep their boxes
+  // (FU-86R: a note above the calendar pushed them down, and a second click hit something else).
+  expectSameLayout(await lockLayout(page), layoutBefore, 'lock out');
   releaseLock();
   const locked = await response;
   await page.unroute(isLockRequest);
@@ -221,10 +223,10 @@ async function lockInUi(page: Page, planId: string, block: ApprovedBlockDto): Pr
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await expect(toggle).toHaveAccessibleName('블록 고정');
   await expect(toggle).toBeEnabled();
-  // Settled: the reason is gone, the draft is untouched and nothing has moved.
-  await expect(page.locator('#plan-lock-saving-note')).toHaveText('');
-  await expect(page.locator('.calendar-toolbar')).toContainText('생성된 블록');
-  expectSameLayout(await approvedLayout(page), layoutBefore, 'lock settled');
+  // Settled: nothing has moved, and the block on the grid carries its lock.
+  await settleAnimations(page);
+  expectSameLayout(await lockLayout(page), layoutBefore, 'lock settled');
+  await expect(item).toHaveClass(/wg-item--locked/);
 }
 
 test.describe('E2E-5R — replan proposal flow (real API)', () => {
@@ -354,13 +356,16 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
     if (proposal === undefined || movedBlock === undefined || lockedBlock === undefined) throw new Error('no proposal');
     const proposalId = proposal.id;
 
-    await test.step('Today shows one calm banner and the notifications link to it', async () => {
+    await test.step('오늘 shows one calm card and the notifications link to it', async () => {
       await page.goto(`${state.webUrl}/today`);
       await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
-      const banner = page.locator('[data-replan-banner]');
+      const banner = page.locator('[data-replan-card]');
       await expect(banner).toHaveCount(1);
-      await expect(banner).toContainText('재계획 제안 1개가 기다리고 있어요');
+      await expect(banner).toContainText('일정을 다시 맞출까요?');
       await expect(banner).toContainText('약속과 겹치는 블록이 있어요');
+      await expect(banner).toContainText('승인하기 전에는 아무것도 바뀌지 않아요.');
+      // The card only links; it is never the screen's filled button.
+      await expect(banner.locator('.btn--primary')).toHaveCount(0);
       expect(await blockingAxeViolations(page)).toEqual([]);
 
       // HOLO-01: the notifications button moved from the sidebar to the top bar.
@@ -370,13 +375,14 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       await expect(panel.locator('[data-open-proposal]')).toHaveAttribute('href', `/replan/${proposalId}`);
       await page.keyboard.press('Escape');
       await expect(panel).toBeHidden();
-      await banner.getByRole('link', { name: '제안 확인하기' }).click();
+      await banner.locator('[data-replan-card-open]').click();
       await page.waitForURL(new RegExp(`/replan/${proposalId}$`));
     });
 
     // ── 3. The diff shows only the moved block; approval applies only it ──
-    await test.step('the detail screen lists only the changed block and the locked block as unchanged', async () => {
-      await expect(page.getByRole('heading', { name: '약속과 겹침', level: 1 })).toBeVisible();
+    await test.step('재계획 shows only the changed block, in words and on the grid, and the locked block as unchanged', async () => {
+      await expect(page.getByRole('heading', { name: '재계획', level: 1 })).toBeVisible();
+      await expect(page.locator('[data-replan-trigger]')).toHaveText('약속과 겹침');
       await expect(page.locator('[data-proposal-state]')).toHaveText('승인 대기');
       const changes = page.locator('.replan-change');
       await expect(changes).toHaveCount(1);
@@ -387,7 +393,20 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       await expect(locked).toHaveAttribute('data-block-id', lockedBlock?.id ?? '');
       await expect(locked).toContainText('고정됨');
       await expect(page.getByText('그 밖의 블록 2개는 그대로예요.')).toBeVisible();
-      await expect(page.locator('[data-metric="slack"] td')).toHaveCount(2);
+      // 전 → 후 as numbers: the value after approval with the value now under it.
+      await expect(page.locator('[data-metric="slack"] [data-after]')).toBeVisible();
+      await expect(page.locator('[data-metric="slack"] [data-before]')).toHaveText(/^전 /);
+      await expect(page.locator('[data-metric="changed"] [data-after]')).toBeVisible();
+      // 전 → 후 on the week grid: where the block stood and where it goes. (The locked block may be on the
+      // day before the first change, which the grid starts at; the list above names it either way.)
+      await expect(page.locator('.replan-week .wg-item[data-kind="ghost"]').first()).toHaveAttribute('data-change', 'moved');
+      await expect(page.locator('.replan-week .wg-item[data-kind="proposal"]').first()).toHaveAttribute('data-change', 'moved');
+      await expect(page.locator('.replan-week .wg-item--editable')).toHaveCount(0);
+      // One filled button: 승인.
+      await expect(page.locator('[data-replan] .btn--primary')).toHaveCount(1);
+      await expect(page.locator('[data-replan-approve]')).toHaveClass(/btn--primary/);
+      // The proposal is in the list beside it, marked as the one on show.
+      await expect(page.locator(`[data-proposal-id="${proposalId}"] a`)).toHaveAttribute('aria-current', 'true');
       // FU-62: the API sends coded explanation items, rendered in Korean.
       const explanation = page.locator('.replan-explanation details');
       await expect(explanation).toHaveAttribute('data-explanation', 'coded');
@@ -407,6 +426,10 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       expect(headers['idempotency-key']).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
       await expect(page.locator('[data-proposal-state]')).toHaveText('승인됨');
       await expect(page.getByText('제안을 승인했어요. 새 일정이 반영됐어요.').first()).toBeVisible();
+      // The hand-off: the one filled control now leads to 오늘, and nothing is drawn as a proposal any more.
+      await expect(page.locator('[data-replan-today]')).toHaveAttribute('href', '/today');
+      await expect(page.locator('[data-replan] .btn--primary')).toHaveCount(1);
+      await expect(page.locator('.replan-week .wg-item[data-kind="proposal"]')).toHaveCount(0);
 
       const after = await activeBlocks(page, startMs);
       const planTasks = new Set(approvedBlocks.map((block) => block.taskId));
@@ -435,12 +458,12 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
     await test.step('“재계획 요청” creates a user_request proposal that is rejected with the 24 h explanation', async () => {
       await page.goto(`${state.webUrl}/today`);
       await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
-      await expect(page.locator('[data-replan-banner]')).toHaveCount(0);
+      await expect(page.locator('[data-replan-card]')).toHaveCount(0);
       await page.locator('[data-replan-request]').click();
       await page.waitForURL(/\/replan\/[0-9a-f-]{36}$/);
       requestedId = page.url().split('/').at(-1) ?? '';
       expect(requestedId).not.toBe(proposalId);
-      await expect(page.getByRole('heading', { name: '직접 요청', level: 1 })).toBeVisible();
+      await expect(page.locator('[data-replan-trigger]')).toHaveText('직접 요청');
       await expect(page.locator('[data-proposal-state]')).toHaveText('승인 대기');
 
       await page.locator('[data-replan-reject]').click();
@@ -459,7 +482,8 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       const response = page.waitForResponse(
         (candidate) => candidate.request().method() === 'POST' && candidate.url().endsWith('/replan-proposals:request'),
       );
-      await page.locator('[data-replan-request]').click();
+      // A settled proposal offers to ask again, at its end.
+      await page.locator('[data-replan-again] [data-replan-request]').click();
       const suppressed = await response;
       expect(suppressed.status()).toBe(409);
       expect(((await suppressed.json()) as { code: string }).code).toBe('replan_suppressed');
@@ -482,12 +506,25 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       expect(await listProposals(page, 'pending')).toHaveLength(0);
     });
 
-    await test.step('the replan list shows the history read-only', async () => {
-      await page.locator('.breadcrumb a').click();
-      await expect(page.getByRole('heading', { name: '재계획 제안', level: 1 })).toBeVisible();
-      await expect(page.locator('.replan-item')).toHaveCount(2);
-      await expect(page.locator(`[data-proposal-id="${proposalId}"]`)).toContainText('승인됨');
-      await expect(page.locator(`[data-proposal-id="${requestedId}"]`)).toContainText('거절됨');
+    await test.step('the list beside the proposal shows the history; with nothing waiting 재계획 says so', async () => {
+      const list = page.locator('[data-replan-list]');
+      await expect(list.locator('.replan-item')).toHaveCount(2);
+      await expect(list.locator(`[data-proposal-id="${proposalId}"]`)).toContainText('승인됨');
+      await expect(list.locator(`[data-proposal-id="${requestedId}"]`)).toContainText('거절됨');
+      await expect(list.locator(`[data-proposal-id="${requestedId}"] a`)).toHaveAttribute('aria-current', 'true');
+
+      // A history row opens that proposal, read-only.
+      await list.locator(`[data-proposal-id="${proposalId}"] a`).click();
+      await page.waitForURL(new RegExp(`/replan/${proposalId}$`));
+      await expect(page.locator('[data-proposal-state]')).toHaveText('승인됨');
+      await expect(page.locator('[data-replan-approve]')).toHaveCount(0);
+      await expect(page.locator('[data-replan-reject]')).toHaveCount(0);
+
+      // `/replan` with nothing waiting: the plan is on track, and the history is still there.
+      await page.goto(`${state.webUrl}/replan`);
+      await expect(page.getByRole('heading', { name: '재계획', level: 1 })).toBeVisible();
+      await expect(page.locator('[data-replan-none]')).toContainText('지금은 계획대로예요');
+      await expect(page.locator('[data-replan-list] .replan-item')).toHaveCount(2);
       expect(await blockingAxeViolations(page)).toEqual([]);
     });
 

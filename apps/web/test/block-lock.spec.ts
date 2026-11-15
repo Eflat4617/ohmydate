@@ -800,7 +800,7 @@ describe('Replan proposal: locks are read-only', () => {
     expect(locked.get('[data-block-lock="locked"]').text()).toBe('고정됨');
     expect(wrapper.find('button[data-block-lock]').exists()).toBe(false);
     expect(wrapper.findAll('button').some((item) => ['블록 고정', '고정 해제'].includes(item.text()))).toBe(false);
-    expect(wrapper.text()).toContain('고정은 오늘 화면이나 일정안 비교 화면의 확정된 일정에서 바꿀 수 있어요.');
+    expect(wrapper.text()).toContain('고정은 오늘이나 플래너에서 블록을 눌러 바꿀 수 있어요.');
     // On the grid the locked block stays where it is, drawn as a block with its lock — never as a change.
     await vi.waitFor(() => expect(wrapper.find('.wg-item--locked').exists()).toBe(true));
     const onGrid = wrapper.get('.wg-item--locked');
