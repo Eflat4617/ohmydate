@@ -1,5 +1,5 @@
 # TASK PACKET: HOLO-05 — 할 일 as a floating canvas with folders, and real glass objects (three.js)
-Role: worker (Fable 5.2 xhigh; MODEL_BINDINGS §13). Base: torgal/ohmydate HEAD after HOLO-04 (the loop navigation, the liquid-glass material, capture bar, now pill, hand-offs). If your base does not contain HOLO-04 yet, your Orca preamble or the coordinator's first message says so: then build on what is there and keep to the mount point described below.
+Role: worker (Fable 5.2 xhigh; MODEL_BINDINGS §13). Base: torgal/ohmydate HEAD, which contains HOLO-04 (the loop navigation, the liquid-glass material, capture bar, now pill, hand-offs, first-run guide; merged at 08b51cf) and FOLD-01 (`updateProject`; merged at 1cf1308). No other worker is running.
 
 THE USER'S REQUEST (verbatim, 2026-11-16): "인박스에 할일 모여있는거, 목록형 말고 시각적으로 멋들어지게, 각 할일이 캔버스 위에 플로팅되어 떠다니는 형태이고 내가 원하면 폴더를 만들어서 정리할 수 있게 되는 그런느낌이면 좋을거같달까."
 And the standing mandate: "모든걸 다 뜯어고쳐도 좋아. 이 저장소는 너꺼야." / "창의성을 발휘할수있도록해". This is the product's signature screen: make it something the user wants to open. Read `apps/web/FLOW.md` (the loop, hand-offs, the glass layer rule), `apps/web/DESIGN.md`, `apps/web/PRODUCT.md`, and `docs/orchestration/packets/HOLO-01.md` "REFERENCE" (rules for the reference; captures are read-only at `/tmp/claude-1000/-home-torgal-orca-workspaces-oh-my-date-ohmydate/2a839b85-4fb7-4337-af27-ecc0aa5218f5/scratchpad/ref-holo/`).
@@ -19,7 +19,7 @@ REPORT: commits; how the canvas behaves (motion model, layout, what persists and
 MEMORY RULE: 15 GB laptop, another worker compiles Rust. ONE test command at a time; `--maxWorkers=3` on vitest; stop your dev server when done. No full `pnpm run ci`, no full `pnpm run e2e`. Never type `pnpm ci`.
 DEPENDENCY: you may add `three` (MIT) to `apps/web` — pinned version, lockfile updated, an entry in `docs/blueprint/10-LICENSE-AND-MIGRATION.md` §10 — and nothing else. It must be loaded lazily (dynamic import, its own chunk) only where a 3D object is on screen. No API, contract or database change: say in the report what the API lacks (the project routes are list, create and update; there is no delete, on purpose).
 
-ALLOWED PATHS: `apps/web/**`, `e2e/**`, `docs/blueprint/10-LICENSE-AND-MIGRATION.md`, root `pnpm-lock.yaml` (only the entries the new dependency adds).
+ALLOWED PATHS: `apps/web/**`, `e2e/**`, `docs/user/**` (the guides must match the screens), `docs/blueprint/10-LICENSE-AND-MIGRATION.md`, root `pnpm-lock.yaml` (only the entries the new dependency adds).
 
 WHAT TO BUILD
 1) [HIGH] The canvas — the 할 일 place. Every open to-do is a small object floating on a wide, calm surface; nothing is in rows.
@@ -41,3 +41,20 @@ WHAT TO BUILD
 Exact tests (DATABASE_URL=postgres://ohmydate:ohmydate-dev-only@127.0.0.1:55432/planner_test VIKUNJA_URL=http://127.0.0.1:3456), one at a time:
 corepack pnpm --filter @ohmydate/web lint ; corepack pnpm --filter @ohmydate/web test ; corepack pnpm run typecheck ; corepack pnpm run lint ; corepack pnpm run check:boundaries ; corepack pnpm --filter @ohmydate/web build (the three.js chunk is separate: report sizes) ; corepack pnpm run e2e e2e/tests/e2e-1.spec.ts e2e/tests/e2e-8-nl-tasks.spec.ts e2e/tests/e2e-a11y-screens.spec.ts (and any other spec you touched; if the stack is not up say SKIPPED + reason — never start docker).
 Clean git status, worker_done. Retry limit 2. Rollback: delete branch.
+
+WHAT YOU INHERIT (from the HOLO-04 and FOLD-01 workers' reports)
+- The mount point is `views/TasksView.vue` at `/tasks` (할 일; `/tasks?view=projects` is the old project list; `/projects/:id` and `/tasks/:id` are unchanged; `/inbox` and `/projects` redirect). Its insides — `InboxView`, `ProjectListView`, `ProjectDetailView`, `TaskDetailView`, `TaskList`, `TaskItem`, `QuickAddForm`, `TaskParseSection` — are the old lists, untouched since HOLO-02: they are what you replace. Whether the task page survives as a page behind "작업 열기" or dissolves into the floating detail is your decision; old addresses must keep landing somewhere sensible.
+- The material: one primitive `.glass` (`primitives.css`, numbers in `tokens.css`), pinned by `test/holo-material.spec.ts` (nothing but the primitive blurs; glass inside glass is solid; worst-case contrast rows are AA), opaque under `prefers-reduced-transparency`, without `backdrop-filter`, and with 설정 › 화면 › 투명 효과 줄이기 (`data-transparency="reduce"`). A canvas with twenty folders cannot have twenty blurred surfaces: folders and to-do objects are "still" glass (tint, edge, sheen — no backdrop blur, like the segmented controls), and real blur is kept for the one floating detail. Keep those tests green and extend them for the new surfaces.
+- The capture bar (`components/capture`, keys `n` / Ctrl+K, `/` searches) adds to-dos from anywhere and ends on "계획에 넣기" → `/plan/schedule?taskIds=…`: the canvas's selection uses the same address, and a to-do captured while the canvas is open should be seen arriving.
+- Keys already taken (one list, `src/layout/navigation.ts`): n, Ctrl/⌘+K, /, o, t, p, m, f, ?. Do not reuse them for canvas shortcuts.
+- The hand-made glass object (`components/ui/GlassOrb.vue`) is on the AI panel, the login card and the start guide (`FirstRunGuide.vue`): those are the places for the three.js object.
+- E2E helpers land on 개요, put the start guide away, open places by the sidebar and sign out from the account menu. The sweep is `scripts/ui-screenshots.mjs` (flows; captures of the current system are in `docs/ui-polish/holo-04/` as 256-colour PNGs — add the canvas's under `holo-05/`, only the canvas states). `apps/web`'s test script now caps vitest at 4 workers.
+- Stop your dev server by its PID after checking its working directory. Never `pkill -f`.
+
+LOOSE ENDS (LOW — only after everything in "WHAT TO BUILD" is committed and green; one small commit each; leave out any that turns out to be more than small and say so)
+a) One word for stage ⑥: the screen title, breadcrumb and notifications say 재계획 while FLOW.md and 개요's card say 다시 맞추기. Use 다시 맞추기 wherever the user reads it (catalog, the user guides, the E2E and unit tests that quote it); addresses stay.
+b) 플래너 › 목록 shows one week: after an 약속 is added for another week the list goes to that week (or the confirmation offers "그 주 보기").
+c) The dashboard cards' titles are h2 under 이번 주's h2: make them h3.
+d) 노트's AI usage history lists provider, model, run id and section hashes: lead with the plain account (when, which note, how much was sent, what it was used for) and put the technical record behind a "자세히" disclosure.
+
+BUDGET NOTE: the weekly model allowance is finite. Work in the order of "WHAT TO BUILD", commit each slice the moment it is green (the canvas with drag, detail and selection first; folders second; keyboard/list alternative third; three.js after that), and do not polish a later slice before the earlier one is committed. The coordinator may stop you at any time; whatever is committed must stand on its own.
