@@ -391,6 +391,20 @@ describe('Notes workspace — AI usage history', () => {
     expect(latest?.text()).toContain('11월 12일 (목) 오후 3:00');
     expect(latest?.findAll('[data-section-hash]')).toHaveLength(2);
     expect(latest?.text()).not.toContain('이후 수정됨');
+    // The plain account leads: when, how much was sent, of which version — no provider, run or hash in it.
+    const account = latest?.get('[data-note-ai-account]').text() ?? '';
+    expect(account).toContain('11월 12일 (목) 오후 3:00');
+    expect(account).toContain('약 1.5KB 전송');
+    expect(account).not.toMatch(/공급자|모델|실행 ID|#/);
+    // The technical record is behind 자세히, closed until asked for.
+    const details = latest?.get('[data-note-ai-details]');
+    expect((details?.element as HTMLDetailsElement).open).toBe(false);
+    expect(details?.get('summary').text()).toBe('자세히');
+    expect(details?.text()).toContain('공급자');
+    expect(details?.text()).toContain('실행 ID');
+    expect(details?.findAll('[data-section-hash]')).toHaveLength(2);
+    // Nothing technical is outside it (negative).
+    expect(latest?.findAll('[data-section-hash]').every((hash) => details?.element.contains(hash.element))).toBe(true);
     expect(older?.text()).toContain('실패');
     expect(older?.text()).toContain('이후 수정됨');
     // Only ids and hashes: none of the note's words appear in the history.

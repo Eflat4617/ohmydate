@@ -1513,6 +1513,8 @@ export const ko = {
       stale: '이후 수정됨',
       staleHelp: '보낸 뒤에 노트가 바뀌었어요. 다음 호출에는 바뀐 내용이 쓰여요.',
       model: '공급자 {provider} · 모델 {model}',
+      // The technical record of a call (provider, run, section hashes) is behind this disclosure.
+      details: '자세히',
       hashesLabel: '보낸 구간',
       section: '구간 #{hash}',
       run: '실행 ID {id}',
