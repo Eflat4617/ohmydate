@@ -108,6 +108,10 @@
   min-width: 0;
 }
 
+.topbar-start {
+  flex: 0 1 auto;
+}
+
 .topbar-end {
   flex: none;
   margin-left: auto;
@@ -240,15 +244,6 @@
   letter-spacing: var(--tracking-tight);
   line-height: 1.2;
   text-decoration: none;
-}
-
-.nav-new-task {
-  justify-content: flex-start;
-  padding-inline: var(--space-3);
-}
-
-.nav-new-task kbd {
-  margin-left: auto;
 }
 
 .nav-links {
@@ -610,8 +605,8 @@
     border-radius: var(--radius-xl);
   }
 
-  /* On a short window only the places scroll: the brand and 새 작업 stay at
-     the head, 설정 and 도움말 at the foot. */
+  /* On a short window only the places scroll: the brand stays at the head,
+     설정 and 도움말 at the foot. */
   .nav-rail .nav-places {
     flex: 1;
     min-height: 0;
@@ -636,13 +631,11 @@
   }
 
   .nav-rail--collapsed .nav-brand-name,
-  .nav-rail--collapsed .nav-link kbd,
-  .nav-rail--collapsed .nav-new-task kbd {
+  .nav-rail--collapsed .nav-link kbd {
     display: none;
   }
 
-  .nav-rail--collapsed .nav-link-label,
-  .nav-rail--collapsed .nav-new-task-label {
+  .nav-rail--collapsed .nav-link-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -652,8 +645,7 @@
     white-space: nowrap;
   }
 
-  .nav-rail--collapsed .nav-link,
-  .nav-rail--collapsed .nav-new-task {
+  .nav-rail--collapsed .nav-link {
     justify-content: center;
     padding-inline: 0;
   }

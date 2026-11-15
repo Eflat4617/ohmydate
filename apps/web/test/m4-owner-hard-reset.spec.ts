@@ -1,4 +1,5 @@
 import { mount, type VueWrapper } from '@vue/test-utils';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import { defineComponent } from 'vue';
@@ -263,7 +264,7 @@ describe('ADR-023 hard reset on owner change', () => {
     const router = testRouter();
     await router.push('/overview');
     const wrapper = mount(AppShell, {
-      global: { plugins: [pinia, router] },
+      global: { plugins: [pinia, router, VueQueryPlugin] },
       slots: { default: '<p class="protected-body">Journal</p>' },
       attachTo: document.body,
     });
@@ -287,7 +288,7 @@ describe('ADR-023 hard reset on owner change', () => {
     const router = testRouter();
     await router.push('/overview');
     const wrapper = mount(AppShell, {
-      global: { plugins: [pinia, router] },
+      global: { plugins: [pinia, router, VueQueryPlugin] },
       slots: { default: '<p class="protected-body">Journal</p>' },
       attachTo: document.body,
     });

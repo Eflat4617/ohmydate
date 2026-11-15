@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useUiStore } from '../stores/ui';
 import UiDialog from './ui/UiDialog.vue';
@@ -10,12 +10,11 @@ import { t } from '../i18n';
 
 /**
  * The phone's bar (HOLO-04): the first places of the loop — 개요, 할 일, 계획 —
- * with 새 작업 in the middle and 더 보기 for the rest, in glass that floats
- * above the page's lower edge.
+ * with 담기 in the middle (it opens the capture bar as a sheet) and 더 보기
+ * for the rest, in glass that floats above the page's lower edge.
  */
 const ui = useUiStore();
 const auth = useAuthStore();
-const router = useRouter();
 const route = useRoute();
 const moreOpen = ref(false);
 
@@ -24,17 +23,6 @@ const before = [first, second].filter((item) => item !== undefined);
 const after = [third].filter((item) => item !== undefined);
 
 const moreActive = computed(() => MORE_LINKS.some((link) => isNavItemCurrent(link, route.name)));
-
-function newTask(): void {
-  if (route.name === 'tasks' && route.query['view'] === undefined) {
-    ui.requestNewTask();
-    return;
-  }
-  void router.push({ name: 'tasks' }).then(async () => {
-    await nextTick();
-    ui.requestNewTask();
-  });
-}
 
 function closeMore(): void {
   moreOpen.value = false;
@@ -66,7 +54,14 @@ function signOut(): void {
       <UiIcon :name="item.icon" :size="22" />
       <span>{{ t(item.label) }}</span>
     </RouterLink>
-    <button type="button" class="bottom-nav-add" :aria-label="t('nav.newTask')" @click="newTask">
+    <button
+      type="button"
+      class="bottom-nav-add"
+      :aria-label="t('nav.capture')"
+      aria-haspopup="dialog"
+      data-nav-capture
+      @click="ui.openCapture('capture')"
+    >
       <UiIcon name="plus" :size="24" />
     </button>
     <RouterLink

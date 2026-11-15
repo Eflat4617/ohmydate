@@ -28,6 +28,10 @@ import { useOfflineStore } from '../stores/offline';
  * - Owner isolation (ADR-023): every request runs in an owner-bound task;
  *   drafts are added only for the owner who read them; another owner signing
  *   in clears everything.
+ *
+ * HOLO-04: the capture bar (composables/useCapture.ts) is the third user. It
+ * reads one line with whichever of the two readers the line looks like, and
+ * `seed` lets it put in a draft it made itself.
  */
 
 export type NlRowState = 'idle' | 'adding' | 'added';
@@ -101,7 +105,7 @@ export function useNlDraftRead<TDraft, TRow extends NlDraftRow<TDraft>, TInput>(
   /** The last read found nothing (as opposed to rows the person added, edited or removed). */
   const readEmpty = ref(false);
   const resultHeading = ref<HTMLElement | null>(null);
-  const noteField = ref<HTMLTextAreaElement | null>(null);
+  const noteField = ref<HTMLTextAreaElement | HTMLInputElement | null>(null);
 
   let readCount = 0;
   /** The owner the shown drafts were read for: adding them runs under this binding only. */
@@ -228,6 +232,23 @@ export function useNlDraftRead<TDraft, TRow extends NlDraftRow<TDraft>, TInput>(
     );
   }
 
+  /**
+   * Drafts the screen made itself, without a read (HOLO-04, the capture bar:
+   * a line that needs no reading, or one the AI could not read, is its own
+   * title). They take the place of whatever was read before and belong to the
+   * owner signed in now; adding them is the same `addRows`.
+   */
+  function seed(drafts: readonly TDraft[]): void {
+    if (reading.value || adding.value) return;
+    readCount += 1;
+    rowsBinding = captureOwnerBinding();
+    rows.value = drafts.map((draft, index) => options.toRow(draft, `${readCount}-${index}`));
+    leftover.value = '';
+    readEmpty.value = false;
+    hasResult.value = true;
+    failure.value = null;
+  }
+
   function cancel(): void {
     if (!reading.value || controller === null) return;
     cancelRequested = true;
@@ -337,5 +358,6 @@ export function useNlDraftRead<TDraft, TRow extends NlDraftRow<TDraft>, TInput>(
     addAll,
     dropRow,
     remove,
+    seed,
   };
 }

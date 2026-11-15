@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { defineComponent, h, nextTick, ref } from 'vue';
@@ -435,7 +436,7 @@ describe('calm mode', () => {
     await router.push('/overview');
     await router.isReady();
     const wrapper = mount(AppShell, {
-      global: { plugins: [createPinia(), router] },
+      global: { plugins: [createPinia(), router, VueQueryPlugin] },
       slots: { default: () => h('p', 'content') },
       attachTo: document.body,
     });
@@ -471,7 +472,7 @@ describe('shell axe-lite', () => {
     await router.push('/overview');
     await router.isReady();
     const wrapper = mount(AppShell, {
-      global: { plugins: [createPinia(), router] },
+      global: { plugins: [createPinia(), router, VueQueryPlugin] },
       slots: { default: () => h('h1', 'Today') },
       attachTo: document.body,
     });

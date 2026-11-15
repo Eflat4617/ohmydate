@@ -24,7 +24,6 @@ import { OWNER_STORAGE_KEY } from '../src/session/owner';
 import { adoptActiveOwner } from '../src/session/ownerEpoch';
 import { useAuthStore } from '../src/stores/auth';
 import { useOfflineStore } from '../src/stores/offline';
-import { useUiStore } from '../src/stores/ui';
 import InboxView from '../src/views/InboxView.vue';
 import ProjectDetailView from '../src/views/ProjectDetailView.vue';
 import ProjectListView from '../src/views/ProjectListView.vue';
@@ -146,13 +145,14 @@ describe('인박스 — the quick add on top, 말로 적기 folded under it', ()
     expect(wrapper.findAll('.btn--primary').map((button) => button.text())).toEqual(['작업 추가']);
   });
 
-  it('still takes the focus on the `n` shortcut’s request', async () => {
-    const { wrapper, pinia } = await mountInbox();
+  // HOLO-04: `n` is the capture bar's, on every screen (holo-capture.spec.ts,
+  // holo-shell.spec.ts). The inbox's quick add is reached like any other field.
+  it('keeps the quick add as an ordinary field: it does not take the focus by itself', async () => {
+    const { wrapper } = await mountInbox();
     expect(document.activeElement?.id).not.toBe('quick-add-title');
-    useUiStore(pinia).requestNewTask();
-    await nextTick();
-    await nextTick();
-    expect(document.activeElement).toBe(wrapper.get('#quick-add-title').element);
+    const field = wrapper.get<HTMLInputElement>('#quick-add-title');
+    field.element.focus();
+    expect(document.activeElement).toBe(field.element);
   });
 
   it('lists tasks as one quiet card of rows, with the deadline and its overdue state', async () => {

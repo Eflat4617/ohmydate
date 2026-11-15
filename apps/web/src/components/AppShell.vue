@@ -7,19 +7,22 @@ import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
 import { useSessionStore } from '../stores/session';
 import BottomNav from './BottomNav.vue';
+import CaptureBar from './capture/CaptureBar.vue';
 import HelpDialog from './HelpDialog.vue';
 import LlmConsentDialog from './LlmConsentDialog.vue';
 import NavRail from './NavRail.vue';
 import OfflineBanner from './OfflineBanner.vue';
 import NotificationsPanel from './NotificationsPanel.vue';
-import SearchDialog from './SearchDialog.vue';
 import ToastHost from './ToastHost.vue';
 import TopBar from './TopBar.vue';
 import BrandMark from './BrandMark.vue';
 import UiBanner from './ui/UiBanner.vue';
 import UiButton from './ui/UiButton.vue';
+import UiDialog from './ui/UiDialog.vue';
+import UiIcon from './ui/UiIcon.vue';
 import UiSpinner from './ui/UiSpinner.vue';
 import { calmMode } from '../composables/useCalmMode';
+import { useMediaQuery } from '../composables/useMediaQuery';
 import { NAV_PLACES } from '../layout/navigation';
 import { t } from '../i18n';
 
@@ -115,21 +118,32 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
-function requestNewTask(): void {
-  if (route.name === 'tasks' && route.query['view'] === undefined) {
-    ui.requestNewTask();
-    return;
-  }
-  void router.push({ name: 'tasks' }).then(async () => {
-    await nextTick();
-    ui.requestNewTask();
-  });
-}
+// HOLO-04: the capture bar lives in the top bar from 1024px. Below that the
+// bar is not on screen, so a request for it opens the same thing as a sheet.
+const wide = useMediaQuery('(min-width: 1024px)');
+watch(
+  () => ui.captureRequest,
+  () => {
+    if (!wide.value) ui.setCaptureSheet(true);
+  },
+);
+// Another screen: the sheet has done its job (a hand-off closes it itself).
+watch(
+  () => route.fullPath,
+  () => ui.setCaptureSheet(false),
+);
 
 /** The places' own keys (o, t, p, m, f), from the one list the sidebar reads. */
 const PLACE_KEYS = new Map(NAV_PLACES.flatMap((item) => (item.shortcut === undefined ? [] : [[item.shortcut, item] as const])));
 
 function onKeydown(event: KeyboardEvent): void {
+  // Ctrl+K (⌘K): the capture bar, from anywhere — also from a field.
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') {
+    if (ui.conflictOpen) return;
+    event.preventDefault();
+    ui.openCapture('capture');
+    return;
+  }
   if (event.metaKey || event.ctrlKey || event.altKey) return;
 
   if (ui.conflictOpen) return;
@@ -139,7 +153,7 @@ function onKeydown(event: KeyboardEvent): void {
     return;
   }
 
-  if (ui.helpOpen || ui.searchOpen || ui.notificationsOpen) {
+  if (ui.helpOpen || ui.notificationsOpen || ui.captureSheetOpen) {
     if (event.key === 'Escape') {
       event.preventDefault();
       ui.closeDialogs();
@@ -150,11 +164,11 @@ function onKeydown(event: KeyboardEvent): void {
   switch (event.key) {
     case 'n':
       event.preventDefault();
-      requestNewTask();
+      ui.openCapture('capture');
       return;
     case '/':
       event.preventDefault();
-      ui.openSearch();
+      ui.openCapture('search');
       return;
     case '?':
       event.preventDefault();
@@ -243,7 +257,24 @@ onUnmounted(() => {
     </div>
     <ToastHost />
     <HelpDialog :open="ui.helpOpen" @close="ui.closeDialogs()" />
-    <SearchDialog :open="ui.searchOpen" @close="ui.closeDialogs()" />
+    <!-- The phone's capture: the same bar, in a sheet that rises over the nav. -->
+    <UiDialog
+      v-if="ui.captureSheetOpen"
+      variant="sheet"
+      labelledby="capture-sheet-title"
+      close-on-backdrop
+      class="capture-sheet"
+      data-capture-sheet
+      @close="ui.setCaptureSheet(false)"
+    >
+      <header class="dialog-header">
+        <h2 id="capture-sheet-title" class="dialog-title">{{ t('capture.title') }}</h2>
+        <button type="button" class="btn btn--ghost btn--icon" :aria-label="t('common.close')" @click="ui.setCaptureSheet(false)">
+          <UiIcon name="close" />
+        </button>
+      </header>
+      <CaptureBar variant="sheet" @close="ui.setCaptureSheet(false)" />
+    </UiDialog>
     <NotificationsPanel
       :open="ui.notificationsOpen"
       @close="ui.closeDialogs()"

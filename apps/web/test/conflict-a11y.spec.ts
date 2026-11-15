@@ -1,4 +1,6 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { useUiStore } from '../src/stores/ui';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { defineComponent, h, nextTick } from 'vue';
@@ -50,7 +52,7 @@ describe('conflict dialog accessibility', () => {
     const pinia = createPinia();
 
     const wrapper = mount(AppShell, {
-      global: { plugins: [pinia, router] },
+      global: { plugins: [pinia, router, VueQueryPlugin] },
       slots: { default: () => h(TaskList, { tasks: [task] }) },
       attachTo: document.body,
     });
@@ -58,13 +60,14 @@ describe('conflict dialog accessibility', () => {
 
     await button(wrapper, '수정').trigger('click');
     await settle();
-    await wrapper.get('input').setValue('My unsaved draft');
-    await wrapper.get('form').trigger('submit');
+    // The task's own editor (the shell has a field of its own now: the capture bar).
+    await wrapper.get('form.inline-edit input').setValue('My unsaved draft');
+    await wrapper.get('form.inline-edit').trigger('submit');
     await vi.waitFor(() => {
       expect(wrapper.text()).toContain('다른 곳에서 이 작업이 바뀌었어요');
     });
 
-    const input = wrapper.get('input');
+    const input = wrapper.get('form.inline-edit input');
     expect(input.attributes('disabled')).toBeDefined();
 
     const reload = button(wrapper, '서버 버전 불러오기');
@@ -73,7 +76,12 @@ describe('conflict dialog accessibility', () => {
 
     expect(router.currentRoute.value.name).toBe('inbox');
     expect(wrapper.text()).toContain('다른 곳에서 이 작업이 바뀌었어요');
-    expect(wrapper.get('input').element).toHaveProperty('value', 'My unsaved draft');
+    expect(wrapper.get('form.inline-edit input').element).toHaveProperty('value', 'My unsaved draft');
+    // Neither does the capture bar's key reach the page under the dialog (negative).
+    reload.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', bubbles: true }));
+    reload.element.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+    await settle();
+    expect(useUiStore(pinia).captureRequest).toBe(0);
 
     wrapper.unmount();
   });

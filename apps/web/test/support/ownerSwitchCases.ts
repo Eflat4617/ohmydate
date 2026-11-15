@@ -11,6 +11,7 @@ import {
   type WorkSession,
 } from '../../src/api';
 import LlmConsentDialog from '../../src/components/LlmConsentDialog.vue';
+import CaptureBar from '../../src/components/capture/CaptureBar.vue';
 import NotificationsPanel from '../../src/components/NotificationsPanel.vue';
 import WizardNotesPanel from '../../src/components/notes/WizardNotesPanel.vue';
 import { setTopLevelNavigator } from '../../src/composables/useGoogleCalendar';
@@ -81,6 +82,16 @@ async function openCommitmentEditor(wrapper: VueWrapper): Promise<void> {
   await until(() => expect(wrapper.get('[data-commitment-edit]').attributes('disabled')).toBeUndefined());
   await wrapper.get('[data-commitment-edit]').trigger('click');
   await until(() => expect(wrapper.find('[data-planner-edit] #planner-commitment-title').exists()).toBe(true));
+}
+
+/** The capture bar as the phone's sheet holds it: its line and its panel are on screen. */
+function mountCaptureBar(stage: OwnerSwitchStage): VueWrapper {
+  return stage.mount(CaptureBar, { props: { variant: 'sheet' } });
+}
+
+async function captureReady(wrapper: VueWrapper): Promise<void> {
+  await until(() => expect(wrapper.find('[data-capture-input]').exists()).toBe(true));
+  await until(() => expect(wrapper.find('[data-capture-panel]').exists()).toBe(true));
 }
 
 /** 플래너: 약속 추가 opens the dialog whose top half is 말로 적기. */
@@ -297,6 +308,50 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     act: async (wrapper) => {
       await wrapper.get('.overview-grid [data-tracker-start]').trigger('click');
     },
+  },
+  // HOLO-04 담기 줄: a plain line added at once, a line sent to be read, and
+  // adding what was read. The bar is mounted as the shell mounts it in the
+  // phone's sheet (the same component as the one in the top bar).
+  {
+    name: 'capture: add a plain line',
+    covers: ['src/composables/useCapture.ts'],
+    mount: mountCaptureBar,
+    ready: captureReady,
+    hold: { method: 'POST', path: /\/tasks$/ },
+    act: async (wrapper) => {
+      await wrapper.get('[data-capture-input]').setValue('A-private-capture');
+      await wrapper.get('[data-capture-form]').trigger('submit');
+    },
+    markers: ['A-private-capture'],
+  },
+  {
+    name: 'capture: read a line',
+    covers: ['src/composables/useCapture.ts'],
+    mount: mountCaptureBar,
+    ready: captureReady,
+    hold: { method: 'POST', path: /\/tasks:parse$/ },
+    act: async (wrapper) => {
+      await wrapper.get('[data-capture-input]').setValue('내일 A-private-capture-read');
+      await wrapper.get('[data-capture-form]').trigger('submit');
+    },
+    markers: ['A-private-capture-read'],
+  },
+  {
+    name: 'capture: add what was read',
+    covers: ['src/composables/useCapture.ts'],
+    mount: mountCaptureBar,
+    // The read is part of getting ready; the action is adding the drafts it gave.
+    ready: async (wrapper) => {
+      await captureReady(wrapper);
+      await wrapper.get('[data-capture-input]').setValue('내일 A-private-capture-draft');
+      await wrapper.get('[data-capture-form]').trigger('submit');
+      await until(() => expect(wrapper.findAll('[data-capture-row]')).toHaveLength(1));
+    },
+    hold: { method: 'POST', path: /\/tasks$/ },
+    act: async (wrapper) => {
+      await wrapper.get('[data-capture-submit]').trigger('click');
+    },
+    markers: ['A-private-capture-draft'],
   },
   // HOLO-02 플래너: 약속 추가 (the manual fields of the dialog) and starting
   // a session from an item's detail card.

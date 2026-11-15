@@ -7,15 +7,18 @@ import { crumbFor, NAV_SETTINGS } from '../layout/navigation';
 import { useAuthStore } from '../stores/auth';
 import { useUiStore } from '../stores/ui';
 import BrandMark from './BrandMark.vue';
+import CaptureBar from './capture/CaptureBar.vue';
+import NowPill from './NowPill.vue';
 import ThemeSwitch from './ThemeSwitch.vue';
 import UiIcon from './ui/UiIcon.vue';
 
 /**
- * The top bar (HOLO-04): glass that floats over the page. On the left where
- * you are (sidebar toggle, the place and the screen under it); on the right
- * what is the app's own — the notifications and the account, whose menu holds
- * the theme, 설정 and sign-out. It holds no page action; a view's one primary
- * button belongs to the view.
+ * The top bar (HOLO-04, FLOW.md §4): glass that floats over the page. On the
+ * left where you are (sidebar toggle, the place and the screen under it); in
+ * the middle the capture bar (담기 줄); on the right the now pill, the
+ * notifications and the account, whose menu holds the theme, 설정 and
+ * sign-out. It holds no page action; a view's one primary button belongs to
+ * the view.
  */
 const props = withDefaults(defineProps<{ unread?: number }>(), { unread: 0 });
 
@@ -119,7 +122,11 @@ function signOut(): void {
       </p>
     </div>
 
+    <!-- 담기 줄: on every screen, in the middle of the bar (from 1024px; a phone opens it from its nav). -->
+    <CaptureBar class="topbar-capture" />
+
     <div class="topbar-end">
+      <NowPill />
       <button
         type="button"
         class="btn btn--ghost btn--icon topbar-bell"

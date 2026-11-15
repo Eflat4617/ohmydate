@@ -42,7 +42,7 @@ export const ko = {
   nav: {
     primary: '주 메뉴',
     home: 'OhMyDate 홈',
-    newTask: '새 작업',
+    capture: '담기',
     overview: '개요',
     tasks: '할 일',
     plan: '계획',
@@ -246,17 +246,98 @@ export const ko = {
   help: {
     title: '키보드 단축키',
     lede: '입력란 밖이라면 어디서든 키 하나로 쓸 수 있어요.',
-    newTask: '새 작업',
+    capture: '담기 · 할 일이나 약속 적기',
+    captureAnywhere: '담기 · 입력 중에도',
     search: '검색',
     help: '이 도움말',
     closeDialogs: '대화상자 닫기',
   },
 
-  search: {
-    title: '검색',
-    label: '작업 검색',
-    help: '검색은 지식 기능과 함께 제공될 예정이에요.',
-    placeholder: '검색은 다음 단계에서 지원해요',
+  // HOLO-04 (FLOW.md §2 ①, §4): the capture bar. One line in plain Korean
+  // becomes to-dos and appointments, and the ending offers the next stage.
+  capture: {
+    title: '담기',
+    label: '할 일이나 약속 적기',
+    panel: '담기',
+    placeholder: '할 일이나 약속을 말로 적어 보세요',
+    searchLabel: '검색',
+    searchPlaceholder: '작업이나 화면 이름으로 찾기',
+    modes: '담기와 검색',
+    mode: {
+      capture: '담기',
+      search: '검색',
+    },
+    hint: '엔터로 담아요. 여러 개는 쉼표로 나누고, 날짜나 시간도 그대로 적으면 돼요.',
+    empty: '담을 내용을 적어 주세요.',
+    offline: '오프라인에서는 담을 수 없어요. 적어 둔 글은 그대로 있어요.',
+    reading: '읽고 있어요… {seconds}초',
+    add: '담기',
+    addMany: plural({ other: '{count}개 담기' }),
+    asTitle: '읽지 않고 제목 그대로 담기',
+    rows: '읽은 초안',
+    leftover: '읽지 못한 부분: {text}',
+    kind: {
+      task: '할 일',
+      commitment: '약속',
+    },
+    row: {
+      title: '제목',
+      noDue: '마감 없음',
+      due: '{when}까지',
+      needsTime: '시간을 정해 주세요',
+      start: '‘{title}’ 시작 시각',
+      toCommitment: '약속으로 바꾸기',
+      toTask: '할 일로 바꾸기',
+      remove: '‘{title}’ 빼기',
+    },
+    status: {
+      read: plural({ other: '초안 {count}개를 읽었어요. 엔터로 담아요.' }),
+      unread: '날짜나 시간을 읽어 내지 못했어요. 제목 그대로 담을 수 있어요.',
+      noAi: 'AI 없이 제목 그대로 담았어요.',
+      fallback: '지금은 AI가 읽을 수 없어서 제목 그대로 담았어요.',
+      cancelled: '읽기를 멈췄어요. 적은 글은 그대로 있어요.',
+      addedOne: '‘{title}’을(를) 담았어요.',
+      addedMany: plural({ other: '{count}개를 담았어요.' }),
+      addError: '‘{title}’을(를) 담지 못했어요.',
+      removed: '‘{title}’을(를) 뺐어요.',
+      nowCommitment: '‘{title}’을(를) 약속으로 바꿨어요.',
+      nowTask: '‘{title}’을(를) 할 일로 바꿨어요.',
+    },
+    notice: {
+      'no-ai': 'AI 없이 제목 그대로 담았어요.',
+      fallback: '지금은 AI가 읽을 수 없어서 제목 그대로 담았어요. 날짜는 할 일에서 넣을 수 있어요.',
+      unread: '날짜나 시간을 읽어 내지 못했어요. 제목 그대로 담을까요?',
+    },
+    done: {
+      one: '‘{title}’을(를) 담았어요',
+      many: plural({ other: '{count}개 담았어요' }),
+      ask: '계획에 넣을까요?',
+      toPlan: '계획에 넣기',
+      toPlanner: '플래너에서 보기',
+      again: '계속 담기',
+    },
+    search: {
+      hint: '작업 이름이나 화면 이름을 적어 보세요.',
+      loading: '찾는 중…',
+      results: '검색 결과',
+      count: plural({ other: '검색 결과 {count}개' }),
+      none: '‘{q}’에 맞는 것이 없어요.',
+      place: '화면',
+      captureInstead: '이 이름으로 담기',
+    },
+  },
+
+  // HOLO-04 (FLOW.md §4): the now pill of the top bar.
+  now: {
+    running: '집중 중',
+    paused: '멈춤',
+    untitled: '집중 세션',
+    left: '{duration} 남음',
+    nowBlock: '지금',
+    runningAria: '{state}: {title}, {time}. 집중 화면 열기',
+    nextAria: '다음 블록 {time} {title}. 개요에서 보기',
+    start: '‘{title}’ 집중 시작',
+    startShort: '집중 시작',
   },
 
   offline: {
@@ -1365,9 +1446,10 @@ export const ko = {
       providerValue: '{provider} 게이트웨이 ({model} · {modelId})',
       data: '보내는 데이터',
       // FU-91: also the AI-allowed notes linked to the plan (M6-03), as the GU-1 guide states.
-      // CAL-02: also the note typed into 약속 > 말로 적기.
-      // CAL-05: and the note typed into 인박스 > 말로 적기.
-      dataValue: '계획 세우기에 입력한 내용(제목·마감·설명·질문 답변), 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 이 계획에 연결한 노트의 관련 구간 일부, 그리고 약속·인박스 화면의 ‘말로 적기’에 적은 메모(오늘 날짜·시간대와 함께)만 보내요.',
+      // CAL-02: also the note typed into 약속 추가 > 말로 적기.
+      // CAL-05: and the note typed into 할 일 > 말로 적기.
+      // HOLO-04: and a line typed into the capture bar (담기 줄) that has a day or a time in it.
+      dataValue: '계획 세우기에 입력한 내용(제목·마감·설명·질문 답변), 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 이 계획에 연결한 노트의 관련 구간 일부, 그리고 담기 줄과 ‘말로 적기’(할 일·약속 추가)에 적은 글(오늘 날짜·시간대와 함께)만 보내요.',
       masking: '마스킹은 최선 노력이에요',
       // {kinds} is built from MASKED_KINDS (i18n/redaction.ts), the mirror of
       // RedactionKind in packages/llm/src/privacy.ts. Never name a kind here
@@ -1391,7 +1473,7 @@ export const ko = {
     },
     settings: {
       title: 'AI 설정',
-      lede: 'AI 계획 도움은 {provider} 게이트웨이를 거쳐 {model}({modelId})을 써요. 요청에는 계획 세우기 입력, 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 계획에 연결한 노트의 관련 구간 일부, 약속·인박스 화면의 ‘말로 적기’ 메모만 담겨요.',
+      lede: 'AI 계획 도움은 {provider} 게이트웨이를 거쳐 {model}({modelId})을 써요. 요청에는 계획 세우기 입력, 지금 단계에 필요한 작업 단계 정보, ‘AI에 보내기 허용’을 켜고 계획에 연결한 노트의 관련 구간 일부, 담기 줄과 ‘말로 적기’에 적은 글만 담겨요.',
       noConsentTitle: 'AI 동의가 필요 없어요',
       noConsentBody: '이 빌드는 AI 없이 동작하는 결정형 플래너를 쓰기 때문에 AI 동의가 필요 없어요.',
       consentLegend: '동의',

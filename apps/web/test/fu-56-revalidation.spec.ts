@@ -1,4 +1,5 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import { defineComponent, nextTick } from 'vue';
@@ -42,7 +43,7 @@ async function mountShell(pinia: ReturnType<typeof createPinia>): Promise<VueWra
   const router = testRouter();
   await router.push('/overview');
   const wrapper = mount(AppShell, {
-    global: { plugins: [pinia, router] },
+    global: { plugins: [pinia, router, VueQueryPlugin] },
     slots: { default: '<p class="protected-body">Journal</p>' },
     attachTo: document.body,
   });
@@ -326,7 +327,7 @@ describe('identity revalidation hardening (FU-85)', () => {
     const router = testRouter();
     await router.push('/overview');
     const wrapper = mount(AppShell, {
-      global: { plugins: [pinia, router] },
+      global: { plugins: [pinia, router, VueQueryPlugin] },
       slots: { default: '<p class="protected-body">Journal</p>' },
       attachTo: document.body,
     });

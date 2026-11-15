@@ -32,7 +32,6 @@ import { server } from '../src/mocks/server';
 import { useAuthStore } from '../src/stores/auth';
 import { useLlmConsentStore } from '../src/stores/llmConsent';
 import { useOfflineStore } from '../src/stores/offline';
-import { useUiStore } from '../src/stores/ui';
 import CommitmentAddDialog from '../src/components/planner/CommitmentAddDialog.vue';
 import InboxView from '../src/views/InboxView.vue';
 import { mountWithPlugins, settle } from './planning-test-utils';
@@ -475,14 +474,16 @@ describe('/inbox 말로 적기', () => {
     wrapper.unmount();
   });
 
-  it('`n` / 새 작업 still focuses the quick add, also with drafts on screen', async () => {
+  it('the quick add stays usable with drafts on screen: one field away, never taken over', async () => {
     const pinia = createPinia();
     const wrapper = await mountInbox(pinia);
     await read(wrapper, TWO);
     await vi.waitFor(() => expect(document.activeElement?.id).toBe('task-parse-result-heading'));
-    useUiStore(pinia).requestNewTask();
-    await settle();
-    await vi.waitFor(() => expect(document.activeElement?.id).toBe('quick-add-title'));
+    // HOLO-04: `n` is the capture bar's now, so nothing moves the focus here on its own.
+    const field = wrapper.get<HTMLInputElement>('#quick-add-title');
+    expect(field.attributes('disabled')).toBeUndefined();
+    field.element.focus();
+    expect(document.activeElement).toBe(field.element);
     wrapper.unmount();
   });
 
@@ -629,7 +630,8 @@ describe('/inbox 말로 적기: AI consent (FU-91 rules)', () => {
     expect(parseRequests(seen)).toHaveLength(0);
     expect((wrapper.get('#task-note').element as HTMLTextAreaElement).value).toBe(TWO);
     expect(wrapper.get('#quick-add-title').attributes('disabled')).toBeUndefined();
-    expect(wrapper.get('[data-testid="task-parse"] .nl-entry-disclosure').text()).toContain('인박스');
+    // The disclosure names where typed text is sent from: the capture bar and 말로 적기 (할 일, 약속 추가).
+    expect(wrapper.get('[data-testid="task-parse"] .nl-entry-disclosure').text()).toContain('담기 줄과 ‘말로 적기’(할 일·약속 추가)');
     wrapper.unmount();
   });
 });

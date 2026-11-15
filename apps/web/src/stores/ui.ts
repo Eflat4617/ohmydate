@@ -3,17 +3,28 @@ import { defineStore } from 'pinia';
 import { readNavCollapsed, writeNavCollapsed } from '../layout/shellNav';
 import { captureOwnerBinding, currentOwnerId, onActiveOwnerChange } from '../session/ownerEpoch';
 
+export type CaptureMode = 'capture' | 'search';
+
 export const useUiStore = defineStore('ui', () => {
   const helpOpen = ref(false);
-  const searchOpen = ref(false);
   const notificationsOpen = ref(false);
   const conflictCount = ref(0);
   const conflictOpen = computed(() => conflictCount.value > 0);
-  const newTaskRequest = ref(0);
+  /**
+   * HOLO-04: the capture bar (담기 줄). `n`, `Ctrl+K`, `/` and the buttons that
+   * stand for them bump `captureRequest`; the bar in the top bar answers by
+   * taking the focus, and where it is not on screen (a phone) the shell opens
+   * it as a sheet. `captureMode` says whether it puts things down or searches.
+   */
+  const captureRequest = ref(0);
+  const captureMode = ref<CaptureMode>('capture');
+  const captureSheetOpen = ref(false);
   // HOLO-01: the sidebar folded down to icons, remembered per owner.
   const navCollapsed = ref(readNavCollapsed(currentOwnerId()));
   onActiveOwnerChange((nextOwnerId) => {
     navCollapsed.value = readNavCollapsed(nextOwnerId);
+    captureSheetOpen.value = false;
+    captureMode.value = 'capture';
   });
 
   function setNavCollapsed(collapsed: boolean): void {
@@ -29,25 +40,16 @@ export const useUiStore = defineStore('ui', () => {
 
   function openHelp(): void {
     helpOpen.value = true;
-    searchOpen.value = false;
-    notificationsOpen.value = false;
-  }
-
-  function openSearch(): void {
-    searchOpen.value = true;
-    helpOpen.value = false;
     notificationsOpen.value = false;
   }
 
   function openNotifications(): void {
     notificationsOpen.value = true;
     helpOpen.value = false;
-    searchOpen.value = false;
   }
 
   function closeDialogs(): void {
     helpOpen.value = false;
-    searchOpen.value = false;
     notificationsOpen.value = false;
   }
 
@@ -59,17 +61,35 @@ export const useUiStore = defineStore('ui', () => {
     conflictCount.value = Math.max(0, conflictCount.value - 1);
   }
 
-  function requestNewTask(): void {
-    newTaskRequest.value += 1;
+  function setCaptureMode(mode: CaptureMode): void {
+    captureMode.value = mode;
+  }
+
+  /** Ask for the capture bar: to put something down (the default) or to search. */
+  function openCapture(mode: CaptureMode = 'capture'): void {
+    helpOpen.value = false;
+    notificationsOpen.value = false;
+    captureMode.value = mode;
+    captureRequest.value += 1;
+  }
+
+  /** Search lives in the capture bar. */
+  function openSearch(): void {
+    openCapture('search');
+  }
+
+  function setCaptureSheet(open: boolean): void {
+    captureSheetOpen.value = open;
   }
 
   return {
     helpOpen,
-    searchOpen,
     notificationsOpen,
     conflictOpen,
     conflictCount,
-    newTaskRequest,
+    captureRequest,
+    captureMode,
+    captureSheetOpen,
     navCollapsed,
     setNavCollapsed,
     toggleNav,
@@ -79,6 +99,8 @@ export const useUiStore = defineStore('ui', () => {
     closeDialogs,
     openConflict,
     closeConflict,
-    requestNewTask,
+    setCaptureMode,
+    openCapture,
+    setCaptureSheet,
   };
 });

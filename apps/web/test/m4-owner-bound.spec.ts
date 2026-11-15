@@ -389,7 +389,7 @@ describe('owner-bound Focus and Today client operations', () => {
     const router = testRouter();
     await router.push('/overview');
     const wrapper = mount(AppShell, {
-      global: { plugins: [pinia, router] },
+      global: { plugins: [pinia, router, VueQueryPlugin] },
       attachTo: document.body,
     });
     await vi.waitFor(() =>

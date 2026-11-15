@@ -25,7 +25,9 @@ defineEmits<{ close: [] }>();
     </header>
     <dl class="shortcut-list">
       <dt><kbd>n</kbd></dt>
-      <dd>{{ t('help.newTask') }}</dd>
+      <dd>{{ t('help.capture') }}</dd>
+      <dt><kbd>Ctrl</kbd> <kbd>K</kbd></dt>
+      <dd>{{ t('help.captureAnywhere') }}</dd>
       <template v-for="item in PLACES" :key="item.id">
         <dt>
           <kbd>{{ item.shortcut }}</kbd>

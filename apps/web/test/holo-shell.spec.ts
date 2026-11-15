@@ -1,4 +1,5 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createPinia, type Pinia } from 'pinia';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import { defineComponent, h, nextTick } from 'vue';
@@ -50,7 +51,7 @@ async function mountShell(path = '/overview'): Promise<Shell> {
   await router.isReady();
   const pinia = createPinia();
   const wrapper = mount(AppShell, {
-    global: { plugins: [pinia, router] },
+    global: { plugins: [pinia, router, VueQueryPlugin] },
     slots: { default: () => h('h1', 'screen') },
     attachTo: document.body,
   });
@@ -98,19 +99,17 @@ describe('sidebar', () => {
     ]);
     // Sixteen entries in four groups became seven places: no group labels are left.
     expect(wrapper.find('.nav-rail [data-nav-group]').exists()).toBe(false);
-    expect(wrapper.findAll('.nav-rail .nav-secondary .nav-link-label').map((label) => label.text())).toEqual([
-      '설정',
-      '검색',
-      '도움말',
-    ]);
+    // 설정 and 도움말 at the foot; putting things down and searching are the capture bar's.
+    expect(wrapper.findAll('.nav-rail .nav-secondary .nav-link-label').map((label) => label.text())).toEqual(['설정', '도움말']);
     expect(wrapper.get('.nav-rail .nav-secondary a.nav-link').attributes('href')).toBe('/settings');
     // Every place has its line icon, and the shortcuts are shown.
     expect(wrapper.findAll('.nav-rail [data-nav-places] .nav-link').every((link) => link.find('svg.nav-link-icon').exists())).toBe(true);
     expect(wrapper.findAll('.nav-rail [data-nav-places] kbd').map((key) => key.text())).toEqual(['o', 't', 'p', 'm', 'f']);
-    // The brand opens 개요; 새 작업 stays reachable with its key.
+    // The brand opens 개요.
     expect(wrapper.get('.nav-brand').attributes('href')).toBe('/overview');
-    expect(wrapper.get('.nav-new-task').text()).toContain('새 작업');
-    expect(wrapper.get('.nav-new-task kbd').text()).toBe('n');
+    // No "새 작업" button and no search entry in the sidebar (negative): both live in the top bar's capture bar.
+    expect(wrapper.find('.nav-rail .nav-new-task').exists()).toBe(false);
+    expect(wrapper.get('.nav-rail').text()).not.toContain('검색');
     // Sign-out is the account's, not a place (negative).
     expect(wrapper.get('.nav-rail').text()).not.toContain('로그아웃');
   });
@@ -404,24 +403,78 @@ describe('shortcuts', () => {
     expect(router.currentRoute.value.fullPath).toBe(`/focus/${session.id}`);
   });
 
-  it('n asks 할 일 for a new task, / opens search and ? opens help', async () => {
-    const { wrapper, router, pinia } = await mountShell('/overview');
+  it('n opens the capture bar on any screen, / opens it as the search, and neither leaves the page', async () => {
+    const { wrapper, router, pinia } = await mountShell('/planner');
     const ui = useUiStore(pinia);
+    // The bar is in the top bar on every screen.
+    expect(wrapper.find('.app-topbar [data-capture]').exists()).toBe(true);
     press('n');
-    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('tasks'));
-    await vi.waitFor(() => expect(ui.newTaskRequest).toBe(1));
+    expect(ui.captureRequest).toBe(1);
+    expect(ui.captureMode).toBe('capture');
+    expect(router.currentRoute.value.name).toBe('planner');
+    // jsdom has no wide viewport: the request opens the same bar as a sheet.
+    await vi.waitFor(() => expect(document.querySelector('[data-capture-sheet]')).not.toBeNull());
+    const sheet = document.querySelector('[data-capture-sheet]');
+    expect(sheet?.getAttribute('role')).toBe('dialog');
+    expect(sheet?.classList.contains('glass')).toBe(true);
+    await vi.waitFor(() => expect(document.activeElement).toBe(sheet?.querySelector('[data-capture-input]')));
+    ui.setCaptureSheet(false);
+    await vi.waitFor(() => expect(document.querySelector('[data-capture-sheet]')).toBeNull());
 
     press('/');
-    expect(ui.searchOpen).toBe(true);
-    ui.closeDialogs();
+    expect(ui.captureRequest).toBe(2);
+    expect(ui.captureMode).toBe('search');
+    await vi.waitFor(() => expect(document.querySelector('[data-capture-sheet] [data-capture-search]')).not.toBeNull());
+  });
+
+  it('on a wide window the bar in the top bar takes the focus instead of a sheet', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query === '(min-width: 1024px)',
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    const { wrapper, pinia } = await mountShell('/planner');
+    press('n');
+    const field = wrapper.get('.app-topbar [data-capture-input]');
+    await vi.waitFor(() => expect(document.activeElement).toBe(field.element));
+    expect(useUiStore(pinia).captureSheetOpen).toBe(false);
+    expect(document.querySelector('[data-capture-sheet]')).toBeNull();
+    expect(wrapper.find('.app-topbar [data-capture-panel]').exists()).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
+  it('Ctrl+K opens the capture bar even from a field; ? opens help', async () => {
+    const { wrapper, pinia } = await mountShell('/overview');
+    const ui = useUiStore(pinia);
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true, cancelable: true }));
+    expect(ui.captureRequest).toBe(1);
+    // Other chords are not ours (negative).
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, shiftKey: true, bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', ctrlKey: true, bubbles: true }));
+    expect(ui.captureRequest).toBe(1);
+    input.remove();
+    await vi.waitFor(() => expect(ui.captureSheetOpen).toBe(true));
+    // Under the open sheet the single keys are the sheet's (negative).
+    press('?');
+    expect(ui.helpOpen).toBe(false);
+    ui.setCaptureSheet(false);
+    await nextTick();
+
     press('?');
     expect(ui.helpOpen).toBe(true);
     await nextTick();
     // The help dialog lists the places' keys from the same list the sidebar reads.
     const help = document.querySelector('[role="dialog"][aria-labelledby="help-title"]');
-    const rows = [...(help?.querySelectorAll('dt') ?? [])].map((term) => [term.textContent?.trim(), term.nextElementSibling?.textContent?.trim()]);
+    const rows = [...(help?.querySelectorAll('dt') ?? [])].map((term) => [
+      term.textContent?.replace(/\s+/g, ' ').trim(),
+      term.nextElementSibling?.textContent?.trim(),
+    ]);
     expect(rows).toEqual([
-      ['n', '새 작업'],
+      ['n', '담기 · 할 일이나 약속 적기'],
+      ['Ctrl K', '담기 · 입력 중에도'],
       ['o', '개요'],
       ['t', '할 일'],
       ['p', '계획'],
@@ -453,12 +506,17 @@ describe('shortcuts', () => {
 });
 
 describe('phone navigation', () => {
-  it('keeps five slots: the first places of the loop, 새 작업 and 더 보기', async () => {
-    const { wrapper, router } = await mountShell('/overview');
+  it('keeps five slots: the first places of the loop, 담기 and 더 보기', async () => {
+    const { wrapper, router, pinia } = await mountShell('/overview');
     const bar = wrapper.get('.bottom-nav');
     expect(bar.attributes('aria-label')).toBe('주 메뉴');
     const slots = bar.findAll('a, button').map((item) => item.attributes('aria-label') ?? item.text());
-    expect(slots).toEqual(['개요', '할 일', '새 작업', '계획', '더 보기']);
+    expect(slots).toEqual(['개요', '할 일', '담기', '계획', '더 보기']);
+    // 담기 opens the capture bar as a sheet, from any screen.
+    await bar.get('[data-nav-capture]').trigger('click');
+    await vi.waitFor(() => expect(document.querySelector('[data-capture-sheet]')).not.toBeNull());
+    useUiStore(pinia).setCaptureSheet(false);
+    await nextTick();
     expect(BOTTOM_BAR_PLACES.map((item) => item.id)).toEqual(['overview', 'tasks', 'plan']);
     const current = () => bar.findAll('.bottom-nav-item--current').map((item) => item.text());
     expect(current()).toEqual(['개요']);
