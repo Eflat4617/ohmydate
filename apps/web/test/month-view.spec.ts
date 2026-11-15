@@ -327,7 +327,7 @@ describe('한달 (MonthView)', () => {
     const { wrapper } = await mountMonth('/month?m=2027-01');
     const empty = wrapper.get('[data-month-empty]');
     expect(empty.text()).toContain('이 달에는 블록도, 약속도, 마감도 없어요.');
-    expect(empty.findAll('a').map((link) => link.attributes('href'))).toEqual(['/plans/new', '/commitments']);
+    expect(empty.findAll('a').map((link) => link.attributes('href'))).toEqual(['/plan/schedule', '/commitments']);
     expect(wrapper.findAll('[role="gridcell"]').length).toBeGreaterThanOrEqual(28);
     expect(wrapper.get('[data-month-detail] .month-detail-empty').text()).toBe('이날은 비어 있어요.');
   });

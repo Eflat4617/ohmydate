@@ -514,6 +514,34 @@ describe('WeekGrid: proposals on the page', () => {
     wrapper.unmount();
   });
 
+  it('opens the hours an hour before the first proposal of a schedule being compared, and again for another candidate', async () => {
+    const wrapper = mountGrid({ openAt: 'proposal', scrollKey: 'a' });
+    const body = wrapper.get('[data-week-body]').element as HTMLElement;
+    // 18 hours on the page (06:00–24:00), 50px each.
+    Object.defineProperty(body, 'clientHeight', { configurable: true, value: 900 });
+    const scroller = wrapper.get('.wg-scroll').element as HTMLElement;
+    await wrapper.setProps({ scrollKey: 'b' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The first proposal starts at 09:00: the page opens at 08:00, two hours below 06:00.
+    expect(scroller.scrollTop).toBe(100);
+    // Moving a proposal changes none of what reopens the page: an edit never scrolls it.
+    scroller.scrollTop = 333;
+    await wrapper.get('[data-item="proposal:0@2026-11-10"]').trigger('keydown', { key: 'ArrowDown', altKey: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(scroller.scrollTop).toBe(333);
+    wrapper.unmount();
+  });
+
+  it('with nothing to open at, the hours open at 08:00 (negative)', async () => {
+    const wrapper = mountGrid({ openAt: 'proposal', scrollKey: 'a' }, { proposals: [] });
+    const body = wrapper.get('[data-week-body]').element as HTMLElement;
+    Object.defineProperty(body, 'clientHeight', { configurable: true, value: 900 });
+    await wrapper.setProps({ scrollKey: 'b' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((wrapper.get('.wg-scroll').element as HTMLElement).scrollTop).toBe(100);
+    wrapper.unmount();
+  });
+
   it('an empty week keeps a focusable, labelled grid; arrow keys there edit nothing (negative)', async () => {
     const wrapper = mountGrid({ editable: true }, { proposals: [] });
     const body = wrapper.get('[data-week-body]');

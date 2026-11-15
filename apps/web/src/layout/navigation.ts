@@ -43,7 +43,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     label: 'nav.groupPlanning',
     items: [
       { to: '/plan/new', label: 'nav.plan', icon: 'plan', routes: ['plan-new', 'plan-session'] },
-      { to: '/plans/new', label: 'nav.newPlan', icon: 'compare', routes: ['plans-new', 'plan'] },
+      { to: '/plan/schedule', label: 'nav.newPlan', icon: 'compare', routes: ['plan-scope', 'plan-schedule'] },
       { to: '/replan', label: 'nav.replan', icon: 'reschedule', routes: ['replan', 'replan-proposal'] },
       { to: '/commitments', label: 'nav.commitments', icon: 'commitment', routes: ['commitments'] },
       { to: '/settings/availability', label: 'nav.availability', icon: 'availability', routes: ['availability'] },

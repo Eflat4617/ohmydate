@@ -184,7 +184,7 @@ function retry(): void {
     </p>
     <p v-if="showEmpty" class="planner-note planner-empty" data-planner-empty>
       {{ t('planner.week.empty') }}
-      <RouterLink to="/plans/new">{{ t('month.emptyPlan') }}</RouterLink>
+      <RouterLink to="/plan/schedule">{{ t('month.emptyPlan') }}</RouterLink>
     </p>
     <p v-if="data?.truncated" class="planner-note">{{ t('month.truncated') }}</p>
 

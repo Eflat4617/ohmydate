@@ -598,6 +598,18 @@ export function createPlanningHandlers(db: MockDb) {
         createdAt: now,
       };
       db.planVersions.set(planVersion.id, planVersion);
+      // The confirmed blocks are on the calendar from now on (`GET
+      // /schedule-blocks`), in place of the ones an earlier confirmation of
+      // this plan put there — as on the server.
+      const replaced = new Set(
+        [...db.planVersions.values()]
+          .filter((version) => version.planId === plan.id && version.id !== planVersion.id)
+          .map((version) => version.id),
+      );
+      db.extraScheduleBlocks = [
+        ...db.extraScheduleBlocks.filter((block) => !replaced.has(block.planVersionId)),
+        ...planVersion.blocks.map((block) => ({ ...block })),
+      ];
       const updatedPlan: Plan = {
         ...plan,
         status: 'active',

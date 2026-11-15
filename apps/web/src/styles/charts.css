@@ -333,3 +333,29 @@
   box-shadow: 0 0 0 3px var(--color-accent-soft);
   transform: translate(-50%, -50%);
 }
+
+/* ── Load strip (HOLO-03A): one small bar per day ──────────────────── */
+.load-strip {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.load-strip-track {
+  fill: var(--data-track);
+}
+
+.load-strip-bar {
+  fill: var(--data-rest);
+}
+
+/* The strip of the schedule that is picked takes the leading series. */
+.load-strip--lead .load-strip-bar {
+  fill: var(--data-1);
+  stroke: var(--data-1-edge);
+  stroke-width: 1;
+}
+
+.load-strip-mark {
+  fill: var(--orange);
+}

@@ -3,9 +3,9 @@ import { mount, type DOMWrapper, type VueWrapper } from '@vue/test-utils';
 import { http, HttpResponse } from 'msw';
 import { createPinia } from 'pinia';
 import { defineComponent } from 'vue';
-import { createPlannerClient, newActionId, plannerClient, type Plan, type PlanBlock } from '../src/api';
+import { createPlannerClient, newActionId, plannerClient, type Plan } from '../src/api';
 import BlockLockToggle from '../src/components/BlockLockToggle.vue';
-import WeekCalendar from '../src/components/WeekCalendar.vue';
+import WeekGrid from '../src/components/planner/WeekGrid.vue';
 import { useBlockLock } from '../src/composables/useBlockLock';
 import { setLayoutClock } from '../src/layout/clock';
 import {
@@ -19,7 +19,7 @@ import { REPLAN_PENDING_ID, seedReplanScenario } from '../src/mocks/replan';
 import { server } from '../src/mocks/server';
 import { useOfflineStore } from '../src/stores/offline';
 import { useToastStore } from '../src/stores/toast';
-import PlanComparisonView from '../src/views/PlanComparisonView.vue';
+import PlanScheduleView from '../src/views/PlanScheduleView.vue';
 import ReplanProposalView from '../src/views/ReplanProposalView.vue';
 import TodayView from '../src/views/TodayView.vue';
 import { useTestClock } from './m6-layout-utils';
@@ -27,9 +27,9 @@ import { mountView, waitForText } from './m5-test-utils';
 import { mountWithPlugins, settle, testRouter } from './planning-test-utils';
 
 /**
- * FU-71 — the lock toggle on approved blocks: Today cards and the plan's
- * approved schedule toggle it (`POST /schedule-blocks/{id}:lock|:unlock`), the
- * replan proposal only shows it. Owner switches are covered by the sweep
+ * FU-71 — the lock toggle on approved blocks: Today cards and the detail card
+ * of a confirmed block on the week grid (플래너, 일정안) toggle it (`POST
+ * /schedule-blocks/{id}:lock|:unlock`), the replan proposal only shows it. Owner switches are covered by the sweep
  * (test/support/ownerSwitchCases.ts: "today: lock a block", "plans: lock an
  * approved block").
  */
@@ -87,17 +87,9 @@ function describedText(root: Pick<VueWrapper, 'find'>, element: Pick<DOMWrapper<
     .join(' ');
 }
 
-/** A pointer drag on a calendar block: press at `fromY`, move to `toY`, release (1 px = 1 min). */
-function pointerDrag(block: DOMWrapper<Element> | undefined, fromY: number, toY: number): void {
-  if (block === undefined) throw new Error('calendar block missing');
-  block.element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientY: fromY }));
-  window.dispatchEvent(new PointerEvent('pointermove', { clientY: toY }));
-  window.dispatchEvent(new PointerEvent('pointerup', { clientY: toY }));
-}
-
 const NETWORK_ERROR = '서버에 연결하지 못했어요. 연결을 확인하고 다시 시도해 주세요.';
 const NOT_LOCKABLE = '이미 시작했거나 끝난 블록은 고정을 바꿀 수 없어요. 최신 일정을 다시 불러왔어요.';
-const SAVING_HINT = '블록 고정을 저장하는 동안에는 일정안을 편집할 수 없어요. 저장이 끝나면 다시 편집할 수 있어요.';
+const SAVING_HINT = '블록 고정을 저장하는 동안에는 일정안을 고칠 수 없어요. 저장이 끝나면 다시 고칠 수 있어요.';
 
 describe('BlockLockToggle', () => {
   it('unlocked: a native button named "블록 고정", aria-pressed=false, a click asks to toggle', async () => {
@@ -471,7 +463,7 @@ describe('useBlockLock guards', () => {
   });
 });
 
-describe('Plan comparison: lock an approved block', () => {
+describe('일정안: lock a confirmed block from its card', () => {
   /** The plan the page shows (set by mountPlan). */
   let shown: Plan | undefined;
 
@@ -484,6 +476,10 @@ describe('Plan comparison: lock an approved block', () => {
     setLayoutClock(null);
   });
 
+  /**
+   * A plan being compared. Its week also holds what is already confirmed —
+   * here the two seeded blocks of today, which belong to another plan.
+   */
   async function mountPlan(): Promise<VueWrapper> {
     const task = [...mockDb.tasks.values()][0];
     if (task === undefined) throw new Error('seed task missing');
@@ -497,36 +493,75 @@ describe('Plan comparison: lock an approved block', () => {
     );
     shown = plan;
     const router = testRouter();
-    await router.push(`/plans/${plan.id}`);
+    await router.push(`/plan/schedule/${plan.id}`);
     await router.isReady();
-    const wrapper = mountWithPlugins(PlanComparisonView, { router, pinia: createPinia() });
+    const wrapper = mountWithPlugins(PlanScheduleView, { router, pinia: createPinia(), props: { id: plan.id } });
     await settle();
-    await vi.waitFor(() => expect(wrapper.find(`[data-approved-block-id="${TODAY_BLOCK_ONE_ID}"] button[data-block-lock]`).exists()).toBe(true));
+    await vi.waitFor(() => expect(wrapper.find(`[data-item^="block:${TODAY_BLOCK_ONE_ID}@"]`).exists()).toBe(true));
+    await vi.waitFor(() => expect(wrapper.findAll('[data-kind="proposal"]').length).toBeGreaterThan(0));
     return wrapper;
   }
 
-  function rowToggle(wrapper: VueWrapper) {
-    return wrapper.get(`[data-approved-block-id="${TODAY_BLOCK_ONE_ID}"] button[data-block-lock]`);
+  /** Open the detail card of a confirmed block; the lock toggle is in it. */
+  async function openCard(wrapper: VueWrapper, blockId: string) {
+    if (wrapper.find('[data-planner-card]').exists()) {
+      await wrapper.get('[data-planner-card-close]').trigger('click');
+      await settle();
+    }
+    await wrapper.get(`[data-item^="block:${blockId}@"]`).trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-planner-card="block"] button[data-block-lock]').exists()).toBe(true));
+    return wrapper.get('[data-planner-card="block"]');
   }
 
-  it('locks from the approved schedule and pauses locks while the candidate draft is edited', async () => {
+  function cardToggle(wrapper: VueWrapper) {
+    return wrapper.get('[data-planner-card="block"] button[data-block-lock]');
+  }
+
+  function proposalItems(wrapper: VueWrapper) {
+    return wrapper.findAll('[data-kind="proposal"]');
+  }
+
+  function proposalLabels(wrapper: VueWrapper): Array<string | undefined> {
+    return proposalItems(wrapper).map((block) => block.attributes('aria-label'));
+  }
+
+  function draftState(wrapper: VueWrapper): string {
+    return wrapper.get('[data-plan-draft-state]').text();
+  }
+
+  /** A press-and-drag on a grid item: press at `fromY`, move to `toY`, release (the axis is 50px an hour here). */
+  function gridDrag(wrapper: VueWrapper, block: DOMWrapper<Element> | undefined, fromY: number, toY: number): void {
+    if (block === undefined) throw new Error('grid item missing');
+    Object.defineProperty(wrapper.get('[data-week-body]').element, 'clientHeight', { configurable: true, value: 900 });
+    block.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: fromY }));
+    window.dispatchEvent(new MouseEvent('pointermove', { clientY: toY }));
+    window.dispatchEvent(new MouseEvent('pointerup', { clientY: toY }));
+  }
+
+  it('locks from the block’s card, marks the block on the grid, and pauses locks while the candidate draft is edited', async () => {
     const wrapper = await mountPlan();
-    expect(rowToggle(wrapper).text()).toBe('블록 고정');
-    expect(rowToggle(wrapper).attributes('aria-pressed')).toBe('false');
-    await rowToggle(wrapper).trigger('click');
-    await vi.waitFor(() => expect(rowToggle(wrapper).attributes('aria-pressed')).toBe('true'));
-    await vi.waitFor(() => expect(rowToggle(wrapper).attributes('disabled')).toBeUndefined());
-    expect(rowToggle(wrapper).text()).toBe('블록 고정');
-    expect(rowToggle(wrapper).attributes('data-block-lock')).toBe('locked');
+    await openCard(wrapper, TODAY_BLOCK_ONE_ID);
+    expect(cardToggle(wrapper).text()).toBe('블록 고정');
+    expect(cardToggle(wrapper).attributes('aria-pressed')).toBe('false');
+    await cardToggle(wrapper).trigger('click');
+    await vi.waitFor(() => expect(cardToggle(wrapper).attributes('aria-pressed')).toBe('true'));
+    await vi.waitFor(() => expect(cardToggle(wrapper).attributes('disabled')).toBeUndefined());
+    expect(cardToggle(wrapper).text()).toBe('블록 고정');
+    expect(cardToggle(wrapper).attributes('data-block-lock')).toBe('locked');
     expect(mockDb.todayBlockLocks.get(TODAY_BLOCK_ONE_ID)).toEqual({ locked: true, version: 2 });
+    // The grid shows the lock on the block itself, and says so in its name.
+    const item = wrapper.get(`[data-item^="block:${TODAY_BLOCK_ONE_ID}@"]`);
+    expect(item.classes()).toContain('wg-item--locked');
+    expect(item.attributes('aria-label')).toMatch(/^고정된 블록, /);
 
     // Editing a candidate: a plan re-read would reset the draft, so locks wait.
-    await vi.waitFor(() => expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0));
-    await wrapper.findAll('.calendar-block')[0]?.trigger('keydown', { key: 'ArrowDown' });
-    await vi.waitFor(() => expect(wrapper.text()).toContain('일정안을 편집하는 동안에는 고정을 바꿀 수 없어요.'));
-    expect(rowToggle(wrapper).attributes('disabled')).toBeDefined();
+    await proposalItems(wrapper)[0]?.trigger('keydown', { key: 'ArrowDown', altKey: true });
+    await vi.waitFor(() =>
+      expect(wrapper.get('[data-planner-card-lock-note]').text()).toContain('일정안을 고치는 동안에는 고정을 바꿀 수 없어요.'),
+    );
+    expect(cardToggle(wrapper).attributes('disabled')).toBeDefined();
     const held = holdLockRequests();
-    await rowToggle(wrapper).trigger('click');
+    await cardToggle(wrapper).trigger('click');
     await settle();
     expect(held.seen).toHaveLength(0);
     expect(mockDb.todayBlockLocks.get(TODAY_BLOCK_ONE_ID)).toEqual({ locked: true, version: 2 });
@@ -540,19 +575,14 @@ describe('Plan comparison: lock an approved block', () => {
     mockDb.plans.set(plan.id, { ...plan, version: plan.version + 1 });
   }
 
-  function calendarLabels(wrapper: VueWrapper): Array<string | undefined> {
-    return wrapper.findAll('.calendar-block').map((block) => block.attributes('aria-label'));
-  }
-
   it('FU-86: an edit tried while a lock is out is held with the reason shown, never dropped by the plan re-read', async () => {
     const wrapper = await mountPlan();
     const planId = shown?.id ?? '';
     const versionBefore = mockDb.plans.get(planId)?.version ?? -1;
-    await vi.waitFor(() => expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0));
-    const note = wrapper.get('#plan-lock-saving-note');
+    const note = wrapper.get('#plan-lock-hold');
     expect(note.attributes('role')).toBe('status');
     expect(note.text()).toBe('');
-    const before = calendarLabels(wrapper);
+    const before = proposalLabels(wrapper);
     const previews: Array<string | null> = [];
     server.use(
       http.post(/\/candidates\/[^/]+:preview-edit$/, ({ request }) => {
@@ -563,109 +593,118 @@ describe('Plan comparison: lock an approved block', () => {
 
     // A clean draft; the lock is out.
     const held = holdLockRequests(lockMovesPlanRevision);
-    await rowToggle(wrapper).trigger('click');
+    await openCard(wrapper, TODAY_BLOCK_ONE_ID);
+    await cardToggle(wrapper).trigger('click');
     await vi.waitFor(() => expect(held.seen).toHaveLength(1));
-    expect(wrapper.text()).toContain('생성된 블록');
+    expect(draftState(wrapper)).toBe('만들어진 그대로');
 
     // The keyboard move is held: the draft stays clean and the reason is shown and announced.
-    await wrapper.findAll('.calendar-block')[0]?.trigger('keydown', { key: 'ArrowDown' });
+    await proposalItems(wrapper)[0]?.trigger('keydown', { key: 'ArrowDown', altKey: true });
     await settle();
     expect(note.text()).toBe(SAVING_HINT);
-    expect(wrapper.text()).not.toContain('편집한 블록');
-    expect(calendarLabels(wrapper)).toEqual(before);
-    for (const block of wrapper.findAll('.calendar-block')) {
-      expect(block.attributes('aria-describedby')).toBe('plan-lock-saving-note');
+    expect(draftState(wrapper)).toBe('만들어진 그대로');
+    expect(proposalLabels(wrapper)).toEqual(before);
+    for (const block of proposalItems(wrapper)) {
+      expect(block.attributes('aria-describedby')).toBe('plan-lock-hold');
     }
-    // A drag that reaches the page is held too (the page's guard, not only the calendar's).
-    const moved: PlanBlock[] = (shown?.candidates[0]?.blocks ?? []).map((block) => ({
-      ...block,
-      startAt: new Date(Date.parse(block.startAt) + 15 * 60_000).toISOString(),
-      endAt: new Date(Date.parse(block.endAt) + 15 * 60_000).toISOString(),
-    }));
-    expect(moved.length).toBeGreaterThan(0);
-    wrapper.findComponent(WeekCalendar).vm.$emit('update:blocks', moved);
+    // An edit that reaches the page is held too (the page's guard, not only the grid's).
+    const grid = wrapper.findComponent(WeekGrid);
+    const first = grid
+      .props('grid')
+      .days.flatMap((day) => day.items)
+      .find((item) => item.kind === 'proposal');
+    if (first === undefined || first.endAt === null) throw new Error('proposal missing');
+    grid.vm.$emit('edit', first, {
+      startAt: new Date(Date.parse(first.startAt) + 15 * 60_000).toISOString(),
+      endAt: new Date(Date.parse(first.endAt) + 15 * 60_000).toISOString(),
+    });
     await settle();
-    expect(wrapper.text()).not.toContain('편집한 블록');
-    expect(calendarLabels(wrapper)).toEqual(before);
+    expect(draftState(wrapper)).toBe('만들어진 그대로');
+    expect(proposalLabels(wrapper)).toEqual(before);
 
     // The lock lands and the plan is re-read at its new revision.
     held.release();
-    await vi.waitFor(() => expect(rowToggle(wrapper).attributes('disabled')).toBeUndefined());
-    expect(rowToggle(wrapper).attributes('aria-pressed')).toBe('true');
+    await vi.waitFor(() => expect(cardToggle(wrapper).attributes('disabled')).toBeUndefined());
+    expect(cardToggle(wrapper).attributes('aria-pressed')).toBe('true');
     expect(mockDb.plans.get(planId)?.version).toBe(versionBefore + 1);
     expect(note.text()).toBe('');
-    expect(wrapper.findAll('.calendar-block')[0]?.attributes('aria-describedby')).toBeUndefined();
+    expect(proposalItems(wrapper)[0]?.attributes('aria-describedby')).toBeUndefined();
     expect(previews).toEqual([]);
 
     // Editing works again; the edit stays, previews against the new revision, and locks now wait for it.
-    await wrapper.findAll('.calendar-block')[0]?.trigger('keydown', { key: 'ArrowDown' });
-    await vi.waitFor(() => expect(wrapper.text()).toContain('편집한 블록'));
-    expect(calendarLabels(wrapper)).not.toEqual(before);
+    await proposalItems(wrapper)[0]?.trigger('keydown', { key: 'ArrowDown', altKey: true });
+    await vi.waitFor(() => expect(draftState(wrapper)).toBe('고친 일정안'));
+    expect(proposalLabels(wrapper)).not.toEqual(before);
     await vi.waitFor(() => expect(previews).toEqual([`W/"${versionBefore + 1}"`]));
     await settle();
-    expect(wrapper.text()).toContain('편집한 블록');
-    expect(rowToggle(wrapper).attributes('disabled')).toBeDefined();
+    expect(draftState(wrapper)).toBe('고친 일정안');
+    expect(cardToggle(wrapper).attributes('disabled')).toBeDefined();
     wrapper.unmount();
   });
 
-  it('FU-86F: while a lock is out the calendar itself refuses edits (no resize handle, a pointer drag emits nothing); only a held edit shows the reason', async () => {
+  it('FU-86F: while a lock is out the grid itself refuses edits (no resize handle, a drag emits no edit); only a held edit shows the reason', async () => {
     const wrapper = await mountPlan();
-    await vi.waitFor(() => expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0));
-    const calendar = wrapper.findComponent(WeekCalendar);
-    const note = wrapper.get('#plan-lock-saving-note');
-    // Editable before the lock: every block has its resize handle (positive control).
-    expect(wrapper.findAll('.calendar-resize')).toHaveLength(wrapper.findAll('.calendar-block').length);
-    const before = calendarLabels(wrapper);
+    const grid = wrapper.findComponent(WeekGrid);
+    const note = wrapper.get('#plan-lock-hold');
+    // Editable before the lock: every proposal has its resize handle (positive control).
+    expect(wrapper.findAll('[data-resize]')).toHaveLength(proposalItems(wrapper).length);
+    const before = proposalLabels(wrapper);
 
     const held = holdLockRequests(lockMovesPlanRevision);
-    await rowToggle(wrapper).trigger('click');
+    await openCard(wrapper, TODAY_BLOCK_ONE_ID);
+    await cardToggle(wrapper).trigger('click');
     await vi.waitFor(() => expect(held.seen).toHaveLength(1));
-    // The calendar's own state, independent of the page's guard.
-    expect(calendar.props('editable')).toBe(false);
-    expect(wrapper.findAll('.calendar-resize')).toHaveLength(0);
-    // Pressing a toggle alone says nothing about the calendar: nobody is editing it (negative).
+    // The grid's own state, independent of the page's guard.
+    expect(grid.props('editable')).toBe(false);
+    expect(wrapper.findAll('[data-resize]')).toHaveLength(0);
+    // Pressing a toggle alone says nothing about the grid: nobody is editing it (negative).
     expect(note.text()).toBe('');
     expect(note.classes()).not.toContain('block-lock-saving--shown');
-    for (const block of wrapper.findAll('.calendar-block')) {
+    for (const block of proposalItems(wrapper)) {
       expect(block.attributes('aria-describedby')).toBeUndefined();
     }
 
-    // pointerdown + pointermove on a block: the calendar emits no change at all.
-    pointerDrag(wrapper.findAll('.calendar-block')[0], 0, 30);
+    // A press and a drag on a proposal: the grid emits no change at all.
+    gridDrag(wrapper, proposalItems(wrapper)[0], 0, 25);
     await settle();
-    expect(calendar.emitted('update:blocks')).toBeUndefined();
-    expect(calendarLabels(wrapper)).toEqual(before);
-    expect(wrapper.text()).not.toContain('편집한 블록');
-    // That held press is what shows (and announces) the reason, over the calendar.
-    expect(calendar.emitted('edit-blocked')).toEqual([[0]]);
+    expect(grid.emitted('edit')).toBeUndefined();
+    expect(proposalLabels(wrapper)).toEqual(before);
+    expect(draftState(wrapper)).toBe('만들어진 그대로');
+    // That held press is what shows (and announces) the reason, over the grid.
+    expect(grid.emitted('edit-blocked')?.length).toBeGreaterThan(0);
     expect(note.text()).toBe(SAVING_HINT);
     expect(note.attributes('role')).toBe('status');
     expect(note.classes()).toContain('block-lock-saving--shown');
-    expect(note.element.parentElement?.classList.contains('calendar-frame')).toBe(true);
-    for (const block of wrapper.findAll('.calendar-block')) {
-      expect(block.attributes('aria-describedby')).toBe('plan-lock-saving-note');
+    expect(note.element.parentElement?.classList.contains('plan-week-frame')).toBe(true);
+    for (const block of proposalItems(wrapper)) {
+      expect(block.attributes('aria-describedby')).toBe('plan-lock-hold');
     }
 
+    // The press on the grid closed the block's card (a press outside it does); its lock is still out.
+    expect(wrapper.find('[data-planner-card]').exists()).toBe(false);
+    expect(grid.props('editable')).toBe(false);
     held.release();
-    await vi.waitFor(() => expect(rowToggle(wrapper).attributes('disabled')).toBeUndefined());
+    await vi.waitFor(() => expect(grid.props('editable')).toBe(true));
+    await openCard(wrapper, TODAY_BLOCK_ONE_ID);
+    await vi.waitFor(() => expect(cardToggle(wrapper).attributes('disabled')).toBeUndefined());
+    expect(cardToggle(wrapper).attributes('aria-pressed')).toBe('true');
     expect(note.text()).toBe('');
     expect(note.classes()).not.toContain('block-lock-saving--shown');
     // Editable again: the handles are back and the same drag edits the draft.
-    expect(calendar.props('editable')).toBe(true);
-    expect(wrapper.findAll('.calendar-resize').length).toBeGreaterThan(0);
-    pointerDrag(wrapper.findAll('.calendar-block')[0], 0, 30);
-    await vi.waitFor(() => expect(wrapper.text()).toContain('편집한 블록'));
-    expect(calendar.emitted('update:blocks')).toHaveLength(1);
-    expect(calendarLabels(wrapper)).not.toEqual(before);
+    expect(grid.props('editable')).toBe(true);
+    expect(wrapper.findAll('[data-resize]').length).toBeGreaterThan(0);
+    gridDrag(wrapper, proposalItems(wrapper)[0], 0, 25);
+    await vi.waitFor(() => expect(draftState(wrapper)).toBe('고친 일정안'));
+    expect(grid.emitted('edit')).toHaveLength(1);
+    expect(proposalLabels(wrapper)).not.toEqual(before);
     wrapper.unmount();
   });
 
-  it('FU-86F: a lock whose answer is lost re-reads the plan before the calendar is released; an edit then goes with the new revision', async () => {
+  it('FU-86F: a lock whose answer is lost re-reads the plan before the grid is released; an edit then goes with the new revision', async () => {
     const wrapper = await mountPlan();
     const planId = shown?.id ?? '';
     const versionBefore = mockDb.plans.get(planId)?.version ?? -1;
-    await vi.waitFor(() => expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0));
-    const before = calendarLabels(wrapper);
+    const before = proposalLabels(wrapper);
     const previews: Array<string | null> = [];
     server.use(
       http.post(/\/candidates\/[^/]+:preview-edit$/, ({ request }) => {
@@ -681,23 +720,24 @@ describe('Plan comparison: lock an approved block', () => {
     );
     const planReads = vi.spyOn(plannerClient, 'getPlan');
 
-    await rowToggle(wrapper).trigger('click');
+    await openCard(wrapper, TODAY_BLOCK_ONE_ID);
+    await cardToggle(wrapper).trigger('click');
     await waitForText(wrapper, NETWORK_ERROR);
     expect(wrapper.get('.block-lock-error').attributes('role')).toBe('alert');
     // Released only after the re-read: the server's lock, the plan at its new revision, a clean draft.
-    await vi.waitFor(() => expect(rowToggle(wrapper).attributes('disabled')).toBeUndefined());
+    await vi.waitFor(() => expect(cardToggle(wrapper).attributes('disabled')).toBeUndefined());
     expect(planReads).toHaveBeenCalled();
     expect(mockDb.plans.get(planId)?.version).toBe(versionBefore + 1);
-    expect(rowToggle(wrapper).attributes('aria-pressed')).toBe('true');
-    expect(rowToggle(wrapper).attributes('data-block-lock')).toBe('locked');
-    expect(wrapper.text()).toContain('생성된 블록');
-    expect(calendarLabels(wrapper)).toEqual(before);
+    expect(cardToggle(wrapper).attributes('aria-pressed')).toBe('true');
+    expect(cardToggle(wrapper).attributes('data-block-lock')).toBe('locked');
+    expect(draftState(wrapper)).toBe('만들어진 그대로');
+    expect(proposalLabels(wrapper)).toEqual(before);
 
     // An edit now previews against the new revision — no 412 (negative) — and is kept.
-    await wrapper.findAll('.calendar-block')[0]?.trigger('keydown', { key: 'ArrowDown' });
+    await proposalItems(wrapper)[0]?.trigger('keydown', { key: 'ArrowDown', altKey: true });
     await vi.waitFor(() => expect(previews).toEqual([`W/"${versionBefore + 1}"`]));
     await settle();
-    expect(wrapper.text()).toContain('편집한 블록');
+    expect(draftState(wrapper)).toBe('고친 일정안');
     expect(wrapper.text()).not.toContain('다른 곳에서 먼저 바뀌었어요.');
     // A later re-read (window focus) finds the same revision: the edit stays.
     const readsBefore = planReads.mock.calls.length;
@@ -705,41 +745,43 @@ describe('Plan comparison: lock an approved block', () => {
     focusManager.setFocused(true);
     await vi.waitFor(() => expect(planReads.mock.calls.length).toBeGreaterThan(readsBefore));
     await settle();
-    expect(wrapper.text()).toContain('편집한 블록');
-    expect(calendarLabels(wrapper)).not.toEqual(before);
+    expect(draftState(wrapper)).toBe('고친 일정안');
+    expect(proposalLabels(wrapper)).not.toEqual(before);
     wrapper.unmount();
     focusManager.setFocused(undefined);
     planReads.mockRestore();
   });
 
-  it('FU-86: the approved-schedule toggles keep one name and are described by their row title and time', async () => {
+  it('FU-86: every card’s toggle keeps one name and is described by its own block’s title and time', async () => {
     const wrapper = await mountPlan();
-    const row = wrapper.get(`[data-approved-block-id="${TODAY_BLOCK_ONE_ID}"]`);
-    const toggle = rowToggle(wrapper);
+    const card = await openCard(wrapper, TODAY_BLOCK_ONE_ID);
+    const toggle = cardToggle(wrapper);
     expect(toggle.text()).toBe('블록 고정');
     expect(toggle.attributes('aria-label')).toBeUndefined();
-    const title = row.get('.approved-schedule-title').text();
-    const time = row.get('.approved-schedule-time').text();
+    const title = card.get('#planner-card-title').text();
+    const time = card.get('#planner-card-when').text().replace(/\s+/g, ' ').trim();
     expect(title).toBe(TODAY_TASK_ONE_TITLE);
     expect(time).toMatch(/\d{1,2}:\d{2}/);
-    expect(describedText(wrapper, toggle)).toBe(`${title} ${time}`);
-    const other = wrapper.find(`[data-approved-block-id="${TODAY_BLOCK_TWO_ID}"] button[data-block-lock]`);
-    expect(other.exists()).toBe(true);
-    expect(describedText(wrapper, other)).not.toBe(describedText(wrapper, toggle));
+    const described = describedText(wrapper, toggle);
+    expect(described).toBe(`${title} ${time}`);
+    await openCard(wrapper, TODAY_BLOCK_TWO_ID);
+    expect(cardToggle(wrapper).text()).toBe('블록 고정');
+    expect(describedText(wrapper, cardToggle(wrapper))).not.toBe(described);
     wrapper.unmount();
   });
 
-  it('FU-86: offline, the approved-schedule toggle is disabled and a press sends nothing (negative)', async () => {
+  it('FU-86: offline, the card’s toggle is disabled and a press sends nothing (negative)', async () => {
     const wrapper = await mountPlan();
-    expect(rowToggle(wrapper).attributes('disabled')).toBeUndefined();
+    await openCard(wrapper, TODAY_BLOCK_ONE_ID);
+    expect(cardToggle(wrapper).attributes('disabled')).toBeUndefined();
     useOfflineStore().setOnline(false);
     await settle();
-    expect(rowToggle(wrapper).attributes('disabled')).toBeDefined();
+    expect(cardToggle(wrapper).attributes('disabled')).toBeDefined();
     const held = holdLockRequests();
-    await rowToggle(wrapper).trigger('click');
+    await cardToggle(wrapper).trigger('click');
     await settle();
     expect(held.seen).toHaveLength(0);
-    expect(rowToggle(wrapper).attributes('aria-pressed')).toBe('false');
+    expect(cardToggle(wrapper).attributes('aria-pressed')).toBe('false');
     expect(mockDb.todayBlockLocks.get(TODAY_BLOCK_ONE_ID)).toBeUndefined();
     wrapper.unmount();
   });

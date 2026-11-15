@@ -117,3 +117,6 @@ export function useBlockLock(options: BlockLockOptions) {
 
   return { displayLocked, isPending, anyPending, toggle, error };
 }
+
+/** What a screen's lock requests look like to the pieces that share them (the detail card). */
+export type BlockLock = ReturnType<typeof useBlockLock>;

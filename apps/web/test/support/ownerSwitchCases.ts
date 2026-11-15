@@ -569,22 +569,41 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
     markers: ['A-private-goal', 'A-private-description'],
   },
+  // HOLO-03A: 계획 세우기 · 일정안 만들기 and 일정안 (one flow, two screens).
   {
-    name: 'plans: generate candidates',
-    covers: ['src/views/PlanNewView.vue'],
-    path: () => `/plans/new?taskIds=${seedTaskId()}`,
+    name: 'plans: make the schedules',
+    covers: ['src/views/PlanScopeView.vue', 'src/composables/usePlanCreate.ts', 'src/composables/planFlowMemory.ts'],
+    path: () => `/plan/schedule?taskIds=${seedTaskId()}`,
     ready: async (wrapper) => {
       await until(() => expect(wrapper.text()).toContain('작업 1개'));
+      await until(() => expect(buttonByText(wrapper, '일정안 만들기').attributes('disabled')).toBeUndefined());
     },
     hold: { method: 'POST', path: /\/plans$/ },
     act: async (wrapper) => {
-      await buttonByText(wrapper, '후보 만들기').trigger('click');
+      await wrapper.get('form.plan-scope-grid').trigger('submit');
     },
   },
   {
-    name: 'plans: approve a candidate',
-    covers: ['src/views/PlanComparisonView.vue'],
-    path: async () => `/plans/${(await createPlan()).id}`,
+    name: 'plans: save the hours asked in place, then make the schedules',
+    covers: ['src/views/PlanScopeView.vue', 'src/composables/usePlanCreate.ts', 'src/composables/planFlowMemory.ts'],
+    path: () => `/plan/schedule?taskIds=${seedTaskId()}`,
+    seed: () => {
+      mockDb.availability = { ...mockDb.availability, rules: [] };
+    },
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('input[data-preset="weekdayEvening"]').exists()).toBe(true));
+      await wrapper.get('input[data-preset="weekdayEvening"]').setValue(true);
+      await until(() => expect(buttonByText(wrapper, '일정안 만들기').attributes('disabled')).toBeUndefined());
+    },
+    hold: { method: 'PUT', path: '/availability' },
+    act: async (wrapper) => {
+      await wrapper.get('form.plan-scope-grid').trigger('submit');
+    },
+  },
+  {
+    name: 'plans: confirm a schedule',
+    covers: ['src/views/PlanScheduleView.vue', 'src/composables/planFlowMemory.ts'],
+    path: async () => `/plan/schedule/${(await createPlan()).id}`,
     ready: planReady,
     hold: { method: 'POST', path: /\/candidates\/[^/]+:approve$/ },
     act: async (wrapper) => {
@@ -593,28 +612,38 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'plans: preview a keyboard edit',
-    covers: ['src/views/PlanComparisonView.vue'],
-    path: async () => `/plans/${(await createPlan()).id}`,
+    covers: ['src/views/PlanScheduleView.vue'],
+    path: async () => `/plan/schedule/${(await createPlan()).id}`,
     ready: planReady,
     hold: { method: 'POST', path: ':preview-edit' },
     act: async (wrapper) => {
-      await wrapper.findAll('.calendar-block')[0]?.trigger('keydown', { key: 'ArrowDown' });
+      await wrapper.findAll('[data-kind="proposal"]')[0]?.trigger('keydown', { key: 'ArrowDown', altKey: true });
     },
   },
   {
-    name: 'plans: lock an approved block',
-    covers: ['src/views/PlanComparisonView.vue', 'src/composables/useBlockLock.ts'],
-    path: async () => `/plans/${(await createPlan()).id}`,
+    name: 'plans: make the schedules again',
+    covers: ['src/views/PlanScheduleView.vue'],
+    path: async () => `/plan/schedule/${(await createPlan()).id}`,
+    ready: planReady,
+    hold: { method: 'POST', path: ':regenerate' },
+    act: async (wrapper) => {
+      await wrapper.get('[data-plan-regenerate]').trigger('click');
+    },
+  },
+  {
+    name: 'plans: lock a confirmed block from its card',
+    covers: ['src/views/PlanScheduleView.vue', 'src/composables/useBlockLock.ts'],
+    path: async () => `/plan/schedule/${(await createPlan()).id}`,
     seed: useTodayClock,
     ready: async (wrapper) => {
       await planReady(wrapper);
-      await until(() =>
-        expect(wrapper.find(`[data-approved-block-id="${TODAY_BLOCK_ONE_ID}"] [data-block-lock]`).exists()).toBe(true),
-      );
+      await until(() => expect(wrapper.find(`[data-item^="block:${TODAY_BLOCK_ONE_ID}@"]`).exists()).toBe(true));
+      await wrapper.get(`[data-item^="block:${TODAY_BLOCK_ONE_ID}@"]`).trigger('click');
+      await until(() => expect(wrapper.find('[data-planner-card="block"] [data-block-lock]').exists()).toBe(true));
     },
     hold: { method: 'POST', path: /\/schedule-blocks\/[^/]+:lock$/ },
     act: async (wrapper) => {
-      await wrapper.get(`[data-approved-block-id="${TODAY_BLOCK_ONE_ID}"] [data-block-lock]`).trigger('click');
+      await wrapper.get('[data-planner-card="block"] [data-block-lock]').trigger('click');
     },
   },
   {
@@ -946,8 +975,8 @@ function createPlan(): Promise<Plan> {
 }
 
 async function planReady(wrapper: VueWrapper): Promise<void> {
-  await until(() => expect(wrapper.findAll('.candidate-card').length).toBeGreaterThan(0));
-  await until(() => expect(wrapper.findAll('.calendar-block').length).toBeGreaterThan(0));
+  await until(() => expect(wrapper.findAll('.plan-option').length).toBeGreaterThan(0));
+  await until(() => expect(wrapper.findAll('[data-kind="proposal"]').length).toBeGreaterThan(0));
 }
 
 async function patternsReady(wrapper: VueWrapper): Promise<void> {

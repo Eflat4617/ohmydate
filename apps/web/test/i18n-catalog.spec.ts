@@ -271,7 +271,7 @@ describe('server codes shown on Korean screens', () => {
         .text,
     ).toBe('서로 다른 일정안 2개를 남겼어요. 후보 3개 중 1개는 너무 비슷해서 뺐어요.');
     expect(diversityNoteText('3 distinct plans from 3 policy candidates (pairwise distance >= 0.15).').text).toBe(
-      '후보 3개가 모두 서로 충분히 달라요.',
+      '일정안 3개가 모두 서로 충분히 달라요.',
     );
     expect(diversityNoteText('Only two distinct plans are possible.')).toEqual({
       text: 'Only two distinct plans are possible.',

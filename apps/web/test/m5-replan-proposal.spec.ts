@@ -92,7 +92,7 @@ describe('Replan proposal detail (M5-03)', () => {
     expect(details.attributes('data-explanation')).toBe('coded');
     expect(details.get('summary').text()).toBe('계산 근거');
     expect(details.get('ul').attributes('lang')).toBeUndefined();
-    expect(details.text()).toContain('하드 제약(H1~H8)을 모두 지켰어요.');
+    expect(details.text()).toContain('지켜야 하는 규칙을 모두 지켰어요.');
     expect(details.text()).toContain('기존 블록 2개는 그대로 뒀어요.');
     expect(details.text()).not.toContain('Placed 175');
     expect(wrapper.get('.replan-why').text()).not.toMatch(/[A-Za-z]{4,}/);
@@ -140,7 +140,7 @@ describe('Replan proposal detail (M5-03)', () => {
     await buttonWith(wrapper, '승인').trigger('click');
     await waitForText(wrapper, '일정 규칙에 맞지 않아요.');
     const findings = wrapper.get('.replan-violations');
-    expect(findings.text()).toContain('H1');
+    expect(findings.get('li').attributes('data-code')).toBe('H1');
     expect(findings.get('[data-coded]').attributes('data-coded')).toBe('true');
     expect(findings.text()).toContain(TODAY_TASK_TWO_TITLE);
     expect(findings.text()).toContain('오전 11:00~11:40');

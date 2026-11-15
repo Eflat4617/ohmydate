@@ -14,7 +14,8 @@ import { renderExplanation, violationMessageText, type ExplanationItem } from '.
  *   "계산 근거 (원문)".
  * - `violations`: validator findings (preview-edit result or a 422
  *   `constraint_violation`). A coded finding reads as one Korean sentence; a
- *   legacy one keeps the generic H-code text plus the original message.
+ *   legacy one keeps the generic text of its rule plus the original message.
+ *   The rule's code (H1…H8) is not shown — it is the finding's `data-code`.
  */
 const props = withDefaults(
   defineProps<{
@@ -23,8 +24,12 @@ const props = withDefaults(
     items?: readonly ExplanationItem[] | undefined;
     violations?: readonly Violation[];
     taskNames?: Readonly<Record<string, string>>;
+    /** What the folded list of reasons is called ("이렇게 짠 이유"); "계산 근거" by default. */
+    title?: string | null;
+    /** The reasons start unfolded. */
+    open?: boolean;
   }>(),
-  { lines: () => [], items: undefined, violations: () => [], taskNames: () => ({}) },
+  { lines: () => [], items: undefined, violations: () => [], taskNames: () => ({}), title: null, open: false },
 );
 
 const context = computed(() => ({
@@ -48,9 +53,10 @@ const findings = computed(() =>
   <details
     v-if="lines.length > 0"
     class="candidate-explanation"
+    :open="open"
     :data-explanation="explanation.coded ? 'coded' : 'original'"
   >
-    <summary>{{ explanation.coded ? t('explanation.title') : t('plan.explanation') }}</summary>
+    <summary>{{ explanation.coded ? (title ?? t('explanation.title')) : t('explanation.original') }}</summary>
     <ul class="explanation-list" :lang="explanation.coded ? undefined : 'en'">
       <li
         v-for="(entry, index) in explanation.entries"
@@ -62,8 +68,12 @@ const findings = computed(() =>
     </ul>
   </details>
   <ul v-if="findings.length > 0" class="violation-list">
-    <li v-for="(finding, index) in findings" :key="index" :data-coded="finding.text !== null ? 'true' : 'false'">
-      <strong>{{ finding.code }}</strong> —
+    <li
+      v-for="(finding, index) in findings"
+      :key="index"
+      :data-coded="finding.text !== null ? 'true' : 'false'"
+      :data-code="finding.code"
+    >
       <template v-if="finding.text !== null">{{ finding.text }}</template>
       <template v-else>
         {{ finding.generic }}

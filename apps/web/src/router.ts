@@ -8,8 +8,8 @@ import LayoutSettingsView from './views/LayoutSettingsView.vue';
 import LlmSettingsView from './views/LlmSettingsView.vue';
 import LoginView from './views/LoginView.vue';
 import OverviewView from './views/OverviewView.vue';
-import PlanComparisonView from './views/PlanComparisonView.vue';
-import PlanNewView from './views/PlanNewView.vue';
+import PlanScheduleView from './views/PlanScheduleView.vue';
+import PlanScopeView from './views/PlanScopeView.vue';
 import PlannerView from './views/PlannerView.vue';
 import ProjectDetailView from './views/ProjectDetailView.vue';
 import ProjectListView from './views/ProjectListView.vue';
@@ -60,8 +60,14 @@ export const routes: RouteRecordRaw[] = [
   { path: '/notes/new', name: 'notes-new', component: NotesView },
   { path: '/notes/:id', name: 'notes-detail', component: NotesView },
   { path: '/tasks/:id', name: 'task', component: TaskDetailView, props: true },
-  { path: '/plans/new', name: 'plans-new', component: PlanNewView },
-  { path: '/plans/:id', name: 'plan', component: PlanComparisonView, props: true },
+  // HOLO-03A: 계획 세우기 is one flow. What goes into the schedules
+  // (`?goalId`, `?taskIds`; `?session` names the planning session it came
+  // from), then the three schedules of a plan and its confirmation.
+  { path: '/plan/schedule', name: 'plan-scope', component: PlanScopeView },
+  { path: '/plan/schedule/:id', name: 'plan-schedule', component: PlanScheduleView, props: true },
+  // The addresses these screens had before HOLO-03A.
+  { path: '/plans/new', redirect: (to) => ({ name: 'plan-scope', query: to.query }) },
+  { path: '/plans/:id', redirect: (to) => ({ name: 'plan-schedule', params: { id: to.params['id'] }, query: to.query }) },
   { path: '/replan', name: 'replan', component: ReplanListView },
   { path: '/replan/:id', name: 'replan-proposal', component: ReplanProposalView, props: true },
   { path: '/patterns', name: 'patterns', component: PatternsView },

@@ -7,7 +7,6 @@
 @import './screens/04-focus.css';
 @import './screens/05-notifications.css';
 @import './screens/06-wizard.css';
-@import './screens/07-plan.css';
 @import './screens/08-availability.css';
 @import './screens/09-dialogs-ai.css';
 @import './screens/10-replan-patterns.css';
@@ -18,3 +17,4 @@
 @import './screens/15-overview.css';
 @import './screens/16-planner.css';
 @import './screens/17-tracker.css';
+@import './screens/18-plan.css';

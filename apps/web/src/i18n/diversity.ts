@@ -33,12 +33,12 @@ type Renderer = (read: ParamReader) => string;
 
 const RENDERERS: { readonly [C in DiversityNoteCode]: Renderer } = {
   diversity_dropped: (r) =>
-    t('plan.diversity.dropped', {
+    t('planSchedule.diversity.dropped', {
       kept: r.count('kept'),
       total: r.count('total'),
       dropped: r.count('dropped'),
     }),
-  diversity_distinct: (r) => t('plan.diversity.distinct', { total: r.count('total') }),
+  diversity_distinct: (r) => t('planSchedule.diversity.distinct', { total: r.count('total') }),
   replan_bound_exceeded: (r) =>
     t('explain.replan_bound_exceeded', {
       changed: r.count('changedBlocks'),

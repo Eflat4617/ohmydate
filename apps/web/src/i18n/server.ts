@@ -138,11 +138,11 @@ export function assumptionValueText(field: IntakeField, value: string): ServerTe
 }
 
 const BLOCK_MESSAGES: ReadonlyArray<readonly [RegExp, PlainKey]> = [
-  [/outside the (?:persisted )?plan horizon/i, 'plan.blockMessage.outsideHorizon'],
-  [/ends before it starts/i, 'plan.blockMessage.endsBeforeStart'],
-  [/invalid block instant/i, 'plan.blockMessage.invalidInstant'],
-  [/minute precision/i, 'plan.blockMessage.minutePrecision'],
-  [/outside the persisted plan/i, 'plan.blockMessage.outsidePlan'],
+  [/outside the (?:persisted )?plan horizon/i, 'planSchedule.blockMessage.outsideHorizon'],
+  [/ends before it starts/i, 'planSchedule.blockMessage.endsBeforeStart'],
+  [/invalid block instant/i, 'planSchedule.blockMessage.invalidInstant'],
+  [/minute precision/i, 'planSchedule.blockMessage.minutePrecision'],
+  [/outside the persisted plan/i, 'planSchedule.blockMessage.outsidePlan'],
 ];
 
 export function blockErrorText(message: string): ServerText {
@@ -159,10 +159,10 @@ export function diversityNoteText(note: string): ServerText {
       trimmed,
     );
   if (dropped !== null) {
-    return ko(t('plan.diversity.dropped', { kept: dropped[1] ?? '', total: dropped[2] ?? '', dropped: dropped[3] ?? '' }));
+    return ko(t('planSchedule.diversity.dropped', { kept: dropped[1] ?? '', total: dropped[2] ?? '', dropped: dropped[3] ?? '' }));
   }
   const distinct = /^(\d+) distinct plans from (\d+) policy candidates \(pairwise distance >= [\d.]+\)\.$/.exec(trimmed);
-  if (distinct !== null) return ko(t('plan.diversity.distinct', { total: distinct[2] ?? '' }));
+  if (distinct !== null) return ko(t('planSchedule.diversity.distinct', { total: distinct[2] ?? '' }));
   // Unknown wording, or a note with appended replan-bound details: keep the original.
   return raw(note);
 }

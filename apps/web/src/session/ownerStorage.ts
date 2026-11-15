@@ -104,6 +104,13 @@ const OWNER_SLOTS = {
     onOwnerChange: 'preserve',
     why: 'Whether the owner folded the sidebar down to icons, per owner on this device. A flag, no user content.',
   },
+  planFlow: {
+    area: 'local',
+    prefix: 'ohmydate.plan.flow',
+    staleWrites: 'drop',
+    onOwnerChange: 'preserve',
+    why: 'Which plans the owner has not finished making (a planning session, a schedule being compared), so 개요 and 계획 세우기 can offer to go on. Ids and a time only; every title is read from the server.',
+  },
   aiWait: {
     area: 'session',
     prefix: 'ohmydate.intake.aiWait.v2',

@@ -235,8 +235,10 @@ watch(
   { immediate: true },
 );
 
-// Presentational only: which card gets the "Next up" emphasis.
-const mountedAt = Date.now();
+// Presentational only: which card gets the "Next up" emphasis. The time is
+// the app's clock as it was when the screen opened (never the device's own:
+// the screens share one clock, and tests pin it).
+const mountedAt = now.value;
 const nextBlockId = computed(() => {
   const next = blocks.value.find(
     (block) => block.status !== 'done' && block.status !== 'skipped' && Date.parse(block.endAt) > mountedAt,
