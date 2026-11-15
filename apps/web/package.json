@@ -18,7 +18,7 @@
     "preview": "vite preview",
     "gen:api": "node scripts/generate-api.mjs",
     "lint": "eslint .",
-    "test": "vitest run --maxWorkers=4 --exclude \"test/owner-switch-sweep.shard-*.spec.ts\" && vitest run --maxWorkers=4 test/owner-switch-sweep.shard-",
+    "test": "vitest run --exclude \"test/owner-switch-sweep.shard-*.spec.ts\" --maxWorkers=4 && vitest run test/owner-switch-sweep.shard- --maxWorkers=4",
     "typecheck": "vue-tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
