@@ -321,11 +321,6 @@
   align-self: flex-end;
 }
 
-.estimation-feedback h3 {
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-}
-
 @media (max-width: 639px) {
   .review-submit {
     align-self: stretch;

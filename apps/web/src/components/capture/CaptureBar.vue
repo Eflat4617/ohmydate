@@ -280,7 +280,6 @@ defineExpose({ focus: focusInput });
         enterkeyhint="done"
         :placeholder="mode === 'search' ? t('capture.searchPlaceholder') : t('capture.placeholder')"
         :aria-controls="open ? panelId : undefined"
-        :aria-expanded="open ? 'true' : 'false'"
         :data-autofocus="variant === 'sheet' ? '' : undefined"
         data-capture-input
         @focus="show"

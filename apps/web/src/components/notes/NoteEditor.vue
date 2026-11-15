@@ -343,7 +343,7 @@ function* saveNote(bound: OwnerScope, retried: boolean): OwnerSteps<void> {
   if (Object.keys(patch).length === 0) {
     saving.value = false;
     Object.assign(fields, fieldsOf(current));
-    yield* announce(t('notes.editor.clean', { version: current.version }));
+    yield* announce(t('notes.editor.clean'));
     return;
   }
   const scope = `note:${current.id}:patch`;
@@ -360,7 +360,7 @@ function* saveNote(bound: OwnerScope, retried: boolean): OwnerSteps<void> {
     base.value = updated;
     Object.assign(fields, merged);
     yield* bound.wait(publishNote(queryClient, ownerKeyOf(bound.ownerId), updated));
-    yield* announce(t('notes.editor.saved', { version: updated.version }));
+    yield* announce(t('notes.editor.saved'));
   } catch (cause) {
     if (isStoredFinalResult(cause)) actions.settle(scope, action);
     if (isApiStatus(cause, 412)) {
@@ -552,7 +552,7 @@ const sourceText = computed(() => {
 const statusBadge = computed(() => {
   if (base.value === null) return { tone: 'neutral' as const, text: t('notes.editor.unsavedNew') };
   if (dirty.value) return { tone: 'warn' as const, text: t('notes.editor.dirty') };
-  return { tone: 'success' as const, text: t('notes.editor.clean', { version: base.value.version }) };
+  return { tone: 'success' as const, text: t('notes.editor.clean') };
 });
 
 function focusTitle(): void {
@@ -582,7 +582,7 @@ defineExpose({ isDirty: () => dirty.value, focusTitle });
           {{ base === null ? t('notes.editor.newTitle') : t('notes.editor.editTitle') }}
         </h2>
         <div class="note-editor-status">
-          <UiBadge :tone="statusBadge.tone" dot data-note-status>{{ statusBadge.text }}</UiBadge>
+          <UiBadge :tone="statusBadge.tone" dot data-note-status :data-note-version="base?.version">{{ statusBadge.text }}</UiBadge>
         </div>
         <div class="note-editor-actions">
           <UiButton

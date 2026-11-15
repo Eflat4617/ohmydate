@@ -79,15 +79,16 @@
   overflow-wrap: anywhere;
 }
 
-/* The open note is the one marked in yellow. */
+/* The open note: the row takes the lime tint with a mark on its leading
+   edge, and its title is heavier (two signals; `aria-current` says it too). */
+.note-list-item--active {
+  border-radius: var(--radius-md);
+  background: var(--color-accent-soft);
+  box-shadow: inset 3px 0 0 var(--color-accent-text);
+}
+
 .note-list-item--active .note-list-title {
-  margin-left: calc(-1 * var(--space-1));
-  padding: 0 var(--space-1);
-  background: var(--hl-yellow);
-  color: var(--color-on-hl);
   font-weight: var(--weight-bold);
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
 }
 
 .note-list-summary {
@@ -552,15 +553,11 @@
   background: var(--color-paper-2);
 }
 
-/* The picked target is highlighted; ink on it stays dark in both schemes. */
+/* The picked target: the lime tint and edge (its radio is ticked too). */
 .link-option:has(input:checked) {
-  --color-ink: var(--color-on-hl);
-  --color-muted: var(--color-on-hl-muted);
-  --color-paper: var(--hl-yellow);
-  --color-on-ink: var(--hl-yellow);
-
-  background: var(--hl-yellow);
-  color: var(--color-on-hl);
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--color-accent-text);
+  font-weight: var(--weight-semibold);
 }
 
 .link-option:has(input:focus-visible) {
@@ -818,55 +815,6 @@
 }
 
 /* ── Project tabs: words on the 2px rule, the current one highlighted ── */
-.page:has(> .tabs) > .page-header {
-  padding-bottom: 0;
-  border-bottom: 0;
-}
-
-.tabs {
-  display: flex;
-  gap: var(--space-5);
-  overflow-x: auto;
-  border-bottom: var(--rule-hair) solid var(--color-line-strong);
-}
-
-.tab {
-  --btn-border: transparent;
-  --btn-border-hover: transparent;
-  --btn-bg-hover: transparent;
-
-  flex: none;
-  min-height: var(--control-height);
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  color: var(--color-muted);
-  font-size: var(--text-md);
-  font-weight: var(--weight-medium);
-}
-
-.tab:hover {
-  color: var(--color-ink);
-}
-
-.tab:focus-visible {
-  outline-offset: calc(-1 * var(--focus-width));
-}
-
-.tab-label {
-  padding: 0 var(--space-1);
-}
-
-.tab--active {
-  color: var(--color-ink);
-  font-weight: var(--weight-bold);
-}
-
-.tab--active .tab-label {
-  background: var(--hl-yellow);
-  color: var(--color-on-hl);
-}
-
 .tab-panel {
   display: flex;
   flex-direction: column;

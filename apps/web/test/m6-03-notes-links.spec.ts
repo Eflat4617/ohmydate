@@ -76,7 +76,8 @@ describe('note links (07 §3.5 연결 대상)', () => {
     expect(isUuidV7Key(add?.headers.get('Idempotency-Key') ?? '')).toBe(true);
     expect(JSON.parse(add?.body ?? '{}')).toEqual({ targetKind: 'task', targetId: task.id });
     expect(app.wrapper.get('[data-note-link="task"]').text()).toContain(SEED_TASK_TITLE);
-    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장된 상태예요 · 버전 4');
+    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장됨');
+    expect(app.wrapper.get('[data-note-status]').attributes('data-note-version')).toBe('4');
 
     const unlink = app.wrapper
       .get('[data-note-link="task"]')

@@ -95,7 +95,8 @@ describe('H1 — a late review response never writes into another owner', () => 
     const writtenForA = localStorage.getItem(`ohmydate.layout.reviewed:${OWNER_A}`);
     expect(writtenForA === null || JSON.parse(writtenForA).every((id: string) => id === completed.id)).toBe(true);
     // The stale continuation does not update the (owner A) screen either.
-    expect(wrapper.text()).not.toContain('추정 피드백');
+    expect(wrapper.find('[data-focus-next]').exists()).toBe(false);
+    expect(wrapper.text()).not.toMatch(/예상 .+ · 실제/);
     expect(useToastStore(pinia).toasts.some((item) => item.message.includes('회고를 저장했어요'))).toBe(false);
     wrapper.unmount();
   });

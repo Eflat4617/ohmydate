@@ -279,14 +279,15 @@ describe('담기 줄 — a line becomes a to-do', () => {
   it('is a labelled field whose panel opens with the focus, in glass', async () => {
     const { wrapper } = await mountBar();
     expect(wrapper.find('[data-capture-panel]').exists()).toBe(false);
-    expect(input(wrapper).attributes('aria-expanded')).toBe('false');
+    // A plain text field: it names what it controls only while that is there (no aria-expanded on a textbox).
+    expect(input(wrapper).attributes('aria-controls')).toBeUndefined();
+    expect(input(wrapper).attributes('aria-expanded')).toBeUndefined();
     expect(wrapper.get('label').text()).toBe('할 일이나 약속 적기');
     expect(input(wrapper).attributes('placeholder')).toBe('할 일이나 약속을 말로 적어 보세요');
 
     await input(wrapper).trigger('focus');
     const panel = wrapper.get('[data-capture-panel]');
     expect(panel.classes()).toContain('glass');
-    expect(input(wrapper).attributes('aria-expanded')).toBe('true');
     expect(input(wrapper).attributes('aria-controls')).toBe(panel.attributes('id'));
     expect(wrapper.get('[data-capture-hint]').text()).toContain('엔터로 담아요');
     // Nothing to add yet: the one filled button is inert (negative).

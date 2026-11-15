@@ -156,7 +156,7 @@ describe('개요 — greeting and the one primary button', () => {
     ).toEqual([
       ['AI 분석 열기', '/insights'],
       // HOLO-04: the 타임 트래커 card opens 집중, where the timer and its record live.
-      ['타임 트래커 열기', '/focus'],
+      ['집중 열기', '/focus'],
       // HOLO-02: 오늘 요약 opens today in 플래너 (한달 is that screen's month view now).
       ['플래너에서 오늘 열기', '/planner?view=day'],
       ['재계획 제안 열기', '/replan'],

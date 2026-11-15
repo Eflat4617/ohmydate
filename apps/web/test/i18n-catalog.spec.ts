@@ -100,12 +100,12 @@ describe('message catalog (ko)', () => {
   });
 
   it('interpolates typed params and leaves unknown keys visible (negative)', () => {
-    expect(t('today.slackChip', { duration: '3시간 20분' })).toBe('여유 3시간 20분');
+    expect(t('today.dueAt', { time: '오후 3:00' })).toBe('오후 3:00까지');
     expect(interpolate('{a} · {b}', { a: 1 })).toBe('1 · {b}');
     // @ts-expect-error — a key that is not in the catalog is a typecheck error…
     expect(t('nav.doesNotExist')).toBe('nav.doesNotExist');
     // @ts-expect-error — …and so is a missing placeholder value.
-    expect(t('today.slackChip')).toBe('여유 {duration}');
+    expect(t('today.dueAt')).toBe('{time}까지');
     expect(lookup('nav')).toBeUndefined();
   });
 

@@ -233,6 +233,22 @@ describe('glass: where it is', () => {
     document.body.innerHTML = '';
   });
 
+  it('the top bar is a layer above the page at every width, so its menus are never under page content', () => {
+    // Found in the HOLO-04 sweep: at 390px the account menu was painted under a
+    // sticky header of the page, because the bar only became a layer at 1024px.
+    const shell = readFileSync(resolve(STYLES, 'shell.css'), 'utf8');
+    const firstMedia = shell.indexOf('@media');
+    const base = /\n\.app-topbar \{([^}]*)\}/.exec(shell.slice(0, shell.indexOf('@media', shell.indexOf('\n.app-topbar {'))));
+    expect(firstMedia).toBeGreaterThan(-1);
+    expect(base?.[1]).toMatch(/position: relative;/);
+    expect(base?.[1]).toMatch(/z-index: var\(--z-topbar\);/);
+    // …and that layer is above the page's sticky parts, below the navigation and what floats (negative).
+    const z = (name: string): number => Number(token(dark, name));
+    expect(z('--z-topbar')).toBeGreaterThan(z('--z-sticky'));
+    expect(z('--z-topbar')).toBeLessThan(z('--z-nav'));
+    expect(z('--z-topbar')).toBeLessThan(z('--z-dialog'));
+  });
+
   it('a dialog and a sheet are glass', () => {
     const dialog = mount(UiDialog, { props: { labelledby: 'x' }, slots: { default: () => h('h2', { id: 'x' }, 'x') }, attachTo: document.body });
     expect(dialog.get('[role="dialog"]').classes()).toEqual(expect.arrayContaining(['dialog', 'glass']));

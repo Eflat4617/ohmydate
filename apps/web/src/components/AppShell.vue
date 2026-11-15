@@ -132,6 +132,11 @@ watch(
   },
   { immediate: true },
 );
+// For the page's own scripts and tests: whether the start guide is still being
+// decided, is open, or is out of the way (never a style hook).
+const firstRunState = computed(() =>
+  ui.firstRunOpen ? 'open' : firstRun.pending.value || firstRun.wanted.value ? 'pending' : 'idle',
+);
 const consentHeld = computed(
   () => !llmConsent.requested && (firstRun.pending.value || firstRun.wanted.value || firstRun.open.value),
 );
@@ -246,7 +251,11 @@ onUnmounted(() => {
   <template v-else>
     <a class="skip-link" href="#main-content">{{ t('app.skipToContent') }}</a>
     <div class="ambient" aria-hidden="true" data-ambient></div>
-    <div class="app-shell" :class="{ 'app-shell--calm': calmMode, 'app-shell--nav-collapsed': ui.navCollapsed }">
+    <div
+      class="app-shell"
+      :class="{ 'app-shell--calm': calmMode, 'app-shell--nav-collapsed': ui.navCollapsed }"
+      :data-first-run-state="firstRunState"
+    >
       <NavRail />
       <div class="app-main">
         <TopBar :unread="unreadNotifications" />

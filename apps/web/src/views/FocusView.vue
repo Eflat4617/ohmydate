@@ -778,7 +778,6 @@ watch(
         :disabled="!offline.online"
         :busy="reviewBusy"
         :error="reviewError"
-        :feedback="feedback"
         :submitted="feedback !== null"
         @submit="submitReview"
       />

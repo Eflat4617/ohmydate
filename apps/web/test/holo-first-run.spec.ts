@@ -184,9 +184,11 @@ describe('시작 안내 — which steps are left (composables/firstRun.ts)', () 
 describe('시작 안내 — a new owner is met by three steps', () => {
   it('opens by itself on the first step, as glass, and holds the consent dialog back', async () => {
     newOwner();
-    const { pinia } = await mountShell();
+    const { pinia, wrapper } = await mountShell();
     await vi.waitFor(() => expect(guide()).not.toBeNull());
     expect(guideStep()).toBe('hours');
+    // The shell says so for scripts that have to wait for the decision.
+    expect(wrapper.get('.app-shell').attributes('data-first-run-state')).toBe('open');
     expect(guide()?.classList.contains('glass')).toBe(true);
     expect(guide()?.getAttribute('role')).toBe('dialog');
     expect(inGuide('h2').textContent).toBe('언제 일할 수 있나요?');
@@ -361,6 +363,7 @@ describe('시작 안내 — a returning owner never sees it', () => {
     await flushPromises();
     await nextTick();
     expect(guide()).toBeNull();
+    await vi.waitFor(() => expect(wrapper.get('.app-shell').attributes('data-first-run-state')).toBe('idle'));
     expect(wrapper.find('[data-setup-card]').exists()).toBe(false);
     // Nothing was written for them either.
     expect(readFirstRun(mockDb.user.id)).toBeNull();

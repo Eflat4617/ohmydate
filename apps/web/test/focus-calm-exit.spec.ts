@@ -100,7 +100,7 @@ describe('Calm mode exit on completion (UI-POLISHR-1)', () => {
     const radios = wrapper.findAll('input[type="radio"]');
     await radios[1]?.setValue(true);
     await button(wrapper, '회고 저장').trigger('click');
-    await vi.waitFor(() => expect(wrapper.text()).toContain('추정 피드백'));
+    await vi.waitFor(() => expect(wrapper.find('[data-focus-next-feedback]').exists()).toBe(true));
     expectVisibleExit(wrapper);
 
     await button(wrapper, '오늘로 돌아가기').trigger('click');

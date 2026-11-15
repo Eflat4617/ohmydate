@@ -117,7 +117,9 @@ describe('Focus mode', () => {
     await wrapper.get('#review-note').setValue('Interrupted by a delivery.');
     await button(wrapper, '회고 저장').trigger('click');
 
-    await vi.waitFor(() => expect(wrapper.text()).toContain('추정 피드백'));
+    // HOLO-04: the estimate feedback is said once, on the next-step card.
+    await vi.waitFor(() => expect(wrapper.get('[data-focus-next-feedback]').text()).toMatch(/^예상 .+ · 실제 .+ · .+$/));
+    expect(wrapper.text().match(/예상 .+? · 실제/g)).toHaveLength(1);
     expect(review).toHaveBeenCalledTimes(1);
     expect(review).toHaveBeenCalledWith(
       completed.id,

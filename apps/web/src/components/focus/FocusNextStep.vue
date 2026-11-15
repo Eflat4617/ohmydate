@@ -71,7 +71,7 @@ function start(): void {
       <h2 id="focus-next-title" class="plan-next-title">
         <span class="success-mark" aria-hidden="true"><UiIcon name="check" :size="18" /></span>{{ t('focusNext.title') }}
       </h2>
-      <p class="plan-next-first tabular" data-focus-next-feedback>
+      <p class="plan-next-first tabular" role="status" data-focus-next-feedback>
         <I18nT keypath="review.feedback">
           <template #estimated>{{ formatDuration(feedback.estimatedP50) }}</template>
           <template #actual>{{ formatDuration(feedback.actualFocusMin) }}</template>

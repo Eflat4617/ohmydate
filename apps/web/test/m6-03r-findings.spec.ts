@@ -380,7 +380,8 @@ describe('M1 — a link/unlink 412 never silently rebases conflicting content', 
     // A new If-Match is a new action: the retry carries a fresh Idempotency-Key.
     expect(patches[0]?.headers.get('Idempotency-Key')).not.toBe(patches[1]?.headers.get('Idempotency-Key'));
     expect(document.body.querySelector('.note-conflict-dialog')).toBeNull();
-    await vi.waitFor(() => expect(app.wrapper.get('[data-note-live]').text()).toBe('저장했어요 · 버전 3'));
+    await vi.waitFor(() => expect(app.wrapper.get('[data-note-live]').text()).toBe('저장했어요'));
+    expect(app.wrapper.get('[data-note-status]').attributes('data-note-version')).toBe('3');
   });
 
   it('a save 412 caused by a content change elsewhere still opens the dialog and never retries (negative)', async () => {
