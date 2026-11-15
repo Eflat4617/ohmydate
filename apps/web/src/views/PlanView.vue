@@ -1327,7 +1327,7 @@ const scheduleTo = computed(() =>
               <UiIcon name="compare" :size="18" class="btn-icon" />
               {{ openPlan === null ? t('planSteps.done.open') : t('planSteps.done.resume') }}
             </RouterLink>
-            <RouterLink class="plan-next-link" to="/inbox">{{ t('planSteps.done.inbox') }}</RouterLink>
+            <RouterLink class="plan-next-link" to="/tasks">{{ t('planSteps.done.inbox') }}</RouterLink>
           </div>
         </UiCard>
       </div>

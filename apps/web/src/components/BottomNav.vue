@@ -5,28 +5,32 @@ import { useAuthStore } from '../stores/auth';
 import { useUiStore } from '../stores/ui';
 import UiDialog from './ui/UiDialog.vue';
 import UiIcon from './ui/UiIcon.vue';
-import { MORE_LINKS } from '../layout/navigation';
+import { BOTTOM_BAR_PLACES, isNavItemCurrent, MORE_LINKS } from '../layout/navigation';
 import { t } from '../i18n';
 
+/**
+ * The phone's bar (HOLO-04): the first places of the loop — 개요, 할 일, 계획 —
+ * with 새 작업 in the middle and 더 보기 for the rest, in glass that floats
+ * above the page's lower edge.
+ */
 const ui = useUiStore();
 const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
 const moreOpen = ref(false);
 
-// HOLO-01: the sheet lists every sidebar link the bar does not hold itself,
-// in the sidebar's order — 개요 first (HOLO-02: 플래너 is here too).
-const moreLinks = MORE_LINKS;
+const [first, second, third] = BOTTOM_BAR_PLACES;
+const before = [first, second].filter((item) => item !== undefined);
+const after = [third].filter((item) => item !== undefined);
 
-const MORE_ROUTES = new Set([...MORE_LINKS.flatMap((link) => link.routes), 'task']);
-const moreActive = computed(() => typeof route.name === 'string' && MORE_ROUTES.has(route.name));
+const moreActive = computed(() => MORE_LINKS.some((link) => isNavItemCurrent(link, route.name)));
 
 function newTask(): void {
-  if (route.name === 'inbox') {
+  if (route.name === 'tasks' && route.query['view'] === undefined) {
     ui.requestNewTask();
     return;
   }
-  void router.push({ name: 'inbox' }).then(async () => {
+  void router.push({ name: 'tasks' }).then(async () => {
     await nextTick();
     ui.requestNewTask();
   });
@@ -50,27 +54,40 @@ function signOut(): void {
 
 <template>
   <nav class="bottom-nav glass glass--low" :aria-label="t('nav.primary')">
-    <RouterLink to="/today" class="bottom-nav-item">
-      <UiIcon name="today" :size="22" />
-      <span>{{ t('nav.today') }}</span>
-    </RouterLink>
-    <RouterLink to="/inbox" class="bottom-nav-item">
-      <UiIcon name="inbox" :size="22" />
-      <span>{{ t('nav.inbox') }}</span>
+    <RouterLink
+      v-for="item in before"
+      :key="item.id"
+      :to="item.to"
+      class="bottom-nav-item"
+      :class="{ 'bottom-nav-item--current': isNavItemCurrent(item, route.name) }"
+      :aria-current="isNavItemCurrent(item, route.name) ? 'page' : undefined"
+      :data-nav-place="item.id"
+    >
+      <UiIcon :name="item.icon" :size="22" />
+      <span>{{ t(item.label) }}</span>
     </RouterLink>
     <button type="button" class="bottom-nav-add" :aria-label="t('nav.newTask')" @click="newTask">
       <UiIcon name="plus" :size="24" />
     </button>
-    <RouterLink to="/plan" class="bottom-nav-item">
-      <UiIcon name="plan" :size="22" />
-      <span>{{ t('nav.planShort') }}</span>
+    <RouterLink
+      v-for="item in after"
+      :key="item.id"
+      :to="item.to"
+      class="bottom-nav-item"
+      :class="{ 'bottom-nav-item--current': isNavItemCurrent(item, route.name) }"
+      :aria-current="isNavItemCurrent(item, route.name) ? 'page' : undefined"
+      :data-nav-place="item.id"
+    >
+      <UiIcon :name="item.icon" :size="22" />
+      <span>{{ t(item.label) }}</span>
     </RouterLink>
     <button
       type="button"
       class="bottom-nav-item"
-      :class="{ 'router-link-active': moreActive }"
+      :class="{ 'bottom-nav-item--current': moreActive }"
       aria-haspopup="dialog"
       :aria-expanded="moreOpen ? 'true' : 'false'"
+      data-nav-more
       @click="moreOpen = true"
     >
       <UiIcon name="more" :size="22" />
@@ -93,8 +110,14 @@ function signOut(): void {
       </button>
     </header>
     <ul class="nav-links more-links">
-      <li v-for="link in moreLinks" :key="link.to">
-        <RouterLink :to="link.to" class="nav-link" @click="closeMore">
+      <li v-for="link in MORE_LINKS" :key="link.id">
+        <RouterLink
+          :to="link.to"
+          class="nav-link"
+          :class="{ 'nav-link--current': isNavItemCurrent(link, route.name) }"
+          :aria-current="isNavItemCurrent(link, route.name) ? 'page' : undefined"
+          @click="closeMore"
+        >
           <UiIcon :name="link.icon" class="nav-link-icon" />
           <span class="nav-link-label">{{ t(link.label) }}</span>
         </RouterLink>

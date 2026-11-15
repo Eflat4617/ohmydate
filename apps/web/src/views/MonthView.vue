@@ -264,7 +264,7 @@ function labelDates(label: MonthDayLabel): string {
 }
 
 function agendaLink(item: MonthItem): string {
-  if (item.kind === 'commitment' || item.taskId === null) return '/commitments';
+  if (item.kind === 'commitment' || item.taskId === null) return '/planner?view=list';
   return `/tasks/${item.taskId}`;
 }
 
@@ -320,7 +320,7 @@ function retry(): void {
           {{ t('month.empty') }}
           <RouterLink to="/plan/schedule">{{ t('month.emptyPlan') }}</RouterLink>
           <span aria-hidden="true">·</span>
-          <RouterLink to="/commitments">{{ t('month.emptyCommitments') }}</RouterLink>
+          <RouterLink to="/planner?view=list">{{ t('month.emptyCommitments') }}</RouterLink>
         </p>
         <p v-if="data?.truncated" class="month-note">{{ t('month.truncated') }}</p>
 
@@ -442,7 +442,7 @@ function retry(): void {
             {{ formatCivilDate(selectedDay.date) }}
             <span v-if="selectedDay.today" class="month-detail-today">{{ t('month.cell.today') }}</span>
           </h2>
-          <RouterLink v-if="selectedDay.today" to="/today" class="btn btn--sm month-detail-open-today">
+          <RouterLink v-if="selectedDay.today" to="/overview" class="btn btn--sm month-detail-open-today">
             {{ t('month.detail.openToday') }}
           </RouterLink>
         </header>

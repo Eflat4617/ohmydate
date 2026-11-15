@@ -1,81 +1,96 @@
-import { createRouter, createWebHistory, type RouteRecordRaw, type Router } from 'vue-router';
-import AvailabilityView from './views/AvailabilityView.vue';
-import CalendarSettingsView from './views/CalendarSettingsView.vue';
-import CommitmentsView from './views/CommitmentsView.vue';
+import { createRouter, createWebHistory, type RouteLocation, type RouteRecordRaw, type Router } from 'vue-router';
 import FocusView from './views/FocusView.vue';
-import InboxView from './views/InboxView.vue';
-import LayoutSettingsView from './views/LayoutSettingsView.vue';
-import LlmSettingsView from './views/LlmSettingsView.vue';
 import LoginView from './views/LoginView.vue';
 import OverviewView from './views/OverviewView.vue';
 import PlanScheduleView from './views/PlanScheduleView.vue';
 import PlanScopeView from './views/PlanScopeView.vue';
 import PlannerView from './views/PlannerView.vue';
 import ProjectDetailView from './views/ProjectDetailView.vue';
-import ProjectListView from './views/ProjectListView.vue';
 import PlanView from './views/PlanView.vue';
 import InsightsView from './views/InsightsView.vue';
 import ReplanView from './views/ReplanView.vue';
+import SettingsView from './views/SettingsView.vue';
 import TaskDetailView from './views/TaskDetailView.vue';
-import TodayView from './views/TodayView.vue';
+import TasksView from './views/TasksView.vue';
 import TrackerView from './views/TrackerView.vue';
+import { SETTINGS_SECTIONS } from './domain/settings';
 import { currentOwnerId, isPageSealed } from './session/ownerEpoch';
 
 const NotesView = () => import('./views/NotesView.vue');
 
-/** The app's route table (exported so tests can mount it on a memory history). */
+/** An old address goes to its new home with whatever it carried in the query. */
+function movedTo(name: string, query: Record<string, string> = {}, params: Record<string, string> = {}) {
+  return (to: RouteLocation) => ({ name, params, query: { ...to.query, ...query } });
+}
+
+/**
+ * The app's route table (exported so tests can mount it on a memory history).
+ *
+ * HOLO-04 (FLOW.md §4): the places are the loop — 개요, 할 일, 계획, 플래너,
+ * 집중, 분석, 노트 — and 설정. Every address an earlier version had still
+ * opens: it redirects to where that screen lives now.
+ */
 export const routes: RouteRecordRaw[] = [
-  // HOLO-02: the app opens on 개요, the dashboard. (Signing in still goes to
-  // the inbox by name — LoginView — and an owner reset reloads to the inbox:
-  // session/ownerEpoch.ts.)
   { path: '/', redirect: '/overview' },
   { path: '/login', name: 'login', component: LoginView, meta: { layout: 'blank' } },
-  // HOLO-01: the dashboard; the brand link and the `o` key open it too.
+
+  // 개요: what to do now, today's blocks, the week. (오늘 lives here.)
   { path: '/overview', name: 'overview', component: OverviewView },
-  { path: '/inbox', name: 'inbox', component: InboxView },
-  { path: '/projects', name: 'projects', component: ProjectListView },
+  { path: '/today', redirect: movedTo('overview') },
+
+  // 할 일: everything put down, as one place with two views (`?view=projects`).
+  // HOLO-05 replaces the inside of this place; the address and the mount point stay.
+  { path: '/tasks', name: 'tasks', component: TasksView },
+  { path: '/tasks/:id', name: 'task', component: TaskDetailView, props: true },
   { path: '/projects/:id', name: 'project', component: ProjectDetailView, props: true },
-  // HOLO-03A: 계획 세우기, one flow: 목표 (`/plan`), then 질문 and 단계 of a
-  // planning session; its schedules and their confirmation are below.
+  { path: '/inbox', redirect: movedTo('tasks') },
+  { path: '/projects', redirect: movedTo('tasks', { view: 'projects' }) },
+
+  // 계획: one flow — 목표 (`/plan`), 질문 and 단계 of a planning session, then
+  // what goes into the schedules (`?goalId`, `?taskIds`; `?session` names the
+  // planning session it came from), the three schedules and their confirmation.
   { path: '/plan', name: 'plan', component: PlanView },
   { path: '/plan/new', redirect: '/plan' },
+  { path: '/plan/schedule', name: 'plan-scope', component: PlanScopeView },
+  { path: '/plan/schedule/:id', name: 'plan-schedule', component: PlanScheduleView, props: true },
   { path: '/plan/:sessionId', name: 'plan-session', component: PlanView, props: true },
-  { path: '/today', name: 'today', component: TodayView },
-  // HOLO-02: the timer card and the week's focus sessions.
-  { path: '/tracker', name: 'tracker', component: TrackerView },
-  // HOLO-02: 플래너, the calendar screen with three views (`?view=day|week|month`,
-  // 주 by default; the day, week or month is in the query too).
+  { path: '/plans/new', redirect: (to) => ({ name: 'plan-scope', query: to.query }) },
+  { path: '/plans/:id', redirect: (to) => ({ name: 'plan-schedule', params: { id: to.params['id'] }, query: to.query }) },
+  // 다시 맞추기 belongs to 계획: the proposal on show beside the list of them all.
+  { path: '/replan', name: 'replan', component: ReplanView },
+  { path: '/replan/:id', name: 'replan-proposal', component: ReplanView, props: true },
+
+  // 플래너: 일 · 주 · 월 · 약속 (`?view=day|week|month|list`, 주 by default; the
+  // day, week or month is in the query too). `/month` is its 월 view (CAL-01).
   { path: '/planner', name: 'planner', component: PlannerView },
-  // CAL-01: the month page; the month is in the query (`?m=2026-11`). It is
-  // the planner's 월 view and stays a valid address.
   { path: '/month', name: 'month', component: PlannerView },
+  { path: '/commitments', redirect: movedTo('planner', { view: 'list' }) },
+
+  // 집중: the timer and its record at `/focus`, one session at `/focus/:id`.
+  { path: '/focus', name: 'focus-home', component: TrackerView },
   { path: '/focus/:sessionId', name: 'focus', component: FocusView, props: true },
-  { path: '/commitments', name: 'commitments', component: CommitmentsView },
-  { path: '/settings/availability', name: 'availability', component: AvailabilityView },
-  { path: '/settings/ai', name: 'ai-settings', component: LlmSettingsView },
-  { path: '/settings/layout', name: 'layout-settings', component: LayoutSettingsView },
-  // CAL-04: Google Calendar (the OAuth callback comes back here with ?google=…).
-  { path: '/settings/calendar', name: 'calendar-settings', component: CalendarSettingsView },
-  // M6-03 notes workspace: one view for the list, a new note and an open note.
-  // Loaded on demand, so the Markdown parser stays out of the main bundle.
+  { path: '/tracker', redirect: movedTo('focus-home') },
+
+  // 분석 (was 내 패턴 at /patterns).
+  { path: '/insights', name: 'insights', component: InsightsView },
+  { path: '/patterns', redirect: '/insights' },
+
+  // 노트: one view for the list, a new note and an open note. Loaded on
+  // demand, so the Markdown parser stays out of the main bundle.
   { path: '/notes', name: 'notes', component: NotesView },
   { path: '/notes/new', name: 'notes-new', component: NotesView },
   { path: '/notes/:id', name: 'notes-detail', component: NotesView },
-  { path: '/tasks/:id', name: 'task', component: TaskDetailView, props: true },
-  // What goes into the schedules (`?goalId`, `?taskIds`; `?session` names the
-  // planning session it came from), then the three schedules of a plan and
-  // its confirmation.
-  { path: '/plan/schedule', name: 'plan-scope', component: PlanScopeView },
-  { path: '/plan/schedule/:id', name: 'plan-schedule', component: PlanScheduleView, props: true },
-  // The addresses these screens had before HOLO-03A.
-  { path: '/plans/new', redirect: (to) => ({ name: 'plan-scope', query: to.query }) },
-  { path: '/plans/:id', redirect: (to) => ({ name: 'plan-schedule', params: { id: to.params['id'] }, query: to.query }) },
-  // HOLO-03A: one 재계획 screen — the proposal on show beside the list of them all.
-  { path: '/replan', name: 'replan', component: ReplanView },
-  { path: '/replan/:id', name: 'replan-proposal', component: ReplanView, props: true },
-  // HOLO-03A: AI 분석 (was 내 패턴 at /patterns).
-  { path: '/insights', name: 'insights', component: InsightsView },
-  { path: '/patterns', redirect: '/insights' },
+
+  // 설정: one screen, four sections. The section is in the address, so the
+  // addresses of 가용 시간, 캘린더 연동 (the Google sign-in comes back to it
+  // with `?google=…`) and AI are the ones they always had.
+  {
+    path: `/settings/:section(${SETTINGS_SECTIONS.join('|')})?`,
+    name: 'settings',
+    component: SettingsView,
+  },
+  { path: '/settings/layout', redirect: movedTo('settings', {}, { section: 'display' }) },
+
   // An address the app does not know opens the dashboard.
   { path: '/:pathMatch(.*)*', redirect: '/overview' },
 ];

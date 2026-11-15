@@ -429,10 +429,10 @@ describe('calm mode', () => {
       routes: [
         { path: '/', component: Stub },
         { path: '/inbox', name: 'inbox', component: Stub },
-        { path: '/today', name: 'today', component: Stub },
+        { path: '/overview', name: 'overview', component: Stub },
       ],
     });
-    await router.push('/today');
+    await router.push('/overview');
     await router.isReady();
     const wrapper = mount(AppShell, {
       global: { plugins: [createPinia(), router] },
@@ -464,11 +464,11 @@ describe('shell axe-lite', () => {
       routes: [
         { path: '/', component: Stub },
         { path: '/inbox', name: 'inbox', component: Stub },
-        { path: '/today', name: 'today', component: Stub },
+        { path: '/overview', name: 'overview', component: Stub },
         { path: '/:rest(.*)*', component: Stub },
       ],
     });
-    await router.push('/today');
+    await router.push('/overview');
     await router.isReady();
     const wrapper = mount(AppShell, {
       global: { plugins: [createPinia(), router] },

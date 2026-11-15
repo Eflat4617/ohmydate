@@ -21,7 +21,7 @@ function testRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
     ],
   });
@@ -103,7 +103,7 @@ describe('Calm mode exit on completion (UI-POLISHR-1)', () => {
     expectVisibleExit(wrapper);
 
     await button(wrapper, '오늘로 돌아가기').trigger('click');
-    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/today'));
+    await vi.waitFor(() => expect(router.currentRoute.value.path).toBe('/overview'));
     wrapper.unmount();
   });
 

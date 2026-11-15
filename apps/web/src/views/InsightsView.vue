@@ -453,7 +453,7 @@ async function confirmReset(): Promise<void> {
             <p class="insights-empty-title">{{ t('insights.notEnough') }}</p>
             <p>{{ t('insights.estimate.emptyBody', { min: TREND_MIN_POINTS, count: countedCount }) }}</p>
             <p class="insights-note">{{ t('insights.estimate.coldBody') }}</p>
-            <RouterLink class="btn btn--secondary btn--sm" to="/today">{{ t('insights.toToday') }}</RouterLink>
+            <RouterLink class="btn btn--secondary btn--sm" to="/overview">{{ t('insights.toToday') }}</RouterLink>
           </div>
         </UiCard>
 
@@ -499,7 +499,7 @@ async function confirmReset(): Promise<void> {
           <div v-else class="insights-empty" data-insights-empty="weeks">
             <p class="insights-empty-title">{{ t('insights.notEnough') }}</p>
             <p>{{ t('insights.weeks.empty', { count: WEEKS }) }}</p>
-            <RouterLink class="btn btn--secondary btn--sm" to="/today">{{ t('insights.toToday') }}</RouterLink>
+            <RouterLink class="btn btn--secondary btn--sm" to="/overview">{{ t('insights.toToday') }}</RouterLink>
           </div>
         </UiCard>
 

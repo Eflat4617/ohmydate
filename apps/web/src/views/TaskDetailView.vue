@@ -91,7 +91,7 @@ const projectLink = computed(() => {
   const project = targets.projectOf(current.projectId);
   if (project === undefined) return null;
   return project.kind === 'inbox'
-    ? { to: '/inbox', title: t('nav.inbox') }
+    ? { to: '/tasks', title: t('nav.inbox') }
     : { to: `/projects/${project.id}`, title: project.title };
 });
 
@@ -242,7 +242,7 @@ async function promote(): Promise<void> {
     <header class="page-header">
       <div class="page-heading">
         <p class="breadcrumb">
-          <RouterLink :to="projectLink?.to ?? '/inbox'"><UiIcon name="arrow-left" :size="16" />{{ projectLink?.title ?? t('notes.task.back') }}</RouterLink>
+          <RouterLink :to="projectLink?.to ?? '/tasks'"><UiIcon name="arrow-left" :size="16" />{{ projectLink?.title ?? t('notes.task.back') }}</RouterLink>
         </p>
         <h1 id="task-detail-title">{{ task?.title ?? t('notes.task.details') }}</h1>
       </div>
@@ -370,7 +370,7 @@ async function promote(): Promise<void> {
               <UiIcon name="timer" :size="18" />
               {{ t('taskDetail.sessions.title') }}
             </h2>
-            <RouterLink to="/tracker" class="icon-link" :aria-label="t('overview.tracker.open')">
+            <RouterLink to="/focus" class="icon-link" :aria-label="t('overview.tracker.open')">
               <UiIcon name="open" :size="16" />
             </RouterLink>
           </header>

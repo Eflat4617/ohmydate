@@ -6,7 +6,7 @@ import AvailabilityWeekGrid from '../src/components/AvailabilityWeekGrid.vue';
 import { exceptionSummary } from '../src/domain/availabilityExceptions';
 import { mockDb } from '../src/mocks/db';
 import { useOfflineStore } from '../src/stores/offline';
-import AvailabilityView from '../src/views/AvailabilityView.vue';
+import AvailabilityView from '../src/components/settings/AvailabilitySettings.vue';
 import { mountWithPlugins, settle } from './planning-test-utils';
 
 const PREFS: Availability['prefs'] = {

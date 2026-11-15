@@ -63,6 +63,8 @@ describe('message catalog (ko)', () => {
   it('writes user-facing copy in Korean (every leaf has Hangul unless it is a name or format)', () => {
     const allowedNonKorean = new Set([
       'app.name',
+      // HOLO-04: the settings section is called by the two letters everyone calls it.
+      'settings.section.ai',
       'llm.providerName',
       'llm.modelId',
       'duration.separator',
@@ -112,7 +114,7 @@ describe('message catalog (ko)', () => {
   it('types any other locale against the Korean key tree', () => {
     // A complete locale type-checks: here the Korean tree itself.
     const complete: Messages = ko;
-    expect(complete.nav.today).toBe('오늘');
+    expect(complete.nav.overview).toBe('개요');
     // @ts-expect-error — a locale that misses keys is rejected by the typecheck.
     const partial: Messages = { app: { name: 'OhMyDate', loading: '…', skipToContent: 'Skip' } };
     expect(partial.app.name).toBe('OhMyDate');

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { Commitment } from '../../api';
 import { computed, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import DayTimetable from '../DayTimetable.vue';
@@ -19,6 +20,7 @@ import { t, tp } from '../../i18n';
 import { formatCivilDate, formatCivilDateRange, formatTime, formatTimeRange } from '../../i18n/format';
 import { useLayoutNow } from '../../layout/now';
 import { useOfflineStore } from '../../stores/offline';
+import CommitmentAddDialog from './CommitmentAddDialog.vue';
 import PlannerHeader from './PlannerHeader.vue';
 import PlannerItemCard from './PlannerItemCard.vue';
 
@@ -174,6 +176,15 @@ function refresh(): Promise<unknown> {
   return query.refetch();
 }
 
+/** 고치기 on a 약속's card: the planner's dialog opens on it, and the card steps away. */
+const editing = ref<Commitment | null>(null);
+function editCommitment(commitmentId: string): void {
+  const found = data.value?.commitments.find((commitment) => commitment.id === commitmentId) ?? null;
+  if (found === null) return;
+  card.close();
+  editing.value = found;
+}
+
 function retry(): void {
   void query.refetch();
   if (dayEventsQuery.isError.value) void dayEventsQuery.refetch();
@@ -223,7 +234,7 @@ function retry(): void {
             <UiIcon name="list" :size="18" />
             {{ isToday ? t('planner.day.listToday') : t('planner.day.list') }}
           </h2>
-          <RouterLink v-if="isToday" to="/today" class="icon-link" :aria-label="t('planner.day.openToday')" data-planner-open-today>
+          <RouterLink v-if="isToday" to="/overview" class="icon-link" :aria-label="t('planner.day.openToday')" data-planner-open-today>
             <UiIcon name="open" :size="16" />
           </RouterLink>
         </header>
@@ -294,6 +305,7 @@ function retry(): void {
           :side="card.side.value"
           :style="card.style.value"
           @close="(restoreFocus) => card.close({ restoreFocus })"
+          @edit="editCommitment"
         />
       </section>
 
@@ -309,5 +321,6 @@ function retry(): void {
         :scope="isToday ? 'today' : 'day'"
       />
     </div>
+    <CommitmentAddDialog v-if="editing" :time-zone="timeZone" :date="date" :commitment="editing" @close="editing = null" />
   </section>
 </template>

@@ -1,0 +1,240 @@
+/* ── The places (HOLO-04, FLOW.md §4) ──────────────────────────────────
+   What the loop's places add to the screens they hold: 할 일's two views,
+   설정's four sections, and the planner's list of 약속. */
+
+/* ── 할 일: one place, two views for now ──────────────────────────── */
+/* The mount point HOLO-05 fills. The switch sits above the view it picks. */
+.tasks-place {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.tasks-place > .page {
+  align-self: stretch;
+}
+
+.tasks-views .segmented-item,
+.settings-sections .segmented-item {
+  gap: var(--space-1-5);
+  text-decoration: none;
+}
+
+/* ── 설정: one screen, four sections ───────────────────────────────── */
+.settings-head {
+  align-items: flex-end;
+}
+
+.settings-sections {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  min-width: 0;
+}
+
+.settings-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-4);
+}
+
+.settings-section-title {
+  font-size: var(--text-xl);
+}
+
+.settings-section-title:focus {
+  outline: none;
+}
+
+/* A section's parts are cards on the dashboard's grid: two abreast when
+   there is room, a wide one across. */
+.settings-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: var(--grid-gap);
+  align-items: start;
+}
+
+.settings-card {
+  min-width: 0;
+  margin: 0;
+}
+
+.settings-card--wide {
+  grid-column: 1 / -1;
+}
+
+/* A fieldset as a card: its legend is the card's title, not a rule. */
+fieldset.settings-card.settings-group > legend {
+  float: none;
+  width: auto;
+  padding: 0;
+  border-bottom: 0;
+  font-size: var(--text-md);
+  letter-spacing: 0;
+}
+
+.settings-card-lede {
+  max-width: 40rem;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.settings-card-part {
+  padding-top: var(--space-4);
+  border-top: var(--rule-hair) solid var(--color-line);
+}
+
+.settings-theme {
+  align-self: flex-start;
+  min-width: min(100%, 18rem);
+}
+
+.settings-fold > summary {
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.settings-fold[open] > summary {
+  margin-bottom: var(--space-3);
+}
+
+@media (max-width: 639px) {
+  .settings-sections {
+    width: 100%;
+  }
+
+  .settings-sections .segmented-item {
+    flex: 1;
+    padding-inline: var(--space-2);
+  }
+
+  .settings-sections .segmented-item .icon {
+    display: none;
+  }
+}
+
+/* The theme inside the account menu: the menu's width, with room around it. */
+.topbar-theme {
+  margin: var(--space-1) var(--space-1-5) var(--space-1-5);
+}
+
+/* ── 플래너 · 약속: the week's 약속 as rows of one card ─────────────── */
+.planner-list-card {
+  padding-block: var(--space-2);
+}
+
+.commitment-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.commitment-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: var(--rule-hair) solid var(--color-line);
+}
+
+.commitment-item:last-child {
+  border-bottom: 0;
+}
+
+/* The mark a 약속 has everywhere it is listed: a cyan dot. */
+.commitment-swatch {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: inset 0 0 0 var(--rule-hair) var(--data-2-edge);
+}
+
+.commitment-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.commitment-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.commitment-title {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+.occurrence-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  margin: 0;
+  padding: 0;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+  list-style: none;
+}
+
+@media (max-width: 479px) {
+  .commitment-item {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .commitment-item > .btn,
+  .commitment-item > .commitment-readonly {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+/* 약속 고치기: 삭제 stands apart from the two that close the dialog, and
+   asks once more in the same row. */
+.planner-delete {
+  margin-right: auto;
+}
+
+.planner-delete-question {
+  flex: 1 1 12rem;
+  min-width: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+@media (max-width: 639px) {
+  .planner-delete {
+    margin-right: 0;
+  }
+}
+
+/* A repeating 약속 says when it next happens, under the weekdays. */
+.planner-add-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.planner-add-preview-title {
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+}

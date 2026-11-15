@@ -38,49 +38,73 @@ export const ko = {
     readOnlyOffline: '오프라인 · 읽기 전용',
   },
 
+  // HOLO-04 (FLOW.md §4): the places are the loop, in its order, and 설정.
   nav: {
     primary: '주 메뉴',
     home: 'OhMyDate 홈',
     newTask: '새 작업',
-    groupMain: '메인',
-    groupPlanning: '계획',
-    groupAi: '분석',
-    groupSettings: '설정',
     overview: '개요',
-    today: '오늘',
-    // HOLO-02: the timer and the week's record of it.
-    tracker: '타임 트래커',
-    // HOLO-02: the calendar screen (일 · 주 · 월); `/month` is its 월 view.
+    tasks: '할 일',
+    plan: '계획',
     planner: '플래너',
+    focus: '집중',
+    insights: '분석',
+    notes: '노트',
+    settings: '설정',
+    // The inbox is one view of 할 일; its system project is named in the UI language.
     inbox: '인박스',
-    projects: '프로젝트',
     notifications: '알림',
-    // HOLO-03A: one entry for the whole plan flow (목표 → 질문 → 단계 → 일정안 → 확정).
-    plan: '계획 세우기',
-    planShort: '계획',
-    commitments: '약속',
-    availability: '가용 시간',
-    aiSettings: 'AI 설정',
     search: '검색',
     help: '도움말',
     signOut: '로그아웃',
     more: '더 보기',
     closeMore: '메뉴 닫기',
-    replan: '재계획',
-    insights: 'AI 분석',
-    notes: '노트',
-    layoutSettings: '레이아웃',
-    // CAL-04
-    calendarSettings: '캘린더 연동',
-    // HOLO-01: the dashboard shell (sidebar, top bar).
+    // Screens under a place: the top bar says "place / screen".
     crumbTask: '작업',
-    crumbFocus: '집중',
-    crumb: '현재 위치: {group} · {page}',
+    crumbProject: '프로젝트',
+    crumbTimer: '타이머',
+    crumbReplan: '재계획',
+    crumb: '현재 위치: {place}',
+    crumbNested: '현재 위치: {place} · {page}',
     collapseSidebar: '사이드바 접기',
     expandSidebar: '사이드바 펼치기',
     notificationsUnread: plural({ other: '알림 · 읽지 않은 알림 {count}개' }),
     account: '{name} 계정 메뉴',
     accountFallback: '계정 메뉴',
+  },
+
+  // HOLO-04: 할 일, one place. Until its canvas arrives it shows the inbox and
+  // the projects as two views.
+  tasks: {
+    views: {
+      label: '할 일 보기',
+      inbox: '인박스',
+      projects: '프로젝트',
+    },
+  },
+
+  // HOLO-04: 설정, one screen with four sections.
+  settings: {
+    title: '설정',
+    lede: '나중에 고치는 곳이에요. 쓰다가 필요한 것은 그 자리에서 물어봐요.',
+    sections: '설정 구역',
+    section: {
+      availability: '가용 시간',
+      calendar: '캘린더 연동',
+      ai: 'AI',
+      display: '화면',
+    },
+    display: {
+      title: '화면',
+      lede: '이 기기에서 앱이 보이는 방식이에요. 이 계정에만 적용돼요.',
+      theme: '테마',
+      themeHelp: '다크가 기본이에요. 시스템을 고르면 기기 설정을 따라가요.',
+      glass: '유리 효과',
+      glassLabel: '투명 효과 줄이기',
+      glassHelp: '사이드바, 위쪽 바, 대화상자를 불투명하게 그려요. 화면이 느리거나 뒤가 비치는 것이 불편할 때 켜세요.',
+      glassOffStatus: '투명 효과를 줄였어요.',
+      glassOnStatus: '유리 효과를 켰어요.',
+    },
   },
 
   // HOLO-01: 개요, the dashboard. Every number on it is computed from the
@@ -117,6 +141,7 @@ export const ko = {
     unitHour: '시간',
     unitMinute: '분',
     week: {
+      title: '이번 주',
       label: '진행 카드에 보일 주',
       previous: '이전 주',
       next: '다음 주',
@@ -222,11 +247,6 @@ export const ko = {
     title: '키보드 단축키',
     lede: '입력란 밖이라면 어디서든 키 하나로 쓸 수 있어요.',
     newTask: '새 작업',
-    overview: '개요',
-    today: '오늘',
-    planner: '플래너',
-    plan: '계획 세우기',
-    focus: '집중 세션',
     search: '검색',
     help: '이 도움말',
     closeDialogs: '대화상자 닫기',
@@ -461,8 +481,10 @@ export const ko = {
     starting: '시작하는 중…',
     shrink: '축소',
     reschedule: '재배치',
-    empty: '오늘 예정된 일이 없어요 · 인박스에서 하나 골라 보세요.',
-    openInbox: '인박스 열기',
+    empty: '오늘 계획이 없어요',
+    emptyBody: '할 일을 일정으로 옮기면 오늘 할 블록이 여기에 보여요. 지금 하나만 바로 시작해도 돼요.',
+    makePlan: '계획 세우기',
+    startOne: '할 일 하나만 바로 시작',
     shrinkTitle: '“{title}” 줄이기',
     shrinkLede: '바뀌기 전에 미리보기를 먼저 보여 드려요.',
     shrinkMinutes: '새 길이 (분)',
@@ -475,7 +497,7 @@ export const ko = {
     commitmentsTitle: '오늘 약속',
     dueTitle: '오늘 마감',
     dueAt: '{time}까지',
-    commitmentsLink: '약속 보기',
+    commitmentsLink: '플래너에서 오늘 보기',
     timetableCommitment: '약속 · {title}',
     timetableLabelWithCommitments: plural({
       other: '오늘 블록 {count}개를 10분 칸에 칠하고 약속 {commitments}개를 빗금으로 그린 표',
@@ -2030,6 +2052,24 @@ export const ko = {
       day: '일',
       week: '주',
       month: '월',
+      list: '약속',
+    },
+    // HOLO-04: the week's 약속 as a list (what the 약속 screen was).
+    list: {
+      title: '이번 주 약속',
+      summary: plural({ other: '약속 {count}개' }),
+      empty: '이 주에는 약속이 없어요',
+      emptyBody: '수업, 회의, 병원처럼 시간이 정해진 일을 넣어 두면 계획이 그 시간을 피해 가요.',
+      edit: '고치기',
+    },
+    edit: {
+      title: '약속 고치기',
+      lede: '바꾸면 계획이 새 시간을 피해 가요. 반복하는 약속은 전체가 바뀌어요.',
+      save: '저장',
+      saved: '‘{title}’ 약속을 고쳤어요.',
+      removed: '‘{title}’ 약속을 지웠어요.',
+      deleteQuestion: '‘{title}’ 약속을 지울까요? 되돌릴 수 없어요.',
+      deleteConfirm: '약속 지우기',
     },
     add: {
       open: '약속 추가',
@@ -2041,12 +2081,13 @@ export const ko = {
       advanced: '고급 · 시간대와 반복 규칙',
       save: '약속 추가',
       saved: '‘{title}’ 약속을 추가했어요.',
+      previewEmpty: '이 규칙으로는 앞으로 다섯 주 안에 일정이 없어요.',
     },
     card: {
       dueAt: '{when}까지',
       google: '구글 캘린더에서 가져온 약속이에요. 고치려면 구글 캘린더에서 바꿔 주세요.',
       openTask: '작업 열기',
-      openCommitments: '약속 화면에서 열기',
+      edit: '고치기',
     },
     week: {
       navigation: '주 옮기기',

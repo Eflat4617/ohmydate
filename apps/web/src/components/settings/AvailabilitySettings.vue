@@ -9,23 +9,23 @@ import {
   type AvailabilityException,
   type AvailabilityPut,
   type AvailabilityRule,
-} from '../api';
-import { useOfflineStore } from '../stores/offline';
-import AvailabilityWeekGrid from '../components/AvailabilityWeekGrid.vue';
-import ClockInput from '../components/ClockInput.vue';
-import { DAY_MINUTES, WEEKDAYS, parseClock } from '../domain/availabilityGrid';
-import { exceptionSummary } from '../domain/availabilityExceptions';
-import UiBadge from '../components/ui/UiBadge.vue';
-import UiBanner from '../components/ui/UiBanner.vue';
-import UiButton from '../components/ui/UiButton.vue';
-import UiDialog from '../components/ui/UiDialog.vue';
-import UiEmptyState from '../components/ui/UiEmptyState.vue';
-import UiField from '../components/ui/UiField.vue';
-import UiIcon from '../components/ui/UiIcon.vue';
-import UiSkeleton from '../components/ui/UiSkeleton.vue';
-import { t } from '../i18n';
-import { errorMessage } from '../i18n/problem';
-import { runOwnerBound } from '../session/ownerBound';
+} from '../../api';
+import { useOfflineStore } from '../../stores/offline';
+import AvailabilityWeekGrid from '../AvailabilityWeekGrid.vue';
+import ClockInput from '../ClockInput.vue';
+import { DAY_MINUTES, WEEKDAYS, parseClock } from '../../domain/availabilityGrid';
+import { exceptionSummary } from '../../domain/availabilityExceptions';
+import UiBadge from '../ui/UiBadge.vue';
+import UiBanner from '../ui/UiBanner.vue';
+import UiButton from '../ui/UiButton.vue';
+import UiDialog from '../ui/UiDialog.vue';
+import UiEmptyState from '../ui/UiEmptyState.vue';
+import UiField from '../ui/UiField.vue';
+import UiIcon from '../ui/UiIcon.vue';
+import UiSkeleton from '../ui/UiSkeleton.vue';
+import { t } from '../../i18n';
+import { errorMessage } from '../../i18n/problem';
+import { runOwnerBound } from '../../session/ownerBound';
 
 const offline = useOfflineStore();
 const queryClient = useQueryClient();
@@ -280,10 +280,10 @@ function retry(): void {
 </script>
 
 <template>
-  <section class="page page--wide availability-page">
-    <header class="page-header">
+  <section class="settings-section availability-page" aria-labelledby="settings-availability-title" data-settings-availability>
+    <header class="settings-section-head">
       <div class="page-heading">
-        <h1>{{ t('availability.title') }}</h1>
+        <h2 id="settings-availability-title" class="settings-section-title">{{ t('availability.title') }}</h2>
         <p class="page-lede">{{ t('availability.lede') }}</p>
       </div>
     </header>

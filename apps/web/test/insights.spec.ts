@@ -111,7 +111,7 @@ describe('AI 분석 — 예상과 실제 (what reviews taught)', () => {
     const empty = wrapper.get('[data-insights-empty="estimate"]');
     expect(empty.text()).toContain('아직 기록이 부족해요');
     expect(empty.text()).toContain('회고가 3개 쌓이면 예상과 실제를 비교해 드려요. 지금은 2개예요.');
-    expect(empty.get('a').attributes('href')).toBe('/today');
+    expect(empty.get('a').attributes('href')).toBe('/overview');
     // There are records, so this is not the cold start.
     expect(empty.attributes('data-cold-start')).toBeUndefined();
     expect(wrapper.find('[data-estimate-ratio]').exists()).toBe(false);
@@ -212,7 +212,7 @@ describe('AI 분석 — when the owner works (sessions of the last eight weeks)'
     const empty = wrapper.get('[data-insights-empty="weeks"]');
     expect(empty.text()).toContain('아직 기록이 부족해요');
     expect(empty.text()).toContain('최근 8주 동안 집중 기록이 없어요.');
-    expect(empty.get('a').attributes('href')).toBe('/today');
+    expect(empty.get('a').attributes('href')).toBe('/overview');
     expect(wrapper.get('[data-insights-empty="weekday"]').text()).toBe('기록이 생기면 어느 요일에 잘 집중하는지 보여 드려요.');
     expect(wrapper.get('[data-insights-empty="hours"]').text()).toBe('기록이 생기면 하루 중 언제 잘 집중하는지 보여 드려요.');
     expect(wrapper.find('[data-insights-peak]').exists()).toBe(false);

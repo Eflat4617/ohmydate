@@ -193,7 +193,7 @@ function testRouter(): Router {
     history: createMemoryHistory(),
     routes: [
       { path: '/tracker', name: 'tracker', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/tasks/:id', name: 'task', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
     ],

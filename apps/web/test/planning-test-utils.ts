@@ -12,7 +12,7 @@ export function testRouter() {
     routes: [
       { path: '/', component: Stub },
       { path: '/inbox', name: 'inbox', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/projects', name: 'projects', component: Stub },
       { path: '/commitments', name: 'commitments', component: Stub },
       { path: '/settings/availability', name: 'availability', component: Stub },

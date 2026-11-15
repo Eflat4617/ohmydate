@@ -12,7 +12,7 @@ import {
 } from '../src/api';
 import AppShell from '../src/components/AppShell.vue';
 import FocusView from '../src/views/FocusView.vue';
-import TodayView from '../src/views/TodayView.vue';
+import TodayView from '../src/components/today/TodayBoard.vue';
 import {
   flushFocusJournal,
   retryQuarantinedFocusEvents,
@@ -43,7 +43,7 @@ function testRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
     ],
   });
@@ -264,7 +264,7 @@ describe('owner-bound Focus and Today client operations', () => {
     const pending = deferred<WorkSession>();
     vi.spyOn(plannerClient, 'createSession').mockImplementation(() => pending.promise);
     const router = testRouter();
-    await router.push('/today');
+    await router.push('/overview');
     const wrapper = mount(TodayView, {
       global: { plugins: [pinia, VueQueryPlugin, router] },
       attachTo: document.body,
@@ -280,7 +280,7 @@ describe('owner-bound Focus and Today client operations', () => {
     pending.resolve(created);
 
     await vi.waitFor(() => expect(storedFor(ownerA.id)[created.id]?.id).toBe(created.id));
-    expect(router.currentRoute.value.name).toBe('today');
+    expect(router.currentRoute.value.name).toBe('overview');
     expect(sessions.get(created.id)).toBeNull();
     expect(sessions.active).toBeNull();
     expect(storedFor(ownerB.id)[created.id]).toBeUndefined();
@@ -387,7 +387,7 @@ describe('owner-bound Focus and Today client operations', () => {
     expect(auth.ownerId).toBe(ownerB.id);
 
     const router = testRouter();
-    await router.push('/today');
+    await router.push('/overview');
     const wrapper = mount(AppShell, {
       global: { plugins: [pinia, router] },
       attachTo: document.body,
@@ -483,7 +483,7 @@ describe('owner-bound Focus and Today client operations', () => {
       'session gone',
     );
     const router = testRouter();
-    await router.push('/today');
+    await router.push('/overview');
     const wrapper = mount(TodayView, {
       global: { plugins: [pinia, VueQueryPlugin, router] },
       attachTo: document.body,

@@ -387,7 +387,7 @@ describe('RelatedNotes{limit} (07 §2.1, §3.4)', () => {
   it('lists the notes linked to the focused task (and its project) in the focus layout', async () => {
     seedFocusNote(mockDb);
     linkTo(NOTE_PRIVATE_ID, 'project', INBOX_PROJECT_ID);
-    const app = await open('/today', '.today-card');
+    const app = await open('/overview', '.today-card');
     await startFocus(app);
     await vi.waitFor(() => expect(relatedTitles(app)).toEqual(['발표 준비 회의', '개인 일정 메모']));
     const panel = app.wrapper.get('[data-panel="related-notes"]');
@@ -406,7 +406,7 @@ describe('RelatedNotes{limit} (07 §2.1, §3.4)', () => {
       newActionId('note'),
     );
     noteById(extra.id).updatedAt = '2026-11-13T09:00:00.000Z';
-    const app = await open('/today', '.today-card');
+    const app = await open('/overview', '.today-card');
     await startFocus(app);
     await vi.waitFor(() => expect(relatedTitles(app)).toHaveLength(3));
     expect(relatedTitles(app)[0]).toBe(extra.title);
@@ -421,7 +421,7 @@ describe('RelatedNotes{limit} (07 §2.1, §3.4)', () => {
   });
 
   it('shows the empty state when nothing is linked', async () => {
-    const app = await open('/today', '.today-card');
+    const app = await open('/overview', '.today-card');
     await settle();
     const panel = app.wrapper.get('[data-panel="related-notes"]');
     await vi.waitFor(() => expect(panel.text()).toContain('아직 연결된 노트가 없어요'));

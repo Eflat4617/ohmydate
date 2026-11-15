@@ -328,7 +328,7 @@ describe('작업 상세 — the task at the left, what belongs to it at the righ
     expect(rows[0]?.text()).toContain('오전 10:05~11:12');
     expect(rows[0]?.text()).toContain('1시간 2분');
     expect(rows[0]?.text()).toContain('완료');
-    expect(sessions.get('a.icon-link').attributes('href')).toBe('/tracker');
+    expect(sessions.get('a.icon-link').attributes('href')).toBe('/focus');
   });
 
   it('says so when the task has no blocks to come and no focus record (negative)', async () => {

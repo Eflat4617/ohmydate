@@ -27,7 +27,7 @@ function testRouter(): Router {
     history: createMemoryHistory(),
     routes: [
       { path: '/month', name: 'month', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/commitments', name: 'commitments', component: Stub },
       { path: '/plans/new', name: 'plans-new', component: Stub },
       { path: '/tasks/:id', name: 'task', component: Stub },
@@ -145,11 +145,11 @@ describe('한달 (MonthView)', () => {
 
     const detail = wrapper.get('[data-month-detail]');
     expect(detail.get('h2').text()).toContain('11월 14일 (토)');
-    expect(detail.get('a.month-detail-open-today').attributes('href')).toBe('/today');
+    expect(detail.get('a.month-detail-open-today').attributes('href')).toBe('/overview');
     const rows = detail.findAll('.month-agenda-item');
     expect(rows.map((row) => row.attributes('data-kind'))).toEqual(['commitment', 'block', 'block', 'commitment', 'deadline']);
     expect(rows[0]?.text()).toContain('오후 3:00~3:40');
-    expect(rows[0]?.get('a').attributes('href')).toBe('/commitments');
+    expect(rows[0]?.get('a').attributes('href')).toBe('/planner?view=list');
     expect(rows[4]?.text()).toContain('오후 11:00까지');
     expect(rows[4]?.get('a').attributes('href')).toMatch(/^\/tasks\//);
   });
@@ -165,7 +165,7 @@ describe('한달 (MonthView)', () => {
     const links = detail.findAll('.month-agenda-title').map((link) => [link.text(), link.attributes('href')]);
     expect(links).toEqual([
       ['세미나 발표 자료', `/tasks/${MONTH_TASK_SLIDES_ID}`],
-      ['세미나 발표', '/commitments'],
+      ['세미나 발표', '/planner?view=list'],
       ['졸업 논문 3장 초고', expect.stringMatching(/^\/tasks\//)],
     ]);
     expect(mockDb.commitments.has(MONTH_COMMITMENT_SEMINAR_ID)).toBe(true);
@@ -327,7 +327,7 @@ describe('한달 (MonthView)', () => {
     const { wrapper } = await mountMonth('/month?m=2027-01');
     const empty = wrapper.get('[data-month-empty]');
     expect(empty.text()).toContain('이 달에는 블록도, 약속도, 마감도 없어요.');
-    expect(empty.findAll('a').map((link) => link.attributes('href'))).toEqual(['/plan/schedule', '/commitments']);
+    expect(empty.findAll('a').map((link) => link.attributes('href'))).toEqual(['/plan/schedule', '/planner?view=list']);
     expect(wrapper.findAll('[role="gridcell"]').length).toBeGreaterThanOrEqual(28);
     expect(wrapper.get('[data-month-detail] .month-detail-empty').text()).toBe('이날은 비어 있어요.');
   });

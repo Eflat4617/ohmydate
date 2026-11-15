@@ -16,7 +16,7 @@ function testRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
     ],
   });

@@ -15,7 +15,7 @@ export function m5Router(): Router {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/inbox', name: 'inbox', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
       { path: '/replan', name: 'replan', component: Stub },

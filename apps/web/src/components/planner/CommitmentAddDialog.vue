@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref } from 'vue';
 import { useQueryClient, type QueryKey } from '@tanstack/vue-query';
-import { ActionStore, plannerClient, type CommitmentCreate } from '../../api';
+import { ActionStore, ApiError, plannerClient, type Commitment, type CommitmentCreate, type CommitmentPatch } from '../../api';
 import type { DraftFormValues } from '../../domain/commitmentDraft';
-import { weeklyDaysFromRrule, weeklyRrule, type WeekdayCode } from '../../domain/rrule';
-import { instantFromLocalInput, localParts } from '../../domain/time';
+import { expandOccurrences, weeklyDaysFromRrule, weeklyRrule, type WeekdayCode } from '../../domain/rrule';
+import { instantFromLocalInput, localInputValue, localParts } from '../../domain/time';
 import { t } from '../../i18n';
+import { formatDateTimeRange } from '../../i18n/format';
 import { errorMessage } from '../../i18n/problem';
 import { layoutClock } from '../../layout/clock';
 import { runOwnerBound } from '../../session/ownerBound';
@@ -19,10 +20,17 @@ import UiField from '../ui/UiField.vue';
 import UiIcon from '../ui/UiIcon.vue';
 
 /**
- * 약속 추가 (HOLO-02): the planner's one primary action. Two ways in, in one
- * dialog — 말로 적기 on top (the 약속 screen's own section and flow, CAL-02)
- * and the fields under "직접 입력". Both save with the ordinary create call
+ * 약속 추가 · 약속 고치기 (HOLO-02, HOLO-04): the planner is where a 약속 is
+ * put in, changed and taken out — there is no 약속 screen any more.
+ *
+ * Adding has two ways in, in one dialog — 말로 적기 on top (CAL-02) and the
+ * fields under "직접 입력". Both save with the ordinary create call
  * (`POST /commitments`) and then refresh every list the planner draws from.
+ *
+ * With `commitment` the same fields open on that 약속: 저장 sends the change
+ * with the version that was read (`If-Match`), 삭제 asks once more in place
+ * and then removes it. A 약속 that came from Google Calendar is never opened
+ * here; it is changed there.
  *
  * - 직접 입력 shows what a person fills in: a title, when it starts and ends,
  *   and the weekdays it repeats on. The time zone and the raw rule are behind
@@ -36,8 +44,12 @@ const props = defineProps<{
   timeZone: string;
   /** The day the planner is on (`YYYY-MM-DD`): the new 약속 starts there. */
   date: string;
+  /** Change this 약속 instead of adding one. */
+  commitment?: Commitment | null;
 }>();
-const emit = defineEmits<{ close: []; saved: [] }>();
+const emit = defineEmits<{ close: []; saved: []; removed: [] }>();
+
+const editing = computed(() => props.commitment ?? null);
 
 /** Everything on the planner that shows a 약속. */
 const PLANNER_QUERIES: readonly QueryKey[] = [['planner-range'], ['day-agenda']];
@@ -64,22 +76,28 @@ function defaultTimes(): { start: string; end: string } {
 }
 
 const initial = defaultTimes();
-const form = reactive({
-  title: '',
-  startLocal: initial.start,
-  endLocal: initial.end,
-  timeZone: props.timeZone,
-  rrule: '',
-});
+const form = reactive(
+  editing.value === null
+    ? { title: '', startLocal: initial.start, endLocal: initial.end, timeZone: props.timeZone, rrule: '' }
+    : {
+        title: editing.value.title,
+        startLocal: localInputValue(editing.value.startAt, editing.value.timeZone),
+        endLocal: localInputValue(editing.value.endAt, editing.value.timeZone),
+        timeZone: editing.value.timeZone,
+        rrule: editing.value.rrule ?? '',
+      },
+);
 const errors = reactive({ title: null as string | null, times: null as string | null });
 const error = ref<string | null>(null);
 const busy = ref(false);
+/** 삭제 was pressed: the dialog asks once more before it removes anything. */
+const confirmingDelete = ref(false);
 const manualHeading = ref<HTMLElement | null>(null);
 const advanced = ref<HTMLDetailsElement | null>(null);
 
 const presetDays = computed<WeekdayCode[]>(() => weeklyDaysFromRrule(form.rrule));
-/** The manual fields hold the dialog's filled button once they are in use. */
-const manualActive = computed(() => form.title.trim().length > 0);
+/** The manual fields hold the dialog's filled button once they are in use (always, when changing a 약속). */
+const manualActive = computed(() => editing.value !== null || form.title.trim().length > 0);
 
 function toggleDay(code: WeekdayCode): void {
   const selected = new Set<WeekdayCode>(presetDays.value);
@@ -116,6 +134,27 @@ function instants(): { startAt: string; endAt: string } | null {
   }
 }
 
+/** How far ahead the repeat preview looks, and how many times it shows. */
+const PREVIEW_DAYS = 35;
+const PREVIEW_COUNT = 4;
+
+/**
+ * A repeating 약속 shows when it next happens, so a rule is checked before it
+ * is saved (the 약속 screen's preview; the dialog has it since HOLO-04).
+ */
+const preview = computed(() => {
+  const rule = form.rrule.trim();
+  const range = instants();
+  if (rule.length === 0 || range === null || Date.parse(range.endAt) <= Date.parse(range.startAt)) return [];
+  const until = new Date(Date.parse(range.startAt) + PREVIEW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  return expandOccurrences({ ...range, timeZone: form.timeZone, rrule: rule }, range.startAt, until, PREVIEW_COUNT).map(
+    (occurrence) => ({
+      key: occurrence.startAt,
+      text: formatDateTimeRange(occurrence.startAt, occurrence.endAt, form.timeZone),
+    }),
+  );
+});
+
 async function save(): Promise<void> {
   if (!offline.mutationsEnabled || busy.value) return;
   errors.title = form.title.trim().length === 0 ? t('commitments.titleRequired') : null;
@@ -128,6 +167,17 @@ async function save(): Promise<void> {
     return;
   }
   const rule = form.rrule.trim();
+  const current = editing.value;
+  if (current !== null) {
+    await update(current, {
+      title: form.title.trim(),
+      startAt: range.startAt,
+      endAt: range.endAt,
+      timeZone: form.timeZone,
+      rrule: rule.length === 0 ? null : rule,
+    });
+    return;
+  }
   const input: CommitmentCreate = {
     title: form.title.trim(),
     startAt: range.startAt,
@@ -161,14 +211,100 @@ async function save(): Promise<void> {
     },
   );
 }
+
+function sameJson<T>(left: T, right: T): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+/** Someone else's change (or another tab's) came first: say so, and show what is there now. */
+function changeError(cause: unknown, fallback: string): string {
+  return cause instanceof ApiError && cause.status === 412 ? t('commitments.changedElsewhere') : errorMessage(cause, fallback);
+}
+
+// Owner isolation (ADR-023): changing and removing run under the owner who
+// asked. Both send the version this dialog was opened with (If-Match) and
+// one idempotency key per attempt of the same change.
+async function update(current: Commitment, patch: CommitmentPatch): Promise<void> {
+  busy.value = true;
+  error.value = null;
+  const scope = `planner:commitment:${current.id}:update`;
+  const action = actions.begin(scope, patch, sameJson, current.version);
+  await runOwnerBound(
+    function* (owner) {
+      try {
+        yield* owner.wait(plannerClient.updateCommitment(current.id, action.payload, action.key, current.version));
+        actions.settle(scope, action);
+        for (const queryKey of [['commitments'], ['availability'], ...PLANNER_QUERIES]) {
+          yield queryClient.invalidateQueries({ queryKey });
+        }
+        toast.show(t('planner.edit.saved', { title: patch.title ?? current.title }));
+        emit('saved');
+        emit('close');
+      } catch (cause) {
+        if (cause instanceof ApiError) actions.settle(scope, action);
+        error.value = changeError(cause, t('commitments.saveError'));
+      }
+    },
+    {
+      onSettled: () => {
+        busy.value = false;
+      },
+    },
+  );
+}
+
+function askDelete(): void {
+  confirmingDelete.value = true;
+  void nextTick(() => document.querySelector<HTMLElement>('[data-planner-delete-confirm]')?.focus());
+}
+
+async function remove(): Promise<void> {
+  const current = editing.value;
+  if (current === null || !offline.mutationsEnabled || busy.value) return;
+  busy.value = true;
+  error.value = null;
+  const scope = `planner:commitment:${current.id}:delete`;
+  const action = actions.begin(scope, { id: current.id }, sameJson, current.version);
+  await runOwnerBound(
+    function* (owner) {
+      try {
+        yield* owner.wait(plannerClient.deleteCommitment(current.id, action.key, current.version));
+        actions.settle(scope, action);
+        for (const queryKey of [['commitments'], ['availability'], ...PLANNER_QUERIES]) {
+          yield queryClient.invalidateQueries({ queryKey });
+        }
+        toast.show(t('planner.edit.removed', { title: current.title }));
+        emit('removed');
+        emit('close');
+      } catch (cause) {
+        if (cause instanceof ApiError) actions.settle(scope, action);
+        confirmingDelete.value = false;
+        error.value = changeError(cause, t('commitments.deleteError'));
+      }
+    },
+    {
+      onSettled: () => {
+        busy.value = false;
+      },
+    },
+  );
+}
 </script>
 
 <template>
-  <UiDialog labelledby="planner-add-title" size="lg" class="planner-add" :dismissible="!busy" data-planner-add-dialog @close="emit('close')">
+  <UiDialog
+    labelledby="planner-add-title"
+    :size="editing ? 'md' : 'lg'"
+    class="planner-add"
+    :dismissible="!busy"
+    data-planner-add-dialog
+    :data-planner-edit="editing ? editing.id : undefined"
+    @close="emit('close')"
+  >
     <header class="dialog-header">
       <div class="dialog-heading">
-        <h2 id="planner-add-title" class="dialog-title">{{ t('planner.add.title') }}</h2>
-        <p class="muted">{{ t('planner.add.lede') }}</p>
+        <h2 id="planner-add-title" class="dialog-title">{{ editing ? t('planner.edit.title') : t('planner.add.title') }}</h2>
+        <p class="muted">{{ editing ? t('planner.edit.lede') : t('planner.add.lede') }}</p>
       </div>
       <button type="button" class="btn btn--ghost btn--icon" :aria-label="t('common.close')" :disabled="busy" @click="emit('close')">
         <UiIcon name="close" />
@@ -180,6 +316,7 @@ async function save(): Promise<void> {
     </UiBanner>
 
     <CommitmentParseSection
+      v-if="!editing"
       :manual-active="manualActive"
       :also-refresh="PLANNER_QUERIES"
       :heading-level="3"
@@ -188,7 +325,7 @@ async function save(): Promise<void> {
     />
 
     <form class="planner-add-manual" novalidate data-planner-add-manual @submit.prevent="save">
-      <h3 ref="manualHeading" class="settings-group-title planner-add-manual-title" tabindex="-1">
+      <h3 v-if="!editing" ref="manualHeading" class="settings-group-title planner-add-manual-title" tabindex="-1">
         {{ t('commitments.manualHeading') }}
       </h3>
       <UiField id="planner-commitment-title" :label="t('commitments.titleLabel')" :error="errors.title">
@@ -202,6 +339,7 @@ async function save(): Promise<void> {
             :aria-describedby="describedby"
             :aria-invalid="invalid"
             :disabled="!offline.mutationsEnabled"
+            :data-autofocus="editing ? '' : undefined"
           />
         </template>
       </UiField>
@@ -240,6 +378,13 @@ async function save(): Promise<void> {
           {{ t(`commitments.day.${day}`) }}
         </label>
       </fieldset>
+      <div v-if="form.rrule.trim().length > 0" class="planner-add-preview" aria-live="polite" data-planner-add-preview>
+        <p class="planner-add-preview-title">{{ t('commitments.preview') }}</p>
+        <ul v-if="preview.length > 0" class="occurrence-list tabular">
+          <li v-for="occurrence in preview" :key="occurrence.key">{{ occurrence.text }}</li>
+        </ul>
+        <p v-else class="field-help">{{ t('planner.add.previewEmpty') }}</p>
+      </div>
       <details ref="advanced" class="planner-add-advanced" data-planner-add-advanced>
         <summary>{{ t('planner.add.advanced') }}</summary>
         <div class="planner-add-advanced-body">
@@ -269,7 +414,35 @@ async function save(): Promise<void> {
 
       <UiBanner v-if="error" tone="error" role="alert" data-planner-add-error>{{ error }}</UiBanner>
 
-      <div class="dialog-actions">
+      <!-- 삭제 asks once more, in place of the buttons, before anything is removed. -->
+      <div v-if="editing && confirmingDelete" class="dialog-actions planner-delete-confirm" role="group" :aria-label="t('planner.edit.deleteConfirm')">
+        <p class="planner-delete-question" role="status">{{ t('planner.edit.deleteQuestion', { title: editing.title }) }}</p>
+        <UiButton variant="ghost" :disabled="busy" data-planner-delete-cancel @click="confirmingDelete = false">
+          {{ t('common.cancel') }}
+        </UiButton>
+        <UiButton
+          variant="danger"
+          icon="trash"
+          :busy="busy"
+          :disabled="!offline.mutationsEnabled || busy"
+          data-planner-delete-confirm
+          @click="remove"
+        >
+          {{ t('planner.edit.deleteConfirm') }}
+        </UiButton>
+      </div>
+      <div v-else class="dialog-actions">
+        <UiButton
+          v-if="editing"
+          variant="danger-ghost"
+          icon="trash"
+          class="planner-delete"
+          :disabled="!offline.mutationsEnabled || busy"
+          data-planner-delete
+          @click="askDelete"
+        >
+          {{ t('common.delete') }}
+        </UiButton>
         <UiButton variant="ghost" :disabled="busy" @click="emit('close')">{{ t('common.cancel') }}</UiButton>
         <UiButton
           type="submit"
@@ -278,7 +451,7 @@ async function save(): Promise<void> {
           :disabled="!offline.mutationsEnabled || busy"
           data-planner-add-save
         >
-          {{ busy ? t('common.saving') : t('planner.add.save') }}
+          {{ busy ? t('common.saving') : editing ? t('planner.edit.save') : t('planner.add.save') }}
         </UiButton>
       </div>
     </form>

@@ -97,6 +97,13 @@ const OWNER_SLOTS = {
     onOwnerChange: 'preserve',
     why: 'The colour theme the owner chose (dark, light or system), per owner on this device. One word, no user content.',
   },
+  transparencyPref: {
+    area: 'local',
+    prefix: 'ohmydate.transparency',
+    staleWrites: 'drop',
+    onOwnerChange: 'preserve',
+    why: 'That the owner asked for opaque surfaces instead of glass (설정 › 화면), per owner on this device. One word, no user content.',
+  },
   shellNav: {
     area: 'local',
     prefix: 'ohmydate.shell.nav',

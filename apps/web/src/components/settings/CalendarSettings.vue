@@ -11,7 +11,7 @@ import {
   type GoogleIntegrationStatus,
   type GoogleSyncErrorCode,
   type GoogleSyncResult,
-} from '../api';
+} from '../../api';
 import {
   GOOGLE_CALLBACK_PATH,
   GOOGLE_SETUP,
@@ -29,26 +29,26 @@ import {
   type GoogleCallbackResult,
   type GoogleSettingsDraft,
   type GoogleSettingsValues,
-} from '../domain/googleIntegration';
+} from '../../domain/googleIntegration';
 import {
   CALENDAR_DAY_EVENTS_QUERY,
   GOOGLE_INTEGRATION_QUERY,
   navigateTopLevel,
   useGoogleIntegration,
-} from '../composables/useGoogleCalendar';
-import { useOwnerTimeZone } from '../composables/usePlannerRange';
-import { useOfflineStore } from '../stores/offline';
-import UiBadge from '../components/ui/UiBadge.vue';
-import UiBanner from '../components/ui/UiBanner.vue';
-import UiButton from '../components/ui/UiButton.vue';
-import UiDialog from '../components/ui/UiDialog.vue';
-import UiField from '../components/ui/UiField.vue';
-import UiIcon from '../components/ui/UiIcon.vue';
-import UiSkeleton from '../components/ui/UiSkeleton.vue';
-import { t } from '../i18n';
-import { formatDateTime } from '../i18n/format';
-import { errorMessage } from '../i18n/problem';
-import { ownerKeyOf, runOwnerBound, type OwnerScope, type OwnerSteps } from '../session/ownerBound';
+} from '../../composables/useGoogleCalendar';
+import { useOwnerTimeZone } from '../../composables/usePlannerRange';
+import { useOfflineStore } from '../../stores/offline';
+import UiBadge from '../ui/UiBadge.vue';
+import UiBanner from '../ui/UiBanner.vue';
+import UiButton from '../ui/UiButton.vue';
+import UiDialog from '../ui/UiDialog.vue';
+import UiField from '../ui/UiField.vue';
+import UiIcon from '../ui/UiIcon.vue';
+import UiSkeleton from '../ui/UiSkeleton.vue';
+import { t } from '../../i18n';
+import { formatDateTime } from '../../i18n/format';
+import { errorMessage } from '../../i18n/problem';
+import { ownerKeyOf, runOwnerBound, type OwnerScope, type OwnerSteps } from '../../session/ownerBound';
 
 /**
  * CAL-04 — 캘린더 연동: the settings page of the Google Calendar integration
@@ -490,10 +490,10 @@ const SETUP = GOOGLE_SETUP;
 </script>
 
 <template>
-  <section class="page calendar-settings" aria-labelledby="calendar-settings-title">
-    <header class="page-header">
+  <section class="settings-section calendar-settings" aria-labelledby="calendar-settings-title" data-settings-calendar>
+    <header class="settings-section-head">
       <div class="page-heading">
-        <h1 id="calendar-settings-title" ref="heading" tabindex="-1">{{ t('googleCalendar.title') }}</h1>
+        <h2 id="calendar-settings-title" ref="heading" class="settings-section-title" tabindex="-1">{{ t('googleCalendar.title') }}</h2>
         <p class="page-lede">{{ t('googleCalendar.lede') }}</p>
       </div>
     </header>

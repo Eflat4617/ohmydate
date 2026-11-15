@@ -20,6 +20,7 @@ import UiBanner from './ui/UiBanner.vue';
 import UiButton from './ui/UiButton.vue';
 import UiSpinner from './ui/UiSpinner.vue';
 import { calmMode } from '../composables/useCalmMode';
+import { NAV_PLACES } from '../layout/navigation';
 import { t } from '../i18n';
 
 const ui = useUiStore();
@@ -115,15 +116,18 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function requestNewTask(): void {
-  if (route.name === 'inbox') {
+  if (route.name === 'tasks' && route.query['view'] === undefined) {
     ui.requestNewTask();
     return;
   }
-  void router.push({ name: 'inbox' }).then(async () => {
+  void router.push({ name: 'tasks' }).then(async () => {
     await nextTick();
     ui.requestNewTask();
   });
 }
+
+/** The places' own keys (o, t, p, m, f), from the one list the sidebar reads. */
+const PLACE_KEYS = new Map(NAV_PLACES.flatMap((item) => (item.shortcut === undefined ? [] : [[item.shortcut, item] as const])));
 
 function onKeydown(event: KeyboardEvent): void {
   if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -147,41 +151,31 @@ function onKeydown(event: KeyboardEvent): void {
     case 'n':
       event.preventDefault();
       requestNewTask();
-      break;
-    case 'o':
-      event.preventDefault();
-      void router.push({ name: 'overview' });
-      break;
-    case 't':
-      event.preventDefault();
-      void router.push({ name: 'today' });
-      break;
-    case 'm':
-      // HOLO-02: 플래너 (the sidebar entry the key stands beside).
-      event.preventDefault();
-      void router.push({ name: 'planner' });
-      break;
-    case 'p':
-      // HOLO-03A: 계획 세우기, the one way into the plan flow.
-      event.preventDefault();
-      void router.push({ name: 'plan' });
-      break;
+      return;
     case '/':
       event.preventDefault();
       ui.openSearch();
-      break;
+      return;
     case '?':
       event.preventDefault();
       ui.openHelp();
-      break;
-    case 'f':
-      if (route.name === 'focus') return;
-      event.preventDefault();
-      void router.push(sessions.active === null ? { name: 'today' } : `/focus/${sessions.active.id}`);
-      break;
+      return;
     default:
       break;
   }
+
+  const place = PLACE_KEYS.get(event.key);
+  if (place === undefined) return;
+  if (place.id === 'focus') {
+    // 집중: the session that is running, else the timer's own place. On the
+    // timer itself the key is the timer's (it moves focus to the clock).
+    if (route.name === 'focus') return;
+    event.preventDefault();
+    void router.push(sessions.active === null ? place.to : `/focus/${sessions.active.id}`);
+    return;
+  }
+  event.preventDefault();
+  void router.push(place.to);
 }
 
 onMounted(() => {

@@ -12,6 +12,11 @@ export interface IconShape {
 }
 
 export const ICONS = {
+  // HOLO-04: 설정 — a hex nut (distinct from the sun of the theme switch).
+  settings: {
+    paths: ['M12 3.6l7.3 4.2v8.4L12 20.4l-7.3-4.2V7.8z'],
+    circles: [[12, 12, 2.9]],
+  },
   today: {
     paths: ['M4.5 8.5h15', 'M8 3.5v3', 'M16 3.5v3', 'M6.5 5h11a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z'],
     dots: [[12, 14.25]],

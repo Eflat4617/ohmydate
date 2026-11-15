@@ -1,16 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { runOwnerBound } from '../session/ownerBound';
-import { useAuthStore } from '../stores/auth';
-import UiBadge from '../components/ui/UiBadge.vue';
-import UiBanner from '../components/ui/UiBanner.vue';
-import UiButton from '../components/ui/UiButton.vue';
-import UiEmptyState from '../components/ui/UiEmptyState.vue';
-import UiField from '../components/ui/UiField.vue';
-import UiSkeleton from '../components/ui/UiSkeleton.vue';
-import LlmDisclosure from '../components/LlmDisclosure.vue';
-import { t } from '../i18n';
-import { browserTimeZone, formatDateTime, formatUsd } from '../i18n/format';
+import { runOwnerBound } from '../../session/ownerBound';
+import { useAuthStore } from '../../stores/auth';
+import UiBadge from '../ui/UiBadge.vue';
+import UiBanner from '../ui/UiBanner.vue';
+import UiButton from '../ui/UiButton.vue';
+import UiEmptyState from '../ui/UiEmptyState.vue';
+import UiField from '../ui/UiField.vue';
+import UiSkeleton from '../ui/UiSkeleton.vue';
+import LlmDisclosure from '../LlmDisclosure.vue';
+import { t } from '../../i18n';
+import { browserTimeZone, formatDateTime, formatUsd } from '../../i18n/format';
 
 const auth = useAuthStore();
 const busy = ref(false);
@@ -81,30 +81,30 @@ async function saveBudget(): Promise<void> {
 </script>
 
 <template>
-  <section class="page">
-    <template v-if="ready">
-      <header class="page-header">
-        <div class="page-heading">
-          <h1>{{ t('llm.settings.title') }}</h1>
-          <p class="page-lede">
-            {{
-              t('llm.settings.lede', {
-                provider: t('llm.providerName'),
-                model: t('llm.modelName'),
-                modelId: t('llm.modelId'),
-              })
-            }}
-          </p>
-        </div>
-      </header>
+  <section class="settings-section ai-settings" aria-labelledby="settings-ai-title" data-settings-ai>
+    <header class="settings-section-head">
+      <div class="page-heading">
+        <h2 id="settings-ai-title" class="settings-section-title">{{ t('llm.settings.title') }}</h2>
+        <p class="page-lede">
+          {{
+            t('llm.settings.lede', {
+              provider: t('llm.providerName'),
+              model: t('llm.modelName'),
+              modelId: t('llm.modelId'),
+            })
+          }}
+        </p>
+      </div>
+    </header>
 
-      <UiEmptyState v-if="!deepseek" icon="shield" :title="t('llm.settings.noConsentTitle')">
+    <template v-if="ready">
+      <UiEmptyState v-if="!deepseek" icon="shield" class="card" :title="t('llm.settings.noConsentTitle')">
         <p>{{ t('llm.settings.noConsentBody') }}</p>
       </UiEmptyState>
 
-      <template v-else>
-        <fieldset class="settings-group">
-          <legend>{{ t('llm.settings.consentLegend') }}</legend>
+      <div v-else class="settings-cards">
+        <fieldset class="card settings-card settings-card--wide settings-group">
+          <legend class="card-title">{{ t('llm.settings.consentLegend') }}</legend>
           <div class="llm-consent-state">
             <UiBadge :tone="consent?.granted ? 'success' : 'neutral'" size="lg">
               {{ consent?.granted ? t('llm.settings.on') : t('llm.settings.off') }}
@@ -132,9 +132,9 @@ async function saveBudget(): Promise<void> {
           <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
         </fieldset>
 
-        <fieldset class="settings-group">
-          <legend>{{ t('llm.settings.budgetLegend') }}</legend>
-          <p class="muted">
+        <fieldset class="card settings-card settings-card--wide settings-group">
+          <legend class="card-title">{{ t('llm.settings.budgetLegend') }}</legend>
+          <p class="settings-card-lede">
             {{ t('llm.settings.budgetLede', { daily: formatUsd(DEFAULT_DAILY_USD), monthly: formatUsd(DEFAULT_MONTHLY_USD) }) }}
           </p>
           <p v-if="budget" class="settings-current">
@@ -168,7 +168,7 @@ async function saveBudget(): Promise<void> {
             </div>
           </form>
         </fieldset>
-      </template>
+      </div>
     </template>
     <div v-else>
       <p class="visually-hidden" role="status">{{ t('llm.settings.loading') }}</p>

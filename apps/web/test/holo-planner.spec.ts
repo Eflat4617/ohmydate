@@ -22,11 +22,14 @@ import { OWNER_STORAGE_KEY } from '../src/session/owner';
 import { adoptActiveOwner } from '../src/session/ownerEpoch';
 import { useAuthStore } from '../src/stores/auth';
 import { useOfflineStore } from '../src/stores/offline';
+import { useToastStore } from '../src/stores/toast';
 import PlannerView from '../src/views/PlannerView.vue';
 
 /**
- * HOLO-02 플래너: the calendar screen's three views behind one address, the
- * week grid, the one floating detail card and the 약속 추가 dialog.
+ * HOLO-02 플래너: the calendar screen's views behind one address, the week
+ * grid, the one floating detail card and the 약속 추가 dialog. HOLO-04: the
+ * planner is where a 약속 is changed and removed too (its list view, the
+ * dialog's edit mode); there is no 약속 screen.
  * The mock's day is 2026-11-14 (Sat) 18:40 in Asia/Seoul; its week is 11-09..11-15.
  */
 const NOW = Date.parse('2026-11-14T09:40:00.000Z');
@@ -39,8 +42,8 @@ function testRouter(): Router {
     routes: [
       { path: '/planner', name: 'planner', component: Stub },
       { path: '/month', name: 'month', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
-      { path: '/commitments', name: 'commitments', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
+      { path: '/settings/calendar', name: 'settings', component: Stub },
       { path: '/plans/new', name: 'plans-new', component: Stub },
       { path: '/tasks/:id', name: 'task', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
@@ -82,6 +85,7 @@ async function loaded(wrapper: VueWrapper): Promise<void> {
     expect(wrapper.find('[data-planner]').exists()).toBe(true);
     expect(wrapper.find('[aria-busy="true"]').exists()).toBe(false);
     expect(wrapper.find('.planner-agenda-skeleton').exists()).toBe(false);
+    expect(wrapper.find('.planner-list-loading').exists()).toBe(false);
   });
   await nextTick();
 }
@@ -151,7 +155,7 @@ afterEach(() => {
 });
 
 describe('플래너 — the address says the view and the dates', () => {
-  it('opens on this week (주 is the default) with the head the three views share', async () => {
+  it('opens on this week (주 is the default) with the head every view shares', async () => {
     const { wrapper } = await mountPlanner();
     expect(wrapper.get('[data-planner]').attributes('data-planner')).toBe('week');
     expect(wrapper.get('h1').text()).toBe('11월 9일 ~ 11월 15일');
@@ -162,6 +166,8 @@ describe('플래너 — the address says the view and the dates', () => {
       ['일', 'false'],
       ['주', 'true'],
       ['월', 'false'],
+      // HOLO-04: the week's 약속 as a list (what the 약속 screen was).
+      ['약속', 'false'],
     ]);
     expect(wrapper.get('.planner-views').attributes('aria-label')).toBe('보기 바꾸기');
     // This week holds today: 오늘 has nowhere to go.
@@ -455,7 +461,7 @@ describe('플래너 — one floating detail card', () => {
     expect(panel.get('[data-block-lock]').attributes('aria-pressed')).toBe('false');
     expect(panel.get('[data-planner-card-task]').attributes('href')).toBe(`/tasks/${TODAY_TASK_ONE_ID}`);
     expect(panel.get('[data-planner-card-task]').text()).toBe('작업 열기');
-    expect(panel.find('[data-planner-card-commitments]').exists()).toBe(false);
+    expect(panel.find('[data-planner-card-edit]').exists()).toBe(false);
     // The screen keeps its one filled button (약속 추가); the card adds none.
     expect(panel.findAll('.btn--primary')).toHaveLength(0);
     expect(wrapper.findAll('.btn--primary')).toHaveLength(1);
@@ -551,16 +557,18 @@ describe('플래너 — one floating detail card', () => {
     expect(panel.get('[data-planner-card-task]').attributes('href')).toMatch(/^\/tasks\//);
   });
 
-  it('a 약속 leads to the 약속 screen and nowhere else; one from Google says so', async () => {
+  it('a 약속 is changed from its own card and nowhere else; one from Google says so', async () => {
     const { wrapper } = await mountPlanner();
     await dentist(wrapper).trigger('click');
     await flushPromises();
     let panel = card(wrapper);
     expect(panel.attributes('data-planner-card')).toBe('commitment');
+    expect(panel.classes()).toContain('glass');
     expect(panel.get('[data-planner-card-kind]').text()).toBe('약속');
     expect(panel.get('#planner-card-when').text()).toContain('오후 3:00~3:40');
-    expect(panel.get('[data-planner-card-commitments]').attributes('href')).toBe('/commitments');
-    expect(panel.get('[data-planner-card-commitments]').text()).toBe('약속 화면에서 열기');
+    // HOLO-04: there is no 약속 screen to be sent to; 고치기 opens the planner's dialog on it.
+    expect(panel.find('a').exists()).toBe(false);
+    expect(panel.get('[data-planner-card-edit]').text()).toBe('고치기');
     expect(panel.find('[data-planner-card-start]').exists()).toBe(false);
     expect(panel.find('[data-block-lock]').exists()).toBe(false);
     expect(panel.find('[data-planner-card-task]').exists()).toBe(false);
@@ -577,10 +585,25 @@ describe('플래너 — one floating detail card', () => {
     expect(dentist(google.wrapper).attributes('aria-label')).toMatch(/^약속 · 구글 캘린더, 치과 예약, /);
     expect(panel.get('[data-planner-card-source]').text()).toBe('구글 캘린더');
     expect(panel.get('[data-planner-card-google]').text()).toContain('구글 캘린더에서 바꿔 주세요');
-    expect(panel.findAll('a, button').map((control) => control.text() || control.attributes('aria-label'))).toEqual([
-      '닫기',
-      '약속 화면에서 열기',
-    ]);
+    // Read-only here: it is changed in Google Calendar (negative: no 고치기).
+    expect(panel.findAll('a, button').map((control) => control.text() || control.attributes('aria-label'))).toEqual(['닫기']);
+    expect(panel.find('[data-planner-card-edit]').exists()).toBe(false);
+  });
+
+  it('고치기 on a 약속’s card opens the dialog on it, and the card steps away', async () => {
+    const { wrapper } = await mountPlanner();
+    await dentist(wrapper).trigger('click');
+    await flushPromises();
+    await card(wrapper).get('[data-planner-card-edit]').trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-planner-card]').exists()).toBe(false);
+    expect(dialog().getAttribute('data-planner-edit')).toBe(MONTH_COMMITMENT_DENTIST_ID);
+    expect(dialog().querySelector('h2')?.textContent).toBe('약속 고치기');
+    expect(field('#planner-commitment-title').value).toBe('치과 예약');
+    expect(field('#planner-commitment-start').value).toBe('2026-11-14T15:00');
+    expect(field('#planner-commitment-end').value).toBe('2026-11-14T15:40');
+    // Changing one is the manual fields only: 말로 적기 is for adding (negative).
+    expect(dialog().querySelector('#commitment-note')).toBeNull();
   });
 
   it('a deadline leads to its task only', async () => {
@@ -816,7 +839,7 @@ describe('플래너 · 일 — the day', () => {
     expect(rows[4]?.text()).toContain('오후 11:00까지');
     expect(rows[4]?.text()).toContain('장학금 신청서 제출');
     // Today's list leads to 오늘.
-    expect(wrapper.get('[data-planner-open-today]').attributes('href')).toBe('/today');
+    expect(wrapper.get('[data-planner-open-today]').attributes('href')).toBe('/overview');
 
     const table = wrapper.get('.day-timetable');
     expect(table.get('.tt').attributes('aria-label')).toBe('오늘 블록 2개를 10분 칸에 칠하고 약속 2개를 빗금으로 그린 표');
@@ -855,5 +878,164 @@ describe('플래너 · 일 — the day', () => {
     expect(wrapper.findAll('.planner-agenda-item')).toHaveLength(0);
     expect(wrapper.find('.planner-summary').exists()).toBe(false);
     expect(wrapper.get('.day-timetable .tt').attributes('aria-label')).toBe('이날 블록 0개를 10분 칸에 칠한 표');
+  });
+});
+
+describe('플래너 · 약속 — the week’s 약속 as a list (HOLO-04)', () => {
+  function rows(wrapper: VueWrapper) {
+    return wrapper.findAll('[data-planner-list] > li');
+  }
+
+  it('lists the week’s 약속 in time order with when each happens and whether it repeats', async () => {
+    const { wrapper } = await mountPlanner('/planner?view=list');
+    expect(wrapper.get('[data-planner]').attributes('data-planner')).toBe('list');
+    expect(wrapper.get('h1').text()).toBe('11월 9일 ~ 11월 15일');
+    expect(wrapper.get('[data-planner-view="list"]').attributes('aria-pressed')).toBe('true');
+    const listed = rows(wrapper);
+    expect(listed.length).toBeGreaterThan(1);
+    expect(wrapper.get('.planner-summary').text()).toBe(`약속 ${listed.length}개`);
+    const starts = listed.map((row) => {
+      const id = row.attributes('data-commitment') ?? '';
+      const stored = mockDb.commitments.get(id);
+      if (stored === undefined) throw new Error(`a row for an unknown 약속: ${id}`);
+      return row.get('.planner-list-times li').text();
+    });
+    expect(starts.every((text) => /11월 (9|1[0-5])일/.test(text))).toBe(true);
+    const dentistRow = wrapper.get(`[data-commitment="${MONTH_COMMITMENT_DENTIST_ID}"]`);
+    expect(dentistRow.get('.commitment-title').text()).toBe('치과 예약');
+    expect(dentistRow.get('.planner-list-times').text()).toContain('11월 14일 (토) 오후 3:00~3:40');
+    expect(dentistRow.get('[data-commitment-edit]').text()).toContain('고치기');
+    // No internal detail on a row: no version, no raw rule, no zone name (negative).
+    const text = wrapper.get('[data-planner-list]').text();
+    expect(text).not.toMatch(/FREQ=|버전|Asia\/Seoul|v\d/);
+    // A repeating 약속 says so in words.
+    const repeating = [...mockDb.commitments.values()].find((commitment) => commitment.rrule !== undefined && commitment.rrule !== null);
+    if (repeating !== undefined && wrapper.find(`[data-commitment="${repeating.id}"]`).exists()) {
+      expect(wrapper.get(`[data-commitment="${repeating.id}"] [data-commitment-repeat]`).text()).toMatch(/^매주 |^반복/);
+    }
+  });
+
+  it('steps a week at a time and keeps the view in the address', async () => {
+    const { wrapper, router } = await mountPlanner('/planner?view=list');
+    await wrapper.get('[data-planner-next]').trigger('click');
+    await loaded(wrapper);
+    expect(router.currentRoute.value.query).toEqual({ view: 'list', w: '2026-11-16' });
+    expect(wrapper.get('h1').text()).toBe('11월 16일 ~ 11월 22일');
+    await wrapper.get('[data-planner-current]').trigger('click');
+    await loaded(wrapper);
+    expect(router.currentRoute.value.query).toEqual({ view: 'list' });
+    // Another view opens on the same week.
+    await wrapper.get('[data-planner-view="week"]').trigger('click');
+    await loaded(wrapper);
+    expect(router.currentRoute.value.query).toEqual({});
+    expect(wrapper.get('[data-planner]').attributes('data-planner')).toBe('week');
+  });
+
+  it('a week without 약속 says what a 약속 is for, and 약속 추가 stays the one filled button (negative: no list)', async () => {
+    mockDb.commitments.clear();
+    const { wrapper } = await mountPlanner('/planner?view=list');
+    expect(wrapper.find('[data-planner-list]').exists()).toBe(false);
+    const empty = wrapper.get('[data-planner-list-empty]');
+    expect(empty.text()).toContain('이 주에는 약속이 없어요');
+    expect(empty.text()).toContain('계획이 그 시간을 피해 가요');
+    expect(wrapper.findAll('.btn--primary').map((button) => button.text())).toEqual(['약속 추가']);
+  });
+
+  it('a 약속 from Google is listed read-only, with where it is changed (negative: no 고치기)', async () => {
+    const stored = mockDb.commitments.get(MONTH_COMMITMENT_DENTIST_ID);
+    if (stored === undefined) throw new Error('missing 약속');
+    mockDb.commitments.set(stored.id, { ...stored, source: 'google' });
+    const { wrapper } = await mountPlanner('/planner?view=list');
+    const row = wrapper.get(`[data-commitment="${MONTH_COMMITMENT_DENTIST_ID}"]`);
+    expect(row.attributes('data-source')).toBe('google');
+    expect(row.get('[data-commitment-source]').text()).toBe('구글 캘린더');
+    expect(row.find('[data-commitment-edit]').exists()).toBe(false);
+    expect(row.find('button').exists()).toBe(false);
+    expect(row.get('.commitment-readonly').text()).toContain('구글 캘린더에서');
+    expect(wrapper.get('[data-google-note]').find('a').attributes('href')).toBe('/settings/calendar');
+  });
+
+  it('changes a 약속 with the version that was read (If-Match) and one idempotency key', async () => {
+    const stored = mockDb.commitments.get(MONTH_COMMITMENT_DENTIST_ID);
+    if (stored === undefined) throw new Error('missing 약속');
+    const update = vi.spyOn(plannerClient, 'updateCommitment');
+    const { wrapper, pinia } = await mountPlanner('/planner?view=list');
+    await wrapper.get(`[data-commitment="${MONTH_COMMITMENT_DENTIST_ID}"] [data-commitment-edit]`).trigger('click');
+    await flushPromises();
+    expect(dialog().getAttribute('data-planner-edit')).toBe(MONTH_COMMITMENT_DENTIST_ID);
+    await type(field('#planner-commitment-title'), '치과 정기 검진');
+    field<HTMLFormElement>('[data-planner-add-manual]').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(mockDb.commitments.get(MONTH_COMMITMENT_DENTIST_ID)?.title).toBe('치과 정기 검진'));
+    expect(update).toHaveBeenCalledTimes(1);
+    const [id, patch, key, version] = update.mock.calls[0] ?? [];
+    expect(id).toBe(MONTH_COMMITMENT_DENTIST_ID);
+    expect(patch).toMatchObject({ title: '치과 정기 검진', rrule: null });
+    expect(String(key)).toMatch(/^[0-9a-f-]{36}$/);
+    expect(version).toBe(stored.version);
+    await vi.waitFor(() => expect(document.querySelector('[data-planner-add-dialog]')).toBeNull());
+    await vi.waitFor(() =>
+      expect(wrapper.get(`[data-commitment="${MONTH_COMMITMENT_DENTIST_ID}"] .commitment-title`).text()).toBe('치과 정기 검진'),
+    );
+    expect(useToastStore(pinia).toasts.map((item) => item.message)).toContain('‘치과 정기 검진’ 약속을 고쳤어요.');
+  });
+
+  it('a change that lost to another one says so and keeps the dialog (negative: nothing saved)', async () => {
+    server.use(
+      http.patch(/\/api\/v1\/commitments\/[^/]+$/, () =>
+        HttpResponse.json(
+          { type: 'about:blank', title: 'Precondition Failed', status: 412, code: 'precondition_failed', detail: 'stale' },
+          { status: 412, headers: { 'Content-Type': 'application/problem+json' } },
+        ),
+      ),
+    );
+    const { wrapper } = await mountPlanner('/planner?view=list');
+    await wrapper.get(`[data-commitment="${MONTH_COMMITMENT_DENTIST_ID}"] [data-commitment-edit]`).trigger('click');
+    await flushPromises();
+    await type(field('#planner-commitment-title'), '바뀐 제목');
+    field<HTMLFormElement>('[data-planner-add-manual]').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(dialog().querySelector('[data-planner-add-error]')).not.toBeNull());
+    expect(dialog().querySelector('[data-planner-add-error]')?.textContent).toContain('다른 곳에서');
+    expect(mockDb.commitments.get(MONTH_COMMITMENT_DENTIST_ID)?.title).toBe('치과 예약');
+  });
+
+  it('deletes only after asking once more in place; 취소 keeps it (negative)', async () => {
+    const remove = vi.spyOn(plannerClient, 'deleteCommitment');
+    const { wrapper, pinia } = await mountPlanner('/planner?view=list');
+    const before = rows(wrapper).length;
+    await wrapper.get(`[data-commitment="${MONTH_COMMITMENT_DENTIST_ID}"] [data-commitment-edit]`).trigger('click');
+    await flushPromises();
+    field<HTMLButtonElement>('[data-planner-delete]').click();
+    await nextTick();
+    await nextTick();
+    expect(dialog().querySelector('.planner-delete-question')?.textContent).toBe('‘치과 예약’ 약속을 지울까요? 되돌릴 수 없어요.');
+    expect(document.activeElement).toBe(field('[data-planner-delete-confirm]'));
+    // 취소: nothing is sent and the fields are back.
+    field<HTMLButtonElement>('[data-planner-delete-cancel]').click();
+    await nextTick();
+    expect(remove).not.toHaveBeenCalled();
+    expect(mockDb.commitments.has(MONTH_COMMITMENT_DENTIST_ID)).toBe(true);
+    expect(dialog().querySelector('[data-planner-delete-confirm]')).toBeNull();
+
+    field<HTMLButtonElement>('[data-planner-delete]').click();
+    await nextTick();
+    field<HTMLButtonElement>('[data-planner-delete-confirm]').click();
+    await vi.waitFor(() => expect(mockDb.commitments.has(MONTH_COMMITMENT_DENTIST_ID)).toBe(false));
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove.mock.calls[0]?.[2]).toBeTypeOf('number');
+    await vi.waitFor(() => expect(document.querySelector('[data-planner-add-dialog]')).toBeNull());
+    await vi.waitFor(() => expect(rows(wrapper)).toHaveLength(before - 1));
+    expect(useToastStore(pinia).toasts.map((item) => item.message)).toContain('‘치과 예약’ 약속을 지웠어요.');
+  });
+
+  it('offline: the list is read-only (negative: 고치기 is inert)', async () => {
+    const online = await mountPlanner('/planner?view=list');
+    const queryClient = online.queryClient;
+    void queryClient;
+    useOfflineStore(online.pinia).setOnline(false);
+    await nextTick();
+    const edit = online.wrapper.get(`[data-commitment="${MONTH_COMMITMENT_DENTIST_ID}"] [data-commitment-edit]`);
+    expect(edit.attributes('disabled')).toBeDefined();
+    await edit.trigger('click');
+    expect(document.querySelector('[data-planner-add-dialog]')).toBeNull();
   });
 });

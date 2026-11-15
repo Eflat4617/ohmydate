@@ -662,7 +662,7 @@ const loadFailed = computed(
             >
               <p v-if="proposal.state !== 'approved'">{{ readOnlyBody }}</p>
               <template v-if="proposal.state === 'approved'" #actions>
-                <RouterLink class="btn btn--primary btn--sm" to="/today" data-replan-today>{{ t('replan.openToday') }}</RouterLink>
+                <RouterLink class="btn btn--primary btn--sm" to="/overview" data-replan-today>{{ t('replan.openToday') }}</RouterLink>
               </template>
             </UiBanner>
             <UiBanner v-if="notice" tone="warn" inline>{{ notice }}</UiBanner>
@@ -765,7 +765,7 @@ const loadFailed = computed(
                   v-if="openItem"
                   :ref="setCard"
                   :key="openItem.key"
-                  class="planner-card"
+                  class="planner-card glass"
                   :class="`planner-card--${card.side.value}`"
                   :style="card.style.value"
                   role="dialog"

@@ -1,5 +1,5 @@
 import { createPlannerClient, newActionId, plannerClient, type AvailabilityPut } from '../src/api';
-import AvailabilityView from '../src/views/AvailabilityView.vue';
+import AvailabilityView from '../src/components/settings/AvailabilitySettings.vue';
 import { mockDb } from '../src/mocks/db';
 import {
   buttonByText,

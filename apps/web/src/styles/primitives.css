@@ -381,7 +381,8 @@
    the weight say "selected"; the colour only repeats it. */
 .segmented-item[aria-pressed='true'],
 .segmented-item[aria-checked='true'],
-.segmented-item[aria-selected='true'] {
+.segmented-item[aria-selected='true'],
+.segmented-item[aria-current='page'] {
   --btn-bg: var(--glass-well-strong);
   --btn-fg: var(--color-text);
   --btn-border: var(--glass-edge);
@@ -394,7 +395,8 @@
 
 .segmented-item[aria-pressed='true'] .icon,
 .segmented-item[aria-checked='true'] .icon,
-.segmented-item[aria-selected='true'] .icon {
+.segmented-item[aria-selected='true'] .icon,
+.segmented-item[aria-current='page'] .icon {
   color: var(--color-accent-text);
 }
 

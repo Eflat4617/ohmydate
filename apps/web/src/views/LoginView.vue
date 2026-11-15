@@ -17,7 +17,7 @@ const router = useRouter();
 async function submit(): Promise<void> {
   try {
     await auth.login(email.value, password.value);
-    await router.push({ name: 'inbox' });
+    await router.push({ name: 'overview' });
   } catch {
     // `auth.error` carries the user-facing message.
   }

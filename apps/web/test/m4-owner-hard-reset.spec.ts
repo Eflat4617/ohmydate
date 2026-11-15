@@ -39,7 +39,7 @@ function testRouter(): Router {
     history: createMemoryHistory(),
     routes: [
       { path: '/login', name: 'login', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
     ],
   });
@@ -261,7 +261,7 @@ describe('ADR-023 hard reset on owner change', () => {
     const pending = deferred<User>();
     vi.spyOn(plannerClient, 'getMe').mockReturnValue(pending.promise);
     const router = testRouter();
-    await router.push('/today');
+    await router.push('/overview');
     const wrapper = mount(AppShell, {
       global: { plugins: [pinia, router] },
       slots: { default: '<p class="protected-body">Journal</p>' },
@@ -285,7 +285,7 @@ describe('ADR-023 hard reset on owner change', () => {
     await signIn(pinia, ownerA, login, getMe);
     expect(auth.confirmed).toBe(true);
     const router = testRouter();
-    await router.push('/today');
+    await router.push('/overview');
     const wrapper = mount(AppShell, {
       global: { plugins: [pinia, router] },
       slots: { default: '<p class="protected-body">Journal</p>' },

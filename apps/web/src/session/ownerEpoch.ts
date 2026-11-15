@@ -109,10 +109,9 @@ type OwnerReload = (reason: OwnerChangeReason) => void;
 function defaultReload(reason: OwnerChangeReason): void {
   if (typeof window === 'undefined') return;
   try {
-    // After another user signed in, the page reloads on the inbox, as it
-    // always has (E2E-5 checks the new owner's list there). `/` itself is
-    // 개요 since HOLO-02, so the address is spelled out.
-    const target = reason === 'logout' ? '/login' : '/inbox';
+    // After another user signed in, the page reloads on 개요, where signing
+    // in lands (HOLO-04). Never on the address the previous user was on.
+    const target = reason === 'logout' ? '/login' : '/overview';
     window.history.replaceState(window.history.state, '', target);
   } catch (cause) {
     void cause;

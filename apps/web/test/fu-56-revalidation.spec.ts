@@ -16,7 +16,7 @@ function testRouter(): Router {
     history: createMemoryHistory(),
     routes: [
       { path: '/login', name: 'login', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/inbox', name: 'inbox', component: Stub },
     ],
   });
@@ -40,7 +40,7 @@ async function signIn(pinia: ReturnType<typeof createPinia>, current: User) {
 
 async function mountShell(pinia: ReturnType<typeof createPinia>): Promise<VueWrapper> {
   const router = testRouter();
-  await router.push('/today');
+  await router.push('/overview');
   const wrapper = mount(AppShell, {
     global: { plugins: [pinia, router] },
     slots: { default: '<p class="protected-body">Journal</p>' },
@@ -324,7 +324,7 @@ describe('identity revalidation hardening (FU-85)', () => {
       .mockRejectedValue(new ApiError(401, 'unauthenticated', 'no session'));
     const auth = useAuthStore(pinia);
     const router = testRouter();
-    await router.push('/today');
+    await router.push('/overview');
     const wrapper = mount(AppShell, {
       global: { plugins: [pinia, router] },
       slots: { default: '<p class="protected-body">Journal</p>' },

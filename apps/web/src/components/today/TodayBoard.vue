@@ -11,50 +11,58 @@ import {
   type TodayBlock,
   type TodayProposal,
   type Violation,
-} from '../api';
-import BlockLockToggle from '../components/BlockLockToggle.vue';
-import DayTimetable from '../components/DayTimetable.vue';
-import ProposalPreview from '../components/ProposalPreview.vue';
-import ReplanRequestButton from '../components/ReplanRequestButton.vue';
-import ReplanCard from '../components/replan/ReplanCard.vue';
-import UiBadge from '../components/ui/UiBadge.vue';
-import UiBanner from '../components/ui/UiBanner.vue';
-import UiButton from '../components/ui/UiButton.vue';
-import UiDialog from '../components/ui/UiDialog.vue';
-import UiEmptyState from '../components/ui/UiEmptyState.vue';
-import UiField from '../components/ui/UiField.vue';
-import UiIcon from '../components/ui/UiIcon.vue';
-import UiDeadlineFlag from '../components/ui/UiDeadlineFlag.vue';
-import UiSkeleton from '../components/ui/UiSkeleton.vue';
-import { useDayAgenda } from '../composables/usePlannerRange';
-import { addDaysToDate, localParts, zonedWallClockToInstant } from '../domain/time';
-import { rememberFocusBlocks } from '../composables/focusContext';
-import { t, tp } from '../i18n';
-import { formatCivilDate, formatDuration, formatTime, formatTimeRange, minutesBetween } from '../i18n/format';
-import { errorMessage } from '../i18n/problem';
-import { riskReasonText } from '../i18n/server';
-import { localDateAt, useLayoutNow } from '../layout/now';
-import { useLayoutStore } from '../stores/layout';
-import { useOfflineStore } from '../stores/offline';
-import { useSessionStore } from '../stores/session';
-import { useToastStore } from '../stores/toast';
-import { focusClientId } from '../session/clientId';
-import { useLatestReplanPlan } from '../composables/useLatestReplanPlan';
-import { isBlockLockable, useBlockLock, type LockableBlock } from '../composables/useBlockLock';
+} from '../../api';
+import BlockLockToggle from '../BlockLockToggle.vue';
+import DayTimetable from '../DayTimetable.vue';
+import ProposalPreview from '../ProposalPreview.vue';
+import ReplanRequestButton from '../ReplanRequestButton.vue';
+import ReplanCard from '../replan/ReplanCard.vue';
+import UiBadge from '../ui/UiBadge.vue';
+import UiBanner from '../ui/UiBanner.vue';
+import UiButton from '../ui/UiButton.vue';
+import UiDialog from '../ui/UiDialog.vue';
+import UiEmptyState from '../ui/UiEmptyState.vue';
+import UiField from '../ui/UiField.vue';
+import UiIcon from '../ui/UiIcon.vue';
+import UiDeadlineFlag from '../ui/UiDeadlineFlag.vue';
+import UiSkeleton from '../ui/UiSkeleton.vue';
+import { useDayAgenda } from '../../composables/usePlannerRange';
+import { addDaysToDate, localParts, zonedWallClockToInstant } from '../../domain/time';
+import { rememberFocusBlocks } from '../../composables/focusContext';
+import { t, tp } from '../../i18n';
+import { formatCivilDate, formatDuration, formatTime, formatTimeRange, minutesBetween } from '../../i18n/format';
+import { errorMessage } from '../../i18n/problem';
+import { riskReasonText } from '../../i18n/server';
+import { localDateAt, useLayoutNow } from '../../layout/now';
+import { useLayoutStore } from '../../stores/layout';
+import { useOfflineStore } from '../../stores/offline';
+import { useSessionStore } from '../../stores/session';
+import { useToastStore } from '../../stores/toast';
+import { focusClientId } from '../../session/clientId';
+import { useLatestReplanPlan } from '../../composables/useLatestReplanPlan';
+import { isBlockLockable, useBlockLock, type LockableBlock } from '../../composables/useBlockLock';
 import {
   captureOwnerBinding,
   isOwnerBindingCurrent,
-} from '../session/ownerEpoch';
+} from '../../session/ownerEpoch';
 import {
   clearQuarantine,
   listQuarantine,
   quarantineRevision,
-} from '../session/quarantine';
+} from '../../session/quarantine';
 import {
   flushFocusJournal,
   retryQuarantinedFocusEvents,
-} from '../session/focusQueue';
+} from '../../session/focusQueue';
 
+/**
+ * 오늘 (HOLO-04, FLOW.md §2 ③): the day's blocks as cards, inside 개요. It was
+ * a screen of its own; now "what do I do now" lives in one place. The next
+ * block carries the lime mark and the page's one filled button, 집중 시작;
+ * 수락 · 축소 · 재배치 · 잠금 are on each card; 오늘 약속 and 오늘 마감 sit under
+ * the list and the day's time table beside it. With nothing planned it sends
+ * the owner back a stage: 계획 세우기, or one task started right away.
+ */
 const router = useRouter();
 const offline = useOfflineStore();
 const sessionStore = useSessionStore();
@@ -545,12 +553,13 @@ function resumeActive(): void {
 </script>
 
 <template>
-  <section class="page page--wide today-page">
+  <section class="today-board today-page" aria-labelledby="today-board-title" data-today-board>
+    <div class="today-layout">
     <div class="today-main">
-      <header class="page-header">
-        <div class="page-heading">
-          <h1>{{ t('today.title') }}</h1>
-          <p v-if="today" class="page-lede today-date">{{ formatCivilDate(today.date) }}</p>
+      <header class="today-head">
+        <div class="today-heading">
+          <h2 id="today-board-title" class="today-heading-title">{{ t('today.title') }}</h2>
+          <p v-if="today" class="today-date">{{ formatCivilDate(today.date) }}</p>
         </div>
         <div class="page-actions">
           <UiBadge v-if="readOnly" tone="offline" dot class="chip--offline" role="status">
@@ -565,7 +574,7 @@ function resumeActive(): void {
       <UiBanner v-if="activeSession" tone="accent" inline icon="clock" class="resume-banner" role="status">
         <span>{{ t('today.resumeWaiting') }}</span>
         <template #actions>
-          <UiButton variant="primary" size="sm" icon="play" @click="resumeActive">{{ t('today.resumeSession') }}</UiButton>
+          <UiButton variant="primary" size="sm" icon="play" data-primary="resume" @click="resumeActive">{{ t('today.resumeSession') }}</UiButton>
         </template>
       </UiBanner>
 
@@ -678,6 +687,7 @@ function resumeActive(): void {
                   icon="play"
                   :disabled="readOnly || startingBlockId !== null"
                   :busy="startingBlockId === block.id"
+                  :data-primary="block.id === nextBlockId && !activeSession ? 'start' : undefined"
                   @click="startFocus(block)"
                 >
                   {{ startingBlockId === block.id ? t('today.starting') : t('today.startFocus') }}
@@ -701,9 +711,20 @@ function resumeActive(): void {
               </div>
             </li>
           </ul>
-          <UiEmptyState v-else icon="today" :title="t('today.empty')" class="card today-empty">
+          <!-- Nothing planned: back a stage (FLOW §5). 계획 세우기 is the one filled
+               button unless a session is waiting; one task can be started as it is. -->
+          <UiEmptyState v-else icon="today" :title="t('today.empty')" class="card today-empty" data-today-empty>
+            <p>{{ t('today.emptyBody') }}</p>
             <template #actions>
-              <RouterLink class="btn btn--secondary" to="/inbox">{{ t('today.openInbox') }}</RouterLink>
+              <RouterLink
+                class="btn"
+                :class="activeSession ? 'btn--secondary' : 'btn--primary'"
+                to="/plan"
+                :data-primary="activeSession ? undefined : 'plan'"
+              >
+                <UiIcon name="plan" :size="18" class="btn-icon" />{{ t('today.makePlan') }}
+              </RouterLink>
+              <RouterLink class="btn btn--ghost" to="/focus" data-today-start-one>{{ t('today.startOne') }}</RouterLink>
             </template>
           </UiEmptyState>
 
@@ -716,7 +737,7 @@ function resumeActive(): void {
             >
               <header class="card-header today-agenda-head">
                 <h2 id="today-commitments-title" class="card-title">{{ t('today.commitmentsTitle') }}</h2>
-                <RouterLink to="/commitments" class="icon-link" :aria-label="t('today.commitmentsLink')">
+                <RouterLink to="/planner?view=day" class="icon-link" :aria-label="t('today.commitmentsLink')">
                   <UiIcon name="open" :size="16" />
                 </RouterLink>
               </header>
@@ -763,6 +784,7 @@ function resumeActive(): void {
       :now-ms="now"
       :commitments="todayCommitments"
     />
+    </div>
 
     <ProposalPreview
       v-if="proposal"

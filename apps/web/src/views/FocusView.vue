@@ -529,7 +529,7 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function goToday(): void {
-  void router.push('/today');
+  void router.push('/overview');
 }
 
 function resumeActive(): void {
@@ -775,7 +775,7 @@ watch(
       :title="t('focus.empty')"
     >
       <template #actions>
-        <RouterLink class="btn btn--secondary" to="/today">{{ t('focus.openToday') }}</RouterLink>
+        <RouterLink class="btn btn--secondary" to="/overview">{{ t('focus.openToday') }}</RouterLink>
       </template>
     </UiEmptyState>
     <p v-if="startBusy" class="loading-row"><UiSpinner /> {{ t('focus.starting') }}</p>

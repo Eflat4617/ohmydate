@@ -34,7 +34,7 @@ const upcoming = computed(() => {
     )
     .slice(0, props.count);
 });
-const onToday = computed(() => route.name === 'today');
+const onToday = computed(() => route.name === 'overview');
 </script>
 
 <template>
@@ -56,6 +56,6 @@ const onToday = computed(() => route.name === 'today');
       </li>
     </ol>
     <p v-else class="muted layout-panel-empty">{{ t('layout.nextUp.empty') }}</p>
-    <RouterLink v-if="!onToday" to="/today" class="layout-panel-link">{{ t('layout.nextUp.openToday') }}</RouterLink>
+    <RouterLink v-if="!onToday" to="/overview" class="layout-panel-link">{{ t('layout.nextUp.openToday') }}</RouterLink>
   </section>
 </template>

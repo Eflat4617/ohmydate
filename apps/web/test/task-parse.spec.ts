@@ -33,7 +33,7 @@ import { useAuthStore } from '../src/stores/auth';
 import { useLlmConsentStore } from '../src/stores/llmConsent';
 import { useOfflineStore } from '../src/stores/offline';
 import { useUiStore } from '../src/stores/ui';
-import CommitmentsView from '../src/views/CommitmentsView.vue';
+import CommitmentAddDialog from '../src/components/planner/CommitmentAddDialog.vue';
 import InboxView from '../src/views/InboxView.vue';
 import { mountWithPlugins, settle } from './planning-test-utils';
 
@@ -634,11 +634,15 @@ describe('/inbox 말로 적기: AI consent (FU-91 rules)', () => {
   });
 });
 
-// ── The 약속 screen's draft rows: the same switch (CAL-05 addendum) ──────────
+// ── 약속 추가's draft rows (the planner's dialog): the same switch (CAL-05 addendum) ──────────
 
-describe('/commitments 말로 적기: guessed AM/PM (CAL-05 addendum)', () => {
+describe('약속 추가 말로 적기: guessed AM/PM (CAL-05 addendum)', () => {
   async function mountCommitments(): Promise<VueWrapper> {
-    const wrapper = mountWithPlugins(CommitmentsView, { pinia: createPinia(), router: router() });
+    const wrapper = mountWithPlugins(CommitmentAddDialog, {
+      pinia: createPinia(),
+      router: router(),
+      props: { timeZone: 'Asia/Seoul', date: '2026-11-14' },
+    });
     await settle();
     await vi.waitFor(() => expect(wrapper.find('#commitment-note').exists()).toBe(true));
     return wrapper;

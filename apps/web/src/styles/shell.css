@@ -134,11 +134,9 @@
   white-space: nowrap;
 }
 
-.topbar-crumb-group,
-.topbar-crumb-sep {
-  display: none;
-}
-
+/* The place, and the screen under it when there is one. On a phone only
+   the last of the two is shown. */
+.topbar-crumb-place,
 .topbar-crumb-page {
   overflow: hidden;
   color: var(--color-text);
@@ -146,18 +144,18 @@
   text-overflow: ellipsis;
 }
 
-/* The theme: three words on wide screens, three marks below that. */
-.theme-switch-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
+.topbar-crumb--nested .topbar-crumb-place,
+.topbar-crumb-sep {
+  display: none;
+}
+
+/* The theme, in the account menu: three words, each with its mark. */
+.theme-switch {
+  display: flex;
 }
 
 .theme-switch-item {
+  flex: 1;
   gap: var(--space-1-5);
   padding-inline: var(--space-2);
 }
@@ -253,25 +251,6 @@
   margin-left: auto;
 }
 
-.nav-groups {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.nav-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.nav-group-label {
-  padding: 0 var(--space-3);
-  color: var(--color-text-3);
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-medium);
-}
-
 .nav-links {
   display: flex;
   flex-direction: column;
@@ -334,19 +313,16 @@
 
 /* The current screen: the lime-to-cyan fill with dark text. The fill, the
    weight and aria-current say it; no other item is filled. */
-.nav-link.router-link-active,
 .nav-link.nav-link--current {
   background: var(--gradient-current);
   color: var(--color-on-accent);
   font-weight: var(--weight-semibold);
 }
 
-.nav-link.router-link-active .nav-link-icon,
 .nav-link.nav-link--current .nav-link-icon {
   color: var(--color-on-accent);
 }
 
-.nav-link.router-link-active kbd,
 .nav-link.nav-link--current kbd {
   border-color: color-mix(in oklab, var(--color-on-accent) 40%, transparent);
   background: transparent;
@@ -354,7 +330,6 @@
 }
 
 /* On the gradient the lime ring would vanish: ring in the text colour. */
-.nav-link.router-link-active:focus-visible,
 .nav-link.nav-link--current:focus-visible {
   outline-color: var(--color-text);
 }
@@ -417,12 +392,12 @@
   border-radius: var(--radius-pill);
 }
 
-.bottom-nav-item.router-link-active {
+.bottom-nav-item--current {
   color: var(--color-text);
   font-weight: var(--weight-semibold);
 }
 
-.bottom-nav-item.router-link-active > .icon {
+.bottom-nav-item--current > .icon {
   background: var(--gradient-current);
   color: var(--color-on-accent);
 }
@@ -601,7 +576,12 @@
     display: none;
   }
 
-  .topbar-crumb-group,
+  .topbar-crumb--nested .topbar-crumb-place {
+    display: inline;
+    color: var(--color-text-3);
+    font-weight: var(--weight-regular);
+  }
+
   .topbar-crumb-sep {
     display: inline;
   }
@@ -630,9 +610,9 @@
     border-radius: var(--radius-xl);
   }
 
-  /* On a short window only the groups scroll: the brand and 새 작업 stay at
-     the head, search, help and sign-out at the foot. */
-  .nav-rail .nav-groups {
+  /* On a short window only the places scroll: the brand and 새 작업 stay at
+     the head, 설정 and 도움말 at the foot. */
+  .nav-rail .nav-places {
     flex: 1;
     min-height: 0;
     margin-inline: calc(-1 * var(--space-3));
@@ -678,35 +658,12 @@
     padding-inline: 0;
   }
 
-  /* A group's name becomes the hairline between groups. */
-  .nav-rail--collapsed .nav-group-label {
-    height: var(--rule-hair);
-    margin: 0 var(--space-3) var(--space-1);
-    padding: 0;
-    overflow: hidden;
-    background: var(--glass-edge);
-    font-size: 0;
-  }
-
   .bottom-nav {
     display: none;
   }
 }
 
 @media (min-width: 1280px) {
-  .theme-switch-label {
-    position: static;
-    width: auto;
-    height: auto;
-    margin: 0;
-    overflow: visible;
-    clip: auto;
-  }
-
-  .theme-switch-item {
-    padding-inline: var(--space-3);
-  }
-
   .topbar-user-name {
     display: block;
   }

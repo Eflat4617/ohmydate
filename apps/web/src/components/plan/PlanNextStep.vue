@@ -128,10 +128,10 @@ function resume(): void {
       >
         {{ starting ? t('planNext.starting') : t('planNext.startFirst') }}
       </UiButton>
-      <RouterLink v-else class="btn btn--primary" to="/today" data-plan-next-primary="today">
+      <RouterLink v-else class="btn btn--primary" to="/overview" data-plan-next-primary="today">
         <UiIcon name="today" :size="18" class="btn-icon" />{{ t('planNext.openToday') }}
       </RouterLink>
-      <RouterLink v-if="running || next" class="plan-next-link" to="/today" data-plan-next-today-link>
+      <RouterLink v-if="running || next" class="plan-next-link" to="/overview" data-plan-next-today-link>
         {{ t('planNext.openToday') }}
       </RouterLink>
       <RouterLink class="plan-next-link" :to="plannerTo" data-plan-next-planner>{{ t('planNext.openPlanner') }}</RouterLink>

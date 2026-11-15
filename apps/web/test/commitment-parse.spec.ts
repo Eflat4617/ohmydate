@@ -1,7 +1,8 @@
 /**
- * CAL-02 "말로 적기" on /commitments: read a note into drafts, add one / all,
- * 고치기 into the manual form, 빼기, a draft without a time, the leftover,
- * consent, failures that keep the note and the manual form, offline, the one
+ * CAL-02 "말로 적기", in the planner's 약속 추가 dialog (HOLO-04: the 약속
+ * screen it used to open on is gone): read a note into drafts, add one / all,
+ * 고치기 into the manual fields, 빼기, a draft without a time, the leftover,
+ * consent, failures that keep the note and the manual fields, offline, the one
  * filled button, and the section's a11y. MSW mock API (mocks/commitment-parse.ts).
  */
 import type { DOMWrapper, VueWrapper } from '@vue/test-utils';
@@ -25,7 +26,7 @@ import { server } from '../src/mocks/server';
 import { useAuthStore } from '../src/stores/auth';
 import { useLlmConsentStore } from '../src/stores/llmConsent';
 import { useOfflineStore } from '../src/stores/offline';
-import CommitmentsView from '../src/views/CommitmentsView.vue';
+import CommitmentAddDialog from '../src/components/planner/CommitmentAddDialog.vue';
 import { mountWithPlugins, settle } from './planning-test-utils';
 
 const ZONE = 'Asia/Seoul';
@@ -70,7 +71,11 @@ function parseRequests(seen: readonly Recorded[]): number {
 }
 
 async function mountView(pinia: Pinia = createPinia()): Promise<VueWrapper> {
-  const wrapper = mountWithPlugins(CommitmentsView, { pinia, router: router() });
+  const wrapper = mountWithPlugins(CommitmentAddDialog, {
+    pinia,
+    router: router(),
+    props: { timeZone: ZONE, date: todayInZone(ZONE) },
+  });
   await settle();
   await vi.waitFor(() => expect(wrapper.find('#commitment-note').exists()).toBe(true));
   return wrapper;
@@ -103,7 +108,7 @@ function readButton(wrapper: VueWrapper) {
 }
 
 function manualSubmit(wrapper: VueWrapper) {
-  return wrapper.get('form.commitment-editor button[type="submit"]');
+  return wrapper.get('[data-planner-add-manual] button[type="submit"]');
 }
 
 function filledButtons(wrapper: VueWrapper): string[] {
@@ -208,7 +213,7 @@ describe('/commitments 말로 적기', () => {
     wrapper.unmount();
   });
 
-  it('adds one draft through the create call: the row turns done and the list below refreshes', async () => {
+  it('adds one draft through the create call: the row turns done', async () => {
     const seen = recordRequests();
     const wrapper = await mountView();
     await read(wrapper, TWO);
@@ -220,7 +225,6 @@ describe('/commitments 말로 적기', () => {
     expect(created).toBeDefined();
     expect(created?.timeZone).toBe(ZONE);
     expect(wrapper.get('[data-testid="nl-entry"] [role="status"]').text()).toBe('‘치과’ 약속을 추가했어요.');
-    await vi.waitFor(() => expect(wrapper.get('.commitment-list').text()).toContain('치과'));
     expect(seen.filter((entry) => entry.method === 'POST' && entry.path.endsWith('/commitments'))).toHaveLength(1);
     // The other draft is still there to add.
     expect(rows(wrapper)[1]?.text()).not.toContain('추가했어요');
@@ -254,14 +258,14 @@ describe('/commitments 말로 적기', () => {
     await vi.waitFor(() => expect(rows(wrapper)).toHaveLength(1));
     await buttonIn(row(wrapper, 0), '고치기').trigger('click');
     await settle();
-    expect((wrapper.get('#commitment-title').element as HTMLInputElement).value).toBe('치과');
-    const start = (wrapper.get('#commitment-start').element as HTMLInputElement).value;
+    expect((wrapper.get('#planner-commitment-title').element as HTMLInputElement).value).toBe('치과');
+    const start = (wrapper.get('#planner-commitment-start').element as HTMLInputElement).value;
     expect(start.endsWith('T15:00')).toBe(true);
     expect(rows(wrapper)).toHaveLength(0);
     expect(wrapper.get('[data-testid="nl-entry"] [role="status"]').text()).toContain('직접 입력 칸으로 옮겼어요');
-    expect(filledButtons(wrapper)).toEqual(['약속 만들기']);
+    expect(filledButtons(wrapper)).toEqual(['약속 추가']);
     // The manual form behaves as before: it creates the commitment.
-    await wrapper.get('form.commitment-editor').trigger('submit');
+    await wrapper.get('[data-planner-add-manual]').trigger('submit');
     await settle();
     await vi.waitFor(() => expect([...mockDb.commitments.values()].some((item) => item.title === '치과')).toBe(true));
     wrapper.unmount();
@@ -345,10 +349,10 @@ describe('/commitments 말로 적기', () => {
     await read(wrapper, TWO);
     await vi.waitFor(() => expect(rows(wrapper)).toHaveLength(2));
     expect(filledButtons(wrapper)).toEqual(['2개 모두 추가']);
-    await wrapper.get('#commitment-title').setValue('직접 쓰는 약속');
+    await wrapper.get('#planner-commitment-title').setValue('직접 쓰는 약속');
     await settle();
-    expect(filledButtons(wrapper)).toEqual(['약속 만들기']);
-    await wrapper.get('#commitment-title').setValue('');
+    expect(filledButtons(wrapper)).toEqual(['약속 추가']);
+    await wrapper.get('#planner-commitment-title').setValue('');
     await buttonIn(row(wrapper, 1), '빼기').trigger('click');
     await settle();
     // One ready draft: its own 추가 is the filled button.
@@ -398,8 +402,8 @@ describe('/commitments 말로 적기', () => {
     expect(wrapper.get('.nl-failure').attributes('role')).toBe('alert');
     expect((wrapper.get('#commitment-note').element as HTMLTextAreaElement).value).toBe(TWO);
     expect(rows(wrapper)).toHaveLength(0);
-    await wrapper.get('#commitment-title').setValue('직접 적은 치과');
-    await wrapper.get('form.commitment-editor').trigger('submit');
+    await wrapper.get('#planner-commitment-title').setValue('직접 적은 치과');
+    await wrapper.get('[data-planner-add-manual]').trigger('submit');
     await settle();
     await vi.waitFor(() => expect([...mockDb.commitments.values()].some((item) => item.title === '직접 적은 치과')).toBe(true));
     wrapper.unmount();
@@ -505,7 +509,7 @@ describe('/commitments 말로 적기: AI consent (FU-91 rules)', () => {
     expect(wrapper.get('.nl-failure a').attributes('href')).toBe('/settings/ai');
     expect(parseRequests(seen)).toBe(0);
     expect((wrapper.get('#commitment-note').element as HTMLTextAreaElement).value).toBe(TWO);
-    expect(wrapper.find('#commitment-title').attributes('disabled')).toBeUndefined();
+    expect(wrapper.find('#planner-commitment-title').attributes('disabled')).toBeUndefined();
     // The disclosure the wizard uses is one click away.
     expect(wrapper.get('.nl-entry-disclosure summary').text()).toBe('AI에 보내는 내용');
     expect(wrapper.get('.nl-entry-disclosure').text()).toContain('말로 적기');

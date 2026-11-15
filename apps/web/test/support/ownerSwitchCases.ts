@@ -75,10 +75,26 @@ const ConsentHost = defineComponent({
 /** Where the connect case's page would have gone, and who was signed in then (the top-level navigation seam). */
 const googleNavigations: { readonly url: string; readonly owner: string | null }[] = [];
 
+/** 플래너 · 약속: the list is read, and 고치기 of the first own row opens the planner's dialog on it. */
+async function openCommitmentEditor(wrapper: VueWrapper): Promise<void> {
+  await until(() => expect(wrapper.find('[data-planner-list] [data-commitment-edit]').exists()).toBe(true));
+  await until(() => expect(wrapper.get('[data-commitment-edit]').attributes('disabled')).toBeUndefined());
+  await wrapper.get('[data-commitment-edit]').trigger('click');
+  await until(() => expect(wrapper.find('[data-planner-edit] #planner-commitment-title').exists()).toBe(true));
+}
+
+/** 플래너: 약속 추가 opens the dialog whose top half is 말로 적기. */
+async function openCommitmentAdd(wrapper: VueWrapper): Promise<void> {
+  await until(() => expect(wrapper.find('[data-planner-add]').exists()).toBe(true));
+  await until(() => expect(wrapper.get('[data-planner-add]').attributes('disabled')).toBeUndefined());
+  await wrapper.get('[data-planner-add]').trigger('click');
+  await until(() => expect(wrapper.find('#commitment-note').exists()).toBe(true));
+}
+
 export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'availability: save',
-    covers: ['src/views/AvailabilityView.vue'],
+    covers: ['src/components/settings/AvailabilitySettings.vue'],
     path: '/settings/availability',
     ready: async (wrapper) => {
       await until(() => expect(wrapper.find('form.settings-form').exists()).toBe(true));
@@ -88,42 +104,48 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       await wrapper.get('form.settings-form').trigger('submit');
     },
   },
+  // HOLO-04: 약속 is the planner's. Its list view (`?view=list`) opens the
+  // planner's dialog on a 약속: changing it and removing it. (Adding one is
+  // the "planner: add a 약속 from the dialog" case below.)
   {
-    name: 'commitments: create',
-    covers: ['src/views/CommitmentsView.vue'],
-    path: '/commitments',
-    ready: async (wrapper) => {
-      await until(() => expect(wrapper.find('#commitment-title').exists()).toBe(true));
+    name: 'planner: change a 약속 from its row',
+    covers: ['src/components/planner/CommitmentAddDialog.vue'],
+    path: '/planner?view=list',
+    seed: () => {
+      expect(mockDb.commitments.has(SEED_COMMITMENT_ID)).toBe(true);
     },
-    hold: { method: 'POST', path: '/commitments' },
+    ready: openCommitmentEditor,
+    hold: { method: 'PATCH', path: '/commitments/' },
     act: async (wrapper) => {
-      await wrapper.get('#commitment-title').setValue('A-private-commitment');
-      await wrapper.get('form.commitment-editor').trigger('submit');
+      await wrapper.get('#planner-commitment-title').setValue('A-private-commitment');
+      await wrapper.get('[data-planner-add-manual]').trigger('submit');
     },
     markers: ['A-private-commitment'],
   },
   {
-    name: 'commitments: delete',
-    covers: ['src/views/CommitmentsView.vue'],
-    path: '/commitments',
+    name: 'planner: delete a 약속 from its row',
+    covers: ['src/components/planner/CommitmentAddDialog.vue'],
+    path: '/planner?view=list',
     seed: () => {
       expect(mockDb.commitments.has(SEED_COMMITMENT_ID)).toBe(true);
     },
     ready: async (wrapper) => {
-      await until(() => expect(wrapper.findAll('.commitment-list li').length).toBeGreaterThan(0));
+      await openCommitmentEditor(wrapper);
+      await wrapper.get('[data-planner-delete]').trigger('click');
+      await until(() => expect(wrapper.find('[data-planner-delete-confirm]').exists()).toBe(true));
     },
     hold: { method: 'DELETE', path: '/commitments/' },
     act: async (wrapper) => {
-      await buttonByText(wrapper.get('.commitment-list') as unknown as VueWrapper, '삭제').trigger('click');
+      await wrapper.get('[data-planner-delete-confirm]').trigger('click');
     },
   },
-  // CAL-02 말로 적기: the read (drafts only) and adding a read draft.
+  // CAL-02 말로 적기 (in the planner's 약속 추가 dialog): the read (drafts only) and adding a read draft.
   {
     name: 'commitments: read a note (말로 적기)',
     covers: ['src/components/CommitmentParseSection.vue'],
-    path: '/commitments',
+    path: '/planner',
     ready: async (wrapper) => {
-      await until(() => expect(wrapper.find('#commitment-note').exists()).toBe(true));
+      await openCommitmentAdd(wrapper);
     },
     hold: { method: 'POST', path: /\/commitments:parse$/ },
     act: async (wrapper) => {
@@ -135,10 +157,10 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'commitments: add a read draft',
     covers: ['src/components/CommitmentParseSection.vue'],
-    path: '/commitments',
+    path: '/planner',
     // The read is part of getting ready; the action is adding the draft it gave.
     ready: async (wrapper) => {
-      await until(() => expect(wrapper.find('#commitment-note').exists()).toBe(true));
+      await openCommitmentAdd(wrapper);
       await wrapper.get('#commitment-note').setValue('내일 오후 3시에 A-private-draft');
       await wrapper.get('form.nl-entry-form').trigger('submit');
       await until(() => expect(wrapper.findAll('[data-testid="nl-draft"]')).toHaveLength(1));
@@ -152,7 +174,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: quick add',
     covers: ['src/views/InboxView.vue', 'src/composables/useTaskActions.ts'],
-    path: '/inbox',
+    path: '/tasks',
     ready: inboxReady,
     hold: { method: 'POST', path: '/tasks' },
     act: async (wrapper) => {
@@ -165,7 +187,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: read a to-do note (말로 적기)',
     covers: ['src/components/TaskParseSection.vue', 'src/composables/useNlDraftRead.ts'],
-    path: '/inbox',
+    path: '/tasks',
     ready: async (wrapper) => {
       await inboxReady(wrapper);
       await until(() => expect(wrapper.find('#task-note').exists()).toBe(true));
@@ -180,7 +202,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: add a read task draft',
     covers: ['src/components/TaskParseSection.vue', 'src/composables/useNlDraftRead.ts'],
-    path: '/inbox',
+    path: '/tasks',
     // The read is part of getting ready; the action is adding the draft it gave.
     ready: async (wrapper) => {
       await inboxReady(wrapper);
@@ -198,7 +220,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: rename',
     covers: ['src/components/TaskList.vue', 'src/composables/useTaskActions.ts'],
-    path: '/inbox',
+    path: '/tasks',
     ready: inboxReady,
     hold: { method: 'PATCH', path: '/tasks/' },
     act: async (wrapper) => {
@@ -211,7 +233,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: complete',
     covers: ['src/components/TaskList.vue', 'src/composables/useTaskActions.ts'],
-    path: '/inbox',
+    path: '/tasks',
     ready: inboxReady,
     hold: { method: 'POST', path: ':complete' },
     act: async (wrapper) => {
@@ -221,7 +243,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: rename hits a version conflict',
     covers: ['src/components/TaskList.vue', 'src/composables/useTaskActions.ts'],
-    path: '/inbox',
+    path: '/tasks',
     ready: inboxReady,
     // The 412 itself is delivered; the follow-up read of the latest task is what is held.
     hold: { method: 'GET', path: /\/tasks\/[0-9a-f-]{36}$/ },
@@ -239,8 +261,8 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'today: accept the plan',
-    covers: ['src/views/TodayView.vue'],
-    path: '/today',
+    covers: ['src/components/today/TodayBoard.vue'],
+    path: '/overview',
     seed: useTodayClock,
     ready: todayReady,
     hold: { method: 'POST', path: '/today:accept' },
@@ -250,8 +272,8 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'today: start focus',
-    covers: ['src/views/TodayView.vue', 'src/stores/session.ts'],
-    path: '/today',
+    covers: ['src/components/today/TodayBoard.vue', 'src/stores/session.ts'],
+    path: '/overview',
     seed: useTodayClock,
     ready: todayReady,
     hold: { method: 'POST', path: /\/sessions$/ },
@@ -259,20 +281,21 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       await buttonByText(wrapper.findAll('.today-card')[0] as unknown as VueWrapper, '집중 시작').trigger('click');
     },
   },
-  // HOLO-01 개요: the dashboard starts a session on the next block (and on an
-  // earlier task with "다시 시작") through one owner-bound task.
+  // HOLO-01 개요: the dashboard's cards start a session on the next block (and
+  // on an earlier task with "다시 시작") through one owner-bound task. (The
+  // filled 집중 시작 of 오늘 is the "today: start focus" case above.)
   {
-    name: 'overview: start focus on the next block',
+    name: 'overview: start focus on the next block from the tracker card',
     covers: ['src/composables/useOverview.ts'],
     path: '/overview',
     seed: useTodayClock,
     ready: async (wrapper) => {
-      await until(() => expect(wrapper.find('[data-primary="start"]').exists()).toBe(true));
-      await until(() => expect(wrapper.get('[data-primary="start"]').attributes('disabled')).toBeUndefined());
+      await until(() => expect(wrapper.find('.overview-grid [data-tracker-start]').exists()).toBe(true));
+      await until(() => expect(wrapper.get('.overview-grid [data-tracker-start]').attributes('disabled')).toBeUndefined());
     },
     hold: { method: 'POST', path: /\/sessions$/ },
     act: async (wrapper) => {
-      await wrapper.get('[data-primary="start"]').trigger('click');
+      await wrapper.get('.overview-grid [data-tracker-start]').trigger('click');
     },
   },
   // HOLO-02 플래너: 약속 추가 (the manual fields of the dialog) and starting
@@ -314,7 +337,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'tracker: start focus on the picked task',
     covers: ['src/views/TrackerView.vue'],
-    path: '/tracker',
+    path: '/focus',
     seed: useTodayClock,
     ready: async (wrapper) => {
       await until(() => expect(wrapper.find('[data-tracker-start]').exists()).toBe(true));
@@ -327,8 +350,8 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'today: reschedule preview',
-    covers: ['src/views/TodayView.vue'],
-    path: '/today',
+    covers: ['src/components/today/TodayBoard.vue'],
+    path: '/overview',
     seed: useTodayClock,
     ready: todayReady,
     hold: { method: 'POST', path: '/today:reschedule' },
@@ -338,8 +361,8 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'today: approve a proposal',
-    covers: ['src/views/TodayView.vue'],
-    path: '/today',
+    covers: ['src/components/today/TodayBoard.vue'],
+    path: '/overview',
     seed: useTodayClock,
     ready: async (wrapper) => {
       await todayReady(wrapper);
@@ -353,8 +376,8 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'today: lock a block',
-    covers: ['src/views/TodayView.vue', 'src/composables/useBlockLock.ts'],
-    path: '/today',
+    covers: ['src/components/today/TodayBoard.vue', 'src/composables/useBlockLock.ts'],
+    path: '/overview',
     seed: useTodayClock,
     ready: async (wrapper) => {
       await todayReady(wrapper);
@@ -409,7 +432,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'layout: acknowledge the deadline risk (clicked after the switch)',
     covers: ['src/components/layout/DeadlineRiskPanel.vue', 'src/layout/localSignals.ts', 'src/stores/layout.ts'],
-    path: '/today',
+    path: '/overview',
     frame: true,
     seed: () => {
       useTestClock();
@@ -425,7 +448,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'layout: skip the review prompt (clicked after the switch)',
     covers: ['src/components/layout/ReviewPromptPanel.vue', 'src/layout/localSignals.ts', 'src/stores/layout.ts'],
-    path: '/today',
+    path: '/overview',
     frame: true,
     seed: async (stage) => {
       useTestClock(IN_REVIEW_WINDOW);
@@ -773,7 +796,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'AI settings: grant consent',
-    covers: ['src/views/LlmSettingsView.vue', 'src/stores/auth.ts'],
+    covers: ['src/components/settings/AiSettings.vue', 'src/stores/auth.ts'],
     path: '/settings/ai',
     seed: async (stage) => {
       mockDb.user = { ...mockDb.user, llmProvider: 'deepseek' };
@@ -935,7 +958,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'layout settings: turn automatic switching off (clicked after the switch)',
-    covers: ['src/views/LayoutSettingsView.vue', 'src/stores/layout.ts', 'src/layout/prefs.ts'],
+    covers: ['src/components/settings/DisplaySettings.vue', 'src/stores/layout.ts', 'src/layout/prefs.ts'],
     path: '/settings/layout',
     seed: useTodayClock,
     ready: async (wrapper) => {
@@ -949,7 +972,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   // navigation to Google) and disconnect.
   {
     name: 'calendar settings: save what is sent to the phone',
-    covers: ['src/views/CalendarSettingsView.vue'],
+    covers: ['src/components/settings/CalendarSettings.vue'],
     path: '/settings/calendar',
     seed: () => seedGoogle(mockDb, 'connected'),
     ready: async (wrapper) => {
@@ -963,7 +986,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'calendar settings: sync now',
-    covers: ['src/views/CalendarSettingsView.vue'],
+    covers: ['src/components/settings/CalendarSettings.vue'],
     path: '/settings/calendar',
     seed: () => seedGoogle(mockDb, 'connected'),
     ready: async (wrapper) => {
@@ -976,7 +999,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'calendar settings: connect (the page would leave for Google)',
-    covers: ['src/views/CalendarSettingsView.vue'],
+    covers: ['src/components/settings/CalendarSettings.vue'],
     path: '/settings/calendar',
     seed: () => {
       seedGoogle(mockDb, 'disconnected');
@@ -1002,7 +1025,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   },
   {
     name: 'calendar settings: disconnect',
-    covers: ['src/views/CalendarSettingsView.vue'],
+    covers: ['src/components/settings/CalendarSettings.vue'],
     path: '/settings/calendar',
     seed: () => seedGoogle(mockDb, 'connected'),
     ready: async (wrapper) => {

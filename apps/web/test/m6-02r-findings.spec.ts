@@ -73,7 +73,7 @@ describe('H1 — a late review response never writes into another owner', () => 
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [
-        { path: '/today', name: 'today', component: Stub },
+        { path: '/overview', name: 'overview', component: Stub },
         { path: '/focus/:sessionId', name: 'focus', component: Stub },
       ],
     });
@@ -104,7 +104,7 @@ describe('H1 — a late review response never writes into another owner', () => 
 describe('H1 — the mounted layout store resets on an owner hard reset', () => {
   it('drops the old owner’s prefs at once and writes nothing into the new owner’s namespace', async () => {
     useTestClock();
-    const app = await mountApp('/today');
+    const app = await mountApp('/overview');
     await vi.waitFor(() => expect(app.wrapper.findAll('.today-card').length).toBeGreaterThan(0));
     const ownerA = mockDb.user.id;
     const layout = useLayoutStore(app.pinia);
@@ -136,7 +136,7 @@ describe('H1 — the mounted layout store resets on an owner hard reset', () => 
   it('a risk acknowledgement clicked after the owner changed is not stored for the new owner', async () => {
     useTestClock();
     seedTodayRisk(mockDb);
-    const app = await mountApp('/today');
+    const app = await mountApp('/overview');
     await vi.waitFor(() => expect(modeOf(app.wrapper)).toBe('deadline_risk'));
     const ack = [...document.querySelectorAll<HTMLButtonElement>('[data-panel="deadline-risk"] button')].find((item) =>
       item.textContent?.includes('확인했어요'),
@@ -152,7 +152,7 @@ describe('H1 — the mounted layout store resets on an owner hard reset', () => 
 
   it('skipping the review prompt after the owner changed is not stored for the new owner', async () => {
     useTestClock(IN_REVIEW_WINDOW);
-    const app = await mountApp('/today', async (pinia) => {
+    const app = await mountApp('/overview', async (pinia) => {
       const session = await startedSession(pinia);
       const done = await plannerClient.completeSession(
         session.id,
@@ -193,7 +193,7 @@ describe('L1 — Next up follows a shared reactive clock', () => {
   it('drops a block once the clock passes its end, without any other state change', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const clock = useTestClock(BEFORE_REVIEW);
-    const app = await mountApp('/today');
+    const app = await mountApp('/overview');
     await vi.waitFor(() => expect(app.wrapper.findAll('.today-card').length).toBeGreaterThan(0));
     const items = () => app.wrapper.findAll('[data-panel="next-up"] .layout-next-item').map((item) => item.text());
     await vi.waitFor(() => expect(items().length).toBe(2));
@@ -218,7 +218,7 @@ describe('L1 — Next up follows a shared reactive clock', () => {
     const start = new Date(2026, 10, 14, 23, 59, 0).getTime();
     const clock = useTestClock(start);
     const today = vi.spyOn(plannerClient, 'getToday');
-    const app = await mountApp('/today');
+    const app = await mountApp('/overview');
     await vi.waitFor(() => expect(app.wrapper.findAll('.today-card').length).toBeGreaterThan(0));
     await vi.waitFor(() => expect(today).toHaveBeenCalledWith('2026-11-14', expect.anything()));
     expect(today.mock.calls.some(([date]) => date === '2026-11-15')).toBe(false);

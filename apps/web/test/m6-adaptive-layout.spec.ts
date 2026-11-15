@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 async function openToday(): Promise<MountedApp> {
-  mounted = await mountApp('/today');
+  mounted = await mountApp('/overview');
   await vi.waitFor(() => expect(mounted?.wrapper.findAll('.today-card').length).toBeGreaterThan(0));
   await settle();
   return mounted;
@@ -67,8 +67,10 @@ describe('adaptive layout — modes (07 §2.2)', () => {
     // The notes region is a placeholder until M6-03.
     expect(app.wrapper.get('[data-panel="related-notes"]').text()).toContain('아직 연결된 노트가 없어요');
     expect(app.wrapper.get('[data-panel="next-up"]').text()).toContain('다음 일정');
-    // Exactly one page heading.
-    expect(app.wrapper.findAll('h1').map((h) => h.text())).toEqual(['오늘']);
+    // Exactly one page heading: 개요's greeting. 오늘 is a section of that page (HOLO-04).
+    expect(app.wrapper.findAll('h1')).toHaveLength(1);
+    expect(app.wrapper.get('[data-overview] h1').attributes('data-greeting')).toBeDefined();
+    expect(app.wrapper.get('[data-today-board] h2').text()).toBe('오늘');
   });
 
   it('focus: starting a session from Today switches to the focus layout with an undo toast', async () => {
@@ -132,7 +134,7 @@ describe('adaptive layout — modes (07 §2.2)', () => {
 
   it('review: after 20:00 an unreviewed session puts the review prompt above Today', async () => {
     useTestClock(IN_REVIEW_WINDOW);
-    mounted = await mountApp('/today', async (pinia) => {
+    mounted = await mountApp('/overview', async (pinia) => {
       const session = await startedSession(pinia);
       const done = await plannerClient.completeSession(
         session.id,
@@ -181,7 +183,7 @@ describe('adaptive layout — undo, hold and auto switch', () => {
     const sessionId = await startFromToday(app);
 
     bodyButton('되돌리기').click();
-    await vi.waitFor(() => expect(app.router.currentRoute.value.path).toBe('/today'));
+    await vi.waitFor(() => expect(app.router.currentRoute.value.path).toBe('/overview'));
     await settle();
     expect(modeOf(app.wrapper)).toBe('overview');
     expect(regionsOf(app.wrapper).primary).toEqual(['TodayPlan']);
@@ -224,7 +226,7 @@ describe('adaptive layout — undo, hold and auto switch', () => {
     layout.step();
     await settle();
     expect(modeOf(app.wrapper)).toBe('overview');
-    expect(app.router.currentRoute.value.path).toBe('/today');
+    expect(app.router.currentRoute.value.path).toBe('/overview');
   });
 
   it('keeps the Focus screen (and its review sheet) after the session ends, even past the hold', async () => {
@@ -250,7 +252,7 @@ describe('adaptive layout — undo, hold and auto switch', () => {
     const sessionId = await startFromToday(app);
     // Undo while the session runs: Today caches the running session…
     bodyButton('되돌리기').click();
-    await vi.waitFor(() => expect(app.router.currentRoute.value.path).toBe('/today'));
+    await vi.waitFor(() => expect(app.router.currentRoute.value.path).toBe('/overview'));
     await vi.waitFor(() => expect(app.wrapper.text()).toContain('세션 이어가기'));
     await button(app.wrapper, '세션 이어가기').trigger('click');
     await vi.waitFor(() => expect(app.wrapper.find('.focus-timer').exists()).toBe(true));
@@ -259,12 +261,12 @@ describe('adaptive layout — undo, hold and auto switch', () => {
     await vi.waitFor(() => expect(useSessionStore(app.pinia).get(sessionId)?.state).toBe('completed'));
 
     // …and coming back must not resurrect it as active (which would switch to Focus).
-    await app.router.push('/today');
+    await app.router.push('/overview');
     await settle();
     await vi.waitFor(() => expect(app.wrapper.findAll('.today-card').length).toBeGreaterThan(0));
     await settle();
     expect(useSessionStore(app.pinia).get(sessionId)?.state).toBe('completed');
-    expect(app.router.currentRoute.value.path).toBe('/today');
+    expect(app.router.currentRoute.value.path).toBe('/overview');
     expect(modeOf(app.wrapper)).toBe('overview');
   });
 
@@ -280,7 +282,7 @@ describe('adaptive layout — undo, hold and auto switch', () => {
     await settle();
     expect(layout.lastOutcome).toMatchObject({ kind: 'deferred', because: 'typing' });
     expect(modeOf(app.wrapper)).toBe('overview');
-    expect(app.router.currentRoute.value.path).toBe('/today');
+    expect(app.router.currentRoute.value.path).toBe('/overview');
     expect(app.wrapper.find('#shrink-minutes').exists()).toBe(true);
 
     await button(app.wrapper, '취소').trigger('click');
@@ -318,7 +320,7 @@ describe('adaptive layout — undo, hold and auto switch', () => {
     await settle();
     expect(useLayoutStore(app.pinia).lastOutcome).toEqual({ kind: 'blocked', because: 'auto_off' });
     expect(modeOf(app.wrapper)).toBe('overview');
-    expect(app.router.currentRoute.value.path).toBe('/today');
+    expect(app.router.currentRoute.value.path).toBe('/overview');
   });
 
   it('with auto switching off, starting from Today still opens Focus — directly, without a toast', async () => {
@@ -336,10 +338,13 @@ describe('adaptive layout — settings toggle (auto on/off, lock current)', () =
     useTestClock();
     const app = await openToday();
     const layout = useLayoutStore(app.pinia);
+    // The old address of the layout settings opens 설정 › 화면 (HOLO-04).
     await app.router.push('/settings/layout');
     await settle();
+    expect(app.router.currentRoute.value.fullPath).toBe('/settings/display');
     expect(app.wrapper.find('.adaptive-frame').exists()).toBe(false);
-    expect(app.wrapper.get('h1').text()).toBe('레이아웃');
+    expect(app.wrapper.get('h1').text()).toBe('설정');
+    expect(app.wrapper.get('[data-settings-display] h2').text()).toBe('화면');
 
     const toggle = app.wrapper.get<HTMLInputElement>('input[data-layout-auto]');
     expect(toggle.element.checked).toBe(true);
@@ -356,7 +361,7 @@ describe('adaptive layout — settings toggle (auto on/off, lock current)', () =
 
     // Locked: a new deadline risk does not change Today.
     seedTodayRisk(mockDb);
-    await app.router.push('/today');
+    await app.router.push('/overview');
     await vi.waitFor(() => expect(modeOf(app.wrapper)).toBe('overview'));
     expect(app.wrapper.find('[data-panel="deadline-risk"]').exists()).toBe(false);
     expect(app.wrapper.get('.adaptive-frame').attributes('data-layout-reason')).toBe('locked');
