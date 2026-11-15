@@ -5,6 +5,7 @@ import type { CanvasMemory } from '../../composables/canvasMemory';
 import { useMediaQuery } from '../../composables/useMediaQuery';
 import { createGovernor, governorTick, type MotionLevel } from '../../domain/canvas/governor';
 import {
+  NARROW_GROWTH,
   NARROW_SURFACE,
   NARROW_SWAY,
   SWAY_REACH,
@@ -17,6 +18,7 @@ import {
   fractionOf,
   freeSpot,
   layoutFolders,
+  openWater,
   placeBodies,
   planDensity,
   pointOf,
@@ -92,6 +94,7 @@ const FALLBACK_ROOM = 640;
 const MIN_ROOM = 420;
 /** The least open water a narrow surface keeps, and the air around its stacked dishes. */
 const MIN_WATER = 200;
+const EMPTY_WATER = 280;
 const DISH_STACK_GAP = 14;
 
 const stage = ref<HTMLElement | null>(null);
@@ -169,25 +172,46 @@ const dishStack = computed(() => {
   return dishSizes.value.reduce((sum, dish) => sum + dish.box.height + DISH_STACK_GAP, 0) + DISH_STACK_GAP;
 });
 const waterRoom = computed(() => {
-  if (!narrow.value) return room.value;
+  if (!narrow.value) {
+    // The dishes stand in one column down the right edge: the surface is at
+    // least as tall as that column (up to two windows), so they never spill
+    // into the water as a second column.
+    const column = dishSizes.value.reduce((sum, dish) => sum + dish.box.height + DISH_STACK_GAP, 0) + DISH_STACK_GAP;
+    return Math.max(room.value, Math.min(column, room.value * 2));
+  }
   const open = byRegion.value.get(null)?.length ?? 0;
   const asked = Math.ceil((open * footprintOf('airy', width.value)) / Math.max(1, width.value)) + 2 * DISH_STACK_GAP;
-  return Math.max(MIN_WATER, Math.min(asked, room.value));
+  // Empty water still holds its invitation.
+  return Math.max(open === 0 ? EMPTY_WATER : MIN_WATER, Math.min(asked, room.value));
+});
+
+/**
+ * The open water the density rule plans for. With the dishes in their band
+ * down the right edge it is the surface beside that band (so a narrow strip of
+ * water is not counted as if it were the whole surface); with dishes the
+ * owner moved into the middle it is the surface less their area.
+ */
+const waterWidth = computed(() => {
+  if (narrow.value || dishSizes.value.length === 0) return width.value;
+  return openWater(worldOf({ width: width.value, height: waterRoom.value }, layoutFolders(folderInputs.value, { width: width.value, height: waterRoom.value }))).width;
 });
 
 const plan = computed(() =>
   planDensity({
     count: byRegion.value.get(null)?.length ?? 0,
-    width: width.value,
+    width: waterWidth.value,
     baseHeight: waterRoom.value,
-    dishArea: narrow.value ? 0 : dishAreaOf(dishSizes.value),
+    dishArea: narrow.value || waterWidth.value < width.value ? 0 : dishAreaOf(dishSizes.value),
     expanded: expanded.value,
+    ...(narrow.value ? { growth: NARROW_GROWTH } : {}),
   }),
 );
 const surface = computed(() => ({ width: width.value, height: plan.value.height + dishStack.value }));
 const folderBoxes = computed<FolderBox[]>(() => layoutFolders(folderInputs.value, surface.value));
 const world = computed<World>(() => worldOf(surface.value, folderBoxes.value));
 /** The simulation's distances; a seeded field is centred on the first window of a long surface. */
+/** The open water as it is laid out: where the foot bar and the empty surface's invitation stand. */
+const waterBox = computed(() => openWater(world.value));
 const bodyOptions = computed(() => ({ ...bodySpacing(plan.value.density), focusY: Math.min(plan.value.height, waterRoom.value) / 2 }));
 
 /** The to-dos that are drawn: the open water's most urgent, and what each open dish can show. */
@@ -1415,7 +1439,7 @@ onBeforeUnmount(() => {
     ref="stage"
     class="pond"
     :class="{ 'pond--narrow': narrow, 'pond--dragging': dropFolder !== undefined }"
-    :style="{ height: px(surface.height) }"
+    :style="{ height: px(surface.height), '--pond-water': px(waterBox.width), '--pond-water-height': px(waterBox.height) }"
     :data-density="plan.density"
     :data-motion="motionOn ? motionLevel : 'still'"
     data-todo-canvas
@@ -1476,7 +1500,7 @@ onBeforeUnmount(() => {
       v-for="box in folderBoxes"
       :key="box.id"
       class="pond-folder glass glass--still glass--flat"
-      :class="{ 'pond-folder--folded': box.collapsed, 'pond-folder--drop': dropFolder === box.id }"
+      :class="{ 'pond-folder--folded': box.collapsed, 'pond-folder--drop': dropFolder === box.id, 'pond-folder--menu': menuFor === box.id }"
       :style="{ left: px(box.box.left), top: px(box.box.top), width: px(box.box.width), height: px(box.box.height) }"
       :aria-label="t('canvas.folder.label', { title: titleOf(box.id) })"
       :data-folder-dish="box.id"

@@ -34,6 +34,8 @@ export const INSIDE_PAD = 10;
 const NARROW_FOOTPRINT = 1.3;
 /** The surface may grow to this many times the window's room before anything is held back. */
 export const SURFACE_GROWTH = 2;
+/** A narrow surface scrolls anyway: it may grow to this many windows. */
+export const NARROW_GROWTH = 3;
 /** Never more bodies than this on the open water, however long the surface. */
 export const SURFACE_HARD_CAP = 300;
 /** Room a dish takes on the surface beyond its own box. */
@@ -49,6 +51,8 @@ export interface DensityInput {
   readonly dishArea: number;
   /** The owner asked to see them all ("N개 더"). */
   readonly expanded: boolean;
+  /** How many windows the surface may grow to (default SURFACE_GROWTH; a phone, which scrolls anyway, takes more). */
+  readonly growth?: number;
 }
 
 export interface DensityPlan {
@@ -83,7 +87,7 @@ export function planDensity(input: DensityInput): DensityPlan {
   if (count * compact <= room) return { density: 'compact', shown: count, hidden: 0, height: baseHeight };
 
   const heightFor = (bodies: number): number => Math.ceil((bodies * compact + dishes) / width);
-  const grown = baseHeight * SURFACE_GROWTH;
+  const grown = baseHeight * Math.max(1, input.growth ?? SURFACE_GROWTH);
   if (heightFor(count) <= grown) return { density: 'compact', shown: count, hidden: 0, height: heightFor(count) };
 
   if (input.expanded) {

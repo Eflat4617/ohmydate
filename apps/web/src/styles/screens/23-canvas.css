@@ -462,6 +462,11 @@
   font-size: var(--text-xs);
 }
 
+/* Its menu is open: the dish comes over the to-dos, so the menu is not under them. */
+.pond-folder--menu {
+  z-index: 4;
+}
+
 /* Folded: one object with its count. */
 .pond-folder--folded {
   border-radius: var(--radius-pill);
@@ -693,8 +698,10 @@
   bottom: calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + env(safe-area-inset-bottom) + var(--space-3));
   z-index: 4;
   display: flex;
+  align-self: flex-start;
   justify-content: center;
-  width: 100%;
+  /* Over the open water, not over the folders' heads beside it. */
+  width: min(100%, var(--pond-water, 100%));
   padding: var(--space-3);
   pointer-events: none;
 }
@@ -730,12 +737,13 @@
 }
 
 /* ── Empty: the capture bar is the invitation ──────────────────────── */
+/* In the middle of the open water (not over a folder beside or under it). */
 .pond-empty {
   position: absolute;
-  top: 50%;
-  left: 50%;
+  top: calc(var(--pond-water-height, 100%) / 2);
+  left: calc(var(--pond-water, 100%) / 2);
   z-index: 2;
-  width: min(26rem, calc(100% - var(--space-8)));
+  width: min(26rem, calc(var(--pond-water, 100%) - var(--space-8)));
   cursor: auto;
   translate: -50% -50%;
 }
