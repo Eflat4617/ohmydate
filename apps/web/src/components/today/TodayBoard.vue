@@ -272,13 +272,6 @@ const riskReasons = computed(() => {
     ...riskReasonText(reason, (taskId) => titles.get(taskId)),
   }));
 });
-// An empty day has nothing to add up and nothing to accept: its figures and
-// the 수락 button wait for a plan. A risk that says something (an overdue
-// task, a day past its limit) is still shown.
-const hasBlocks = computed(() => blocks.value.length > 0);
-const riskShown = computed(
-  () => hasBlocks.value || (today.value !== null && (today.value.risk.level !== 'low' || riskReasons.value.length > 0)),
-);
 const riskTone = computed(() => {
   switch (today.value?.risk.level) {
     case 'high':
@@ -293,6 +286,19 @@ const riskTone = computed(() => {
 // M5-03: "재계획 요청" targets the plan of the newest replan proposal (its
 // server-provided planId, FU-70); Today itself carries no plan id.
 const { planId: replanPlanId } = useLatestReplanPlan();
+
+// An empty day has nothing to add up and nothing to accept: its figures and
+// the 수락 button wait for blocks. The risk card stays while it has something
+// to say or to offer — a risk above low or with a reason (an overdue task, a
+// day past its limit), or a plan that can be asked to be re-planned (재계획
+// 요청 lives on it, also on a day that plan has no block in).
+const hasBlocks = computed(() => blocks.value.length > 0);
+const riskShown = computed(
+  () =>
+    hasBlocks.value ||
+    replanPlanId.value !== null ||
+    (today.value !== null && (today.value.risk.level !== 'low' || riskReasons.value.length > 0)),
+);
 
 const isLoading = computed(
   () => todayQuery.isLoading.value || (today.value !== null && scheduleQuery.isLoading.value),

@@ -211,6 +211,16 @@ describe('개요 — greeting and the one primary button', () => {
     expect(risky.wrapper.find('[data-today-accept]').exists()).toBe(false);
   });
 
+  it('a plan with no block today still offers 재계획 요청: the card that holds it stays, without the zeros (found by E2E-5R)', async () => {
+    seedReplanScenario(mockDb, { history: true });
+    mockDb.today = { ...mockDb.today, blocks: [], risk: { level: 'low', reasons: [] } };
+    const { wrapper } = await mountOverview();
+    await vi.waitFor(() => expect(wrapper.find('[data-replan-request]').exists()).toBe(true));
+    expect(wrapper.get('[data-today-summary]').find('[data-replan-request]').exists()).toBe(true);
+    expect(wrapper.find('.today-stats').exists()).toBe(false);
+    expect(wrapper.find('[data-today-accept]').exists()).toBe(false);
+  });
+
   it('a day with blocks keeps its figures and 오늘 계획 수락', async () => {
     const { wrapper } = await mountOverview();
     await vi.waitFor(() => expect(wrapper.find('[data-primary="start"]').exists()).toBe(true));

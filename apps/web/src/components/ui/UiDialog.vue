@@ -110,6 +110,24 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
+/**
+ * Focus can fall out of the dialog without leaving it for anything: the
+ * focused control is removed or disabled (a draft's 추가 button once it is
+ * added), and the browser parks focus on <body>. The panel's own key handler
+ * never hears a key from there, so Escape would do nothing and a single-key
+ * shortcut would reach the page underneath. While focus is nowhere, the
+ * topmost dialog takes the keys: Escape closes it, Tab enters it.
+ */
+function onStrayKeydown(event: KeyboardEvent): void {
+  const root = panel.value;
+  if (root === null) return;
+  const active = document.activeElement;
+  if (active !== null && active !== document.body && active !== document.documentElement) return;
+  const modals = document.querySelectorAll('[aria-modal="true"]');
+  if (modals[modals.length - 1] !== root) return;
+  onKeydown(event);
+}
+
 function onBackdrop(): void {
   if (props.closeOnBackdrop && props.dismissible) emit('close');
 }
@@ -141,11 +159,13 @@ onMounted(() => {
   opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   setBackgroundInert();
   document.addEventListener('focusin', onFocusIn, true);
+  document.addEventListener('keydown', onStrayKeydown, true);
   void nextTick().then(focusInitial);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('focusin', onFocusIn, true);
+  document.removeEventListener('keydown', onStrayKeydown, true);
   const active = document.activeElement;
   const focusWasInside =
     active === null || active === document.body || panel.value?.contains(active) === true;
