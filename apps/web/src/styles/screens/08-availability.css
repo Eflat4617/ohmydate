@@ -3,15 +3,24 @@
   max-width: 24rem;
 }
 
-/* ── Availability ──────────────────────────────────────────────────────
-   The week grid is the page: it leads, and the small forms (time zone,
-   focus limits, date exceptions) sit beside it from 1280px. */
-@media (min-width: 1280px) {
+/* ── 설정 › 가용 시간 (HOLO-04: a section of 설정, in cards) ─────────────
+   The week grid is the section: its card leads, and the small ones (time
+   zone, focus limits, date exceptions) sit beside it when the section is
+   wide enough. The section is a size container, so this follows the canvas
+   and not the window. */
+.availability-page {
+  container: availability / inline-size;
+}
+
+.availability-form {
+  gap: var(--grid-gap);
+}
+
+@container availability (min-width: 62rem) {
   .availability-form {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 24rem;
     grid-template-rows: auto auto 1fr;
-    gap: var(--space-8) var(--space-10);
     align-items: start;
   }
 
@@ -440,27 +449,32 @@
   gap: var(--space-3) var(--space-4);
 }
 
-/* Saving stays in reach: the bar rides the bottom of the page. */
+/* Saving stays in reach: a small bar of glass rides the bottom of the page,
+   above the phone's nav. */
 .form-actions--sticky {
   position: sticky;
-  bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
+  bottom: calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + env(safe-area-inset-bottom));
   z-index: var(--z-sticky);
-  margin-inline: calc(-1 * var(--space-4));
-  padding: var(--space-2-5) var(--space-4);
-  border-top: var(--rule-hair) solid var(--color-line-strong);
-  background: var(--color-paper);
+  align-self: flex-start;
+  padding: var(--space-2);
+  padding-right: var(--space-3);
+  border-radius: var(--radius-lg);
 }
 
 @media (min-width: 1024px) {
   .form-actions--sticky {
-    bottom: 0;
-    margin-inline: 0;
-    padding-inline: 0;
+    bottom: var(--space-3);
+  }
+}
+
+@container availability (min-width: 62rem) {
+  .availability-form > .form-actions--sticky {
+    justify-self: start;
   }
 }
 
 /* Narrow, or in the side column: a row's inputs take two columns. */
-@media (max-width: 767px), (min-width: 1280px) {
+@container availability (max-width: 47.99rem) or (min-width: 62rem) {
   .exception-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

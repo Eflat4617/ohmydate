@@ -234,7 +234,7 @@ async function save(): Promise<void> {
         draft.value = cloneAvailability(updated);
         dirty.value = false;
         queryClient.setQueryData(['availability'], updated);
-        message.value = t('availability.savedMessage', { version: updated.version });
+        message.value = t('availability.savedMessage');
       } catch (cause) {
         if (cause instanceof ApiError && cause.status === 412) {
           const server = yield* owner.wait(plannerClient.getAvailability({ fresh: true }));
@@ -305,9 +305,14 @@ function retry(): void {
       </template>
     </UiBanner>
 
-    <form v-else-if="draft" class="settings-form availability-form" @submit.prevent="save">
-      <fieldset class="settings-group avail-section avail-section--rules">
-        <legend>{{ t('availability.rules') }}</legend>
+    <form
+      v-else-if="draft"
+      class="settings-form availability-form"
+      :data-availability-version="draft.version"
+      @submit.prevent="save"
+    >
+      <fieldset class="card settings-card settings-group avail-section avail-section--rules">
+        <legend class="card-title">{{ t('availability.rules') }}</legend>
         <p class="muted">{{ t('availability.rulesLede') }}</p>
         <AvailabilityWeekGrid
           :rules="draft.rules"
@@ -398,8 +403,8 @@ function retry(): void {
         </details>
       </fieldset>
 
-      <fieldset class="settings-group avail-section avail-section--zone">
-        <legend>{{ t('availability.timeZone') }}</legend>
+      <fieldset class="card settings-card settings-group avail-section avail-section--zone">
+        <legend class="card-title">{{ t('availability.timeZone') }}</legend>
         <UiField id="availability-timezone" :label="t('availability.timeZoneLabel')" class="field--narrow">
           <select
             id="availability-timezone"
@@ -412,8 +417,8 @@ function retry(): void {
         </UiField>
       </fieldset>
 
-      <fieldset class="settings-group avail-section avail-section--prefs">
-        <legend>{{ t('availability.prefs') }}</legend>
+      <fieldset class="card settings-card settings-group avail-section avail-section--prefs">
+        <legend class="card-title">{{ t('availability.prefs') }}</legend>
         <div class="prefs-grid">
           <UiField id="pref-max-focus" :label="t('availability.maxDailyFocus')">
             <input
@@ -480,8 +485,8 @@ function retry(): void {
         </div>
       </fieldset>
 
-      <fieldset class="settings-group avail-section avail-section--exceptions">
-        <legend>{{ t('availability.exceptions') }}</legend>
+      <fieldset class="card settings-card settings-group avail-section avail-section--exceptions">
+        <legend class="card-title">{{ t('availability.exceptions') }}</legend>
         <p class="muted">{{ t('availability.exceptionsLede') }}</p>
         <UiEmptyState
           v-if="draft.exceptions.length === 0"
@@ -572,17 +577,13 @@ function retry(): void {
         </li>
       </ul>
 
-      <div class="form-actions form-actions--sticky">
+      <!-- Saving stays in reach: a small bar of glass that rides the bottom of the page. -->
+      <div class="form-actions form-actions--sticky glass glass--low">
         <UiButton id="availability-save" type="submit" variant="primary" :busy="saving" :disabled="!canSave">
           {{ saving ? t('common.saving') : t('availability.save') }}
         </UiButton>
-        <UiBadge :tone="dirty ? 'warn' : 'success'" dot>
-          {{
-            t('availability.status', {
-              version: draft.version,
-              state: dirty ? t('availability.unsaved') : t('availability.saved'),
-            })
-          }}
+        <UiBadge :tone="dirty ? 'warn' : 'success'" dot data-availability-state>
+          {{ dirty ? t('availability.unsaved') : t('availability.saved') }}
         </UiBadge>
       </div>
     </form>

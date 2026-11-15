@@ -74,8 +74,6 @@ describe('message catalog (ko)', () => {
       'format.timeRange',
       'format.dateRange',
       'notifications.meta',
-      'availability.riskP50',
-      'availability.riskP90',
       'llm.disclosure.providerValue',
       'commitments.hiddenTitle',
       'sync.keptOnDevice',

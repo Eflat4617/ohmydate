@@ -532,8 +532,8 @@ const SETUP = GOOGLE_SETUP;
 
       <!-- ── not_configured: what it does, and the one-time setup ───────── -->
       <template v-if="status === 'not_configured'">
-        <section class="settings-group google-section" aria-labelledby="google-intro-title">
-          <h2 id="google-intro-title" class="settings-group-title">{{ t('googleCalendar.intro.heading') }}</h2>
+        <section class="card settings-card settings-group google-section" aria-labelledby="google-intro-title">
+          <h3 id="google-intro-title" class="card-title">{{ t('googleCalendar.intro.heading') }}</h3>
           <ul class="google-points">
             <li>{{ t('googleCalendar.intro.toPhone') }}</li>
             <li>{{ t('googleCalendar.intro.fromPhone') }}</li>
@@ -541,8 +541,8 @@ const SETUP = GOOGLE_SETUP;
           </ul>
         </section>
 
-        <section class="settings-group google-section" aria-labelledby="google-setup-title" data-google-setup>
-          <h2 id="google-setup-title" class="settings-group-title">{{ t('googleCalendar.setup.heading') }}</h2>
+        <section class="card settings-card settings-group google-section" aria-labelledby="google-setup-title" data-google-setup>
+          <h3 id="google-setup-title" class="card-title">{{ t('googleCalendar.setup.heading') }}</h3>
           <p>{{ t('googleCalendar.setup.lede') }}</p>
           <p class="google-guide">
             <span class="muted">{{ t('googleCalendar.setup.guide') }}</span>
@@ -584,8 +584,8 @@ const SETUP = GOOGLE_SETUP;
 
       <!-- ── disconnected: what goes where, then connect ────────────────── -->
       <template v-else-if="status === 'disconnected'">
-        <section class="settings-group google-section" aria-labelledby="google-plan-title">
-          <h2 id="google-plan-title" class="settings-group-title">{{ t('googleCalendar.plan.heading') }}</h2>
+        <section class="card settings-card settings-group google-section" aria-labelledby="google-plan-title">
+          <h3 id="google-plan-title" class="card-title">{{ t('googleCalendar.plan.heading') }}</h3>
           <dl class="kv-list google-plan">
             <dt>{{ t('googleCalendar.plan.readLabel') }}</dt>
             <dd>{{ t('googleCalendar.plan.read') }}</dd>
@@ -635,8 +635,8 @@ const SETUP = GOOGLE_SETUP;
           {{ t('googleCalendar.localhost', { origin: webOrigin }) }}
         </UiBanner>
 
-        <section class="settings-group google-section" aria-labelledby="google-sync-title" data-google-sync>
-          <h2 id="google-sync-title" class="settings-group-title">{{ t('googleCalendar.sync.heading') }}</h2>
+        <section class="card settings-card settings-group google-section" aria-labelledby="google-sync-title" data-google-sync>
+          <h3 id="google-sync-title" class="card-title">{{ t('googleCalendar.sync.heading') }}</h3>
           <p class="settings-current google-last-sync tabular" data-google-last-sync>
             {{ lastSyncLine }}
             <!-- needs_reauth: the banner above already says why syncing stopped. -->
@@ -683,8 +683,8 @@ const SETUP = GOOGLE_SETUP;
         </section>
 
         <form v-if="draft" class="settings-form google-settings-form" @submit.prevent="save">
-          <fieldset class="settings-group google-section" data-google-calendars>
-            <legend>{{ t('googleCalendar.calendars.legend') }}</legend>
+          <fieldset class="card settings-card settings-group google-section" data-google-calendars>
+            <legend class="card-title">{{ t('googleCalendar.calendars.legend') }}</legend>
             <p class="muted">{{ t('googleCalendar.calendars.lede') }}</p>
             <p v-if="integration.calendars.length === 0" class="google-empty">{{ t('googleCalendar.calendars.empty') }}</p>
             <ul v-else class="google-calendars">
@@ -709,8 +709,8 @@ const SETUP = GOOGLE_SETUP;
             </ul>
           </fieldset>
 
-          <fieldset class="settings-group google-section" data-google-export>
-            <legend>{{ t('googleCalendar.export.legend') }}</legend>
+          <fieldset class="card settings-card settings-group google-section" data-google-export>
+            <legend class="card-title">{{ t('googleCalendar.export.legend') }}</legend>
             <p class="muted">{{ t('googleCalendar.export.lede', { name: exportName }) }}</p>
             <div class="google-switches">
               <div class="google-switch">
@@ -802,8 +802,8 @@ const SETUP = GOOGLE_SETUP;
           </div>
         </form>
 
-        <section class="settings-group google-section google-disconnect" aria-labelledby="google-disconnect-title">
-          <h2 id="google-disconnect-title" class="settings-group-title">{{ t('googleCalendar.disconnect.heading') }}</h2>
+        <section class="card settings-card settings-group google-section google-disconnect" aria-labelledby="google-disconnect-title">
+          <h3 id="google-disconnect-title" class="card-title">{{ t('googleCalendar.disconnect.heading') }}</h3>
           <p class="muted">{{ t('googleCalendar.disconnect.lede') }}</p>
           <div class="settings-actions">
             <UiButton

@@ -361,7 +361,9 @@ describe('availability view: off-grid and overlapping rules survive load → sav
 
     await wrapper.get('form').trigger('submit');
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('가용 시간을 저장했어요 (버전 2)');
+      expect(wrapper.text()).toContain('가용 시간을 저장했어요.');
+      // The version is not copy any more (no internal names on screen); it is still what the form holds.
+      expect(wrapper.get('[data-availability-version]').attributes('data-availability-version')).toBe('2');
     });
     expect(put).toHaveBeenCalledTimes(1);
     expect(put.mock.calls[0]?.[0]).toEqual(expectedPayload(OFF_GRID));
@@ -379,7 +381,9 @@ describe('availability view: off-grid and overlapping rules survive load → sav
     await wrapper.get('form').trigger('submit');
     // Wait for the save itself: an in-flight PUT would land in the next test's mock DB.
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('가용 시간을 저장했어요 (버전 2)');
+      expect(wrapper.text()).toContain('가용 시간을 저장했어요.');
+      // The version is not copy any more (no internal names on screen); it is still what the form holds.
+      expect(wrapper.get('[data-availability-version]').attributes('data-availability-version')).toBe('2');
     });
     expect(put).toHaveBeenCalledTimes(1);
     const rules = put.mock.calls[0]?.[0].rules ?? [];
@@ -474,7 +478,9 @@ describe('availability view: exceptions are readable and keep their values', () 
     expect(wrapper.text()).not.toContain('시작과 종료를 함께');
     await wrapper.get('form').trigger('submit');
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('가용 시간을 저장했어요 (버전 2)');
+      expect(wrapper.text()).toContain('가용 시간을 저장했어요.');
+      // The version is not copy any more (no internal names on screen); it is still what the form holds.
+      expect(wrapper.get('[data-availability-version]').attributes('data-availability-version')).toBe('2');
     });
     expect(put).toHaveBeenCalledTimes(1);
     expect(put.mock.calls[0]?.[0].exceptions).toEqual([

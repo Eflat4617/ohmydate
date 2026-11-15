@@ -141,7 +141,7 @@ describe('개요 — greeting and the one primary button', () => {
     // The day, then the week: two sections under the greeting.
     expect(wrapper.get('[data-today-board] h2').text()).toBe('오늘');
     expect(wrapper.get('.overview-week h2').text()).toBe('이번 주');
-    expect(wrapper.get('.overview-week [data-week]').exists()).toBe(true);
+    expect(wrapper.find('.overview-week [data-week]').exists()).toBe(true);
     // Every card has a title; all but the log have an "open" corner to the screen that owns the detail.
     expect(wrapper.findAll('[data-widget] h2').map((title) => title.text())).toEqual([
       '진행',

@@ -1,13 +1,16 @@
-/* ── 캘린더 연동: Google Calendar settings (CAL-04) ──────────────────────
-   A settings page of the planner, not an integrations dashboard: a line
-   that says the state in a word, then sections whose headings sit on the
-   2px rule. The setup steps are a numbered worksheet with the commands set
-   in the code face; calendars are ruled rows of pen boxes. */
+/* ── 설정 › 캘린더 연동: Google Calendar (CAL-04; cards since HOLO-04) ────
+   A section of 설정, not an integrations dashboard: a line that says the
+   state in a word, then its parts as cards. The setup steps are a numbered
+   list with the commands set in the code face; calendars are rows of boxes. */
 .google-body {
   display: flex;
   flex-direction: column;
-  gap: var(--space-8);
+  gap: var(--grid-gap);
   min-width: 0;
+}
+
+.google-settings-form {
+  gap: var(--grid-gap);
 }
 
 .google-status-line {
