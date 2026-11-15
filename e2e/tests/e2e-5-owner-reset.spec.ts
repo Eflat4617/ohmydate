@@ -1,6 +1,6 @@
 import { type BrowserContext, type Page } from '@playwright/test';
 import { expect, test } from '../helpers/test';
-import { login } from '../helpers/app';
+import { login, openInbox, settleStartGuide, signOut } from '../helpers/app';
 import { apiFetch, expectOk, idempotencyKey } from '../helpers/planner';
 import { readState } from '../helpers/state';
 
@@ -153,7 +153,7 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
     await expect(pageA.locator('body')).not.toContainText('90.00');
 
     await pageB.bringToFront();
-    await pageB.getByRole('button', { name: '로그아웃' }).click();
+    await signOut(pageB);
     await expect(pageB).toHaveURL(`${state.webUrl}/login`, { timeout: 20_000 });
     const afterLogout = await context.request.get(`${state.apiUrl}/api/v1/me`);
     expect(afterLogout.status()).toBe(401);
@@ -191,6 +191,7 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
     expect(seededA.llm?.budget).toEqual({ dailyUsd: 9, monthlyUsd: 90 });
 
     const aOnlyTitle = `FU-56 owner A only ${Date.now().toString(36)}`;
+    await openInbox(pageA);
     await pageA.getByLabel('작업 빠르게 추가').fill(aOnlyTitle);
     await pageA.getByRole('button', { name: '작업 추가' }).click();
     await expect(pageA.getByText(aOnlyTitle, { exact: true })).toBeVisible();
@@ -222,12 +223,13 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
     expect(sidBefore).toBeTruthy();
 
     const pageB = await context.newPage();
-    await pageB.goto(`${state.webUrl}/inbox`);
+    await pageB.goto(`${state.webUrl}/tasks`);
     await expect(pageB.getByRole('heading', { name: '인박스' })).toBeVisible();
     await expect(pageB.getByText(aOnlyTitle, { exact: true })).toBeVisible();
 
-    // Tab 1's own GET /me (B) and the first GET /tasks it sends after that /me,
-    // so A's title is checked against B's rendered list, not a list still loading.
+    // Tab 1's own GET /me (B). HOLO-04: the hard reset reloads it onto 개요; from
+    // there tab 1 opens 할 일 itself, and A's title is checked against the list of
+    // the GET /tasks it sends as B — not a list still loading, and not A's cache.
     let sawAutomaticMe = false;
     const autoMe = pageA.waitForResponse(
       (response) => {
@@ -240,14 +242,6 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
       },
       { timeout: 20_000 },
     );
-    const tabOneTasksAfterReset = pageA.waitForResponse(
-      (response) =>
-        sawAutomaticMe &&
-        response.request().method() === 'GET' &&
-        new URL(response.url()).pathname.endsWith('/api/v1/tasks') &&
-        response.status() === 200,
-      { timeout: 20_000 },
-    );
     await login(pageB, state, accountB);
     const automaticMe = (await (await autoMe).json()) as MeDto;
     const ownerB = await currentUser(context);
@@ -255,7 +249,9 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
     expect(ownerB.id).not.toBe(ownerA.id);
     expect(ownerB.llm).toBeUndefined();
 
-    await expect(pageA.getByRole('heading', { name: '인박스' })).toBeVisible({ timeout: 20_000 });
+    // No page.reload() from the test: tab 1 resets itself and comes back on 개요 as B.
+    await expect(pageA.locator('[data-overview]')).toBeVisible({ timeout: 20_000 });
+    expect(sawAutomaticMe).toBe(true);
     expect(
       await pageA.evaluate(
         () =>
@@ -268,6 +264,16 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
       await pageA.evaluate((ownerId) => localStorage.getItem(`ohmydate.focus.sessions:${ownerId}`), ownerB.id),
     ).toBeNull();
     expect(await pageA.evaluate((key) => localStorage.getItem(key), sessionsKeyA)).not.toBeNull();
+    await pageA.bringToFront();
+    await settleStartGuide(pageA);
+    const tabOneTasksAfterReset = pageA.waitForResponse(
+      (response) =>
+        response.request().method() === 'GET' &&
+        new URL(response.url()).pathname.endsWith('/api/v1/tasks') &&
+        response.status() === 200,
+      { timeout: 20_000 },
+    );
+    await openInbox(pageA);
     await tabOneTasksAfterReset;
     await expect(pageA.locator('.task-list')).toBeVisible({ timeout: 20_000 });
     await expect(pageA.getByText(aOnlyTitle, { exact: true })).toHaveCount(0);
@@ -296,7 +302,7 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
       { timeout: 20_000 },
     );
     await pageB.bringToFront();
-    await pageB.getByRole('button', { name: '로그아웃' }).click();
+    await signOut(pageB);
     await expect(pageB).toHaveURL(`${state.webUrl}/login`, { timeout: 20_000 });
     await autoLogoutMe;
     await expect(pageA).toHaveURL(`${state.webUrl}/login`, { timeout: 20_000 });

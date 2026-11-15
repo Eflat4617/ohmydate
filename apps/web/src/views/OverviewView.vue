@@ -1,22 +1,27 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import AiWidget from '../components/overview/AiWidget.vue';
+import DayRecap from '../components/overview/DayRecap.vue';
 import DaySummaryWidget from '../components/overview/DaySummaryWidget.vue';
 import ProgressWidget from '../components/overview/ProgressWidget.vue';
 import SessionLogWidget from '../components/overview/SessionLogWidget.vue';
+import SetupCard from '../components/overview/SetupCard.vue';
 import TimeTrackerWidget from '../components/overview/TimeTrackerWidget.vue';
 import PlanResumeList from '../components/plan/PlanResumeList.vue';
+import TodayBoard from '../components/today/TodayBoard.vue';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
+import { useFirstRun } from '../composables/firstRun';
 import { focusContextFor, rememberFocusBlocks } from '../composables/focusContext';
 import { useFocusStart, useRunningSession, useSecondTick, useTaskDirectory } from '../composables/useOverview';
 import { useOwnerTimeZone } from '../composables/usePlannerRange';
 import { displayNameOf } from '../domain/displayName';
 import { greetingPeriod, nextBlockOf, plannedMinutes } from '../domain/overview';
+import { dayIsOver } from '../domain/recap';
 import { addDaysToDate, localParts, startOfWeek, todayInZone } from '../domain/time';
 import { t } from '../i18n';
 import { formatCivilDateRange, formatTime } from '../i18n/format';
@@ -27,12 +32,20 @@ import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 
 /**
- * 개요 (HOLO-01): the dashboard the user opens first. Its job is PRODUCT.md's:
- * say what today holds and get the user to start. The greeting names the next
- * action, the one primary button does it, and five cards show the week, the
- * running session, today by kind, what the AI layer knows, and the session
- * log — all computed from the user's own data (domain/overview.ts).
+ * 개요 (HOLO-04, FLOW.md §2 ③ and §4): the place the owner opens first and
+ * comes back to. Its job is PRODUCT.md's: say what today holds and get the
+ * owner to start.
+ *
+ * - The greeting names the next action in one sentence.
+ * - 오늘 (components/today/TodayBoard.vue) is the day itself: the blocks as
+ *   cards with 수락 · 축소 · 재배치 on them, 오늘 약속 and 마감, the time table.
+ *   It holds the page's one filled button — 집중 시작 on the next block, 세션
+ *   이어가기 while one waits, 계획 세우기 when nothing is planned.
+ * - 이번 주: five cards — the week, the running session, today by kind, what
+ *   the AI layer knows, the session log — all computed from the owner's own
+ *   data (domain/overview.ts).
  */
+const route = useRoute();
 const router = useRouter();
 const queryClient = useQueryClient();
 const auth = useAuthStore();
@@ -51,6 +64,7 @@ const shownWeekText = computed(() =>
   formatCivilDateRange(shownWeekStart.value, addDaysToDate(shownWeekStart.value, 6)),
 );
 
+const firstRun = useFirstRun();
 const snapshot = useTodaySnapshot();
 const plan = computed(() => snapshot.today.value);
 const planReady = computed(() => !snapshot.isLoading.value && !snapshot.isError.value);
@@ -114,13 +128,6 @@ const nextSentence = computed(() => {
   return plan.value.blocks.length > 0 ? t('overview.next.allDone') : t('overview.next.empty');
 });
 
-/** What the screen's single primary button does. */
-const primary = computed(() => {
-  if (running.value !== null) return 'resume' as const;
-  if (nextBlock.value !== null) return 'start' as const;
-  return 'plan' as const;
-});
-
 function startNext(): void {
   const block = nextBlock.value;
   const current = plan.value;
@@ -139,10 +146,19 @@ function resume(): void {
   if (session !== null) void router.push(`/focus/${session.id}`);
 }
 
+/**
+ * ⑤ 돌아보기: the day's recap takes the page's filled button when the day's
+ * blocks are over, or when the owner asked for it (`?recap`, from "오늘은
+ * 여기까지" after a session) — never while a session is still running.
+ */
+const recapAsked = computed(() => route.query['recap'] !== undefined);
+const recapShown = computed(
+  () => plan.value !== null && running.value === null && (recapAsked.value || dayIsOver(plan.value.blocks, now.value)),
+);
+
 // One session at a time: while one runs, the way on is "이어서 보기", so nothing
 // offers a start the server would refuse.
 const canStart = computed(() => focus.canStart.value && running.value === null);
-const startingNext = computed(() => nextBlock.value !== null && focus.startingTaskId.value === nextBlock.value.taskId);
 </script>
 
 <template>
@@ -152,10 +168,36 @@ const startingNext = computed(() => nextBlock.value !== null && focus.startingTa
         <h1 data-greeting>{{ greeting }}</h1>
         <p class="overview-next" data-next>{{ nextSentence }}</p>
       </div>
-      <div class="overview-head-actions">
-        <UiBadge v-if="!offline.mutationsEnabled" tone="offline" dot class="chip--offline" role="status">
+      <div v-if="!offline.mutationsEnabled" class="overview-head-actions">
+        <UiBadge tone="offline" dot class="chip--offline" role="status">
           {{ t('common.readOnlyOffline') }}
         </UiBadge>
+      </div>
+    </header>
+
+    <UiBanner v-if="focus.error.value" tone="error" role="alert" class="overview-start-error">
+      {{ focus.error.value }}
+      <template v-if="focus.activeExists.value && running" #actions>
+        <UiButton size="sm" @click="resume">{{ t('overview.resume') }}</UiButton>
+      </template>
+    </UiBanner>
+    <p v-if="!offline.mutationsEnabled" class="visually-hidden" role="status">{{ t('overview.startOffline') }}</p>
+
+    <!-- FLOW §3: only while the start guide is not over. -->
+    <SetupCard :guide="firstRun" />
+
+    <!-- FLOW §5 되돌아오기: a plan that was started and not finished, with the way back in. -->
+    <PlanResumeList :limit="1" compact />
+
+    <!-- ⑤ 돌아보기: once the day's blocks are over (or the owner called it a day). -->
+    <DayRecap v-if="recapShown && plan" :plan="plan" :today="today" :time-zone="timeZone" :ready="ready" :now-ms="liveNow" />
+
+    <!-- ③ 오늘: the day's blocks, and the page's one filled button (the recap's, while it shows). -->
+    <TodayBoard :quiet="recapShown" />
+
+    <section class="overview-week" aria-labelledby="overview-week-title">
+      <header class="overview-week-head">
+        <h2 id="overview-week-title" class="overview-week-title">{{ t('overview.week.title') }}</h2>
         <div class="week-switch" role="group" :aria-label="t('overview.week.label')">
           <button
             type="button"
@@ -181,81 +223,52 @@ const startingNext = computed(() => nextBlock.value !== null && focus.startingTa
             <UiIcon name="chevron-right" :size="16" />
           </button>
         </div>
-        <UiButton v-if="primary === 'resume'" variant="primary" icon="play" data-primary="resume" @click="resume">
-          {{ t('overview.resume') }}
-        </UiButton>
-        <UiButton
-          v-else-if="primary === 'start'"
-          variant="primary"
-          icon="play"
-          :disabled="!canStart"
-          :busy="startingNext"
-          data-primary="start"
-          @click="startNext"
-        >
-          {{ startingNext ? t('overview.starting') : t('overview.startFocus') }}
-        </UiButton>
-        <RouterLink v-else class="btn btn--primary" to="/plan" data-primary="plan">
-          <UiIcon name="plan" :size="18" class="btn-icon" />
-          {{ t('overview.makePlan') }}
-        </RouterLink>
+      </header>
+
+      <div class="overview-grid">
+        <ProgressWidget
+          :week-start="shownWeekStart"
+          :today="today"
+          :time-zone="timeZone"
+          :ready="ready"
+          :now-ms="liveNow"
+          :planned-today-min="plannedTodayMin"
+        />
+        <TimeTrackerWidget
+          :running="running"
+          :running-title="runningTitle"
+          :next-title="planReady ? (nextBlock?.title ?? null) : null"
+          :today="today"
+          :time-zone="timeZone"
+          :ready="ready"
+          :now-ms="liveNow"
+          :can-start="canStart"
+          :starting-task-id="focus.startingTaskId.value"
+          @start="startNext"
+          @resume="resume"
+          @restart="restart"
+        />
+        <DaySummaryWidget
+          :plan="plan"
+          :plan-loading="snapshot.isLoading.value"
+          :plan-error="snapshot.isError.value"
+          :today="today"
+          :time-zone="timeZone"
+          :ready="ready"
+          :now-ms="liveNow"
+          @retry-plan="retryPlan"
+        />
+        <AiWidget :plan="plan" />
+        <SessionLogWidget
+          :today="today"
+          :time-zone="timeZone"
+          :ready="ready"
+          :now-ms="liveNow"
+          :can-start="canStart"
+          :starting-task-id="focus.startingTaskId.value"
+          @restart="restart"
+        />
       </div>
-    </header>
-
-    <UiBanner v-if="focus.error.value" tone="error" role="alert" class="overview-start-error">
-      {{ focus.error.value }}
-      <template v-if="focus.activeExists.value && running" #actions>
-        <UiButton size="sm" @click="resume">{{ t('overview.resume') }}</UiButton>
-      </template>
-    </UiBanner>
-    <p v-if="!offline.mutationsEnabled" class="visually-hidden" role="status">{{ t('overview.startOffline') }}</p>
-
-    <!-- HOLO-03A (FLOW §5 되돌아오기): a plan that was started and not finished, with the way back in. -->
-    <PlanResumeList :limit="1" compact />
-
-    <div class="overview-grid">
-      <ProgressWidget
-        :week-start="shownWeekStart"
-        :today="today"
-        :time-zone="timeZone"
-        :ready="ready"
-        :now-ms="liveNow"
-        :planned-today-min="plannedTodayMin"
-      />
-      <TimeTrackerWidget
-        :running="running"
-        :running-title="runningTitle"
-        :next-title="planReady ? (nextBlock?.title ?? null) : null"
-        :today="today"
-        :time-zone="timeZone"
-        :ready="ready"
-        :now-ms="liveNow"
-        :can-start="canStart"
-        :starting-task-id="focus.startingTaskId.value"
-        @start="startNext"
-        @resume="resume"
-        @restart="restart"
-      />
-      <DaySummaryWidget
-        :plan="plan"
-        :plan-loading="snapshot.isLoading.value"
-        :plan-error="snapshot.isError.value"
-        :today="today"
-        :time-zone="timeZone"
-        :ready="ready"
-        :now-ms="liveNow"
-        @retry-plan="retryPlan"
-      />
-      <AiWidget :plan="plan" />
-      <SessionLogWidget
-        :today="today"
-        :time-zone="timeZone"
-        :ready="ready"
-        :now-ms="liveNow"
-        :can-start="canStart"
-        :starting-task-id="focus.startingTaskId.value"
-        @restart="restart"
-      />
-    </div>
+    </section>
   </section>
 </template>

@@ -12,6 +12,7 @@ import {
   type WorkSession,
 } from '../api';
 import ReviewSheet from '../components/ReviewSheet.vue';
+import FocusNextStep from '../components/focus/FocusNextStep.vue';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
@@ -529,7 +530,7 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function goToday(): void {
-  void router.push('/today');
+  void router.push('/overview');
 }
 
 function resumeActive(): void {
@@ -561,6 +562,17 @@ watch(
     if (online) void syncPending();
   },
 );
+// Another session on the same screen (다음 블록 시작): what the last one's
+// review earned is not this one's.
+watch(sessionId, (next, previous) => {
+  if (next === previous) return;
+  feedback.value = null;
+  reviewError.value = null;
+  error.value = null;
+  resumeOffer.value = false;
+  fetchedTitle.value = null;
+  remoteSession.value = null;
+});
 watch(
   () => sessions.ownerId,
   (owner, previous) => {
@@ -759,12 +771,14 @@ watch(
         </p>
       </div>
 
+      <!-- ④ → ⑤: once the review is in, the next step holds the filled button (FLOW §5). -->
+      <FocusNextStep v-if="showReview && feedback" :finished-block-id="session.blockId ?? null" :feedback="feedback" />
       <ReviewSheet
         v-if="showReview"
         :disabled="!offline.online"
         :busy="reviewBusy"
         :error="reviewError"
-        :feedback="feedback"
+        :submitted="feedback !== null"
         @submit="submitReview"
       />
     </template>
@@ -775,7 +789,7 @@ watch(
       :title="t('focus.empty')"
     >
       <template #actions>
-        <RouterLink class="btn btn--secondary" to="/today">{{ t('focus.openToday') }}</RouterLink>
+        <RouterLink class="btn btn--secondary" to="/overview">{{ t('focus.openToday') }}</RouterLink>
       </template>
     </UiEmptyState>
     <p v-if="startBusy" class="loading-row"><UiSpinner /> {{ t('focus.starting') }}</p>

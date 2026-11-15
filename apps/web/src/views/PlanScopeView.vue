@@ -398,7 +398,7 @@ const links = computed(() => (sessionId.value === null ? {} : { steps: `/plan/${
             <UiEmptyState v-else-if="groups.length === 0" icon="inbox" :title="t('planScope.empty')" data-scope-empty>
               <p>{{ t('planScope.emptyBody') }}</p>
               <template #actions>
-                <RouterLink class="btn btn--secondary" to="/inbox">{{ t('planScope.emptyCapture') }}</RouterLink>
+                <RouterLink class="btn btn--secondary" to="/tasks">{{ t('planScope.emptyCapture') }}</RouterLink>
                 <RouterLink class="btn btn--ghost" to="/plan">{{ t('planScope.emptyGoal') }}</RouterLink>
               </template>
             </UiEmptyState>

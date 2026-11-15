@@ -1,4 +1,5 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import { defineComponent, nextTick } from 'vue';
@@ -16,7 +17,7 @@ function testRouter(): Router {
     history: createMemoryHistory(),
     routes: [
       { path: '/login', name: 'login', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/inbox', name: 'inbox', component: Stub },
     ],
   });
@@ -40,9 +41,9 @@ async function signIn(pinia: ReturnType<typeof createPinia>, current: User) {
 
 async function mountShell(pinia: ReturnType<typeof createPinia>): Promise<VueWrapper> {
   const router = testRouter();
-  await router.push('/today');
+  await router.push('/overview');
   const wrapper = mount(AppShell, {
-    global: { plugins: [pinia, router] },
+    global: { plugins: [pinia, router, VueQueryPlugin] },
     slots: { default: '<p class="protected-body">Journal</p>' },
     attachTo: document.body,
   });
@@ -324,9 +325,9 @@ describe('identity revalidation hardening (FU-85)', () => {
       .mockRejectedValue(new ApiError(401, 'unauthenticated', 'no session'));
     const auth = useAuthStore(pinia);
     const router = testRouter();
-    await router.push('/today');
+    await router.push('/overview');
     const wrapper = mount(AppShell, {
-      global: { plugins: [pinia, router] },
+      global: { plugins: [pinia, router, VueQueryPlugin] },
       slots: { default: '<p class="protected-body">Journal</p>' },
       attachTo: document.body,
     });

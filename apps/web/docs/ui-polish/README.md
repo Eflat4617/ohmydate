@@ -10,15 +10,28 @@ This page keeps what `DESIGN.md` does not: how the stylesheet is laid out,
 the rules for new UI, and how each feature area behaves.
 The screen spec is `docs/blueprint/07-ADAPTIVE-UI-SPEC.md` §1–§6.
 
-HOLO-01 shipped the system (tokens, base, primitives, charts), the shell and
-개요. Every other screen already takes the new skin through the primitives and
-the old token names (aliases, listed at the end of `DESIGN.md`); HOLO-02 and
-HOLO-03 restyle them screen by screen. Where a section below still describes a
-screen in paper terms (a 2px rule, a highlighted word), read it as that
-screen's structure, not its look.
+HOLO-04 (2026-11-16) made the product one flow and gave the floating layer
+its material. [`FLOW.md`](../../FLOW.md) is the spec: the loop 담기 → 계획 →
+오늘 → 집중 → 돌아보기 → 다시 맞추기, the places of the sidebar, the capture
+bar, the now pill, the hand-offs and the first run. `DESIGN.md` describes the
+parts (Layout, The Flow, Settings, Glass). Every screen is in the system; the
+sections further down describe feature areas as they were built, and where
+they name a screen or an address that has moved, this table is current. The
+old addresses still work: they redirect, keeping their query.
 
-The captures under `redesign/` are from the paper system and are stale; they
-are kept until the whole set is regenerated (`scripts/ui-screenshots.mjs`).
+| Was | Is now |
+|---|---|
+| `/` , after signing in, after an owner reset | `/overview` (개요) |
+| `/today` (오늘) | `/overview` — 오늘 is the board on 개요 (`components/today/TodayBoard.vue`) |
+| `/inbox` (인박스) | `/tasks` (할 일 › 인박스) |
+| `/projects` | `/tasks?view=projects` (할 일 › 프로젝트); `/projects/:id` and `/tasks/:id` are unchanged |
+| `/commitments` (약속) | `/planner?view=list` (플래너 › 목록); 약속 are added and changed in the planner's dialog |
+| `/tracker` (타임 트래커) | `/focus` (집중); a session is still `/focus/:sessionId` |
+| `/availability`, `/settings/availability` | `/settings/availability` (설정 › 가용 시간) |
+| `/settings/calendar`, `/settings/ai` | the same addresses, now sections of one 설정 |
+| `/settings/layout` (레이아웃) | `/settings/display` (설정 › 화면: theme, 투명 효과 줄이기, layout) |
+| `/patterns` | `/insights` (분석) |
+| search dialog (`/`), 새 작업 (`n`) | the capture bar: `n` or Ctrl/⌘+K puts down, `/` searches |
 
 HOLO-03A (2026-11-16) rebuilt the planning side instead of restyling it:
 계획 세우기 is one flow (`/plan`, `/plan/:sessionId`, `/plan/schedule`,
@@ -96,10 +109,10 @@ Shrink, the Availability conflict and the bottom-nav More sheet all use it.
 
 | Width | Shell | Content |
 |---|---|---|
-| < 640px | 5-slot bottom nav (Today, Inbox, ＋ New task, Plan, More). The More sheet holds the rest | one column; plan candidates swipe sideways inside their own scroller |
+| < 640px | floating 5-slot bottom nav (개요, 할 일, 담기, 계획, 더 보기); the 더 보기 sheet holds the rest; the top bar scrolls away | one column; plan candidates swipe sideways inside their own scroller |
 | 640–1023px | bottom nav | wider single column, two-column forms where they fit |
-| ≥ 1024px | nav rail of words (Daily / Planning / Settings) with shortcut hints | pages start at the left margin; forms in columns; New plan and Commitments put their form beside the list |
-| ≥ 1280px | rail | Today shows its block list beside the day time table, with the context panels in a row below; Focus shows the timer beside one column of panels; Availability puts its settings beside the week grid |
+| ≥ 1024px | floating sidebar (the seven places, 설정, 도움말; folds to icons) and a floating top bar of glass with the capture bar and the now pill | pages start at the left margin; cards on the 12-column grid; 개요 puts 오늘's blocks beside the day timetable from 62rem of the board's width |
+| ≥ 1280px | the same | Focus shows the timer beside one column of panels; 설정 › 가용 시간 puts its settings beside the week grid |
 
 Today's time table (`DayTimetable`, `src/domain/dayTimetable.ts`) draws the
 day's blocks on hour rows of six ten-minute cells. A row in the list and its
@@ -113,21 +126,19 @@ done) when there are any.
 What follows in this file describes the screens as they were built; where it
 differs from this section, this section and `DESIGN.md` are current.
 
-- **플래너** (`/planner`, key `m`, sidebar 메인) is the calendar screen with
-  three views: 일, 주 (the default) and 월. The view and its date are in the
+- **플래너** (`/planner`, key `m`) is the calendar screen with four views:
+  일, 주 (the default), 월 and 목록 (the week's 약속, HOLO-04). The view and its date are in the
   query (`?view=day&d=`, `?w=` a Monday, `?view=month&m=`). `/month` stays
   valid and is the 월 view (the "한달" page below). 약속 추가 is its one filled
   button; an item's actions are in one floating detail card.
-- **타임 트래커** (`/tracker`): the timer card with the task picker, and the
-  week's focus sessions by day.
+- **집중** (`/focus`, was 타임 트래커 at `/tracker`): the timer card with the
+  task picker, and the week's focus sessions by day.
 - **오늘, 집중, 인박스, 프로젝트, 작업 상세** are cards in the dashboard
   system (`DESIGN.md` → Components). 말로 적기 in 인박스 is folded under
   "말로 여러 개 적기".
-- **The app opens on 개요** (`/`). Signing in still goes to 인박스 (LoginView)
-  and an owner reset reloads to 인박스.
-- Sweep: `node scripts/ui-screenshots.mjs --label holo-02 --flows planner,tracker --tablet`
-  (dark and light, 390 / 1440 / 360 and 1024px). The captures under
-  `docs/ui-polish/*/` predate HOLO-01 and HOLO-02 and are stale.
+- **The app opens on 개요** (`/overview`): at `/`, after signing in, and after
+  an owner reset (HOLO-04).
+- Sweep: see Evidence below.
 
 ## 한달 (CAL-01)
 
@@ -437,91 +448,47 @@ synced to the task tool.
 
 ## Evidence
 
-`redesign/` holds the current screens (2026-11-13, every flow, 310 visits, no
-overflow and no critical or serious axe finding; its PNGs are reduced to a
-256-colour palette to keep the folder small). The other folders named below
-were captured before the redesign and show the previous look. The script,
-its flows and its checks are unchanged:
-
-```sh
-node scripts/ui-screenshots.mjs --label redesign
-```
-
-`before/` was captured at the base commit and `after/` on the UI-POLISH
-branch (English UI). `after-ko/` is the Korean UI (UI-I18N), captured the same
-way with the browser locale set to `ko-KR`. All of them use only synthetic MSW
-data (`VITE_MOCK=1`, `src/mocks`) with the clock pinned
-to 2026-11-14 Asia/Seoul. There are no real accounts or personal data.
+`holo-04/` holds the current screens. Everything older was removed with
+HOLO-04 (it showed two visual systems ago). The PNGs are reduced to a
+256-colour palette to keep the folder small. The captures use only synthetic
+MSW data (`VITE_MOCK=1`, `src/mocks`) with the clock pinned to 2026-11-14
+Asia/Seoul; there are no real accounts or personal data.
 
 ```sh
 # from apps/web; starts vite in mock mode on :5199
-node scripts/ui-screenshots.mjs --label after-ko
-node scripts/ui-screenshots.mjs --label after-ko --only 14-today
-# HOLO-03A: 계획 세우기 (06–11), 재계획 (22–28, 32–33), AI 분석 (29–31)
-node scripts/ui-screenshots.mjs --label holo-03a --flows plan,replan,insights --tablet
-# M6-02 layout modes (34–41) into m6-02/
-node scripts/ui-screenshots.mjs --label m6-02 --flows adaptive
-# M6-03 notes screens (42–51) into m6-03/
-node scripts/ui-screenshots.mjs --label m6-03 --flows notes
+node scripts/ui-screenshots.mjs                      # every flow, into docs/ui-polish/holo-04
+node scripts/ui-screenshots.mjs --flows loop,capture # some of them
+node scripts/ui-screenshots.mjs --only 10-capture    # screens whose name starts with this
 ```
 
-`--flows month` (CAL-01) captures the month page on the mock's seeded
-November (`seedMonth` in `src/mocks/db.ts`, on by default in mock mode; seed
-`window.__OHMYDATE_MOCK__ = { month: 'none' }` to leave it out): this month
-with today picked (52, light/dark, full), another day picked (53, full), the
-next month (54) and a month with nothing planned (55). Run with
-`--flows month,daily` to see Today's 약속 and 오늘 마감 too (14).
+The script walks the product the way `FLOW.md` describes it, in five flows:
 
-`m6-03/` holds the notes screens: the list (42, light/dark; on desktop beside
-an open note), the editor with the side-by-side preview (43, light/dark, full
-page with links and AI usage), the link picker (44), the AI usage history
-(45), the 412 conflict dialog (46), the delete confirmation (47), the
-project notes tab (48), the task detail with *설명을 노트로 승격* (49), the
-wizard's reference notes with fact/inference evidence (50, light/dark, full)
-and RelatedNotes in the focus layout (51, mock seed
-`window.__OHMYDATE_MOCK__ = { notes: 'focus' }`).
+| Flow | Screens |
+|---|---|
+| `places` | 개요 (00), 할 일 (20–21), 계획 (25–26), 플래너 일·주·월·목록 and the 약속 dialog (30–34), 집중 (45), 분석 (50), 노트 (55–56), 설정's four sections (60–63) |
+| `shell` | the account menu (80), notifications (81), shortcuts (82), the 더 보기 sheet (83, narrow only), 로그인 (70) |
+| `capture` | a line typed (10), its drafts, one turned into the other kind, done with the hand-off (11), the plan flow it opens (12), the search (13) |
+| `loop` | start the next block → the timer (40) → the review → the next-step card → 오늘 정리 on 개요 (41); a 다시 맞추기 proposal on 개요 and opened (42–43); the now pill with a session running (44) |
+| `first-run` | the start guide's three steps and its ending (02–05), 개요's 시작 마무리 card (06), the empty 할 일 and 약속 list (07–08) as a brand-new owner (`window.__OHMYDATE_MOCK__ = { owner: 'new' }`) |
 
-`m6-02/` holds one capture per layout mode: overview (34, light/dark, full),
-focus right after *집중 시작* with the undo toast (35, light/dark), the undone
-layout (36), planning (37), deadline risk (38, mock seed
-`window.__OHMYDATE_MOCK__ = { today: 'risk' }`, full), review at 20:30 with an
-unreviewed session (39, full), notes (40) and the layout settings (41).
-
-`m5-03/` holds the M5-03 screens: Today with a pending proposal (22), the
-notifications link (32), the proposal detail (23, light/dark, full page), the
-reject confirmation (24), the list with history (25), an expired proposal (26),
-the 412 conflict dialog (33), the approved state (27), a suppressed request
-(28, full page), 내 패턴 learned (29, light/
-dark, full page), its reset confirmation (30) and the cold start (31). The
-mock seeds them with `window.__OHMYDATE_MOCK__ = { replan: 'history' }` /
-`{ estimation: 'cold' }` (`src/mocks/replan.ts`).
-
-The script visits every screen at 390×844, 1440×900 and 360×780 (the last is
-checked but not captured), in light and dark. It keeps PNGs for all light
-screens plus dark Today and Focus, and `-full` captures for the long pages. On
+Every screen is visited at 1440×900, 1024×768, 390×844 and 360×780, in the
+dark theme and the light theme. PNGs are kept at 1440 and 390 in the dark
+theme, and in the light theme for a few screens that show the material. On
 every visit it runs axe-core (`wcag2a/aa`, `wcag21a/aa`, `wcag22aa`) and a
-horizontal-overflow check. It exits 1 on any critical or serious violation, or
-on any overflow. Results are in `<label>/sweep-report.json`:
+horizontal-overflow check, and exits 1 on any critical or serious violation or
+any overflow. Results are in `holo-04/sweep-report.json`:
 
 | | Visits | Failing | Issues |
 |---|---|---|---|
-| before | 120 | 14 | plan comparison: page overflow at 390/360 and `target-size` (serious); review: overflow at 390/360; availability: `aria-required-children` (critical) in all viewports |
-| after | 130 | 0 | none. The 10 extra visits are the Focus calm-mode screen |
-| after-ko | 130 | 0 | none (Korean copy, same screens; the 360px checks pass with the longer Korean labels) |
-| m5-03 | 72 | 0 | none (M5-03 screens only: `--flows replan,patterns`) |
-| m6-02 | 48 | 0 | none (M6-02 layout modes only: `--flows adaptive`) |
-| m6-03 | 60 | 0 | none (M6-03 notes screens only: `--flows notes`) |
+| holo-04 | 340 | 0 | none. Found and fixed on the way: `aria-expanded` on the capture field (not allowed on a text field), and at 390px the account menu painted under a sticky header of the page |
 
 The real API is covered too. `e2e/tests/e2e-a11y-screens.spec.ts` runs the
-same axe tags against PostgreSQL + Vikunja on the screens E2E-1..4 do not
-scan. Projects, project detail, availability, commitments, AI settings and
-notifications are checked at 1280×800 (nav rail) and 390×844 (bottom nav and
-More sheet). At both widths the spec also runs Focus, switches calm mode on,
-completes and reviews the session without leaving calm mode, and checks that
-*Back to Today* and the navigation are visible at each step. The spec waits for finite entrance animations to end
-before each scan, because a sheet that is still fading in reports false
-contrast failures. `e2e/tests/e2e-6-notes.spec.ts` (M6-03) scans the notes
-screens on the real stack at 1280×860 and 390×844: the empty list, the new
-note, the preview, the link picker, the wizard's note picker and draft
-evidence, a note with AI usage, the focus layout with RelatedNotes, search,
-the delete confirmation, the project notes tab and the task detail.
+same axe tags against PostgreSQL + Vikunja at 1280×800 (sidebar) and 390×844
+(bottom nav and 더 보기 sheet): 개요 with 오늘, the capture bar, 할 일 (inbox,
+projects, a project), 설정's four sections (including 투명 효과 줄이기, which
+must turn the top bar's blur off), the planner's week, day, month and 약속
+list with its dialog, 집중, notifications, then Focus with calm mode, the
+review and the next-step card, 다시 맞추기, 분석 and 계획 세우기. The spec
+waits for finite entrance animations to end before each scan, because a sheet
+that is still fading in reports false contrast failures.
+`e2e/tests/e2e-6-notes.spec.ts` scans the notes screens on the real stack.

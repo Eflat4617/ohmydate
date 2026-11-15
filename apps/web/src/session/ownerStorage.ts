@@ -97,6 +97,13 @@ const OWNER_SLOTS = {
     onOwnerChange: 'preserve',
     why: 'The colour theme the owner chose (dark, light or system), per owner on this device. One word, no user content.',
   },
+  transparencyPref: {
+    area: 'local',
+    prefix: 'ohmydate.transparency',
+    staleWrites: 'drop',
+    onOwnerChange: 'preserve',
+    why: 'That the owner asked for opaque surfaces instead of glass (설정 › 화면), per owner on this device. One word, no user content.',
+  },
   shellNav: {
     area: 'local',
     prefix: 'ohmydate.shell.nav',
@@ -110,6 +117,20 @@ const OWNER_SLOTS = {
     staleWrites: 'drop',
     onOwnerChange: 'preserve',
     why: 'Which plans the owner has not finished making (a planning session, a schedule being compared), so 개요 and 계획 세우기 can offer to go on. Ids and a time only; every title is read from the server.',
+  },
+  firstRun: {
+    area: 'local',
+    prefix: 'ohmydate.firstRun',
+    staleWrites: 'drop',
+    onOwnerChange: 'preserve',
+    why: 'How far the owner got in the three-step start guide on this device: which steps they skipped and whether they ended it, so a returning owner never sees it again. Step names and flags, no user content.',
+  },
+  flowReturn: {
+    area: 'session',
+    prefix: 'ohmydate.flow.return',
+    staleWrites: 'drop',
+    onOwnerChange: 'clear',
+    why: 'Where the owner was when a flow sent them out to connect a calendar (a path of this app, with ids at most), so 설정 can offer the way back. Removed for every owner on any owner change.',
   },
   aiWait: {
     area: 'session',

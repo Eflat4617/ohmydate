@@ -2,6 +2,10 @@
 import UiButton from './ui/UiButton.vue';
 import UiDialog from './ui/UiDialog.vue';
 import { t } from '../i18n';
+import { NAV_PLACES } from '../layout/navigation';
+
+/** The places that have a key of their own, in the sidebar's order. */
+const PLACES = NAV_PLACES.filter((item) => item.shortcut !== undefined);
 
 defineProps<{ open: boolean }>();
 defineEmits<{ close: [] }>();
@@ -21,17 +25,15 @@ defineEmits<{ close: [] }>();
     </header>
     <dl class="shortcut-list">
       <dt><kbd>n</kbd></dt>
-      <dd>{{ t('help.newTask') }}</dd>
-      <dt><kbd>o</kbd></dt>
-      <dd>{{ t('help.overview') }}</dd>
-      <dt><kbd>t</kbd></dt>
-      <dd>{{ t('help.today') }}</dd>
-      <dt><kbd>m</kbd></dt>
-      <dd>{{ t('help.planner') }}</dd>
-      <dt><kbd>p</kbd></dt>
-      <dd>{{ t('help.plan') }}</dd>
-      <dt><kbd>f</kbd></dt>
-      <dd>{{ t('help.focus') }}</dd>
+      <dd>{{ t('help.capture') }}</dd>
+      <dt><kbd>Ctrl</kbd> <kbd>K</kbd></dt>
+      <dd>{{ t('help.captureAnywhere') }}</dd>
+      <template v-for="item in PLACES" :key="item.id">
+        <dt>
+          <kbd>{{ item.shortcut }}</kbd>
+        </dt>
+        <dd>{{ t(item.label) }}</dd>
+      </template>
       <dt><kbd>/</kbd></dt>
       <dd>{{ t('help.search') }}</dd>
       <dt><kbd>?</kbd></dt>

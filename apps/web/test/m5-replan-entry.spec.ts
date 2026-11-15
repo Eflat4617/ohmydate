@@ -16,7 +16,7 @@ import {
 import { sessionJournal } from '../src/session/journal';
 import { resetFocusClientIdForTests } from '../src/session/clientId';
 import ReplanView from '../src/views/ReplanView.vue';
-import TodayView from '../src/views/TodayView.vue';
+import TodayView from '../src/components/today/TodayBoard.vue';
 import { mountView, waitForText } from './m5-test-utils';
 
 describe('Pending replan entry points (M5-03)', () => {
@@ -29,7 +29,7 @@ describe('Pending replan entry points (M5-03)', () => {
   // HOLO-03A (FLOW §2 ⑥): the same card on every screen where the plan is looked at.
   it('오늘 says a proposal waits, with why and how much would move, and links to its 전 → 후', async () => {
     seedReplanScenario(mockDb);
-    const { wrapper } = await mountView(TodayView, { path: '/today' });
+    const { wrapper } = await mountView(TodayView, { path: '/overview' });
     await waitForText(wrapper, TODAY_TASK_ONE_TITLE);
     await vi.waitFor(() => expect(wrapper.find('[data-replan-card]').exists()).toBe(true));
     const card = wrapper.get('[data-replan-card]');
@@ -48,7 +48,7 @@ describe('Pending replan entry points (M5-03)', () => {
 
   it('shows no card without pending proposals (negative)', async () => {
     const list = vi.spyOn(plannerClient, 'listReplanProposals');
-    const { wrapper } = await mountView(TodayView, { path: '/today' });
+    const { wrapper } = await mountView(TodayView, { path: '/overview' });
     await waitForText(wrapper, TODAY_TASK_ONE_TITLE);
     await vi.waitFor(() => expect(list).toHaveBeenCalledWith(expect.objectContaining({ state: 'pending' })));
     await list.mock.results[0]?.value;
@@ -63,7 +63,7 @@ describe('Pending replan entry points (M5-03)', () => {
       id: '01900000-0000-7000-8000-0000000002e1',
       trigger: { ...pending.trigger, kind: 'deadline_risk', reason: 'deadline_slack_negative' },
     });
-    const { wrapper } = await mountView(ReplanCard, { path: '/today' });
+    const { wrapper } = await mountView(ReplanCard, { path: '/overview' });
     await waitForText(wrapper, '제안 2개가 기다리고 있어요');
     expect(wrapper.get('[data-replan-card-open]').text()).toBe('제안 모두 보기');
     expect(wrapper.get('[data-replan-card-open]').attributes('href')).toBe('/replan');
@@ -84,14 +84,14 @@ describe('Pending replan entry points (M5-03)', () => {
   });
 
   it('offers “재계획 요청” on Today only once the server named a plan in a proposal (negative first)', async () => {
-    const first = await mountView(TodayView, { path: '/today' });
+    const first = await mountView(TodayView, { path: '/overview' });
     await waitForText(first.wrapper, TODAY_TASK_ONE_TITLE);
     expect(first.wrapper.find('[data-replan-request]').exists()).toBe(false);
     first.wrapper.unmount();
 
     seedReplanScenario(mockDb);
     const request = vi.spyOn(plannerClient, 'requestReplanProposal');
-    const second = await mountView(TodayView, { path: '/today' });
+    const second = await mountView(TodayView, { path: '/overview' });
     await waitForText(second.wrapper, TODAY_TASK_ONE_TITLE);
     await vi.waitFor(() => expect(second.wrapper.find('[data-replan-request]').exists()).toBe(true));
     await second.wrapper.get('[data-replan-request]').trigger('click');
@@ -105,7 +105,7 @@ describe('Pending replan entry points (M5-03)', () => {
 
   it('links a replan notification to its proposal and closes the panel', async () => {
     seedReplanScenario(mockDb);
-    const { wrapper, router } = await mountView(NotificationsPanel, { path: '/today', props: { open: true } });
+    const { wrapper, router } = await mountView(NotificationsPanel, { path: '/overview', props: { open: true } });
     await vi.waitFor(() => expect(document.querySelector('[data-open-proposal]')).not.toBeNull());
     const link = document.querySelector('[data-open-proposal]') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe(`/replan/${REPLAN_PENDING_ID}`);
@@ -182,7 +182,7 @@ describe('Pending replan entry points (M5-03)', () => {
     await vi.waitFor(() => expect(mockDb.replanProposals.get(pending.id)?.state).toBe('approved'));
     await waitForText(wrapper, '제안을 승인했어요. 새 일정이 반영됐어요.');
     expect(wrapper.get('[data-proposal-state]').text()).toBe('승인됨');
-    expect(wrapper.get('[data-replan-today]').attributes('href')).toBe('/today');
+    expect(wrapper.get('[data-replan-today]').attributes('href')).toBe('/overview');
     expect(wrapper.find('[data-replan-none]').exists()).toBe(false);
 
     // Approving changed the plan, so the other proposal ran out (05 §11). Neither it nor

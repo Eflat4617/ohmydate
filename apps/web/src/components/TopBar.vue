@@ -2,35 +2,38 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { displayNameOf, initialOf } from '../domain/displayName';
-import { t, tp, type MessageKey } from '../i18n';
-import { crumbFor } from '../layout/navigation';
+import { t, tp } from '../i18n';
+import { crumbFor, NAV_SETTINGS } from '../layout/navigation';
 import { useAuthStore } from '../stores/auth';
 import { useUiStore } from '../stores/ui';
-import { useTheme, type ThemeChoice } from '../theme/theme';
 import BrandMark from './BrandMark.vue';
+import CaptureBar from './capture/CaptureBar.vue';
+import NowPill from './NowPill.vue';
+import ThemeSwitch from './ThemeSwitch.vue';
 import UiIcon from './ui/UiIcon.vue';
-import type { IconName } from './ui/icons';
 
 /**
- * The top bar (HOLO-01): on the left where you are (sidebar toggle, group /
- * screen), on the right what is the app's own — the theme, the notifications
- * and the account. It holds no page action; a view's one primary button
- * belongs to the view.
+ * The top bar (HOLO-04, FLOW.md §4): glass that floats over the page. On the
+ * left where you are (sidebar toggle, the place and the screen under it); in
+ * the middle the capture bar (담기 줄); on the right the now pill, the
+ * notifications and the account, whose menu holds the theme, 설정 and
+ * sign-out. It holds no page action; a view's one primary button belongs to
+ * the view.
  */
 const props = withDefaults(defineProps<{ unread?: number }>(), { unread: 0 });
 
 const ui = useUiStore();
 const auth = useAuthStore();
 const route = useRoute();
-const { choice, setTheme } = useTheme();
 
 const crumb = computed(() => crumbFor(route.name));
-
-const THEME_OPTIONS: readonly { value: ThemeChoice; label: MessageKey; icon: IconName }[] = [
-  { value: 'light', label: 'theme.light', icon: 'sun' },
-  { value: 'dark', label: 'theme.dark', icon: 'moon' },
-  { value: 'system', label: 'theme.system', icon: 'monitor' },
-];
+const crumbText = computed(() => {
+  const value = crumb.value;
+  if (value === null) return '';
+  return value.page === null
+    ? t('nav.crumb', { place: t(value.place) })
+    : t('nav.crumbNested', { place: t(value.place), page: t(value.page) });
+});
 
 const name = computed(() => displayNameOf(auth.user?.email));
 const initial = computed(() => initialOf(name.value));
@@ -57,6 +60,14 @@ onBeforeUnmount(() => {
   if (typeof document !== 'undefined') document.removeEventListener('pointerdown', onOutsidePointer);
 });
 
+// Another screen: the menu has done its job.
+watch(
+  () => route.fullPath,
+  () => {
+    userOpen.value = false;
+  },
+);
+
 function toggleUser(): void {
   userOpen.value = !userOpen.value;
 }
@@ -82,7 +93,7 @@ function signOut(): void {
 </script>
 
 <template>
-  <header class="app-topbar">
+  <header class="app-topbar glass glass--host glass--low">
     <div class="topbar-start">
       <button
         type="button"
@@ -100,34 +111,25 @@ function signOut(): void {
           <BrandMark :size="30" />
         </a>
       </RouterLink>
-      <!-- One sentence for assistive tech; the group / screen pair is what is seen. -->
-      <p v-if="crumb" class="topbar-crumb" data-crumb>
-        <span class="visually-hidden">{{ t('nav.crumb', { group: t(crumb.group), page: t(crumb.page) }) }}</span>
-        <span class="topbar-crumb-group" aria-hidden="true">{{ t(crumb.group) }}</span>
-        <span class="topbar-crumb-sep" aria-hidden="true">/</span>
-        <span class="topbar-crumb-page" aria-hidden="true">{{ t(crumb.page) }}</span>
+      <!-- One sentence for assistive tech; the place (and the screen under it) is what is seen. -->
+      <p v-if="crumb" class="topbar-crumb" :class="{ 'topbar-crumb--nested': crumb.page !== null }" data-crumb>
+        <span class="visually-hidden">{{ crumbText }}</span>
+        <span class="topbar-crumb-place" aria-hidden="true">{{ t(crumb.place) }}</span>
+        <template v-if="crumb.page !== null">
+          <span class="topbar-crumb-sep" aria-hidden="true">/</span>
+          <span class="topbar-crumb-page" aria-hidden="true">{{ t(crumb.page) }}</span>
+        </template>
       </p>
     </div>
 
-    <div class="topbar-end">
-      <div class="segmented theme-switch" role="group" :aria-label="t('theme.label')">
-        <button
-          v-for="option in THEME_OPTIONS"
-          :key="option.value"
-          type="button"
-          class="btn segmented-item theme-switch-item"
-          :aria-pressed="choice === option.value ? 'true' : 'false'"
-          :data-theme-choice="option.value"
-          @click="setTheme(option.value)"
-        >
-          <UiIcon :name="option.icon" :size="16" />
-          <span class="theme-switch-label">{{ t(option.label) }}</span>
-        </button>
-      </div>
+    <!-- 담기 줄: on every screen, in the middle of the bar (from 1024px; a phone opens it from its nav). -->
+    <CaptureBar class="topbar-capture" />
 
+    <div class="topbar-end">
+      <NowPill />
       <button
         type="button"
-        class="btn btn--icon topbar-bell"
+        class="btn btn--ghost btn--icon topbar-bell"
         :aria-label="bellLabel"
         :data-unread="unread > 0 ? unread : undefined"
         @click="ui.openNotifications"
@@ -154,8 +156,13 @@ function signOut(): void {
           <span v-if="name" class="topbar-user-name">{{ name }}</span>
           <UiIcon name="chevron-down" :size="16" class="topbar-user-caret" />
         </button>
-        <div v-if="userOpen" id="topbar-user-menu" class="menu topbar-user-menu">
+        <div v-if="userOpen" id="topbar-user-menu" class="menu glass topbar-user-menu">
           <p v-if="auth.user" class="menu-note">{{ auth.user.email }}</p>
+          <ThemeSwitch class="topbar-theme" />
+          <RouterLink :to="NAV_SETTINGS.to" class="btn btn--ghost menu-item" data-user-settings>
+            <UiIcon :name="NAV_SETTINGS.icon" :size="18" />
+            {{ t(NAV_SETTINGS.label) }}
+          </RouterLink>
           <button type="button" class="btn btn--ghost menu-item" data-user-sign-out @click="signOut">
             <UiIcon name="logout" :size="18" />
             {{ t('nav.signOut') }}

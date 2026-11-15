@@ -16,6 +16,43 @@ export interface VikunjaTaskBody {
   readonly project_id?: number;
 }
 
+/**
+ * HOLO-04: a brand-new owner is met by the start guide (FLOW.md §3) — it opens
+ * by itself the first time an owner without hours is seen on a device, and
+ * every test starts on a fresh device. These suites set hours through the API,
+ * so they put the guide away the way a person would (닫기); 개요 then keeps
+ * the rest as its "시작 마무리" card. Waits until the shell has decided, so a
+ * guide that opens a moment after 개요 never lands on top of a later step.
+ */
+export async function settleStartGuide(page: Page): Promise<'closed' | 'not-shown'> {
+  const shell = page.locator('.app-shell[data-first-run-state]');
+  await expect(shell).not.toHaveAttribute('data-first-run-state', 'pending');
+  if ((await shell.getAttribute('data-first-run-state')) !== 'open') return 'not-shown';
+  await page.locator('[data-first-run-close]').click();
+  await expect(page.locator('[data-first-run]')).toBeHidden();
+  await expect(shell).toHaveAttribute('data-first-run-state', 'idle');
+  return 'closed';
+}
+
+/** HOLO-04: go to one of the sidebar's places by its link, as a person does. */
+export async function openPlace(page: Page, name: '개요' | '할 일' | '계획' | '플래너' | '집중' | '분석' | '노트' | '설정'): Promise<void> {
+  // A link is named by its place alone (the key hint beside it is not part of the name).
+  await page.locator('.nav-rail').getByRole('link', { name, exact: true }).click();
+}
+
+/** HOLO-04: 로그아웃 lives in the account menu of the top bar. */
+export async function signOut(page: Page): Promise<void> {
+  await page.locator('[data-user-menu]').click();
+  await page.locator('[data-user-sign-out]').click();
+}
+
+/** 할 일 › 인박스, from wherever the page is. */
+export async function openInbox(page: Page): Promise<void> {
+  await openPlace(page, '할 일');
+  await expect(page.getByRole('heading', { name: '인박스' })).toBeVisible();
+}
+
+/** Signs in. HOLO-04: the app opens on 개요; the start guide, if it opens, is put away. */
 export async function login(
   page: Page,
   state: E2EState,
@@ -39,7 +76,8 @@ export async function login(
       await page.waitForTimeout(61_000);
       continue;
     }
-    await expect(page.getByRole('heading', { name: '인박스' })).toBeVisible();
+    await expect(page.locator('[data-overview]')).toBeVisible();
+    await settleStartGuide(page);
     return;
   }
   throw new Error('login was rate limited for three consecutive windows');

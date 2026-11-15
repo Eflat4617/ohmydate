@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { defineComponent, h, nextTick, ref } from 'vue';
@@ -176,6 +177,89 @@ describe('UiDialog (FU-09 primitive)', () => {
     const wrapper = mount(Disabled, { attachTo: document.body });
     await ticks();
     expect(document.activeElement?.id).toBe('available');
+    wrapper.unmount();
+  });
+});
+
+describe('UiDialog when focus falls out of it (HOLO-04, found by E2E-7)', () => {
+  /** Drop focus the way a removed or disabled control does: onto <body>. */
+  function loseFocus(): void {
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+  }
+
+  function press(key: string, init: KeyboardEventInit = {}): KeyboardEvent {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
+    document.body.dispatchEvent(event);
+    return event;
+  }
+
+  it('Escape still closes it, and Tab comes back in, while focus is on <body>', async () => {
+    const { Harness, closed } = dialogHarness();
+    const wrapper = mount(Harness, { attachTo: document.body });
+    await ticks();
+    loseFocus();
+    press('Tab');
+    expect(document.activeElement?.id).toBe('first');
+    loseFocus();
+    press('Tab', { shiftKey: true });
+    expect(document.activeElement?.id).toBe('last');
+    loseFocus();
+    const escape = press('Escape');
+    expect(closed.value).toBe(1);
+    expect(escape.defaultPrevented).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('keeps single-key shortcuts from the page underneath while focus is on <body>', async () => {
+    const heard: string[] = [];
+    const listener = (event: KeyboardEvent): void => {
+      heard.push(event.key);
+    };
+    window.addEventListener('keydown', listener);
+    const { Harness, closed } = dialogHarness();
+    const wrapper = mount(Harness, { attachTo: document.body });
+    await ticks();
+    loseFocus();
+    press('n');
+    expect(heard).toEqual([]);
+    expect(closed.value).toBe(0);
+    wrapper.unmount();
+    // Negative: with no dialog open the same key reaches the page's shortcuts.
+    press('n');
+    expect(heard).toEqual(['n']);
+    window.removeEventListener('keydown', listener);
+  });
+
+  it('does not close a dialog that may not be dismissed, and only the topmost one answers (negative)', async () => {
+    const locked = dialogHarness({ dismissible: false });
+    const one = mount(locked.Harness, { attachTo: document.body });
+    await ticks();
+    loseFocus();
+    press('Escape');
+    expect(locked.closed.value).toBe(0);
+    one.unmount();
+
+    const { Harness, outerClosed, innerClosed } = nestedHarness('stacked');
+    const wrapper = mount(Harness, { attachTo: document.body });
+    await ticks();
+    await wrapper.get('#open-inner').trigger('click');
+    await ticks();
+    loseFocus();
+    press('Escape');
+    expect(innerClosed.value).toBe(1);
+    expect(outerClosed.value).toBe(0);
+    wrapper.unmount();
+  });
+
+  it('leaves keys alone while focus is somewhere: a field in the dialog types as usual (negative)', async () => {
+    const { Harness, closed } = dialogHarness();
+    const wrapper = mount(Harness, { attachTo: document.body });
+    await ticks();
+    expect(document.activeElement?.id).toBe('preferred');
+    // The key is dispatched on <body> but focus is inside: the stray-key path must not act on it.
+    press('Escape');
+    expect(closed.value).toBe(0);
     wrapper.unmount();
   });
 });
@@ -429,13 +513,13 @@ describe('calm mode', () => {
       routes: [
         { path: '/', component: Stub },
         { path: '/inbox', name: 'inbox', component: Stub },
-        { path: '/today', name: 'today', component: Stub },
+        { path: '/overview', name: 'overview', component: Stub },
       ],
     });
-    await router.push('/today');
+    await router.push('/overview');
     await router.isReady();
     const wrapper = mount(AppShell, {
-      global: { plugins: [createPinia(), router] },
+      global: { plugins: [createPinia(), router, VueQueryPlugin] },
       slots: { default: () => h('p', 'content') },
       attachTo: document.body,
     });
@@ -464,14 +548,14 @@ describe('shell axe-lite', () => {
       routes: [
         { path: '/', component: Stub },
         { path: '/inbox', name: 'inbox', component: Stub },
-        { path: '/today', name: 'today', component: Stub },
+        { path: '/overview', name: 'overview', component: Stub },
         { path: '/:rest(.*)*', component: Stub },
       ],
     });
-    await router.push('/today');
+    await router.push('/overview');
     await router.isReady();
     const wrapper = mount(AppShell, {
-      global: { plugins: [createPinia(), router] },
+      global: { plugins: [createPinia(), router, VueQueryPlugin] },
       slots: { default: () => h('h1', 'Today') },
       attachTo: document.body,
     });

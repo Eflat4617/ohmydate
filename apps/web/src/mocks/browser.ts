@@ -14,6 +14,7 @@ import { createNotesHandlers, seedFocusNote } from './notes';
 import { createPlanningHandlers } from './planning-handlers';
 import { createReplanHandlers, seedColdEstimation, seedReplanScenario } from './replan';
 import { mockDb, seedMonth, seedTodayRisk, type MockDb } from './db';
+import { seedNewOwner } from './first-run-seed';
 import { seedOverviewSessions } from './overview-seed';
 
 declare global {
@@ -49,6 +50,12 @@ declare global {
        * `none` leaves the dashboard empty.
        */
       sessions?: 'running' | 'none';
+      /**
+       * HOLO-04: `new` starts from a brand-new owner (no hours, no 약속, no
+       * tasks, the AI question unanswered), for whom the start guide opens.
+       * The default owner is a returning one.
+       */
+      owner?: 'new';
     };
     /** Mock-mode only: the in-page synthetic database, for screenshot/state scripts. */
     __OHMYDATE_MOCK_DB__?: MockDb;
@@ -82,6 +89,11 @@ if (overrides?.googleSyncFailure !== undefined) mockDb.google.syncFailure = over
 // sweep's "approve" step could not pass — found while sweeping HOLO-01.)
 if (overrides?.replan !== undefined) {
   seedReplanScenario(mockDb, { history: overrides.replan === 'history' });
+}
+// HOLO-04: last, so nothing seeded above is left for a brand-new owner.
+if (overrides?.owner === 'new') {
+  seedGoogle(mockDb, 'disconnected');
+  seedNewOwner(mockDb);
 }
 if (typeof window !== 'undefined') window.__OHMYDATE_MOCK_DB__ = mockDb;
 

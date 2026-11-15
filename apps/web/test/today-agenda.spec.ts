@@ -18,7 +18,7 @@ import {
 import { resetFocusClientIdForTests } from '../src/session/clientId';
 import { sessionJournal } from '../src/session/journal';
 import { useSessionStore } from '../src/stores/session';
-import TodayView from '../src/views/TodayView.vue';
+import TodayView from '../src/components/today/TodayBoard.vue';
 
 const Stub = defineComponent({ template: '<div />' });
 const ZONE = 'Asia/Seoul';
@@ -34,7 +34,7 @@ function testRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
       { path: '/inbox', name: 'inbox', component: Stub },
       { path: '/commitments', name: 'commitments', component: Stub },
@@ -49,7 +49,7 @@ async function mountToday(): Promise<VueWrapper> {
   const pinia = createPinia();
   useSessionStore(pinia).reset();
   const router = testRouter();
-  await router.push('/today');
+  await router.push('/overview');
   const wrapper = mount(TodayView, {
     global: { plugins: [pinia, VueQueryPlugin, router] },
     attachTo: document.body,

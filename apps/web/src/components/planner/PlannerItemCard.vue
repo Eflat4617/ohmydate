@@ -21,7 +21,7 @@ import UiIcon from '../ui/UiIcon.vue';
  * which project it belongs to, and what can be done with it from here —
  *
  *   블록   집중 시작 (the Focus screen's own session) · 블록 고정 · 작업 열기
- *   약속   약속 화면에서 열기 (one from Google Calendar says so; it is edited there)
+ *   약속   고치기 (the planner's dialog; one from Google Calendar says so and is edited there)
  *   마감   작업 열기
  *
  * None of its buttons is filled: the screen's one primary is 약속 추가.
@@ -51,7 +51,7 @@ const props = withDefaults(
   }>(),
   { lock: undefined, lockDisabled: false, lockNote: null },
 );
-const emit = defineEmits<{ close: [restoreFocus: boolean] }>();
+const emit = defineEmits<{ close: [restoreFocus: boolean]; edit: [commitmentId: string] }>();
 
 const router = useRouter();
 const sessionStore = useSessionStore();
@@ -122,7 +122,7 @@ function onFocusOut(event: FocusEvent): void {
 
 <template>
   <section
-    class="planner-card"
+    class="planner-card glass"
     :class="`planner-card--${side}`"
     role="dialog"
     aria-modal="false"
@@ -201,9 +201,17 @@ function onFocusOut(event: FocusEvent): void {
       >
         <UiIcon name="open" :size="16" class="btn-icon" />{{ t('planner.card.openTask') }}
       </RouterLink>
-      <RouterLink v-if="item.kind === 'commitment'" to="/commitments" class="btn btn--sm" data-planner-card-commitments>
-        <UiIcon name="open" :size="16" class="btn-icon" />{{ t('planner.card.openCommitments') }}
-      </RouterLink>
+      <!-- A 약속 is changed right here (the planner's own dialog); one from Google is changed there. -->
+      <UiButton
+        v-if="item.kind === 'commitment' && !item.fromGoogle && item.commitmentId"
+        size="sm"
+        icon="edit"
+        :disabled="!offline.mutationsEnabled"
+        data-planner-card-edit
+        @click="emit('edit', item.commitmentId)"
+      >
+        {{ t('planner.card.edit') }}
+      </UiButton>
     </div>
   </section>
 </template>

@@ -1,22 +1,23 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import type { EstimationFeedback, SessionReviewRequest } from '../api';
+import type { SessionReviewRequest } from '../api';
 import { t } from '../i18n';
-import { formatDuration } from '../i18n/format';
 import UiBanner from './ui/UiBanner.vue';
 import UiButton from './ui/UiButton.vue';
 import UiField from './ui/UiField.vue';
-import UiIcon from './ui/UiIcon.vue';
-import I18nT from '../i18n/I18nT';
 
 const props = withDefaults(
   defineProps<{
     disabled?: boolean;
     busy?: boolean;
     error?: string | null;
-    feedback?: EstimationFeedback | null;
+    /**
+     * The review is in: the screen's filled button has moved on to the next
+     * step, which also says the estimate feedback (FocusNextStep) — once.
+     */
+    submitted?: boolean;
   }>(),
-  { disabled: false, busy: false, error: null, feedback: null },
+  { disabled: false, busy: false, error: null, submitted: false },
 );
 const emit = defineEmits<{ submit: [review: SessionReviewRequest] }>();
 
@@ -106,22 +107,15 @@ function submit(): void {
 
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
 
-    <UiButton variant="primary" size="lg" class="review-submit" :disabled="disabled || busy" :busy="busy" @click="submit">
-      {{ busy ? t('review.submitting') : t('review.submit') }}
+    <UiButton
+      :variant="submitted ? 'secondary' : 'primary'"
+      size="lg"
+      class="review-submit"
+      :disabled="disabled || busy"
+      :busy="busy"
+      @click="submit"
+    >
+      {{ busy ? t('review.submitting') : submitted ? t('review.resubmit') : t('review.submit') }}
     </UiButton>
-
-    <div v-if="feedback" class="estimation-feedback banner banner--success" role="status">
-      <UiIcon name="check-circle" :size="18" class="estimation-feedback-icon banner-icon" />
-      <div class="banner-content">
-        <h3>{{ t('review.feedbackTitle') }}</h3>
-        <p>
-          <I18nT keypath="review.feedback">
-            <template #estimated>{{ formatDuration(feedback.estimatedP50) }}</template>
-            <template #actual>{{ formatDuration(feedback.actualFocusMin) }}</template>
-            <template #quality><strong>{{ t(`review.quality.${feedback.quality}`) }}</strong></template>
-          </I18nT>
-        </p>
-      </div>
-    </div>
   </section>
 </template>

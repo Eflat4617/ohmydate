@@ -240,7 +240,8 @@ export function createPlanningHandlers(db: MockDb) {
       if (request.headers.get('If-None-Match') === current) {
         return new HttpResponse(null, { status: 304, headers: { ETag: current } });
       }
-      return json(db.availability, 200, { ETag: current });
+      // The version in the body is the one the ETag names (a 약속 added since moved it too).
+      return json({ ...db.availability, version: db.availabilityVersion }, 200, { ETag: current });
     }),
 
     http.put('*/api/v1/availability', async ({ request }) => {

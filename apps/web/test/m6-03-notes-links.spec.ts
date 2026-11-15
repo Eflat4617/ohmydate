@@ -76,7 +76,8 @@ describe('note links (07 §3.5 연결 대상)', () => {
     expect(isUuidV7Key(add?.headers.get('Idempotency-Key') ?? '')).toBe(true);
     expect(JSON.parse(add?.body ?? '{}')).toEqual({ targetKind: 'task', targetId: task.id });
     expect(app.wrapper.get('[data-note-link="task"]').text()).toContain(SEED_TASK_TITLE);
-    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장된 상태예요 · 버전 4');
+    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장됨');
+    expect(app.wrapper.get('[data-note-status]').attributes('data-note-version')).toBe('4');
 
     const unlink = app.wrapper
       .get('[data-note-link="task"]')
@@ -387,7 +388,7 @@ describe('RelatedNotes{limit} (07 §2.1, §3.4)', () => {
   it('lists the notes linked to the focused task (and its project) in the focus layout', async () => {
     seedFocusNote(mockDb);
     linkTo(NOTE_PRIVATE_ID, 'project', INBOX_PROJECT_ID);
-    const app = await open('/today', '.today-card');
+    const app = await open('/overview', '.today-card');
     await startFocus(app);
     await vi.waitFor(() => expect(relatedTitles(app)).toEqual(['발표 준비 회의', '개인 일정 메모']));
     const panel = app.wrapper.get('[data-panel="related-notes"]');
@@ -406,7 +407,7 @@ describe('RelatedNotes{limit} (07 §2.1, §3.4)', () => {
       newActionId('note'),
     );
     noteById(extra.id).updatedAt = '2026-11-13T09:00:00.000Z';
-    const app = await open('/today', '.today-card');
+    const app = await open('/overview', '.today-card');
     await startFocus(app);
     await vi.waitFor(() => expect(relatedTitles(app)).toHaveLength(3));
     expect(relatedTitles(app)[0]).toBe(extra.title);
@@ -421,7 +422,7 @@ describe('RelatedNotes{limit} (07 §2.1, §3.4)', () => {
   });
 
   it('shows the empty state when nothing is linked', async () => {
-    const app = await open('/today', '.today-card');
+    const app = await open('/overview', '.today-card');
     await settle();
     const panel = app.wrapper.get('[data-panel="related-notes"]');
     await vi.waitFor(() => expect(panel.text()).toContain('아직 연결된 노트가 없어요'));

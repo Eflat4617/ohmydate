@@ -193,12 +193,12 @@ describe('page seal — a page being hard-reset cannot act for anyone', () => {
     const router = createRouter({ history: createMemoryHistory(), routes });
     refuseNavigationWhenSealed(router);
     await router.push('/inbox');
-    await router.push('/today');
-    expect(router.currentRoute.value.path).toBe('/today');
+    await router.push('/overview');
+    expect(router.currentRoute.value.path).toBe('/overview');
     installPageSeal();
     ownerChanged(OWNER_A, OWNER_B, 'storage');
     await router.push('/notes');
-    expect(router.currentRoute.value.path).toBe('/today');
+    expect(router.currentRoute.value.path).toBe('/overview');
   });
 });
 
@@ -546,7 +546,7 @@ describe('the seal makes even unfenced code inert (and the harness sees unfenced
         writeLayoutPrefs(late, { autoSwitch: false, locked: null });
         queryClient.setQueryData(['availability'], availability);
         toast.show('saved for whoever is signed in now', { duration: 0 });
-        await router.push('/today');
+        await router.push('/overview');
       }
       return () => h('button', { onClick: () => void act() }, 'go');
     },
@@ -575,7 +575,7 @@ describe('the seal makes even unfenced code inert (and the harness sees unfenced
     expect(leaks.storage).toEqual([layoutPrefsKey(OWNER_B)]);
     expect(leaks.cache).toEqual(['["availability"]']);
     expect(leaks.toasts).toEqual(['saved for whoever is signed in now']);
-    expect(leaks.navigation).toBe('/inbox -> /today');
+    expect(leaks.navigation).toBe('/tasks -> /overview');
     expect(() => stage?.expectNoLeak()).toThrow();
   });
 

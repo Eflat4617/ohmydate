@@ -7,8 +7,8 @@ import { routeKindOf } from './layout/routes';
 
 const route = useRoute();
 const blank = computed(() => route.meta.layout === 'blank');
-// Today, Focus, planning and notes screens are laid out by the adaptive
-// layout (M6-02); every other screen renders as before.
+// 개요 (the daily workspace), Focus, planning and notes screens are laid out by
+// the adaptive layout (M6-02); every other screen renders as it is.
 const adaptive = computed(() => routeKindOf(route) !== 'other');
 const viewKey = computed(() => {
   if (route.name === 'plan-session') {

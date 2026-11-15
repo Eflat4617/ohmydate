@@ -1,5 +1,5 @@
 import { createPlannerClient, newActionId } from '../src/api';
-import CommitmentsView from '../src/views/CommitmentsView.vue';
+import CommitmentAddDialog from '../src/components/planner/CommitmentAddDialog.vue';
 import { expandOccurrences } from '../src/domain/rrule';
 import { localParts } from '../src/domain/time';
 import { SEED_COMMITMENT_ID, mockDb } from '../src/mocks/db';
@@ -89,28 +89,46 @@ describe('commitment handlers', () => {
   });
 });
 
-describe('commitment editor', () => {
-  it('shows an occurrence preview for a weekly preset', async () => {
-    const wrapper = mountWithPlugins(CommitmentsView);
+describe('약속 추가 — a repeating 약속 shows when it next happens (the planner’s dialog)', () => {
+  async function openDialog() {
+    const wrapper = mountWithPlugins(CommitmentAddDialog, { props: { timeZone: 'Asia/Seoul', date: '2026-11-04' } });
     await settle();
-    await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('팀 회의');
-    });
+    return wrapper;
+  }
 
-    await wrapper.get('#commitment-from').setValue('2026-11-01');
-    await wrapper.get('#commitment-to').setValue('2026-11-15');
-    await wrapper.get('#commitment-title').setValue('Weekly study');
-    await wrapper.get('#commitment-start').setValue('2026-11-04T09:00');
-    await wrapper.get('#commitment-end').setValue('2026-11-04T10:00');
-    await wrapper.get('#commitment-rrule').setValue('FREQ=WEEKLY;BYDAY=MO,WE');
+  it('previews the next occurrences of a weekly rule, in the 약속’s own zone', async () => {
+    const wrapper = await openDialog();
+    // Without a repeat there is nothing to preview (negative).
+    expect(wrapper.find('[data-planner-add-preview]').exists()).toBe(false);
+
+    await wrapper.get('#planner-commitment-title').setValue('Weekly study');
+    await wrapper.get('#planner-commitment-start').setValue('2026-11-04T09:00');
+    await wrapper.get('#planner-commitment-end').setValue('2026-11-04T10:00');
+    await wrapper.get('#planner-commitment-rrule').setValue('FREQ=WEEKLY;BYDAY=MO,WE');
     await settle();
 
-    await vi.waitFor(() => {
-      const preview = wrapper.findAll('.occurrence-list li').map((item) => item.text());
-      expect(preview.some((line) => line.includes('11월 4일 (수) 오전 9:00~10:00'))).toBe(true);
-      expect(preview.some((line) => line.includes('11월 9일 (월) 오전 9:00~10:00'))).toBe(true);
-    });
+    const preview = wrapper.get('[data-planner-add-preview]');
+    expect(preview.attributes('aria-live')).toBe('polite');
+    expect(preview.findAll('.occurrence-list li').map((item) => item.text())).toEqual([
+      '11월 4일 (수) 오전 9:00~10:00',
+      '11월 9일 (월) 오전 9:00~10:00',
+      '11월 11일 (수) 오전 9:00~10:00',
+      '11월 16일 (월) 오전 9:00~10:00',
+    ]);
+    // The weekday chips say the same rule.
+    expect(wrapper.findAll('[data-planner-add-day]').filter((box) => (box.element as HTMLInputElement).checked).map((box) => box.attributes('data-planner-add-day'))).toEqual(['MO', 'WE']);
+    wrapper.unmount();
+  });
 
+  it('shows no occurrence for an end before its start, and says so (negative)', async () => {
+    const wrapper = await openDialog();
+    await wrapper.get('#planner-commitment-start').setValue('2026-11-04T09:00');
+    await wrapper.get('#planner-commitment-end').setValue('2026-11-04T08:00');
+    await wrapper.get('#planner-commitment-rrule').setValue('FREQ=WEEKLY;BYDAY=MO,WE');
+    await settle();
+    const preview = wrapper.get('[data-planner-add-preview]');
+    expect(preview.find('.occurrence-list').exists()).toBe(false);
+    expect(preview.text()).toContain('앞으로 다섯 주 안에 일정이 없어요');
     wrapper.unmount();
   });
 });

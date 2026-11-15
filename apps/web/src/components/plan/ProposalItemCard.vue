@@ -71,7 +71,7 @@ function onFocusOut(event: FocusEvent): void {
 
 <template>
   <section
-    class="planner-card planner-card--proposal"
+    class="planner-card glass planner-card--proposal"
     :class="`planner-card--${side}`"
     role="dialog"
     aria-modal="false"

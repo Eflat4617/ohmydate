@@ -200,7 +200,7 @@ defineExpose({ focus: () => input.value?.focus() });
         <UiIcon name="chevron-down" :size="16" />
       </button>
     </div>
-    <ul v-show="open" :id="listId" class="menu task-finder-list" role="listbox" :aria-label="label">
+    <ul v-show="open" :id="listId" class="menu glass task-finder-list" role="listbox" :aria-label="label">
       <li
         v-for="(task, index) in options"
         :id="optionId(index)"

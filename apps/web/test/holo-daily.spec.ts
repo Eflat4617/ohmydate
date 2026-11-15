@@ -25,7 +25,7 @@ import { adoptActiveOwner } from '../src/session/ownerEpoch';
 import { useAuthStore } from '../src/stores/auth';
 import { useSessionStore } from '../src/stores/session';
 import FocusView from '../src/views/FocusView.vue';
-import TodayView from '../src/views/TodayView.vue';
+import TodayView from '../src/components/today/TodayBoard.vue';
 
 /**
  * HOLO-02 오늘 and 집중 in the dashboard system: what changed on purpose.
@@ -41,7 +41,7 @@ function testRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
       { path: '/inbox', name: 'inbox', component: Stub },
       { path: '/commitments', name: 'commitments', component: Stub },
@@ -55,7 +55,7 @@ const mounted: VueWrapper[] = [];
 
 async function mountToday(pinia: Pinia = createPinia()): Promise<VueWrapper> {
   const router = testRouter();
-  await router.push('/today');
+  await router.push('/overview');
   const queryClient = new QueryClient({ defaultOptions: { queries: { retryDelay: 1 } } });
   const wrapper = mount(TodayView, {
     global: { plugins: [pinia, [VueQueryPlugin, { queryClient }], router] as never },
@@ -172,10 +172,10 @@ describe('오늘 — the day as cards', () => {
     const commitments = await vi.waitFor(() => wrapper.get('[data-today-commitments]'));
     expect(commitments.classes()).toEqual(expect.arrayContaining(['card', 'card--compact']));
     expect(wrapper.get('[data-today-due]').classes()).toEqual(expect.arrayContaining(['card', 'card--compact']));
-    // The way to the 약속 screen is the card's open corner, named.
+    // The way to the day in 플래너 (where a 약속 is changed) is the card's open corner, named.
     const open = commitments.get('a.icon-link');
-    expect(open.attributes('href')).toBe('/commitments');
-    expect(open.attributes('aria-label')).toBe('약속 보기');
+    expect(open.attributes('href')).toBe('/planner?view=day');
+    expect(open.attributes('aria-label')).toBe('플래너에서 오늘 보기');
     expect(wrapper.get('.day-timetable').classes()).toContain('card');
     // Without 약속 or deadlines neither card is there (negative).
     mockDb.commitments.clear();

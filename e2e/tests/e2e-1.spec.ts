@@ -7,6 +7,7 @@ import {
   externalIdOf,
   fetchVikunjaTask,
   login,
+  openInbox,
   waitForPlannerTask,
 } from '../helpers/app';
 import { readState } from '../helpers/state';
@@ -39,6 +40,7 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     const contextA = await browser.newContext();
     const pageA = await contextA.newPage();
     await login(pageA, state);
+    await openInbox(pageA);
 
     await quickAdd(pageA, createdTitle);
     const created = await waitForPlannerTask(pageA, state, createdTitle);
@@ -53,6 +55,7 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     const contextB = await browser.newContext();
     const pageB = await contextB.newPage();
     await login(pageB, state);
+    await openInbox(pageB);
     await editTask(pageB, firstEdit, secondEdit);
     await expectVikunjaTitle(state, externalId, secondEdit);
 
@@ -88,7 +91,7 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     await contextB.close();
   });
 
-  test('login and quick add work keyboard-only with Tab and Enter', async ({ browser }) => {
+  test('login and 담기 work keyboard-only: Tab and Enter sign in, n opens the capture bar, Enter adds and hands off', async ({ browser }) => {
     const title = `Keyboard task ${Date.now().toString(36)}`;
     const context = await browser.newContext();
     const page = await context.newPage();
@@ -103,22 +106,34 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     await page.keyboard.type(state.password);
 
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('heading', { name: '인박스' })).toBeVisible();
-
-    let focusedId = '';
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      await page.keyboard.press('Tab');
-      focusedId = await page.evaluate(() => document.activeElement?.id ?? '');
-      if (focusedId === 'quick-add-title') break;
+    // HOLO-04: the app opens on 개요, and a new owner is met by the start guide.
+    await expect(page.locator('[data-overview]')).toBeVisible();
+    const shell = page.locator('.app-shell[data-first-run-state]');
+    await expect(shell).not.toHaveAttribute('data-first-run-state', 'pending');
+    if ((await shell.getAttribute('data-first-run-state')) === 'open') {
+      // The guide holds the keyboard (a modal dialog) and Escape puts it away.
+      await expect(page.locator('[data-first-run]')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.locator('[data-first-run]')).toBeHidden();
     }
-    expect(focusedId).toBe('quick-add-title');
 
+    // One key from anywhere: the capture bar takes the focus.
+    await page.keyboard.press('n');
+    const input = page.locator('.app-topbar [data-capture-input]');
+    await expect(input).toBeFocused();
     await page.keyboard.type(title);
     await page.keyboard.press('Enter');
-    await expect(page.getByText(title, { exact: true })).toBeVisible();
+    const done = page.locator('.app-topbar [data-capture-done]');
+    await expect(done).toBeVisible();
+    await expect(done).toContainText(title);
 
     const task = await waitForPlannerTask(page, state, title);
     expect((await fetchVikunjaTask(state, externalIdOf(task))).title).toBe(title);
+
+    // The hand-off is the next Enter on the empty line: 계획에 넣기, with this task picked.
+    await expect(input).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(new RegExp(`/plan/schedule\\?taskIds=${task.id}`));
 
     await context.close();
   });
@@ -127,6 +142,7 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     const context = await browser.newContext();
     const page = await context.newPage();
     await login(page, state);
+    await openInbox(page);
 
     const title = `Offline task ${Date.now().toString(36)}`;
     await quickAdd(page, title);
@@ -164,7 +180,7 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     await context.close();
   });
 
-  test('login and inbox have no critical or serious axe violations', async ({ browser }) => {
+  test('login, 개요 and the inbox have no critical or serious axe violations', async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
 
@@ -185,6 +201,21 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     ).toEqual([]);
 
     await login(page, state);
+    // HOLO-04: the app opens on 개요 — checked too, before the inbox.
+    const overviewResults = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
+      .analyze();
+    expect(
+      overviewResults.violations
+        .filter((violation) => violation.impact === 'critical' || violation.impact === 'serious')
+        .map((violation) => ({
+          id: violation.id,
+          impact: violation.impact,
+          targets: violation.nodes.map((node) => node.target),
+        })),
+    ).toEqual([]);
+
+    await openInbox(page);
     const inboxResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
       .analyze();

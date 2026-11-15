@@ -21,7 +21,7 @@ import { useOfflineStore } from '../src/stores/offline';
 import { useToastStore } from '../src/stores/toast';
 import PlanScheduleView from '../src/views/PlanScheduleView.vue';
 import ReplanView from '../src/views/ReplanView.vue';
-import TodayView from '../src/views/TodayView.vue';
+import TodayView from '../src/components/today/TodayBoard.vue';
 import { useTestClock } from './m6-layout-utils';
 import { mountView, waitForText } from './m5-test-utils';
 import { mountWithPlugins, settle, testRouter } from './planning-test-utils';
@@ -161,7 +161,7 @@ describe('Today: lock a block', () => {
   });
 
   async function mountToday(): Promise<VueWrapper> {
-    const { wrapper } = await mountView(TodayView, { path: '/today' });
+    const { wrapper } = await mountView(TodayView, { path: '/overview' });
     await waitForText(wrapper, TODAY_TASK_ONE_TITLE);
     await vi.waitFor(() => expect(toggleIn(card(wrapper, TODAY_BLOCK_ONE_ID)).exists()).toBe(true));
     return wrapper;
@@ -256,7 +256,7 @@ describe('Today: lock a block', () => {
     mockDb.todayBlockLocks.set(TODAY_BLOCK_ONE_ID, { locked: true, version: 2 });
     // 19:10 in Seoul: block one (19:00–20:30) has started, block two has not.
     useTestClock(Date.parse('2026-11-14T10:10:00.000Z'));
-    const { wrapper } = await mountView(TodayView, { path: '/today' });
+    const { wrapper } = await mountView(TodayView, { path: '/overview' });
     await vi.waitFor(() => expect(toggleIn(card(wrapper, TODAY_BLOCK_TWO_ID)).exists()).toBe(true));
     const started = card(wrapper, TODAY_BLOCK_ONE_ID);
     expect(started.find('button[data-block-lock]').exists()).toBe(false);

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, type ComponentPublicInstance } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import type { Commitment } from '../../api';
 import ReplanCard from '../replan/ReplanCard.vue';
 import UiBanner from '../ui/UiBanner.vue';
 import UiButton from '../ui/UiButton.vue';
@@ -18,6 +19,7 @@ import { t } from '../../i18n';
 import { formatCivilDateRange } from '../../i18n/format';
 import { useLayoutNow } from '../../layout/now';
 import { useOfflineStore } from '../../stores/offline';
+import CommitmentAddDialog from './CommitmentAddDialog.vue';
 import PlannerHeader from './PlannerHeader.vue';
 import PlannerItemCard from './PlannerItemCard.vue';
 import WeekGrid from './WeekGrid.vue';
@@ -139,6 +141,15 @@ function refresh(): Promise<unknown> {
   return query.refetch();
 }
 
+/** 고치기 on a 약속's card: the planner's dialog opens on it, and the card steps away. */
+const editing = ref<Commitment | null>(null);
+function editCommitment(commitmentId: string): void {
+  const found = data.value?.commitments.find((commitment) => commitment.id === commitmentId) ?? null;
+  if (found === null) return;
+  card.close();
+  editing.value = found;
+}
+
 function retry(): void {
   void query.refetch();
   if (dayEventsQuery.isError.value) void dayEventsQuery.refetch();
@@ -216,9 +227,17 @@ function retry(): void {
           :side="card.side.value"
           :style="card.style.value"
           @close="(restoreFocus) => card.close({ restoreFocus })"
+          @edit="editCommitment"
         />
       </template>
     </WeekGrid>
+    <CommitmentAddDialog
+      v-if="editing"
+      :time-zone="timeZone"
+      :date="holdsToday ? today : weekStart"
+      :commitment="editing"
+      @close="editing = null"
+    />
 
     <ul class="planner-legend" :aria-label="t('month.legend')">
       <li><span class="planner-swatch planner-swatch--block" aria-hidden="true"></span>{{ t('month.legendBlock') }}</li>

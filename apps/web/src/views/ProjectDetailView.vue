@@ -85,14 +85,14 @@ const notes = computed(() => notesQuery.data.value?.items ?? []);
     <header class="page-header">
       <div class="page-heading">
         <p class="breadcrumb">
-          <RouterLink to="/projects"><UiIcon name="arrow-left" :size="16" />{{ t('projects.back') }}</RouterLink>
+          <RouterLink to="/tasks?view=projects"><UiIcon name="arrow-left" :size="16" />{{ t('projects.back') }}</RouterLink>
         </p>
         <h1>{{ heading }}</h1>
         <p v-if="tasksQuery.data.value" class="page-lede">{{ tp('projects.taskCount', tasks.length) }}</p>
       </div>
     </header>
 
-    <div class="segmented project-tabs" role="tablist" :aria-label="t('projects.tabs.label')" data-project-tabs>
+    <div class="segmented glass glass--still glass--flat project-tabs" role="tablist" :aria-label="t('projects.tabs.label')" data-project-tabs>
       <button
         v-for="item in TABS"
         :id="`project-tab-${item}`"

@@ -4,7 +4,7 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import { defineComponent, nextTick } from 'vue';
 import { VueQueryPlugin } from '@tanstack/vue-query';
 import { newActionId, plannerClient, type ScheduleBlock } from '../src/api';
-import TodayView from '../src/views/TodayView.vue';
+import TodayView from '../src/components/today/TodayBoard.vue';
 import { sessionJournal } from '../src/session/journal';
 import { resetFocusClientIdForTests } from '../src/session/clientId';
 import { useSessionStore } from '../src/stores/session';
@@ -23,7 +23,7 @@ function testRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
       { path: '/inbox', name: 'inbox', component: Stub },
     ],
@@ -52,7 +52,7 @@ async function settledCall(spy: { mock: { calls: unknown[]; results: { value: un
 }
 
 async function mountToday(pinia: Pinia, router: Router): Promise<VueWrapper> {
-  await router.push('/today');
+  await router.push('/overview');
   const wrapper = mount(TodayView, {
     global: { plugins: [pinia, VueQueryPlugin, router] },
     attachTo: document.body,

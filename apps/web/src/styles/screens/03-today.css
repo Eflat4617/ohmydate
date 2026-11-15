@@ -1,23 +1,54 @@
-/* ── 오늘 (HOLO-02): the day as cards ──────────────────────────────────
+/* ── 오늘, inside 개요 (HOLO-04; the cards are HOLO-02's) ───────────────
    The day in figures as a row of small stat cards; each block a card (the
-   next one carries the lime mark and the screen's one filled button); what
+   next one carries the lime mark and the page's one filled button); what
    else is on today — 약속, 마감 — as two compact cards; and beside it all
-   the same day on the ten-minute time table, as a card. */
-.today-main {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
+   the same day on the ten-minute time table, as a card. The board is a size
+   container: the time table stands beside the list when the board itself is
+   wide enough, whatever the window is. */
+.today-board {
+  container: today-board / inline-size;
   min-width: 0;
 }
 
-/* Title and date share a line. */
-.today-page .page-heading {
+.today-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--grid-gap);
+  align-items: start;
+  min-width: 0;
+}
+
+.today-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+/* Title and date share a line; the day's one quiet action sits at its end. */
+.today-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.today-heading {
+  display: flex;
   flex-flow: row wrap;
   align-items: baseline;
   gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+
+.today-heading-title {
+  font-size: var(--text-xl);
 }
 
 .today-date {
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
   font-size: var(--text-lg);
 }
 
@@ -456,32 +487,16 @@ a.today-agenda-title:hover {
 
 /* Stacked under the list, the table starts where the day's business does:
    at the current hour or the first block, whichever comes first. */
-@media (max-width: 1279px) {
+@container today-board (max-width: 61.99rem) {
   .tt-row--before {
     display: none;
   }
 }
 
-/* From 1280px the time table stands in the right column for the height of
-   the page, and the block list and the context panels share the left one. */
-@media (min-width: 1280px) {
-  .adaptive-frame--columns:has(.today-page) {
-    --today-tt: 27rem;
-
-    position: relative;
-    padding-right: calc(var(--today-tt) + var(--grid-gap));
-  }
-
-  .adaptive-frame--columns .today-timetable {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: var(--today-tt);
-  }
-}
-
-@media (min-width: 1440px) {
-  .adaptive-frame--columns:has(.today-page) {
-    --today-tt: 30rem;
+/* From 62rem of its own width the board is two columns: the list, and the
+   time table beside it. */
+@container today-board (min-width: 62rem) {
+  .today-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(24rem, 30rem);
   }
 }

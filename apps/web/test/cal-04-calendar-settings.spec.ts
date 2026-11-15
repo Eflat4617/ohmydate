@@ -30,7 +30,7 @@ import {
 } from '../src/mocks/google';
 import { server } from '../src/mocks/server';
 import { useOfflineStore } from '../src/stores/offline';
-import CalendarSettingsView from '../src/views/CalendarSettingsView.vue';
+import CalendarSettingsView from '../src/components/settings/CalendarSettings.vue';
 
 const Stub = defineComponent({ template: '<div />' });
 
@@ -130,7 +130,9 @@ describe('캘린더 연동: one state per status', () => {
     const { wrapper } = await mountSettings();
     await ready(wrapper, 'not_configured');
     const text = wrapper.text();
-    expect(wrapper.get('h1').text()).toBe('캘린더 연동');
+    // A section of 설정: its title is an h2 under the screen's own.
+    expect(wrapper.find('h1').exists()).toBe(false);
+    expect(wrapper.get('h2').text()).toBe('캘린더 연동');
     expect(text).toContain('설정 전');
     expect(text).toContain(t('googleCalendar.intro.toPhone'));
     expect(text).toContain(t('googleCalendar.intro.fromPhone'));
@@ -582,7 +584,7 @@ describe('catalog and helpers (CAL-04)', () => {
       'googleCalendar.returned.denied',
       'googleCalendar.returned.error',
       'googleCalendar.lastErrorUnknown',
-      'nav.calendarSettings',
+      'settings.section.calendar',
       'commitments.google.source',
       'month.legendDayEvent',
     ];

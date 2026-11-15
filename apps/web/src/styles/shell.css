@@ -1,4 +1,6 @@
-/* App shell: sidebar (≥1024px), top bar, bottom nav (<1024px), page frame. */
+/* App shell: sidebar (≥1024px), top bar, bottom nav (<1024px), page frame.
+   The sidebar, the bar and the phone's nav are glass and float a little off
+   the window's edge (`--shell-gap`); the page scrolls under the bar. */
 
 .app-shell {
   --page-pad: var(--space-4);
@@ -7,7 +9,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-height: 100dvh;
-  padding-bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
+  padding-bottom: calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + env(safe-area-inset-bottom));
 }
 
 .app-shell--nav-collapsed {
@@ -78,15 +80,28 @@
 }
 
 /* ── Top bar: where you are, and the app's own controls ────────────── */
+/* Its menus hang over the page at every width, so the bar is always a layer
+   above the page's own (sticky headers included) — also where it scrolls away. */
 .app-topbar {
+  position: relative;
+  z-index: var(--z-topbar);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   min-height: 3.5rem;
-  padding: var(--space-2) var(--page-pad);
-  border-bottom: var(--rule-hair) solid var(--color-line);
-  background: var(--color-ground);
+  margin: var(--shell-gap) var(--shell-gap) 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-xl);
+}
+
+/* Below 1024px the bar scrolls away with the page: only the ambient light is
+   ever behind it, so it is still glass. */
+@media (max-width: 1023.98px) {
+  .app-topbar {
+    --glass-body: var(--glass-fill-still);
+    --glass-backdrop: none;
+  }
 }
 
 .topbar-start,
@@ -95,6 +110,10 @@
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+}
+
+.topbar-start {
+  flex: 0 1 auto;
 }
 
 .topbar-end {
@@ -123,11 +142,9 @@
   white-space: nowrap;
 }
 
-.topbar-crumb-group,
-.topbar-crumb-sep {
-  display: none;
-}
-
+/* The place, and the screen under it when there is one. On a phone only
+   the last of the two is shown. */
+.topbar-crumb-place,
 .topbar-crumb-page {
   overflow: hidden;
   color: var(--color-text);
@@ -135,18 +152,18 @@
   text-overflow: ellipsis;
 }
 
-/* The theme: three words on wide screens, three marks below that. */
-.theme-switch-label {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
+.topbar-crumb--nested .topbar-crumb-place,
+.topbar-crumb-sep {
+  display: none;
+}
+
+/* The theme, in the account menu: three words, each with its mark. */
+.theme-switch {
+  display: flex;
 }
 
 .theme-switch-item {
+  flex: 1;
   gap: var(--space-1-5);
   padding-inline: var(--space-2);
 }
@@ -165,7 +182,7 @@
   height: 0.5rem;
   border-radius: 50%;
   background: var(--color-accent);
-  box-shadow: 0 0 0 2px var(--color-ground);
+  box-shadow: 0 0 0 2px var(--glass-solid);
 }
 
 .topbar-user {
@@ -233,34 +250,6 @@
   text-decoration: none;
 }
 
-.nav-new-task {
-  justify-content: flex-start;
-  padding-inline: var(--space-3);
-}
-
-.nav-new-task kbd {
-  margin-left: auto;
-}
-
-.nav-groups {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.nav-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.nav-group-label {
-  padding: 0 var(--space-3);
-  color: var(--color-text-3);
-  font-size: var(--text-2xs);
-  font-weight: var(--weight-medium);
-}
-
 .nav-links {
   display: flex;
   flex-direction: column;
@@ -283,7 +272,8 @@
   min-height: 2.125rem;
   padding: 0 var(--space-3);
   border: 0;
-  border-radius: var(--radius-md);
+  /* concentric with the sidebar's own corner (its radius less its padding) */
+  border-radius: calc(var(--radius-xl) - var(--space-3) + 2px);
   background: transparent;
   color: var(--color-text-2);
   font-size: var(--text-sm);
@@ -296,7 +286,7 @@
 }
 
 .nav-link:hover {
-  background: var(--color-hover);
+  background: var(--glass-well);
   color: var(--color-text);
 }
 
@@ -322,19 +312,16 @@
 
 /* The current screen: the lime-to-cyan fill with dark text. The fill, the
    weight and aria-current say it; no other item is filled. */
-.nav-link.router-link-active,
 .nav-link.nav-link--current {
   background: var(--gradient-current);
   color: var(--color-on-accent);
   font-weight: var(--weight-semibold);
 }
 
-.nav-link.router-link-active .nav-link-icon,
 .nav-link.nav-link--current .nav-link-icon {
   color: var(--color-on-accent);
 }
 
-.nav-link.router-link-active kbd,
 .nav-link.nav-link--current kbd {
   border-color: color-mix(in oklab, var(--color-on-accent) 40%, transparent);
   background: transparent;
@@ -342,7 +329,6 @@
 }
 
 /* On the gradient the lime ring would vanish: ring in the text colour. */
-.nav-link.router-link-active:focus-visible,
 .nav-link.nav-link--current:focus-visible {
   outline-color: var(--color-text);
 }
@@ -357,21 +343,20 @@
   gap: var(--space-0-5);
   margin-top: auto;
   padding-top: var(--space-3);
-  border-top: var(--rule-hair) solid var(--color-line);
+  border-top: var(--rule-hair) solid var(--glass-edge);
 }
 
 /* ── Bottom navigation (phones & tablets) ──────────────────────────── */
 .bottom-nav {
   position: fixed;
-  inset: auto 0 0 0;
+  inset: auto var(--shell-gap) calc(var(--shell-gap) + env(safe-area-inset-bottom)) var(--shell-gap);
   z-index: var(--z-nav);
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   align-items: center;
-  height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
-  padding: 0 var(--space-2) env(safe-area-inset-bottom);
-  border-top: var(--rule-hair) solid var(--color-line-strong);
-  background: var(--color-surface);
+  height: var(--bottom-nav-height);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-xl);
 }
 
 .bottom-nav-item {
@@ -406,21 +391,21 @@
   border-radius: var(--radius-pill);
 }
 
-.bottom-nav-item.router-link-active {
+.bottom-nav-item--current {
   color: var(--color-text);
   font-weight: var(--weight-semibold);
 }
 
-.bottom-nav-item.router-link-active > .icon {
+.bottom-nav-item--current > .icon {
   background: var(--gradient-current);
   color: var(--color-on-accent);
 }
 
 .bottom-nav-add {
-  --btn-bg: var(--color-fill-2);
+  --btn-bg: var(--glass-well-strong);
   --btn-fg: var(--color-text);
-  --btn-border: var(--color-line-strong);
-  --btn-bg-hover: var(--color-fill-2);
+  --btn-border: var(--glass-edge);
+  --btn-bg-hover: var(--glass-well-strong);
 
   justify-self: center;
   width: var(--hit-target);
@@ -572,12 +557,14 @@
     padding-bottom: var(--space-16);
   }
 
-  /* The bar stays at the top of the canvas while the page scrolls under it. */
+  /* The bar floats at the top of the canvas while the page scrolls under it. */
   .app-topbar {
     position: sticky;
-    top: 0;
+    top: var(--shell-gap);
     z-index: var(--z-topbar);
     min-height: var(--topbar-height);
+    margin-inline: var(--page-pad);
+    padding-inline: var(--space-3);
   }
 
   .topbar-nav-toggle {
@@ -588,7 +575,12 @@
     display: none;
   }
 
-  .topbar-crumb-group,
+  .topbar-crumb--nested .topbar-crumb-place {
+    display: inline;
+    color: var(--color-text-3);
+    font-weight: var(--weight-regular);
+  }
+
   .topbar-crumb-sep {
     display: inline;
   }
@@ -605,22 +597,21 @@
      scrolls beside it. */
   .nav-rail {
     position: fixed;
-    inset-block: 0;
-    inset-inline-start: 0;
+    inset-block: var(--shell-gap);
+    inset-inline-start: var(--shell-gap);
     z-index: var(--z-nav);
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
-    width: var(--nav-current-width);
+    width: calc(var(--nav-current-width) - var(--shell-gap));
     overflow: hidden;
     padding: var(--space-4) var(--space-3);
-    border-right: var(--rule-hair) solid var(--color-line);
-    background: var(--color-ground);
+    border-radius: var(--radius-xl);
   }
 
-  /* On a short window only the groups scroll: the brand and 새 작업 stay at
-     the head, search, help and sign-out at the foot. */
-  .nav-rail .nav-groups {
+  /* On a short window only the places scroll: the brand stays at the head,
+     설정 and 도움말 at the foot. */
+  .nav-rail .nav-places {
     flex: 1;
     min-height: 0;
     margin-inline: calc(-1 * var(--space-3));
@@ -644,13 +635,11 @@
   }
 
   .nav-rail--collapsed .nav-brand-name,
-  .nav-rail--collapsed .nav-link kbd,
-  .nav-rail--collapsed .nav-new-task kbd {
+  .nav-rail--collapsed .nav-link kbd {
     display: none;
   }
 
-  .nav-rail--collapsed .nav-link-label,
-  .nav-rail--collapsed .nav-new-task-label {
+  .nav-rail--collapsed .nav-link-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -660,20 +649,9 @@
     white-space: nowrap;
   }
 
-  .nav-rail--collapsed .nav-link,
-  .nav-rail--collapsed .nav-new-task {
+  .nav-rail--collapsed .nav-link {
     justify-content: center;
     padding-inline: 0;
-  }
-
-  /* A group's name becomes the hairline between groups. */
-  .nav-rail--collapsed .nav-group-label {
-    height: var(--rule-hair);
-    margin: 0 var(--space-3) var(--space-1);
-    padding: 0;
-    overflow: hidden;
-    background: var(--color-line);
-    font-size: 0;
   }
 
   .bottom-nav {
@@ -682,19 +660,6 @@
 }
 
 @media (min-width: 1280px) {
-  .theme-switch-label {
-    position: static;
-    width: auto;
-    height: auto;
-    margin: 0;
-    overflow: visible;
-    clip: auto;
-  }
-
-  .theme-switch-item {
-    padding-inline: var(--space-3);
-  }
-
   .topbar-user-name {
     display: block;
   }

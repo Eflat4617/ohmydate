@@ -178,7 +178,8 @@ describe('Notes workspace — editor', () => {
     const id = String(app.router.currentRoute.value.params['id']);
     expect(noteById(id).title).toBe('새 연구 메모');
     await vi.waitFor(() => expect(liveText(app.wrapper)).toBe('노트를 만들었어요'));
-    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장된 상태예요 · 버전 1');
+    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장됨');
+    expect(app.wrapper.get('[data-note-status]').attributes('data-note-version')).toBe('1');
     // The same editor stayed mounted: the title field keeps the trimmed server value.
     expect((app.wrapper.get('[data-note-title]').element as HTMLInputElement).value).toBe('새 연구 메모');
     // The list refreshes with the new note (its position depends on the mock clock).
@@ -202,18 +203,21 @@ describe('Notes workspace — editor', () => {
   it('saves only the changed fields with If-Match + Idempotency-Key and announces the version', async () => {
     const requests = captureRequests();
     const app = await openNote(NOTE_THESIS_ID);
-    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장된 상태예요 · 버전 3');
+    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장됨');
+    expect(app.wrapper.get('[data-note-status]').attributes('data-note-version')).toBe('3');
     await setValue(app.wrapper.get('[data-note-body]'), '바뀐 본문');
     expect(app.wrapper.get('[data-note-status]').text()).toBe('저장하지 않은 변경 사항이 있어요');
     await app.wrapper.get('form.note-form').trigger('submit');
-    await vi.waitFor(() => expect(liveText(app.wrapper)).toBe('저장했어요 · 버전 4'));
+    await vi.waitFor(() => expect(liveText(app.wrapper)).toBe('저장했어요'));
+    expect(app.wrapper.get('[data-note-status]').attributes('data-note-version')).toBe('4');
     const patch = requests.find((request) => request.method === 'PATCH');
     expect(patch?.path).toBe(`/api/v1/documents/${NOTE_THESIS_ID}`);
     expect(patch?.headers.get('If-Match')).toBe('W/"3"');
     expect(isUuidV7Key(patch?.headers.get('Idempotency-Key') ?? '')).toBe(true);
     expect(JSON.parse(patch?.body ?? '{}')).toEqual({ bodyMd: '바뀐 본문' });
     expect(noteById(NOTE_THESIS_ID).version).toBe(4);
-    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장된 상태예요 · 버전 4');
+    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장됨');
+    expect(app.wrapper.get('[data-note-status]').attributes('data-note-version')).toBe('4');
     expect(app.wrapper.get('[data-note-live]').attributes('aria-live')).toBe('polite');
   });
 
@@ -243,7 +247,8 @@ describe('Notes workspace — editor', () => {
     expect(document.body.querySelector('.note-conflict-dialog')).toBeNull();
     expect((app.wrapper.get('[data-note-title]').element as HTMLInputElement).value).toBe('다른 기기에서 바꾼 제목');
     expect((app.wrapper.get('[data-note-body]').element as HTMLTextAreaElement).value).toBe(stored.bodyMd);
-    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장된 상태예요 · 버전 5');
+    expect(app.wrapper.get('[data-note-status]').text()).toBe('저장됨');
+    expect(app.wrapper.get('[data-note-status]').attributes('data-note-version')).toBe('5');
   });
 
   it('412: “keep mine as a copy” saves my text as a new note and leaves the server note alone', async () => {

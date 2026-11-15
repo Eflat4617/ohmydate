@@ -114,7 +114,7 @@ describe('local layout signals', () => {
 
 describe('routes as layout signals', () => {
   it('classifies routes', () => {
-    expect(routeKindOf({ name: 'today', params: {} })).toBe('today');
+    expect(routeKindOf({ name: 'overview', params: {} })).toBe('today');
     expect(routeKindOf({ name: 'focus', params: { sessionId: SESSION } })).toBe('focus');
     expect(routeKindOf({ name: 'plan', params: {} })).toBe('planning');
     expect(routeKindOf({ name: 'plan-session', params: { sessionId: SESSION } })).toBe('planning');
@@ -131,14 +131,14 @@ describe('routes as layout signals', () => {
   it('treats /focus/new and malformed ids as not a layout surface (negative)', () => {
     expect(routeKindOf({ name: 'focus', params: { sessionId: 'new' } })).toBe('other');
     expect(focusRouteSessionId({ name: 'focus', params: { sessionId: '../today' } })).toBeNull();
-    expect(focusRouteSessionId({ name: 'today', params: { sessionId: SESSION } })).toBeNull();
+    expect(focusRouteSessionId({ name: 'overview', params: { sessionId: SESSION } })).toBeNull();
   });
 
   it('keeps the workspace URL in step with the page, never leaving a planning page', () => {
     const focus = buildLayoutSpec(decideMode(signals({ activeSessionId: SESSION }), DEFAULT_PREFERENCES), signals({ activeSessionId: SESSION }));
     const overview = buildLayoutSpec(decideMode(signals(), DEFAULT_PREFERENCES), signals());
     expect(workspacePathFor(focus, 'today')).toBe(`/focus/${SESSION}`);
-    expect(workspacePathFor(overview, 'focus')).toBe('/today');
+    expect(workspacePathFor(overview, 'focus')).toBe('/overview');
     expect(workspacePathFor(overview, 'planning')).toBeNull();
     expect(workspacePathFor(overview, 'notes')).toBeNull();
     expect(workspacePathFor(overview, 'other')).toBeNull();

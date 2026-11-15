@@ -508,7 +508,7 @@ describe('what came before arrives picked (FLOW §2)', () => {
     const empty = wrapper.get('[data-scope-empty]');
     expect(empty.text()).toContain('배치할 작업이 아직 없어요');
     expect(empty.findAll('a').map((link) => [link.text(), link.attributes('href')])).toEqual([
-      ['할 일 담기', '/inbox'],
+      ['할 일 담기', '/tasks'],
       ['목표로 시작하기', '/plan'],
     ]);
     wrapper.unmount();

@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createPinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { defineComponent, nextTick } from 'vue';
@@ -14,7 +15,7 @@ function testRouter() {
       { path: '/', component: Stub },
       { path: '/inbox', name: 'inbox', component: Stub },
       { path: '/projects', name: 'projects', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
     ],
   });
 }
@@ -31,7 +32,7 @@ describe('offline banner and disabled mutations', () => {
   it('shows a polite read-only banner while offline and hides it when online', async () => {
     setOnline(false);
     const wrapper = mount(AppShell, {
-      global: { plugins: [createPinia(), testRouter()] },
+      global: { plugins: [createPinia(), testRouter(), VueQueryPlugin] },
       slots: { default: '<p>Body</p>' },
       attachTo: document.body,
     });
@@ -61,7 +62,7 @@ describe('offline banner and disabled mutations', () => {
 
   it('opens keyboard help with the ? shortcut', async () => {
     const wrapper = mount(AppShell, {
-      global: { plugins: [createPinia(), testRouter()] },
+      global: { plugins: [createPinia(), testRouter(), VueQueryPlugin] },
       slots: { default: '<p>Body</p>' },
     });
     await flushPromises();

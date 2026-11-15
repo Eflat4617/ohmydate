@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { type Locator, type Page } from '@playwright/test';
 import { expect, test } from '../helpers/test';
-import { login } from '../helpers/app';
+import { login, openPlace } from '../helpers/app';
 import { installBrowserClockAt, testClock } from '../helpers/clock';
 import { nextLocalMorningMs } from '../helpers/day-clock';
 import {
@@ -26,7 +26,7 @@ import { readState } from '../helpers/state';
 // evidence with the note link while the forged ref and the link are gone and
 // the injection text is only data; the note's AI usage history lists the call.
 // A focus session on the plan's task then switches the layout to focus with
-// RelatedNotes listing the note, and the toast's undo restores Today. Every
+// RelatedNotes listing the note, and the toast's undo restores 개요. Every
 // notes screen is scanned with axe at desktop and phone width (0 critical/serious).
 
 const state = readState();
@@ -132,7 +132,7 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
 
     let noteId = '';
     await test.step('create the note in the UI with AI allowed; the preview shows the injection as text', async () => {
-      await page.locator('.nav-rail').getByRole('link', { name: '노트' }).click();
+      await openPlace(page, '노트');
       await expect(page.getByRole('heading', { name: '노트', level: 1 })).toBeVisible();
       await expect(frame(page)).toHaveAttribute('data-layout-mode', 'notes');
       await expect(page.locator('[data-notes-empty]')).toBeVisible();
@@ -152,7 +152,8 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
       await page.waitForURL(/\/notes\/[0-9a-f-]{36}$/);
       noteId = new URL(page.url()).pathname.split('/').at(-1) ?? '';
       await expect(page.locator('[data-note-live]')).toHaveText('노트를 만들었어요');
-      await expect(page.locator('[data-note-status]')).toHaveText('저장된 상태예요 · 버전 1');
+      await expect(page.locator('[data-note-status]')).toHaveText('저장됨');
+      await expect(page.locator('[data-note-status]')).toHaveAttribute('data-note-version', '1');
 
       // Preview: raw HTML and scripts are text, javascript: is no link, the pixel is never loaded.
       await page.locator('[data-note-mode="preview"]').check();
@@ -185,13 +186,14 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
       await picker.getByRole('button', { name: '연결', exact: true }).click();
       await expect(picker).toHaveCount(0);
       await expect(page.locator('[data-note-link="project"]')).toContainText('인박스');
-      await expect(page.locator('[data-note-status]')).toHaveText('저장된 상태예요 · 버전 2');
+      await expect(page.locator('[data-note-status]')).toHaveText('저장됨');
+      await expect(page.locator('[data-note-status]')).toHaveAttribute('data-note-version', '2');
     });
 
     let sessionId = '';
     let evidenceSection = '';
     await test.step('계획 세우기: link the note to the plan goal, then the steps show grounded evidence', async () => {
-      await page.locator('.nav-rail').getByRole('link', { name: '계획 세우기' }).click();
+      await openPlace(page, '계획');
       await expect(page.locator('#plan-goal-title')).toBeVisible();
       await page.locator('#plan-goal-title').fill(planTitle);
       await page.locator('#plan-goal-due').fill(localDateTimeIn(7));
@@ -263,7 +265,7 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
       await expectAccessible(page, 'note with AI usage');
     });
 
-    await test.step('focus on the plan’s task: RelatedNotes lists the note; undo restores Today', async () => {
+    await test.step('focus on the plan’s task: RelatedNotes lists the note; undo restores 개요', async () => {
       const session = (await expectOk(await apiFetch(page, state, `/intake-sessions/${sessionId}`), 'GET intake')) as IntakeSessionDto;
       if (session.goalId === undefined) throw new Error('approved session has no goal id');
       const plan = await createPlanFromGoal(page, state, session.goalId, {
@@ -277,7 +279,7 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
       );
       expect(approved.blocks.length).toBeGreaterThanOrEqual(1);
 
-      await page.goto(`${state.webUrl}/today`);
+      await page.goto(`${state.webUrl}/overview`);
       await expect(page.locator('.today-card').first()).toBeVisible({ timeout: 20_000 });
       await expect(frame(page)).toHaveAttribute('data-layout-mode', 'overview');
       await page.locator('.today-card').first().getByRole('button', { name: '집중 시작' }).click();
@@ -295,10 +297,10 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
       const toast = page.locator('.toast', { hasText: LAYOUT_TOAST });
       await expect(toast).toBeVisible();
       await toast.getByRole('button', { name: '되돌리기' }).click();
-      await page.waitForURL(/\/today$/);
+      await page.waitForURL(/\/overview$/);
       await expect(frame(page)).toHaveAttribute('data-layout-mode', 'overview');
       await expect(page.locator('[data-layout-announcer]')).toHaveText('화면 배치를 되돌렸어요: 기본');
-      // The running session's task still drives the panel on Today.
+      // The running session's task still drives the panel on 개요.
       await expect(page.locator(`[data-panel="related-notes"] [data-related-note="${noteId}"]`)).toBeVisible();
     });
 

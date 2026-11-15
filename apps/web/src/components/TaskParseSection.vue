@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, watch } from 'vue';
-import { RouterLink } from 'vue-router';
 import { plannerClient, type TaskCreate, type TaskDraft, type TaskDraftNote } from '../api';
 import { useNlDraftRead, type NlDraftRow } from '../composables/useNlDraftRead';
 import {
@@ -14,6 +13,7 @@ import {
 import { t, tp } from '../i18n';
 import { formatDateTime } from '../i18n/format';
 import { useAuthStore } from '../stores/auth';
+import { useLlmConsentStore } from '../stores/llmConsent';
 import LlmDisclosure from './LlmDisclosure.vue';
 import UiBadge from './ui/UiBadge.vue';
 import UiBanner from './ui/UiBanner.vue';
@@ -57,6 +57,7 @@ interface TaskRow extends NlDraftRow<TaskDraft> {
 }
 
 const auth = useAuthStore();
+const llmConsent = useLlmConsentStore();
 
 function rowInput(row: TaskRow): TaskCreate | null {
   return taskDraftCreateInput(row.title, row.dueAt);
@@ -268,9 +269,10 @@ function clearDue(row: TaskRow): void {
       class="nl-failure"
     >
       {{ failureText }}
-      <RouterLink v-if="failure === 'consent'" to="/settings/ai" class="nl-failure-link">
+      <!-- Asked for where it is needed (FLOW §1): the consent dialog opens here, not in 설정. -->
+      <button v-if="failure === 'consent'" type="button" class="nl-failure-link" data-nl-consent @click="llmConsent.ask()">
         {{ t('taskParse.consentLink') }}
-      </RouterLink>
+      </button>
     </UiBanner>
 
     <section v-if="showResult" class="nl-result" aria-labelledby="task-parse-result-heading" data-testid="task-parse-result">

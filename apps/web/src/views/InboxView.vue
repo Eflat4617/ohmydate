@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import { useQuery, useQueryClient } from '@tanstack/vue-query';
 import { ActionStore, findInboxProject, plannerClient, type Task } from '../api';
 import { useTaskActions } from '../composables/useTaskActions';
 import { runOwnerBound } from '../session/ownerBound';
 import { useOfflineStore } from '../stores/offline';
-import { useUiStore } from '../stores/ui';
 import QuickAddForm from '../components/QuickAddForm.vue';
 import TaskList from '../components/TaskList.vue';
 import TaskParseSection from '../components/TaskParseSection.vue';
@@ -19,7 +18,6 @@ import UiSkeleton from '../components/ui/UiSkeleton.vue';
 import { t, tp } from '../i18n';
 
 const offline = useOfflineStore();
-const ui = useUiStore();
 const auth = useAuthStore();
 const queryClient = useQueryClient();
 const quickAdd = ref<InstanceType<typeof QuickAddForm> | null>(null);
@@ -77,13 +75,6 @@ async function refetchAll(): Promise<void> {
   if (inboxProjectId.value !== undefined) pending.push(tasksQuery.refetch());
   await Promise.all(pending);
 }
-
-watch(
-  () => ui.newTaskRequest,
-  () => {
-    void nextTick().then(() => quickAdd.value?.focus());
-  },
-);
 
 // Owner isolation (ADR-023): clearing the form and refreshing the lists is
 // part of the action, so it runs as an owner-bound task — after a user switch

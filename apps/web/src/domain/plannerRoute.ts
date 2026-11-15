@@ -6,6 +6,7 @@
  *   /planner?w=2026-11-16         the week that starts on that Monday
  *   /planner?view=day&d=…         one day (without `d`: today)
  *   /planner?view=month&m=2026-12 a month (without `m`: this month)
+ *   /planner?view=list&w=…        the 약속 of a week, as a list (HOLO-04; was the 약속 screen)
  *   /month, /month?m=2026-12      the month view, as before (CAL-01)
  *
  * What is the default is left out of the query, so today's address stays short.
@@ -13,9 +14,9 @@
 import { monthOfDate, parseMonthKey, type MonthKey } from './monthGrid';
 import { startOfWeek } from './time';
 
-export type PlannerViewKind = 'day' | 'week' | 'month';
+export type PlannerViewKind = 'day' | 'week' | 'month' | 'list';
 
-export const PLANNER_VIEWS: readonly PlannerViewKind[] = ['day', 'week', 'month'];
+export const PLANNER_VIEWS: readonly PlannerViewKind[] = ['day', 'week', 'month', 'list'];
 export const DEFAULT_PLANNER_VIEW: PlannerViewKind = 'week';
 
 const CIVIL_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -90,7 +91,9 @@ export function plannerLocation(
     return { name: 'planner', query: { view: 'day', ...(anchor === today ? {} : { d: anchor }) } };
   }
   const week = startOfWeek(anchor);
-  return { name: 'planner', query: week === startOfWeek(today) ? {} : { w: week } };
+  const weekQuery: Record<string, string> = week === startOfWeek(today) ? {} : { w: week };
+  if (view === 'list') return { name: 'planner', query: { view: 'list', ...weekQuery } };
+  return { name: 'planner', query: weekQuery };
 }
 
 export interface PlannerQueryFix {
@@ -113,7 +116,7 @@ export function plannerQueryFix(routeName: unknown, query: Query): PlannerQueryF
   if (routeName !== 'month' && query['view'] !== undefined && parsePlannerView(query['view']) === null) drop.push('view');
   const view = plannerViewOf(routeName, query);
   if (view === 'day' && query['d'] !== undefined && parseCivilDate(query['d']) === null) drop.push('d');
-  if (view === 'week' && query['w'] !== undefined) {
+  if ((view === 'week' || view === 'list') && query['w'] !== undefined) {
     const date = parseCivilDate(query['w']);
     if (date === null) drop.push('w');
     else if (startOfWeek(date) !== date) set['w'] = startOfWeek(date);

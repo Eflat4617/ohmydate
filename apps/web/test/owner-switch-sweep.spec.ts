@@ -41,6 +41,8 @@ const EXEMPT: Record<string, string> = {
   'src/components/plan/PlanResumeList.vue':
     'HOLO-03A “하던 계획”: reads through one ownerFenced lookup. Its only writes drop an entry from the owner’s own list (planFlowMemory) — with that lookup’s binding, which the slot refuses once stale, or synchronously at the press. plan-resume.spec.ts covers the owner scoping.',
   'src/composables/relatedNotes.ts': 'Reads only, through ownerFenced lookups; writes nothing.',
+  'src/composables/flowReturn.ts':
+    'HOLO-04 되돌아오기: one synchronous ownerSlot write at the press that leaves a flow (or the one that returns), under the binding captured there; no request, nothing awaited. The slot is cleared for every owner on any owner change. holo-flow.spec.ts covers the owner scoping.',
   'src/composables/usePlannerRange.ts':
     'Reads only (CAL-01 month page and Today agenda), through owner-keyed ownerFenced lookups; writes nothing.',
   'src/composables/useLatestReplanPlan.ts': 'Reads only (owner-keyed query); writes nothing.',
@@ -51,6 +53,8 @@ const EXEMPT: Record<string, string> = {
   'src/layout/useTodaySnapshot.ts': 'Reads only (owner-keyed query); writes nothing.',
   'src/layout/shellNav.ts':
     'HOLO-01 sidebar fold: one synchronous ownerSlot write at the click, under the binding captured there; no request, nothing awaited. holo-shell.spec.ts covers the owner scoping.',
+  'src/theme/transparency.ts':
+    'HOLO-04 투명 효과 줄이기: one synchronous ownerSlot write at the click, under the binding captured there; no request, nothing awaited. holo-settings.spec.ts covers the owner scoping.',
   'src/theme/theme.ts':
     'HOLO-01 theme choice: one synchronous ownerSlot write at the click, under the binding captured there; no request, nothing awaited. holo-theme.spec.ts covers the owner scoping.',
   'src/views/ProjectDetailView.vue': 'Reads only; its task edits are TaskList / useTaskActions (inbox cases).',
@@ -115,7 +119,7 @@ describe('inbox: delete with undo — the timer belongs to whoever clicked', () 
 
   async function clickDelete(): Promise<OwnerSwitchStage> {
     const created = await createOwnerSwitchStage();
-    const wrapper = await created.mountView('/inbox');
+    const wrapper = await created.mountView('/tasks');
     await inboxReady(wrapper);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     await buttonByText(wrapper, `${SEED_TASK_TITLE} 삭제`).trigger('click');

@@ -17,7 +17,7 @@ const router = useRouter();
 async function submit(): Promise<void> {
   try {
     await auth.login(email.value, password.value);
-    await router.push({ name: 'inbox' });
+    await router.push({ name: 'overview' });
   } catch {
     // `auth.error` carries the user-facing message.
   }
@@ -26,8 +26,9 @@ async function submit(): Promise<void> {
 
 <template>
   <main class="auth-page">
+    <div class="ambient" aria-hidden="true" data-ambient></div>
     <GlassOrb class="auth-visual" :size="232" />
-    <section class="auth-card" aria-labelledby="login-heading">
+    <section class="auth-card glass" aria-labelledby="login-heading">
       <header class="auth-header">
         <BrandMark :size="44" />
         <h1 id="login-heading">{{ t('login.title') }}</h1>

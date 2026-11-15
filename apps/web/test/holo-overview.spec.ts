@@ -21,6 +21,7 @@ import { server } from '../src/mocks/server';
 import { OWNER_STORAGE_KEY } from '../src/session/owner';
 import { adoptActiveOwner } from '../src/session/ownerEpoch';
 import { useAuthStore } from '../src/stores/auth';
+import { useLlmConsentStore } from '../src/stores/llmConsent';
 import { useOfflineStore } from '../src/stores/offline';
 import OverviewView from '../src/views/OverviewView.vue';
 
@@ -37,7 +38,6 @@ function testRouter(): Router {
     history: createMemoryHistory(),
     routes: [
       { path: '/overview', name: 'overview', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
       { path: '/tracker', name: 'tracker', component: Stub },
       { path: '/planner', name: 'planner', component: Stub },
       { path: '/month', name: 'month', component: Stub },
@@ -130,10 +130,19 @@ describe('개요 — greeting and the one primary button', () => {
     expect(wrapper.findAll('h1')).toHaveLength(1);
     expect(wrapper.get('[data-next]').text()).toBe('다음은 오후 7:00에 시작하는 ‘연구 노트 요약’ 블록이에요.');
 
+    // HOLO-04: 오늘 lives here. The page's one filled button is on the next
+    // block's card, not in the head.
+    await vi.waitFor(() => expect(wrapper.find('[data-primary="start"]').exists()).toBe(true));
     const primaries = wrapper.findAll('.btn--primary');
     expect(primaries).toHaveLength(1);
     expect(primaries[0]?.attributes('data-primary')).toBe('start');
     expect(primaries[0]?.text()).toBe('집중 시작');
+    expect(primaries[0]?.element.closest('.today-card--next')).not.toBeNull();
+    expect(wrapper.find('.overview-head .btn--primary').exists()).toBe(false);
+    // The day, then the week: two sections under the greeting.
+    expect(wrapper.get('[data-today-board] h2').text()).toBe('오늘');
+    expect(wrapper.get('.overview-week h2').text()).toBe('이번 주');
+    expect(wrapper.find('.overview-week [data-week]').exists()).toBe(true);
     // Every card has a title; all but the log have an "open" corner to the screen that owns the detail.
     expect(wrapper.findAll('[data-widget] h2').map((title) => title.text())).toEqual([
       '진행',
@@ -146,8 +155,8 @@ describe('개요 — greeting and the one primary button', () => {
       wrapper.findAll('[data-widget] [data-open]').map((link) => [link.attributes('aria-label'), link.attributes('href')]),
     ).toEqual([
       ['AI 분석 열기', '/insights'],
-      // HOLO-02: the 타임 트래커 card opens the screen of that name (it opened 오늘 before it existed).
-      ['타임 트래커 열기', '/tracker'],
+      // HOLO-04: the 타임 트래커 card opens 집중, where the timer and its record live.
+      ['집중 열기', '/focus'],
       // HOLO-02: 오늘 요약 opens today in 플래너 (한달 is that screen's month view now).
       ['플래너에서 오늘 열기', '/planner?view=day'],
       ['재계획 제안 열기', '/replan'],
@@ -184,6 +193,41 @@ describe('개요 — greeting and the one primary button', () => {
     expect(wrapper.find('[data-tracker-start]').exists()).toBe(false);
   });
 
+  it('an empty day shows no row of zeros and nothing to accept; a risk that says something still shows (HOLO-04)', async () => {
+    mockDb.today = { ...mockDb.today, blocks: [], risk: { level: 'low', reasons: [] } };
+    const { wrapper } = await mountOverview();
+    await vi.waitFor(() => expect(wrapper.find('[data-today-empty]').exists()).toBe(true));
+    expect(wrapper.find('.today-stats').exists()).toBe(false);
+    expect(wrapper.find('[data-today-summary]').exists()).toBe(false);
+    expect(wrapper.find('[data-today-accept]').exists()).toBe(false);
+    wrapper.unmount();
+
+    // Negative: with no block today but a deadline at risk, the risk is not hidden with the figures.
+    mockDb.today = { ...mockDb.today, blocks: [], risk: { level: 'high', reasons: [] } };
+    const risky = await mountOverview();
+    await vi.waitFor(() => expect(risky.wrapper.find('[data-today-empty]').exists()).toBe(true));
+    expect(risky.wrapper.get('[data-today-summary]').text()).toContain('위험도: 높음');
+    expect(risky.wrapper.find('.today-stats').exists()).toBe(false);
+    expect(risky.wrapper.find('[data-today-accept]').exists()).toBe(false);
+  });
+
+  it('a plan with no block today still offers 재계획 요청: the card that holds it stays, without the zeros (found by E2E-5R)', async () => {
+    seedReplanScenario(mockDb, { history: true });
+    mockDb.today = { ...mockDb.today, blocks: [], risk: { level: 'low', reasons: [] } };
+    const { wrapper } = await mountOverview();
+    await vi.waitFor(() => expect(wrapper.find('[data-replan-request]').exists()).toBe(true));
+    expect(wrapper.get('[data-today-summary]').find('[data-replan-request]').exists()).toBe(true);
+    expect(wrapper.find('.today-stats').exists()).toBe(false);
+    expect(wrapper.find('[data-today-accept]').exists()).toBe(false);
+  });
+
+  it('a day with blocks keeps its figures and 오늘 계획 수락', async () => {
+    const { wrapper } = await mountOverview();
+    await vi.waitFor(() => expect(wrapper.find('[data-primary="start"]').exists()).toBe(true));
+    expect(wrapper.findAll('.today-stats .today-stat')).toHaveLength(3);
+    expect(wrapper.find('[data-today-accept]').exists()).toBe(true);
+  });
+
   it('says so when the server refuses because a session is already running (negative)', async () => {
     seedWeek();
     server.use(
@@ -195,7 +239,8 @@ describe('개요 — greeting and the one primary button', () => {
       ),
     );
     const { wrapper, router } = await mountOverview();
-    await wrapper.get('[data-primary="start"]').trigger('click');
+    // The cards' own start (타임 트래커) reports to the page; the filled button of 오늘 has its own notice (m4-today).
+    await wrapper.get('.overview-grid [data-tracker-start]').trigger('click');
     await vi.waitFor(() => expect(wrapper.find('.overview-start-error').exists()).toBe(true));
     expect(wrapper.get('.overview-start-error').text()).toContain('이미 돌아가는 세션이 있어요');
     expect(wrapper.get('.overview-start-error').attributes('role')).toBe('alert');
@@ -446,15 +491,27 @@ describe('개요 — AI 도우미', () => {
     expect(ai.find('[data-ai-replan] a').exists()).toBe(false);
   });
 
-  it('without AI consent says so and points to AI 설정, with no figures (negative)', async () => {
+  it('without AI consent says so and asks for it right there, with no figures (negative: no link to 설정)', async () => {
     seedWeek();
     mockDb.user = { ...mockDb.user, llmProvider: 'deepseek' };
-    const { wrapper } = await mountOverview();
+    const { wrapper, pinia, router } = await mountOverview();
     const ai = card(wrapper, 'ai');
     const consent = ai.get('[data-ai-consent]');
     expect(consent.text()).toContain('AI 계획 도움이 꺼져 있어요');
-    expect(consent.get('a').attributes('href')).toBe('/settings/ai');
-    expect(consent.get('a').text()).toBe('AI 설정 열기');
+    // HOLO-04 (FLOW §1): nobody is sent to a settings screen to become ready.
+    expect(consent.find('a').exists()).toBe(false);
+    const ask = consent.get('[data-ai-consent-ask]');
+    expect(ask.text()).toBe('여기서 AI 켜기');
+    // The shell hosts the consent dialog; with a host, the press asks for it in place.
+    const llmConsent = useLlmConsentStore(pinia);
+    const detach = llmConsent.attachHost();
+    llmConsent.closed();
+    expect(llmConsent.open).toBe(false);
+    await ask.trigger('click');
+    expect(llmConsent.requested).toBe(true);
+    expect(llmConsent.open).toBe(true);
+    expect(router.currentRoute.value.name).toBe('overview');
+    detach();
     expect(ai.find('[data-ratio]').exists()).toBe(false);
     expect(ai.find('.ai-facts').exists()).toBe(false);
     expect(ai.find('[data-open]').exists()).toBe(false);

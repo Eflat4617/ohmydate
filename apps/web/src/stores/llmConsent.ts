@@ -18,8 +18,9 @@ const DISMISSED = '1';
  *   the dialog was only dismissed, never answered), `askBeforeAi()` opens it
  *   even after a dismissal and resolves once it closes, so the request goes out
  *   with the user's answer. An explicit "직접 작성 모드" answer is not asked again.
- * - AI 설정 (LlmSettingsView) always shows the same disclosure and the enable
- *   button; this store does not gate it.
+ * - 설정 › AI always shows the same disclosure and the enable button; this
+ *   store does not gate it.
+ * - `ask()` opens it because the owner pressed "여기서 AI 켜기" somewhere (HOLO-04).
  */
 export const useLlmConsentStore = defineStore('llmConsent', () => {
   const auth = useAuthStore();
@@ -74,6 +75,21 @@ export const useLlmConsentStore = defineStore('llmConsent', () => {
     });
   }
 
+  /**
+   * HOLO-04 (FLOW.md §1): the owner asked for AI where they are — a "여기서 AI
+   * 켜기" beside something the AI would do — whatever was answered before (also
+   * after 직접 작성 모드). The same dialog opens in place, with the same
+   * disclosure; nobody is sent to 설정 to become ready. Resolves once it closes
+   * (granted or not), at once when there is nothing to grant or no host.
+   */
+  function ask(): Promise<void> {
+    if (!needed.value || hosts.value === 0) return Promise.resolve();
+    requested.value = true;
+    return new Promise((resolve) => {
+      waiters.push(resolve);
+    });
+  }
+
   /** AppShell renders the dialog; returns the detach function for unmount. */
   function attachHost(): () => void {
     hosts.value += 1;
@@ -101,5 +117,5 @@ export const useLlmConsentStore = defineStore('llmConsent', () => {
     },
   );
 
-  return { open, needed, undecided, dismissed, requested, closed, askBeforeAi, attachHost };
+  return { open, needed, undecided, dismissed, requested, closed, askBeforeAi, ask, attachHost };
 });

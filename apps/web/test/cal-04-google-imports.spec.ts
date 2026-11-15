@@ -15,9 +15,9 @@ import { server } from '../src/mocks/server';
 import { resetFocusClientIdForTests } from '../src/session/clientId';
 import { sessionJournal } from '../src/session/journal';
 import { useSessionStore } from '../src/stores/session';
-import CommitmentsView from '../src/views/CommitmentsView.vue';
 import MonthView from '../src/views/MonthView.vue';
-import TodayView from '../src/views/TodayView.vue';
+import PlannerView from '../src/views/PlannerView.vue';
+import TodayView from '../src/components/today/TodayBoard.vue';
 
 const Stub = defineComponent({ template: '<div />' });
 const ZONE = 'Asia/Seoul';
@@ -34,8 +34,8 @@ function testRouter(): Router {
     history: createMemoryHistory(),
     routes: [
       { path: '/month', name: 'month', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
-      { path: '/commitments', name: 'commitments', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
+      { path: '/planner', name: 'planner', component: Stub },
       { path: '/settings/calendar', name: 'calendar-settings', component: Stub },
       { path: '/plans/new', name: 'plans-new', component: Stub },
       { path: '/tasks/:id', name: 'task', component: Stub },
@@ -69,12 +69,11 @@ afterEach(() => {
   setLayoutClock(null);
 });
 
-describe('약속: rows imported from Google are read-only', () => {
+// HOLO-04: the 약속 screen is the planner's list view (`/planner?view=list`);
+// the mock's week is 2026-11-09..11-15.
+describe('플래너 · 약속: rows imported from Google are read-only', () => {
   async function mountCommitments(): Promise<VueWrapper> {
-    const wrapper = await mountView(CommitmentsView, '/commitments');
-    await vi.waitFor(() => expect(wrapper.find('#commitment-from').exists()).toBe(true));
-    await wrapper.get('#commitment-from').setValue('2026-11-09');
-    await wrapper.get('#commitment-to').setValue('2026-11-15');
+    const wrapper = await mountView(PlannerView, '/planner?view=list');
     await vi.waitFor(() => expect(wrapper.find(`[data-source="google"]`).exists() || wrapper.text().includes('팀 회의')).toBe(true));
     return wrapper;
   }
@@ -85,7 +84,7 @@ describe('약속: rows imported from Google are read-only', () => {
     return found;
   }
 
-  it('says 구글 캘린더 in words and offers no 수정 / 삭제; manual rows are as before', async () => {
+  it('says 구글 캘린더 in words and offers no 고치기; manual rows are as before', async () => {
     seedMonth(mockDb);
     seedGoogle(mockDb, 'connected');
     const wrapper = await mountCommitments();
@@ -100,9 +99,10 @@ describe('약속: rows imported from Google are read-only', () => {
     const manual = row(wrapper, '팀 회의');
     expect(manual.attributes('data-source')).toBe('manual');
     expect(manual.find('[data-commitment-source]').exists()).toBe(false);
-    expect(manual.findAll('button').map((button) => button.text())).toEqual(['팀 회의 수정', '팀 회의 삭제']);
+    // One way in for a manual row: 고치기 opens the planner's dialog on it (change or delete).
+    expect(manual.findAll('button').map((button) => button.text().replace(/\s+/g, ' '))).toEqual(['팀 회의 고치기']);
 
-    // One line above the list says where they come from and links to 캘린더 연동.
+    // One line under the list says where they come from and links to 캘린더 연동.
     const note = wrapper.get('[data-google-note]');
     expect(note.text()).toContain(t('commitments.google.note'));
     expect(note.get('a').attributes('href')).toBe('/settings/calendar');
@@ -110,16 +110,18 @@ describe('약속: rows imported from Google are read-only', () => {
     expect(wrapper.find('[data-google-stale]').exists()).toBe(false);
   });
 
-  it('without Google there is no note and every row keeps 수정 / 삭제 (negative)', async () => {
+  it('without Google there is no note and every row keeps 고치기 (negative)', async () => {
     const wrapper = await mountCommitments();
     await vi.waitFor(() => expect(wrapper.text()).toContain('팀 회의'));
     await flushPromises();
     expect(wrapper.find('[data-google-note]').exists()).toBe(false);
     expect(wrapper.find('[data-google-stale]').exists()).toBe(false);
-    for (const item of wrapper.findAll('.commitment-item')) expect(item.findAll('button')).toHaveLength(2);
-    // The manual edit path is unchanged.
-    await row(wrapper, '팀 회의').findAll('button')[0]?.trigger('click');
-    expect((wrapper.get('#commitment-title').element as HTMLInputElement).value).toBe('팀 회의');
+    for (const item of wrapper.findAll('.commitment-item')) expect(item.findAll('button')).toHaveLength(1);
+    // The manual edit path: the row's 고치기 opens the dialog on that 약속, with 삭제 in it.
+    await row(wrapper, '팀 회의').get('[data-commitment-edit]').trigger('click');
+    await flushPromises();
+    expect((wrapper.get('#planner-commitment-title').element as HTMLInputElement).value).toBe('팀 회의');
+    expect(wrapper.find('[data-planner-delete]').exists()).toBe(true);
   });
 
   it('when sign-in expired, one line says imported 약속 may be out of date', async () => {
@@ -310,7 +312,7 @@ describe('오늘: a 약속 imported from Google for today shows like any other',
     seedMonth(mockDb);
     seedGoogle(mockDb, 'connected');
     expect(mockDb.commitments.get(GOOGLE_COMMITMENT_DENTIST_ID)?.source).toBe('google');
-    const wrapper = await mountView(TodayView, '/today');
+    const wrapper = await mountView(TodayView, '/overview');
     await vi.waitFor(() => expect(wrapper.text()).toContain(TODAY_TASK_ONE_TITLE));
     const commitments = await vi.waitFor(() => wrapper.get('[data-today-commitments]'));
     const rows = commitments.findAll('.today-agenda-item').map((item) => item.text());

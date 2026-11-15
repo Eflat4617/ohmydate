@@ -8,7 +8,7 @@ import { HttpResponse, http } from 'msw';
 import { createPinia } from 'pinia';
 import { nextTick } from 'vue';
 import { isUuidV7Key, type User } from '../src/api';
-import LlmSettingsView from '../src/views/LlmSettingsView.vue';
+import LlmSettingsView from '../src/components/settings/AiSettings.vue';
 import { mockDb } from '../src/mocks/db';
 import { server } from '../src/mocks/server';
 
@@ -71,9 +71,13 @@ async function mountSettings(): Promise<VueWrapper> {
     attachTo: document.body,
   });
   await settle();
+  // A section of 설정: its title is an h2 under the screen's own, and its
+  // cards (or the note that there is nothing to set) follow once /me answered.
   await vi.waitFor(() => {
-    expect(wrapper.find('h1').exists()).toBe(true);
+    expect(wrapper.find('h2.settings-section-title').exists()).toBe(true);
+    expect(wrapper.find('.settings-cards, .empty-state').exists()).toBe(true);
   });
+  expect(wrapper.find('h1').exists()).toBe(false);
   return wrapper;
 }
 

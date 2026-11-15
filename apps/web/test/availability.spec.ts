@@ -1,5 +1,5 @@
 import { createPlannerClient, newActionId, plannerClient, type AvailabilityPut } from '../src/api';
-import AvailabilityView from '../src/views/AvailabilityView.vue';
+import AvailabilityView from '../src/components/settings/AvailabilitySettings.vue';
 import { mockDb } from '../src/mocks/db';
 import {
   buttonByText,
@@ -78,7 +78,9 @@ describe('availability editor', () => {
     const save = wrapper.get('#availability-save');
     await save.trigger('click');
     await vi.waitFor(() => {
-      expect(wrapper.text()).toContain('가용 시간을 저장했어요 (버전 3)');
+      expect(wrapper.text()).toContain('가용 시간을 저장했어요.');
+      // The version is not copy any more (no internal names on screen); it is still what the form holds.
+      expect(wrapper.get('[data-availability-version]').attributes('data-availability-version')).toBe('3');
     });
 
     const reloaded = await plannerClient.getAvailability({ fresh: true });

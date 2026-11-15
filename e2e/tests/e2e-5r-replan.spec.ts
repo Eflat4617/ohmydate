@@ -357,7 +357,7 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
     const proposalId = proposal.id;
 
     await test.step('오늘 shows one calm card and the notifications link to it', async () => {
-      await page.goto(`${state.webUrl}/today`);
+      await page.goto(`${state.webUrl}/overview`);
       await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
       const banner = page.locator('[data-replan-card]');
       await expect(banner).toHaveCount(1);
@@ -427,7 +427,7 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       await expect(page.locator('[data-proposal-state]')).toHaveText('승인됨');
       await expect(page.getByText('제안을 승인했어요. 새 일정이 반영됐어요.').first()).toBeVisible();
       // The hand-off: the one filled control now leads to 오늘, and nothing is drawn as a proposal any more.
-      await expect(page.locator('[data-replan-today]')).toHaveAttribute('href', '/today');
+      await expect(page.locator('[data-replan-today]')).toHaveAttribute('href', '/overview');
       await expect(page.locator('[data-replan] .btn--primary')).toHaveCount(1);
       await expect(page.locator('.replan-week .wg-item[data-kind="proposal"]')).toHaveCount(0);
 
@@ -456,7 +456,7 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
     // ── 4. User request → reject → same reason suppressed ─────────────────
     let requestedId = '';
     await test.step('“재계획 요청” creates a user_request proposal that is rejected with the 24 h explanation', async () => {
-      await page.goto(`${state.webUrl}/today`);
+      await page.goto(`${state.webUrl}/overview`);
       await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
       await expect(page.locator('[data-replan-card]')).toHaveCount(0);
       await page.locator('[data-replan-request]').click();

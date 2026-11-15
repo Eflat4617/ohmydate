@@ -27,7 +27,7 @@ import { adoptActiveOwner, clearOwnerResetPending } from '../src/session/ownerEp
 import { sessionJournal } from '../src/session/journal';
 import { useAuthStore } from '../src/stores/auth';
 import { useLlmConsentStore } from '../src/stores/llmConsent';
-import LlmSettingsView from '../src/views/LlmSettingsView.vue';
+import LlmSettingsView from '../src/components/settings/AiSettings.vue';
 import PlanView from '../src/views/PlanView.vue';
 
 // ── 1. The disclosure names exactly what privacy.ts masks ────────────────────
@@ -97,7 +97,7 @@ function testRouter(): Router {
   return createRouter({
     history: createMemoryHistory(),
     routes: [
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/inbox', name: 'inbox', component: Stub },
       { path: '/projects', name: 'projects', component: Stub },
       { path: '/settings/ai', name: 'ai-settings', component: Stub },
@@ -154,7 +154,7 @@ const Host = defineComponent({
   template: '<AppShell><RouterView /></AppShell>',
 });
 
-async function mountShell(pinia: Pinia, path = '/today'): Promise<{ wrapper: VueWrapper; router: Router }> {
+async function mountShell(pinia: Pinia, path = '/overview'): Promise<{ wrapper: VueWrapper; router: Router }> {
   const router = testRouter();
   await router.push(path);
   await router.isReady();

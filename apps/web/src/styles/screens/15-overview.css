@@ -5,8 +5,9 @@
  *   under 44rem   one column, in the order a · c · b · d · e · f
  *   from 44rem    two columns
  *   from 66rem    three columns: 진행 · 타임 트래커 · 오늘 요약, then AI · 작업 기록
- * One lime thing per view: the primary button. In the cards lime is data
- * (today's bar, the leading ring segment, the trend), never a second button.
+ * One lime thing per view: the filled button of 오늘 (03-today.css). In the
+ * cards lime is data (today's bar, the leading ring segment, the trend),
+ * never a second button.
  */
 .overview-page {
   gap: var(--space-6);
@@ -35,6 +36,26 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
+}
+
+/* 이번 주: the dashboard under the day. Its head holds the week on show. */
+.overview-week {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.overview-week-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+
+.overview-week-title {
+  font-size: var(--text-xl);
 }
 
 /* The week on show in 진행: step back and forth around its dates. */
@@ -302,9 +323,8 @@
 }
 
 /* ── AI 도우미 ───────────────────────────────────────────────────── */
-/* The glass object stands at the top of the card; the figure is a frosted
-   panel laid over its lower edge (the one blur on the screen); the facts sit
-   on the card's floor. */
+/* The glass object stands at the top of the card; the figure is a pane of
+   glass laid over its lower edge; the facts sit on the card's floor. */
 .ai-visual {
   display: grid;
   place-items: center;
@@ -320,10 +340,7 @@
   min-width: 0;
   margin-top: calc(-1 * var(--space-12));
   padding: var(--space-4);
-  border: var(--rule-hair) solid var(--color-line-strong);
   border-radius: var(--radius-lg);
-  background: color-mix(in oklab, var(--color-raised) 58%, transparent);
-  backdrop-filter: blur(var(--blur-float));
 }
 
 .ai-trend {

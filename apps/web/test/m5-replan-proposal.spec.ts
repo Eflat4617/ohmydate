@@ -264,7 +264,7 @@ describe('재계획 — one proposal (M5-03)', () => {
     expect(filled).toHaveLength(1);
     expect(filled[0]?.attributes('data-replan-today')).toBeDefined();
     expect(filled[0]?.text()).toBe('오늘 보기');
-    expect(filled[0]?.attributes('href')).toBe('/today');
+    expect(filled[0]?.attributes('href')).toBe('/overview');
     // What was proposed is real now: it is drawn as blocks, never as a proposal.
     await vi.waitFor(() => expect(wrapper.find('.wg-item[data-kind="proposal"]').exists()).toBe(false));
     expect(wrapper.get('.replan-week .planner-legend').text()).toContain('바뀐 자리');
@@ -389,7 +389,7 @@ describe('재계획 요청 (user_request)', () => {
   });
 
   it('creates a pending proposal and opens it', async () => {
-    const { wrapper, router } = await mountView(ReplanRequestButton, { path: '/today', props: { planId: MOCK_PLAN_ID } });
+    const { wrapper, router } = await mountView(ReplanRequestButton, { path: '/overview', props: { planId: MOCK_PLAN_ID } });
     const request = vi.spyOn(plannerClient, 'requestReplanProposal');
     await buttonWith(wrapper, '재계획 요청').trigger('click');
     await vi.waitFor(() => expect(router.currentRoute.value.path).toMatch(/^\/replan\/[0-9a-f-]{36}$/));
@@ -401,7 +401,7 @@ describe('재계획 요청 (user_request)', () => {
 
   it('shows replan_suppressed with Retry-After as a human-readable wait and uses a fresh key on retry', async () => {
     mockDb.replanSuppressions.set('user_request', Date.now() + 24 * 60 * 60 * 1000);
-    const { wrapper } = await mountView(ReplanRequestButton, { path: '/today', props: { planId: MOCK_PLAN_ID } });
+    const { wrapper } = await mountView(ReplanRequestButton, { path: '/overview', props: { planId: MOCK_PLAN_ID } });
     const request = vi.spyOn(plannerClient, 'requestReplanProposal');
     await buttonWith(wrapper, '재계획 요청').trigger('click');
     await waitForText(wrapper, '지금은 재계획을 더 요청할 수 없어요.');
@@ -432,7 +432,7 @@ describe('재계획 요청 (user_request)', () => {
       createdAt: today,
       trigger: { ...base.trigger, reason: 'deadline_slack_negative', kind: 'deadline_risk' },
     });
-    const { wrapper } = await mountView(ReplanRequestButton, { path: '/today', props: { planId: MOCK_PLAN_ID } });
+    const { wrapper } = await mountView(ReplanRequestButton, { path: '/overview', props: { planId: MOCK_PLAN_ID } });
     await buttonWith(wrapper, '재계획 요청').trigger('click');
     await waitForText(wrapper, '에 다시 요청할 수 있어요');
     expect([...mockDb.replanProposals.values()].filter((item) => item.trigger.kind === 'user_request')).toHaveLength(0);
@@ -441,7 +441,7 @@ describe('재계획 요청 (user_request)', () => {
 
   it('explains a plan the server no longer knows and keeps nothing on the device (negative)', async () => {
     const missing = '01900000-0000-7000-8000-00000000ffff';
-    const { wrapper } = await mountView(ReplanRequestButton, { path: '/today', props: { planId: missing } });
+    const { wrapper } = await mountView(ReplanRequestButton, { path: '/overview', props: { planId: missing } });
     await buttonWith(wrapper, '재계획 요청').trigger('click');
     await waitForText(wrapper, '이 계획을 찾을 수 없어요');
     expect(localStorage.length).toBe(0);

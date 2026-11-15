@@ -193,10 +193,12 @@ onBeforeUnmount(() => {
 });
 
 const spec = computed(() => displayed.value);
-// Planning and notes pages own wide grids (plan candidates; the notes list
-// beside the editor), so their context panels go below the page.
+// 개요, planning and notes pages own wide grids (the dashboard; plan
+// candidates; the notes list beside the editor), so their context panels go
+// below the page. Only the focus timer keeps its panels beside it.
 const variant = computed(() =>
-  typeof route.name === 'string' && (PLANNING_ROUTES.has(route.name) || routeKindOf(route) === 'notes')
+  typeof route.name === 'string' &&
+  (route.name === 'overview' || PLANNING_ROUTES.has(route.name) || routeKindOf(route) === 'notes')
     ? 'stacked'
     : 'columns',
 );

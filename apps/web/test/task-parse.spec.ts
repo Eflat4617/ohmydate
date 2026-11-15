@@ -32,8 +32,7 @@ import { server } from '../src/mocks/server';
 import { useAuthStore } from '../src/stores/auth';
 import { useLlmConsentStore } from '../src/stores/llmConsent';
 import { useOfflineStore } from '../src/stores/offline';
-import { useUiStore } from '../src/stores/ui';
-import CommitmentsView from '../src/views/CommitmentsView.vue';
+import CommitmentAddDialog from '../src/components/planner/CommitmentAddDialog.vue';
 import InboxView from '../src/views/InboxView.vue';
 import { mountWithPlugins, settle } from './planning-test-utils';
 
@@ -475,14 +474,16 @@ describe('/inbox 말로 적기', () => {
     wrapper.unmount();
   });
 
-  it('`n` / 새 작업 still focuses the quick add, also with drafts on screen', async () => {
+  it('the quick add stays usable with drafts on screen: one field away, never taken over', async () => {
     const pinia = createPinia();
     const wrapper = await mountInbox(pinia);
     await read(wrapper, TWO);
     await vi.waitFor(() => expect(document.activeElement?.id).toBe('task-parse-result-heading'));
-    useUiStore(pinia).requestNewTask();
-    await settle();
-    await vi.waitFor(() => expect(document.activeElement?.id).toBe('quick-add-title'));
+    // HOLO-04: `n` is the capture bar's now, so nothing moves the focus here on its own.
+    const field = wrapper.get<HTMLInputElement>('#quick-add-title');
+    expect(field.attributes('disabled')).toBeUndefined();
+    field.element.focus();
+    expect(document.activeElement).toBe(field.element);
     wrapper.unmount();
   });
 
@@ -618,27 +619,41 @@ describe('/inbox 말로 적기: AI consent (FU-91 rules)', () => {
     host.unmount();
   });
 
-  it('AI turned off: no request, one line with the way to AI 설정, the quick add right there (negative)', async () => {
+  it('AI turned off: no request, one line that offers to turn it on right there, the quick add beside it (negative)', async () => {
     const seen = recordRequests();
     const pinia = await signedIn(deepseek({ granted: false }));
     const wrapper = await mountInbox(pinia);
     await read(wrapper, TWO);
     await vi.waitFor(() => expect(wrapper.find('[data-testid="task-parse"] .nl-failure').exists()).toBe(true));
     expect(wrapper.get('[data-testid="task-parse"] .nl-failure').text()).toContain('AI를 쓰지 않도록 설정되어 있어요.');
-    expect(wrapper.get('[data-testid="task-parse"] .nl-failure a').attributes('href')).toBe('/settings/ai');
+    // HOLO-04 (FLOW §1): the way on is asked for right here — the consent dialog, not a link to 설정.
+    expect(wrapper.find('[data-testid="task-parse"] .nl-failure a').exists()).toBe(false);
+    const turnOn = wrapper.get('[data-testid="task-parse"] .nl-failure [data-nl-consent]');
+    expect(turnOn.text()).toBe('여기서 AI 켜기');
+    const consent = useLlmConsentStore(pinia);
+    const detach = consent.attachHost();
+    expect(consent.open).toBe(false); // turned off by answer: the dialog does not come by itself
+    await turnOn.trigger('click');
+    expect(consent.open).toBe(true);
+    detach();
     expect(parseRequests(seen)).toHaveLength(0);
     expect((wrapper.get('#task-note').element as HTMLTextAreaElement).value).toBe(TWO);
     expect(wrapper.get('#quick-add-title').attributes('disabled')).toBeUndefined();
-    expect(wrapper.get('[data-testid="task-parse"] .nl-entry-disclosure').text()).toContain('인박스');
+    // The disclosure names where typed text is sent from: the capture bar and 말로 적기 (할 일, 약속 추가).
+    expect(wrapper.get('[data-testid="task-parse"] .nl-entry-disclosure').text()).toContain('담기 줄과 ‘말로 적기’(할 일·약속 추가)');
     wrapper.unmount();
   });
 });
 
-// ── The 약속 screen's draft rows: the same switch (CAL-05 addendum) ──────────
+// ── 약속 추가's draft rows (the planner's dialog): the same switch (CAL-05 addendum) ──────────
 
-describe('/commitments 말로 적기: guessed AM/PM (CAL-05 addendum)', () => {
+describe('약속 추가 말로 적기: guessed AM/PM (CAL-05 addendum)', () => {
   async function mountCommitments(): Promise<VueWrapper> {
-    const wrapper = mountWithPlugins(CommitmentsView, { pinia: createPinia(), router: router() });
+    const wrapper = mountWithPlugins(CommitmentAddDialog, {
+      pinia: createPinia(),
+      router: router(),
+      props: { timeZone: 'Asia/Seoul', date: '2026-11-14' },
+    });
     await settle();
     await vi.waitFor(() => expect(wrapper.find('#commitment-note').exists()).toBe(true));
     return wrapper;

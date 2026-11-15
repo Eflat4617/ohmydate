@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { type Page } from '@playwright/test';
 import { expect, test } from '../helpers/test';
 import { agentRunStatuses } from '../helpers/db';
-import { login } from '../helpers/app';
+import { fetchPlannerTasks, login, waitForPlannerTask } from '../helpers/app';
 import { readState } from '../helpers/state';
 
 /**
@@ -37,7 +37,7 @@ test.describe('E2E-8 — 할 일을 말로 적기 (CAL-05)', () => {
     const before = await agentRunStatuses(state, state.aiWaitOwnerId, 'task_parse');
 
     const title = `보고서 초안 E${Date.now().toString(36)}`;
-    await page.goto(`${state.webUrl}/inbox`);
+    await page.goto(`${state.webUrl}/tasks`);
     // HOLO-02: 말로 적기 is folded under one disclosure below the quick add.
     await expect(page.getByRole('heading', { name: '말로 적기' })).toBeHidden();
     await page.getByText('말로 여러 개 적기', { exact: true }).click();
@@ -94,7 +94,7 @@ test.describe('E2E-8 — 할 일을 말로 적기 (CAL-05)', () => {
     const page = await context.newPage();
     await login(page, state, account);
     const before = await agentRunStatuses(state, state.aiWaitOwnerId, 'task_parse');
-    await page.goto(`${state.webUrl}/inbox`);
+    await page.goto(`${state.webUrl}/tasks`);
     const title = `빠른 추가 E${Date.now().toString(36)}`;
     await page.getByLabel('작업 빠르게 추가').fill(title);
     await page.getByLabel('작업 빠르게 추가').press('Enter');
@@ -102,6 +102,57 @@ test.describe('E2E-8 — 할 일을 말로 적기 (CAL-05)', () => {
     await expect(listed).toHaveCount(1);
     await expect(listed.getByTestId('task-due')).toHaveCount(0);
     expect((await agentRunStatuses(state, state.aiWaitOwnerId, 'task_parse')).length).toBe(before.length);
+    const deleted = page.waitForResponse(
+      (candidate) => candidate.request().method() === 'DELETE' && new URL(candidate.url()).pathname.includes('/api/v1/tasks/'),
+      { timeout: 30_000 },
+    );
+    await listed.getByRole('button', { name: `${title} 삭제` }).click();
+    expect((await deleted).status()).toBe(204);
+    await context.close();
+  });
+
+  test('담기 줄 (HOLO-04): one line is read as a to-do, saved only on 담기, and handed to 계획', async ({ browser }) => {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await login(page, state, account);
+    const before = await agentRunStatuses(state, state.aiWaitOwnerId, 'task_parse');
+    const title = `발표 준비 E${Date.now().toString(36)}`;
+
+    // From 개요, where the app opens: the bar is on every screen.
+    const bar = page.locator('.app-topbar [data-capture]');
+    const input = bar.locator('[data-capture-input]');
+    await input.click();
+    await input.fill(`내일까지 ${title}`);
+    await input.press('Enter');
+    await expect(bar.locator('[data-capture-wait]')).toBeVisible();
+    const row = bar.locator('[data-capture-row="task"]');
+    await expect(row).toHaveCount(1, { timeout: state.aiWaitLatencyMs + 20_000 });
+    await expect(bar.locator('[data-capture-wait]')).toHaveCount(0);
+    await expect(row.locator('[data-capture-when]')).toContainText('오후 11:59');
+    // The read saved nothing: it is a proposal until the owner says 담기 (negative).
+    expect((await fetchPlannerTasks(page, state)).some((task) => task.title === title)).toBe(false);
+    expect(await blockingAxeViolations(page)).toEqual([]);
+
+    const created = page.waitForResponse(
+      (response) =>
+        response.request().method() === 'POST' && new URL(response.url()).pathname.endsWith('/api/v1/tasks'),
+    );
+    await bar.locator('[data-capture-submit]').click();
+    const response = await created;
+    expect(response.status()).toBe(201);
+    expect(Object.keys(response.request().postDataJSON() as Record<string, unknown>).sort()).toEqual(['dueAt', 'title']);
+    await expect(bar.locator('[data-capture-done]')).toContainText(title);
+    const task = await waitForPlannerTask(page, state, title);
+    expect((await agentRunStatuses(state, state.aiWaitOwnerId, 'task_parse')).slice(before.length)).toEqual(['succeeded']);
+
+    // The hand-off: 계획에 넣기 opens the plan flow with what was just put down picked.
+    await bar.locator('[data-capture-next="plan"]').click();
+    await expect(page).toHaveURL(new RegExp(`/plan/schedule\\?taskIds=${task.id}`));
+
+    // Leave the owner as it was.
+    await page.goto(`${state.webUrl}/tasks`);
+    const listed = page.locator('li.task-item').filter({ hasText: title });
+    await expect(listed).toHaveCount(1);
     const deleted = page.waitForResponse(
       (candidate) => candidate.request().method() === 'DELETE' && new URL(candidate.url()).pathname.includes('/api/v1/tasks/'),
       { timeout: 30_000 },

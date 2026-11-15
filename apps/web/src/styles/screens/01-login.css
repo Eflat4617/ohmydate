@@ -23,10 +23,7 @@
   gap: var(--space-6);
   width: min(24rem, 100%);
   padding: var(--space-8) var(--space-6) var(--space-6);
-  border: var(--rule-hair) solid var(--color-line-strong);
   border-radius: var(--radius-xl);
-  background: color-mix(in oklab, var(--color-raised) 62%, transparent);
-  backdrop-filter: blur(var(--blur-float));
 }
 
 .auth-header {

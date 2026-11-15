@@ -193,7 +193,7 @@ function testRouter(): Router {
     history: createMemoryHistory(),
     routes: [
       { path: '/tracker', name: 'tracker', component: Stub },
-      { path: '/today', name: 'today', component: Stub },
+      { path: '/overview', name: 'overview', component: Stub },
       { path: '/tasks/:id', name: 'task', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
     ],
@@ -299,7 +299,8 @@ describe('타임 트래커 — the timer card', () => {
   it('waits at 00:00:00 with the next block’s task picked, and one filled button', async () => {
     seedWeek();
     const { wrapper } = await mountTracker();
-    expect(wrapper.get('h1').text()).toBe('타임 트래커');
+    // HOLO-04: the place is called what the sidebar calls it.
+    expect(wrapper.get('h1').text()).toBe('집중');
     expect(wrapper.get('[data-tracker-timer]').attributes('data-status')).toBe('idle');
     expect(wrapper.get('[data-tracker-status]').text()).toBe('대기 중');
     expect(wrapper.get('[data-timer] .visually-hidden').text()).toBe('00:00:00');

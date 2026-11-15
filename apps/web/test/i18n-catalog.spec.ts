@@ -63,6 +63,8 @@ describe('message catalog (ko)', () => {
   it('writes user-facing copy in Korean (every leaf has Hangul unless it is a name or format)', () => {
     const allowedNonKorean = new Set([
       'app.name',
+      // HOLO-04: the settings section is called by the two letters everyone calls it.
+      'settings.section.ai',
       'llm.providerName',
       'llm.modelId',
       'duration.separator',
@@ -72,8 +74,6 @@ describe('message catalog (ko)', () => {
       'format.timeRange',
       'format.dateRange',
       'notifications.meta',
-      'availability.riskP50',
-      'availability.riskP90',
       'llm.disclosure.providerValue',
       'commitments.hiddenTitle',
       'sync.keptOnDevice',
@@ -100,19 +100,19 @@ describe('message catalog (ko)', () => {
   });
 
   it('interpolates typed params and leaves unknown keys visible (negative)', () => {
-    expect(t('today.slackChip', { duration: '3시간 20분' })).toBe('여유 3시간 20분');
+    expect(t('today.dueAt', { time: '오후 3:00' })).toBe('오후 3:00까지');
     expect(interpolate('{a} · {b}', { a: 1 })).toBe('1 · {b}');
     // @ts-expect-error — a key that is not in the catalog is a typecheck error…
     expect(t('nav.doesNotExist')).toBe('nav.doesNotExist');
     // @ts-expect-error — …and so is a missing placeholder value.
-    expect(t('today.slackChip')).toBe('여유 {duration}');
+    expect(t('today.dueAt')).toBe('{time}까지');
     expect(lookup('nav')).toBeUndefined();
   });
 
   it('types any other locale against the Korean key tree', () => {
     // A complete locale type-checks: here the Korean tree itself.
     const complete: Messages = ko;
-    expect(complete.nav.today).toBe('오늘');
+    expect(complete.nav.overview).toBe('개요');
     // @ts-expect-error — a locale that misses keys is rejected by the typecheck.
     const partial: Messages = { app: { name: 'OhMyDate', loading: '…', skipToContent: 'Skip' } };
     expect(partial.app.name).toBe('OhMyDate');
