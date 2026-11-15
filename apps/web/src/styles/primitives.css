@@ -927,6 +927,18 @@
   pointer-events: none;
 }
 
+/* ── Done: a small green tick tile beside the words that say so ────── */
+.success-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--green-soft);
+  color: var(--green-text);
+}
+
 /* ── Switch: a pill whose knob slides; on is lime ──────────────────── */
 :where(input[type='checkbox']).switch {
   justify-content: start;

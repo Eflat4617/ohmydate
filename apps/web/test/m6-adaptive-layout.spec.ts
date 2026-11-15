@@ -96,8 +96,8 @@ describe('adaptive layout — modes (07 §2.2)', () => {
 
   it('planning: the planning page stays primary, context goes below it', async () => {
     useTestClock();
-    mounted = await mountApp('/plan/new');
-    await vi.waitFor(() => expect(mounted?.wrapper.find('#wizard-title').exists()).toBe(true));
+    mounted = await mountApp('/plan');
+    await vi.waitFor(() => expect(mounted?.wrapper.find('#plan-goal-title').exists()).toBe(true));
     expect(modeOf(mounted.wrapper)).toBe('planning');
     expect(regionsOf(mounted.wrapper)).toEqual({
       primary: ['PlanningWorkspace'],

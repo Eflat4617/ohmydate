@@ -85,8 +85,9 @@ describe('sidebar', () => {
     }));
     expect(groups).toEqual([
       { id: 'main', label: '메인', items: ['개요', '오늘', '타임 트래커', '플래너', '인박스', '프로젝트', '노트'] },
-      { id: 'planning', label: '계획', items: ['계획 세우기', '일정안 만들기', '재계획 제안', '약속', '가용 시간'] },
-      { id: 'ai', label: 'AI 분석', items: ['내 패턴'] },
+      // HOLO-03A: the plan flow is one entry (it was 계획 세우기 + 일정안 만들기); 내 패턴 is AI 분석.
+      { id: 'planning', label: '계획', items: ['계획 세우기', '재계획', '약속', '가용 시간'] },
+      { id: 'ai', label: '분석', items: ['AI 분석'] },
       { id: 'settings', label: '설정', items: ['캘린더 연동', 'AI 설정', '레이아웃'] },
     ]);
     expect(wrapper.findAll('.nav-rail .nav-secondary .nav-link-label').map((label) => label.text())).toEqual([
@@ -96,7 +97,7 @@ describe('sidebar', () => {
     ]);
     // Every item has its line icon again, and the shortcuts are shown.
     expect(wrapper.findAll('.nav-rail .nav-groups .nav-link').every((link) => link.find('svg.nav-link-icon').exists())).toBe(true);
-    expect(wrapper.findAll('.nav-rail .nav-groups kbd').map((key) => key.text())).toEqual(['o', 't', 'm']);
+    expect(wrapper.findAll('.nav-rail .nav-groups kbd').map((key) => key.text())).toEqual(['o', 't', 'm', 'p']);
     // The brand opens 개요; 새 작업 stays reachable with its key.
     expect(wrapper.get('.nav-brand').attributes('href')).toBe('/overview');
     expect(wrapper.get('.nav-new-task').text()).toContain('새 작업');
@@ -166,7 +167,11 @@ describe('navigation model', () => {
     expect(crumbFor('overview')).toEqual({ group: 'nav.groupMain', page: 'nav.overview' });
     expect(crumbFor('project')).toEqual({ group: 'nav.groupMain', page: 'nav.projects' });
     expect(crumbFor('plan-session')).toEqual({ group: 'nav.groupPlanning', page: 'nav.plan' });
-    expect(crumbFor('patterns')).toEqual({ group: 'nav.groupAi', page: 'nav.patterns' });
+    // HOLO-03A: every stage of the plan flow is under its one entry; 내 패턴 is AI 분석.
+    expect(crumbFor('plan-schedule')).toEqual({ group: 'nav.groupPlanning', page: 'nav.plan' });
+    expect(crumbFor('plan-scope')).toEqual({ group: 'nav.groupPlanning', page: 'nav.plan' });
+    expect(crumbFor('insights')).toEqual({ group: 'nav.groupAi', page: 'nav.insights' });
+    expect(crumbFor('patterns')).toBeNull();
     expect(crumbFor('focus')).toEqual({ group: 'nav.groupMain', page: 'nav.crumbFocus' });
     const named = routes.flatMap((route) => (typeof route.name === 'string' && route.name !== 'login' ? [route.name] : []));
     expect(named.filter((name) => crumbFor(name) === null)).toEqual([]);
@@ -293,12 +298,14 @@ describe('top bar', () => {
 
 describe('shortcuts', () => {
   // HOLO-02: the sidebar entry beside `m` is 플래너 now (the calendar screen, 일 · 주 · 월).
-  it('o, t and m open 개요, 오늘 and 플래너', async () => {
+  // HOLO-03A: `p` opens 계획 세우기, the one way into the plan flow.
+  it('o, t, m and p open 개요, 오늘, 플래너 and 계획 세우기', async () => {
     const { router } = await mountShell('/inbox');
     for (const [key, name] of [
       ['o', 'overview'],
       ['t', 'today'],
       ['m', 'planner'],
+      ['p', 'plan'],
     ] as const) {
       press(key);
       await vi.waitFor(() => expect(router.currentRoute.value.name).toBe(name));
@@ -369,11 +376,10 @@ describe('phone navigation', () => {
       '플래너',
       '프로젝트',
       '노트',
-      '일정안 만들기',
-      '재계획 제안',
+      '재계획',
       '약속',
       '가용 시간',
-      '내 패턴',
+      'AI 분석',
       '캘린더 연동',
       'AI 설정',
       '레이아웃',

@@ -28,7 +28,6 @@ export interface PendingCreateForm {
   readonly title: string;
   readonly dueAt: string;
   readonly description: string;
-  readonly fileName: string;
 }
 
 export interface PendingAiWait {

@@ -161,6 +161,11 @@ function onKeydown(event: KeyboardEvent): void {
       event.preventDefault();
       void router.push({ name: 'planner' });
       break;
+    case 'p':
+      // HOLO-03A: 계획 세우기, the one way into the plan flow.
+      event.preventDefault();
+      void router.push({ name: 'plan' });
+      break;
     case '/':
       event.preventDefault();
       ui.openSearch();

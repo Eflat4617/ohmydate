@@ -11,7 +11,7 @@ import {
   type IntakeSession,
 } from '../src/api';
 import { zonedWallClockToInstant } from '../src/domain/time';
-import PlanningWizardView from '../src/views/PlanningWizardView.vue';
+import PlanView from '../src/views/PlanView.vue';
 
 function Stub() {
   return defineComponent({ template: '<div />' });
@@ -53,15 +53,17 @@ function appRouter() {
     history: createMemoryHistory(),
     routes: [
       { path: '/inbox', name: 'inbox', component: Stub() },
-      { path: '/plan/new', name: 'plan-new', component: PlanningWizardView },
-      { path: '/plan/:sessionId', name: 'plan-session', component: PlanningWizardView, props: true },
+      { path: '/plan', name: 'plan', component: PlanView },
+      { path: '/plan/schedule', name: 'plan-scope', component: Stub() },
+      { path: '/plan/schedule/:id', name: 'plan-schedule', component: Stub() },
+      { path: '/plan/:sessionId', name: 'plan-session', component: PlanView, props: true },
       { path: '/:pathMatch(.*)*', redirect: '/inbox' },
     ],
   });
 }
 
-describe('wizard session isolation (M23-UIR-1 HIGH)', () => {
-  it('never shows or saves session A draft after navigating to B or /plan/new', async () => {
+describe('planning session isolation (M23-UIR-1 HIGH)', () => {
+  it('never shows or saves session A draft after navigating to B or to a new plan (/plan)', async () => {
     const sessionA = await seedManualSession('세션 A', 'A 전용 단계');
     const sessionB = await seedManualSession('세션 B', 'B 전용 단계');
     const spy = vi.spyOn(plannerClient, 'updateIntakeDraft');
@@ -87,10 +89,10 @@ describe('wizard session isolation (M23-UIR-1 HIGH)', () => {
     });
     expect(wrapper.text()).not.toContain('A 전용 단계');
 
-    await router.push('/plan/new');
+    await router.push('/plan');
     await settle();
     await vi.waitFor(() => {
-      expect(wrapper.get('#wizard-title').element).toHaveProperty('value', '');
+      expect(wrapper.get('#plan-goal-title').element).toHaveProperty('value', '');
     });
     expect(wrapper.find('#step-title-s1').exists()).toBe(false);
     expect(spy).not.toHaveBeenCalled();

@@ -52,14 +52,14 @@ export function detectionReasonText(reason: string): ServerText | null {
   const numeric = /^(tag_jaccard|text_similarity|false_positive_penalty)=(-?\d+(?:\.\d+)?)$/.exec(reason);
   if (numeric !== null) {
     const percent = formatPercent(Number(numeric[2]), 0);
-    if (numeric[1] === 'tag_jaccard') return ko(t('wizard.detection.tagJaccard', { percent }));
-    if (numeric[1] === 'text_similarity') return ko(t('wizard.detection.textSimilarity', { percent }));
-    return ko(t('wizard.detection.falsePositive', { percent }));
+    if (numeric[1] === 'tag_jaccard') return ko(t('planAsk.detection.tagJaccard', { percent }));
+    if (numeric[1] === 'text_similarity') return ko(t('planAsk.detection.textSimilarity', { percent }));
+    return ko(t('planAsk.detection.falsePositive', { percent }));
   }
-  if (reason.startsWith('template=')) return ko(t('wizard.detection.template', { name: reason.slice(9) }));
-  if (reason === 'weak_similarity') return ko(t('wizard.detection.weak'));
-  if (reason === 'user_rejected_similarity') return ko(t('wizard.detection.userRejected'));
-  if (reason === 'manual_mode') return ko(t('wizard.detection.manualMode'));
+  if (reason.startsWith('template=')) return ko(t('planAsk.detection.template', { name: reason.slice(9) }));
+  if (reason === 'weak_similarity') return ko(t('planAsk.detection.weak'));
+  if (reason === 'user_rejected_similarity') return ko(t('planAsk.detection.userRejected'));
+  if (reason === 'manual_mode') return ko(t('planAsk.detection.manualMode'));
   return raw(reason);
 }
 
@@ -120,11 +120,11 @@ export function detectionReasonLang(
  * user typed and are shown as-is.
  */
 const ASSUMPTION_VALUES: Readonly<Record<string, PlainKey>> = {
-  'unspecified deliverable (confirm before scheduling)': 'wizard.assumptionValues.unspecifiedDeliverable',
-  'no deadline assumed': 'wizard.assumptionValues.noDeadline',
-  'use the P90 estimate': 'wizard.assumptionValues.useP90',
-  'not confirmed (manual check before approval)': 'wizard.assumptionValues.notConfirmed',
-  'none assumed': 'wizard.assumptionValues.noneAssumed',
+  'unspecified deliverable (confirm before scheduling)': 'planAsk.assumptionValues.unspecifiedDeliverable',
+  'no deadline assumed': 'planAsk.assumptionValues.noDeadline',
+  'use the P90 estimate': 'planAsk.assumptionValues.useP90',
+  'not confirmed (manual check before approval)': 'planAsk.assumptionValues.notConfirmed',
+  'none assumed': 'planAsk.assumptionValues.noneAssumed',
 };
 
 export function assumptionValueText(field: IntakeField, value: string): ServerText {
@@ -132,7 +132,7 @@ export function assumptionValueText(field: IntakeField, value: string): ServerTe
   if (key !== undefined) return ko(t(key));
   if (field === 'maxFocusMinutes' && /^\d+$/.test(value)) return ko(formatDuration(Number(value)));
   if (field === 'reviewNeeded' && (value === 'true' || value === 'false')) {
-    return ko(t(value === 'true' ? 'wizard.assumptionValues.reviewYes' : 'wizard.assumptionValues.reviewNo'));
+    return ko(t(value === 'true' ? 'planAsk.assumptionValues.reviewYes' : 'planAsk.assumptionValues.reviewNo'));
   }
   return { text: value, translated: true };
 }

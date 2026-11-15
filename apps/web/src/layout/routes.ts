@@ -3,7 +3,7 @@ import { pageItemOf } from '@ohmydate/ui-policy';
 import type { RouteLocationNormalizedLoaded } from 'vue-router';
 
 /** Routes of the planning flow ("진행 중 Intake/Plan 비교 라우트", 07 §2.2 rule 3). */
-export const PLANNING_ROUTES: ReadonlySet<string> = new Set(['plan-new', 'plan-session', 'plan-scope', 'plan-schedule']);
+export const PLANNING_ROUTES: ReadonlySet<string> = new Set(['plan', 'plan-session', 'plan-scope', 'plan-schedule']);
 /** The schedule stages own a wide grid; their context panels go below it. */
 export const WIDE_PAGE_ROUTES: ReadonlySet<string> = new Set(['plan-scope', 'plan-schedule']);
 

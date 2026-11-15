@@ -70,7 +70,7 @@ export function groupDimensionLabel(group: Pick<EstimationProfileGroup, 'dimensi
 }
 
 export function stepKindLabel(kind: NonNullable<EstimationProfileGroup['taskKind']>): string {
-  return t(`wizard.kinds.${kind}`);
+  return t(`planSteps.kinds.${kind}`);
 }
 
 /**

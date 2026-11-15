@@ -83,7 +83,7 @@ describe('I18nT', () => {
     expect(wrapper.html()).not.toContain('{version}');
 
     const withParams = mount(
-      defineComponent({ render: () => h('li', [h(I18nT, { keypath: 'plan.blockError', params: { index: 2 } })]) }),
+      defineComponent({ render: () => h('li', [h(I18nT, { keypath: 'planSchedule.blockProblem', params: { index: 2 } })]) }),
     );
     // A placeholder with neither slot nor param stays visible (negative).
     expect(withParams.text()).toBe('블록 2: {message}');

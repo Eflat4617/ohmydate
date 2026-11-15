@@ -61,7 +61,7 @@ function signOut(): void {
     <button type="button" class="bottom-nav-add" :aria-label="t('nav.newTask')" @click="newTask">
       <UiIcon name="plus" :size="24" />
     </button>
-    <RouterLink to="/plan/new" class="bottom-nav-item">
+    <RouterLink to="/plan" class="bottom-nav-item">
       <UiIcon name="plan" :size="22" />
       <span>{{ t('nav.planShort') }}</span>
     </RouterLink>

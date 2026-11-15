@@ -84,7 +84,7 @@ const state = computed(() => {
     widget="progress"
     icon="bolt"
     :title="t('overview.progress.title')"
-    to="/patterns"
+    to="/insights"
     :open-label="t('overview.progress.open')"
     :state="state"
     @retry="query.refetch()"

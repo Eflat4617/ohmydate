@@ -14,7 +14,7 @@ const viewKey = computed(() => {
   if (route.name === 'plan-session') {
     return `plan-session:${String(route.params['sessionId'] ?? '')}`;
   }
-  if (route.name === 'plan-new') return 'plan-new';
+  if (route.name === 'plan') return 'plan';
   // List, new note and open note are one notes workspace (no remount).
   if (typeof route.name === 'string' && (route.name === 'notes' || route.name.startsWith('notes-'))) return 'notes';
   return typeof route.name === 'string' ? route.name : route.fullPath;

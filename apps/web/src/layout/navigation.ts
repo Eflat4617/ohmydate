@@ -42,8 +42,9 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: 'planning',
     label: 'nav.groupPlanning',
     items: [
-      { to: '/plan/new', label: 'nav.plan', icon: 'plan', routes: ['plan-new', 'plan-session'] },
-      { to: '/plan/schedule', label: 'nav.newPlan', icon: 'compare', routes: ['plan-scope', 'plan-schedule'] },
+      // HOLO-03A: one entry for the whole flow (목표 → 질문 → 단계 → 일정안 → 확정).
+      { to: '/plan', label: 'nav.plan', icon: 'plan', shortcut: 'p', routes: ['plan', 'plan-session', 'plan-scope', 'plan-schedule'] },
+      // What the app proposes when the plan drifts: the proposal, before → after, and the history.
       { to: '/replan', label: 'nav.replan', icon: 'reschedule', routes: ['replan', 'replan-proposal'] },
       { to: '/commitments', label: 'nav.commitments', icon: 'commitment', routes: ['commitments'] },
       { to: '/settings/availability', label: 'nav.availability', icon: 'availability', routes: ['availability'] },
@@ -52,7 +53,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     id: 'ai',
     label: 'nav.groupAi',
-    items: [{ to: '/patterns', label: 'nav.patterns', icon: 'pattern', routes: ['patterns'] }],
+    // HOLO-03A: what the app has learned about how the owner works (was 내 패턴).
+    items: [{ to: '/insights', label: 'nav.insights', icon: 'pattern', routes: ['insights'] }],
   },
   {
     id: 'settings',
@@ -92,9 +94,9 @@ export function isNavItemCurrent(item: NavItem, routeName: unknown): boolean {
 }
 
 /** The phone's bottom bar holds these itself; everything else is in "더 보기". */
-export const BOTTOM_BAR_ROUTES: ReadonlySet<string> = new Set(['today', 'inbox', 'plan-new', 'plan-session', 'focus']);
+export const BOTTOM_BAR_ROUTES: ReadonlySet<string> = new Set(['today', 'inbox', 'plan', 'plan-session', 'plan-scope', 'plan-schedule', 'focus']);
 
 /** Every link of the sidebar that the phone's bottom bar does not show. */
 export const MORE_LINKS: readonly NavItem[] = NAV_GROUPS.flatMap((group) => group.items).filter(
-  (item) => !['/today', '/inbox', '/plan/new'].includes(item.to),
+  (item) => !['/today', '/inbox', '/plan'].includes(item.to),
 );

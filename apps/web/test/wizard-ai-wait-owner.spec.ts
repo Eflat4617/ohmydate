@@ -13,7 +13,7 @@ import { defineComponent, nextTick } from 'vue';
 import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createMemoryHistory, createRouter } from 'vue-router';
 import { createPlannerClient, newActionId, type DecompositionDraft, type IntakeSession } from '../src/api';
-import PlanningWizardView from '../src/views/PlanningWizardView.vue';
+import PlanView from '../src/views/PlanView.vue';
 import { mockDb, type MockIntakeSession } from '../src/mocks/db';
 import { server } from '../src/mocks/server';
 import { adoptActiveOwner, clearOwnerResetPending, ownerChanged, ownerState } from '../src/session/ownerEpoch';
@@ -43,8 +43,11 @@ function testRouter() {
     routes: [
       { path: '/inbox', name: 'inbox', component: Stub },
       { path: '/projects', name: 'projects', component: Stub },
-      { path: '/plan/new', name: 'plan-new', component: PlanningWizardView },
-      { path: '/plan/:sessionId', name: 'plan-session', component: PlanningWizardView, props: true },
+      { path: '/settings/ai', name: 'ai-settings', component: Stub },
+      { path: '/plan', name: 'plan', component: PlanView },
+      { path: '/plan/schedule', name: 'plan-scope', component: Stub },
+      { path: '/plan/schedule/:id', name: 'plan-schedule', component: Stub },
+      { path: '/plan/:sessionId', name: 'plan-session', component: PlanView, props: true },
     ],
   });
 }
@@ -66,7 +69,7 @@ async function mountAt(path: string, pinia: Pinia, sessionId?: string) {
   const router = testRouter();
   await router.push(path);
   await router.isReady();
-  const wrapper = mount(PlanningWizardView, {
+  const wrapper = mount(PlanView, {
     ...(sessionId === undefined ? {} : { props: { sessionId } }),
     global: { plugins: [pinia, router, VueQueryPlugin] },
     attachTo: document.body,
@@ -174,13 +177,13 @@ afterEach(() => {
 });
 
 describe('H2 — the pending create never crosses owners', () => {
-  it('owner A pending create -> logout -> login as B: /plan/new shows nothing of A and sends no POST', async () => {
+  it('owner A pending create -> logout -> login as B: /plan shows nothing of A and sends no POST', async () => {
     const pinia = await signedInAs(OWNER_A);
     const counts = countRequests();
     holdCreate();
-    const first = await mountAt('/plan/new', pinia);
-    await first.wrapper.get('#wizard-title').setValue(A_TITLE);
-    await first.wrapper.get('#wizard-description').setValue(A_DESCRIPTION);
+    const first = await mountAt('/plan', pinia);
+    await first.wrapper.get('#plan-goal-title').setValue(A_TITLE);
+    await first.wrapper.get('#plan-goal-description').setValue(A_DESCRIPTION);
     await first.wrapper.get('form').trigger('submit');
     await advance(1_000);
     expect(first.wrapper.find('[data-testid="ai-wait"]').exists()).toBe(true);
@@ -198,10 +201,10 @@ describe('H2 — the pending create never crosses owners', () => {
     clearOwnerResetPending();
 
     // The reloaded page as owner B.
-    const second = await mountAt('/plan/new', createPinia());
+    const second = await mountAt('/plan', createPinia());
     await advance(5_000);
-    expect(second.wrapper.get('#wizard-title').element).toHaveProperty('value', '');
-    expect(second.wrapper.get('#wizard-description').element).toHaveProperty('value', '');
+    expect(second.wrapper.get('#plan-goal-title').element).toHaveProperty('value', '');
+    expect(second.wrapper.get('#plan-goal-description').element).toHaveProperty('value', '');
     expect(second.wrapper.find('[data-testid="ai-wait"]').exists()).toBe(false);
     expect(second.wrapper.text()).not.toContain(A_TITLE);
     expect(counts.createPosts).toBe(1);
@@ -215,7 +218,7 @@ describe('H2 — the pending create never crosses owners', () => {
       create: {
         key: '01936d2e-7c4a-7b2e-8f00-00000000aa01',
         input: { title: A_TITLE, description: A_DESCRIPTION },
-        form: { title: A_TITLE, dueAt: '', description: A_DESCRIPTION, fileName: '' },
+        form: { title: A_TITLE, dueAt: '', description: A_DESCRIPTION },
       },
     };
     const pinia = await signedInAs(OWNER_B);
@@ -225,9 +228,9 @@ describe('H2 — the pending create never crosses owners', () => {
     // Even a record under B's own key that claims another owner is refused.
     sessionStorage.setItem(`ohmydate.intake.aiWait.v2:${OWNER_B}`, JSON.stringify(record));
     const counts = countRequests();
-    const { wrapper } = await mountAt('/plan/new', pinia);
+    const { wrapper } = await mountAt('/plan', pinia);
     await advance(5_000);
-    expect(wrapper.get('#wizard-title').element).toHaveProperty('value', '');
+    expect(wrapper.get('#plan-goal-title').element).toHaveProperty('value', '');
     expect(wrapper.find('[data-testid="ai-wait"]').exists()).toBe(false);
     expect(counts.createPosts).toBe(0);
   });
@@ -245,11 +248,11 @@ describe('H2 — the pending create never crosses owners', () => {
         create: {
           key: '01936d2e-7c4a-7b2e-8f00-00000000aa02',
           input: { title: 'A 복원' },
-          form: { title: 'A 복원', dueAt: '', description: '', fileName: '' },
+          form: { title: 'A 복원', dueAt: '', description: '' },
         },
       }),
     );
-    const { router } = await mountAt('/plan/new', pinia);
+    const { router } = await mountAt('/plan', pinia);
     await advance(1_000);
     await vi.waitFor(() => {
       expect(router.currentRoute.value.name).toBe('plan-session');
@@ -262,15 +265,15 @@ describe('H2 — every wait continuation drops itself on an owner change', () =>
     const pinia = await signedInAs(OWNER_A);
     const created = stored((await createClarification(A_TITLE)).id);
     const hold = holdCreate();
-    const { wrapper, router } = await mountAt('/plan/new', pinia);
-    await wrapper.get('#wizard-title').setValue(A_TITLE);
+    const { wrapper, router } = await mountAt('/plan', pinia);
+    await wrapper.get('#plan-goal-title').setValue(A_TITLE);
     await wrapper.get('form').trigger('submit');
     await advance(1_000);
 
     ownerChanged(OWNER_A, OWNER_B, 'storage');
     hold.release(created);
     await advance(1_000);
-    expect(router.currentRoute.value.name).toBe('plan-new');
+    expect(router.currentRoute.value.name).toBe('plan');
     expect(storageText()).not.toContain(A_TITLE);
     expect(wrapper.find('[data-testid="ai-wait"]').exists()).toBe(false);
   });
@@ -304,13 +307,13 @@ describe('H2 — every wait continuation drops itself on an owner change', () =>
         create: {
           key: '01936d2e-7c4a-7b2e-8f00-00000000aa03',
           input: { title: A_TITLE },
-          form: { title: A_TITLE, dueAt: '', description: '', fileName: '' },
+          form: { title: A_TITLE, dueAt: '', description: '' },
         },
       }),
     );
     server.use(http.post('*/api/v1/intake-sessions', () => inProgress()));
     const counts = countRequests();
-    await mountAt('/plan/new', pinia);
+    await mountAt('/plan', pinia);
     await advance(3_000);
     const before = counts.createPosts;
     expect(before).toBeGreaterThan(1);
@@ -340,20 +343,20 @@ describe('H2 — every wait continuation drops itself on an owner change', () =>
     const { wrapper } = await mountAt(`/plan/${session.id}`, pinia, session.id);
     await vi.waitFor(
       () => {
-        expect(wrapper.find('.question-card').exists()).toBe(true);
+        expect(wrapper.find('.plan-question').exists()).toBe(true);
       },
       { timeout: 5_000 },
     );
-    const idk = wrapper.get('.question-card').findAll('button').find((item) => item.text().includes('모름'));
-    expect(idk).toBeDefined();
-    await idk?.trigger('click');
+    // HOLO-03A: the round's answers go in one request.
+    await wrapper.get('input[data-idk]').setValue(true);
+    await wrapper.get('[data-plan-questions]').trigger('submit');
     await advance(2_000);
     expect(wrapper.find('[data-testid="ai-wait"]').exists()).toBe(true);
 
     ownerChanged(OWNER_A, OWNER_B, 'storage');
     release();
     await advance(1_000);
-    expect(wrapper.text()).not.toContain('4단계 · 단계 초안');
+    expect(wrapper.attributes('data-plan-stage')).not.toBe('steps');
     expect(wrapper.find('#step-title-s2').exists()).toBe(false);
   });
 

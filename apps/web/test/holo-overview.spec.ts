@@ -41,11 +41,11 @@ function testRouter(): Router {
       { path: '/tracker', name: 'tracker', component: Stub },
       { path: '/planner', name: 'planner', component: Stub },
       { path: '/month', name: 'month', component: Stub },
-      { path: '/patterns', name: 'patterns', component: Stub },
+      { path: '/insights', name: 'insights', component: Stub },
       { path: '/replan', name: 'replan', component: Stub },
       { path: '/replan/:id', name: 'replan-proposal', component: Stub },
       { path: '/settings/ai', name: 'ai-settings', component: Stub },
-      { path: '/plan/new', name: 'plan-new', component: Stub },
+      { path: '/plan', name: 'plan', component: Stub },
       { path: '/tasks/:id', name: 'task', component: Stub },
       { path: '/focus/:sessionId', name: 'focus', component: Stub },
     ],
@@ -145,7 +145,7 @@ describe('개요 — greeting and the one primary button', () => {
     expect(
       wrapper.findAll('[data-widget] [data-open]').map((link) => [link.attributes('aria-label'), link.attributes('href')]),
     ).toEqual([
-      ['내 패턴 열기', '/patterns'],
+      ['AI 분석 열기', '/insights'],
       // HOLO-02: the 타임 트래커 card opens the screen of that name (it opened 오늘 before it existed).
       ['타임 트래커 열기', '/tracker'],
       // HOLO-02: 오늘 요약 opens today in 플래너 (한달 is that screen's month view now).
@@ -178,7 +178,7 @@ describe('개요 — greeting and the one primary button', () => {
     const primaries = wrapper.findAll('.btn--primary');
     expect(primaries).toHaveLength(1);
     expect(primaries[0]?.attributes('data-primary')).toBe('plan');
-    expect(primaries[0]?.attributes('href')).toBe('/plan/new');
+    expect(primaries[0]?.attributes('href')).toBe('/plan');
     expect(primaries[0]?.text()).toBe('계획 세우기');
     expect(wrapper.find('[data-primary="start"]').exists()).toBe(false);
     expect(wrapper.find('[data-tracker-start]').exists()).toBe(false);
@@ -418,7 +418,7 @@ describe('개요 — AI 도우미', () => {
     expect(ai.text()).toContain('실제 시간이 예상의 1.3배예요');
     expect(ai.text()).toContain('회고 기록 4건으로 계산했어요');
     expect(ai.get('[data-chart="trend"]').attributes('data-points')).toBe('4');
-    expect(ai.get('.ai-link').attributes('href')).toBe('/patterns');
+    expect(ai.get('.ai-link').attributes('href')).toBe('/insights');
 
     await vi.waitFor(() => expect(ai.get('[data-ai-replan]').text()).toContain('재계획 제안 1건이 기다려요'));
     expect(proposal.id).toBe(REPLAN_PENDING_ID);
