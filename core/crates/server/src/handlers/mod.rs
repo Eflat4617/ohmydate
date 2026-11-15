@@ -92,6 +92,7 @@ pub fn table() -> Vec<(&'static str, Handler)> {
         ("getMe", me::get_me),
         ("listProjects", projects::list_projects),
         ("createProject", projects::create_project),
+        ("updateProject", projects::update_project),
         ("listTasks", tasks::list_tasks),
         ("createTask", tasks::create_task),
         ("getTask", tasks::get_task),

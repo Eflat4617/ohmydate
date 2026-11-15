@@ -607,6 +607,138 @@ async fn domain_rules_answer_404_and_422() {
 }
 
 #[tokio::test]
+async fn a_project_is_renamed_and_archived_and_the_inbox_only_renamed() {
+    let server = TestServer::new();
+    let created = server
+        .call(
+            "POST",
+            "/api/v1/projects",
+            &[("idempotency-key", &server.key())],
+            Some(json!({"title": "Thesiss"})),
+        )
+        .await;
+    assert_eq!(created.status, 201);
+    let id = created.body["id"].as_str().unwrap().to_owned();
+    let path = format!("/api/v1/projects/{id}");
+
+    let renamed = server
+        .mutate("PATCH", &path, 1, Some(json!({"title": "Thesis"})))
+        .await;
+    assert_eq!(
+        (renamed.status, renamed.header("etag")),
+        (200, Some("W/\"2\""))
+    );
+    assert_eq!(
+        (&renamed.body["title"], &renamed.body["version"]),
+        (&json!("Thesis"), &json!(2))
+    );
+    for field in ["id", "ownerId", "kind", "archived", "createdAt"] {
+        assert_eq!(renamed.body[field], created.body[field], "{field}");
+    }
+
+    // An empty patch answers the current project and its current ETag.
+    let same = server.mutate("PATCH", &path, 2, Some(json!({}))).await;
+    assert_eq!((same.status, same.header("etag")), (200, Some("W/\"2\"")));
+    assert_eq!(same.body, renamed.body);
+
+    let stale = server
+        .mutate("PATCH", &path, 1, Some(json!({"archived": true})))
+        .await;
+    assert_problem(&stale, 412, "version_conflict");
+
+    let archived = server
+        .mutate("PATCH", &path, 2, Some(json!({"archived": true})))
+        .await;
+    assert_eq!(
+        (
+            archived.status,
+            &archived.body["archived"],
+            &archived.body["version"]
+        ),
+        (200, &json!(true), &json!(3))
+    );
+    // Still listed, with its flag.
+    let listed = server.get("/api/v1/projects").await;
+    assert_eq!(listed.body["items"][1], archived.body);
+
+    let rename_archived = server
+        .mutate("PATCH", &path, 3, Some(json!({"title": "Renamed"})))
+        .await;
+    assert_problem(&rename_archived, 422, "validation_failed");
+    assert_eq!(
+        rename_archived.body["errors"],
+        json!([{
+            "path": "title",
+            "message": "an archived project cannot be renamed; bring it back first"
+        }])
+    );
+    let back = server
+        .mutate(
+            "PATCH",
+            &path,
+            3,
+            Some(json!({"title": "Renamed", "archived": false})),
+        )
+        .await;
+    assert_eq!(
+        (back.status, &back.body["title"], &back.body["archived"]),
+        (200, &json!("Renamed"), &json!(false))
+    );
+
+    // The Inbox: never archived, renamed and still the Inbox.
+    let inbox = listed.body["items"][0].clone();
+    assert_eq!(inbox["kind"], "inbox");
+    let inbox_path = format!("/api/v1/projects/{}", inbox["id"].as_str().unwrap());
+    let refused = server
+        .mutate("PATCH", &inbox_path, 1, Some(json!({"archived": true})))
+        .await;
+    assert_problem(&refused, 422, "validation_failed");
+    assert_eq!(
+        refused.body["errors"],
+        json!([{
+            "path": "archived",
+            "message": "the inbox project cannot be archived or deleted"
+        }])
+    );
+    let outside = server
+        .mutate("PATCH", &inbox_path, 1, Some(json!({"title": "바깥"})))
+        .await;
+    assert_eq!(
+        (
+            outside.status,
+            &outside.body["kind"],
+            &outside.body["title"]
+        ),
+        (200, &json!("inbox"), &json!("바깥"))
+    );
+
+    // Unknown id, blank title, a field outside the contract, and no delete.
+    let unknown = server
+        .mutate(
+            "PATCH",
+            &format!("/api/v1/projects/{UNKNOWN_ID}"),
+            1,
+            Some(json!({"title": "x"})),
+        )
+        .await;
+    assert_problem(&unknown, 404, "not_found");
+    let blank = server
+        .mutate("PATCH", &path, 4, Some(json!({"title": "   "})))
+        .await;
+    assert_problem(&blank, 422, "validation_failed");
+    let stray = server
+        .mutate("PATCH", &path, 4, Some(json!({"kind": "inbox"})))
+        .await;
+    assert_problem(&stray, 400, "validation_failed");
+    let delete = server.mutate("DELETE", &path, 4, None).await;
+    assert_problem(&delete, 404, "not_found");
+    assert_eq!(
+        server.get("/api/v1/projects").await.body["items"][1],
+        back.body
+    );
+}
+
+#[tokio::test]
 async fn dependencies_are_added_and_cycles_refused() {
     let server = TestServer::new();
     let mut ids = Vec::new();
@@ -886,6 +1018,39 @@ async fn request_logs_hold_ids_and_codes_but_no_user_text_or_secrets() {
     );
     server.get("/api/v1/tasks?cursor=SECRET-QUERY-0c2d").await;
     server.get("/api/v1/SECRET-PATH-44aa").await;
+    // FOLD-01: a folder's name is user text too, accepted or refused.
+    let folder = server
+        .call(
+            "POST",
+            "/api/v1/projects",
+            &[("idempotency-key", &server.key())],
+            Some(json!({"title": "SECRET-FOLDER-2b7e"})),
+        )
+        .await;
+    let folder_path = format!("/api/v1/projects/{}", folder.body["id"].as_str().unwrap());
+    let renamed = server
+        .mutate(
+            "PATCH",
+            &folder_path,
+            1,
+            Some(json!({"title": "SECRET-FOLDER-renamed-6c1d", "archived": true})),
+        )
+        .await;
+    assert_eq!(renamed.status, 200);
+    let refused = server
+        .mutate(
+            "PATCH",
+            &folder_path,
+            2,
+            Some(json!({"title": "SECRET-FOLDER-refused-08fe"})),
+        )
+        .await;
+    assert_eq!(refused.status, 422);
+    assert!(
+        !refused.body.to_string().contains("SECRET-FOLDER"),
+        "{}",
+        refused.body
+    );
 
     let logs = String::from_utf8(captured_logs().0.lock().unwrap().clone()).unwrap();
     let line = logs
@@ -903,12 +1068,29 @@ async fn request_logs_hold_ids_and_codes_but_no_user_text_or_secrets() {
         logs.contains("\"status\":400") && logs.contains("\"status\":404"),
         "{logs}"
     );
+    let update_line = logs
+        .lines()
+        .find(|line| {
+            line.contains("\"operation\":\"updateProject\"") && line.contains("\"status\":200")
+        })
+        .unwrap_or_else(|| panic!("no request line for updateProject in: {logs}"));
+    assert!(
+        update_line.contains("\"method\":\"PATCH\""),
+        "{update_line}"
+    );
+    assert!(
+        logs.lines().any(|line| {
+            line.contains("\"operation\":\"updateProject\"") && line.contains("\"status\":422")
+        }),
+        "{logs}"
+    );
     for secret in [
         "SECRET-TITLE",
         "SECRET-BODY",
         "SECRET-VALUE",
         "SECRET-QUERY",
         "SECRET-PATH",
+        "SECRET-FOLDER",
         TOKEN,
     ] {
         assert!(

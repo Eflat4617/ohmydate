@@ -2,7 +2,7 @@
 
 > 작성 2026-11-13 · Task RC-00 · 결정 근거는 `13-ADR.md` ADR-025.
 > 이 문서는 RC 프로그램(M7)의 기준 계획이다. 표의 수치와 분류는 코드에서 뽑았고, 표 두 개(§2.2, §3.3)는 `tests-core/docs.test.ts`가 계약·마이그레이션과 맞는지 검사한다.
-> "지금 있음"은 RC-00에서 구현해 시험까지 마친 것, 나머지는 계획이다.
+> "지금 있음"은 RC-00에서 구현해 시험까지 마친 것, 나머지는 계획이다. FOLD-01(2026-11-16)의 `updateProject`도 "지금 있음"이다.
 
 ## 0. 한눈에 보기
 
@@ -12,6 +12,7 @@
 - TypeScript 코어(`services/api`, `packages/*`)는 전환 때까지 기준 구현이다. 스케줄러는 TypeScript 출력과 바이트 단위로 같아야 한다.
 - RC-00에서 끝낸 것: 이 계획, 워크스페이스 5개 크레이트, owner·프로젝트·작업 API 10개, 스케줄러 포팅의 바닥 층(PRNG·정규 JSON·시간 분할·inputHash)과 TypeScript 오라클 대조, 블랙박스 패리티 하네스.
 - RC-30~33에서 끝낸 것(2026-11-16): 스케줄러 전체(`core/crates/scheduler`). 4,020건에서 TypeScript와 모든 층이 바이트 단위로 같고(불일치 0), 기준 테스트 21개 파일을 원장대로 옮겼다(§5.5). TypeScript 쪽 동작 결함은 나오지 않았다.
+- FOLD-01에서 더한 것(2026-11-16): `updateProject`(`PATCH /projects/{id}`) — 폴더(프로젝트)의 이름 바꾸기와 보관. 계약·TypeScript API·Rust 코어에 함께 넣었다(§11 R11의 예외). 코어가 서빙하는 operation은 이제 11개다.
 
 RC-00에서 측정한 것:
 
@@ -23,7 +24,7 @@ RC-00에서 측정한 것:
 | advisory lock 호출 | 11곳 → 0 (프로세스 하나, 쓰기 트랜잭션 하나) |
 | EXCLUDE 제약 위반 처리(`23P01`) | 3곳(승인·Today·재계획) → 트랜잭션 안 코드 검사 |
 | Rust 테스트 (RC-00) | 178개: domain 37, store 27, app 26, scheduler 19 + 오라클 8, server 43 + bin 4 + HTTP 14 |
-| 패리티 하네스 (RC-00) | operation 10개, 테스트 85개 통과(해당 없는 조합 49개는 건너뜀) |
+| 패리티 하네스 | operation 11개, 테스트 103개 통과(해당 없는 조합 51개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를 더했다 |
 | 오라클 팩 `sample.json` | 27건(golden 15, 생성 9, 재계획 1, 잘못된 입력 2), 211 KiB, 기준 tzdata 2026c vs jiff 2026e — 불일치 0 |
 | 서드파티 크레이트 | 126개(리눅스 그래프). MIT/Apache-2.0/BSD 밖은 4건(§9.4) |
 
@@ -175,7 +176,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | `getMe` | GET `/me` | 유지(차이) | RC-00 | 하나뿐인 로컬 owner. 쿠키·세션 없음. `email`은 표시용 값. `llm`·`llmProvider`(선택 필드)는 RC-70에서 채운다 |
 | `listProjects` | GET `/projects` | 유지 | RC-00 | Inbox는 데이터 파일을 만들 때 함께 만든다(읽기에서 쓰지 않음) |
 | `createProject` | POST `/projects` | 유지 | RC-00 |  |
-| `updateProject` | PATCH `/projects/{id}` | 유지(차이) | RC-10 | FOLD-01(2026-11-16): 폴더(프로젝트) 이름 바꾸기·보관. 계약과 TypeScript API에 먼저 들어왔고 Rust 핸들러는 아직 없다(501) |
+| `updateProject` | PATCH `/projects/{id}` | 유지(차이) | RC-00 | FOLD-01(2026-11-16)에서 계약·TypeScript API·Rust에 함께 추가(§11 R11의 예외). 규칙은 같다: 없는 id 404, 낡은 `If-Match` 412, Inbox는 보관할 수 없고(422) 이름은 바꿀 수 있다, 보관된 프로젝트의 이름은 되살리는 패치(`archived: false`)로만 바뀐다(422), 빈 패치는 그대로 200(버전 불변), 작업은 건드리지 않는다. 차이는 보관한 뒤에 보인다: 여기서는 보관한 프로젝트가 `listProjects`에 `archived: true`로 계속 나오고 그 안의 작업도 계속 읽고 쓴다. 지금 운영 중인 Vikunja 경로에서는 보관한 프로젝트가 목록에서 빠지고, 그 안의 작업은 범위 없는 `listTasks`에서 빠지며 쓰기가 503으로 거부된다(되살리면 돌아온다) |
 | `listTasks` | GET `/tasks` | 유지(차이) | RC-00 | 503 `provider_unavailable`이 더는 나오지 않는다(Vikunja 없음) |
 | `createTask` | POST `/tasks` | 유지(차이) | RC-00 | 503 없음. `external`은 항상 `[]` |
 | `getTask` | GET `/tasks/{id}` | 유지(차이) | RC-00 | 503 없음 |
@@ -645,7 +646,7 @@ TypeScript: 키 예약(pending) 커밋 → 유스케이스 실행 → 완료 기
 | 단위 | `cargo test`. 동작마다 네거티브 1개 이상 | 크레이트별 | `core:check` | 있음(178) |
 | 속성 | `proptest` | 스케줄러 하드 제약, DAG, 블록 겹침 불변식, 시간 | `core:check`(1,000) / 관문(10,000) | RC-30~ |
 | 차분 | 오라클 팩 | 스케줄러(RC-30~33), 마스킹(RC-70a) | `core:oracle` + `cargo test` | 바닥 층 있음 |
-| 계약 패리티 | `tests-core/`(vitest + ajv + `@ohmydate/contracts`), 진짜 바이너리 | operation마다 상태 코드·스키마·헤더 행렬·오류 | `core:parity` | 있음(10 operation) |
+| 계약 패리티 | `tests-core/`(vitest + ajv + `@ohmydate/contracts`), 진짜 바이너리 | operation마다 상태 코드·스키마·헤더 행렬·오류 | `core:parity` | 있음(11 operation) |
 | E2E | 지금의 Playwright, 대상만 Rust 코어 | 사용자 흐름 | `e2e`(대상 선택) | RC-10~ |
 | 가져오기 | 내보내기 → 가져오기 → 내보내기 | 전환 | RC-110 | 계획 |
 
@@ -808,7 +809,7 @@ RC-00 ─┬─► RC-10 ─► RC-20 ──────────┬─► RC
 |---|---|---|---|---|---|---|
 | RC-00 | — | 이 문서, ADR-025, 골격(owner·프로젝트·작업 10 operation), 패리티 하네스, 오라클 내보내기 | — | `core:check`, `core:parity` | `ohmydate-core`를 띄워 curl로 작업 만들기 | — (완료) |
 | RC-05 | B | 지금 E2E를 Playwright의 WebKit 엔진으로 TypeScript 스택에 돌려 본다(코드 변경 없음, 보고서만) | — | 실패 목록 보고서 | — | WebKit에서 깨지는 웹 기능을 일찍 안다(R1) |
-| RC-10 | A | `updateMySettings`, 웹 정적 파일 서빙 + `/__boot`, 개발 실행(`core:dev`: 코어 + Vite 프록시), E2E `core` 대상과 드라이버, `--clock-offset-ms`, `core/PARITY.md`, Ajv ↔ `jsonschema` 스키마 판정 대조 도구, `ci:core` | RC-00 | 패리티 11 operation, `e2e-1`(로그인 부분 제외)·a11y inbox가 `core` 대상 통과, 원장 초판 | 브라우저에서 Rust 코어로 인박스 쓰기 | E2E 헬퍼 개조 범위(R7) |
+| RC-10 | A | `updateMySettings`, 웹 정적 파일 서빙 + `/__boot`, 개발 실행(`core:dev`: 코어 + Vite 프록시), E2E `core` 대상과 드라이버, `--clock-offset-ms`, `core/PARITY.md`, Ajv ↔ `jsonschema` 스키마 판정 대조 도구, `ci:core` | RC-00 | 패리티 12 operation, `e2e-1`(로그인 부분 제외)·a11y inbox가 `core` 대상 통과, 원장 초판 | 브라우저에서 Rust 코어로 인박스 쓰기 | E2E 헬퍼 개조 범위(R7) |
 | RC-20 | A | 가용 시간·약속·`rrule` 포팅·availability version·`listCalendarDayEvents`(빈 목록) | RC-10 | 패리티 +7, `rrule.test.ts` 옮김, 약속 화면 E2E 부분 | 약속·가용 시간 화면 | 반복 전개의 DST 경계 |
 | RC-30 | B | 스케줄러 `types`·`time` 나머지·`slots`·`sessions`·`requirements`, 큰 팩 읽기, `sort_unstable`·`HashMap` 순회 금지 lint | RC-00 | 2,000건에서 `slots` 불일치 0, `slots.test`·`transitions.test` 옮김 | — | tzdata 차이(R3) |
 | RC-31 | B | `codes`·`validate`·`validateInput`·`explain`, `sched-diff` CLI, `shrink-oracle.mts` | RC-30 | 2,000건에서 `inputIssues`·`validation` 불일치 0, validator ↔ 분 단위 오라클 속성 | — | validator 1,407줄의 독립 구현 유지 |
