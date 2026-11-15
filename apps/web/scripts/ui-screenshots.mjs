@@ -1,26 +1,24 @@
 #!/usr/bin/env node
-// UI-POLISH evidence: screenshots + a11y/overflow sweep against the synthetic
-// MSW mock (VITE_MOCK=1). No real API, accounts or personal data are involved.
+// UI evidence for OhMyDate: screenshots plus an accessibility and overflow
+// sweep, against the synthetic MSW mock (VITE_MOCK=1). No real API, account
+// or personal data is involved.
 //
-//   node scripts/ui-screenshots.mjs --label after-ko         # spawns vite on :5199 (Korean UI, UI-I18N)
-//   node scripts/ui-screenshots.mjs --label before --url http://127.0.0.1:5199
-//   node scripts/ui-screenshots.mjs --label after --only 14-today
-//   node scripts/ui-screenshots.mjs --label holo-03a --flows plan,replan,insights --tablet # HOLO-03A 계획 세우기, 재계획, AI 분석
-//   node scripts/ui-screenshots.mjs --label m6-02 --flows adaptive          # M6-02 layout modes
-//   node scripts/ui-screenshots.mjs --label m6-03 --flows notes             # M6-03 notes screens
-//   node scripts/ui-screenshots.mjs --label cal-01 --flows month,daily      # CAL-01 한달 + Today's 약속/마감
-//   node scripts/ui-screenshots.mjs --label cal-04 --flows calendar --tablet # CAL-04 캘린더 연동, every status (+1024px)
-//   node scripts/ui-screenshots.mjs --label holo-01 --flows overview --tablet # HOLO-01 개요, every state (+1024px)
-//   node scripts/ui-screenshots.mjs --label holo-02 --flows planner,tracker --tablet # HOLO-02 플래너 (일·주·월), 타임 트래커
+//   node scripts/ui-screenshots.mjs                       # every flow, into docs/ui-polish/holo-04
+//   node scripts/ui-screenshots.mjs --flows loop,capture  # some of them
+//   node scripts/ui-screenshots.mjs --only 10-capture     # screens whose name starts with this
+//   node scripts/ui-screenshots.mjs --url http://127.0.0.1:5197   # a dev server that is already up
+//   node scripts/ui-screenshots.mjs --report-only         # never exit 1
 //
-// Output: docs/ui-polish/<label>/<screen>-<viewport>[-light][-full].png and
-//         docs/ui-polish/<label>/sweep-report.json
-// Every screen is visited at 390×844, 1440×900 and 360×780 (check-only), in
-// the dark theme (the default since HOLO-01) and the light theme. Screenshots
-// are kept for every dark screen and for the screens of LIGHT_CAPTURES in
-// light; axe-core (WCAG 2.0–2.2 A/AA tags) and a horizontal overflow check
-// run on every visit, in both themes. Exit code 1 if any critical/serious
-// violation or horizontal overflow is found (unless --report-only).
+// HOLO-04 rewrote the flows around the loop (FLOW.md): 담기 → 계획 → 오늘 →
+// 집중 → 돌아보기 → 다시 맞추기, the places of the sidebar, and the first run.
+//
+// Every screen is visited at 1440×900, 1024×768, 390×844 and 360×780, in the
+// dark theme (the default) and the light theme. axe-core (WCAG 2.0–2.2 A/AA)
+// and a horizontal-overflow check run on every visit. Screenshots are kept at
+// 1440 and 390 in the dark theme, and in the light theme for the screens of
+// LIGHT_CAPTURES. Output: docs/ui-polish/<label>/<screen>-<viewport>[-light].png
+// and sweep-report.json. Exit code 1 on any critical/serious violation or
+// horizontal overflow (unless --report-only).
 /* global document, window -- used only inside page.evaluate() browser callbacks */
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -38,9 +36,8 @@ function arg(name, fallback) {
   return index === -1 ? fallback : process.argv[index + 1];
 }
 
-const label = arg('label', 'after');
+const label = arg('label', 'holo-04');
 const only = arg('only', '');
-// Comma-separated subset of flows (overview, main, daily, ai, plan, replan, insights, adaptive, notes, month, calendar, planner, tracker); default: all.
 const flowFilter = arg('flows', '')
   .split(',')
   .map((name) => name.trim())
@@ -51,29 +48,21 @@ let baseUrl = arg('url', '');
 const outDir = join(webRoot, 'docs', 'ui-polish', label);
 
 const VIEWPORTS = [
-  { name: 'mobile', width: 390, height: 844, capture: true },
   { name: 'desktop', width: 1440, height: 900, capture: true },
+  { name: 'tablet', width: 1024, height: 768, capture: false },
+  { name: 'mobile', width: 390, height: 844, capture: true },
   { name: 'narrow', width: 360, height: 780, capture: false },
 ];
-// --tablet adds the width where the nav rail first appears (1024px).
-if (process.argv.includes('--tablet')) VIEWPORTS.push({ name: 'tablet', width: 1024, height: 768, capture: true });
-// HOLO-01: the theme is the user's choice (dark by default), not the system's.
+// The theme is the owner's choice (dark by default), not the system's.
 const SCHEMES = ['dark', 'light'];
-const LIGHT_CAPTURES = /^(70-planner|71-planner|72-planner|73-planner|74-planner|75-tracker|76-tracker|78-tracker|00-overview|14-today|16-focus|06-plan-goal|09-plan-steps|11-plan-schedule|11-plan-confirmed|22-today-replan|23-replan|29-insights|31-insights-empty|34-layout-overview|35-layout-focus|42-notes-list|43-notes-editor|50-plan-evidence|52-month|56-calendar|57-calendar|58-calendar|59-calendar|60-calendar|61-calendar|64-commitments-google|66-month-labels)/;
-const FULL_CAPTURES = /^(73-planner-day|74-planner-month|75-tracker|09-plan-steps|10-plan-scope|11-plan-schedule|11-plan-confirmed|12-availability|13-commitments|14-today|17-review|23-replan|27-replan-approved|28-replan-suppressed|29-insights|31-insights-empty|34-layout-overview|38-layout-deadline-risk|39-layout-review|43-notes-editor|50-plan-evidence|52-month|53-month-day|56-calendar-not-configured|58-calendar-connected|60-calendar-needs-reauth|64-commitments-google)/;
+const LIGHT_CAPTURES = /^(00-overview|02-first-run-hours|10-capture-drafts|11-capture-done|30-planner-week|33-planner-list|40-focus-next|63-settings-display|70-login)/;
 // The mock's signed-in owner (src/mocks/db.ts USER_ID): the theme is stored per owner.
 const MOCK_OWNER_ID = '01900000-0000-7000-8000-000000000002';
-// Synthetic ids from src/mocks/notes-seed.ts (M6-03).
 const NOTE_THESIS_ID = '01900000-0000-7000-8000-0000000003a1';
-const NOTE_MEETING_ID = '01900000-0000-7000-8000-0000000003a2';
-const SAMPLE_PROJECT_ID = '01900000-0000-7000-8000-000000000003';
-// Synthetic ids from src/mocks/replan.ts (M5-03 scenario).
-const REPLAN_PENDING_ID = '01900000-0000-7000-8000-0000000002a1';
-const REPLAN_EXPIRED_ID = '01900000-0000-7000-8000-0000000002a4';
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
-// Mock "today" is 2026-11-14 (Asia/Seoul); pin the clock so captures are stable.
+// Mock "today" is 2026-11-14 (Asia/Seoul); the clock is pinned so captures are stable.
 const FIXED_NOW = new Date('2026-11-14T09:40:00.000Z');
-const FULL_MAX_HEIGHT = 2600;
+const NEW_OWNER = { owner: 'new', month: 'none', sessions: 'none' };
 
 const findings = [];
 
@@ -102,7 +91,14 @@ async function settle(page) {
   await page.waitForTimeout(250);
 }
 
-async function checkpoint(page, name, run) {
+/**
+ * One visit: axe, the overflow check and (where kept) a capture.
+ * `within` narrows axe to one part of the page. It is for a floating part that
+ * has no scrim (the account menu): what it covers for a moment is not a target
+ * while it is open, and axe would report a page button that shows as a sliver
+ * beside the menu as too small. The page under it has its own visit.
+ */
+async function checkpoint(page, name, run, within) {
   if (only.length > 0 && !name.startsWith(only)) return;
   const { viewport, scheme } = run;
   await settle(page);
@@ -111,7 +107,8 @@ async function checkpoint(page, name, run) {
     const root = document.documentElement;
     return { scrollWidth: root.scrollWidth, clientWidth: root.clientWidth };
   });
-  const axe = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+  const builder = new AxeBuilder({ page }).withTags(AXE_TAGS);
+  const axe = await (within === undefined ? builder : builder.include(within)).analyze();
   const blocking = axe.violations
     .filter((violation) => violation.impact === 'critical' || violation.impact === 'serious')
     .map((violation) => ({
@@ -128,7 +125,10 @@ async function checkpoint(page, name, run) {
     scrollWidth: overflow.scrollWidth,
     violations: blocking,
   });
-  const flags = [overflowX ? `overflow-x ${overflow.scrollWidth}px` : '', blocking.length ? `${blocking.length} axe` : '']
+  const flags = [
+    overflowX ? `overflow-x ${overflow.scrollWidth}px` : '',
+    blocking.length ? `${blocking.length} axe (${blocking.map((item) => `${item.id}: ${item.targets[0] ?? ''}`).join('; ')})` : '',
+  ]
     .filter(Boolean)
     .join(', ');
 
@@ -141,19 +141,6 @@ async function checkpoint(page, name, run) {
   const file = join(outDir, `${name}-${viewport.name}${suffix}.png`);
   await page.screenshot({ path: file, animations: 'disabled', caret: 'hide' });
   console.log(`  ${file.replace(`${webRoot}/`, '')}${flags ? `  ! ${flags}` : ''}`);
-
-  if (FULL_CAPTURES.test(name)) {
-    const height = await page.evaluate(() => document.documentElement.scrollHeight);
-    if (height > viewport.height + 40) {
-      await page.setViewportSize({ width: viewport.width, height: Math.min(height, FULL_MAX_HEIGHT) });
-      await settle(page);
-      const full = join(outDir, `${name}-${viewport.name}${suffix}-full.png`);
-      await page.screenshot({ path: full, animations: 'disabled', caret: 'hide' });
-      console.log(`  ${full.replace(`${webRoot}/`, '')}`);
-      await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      await settle(page);
-    }
-  }
 }
 
 async function newPage(browser, run, overrides) {
@@ -172,8 +159,8 @@ async function newPage(browser, run, overrides) {
       window.__OHMYDATE_MOCK__ = value;
     }, overrides);
   }
-  // HOLO-01: the run's theme, as the app itself stores it (the owner pointer
-  // and that owner's theme slot), so the first frame is already in it.
+  // The run's theme, as the app itself stores it (the owner pointer and that
+  // owner's theme slot), so the first frame is already in it.
   await page.addInitScript(
     ({ owner, theme }) => {
       window.localStorage.setItem('ohmydate.focus.owner', owner);
@@ -187,781 +174,232 @@ async function newPage(browser, run, overrides) {
 async function go(page, path) {
   await page.goto(`${baseUrl}${path}`);
   await page.waitForFunction(() => document.querySelector('#app')?.childElementCount > 0);
+  await page.locator('.app-shell:not(.app-shell--loading), .auth-page').first().waitFor();
 }
 
-function isMobile(run) {
-  return run.viewport.width < 1024;
-}
+const isWide = (run) => run.viewport.width >= 1024;
 
-// HOLO-01 개요: the dashboard with a week of sessions, with a session running,
-// with nothing recorded yet, and without AI consent.
-async function flowOverview(browser, run) {
-  const ready = async (page) => {
-    await page.locator('[data-overview]').waitFor();
-    await page.waitForFunction(
-      () =>
-        document.querySelectorAll('[data-widget]').length === 5 &&
-        document.querySelectorAll('[data-widget][data-state="loading"]').length === 0,
-    );
-  };
-
-  const full = await newPage(browser, run);
-  await go(full.page, '/overview');
-  await ready(full.page);
-  await full.page.getByRole('heading', { level: 1, name: /님, 좋은 (아침|오후|저녁)(이에요|예요)$/ }).waitFor();
-  await full.page.locator('[data-widget="progress"] [data-chart="bars"]').waitFor();
-  await dismissToasts(full.page);
-  await checkpoint(full.page, '00-overview', run);
-  await full.page.getByRole('button', { name: '이전 주' }).click();
-  await ready(full.page);
-  await checkpoint(full.page, '00-overview-last-week', run);
-  await full.context.close();
-
-  const running = await newPage(browser, run, { sessions: 'running' });
-  await go(running.page, '/overview');
-  await ready(running.page);
-  await running.page.locator('.tracker-well[data-status="active"]').waitFor();
-  await dismissToasts(running.page);
-  await checkpoint(running.page, '00-overview-running', run);
-  await running.context.close();
-
-  const empty = await newPage(browser, run, { sessions: 'none', estimation: 'cold', month: 'none' });
-  await go(empty.page, '/overview');
-  await ready(empty.page);
-  await empty.page.locator('[data-widget="log"] [data-empty]').waitFor();
-  await dismissToasts(empty.page);
-  await checkpoint(empty.page, '00-overview-empty', run);
-  await empty.context.close();
-
-  const consent = await newPage(browser, run, { llmProvider: 'deepseek' });
-  await go(consent.page, '/overview');
-  await consent.page.getByRole('dialog').waitFor();
-  await consent.page.getByRole('button', { name: '직접 작성 모드로 쓰기' }).click();
-  await consent.page.getByRole('dialog').waitFor({ state: 'detached' });
-  await ready(consent.page);
-  await consent.page.locator('[data-ai-consent]').waitFor();
-  await dismissToasts(consent.page);
-  await checkpoint(consent.page, '00-overview-no-consent', run);
-  await consent.context.close();
-}
-
-async function flowMain(browser, run) {
-  const { context, page } = await newPage(browser, run);
-
-  await go(page, '/login');
-  await page.getByRole('heading', { name: 'OhMyDate에 로그인' }).waitFor();
-  await checkpoint(page, '01-login', run);
-
-  await go(page, '/inbox');
-  await page.locator('.task-item').first().waitFor();
-  await checkpoint(page, '02-inbox', run);
-
-  // Conflict: another "device" bumps the seeded task while we edit it.
-  const firstTitle = (await page.locator('.task-item .task-title').first().textContent())?.trim() ?? '';
-  await page.getByRole('button', { name: `${firstTitle} 제목 수정` }).click();
-  await page.getByLabel('작업 제목').fill(`${firstTitle} (내 수정)`);
-  await page.evaluate((title) => {
-    const db = window.__OHMYDATE_MOCK_DB__;
-    const task = [...db.tasks.values()].find((item) => item.title === title);
-    if (task !== undefined) {
-      task.version += 1;
-      task.title = `${title} (휴대폰에서 수정)`;
-      db.taskRevision += 1;
-    }
-  }, firstTitle);
-  await page.getByRole('button', { name: '저장', exact: true }).click();
-  await page.getByRole('dialog').waitFor();
-  await checkpoint(page, '03-conflict-dialog', run);
-  await page.keyboard.press('Escape');
-
-  await go(page, '/projects');
-  await page.locator('.project-list li').first().waitFor();
-  await checkpoint(page, '04-projects', run);
-  await page.getByRole('link', { name: '졸업 논문' }).click();
-  await page.getByRole('heading', { name: '졸업 논문' }).waitFor();
-  await checkpoint(page, '05-project-detail', run);
-
-  await go(page, '/settings/availability');
-  await page.getByRole('heading', { name: '가용 시간', level: 1 }).waitFor();
-  await checkpoint(page, '12-availability', run);
-
-  await go(page, '/commitments');
-  await page.getByRole('heading', { name: '약속', level: 1 }).waitFor();
-  await checkpoint(page, '13-commitments', run);
-
-  await context.close();
-}
-
-async function flowDaily(browser, run) {
-  const { context, page } = await newPage(browser, run);
-  await go(page, '/today');
-  await page.locator('.today-card').first().waitFor();
-  await checkpoint(page, '14-today', run);
-
-  await context.setOffline(true);
-  await page.getByText(/오프라인이에요/).first().waitFor();
-  await checkpoint(page, '15-today-offline', run);
-  await context.setOffline(false);
-  await page.getByText(/오프라인이에요/).first().waitFor({ state: 'detached' }).catch(() => undefined);
-
-  await page.getByRole('button', { name: '집중 시작' }).first().click();
-  await page.locator('.focus-timer').waitFor();
-  await page.clock.setFixedTime(new Date(FIXED_NOW.getTime() + (24 * 60 + 37) * 1000));
-  await page.waitForTimeout(1200);
-  await checkpoint(page, '16-focus', run);
-
-  const calm = page.getByRole('button', { name: '몰입 모드' });
-  if ((await calm.count()) > 0) {
-    await calm.click();
-    await checkpoint(page, '16-focus-calm', run);
-    await calm.click();
-  }
-
-  await page.getByRole('button', { name: '완료' }).first().click();
-  await page.getByRole('heading', { name: '이번 세션은 어땠나요?' }).waitFor();
-  await page.getByRole('radio', { name: '일부만' }).check();
-  await page.getByRole('checkbox', { name: '생각보다 컸어요' }).check();
-  await checkpoint(page, '17-review', run);
-
-  await go(page, '/today');
-  await page.locator('.today-card').first().waitFor();
-  if (isMobile(run)) {
-    const more = page.getByRole('button', { name: '더 보기', exact: true }).filter({ visible: true });
-    if ((await more.count()) > 0) {
-      await more.first().click();
-      await page.getByRole('dialog', { name: '더 보기' }).waitFor();
-      await checkpoint(page, '21-more-sheet', run);
-      await page.getByRole('dialog', { name: '더 보기' }).getByRole('button', { name: '알림' }).click();
-    } else {
-      // Pre-polish bottom nav overflows narrow screens, leaving the button off-screen.
-      await page.getByRole('button', { name: '알림' }).filter({ visible: true }).first().dispatchEvent('click');
-    }
-  } else {
-    // HOLO-01: the notifications button is in the top bar.
-    await page.locator('.app-topbar').getByRole('button', { name: '알림' }).click();
-  }
-  await page.getByRole('dialog', { name: '알림' }).waitFor();
-  await checkpoint(page, '18-notifications', run);
-  await context.close();
-}
-
-async function flowAi(browser, run) {
-  const { context, page } = await newPage(browser, run, { llmProvider: 'deepseek' });
-  await go(page, '/settings/ai');
-  await page.getByRole('dialog').waitFor();
-  await checkpoint(page, '19-ai-consent', run);
-  await page.getByRole('button', { name: '직접 작성 모드로 쓰기' }).click();
-  await page.getByRole('dialog').waitFor({ state: 'detached' });
-  await page.getByRole('heading', { name: 'AI 설정' }).waitFor();
-  await checkpoint(page, '20-ai-settings', run);
-  await context.close();
-}
-
-// HOLO-03A 계획 세우기: 목표 → 질문 → 단계 → 일정안 → 확정, one flow. The first
-// page makes a plan from a goal with the AI; the second makes one straight from
-// tasks that are already there and confirms it (the hand-off to 오늘).
-async function planToSteps(page) {
-  for (let guard = 0; guard < 12; guard += 1) {
-    if (await page.locator('#step-title-s1').isVisible()) return;
-    if (await page.locator('[data-plan-type]').isVisible()) {
-      await page.locator('[data-plan-type-yes]').click();
-    } else if (await page.locator('form[data-plan-questions]').isVisible()) {
-      await page.locator('[data-plan-answer]').click();
-    }
-    await settle(page);
-  }
-  await page.locator('#step-title-s1').waitFor({ timeout: 15_000 });
-}
-
-async function flowPlan(browser, run) {
-  {
-    const { context, page } = await newPage(browser, run);
-    await go(page, '/plan');
-    await page.locator('#plan-goal-title').waitFor();
-    await page.locator('#plan-goal-title').fill('주간 보고서 작성');
-    await page.locator('#plan-goal-due').fill('2026-11-20T18:00');
-    await page.locator('#plan-goal-description').fill('팀 주간 보고서 초안과 검토까지');
-    await dismissToasts(page);
-    await checkpoint(page, '06-plan-goal', run);
-    await page.locator('[data-plan-start]').click();
-    await page.locator('[data-plan-type], form[data-plan-questions], #step-title-s1').first().waitFor();
-    if (await page.locator('[data-plan-type]').isVisible()) {
-      await checkpoint(page, '07-plan-type', run);
-      await page.locator('[data-plan-type-yes]').click();
-      await page.locator('form[data-plan-questions], #step-title-s1').first().waitFor();
-    }
-    if (await page.locator('form[data-plan-questions]').isVisible()) {
-      await checkpoint(page, '08-plan-questions', run);
-    }
-    await planToSteps(page);
-    await dismissToasts(page);
-    await checkpoint(page, '09-plan-steps', run);
+/** One page per flow; `screens` are visited in order on it. */
+async function withPage(browser, run, overrides, visit) {
+  const { context, page } = await newPage(browser, run, overrides);
+  try {
+    await visit(page);
+  } finally {
     await context.close();
   }
-  {
-    // AI is off (the first-run question was answered "without AI"): the goal
-    // card offers to turn it on and asks for consent in place, not in settings.
-    const { context, page } = await newPage(browser, run, { llmProvider: 'deepseek' });
+}
+
+/** Open the capture bar: the top bar's field on a wide window, the nav's 담기 sheet below that. */
+async function openCapture(page, run) {
+  if (isWide(run)) await page.locator('.app-topbar [data-capture-input]').click();
+  else await page.locator('[data-nav-capture]').click();
+  await page.locator('[data-capture-panel]').filter({ visible: true }).first().waitFor();
+}
+
+function captureInput(page) {
+  return page.locator('[data-capture-input]').filter({ visible: true }).first();
+}
+
+// ── The places: every screen of the sidebar, as a returning owner sees it ────
+async function flowPlaces(browser, run) {
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/overview');
+    await page.locator('[data-today-board] .today-card').first().waitFor();
+    await checkpoint(page, '00-overview', run);
+
+    await go(page, '/tasks');
+    await page.locator('[data-inbox]').waitFor();
+    await checkpoint(page, '20-tasks-inbox', run);
+    await go(page, '/tasks?view=projects');
+    await page.locator('[data-projects]').waitFor();
+    await checkpoint(page, '21-tasks-projects', run);
+
     await go(page, '/plan');
-    await page.getByRole('dialog').waitFor();
-    await page.getByRole('button', { name: '직접 작성 모드로 쓰기' }).click();
-    await page.getByRole('dialog').waitFor({ state: 'detached' });
-    await page.locator('#plan-goal-title').fill('발표 자료 만들기');
-    // Declined: the card offers "AI 켜기". Not answered (the mock could not save the answer): starting asks.
-    const turnOn = page.locator('[data-plan-ai-on]');
-    if (await turnOn.isVisible()) await turnOn.click();
-    else await page.locator('[data-plan-start]').click();
-    await page.locator('[data-plan-consent]').waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '06-plan-consent', run);
-    await context.close();
-  }
-  {
-    const { context, page } = await newPage(browser, run);
+    await page.locator('.plan-rail').waitFor();
+    await checkpoint(page, '25-plan-goal', run);
     await go(page, '/plan/schedule');
-    await page.locator('.task-picker input[type="checkbox"]').first().waitFor();
-    const boxes = page.locator('.task-picker input[type="checkbox"]');
-    const count = await boxes.count();
-    for (let index = 0; index < Math.min(count, 3); index += 1) await boxes.nth(index).check();
-    await dismissToasts(page);
-    await checkpoint(page, '10-plan-scope', run);
-    await page.locator('[data-plan-create]').click();
-    await page.locator('.plan-option').first().waitFor();
-    await page.locator('.wg-item[data-kind="proposal"]').first().waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '11-plan-schedule', run);
-    await page.locator('[data-plan-approve]').click();
-    await page.locator('[data-plan-next]').waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '11-plan-confirmed', run);
-    await context.close();
-  }
-}
+    await page.locator('[data-plan-scope], .plan-scope, .page').first().waitFor();
+    await checkpoint(page, '26-plan-scope', run);
 
-// Toasts stay up while the clock is pinned; close them so captures show the screen.
-async function dismissToasts(page) {
-  for (let round = 0; round < 6; round += 1) {
-    const close = page.locator('.toast button[aria-label^="메시지 닫기"]').first();
-    if ((await close.count()) === 0) return;
-    await close.click();
-  }
-}
+    await go(page, '/planner');
+    await page.locator('[data-planner="week"]').waitFor();
+    await checkpoint(page, '30-planner-week', run);
+    await go(page, '/planner?view=day');
+    await page.locator('[data-planner="day"]').waitFor();
+    await checkpoint(page, '31-planner-day', run);
+    await go(page, '/planner?view=month');
+    await page.locator('[data-month-title]').waitFor();
+    await checkpoint(page, '32-planner-month', run);
+    await go(page, '/planner?view=list');
+    await page.locator('[data-planner-list]').waitFor();
+    await checkpoint(page, '33-planner-list', run);
+    await page.locator('[data-commitment-edit]').first().click();
+    await page.locator('[data-planner-edit]').waitFor();
+    await checkpoint(page, '34-planner-edit', run);
+    await page.keyboard.press('Escape');
 
-async function openNotificationsPanel(page, run) {
-  if (isMobile(run)) {
-    await page.getByRole('button', { name: '더 보기', exact: true }).filter({ visible: true }).first().click();
-    await page.getByRole('dialog', { name: '더 보기' }).waitFor();
-    await page.getByRole('dialog', { name: '더 보기' }).getByRole('button', { name: '알림' }).click();
-  } else {
-    // HOLO-01: the notifications button is in the top bar.
-    await page.locator('.app-topbar').getByRole('button', { name: '알림' }).click();
-  }
-  await page.getByRole('dialog', { name: '알림' }).waitFor();
-}
+    await go(page, '/focus');
+    await page.locator('[data-tracker-idle], [data-tracker-start]').first().waitFor();
+    await checkpoint(page, '45-focus-home', run);
 
-// 재계획 (HOLO-03A; M5-03): the card on 오늘 and 플래너, the one screen with a
-// proposal (reject dialog, a settled one, conflict, approved with its hand-off),
-// user request → reject → suppressed request, and nothing waiting. In-app
-// navigation only after the first load, because a full reload re-seeds the
-// in-page mock database.
-async function flowReplan(browser, run) {
-  const { context, page } = await newPage(browser, run, { replan: 'history' });
-  await go(page, '/today');
-  await page.locator('.today-card').first().waitFor();
-  await page.locator('[data-replan-card]').waitFor();
-  await page.locator('.toast').first().waitFor({ timeout: 4000 }).catch(() => undefined);
-  await dismissToasts(page);
-  await checkpoint(page, '22-today-replan', run);
-
-  await openNotificationsPanel(page, run);
-  await page.locator('[data-open-proposal]').first().waitFor();
-  await checkpoint(page, '32-notifications-replan', run);
-  await page.locator('[data-open-proposal]').first().click();
-  await page.locator('.replan-change').first().waitFor();
-  await page.locator('.wg-item[data-kind="proposal"]').first().waitFor();
-  await dismissToasts(page);
-  await checkpoint(page, '23-replan', run);
-
-  await page.locator('[data-replan-reject]').click();
-  await page.getByRole('dialog', { name: '이 제안을 거절할까요?' }).waitFor();
-  await checkpoint(page, '24-replan-reject-confirm', run);
-  await page.getByRole('dialog').getByRole('button', { name: '취소' }).click();
-  await page.getByRole('dialog').waitFor({ state: 'detached' });
-
-  await page.locator(`[data-proposal-id="${REPLAN_EXPIRED_ID}"] a`).click();
-  await page.locator('[data-readonly]').waitFor();
-  await checkpoint(page, '26-replan-expired', run);
-
-  await page.locator(`[data-proposal-id="${REPLAN_PENDING_ID}"] a`).click();
-  // 412: availability changed after the proposal was computed.
-  await page.locator('[data-replan-approve]').waitFor();
-  await page.evaluate(() => {
-    window.__OHMYDATE_MOCK_DB__.availabilityVersion += 1;
-  });
-  await page.locator('[data-replan-approve]').click();
-  await page.getByRole('alertdialog').waitFor();
-  await checkpoint(page, '33-replan-conflict', run);
-  await page.getByRole('alertdialog').getByRole('button', { name: '새로 고침' }).click();
-  await page.getByRole('alertdialog').waitFor({ state: 'detached' });
-  await page.evaluate(() => {
-    window.__OHMYDATE_MOCK_DB__.availabilityVersion -= 1;
-  });
-  await page.locator('[data-replan-approve]').click();
-  await page.locator('[data-replan-today]').waitFor();
-  await dismissToasts(page);
-  await checkpoint(page, '27-replan-approved', run);
-
-  await page.locator('[data-replan-request]').click();
-  await page.locator('[data-replan-approve]').waitFor();
-  await page.locator('[data-replan-reject]').click();
-  await page.getByRole('dialog').getByRole('button', { name: '거절하기' }).click();
-  await page.locator('[data-readonly]').waitFor();
-  await page.locator('[data-replan-request]').click();
-  await page.locator('.replan-suppressed').waitFor();
-  await dismissToasts(page);
-  await checkpoint(page, '28-replan-suppressed', run);
-  await context.close();
-
-  // The same card above the week on 플래너.
-  const planner = await newPage(browser, run, { replan: 'pending' });
-  await go(planner.page, '/planner');
-  await planner.page.locator('[data-replan-card]').waitFor();
-  await dismissToasts(planner.page);
-  await checkpoint(planner.page, '22-planner-replan', run);
-  await planner.context.close();
-
-  // Nothing waits and no plan is known: the screen leads back to 계획 세우기.
-  const quiet = await newPage(browser, run);
-  await go(quiet.page, '/replan');
-  await quiet.page.locator('[data-replan-none]').waitFor();
-  await dismissToasts(quiet.page);
-  await checkpoint(quiet.page, '25-replan-none', run);
-  await quiet.context.close();
-}
-
-// AI 분석 (HOLO-03A): the charts with records, the reset confirmation, and
-// every card's empty state.
-async function flowInsights(browser, run) {
-  const learned = await newPage(browser, run);
-  await go(learned.page, '/insights');
-  await learned.page.locator('[data-estimate-ratio]').waitFor();
-  await learned.page.locator('[data-insight="weeks"] [data-chart="bars"]').waitFor();
-  await learned.page.locator('.toast').first().waitFor({ timeout: 4000 }).catch(() => undefined);
-  await dismissToasts(learned.page);
-  await checkpoint(learned.page, '29-insights', run);
-  await learned.page.locator('[data-reset-all]').click();
-  await learned.page.getByRole('alertdialog').waitFor();
-  await checkpoint(learned.page, '30-insights-reset-confirm', run);
-  await learned.context.close();
-
-  const empty = await newPage(browser, run, { estimation: 'cold', sessions: 'none', month: 'none' });
-  await go(empty.page, '/insights');
-  await empty.page.locator('[data-cold-start]').waitFor();
-  await empty.page.locator('[data-insights-empty="weeks"]').waitFor();
-  await empty.page.locator('.toast').first().waitFor({ timeout: 4000 }).catch(() => undefined);
-  await dismissToasts(empty.page);
-  await checkpoint(empty.page, '31-insights-empty', run);
-  await empty.context.close();
-}
-
-// M6-02: one capture per adaptive layout mode (07 §2.2) plus the undo toast,
-// the undone layout and the settings screen. In-app navigation after the
-// first load keeps the in-page mock database (and the local session store).
-function layoutMode(page, mode) {
-  return page.locator(`.adaptive-frame[data-layout-mode="${mode}"]`).waitFor();
-}
-
-async function dismissOtherToasts(page, keep) {
-  for (let round = 0; round < 6; round += 1) {
-    const close = page
-      .locator('.toast')
-      .filter({ hasNotText: keep })
-      .locator('button[aria-label^="메시지 닫기"]')
-      .first();
-    if ((await close.count()) === 0) return;
-    await close.click();
-  }
-}
-
-async function navToToday(page, run) {
-  const nav = page.locator(isMobile(run) ? '.bottom-nav' : '.nav-rail');
-  await nav.getByRole('link', { name: '오늘' }).click();
-  await page.waitForURL(/\/today$/);
-}
-
-async function flowAdaptive(browser, run) {
-  {
-    const { context, page } = await newPage(browser, run);
-    await go(page, '/today');
-    await page.locator('.today-card').first().waitFor();
-    await layoutMode(page, 'overview');
-    await dismissToasts(page);
-    await checkpoint(page, '34-layout-overview', run);
-
-    await page.getByRole('button', { name: '집중 시작' }).first().click();
-    await layoutMode(page, 'focus');
-    await page.locator('.focus-timer').waitFor();
-    await page.getByRole('button', { name: '되돌리기' }).waitFor();
-    await dismissOtherToasts(page, '레이아웃이 바뀌었어요');
-    await checkpoint(page, '35-layout-focus', run);
-
-    await page.getByRole('button', { name: '되돌리기' }).click();
-    await page.waitForURL(/\/today$/);
-    await layoutMode(page, 'overview');
-    await dismissToasts(page);
-    await checkpoint(page, '36-layout-undone', run);
-
-    // Finish the running session without a review, then go past 20:00.
-    await page.getByRole('button', { name: '세션 이어가기' }).click();
-    await layoutMode(page, 'focus');
-    await page.getByRole('button', { name: '완료' }).first().click();
-    await page.getByRole('heading', { name: '이번 세션은 어땠나요?' }).waitFor();
-    await page.clock.setFixedTime(new Date('2026-11-14T11:30:00.000Z'));
-    await navToToday(page, run);
-    await layoutMode(page, 'review');
-    await dismissToasts(page);
-    await checkpoint(page, '39-layout-review', run);
-    await context.close();
-  }
-  {
-    const { context, page } = await newPage(browser, run, { today: 'risk' });
-    await go(page, '/today');
-    await layoutMode(page, 'deadline_risk');
-    await page.locator('[data-panel="deadline-risk"]').waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '38-layout-deadline-risk', run);
-    await context.close();
-  }
-  {
-    // No risk here: a deadline risk outranks the notes layout (07 §2.2 rule 4 > 6).
-    const { context, page } = await newPage(browser, run);
-    await go(page, '/plan');
-    await layoutMode(page, 'planning');
-    await page.locator('#plan-goal-title').waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '37-layout-planning', run);
+    await go(page, '/insights');
+    await page.locator('.insights-page, [data-insights]').first().waitFor();
+    await checkpoint(page, '50-insights', run);
 
     await go(page, '/notes');
-    await layoutMode(page, 'notes');
-    await dismissToasts(page);
-    await checkpoint(page, '40-layout-notes', run);
-
-    await go(page, '/settings/layout');
-    await page.getByRole('heading', { name: '레이아웃', level: 1 }).waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '41-layout-settings', run);
-    await context.close();
-  }
-}
-
-async function openNote(page, id) {
-  await go(page, `/notes/${id}`);
-  await page.locator('[data-note-title]').waitFor();
-  await page.locator('[data-note-ai-usage]').waitFor();
-}
-
-// M6-03 notes screens (07 §3.5): list, editor with the safe preview, link
-// picker, AI usage, the 412 conflict and delete dialogs, the project notes
-// tab, the task detail with "설명을 노트로 승격", 계획 세우기's reference notes
-// with draft evidence, and RelatedNotes in the focus layout.
-async function flowNotes(browser, run) {
-  {
-    const { context, page } = await newPage(browser, run);
-    await go(page, isMobile(run) ? '/notes' : `/notes/${NOTE_THESIS_ID}`);
-    await layoutMode(page, 'notes');
     await page.locator('[data-note-item]').first().waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '42-notes-list', run);
+    await checkpoint(page, '55-notes', run);
+    await go(page, `/notes/${NOTE_THESIS_ID}`);
+    await page.locator('[data-note-status]').waitFor();
+    await checkpoint(page, '56-note-open', run);
 
-    await openNote(page, NOTE_THESIS_ID);
-    await dismissToasts(page);
-    await checkpoint(page, '43-notes-editor', run);
-
-    await page.locator('[data-note-link-add]').click();
-    await page.getByRole('dialog', { name: '연결할 대상 고르기' }).waitFor();
-    await page.locator('input[name="link-picker-kind"][value="task"]').check();
-    await checkpoint(page, '44-notes-link-picker', run);
-    await page.getByRole('button', { name: '취소' }).click();
-
-    await page.locator('[data-note-ai-usage]').scrollIntoViewIfNeeded();
-    await checkpoint(page, '45-notes-ai-usage', run);
-
-    // Another device saved meanwhile: the next save answers 412.
-    await page.locator('[data-note-mode="edit"]').check();
-    await page.locator('[data-note-body]').fill('# 졸업 논문 참고 문헌\n\n오프라인에서 고친 내용');
-    await page.evaluate((id) => {
-      const note = window.__OHMYDATE_MOCK_DB__?.notes.documents.get(id);
-      if (note !== undefined) {
-        note.version += 2;
-        note.title = '졸업 논문 참고 문헌 (다른 기기)';
-      }
-    }, NOTE_THESIS_ID);
-    await page.locator('[data-note-save]').click();
-    await page.getByRole('alertdialog', { name: '다른 곳에서 이 노트가 바뀌었어요' }).waitFor();
-    await checkpoint(page, '46-notes-conflict', run);
-    await page.getByRole('button', { name: '서버 내용 불러오기' }).click();
-
-    await page.locator('[data-note-delete]').click();
-    await page.getByRole('alertdialog', { name: '노트를 삭제할까요?' }).waitFor();
-    await checkpoint(page, '47-notes-delete-confirm', run);
-    await page.getByRole('button', { name: '취소' }).click();
-
-    await go(page, `/projects/${SAMPLE_PROJECT_ID}?tab=notes`);
-    await page.locator('[data-project-notes] [data-linked-note]').first().waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '48-project-notes-tab', run);
-
-    // A full load re-creates the in-page mock database: seed the description,
-    // then open the task from its row (in-app navigation keeps the data).
-    await go(page, '/inbox');
-    await page.locator('[data-task-detail-link]').first().waitFor();
-    await page.evaluate(() => {
-      const tasks = [...(window.__OHMYDATE_MOCK_DB__?.tasks.values() ?? [])];
-      const task = tasks.find((item) => item.title === '주간 계획 돌아보기');
-      if (task !== undefined) task.description = '<p>지난주 회고 메모: <b>집중 시간</b>이 부족했음.</p><p>다음 주에는 오전에 블록을 먼저 잡기.</p>';
-    });
-    await page.locator('[data-task-detail-link]', { hasText: '주간 계획 돌아보기' }).click();
-    await page.locator('[data-task-description]').waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '49-task-detail', run);
-    await context.close();
-  }
-  {
-    const { context, page } = await newPage(browser, run);
-    await go(page, '/plan');
-    await page.locator('#plan-goal-title').fill('졸업 논문 실험 계획');
-    await page.locator('[data-plan-start]').click();
-    await page.locator('[data-wizard-notes]').waitFor();
-    await page.locator('[data-wizard-notes-add]').click();
-    const picker = page.getByRole('dialog', { name: '참고할 노트 고르기' });
-    await picker.waitFor();
-    await picker.getByRole('button', { name: '“졸업 논문 참고 문헌” 이 계획에 연결' }).click();
-    await picker.getByText('연결됨').waitFor();
-    await picker.getByRole('button', { name: '닫기' }).click();
-    await planToSteps(page);
-    await page.locator('[data-wizard-evidence] .evidence-note-title').first().waitFor();
-    await page.locator('[data-wizard-evidence]').scrollIntoViewIfNeeded();
-    await dismissToasts(page);
-    await checkpoint(page, '50-plan-evidence', run);
-    await context.close();
-  }
-  {
-    const { context, page } = await newPage(browser, run, { notes: 'focus' });
-    await go(page, '/today');
-    await page.locator('.today-card').first().waitFor();
-    await page.getByRole('button', { name: '집중 시작' }).first().click();
-    await layoutMode(page, 'focus');
-    await page.locator(`[data-related-note="${NOTE_MEETING_ID}"]`).waitFor();
-    await dismissOtherToasts(page, '레이아웃이 바뀌었어요');
-    await page.locator('[data-panel="related-notes"]').scrollIntoViewIfNeeded();
-    await checkpoint(page, '51-focus-related-notes', run);
-    await context.close();
-  }
+    for (const [index, section] of ['availability', 'calendar', 'ai', 'display'].entries()) {
+      await go(page, `/settings/${section}`);
+      await page.locator(`[data-settings-section="${section}"] .settings-section`).waitFor();
+      await checkpoint(page, `6${index}-settings-${section}`, run);
+    }
+  });
 }
 
-// CAL-01: the month page (한달) on the seeded November (src/mocks/db.ts
-// seedMonth): this month with today picked, another day picked, the next
-// month, and a month with nothing planned (October has none).
-async function monthReady(page) {
-  await page.locator('.month-grid:not([aria-busy])').waitFor();
+// ── The shell: what floats (menus, sheets, dialogs) ─────────────────────────
+async function flowShell(browser, run) {
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/overview');
+    await page.locator('[data-today-board] .today-card').first().waitFor();
+    await page.locator('[data-user-menu]').click();
+    await page.locator('#topbar-user-menu').waitFor();
+    await checkpoint(page, '80-account-menu', run, '.app-topbar');
+    await page.keyboard.press('Escape');
+
+    await page.locator('.topbar-bell').click();
+    await page.getByRole('dialog', { name: '알림' }).waitFor();
+    await checkpoint(page, '81-notifications', run);
+    await page.keyboard.press('Escape');
+
+    await page.keyboard.press('?');
+    await page.getByRole('dialog', { name: '키보드 단축키' }).waitFor();
+    await checkpoint(page, '82-help', run);
+    await page.keyboard.press('Escape');
+
+    if (!isWide(run)) {
+      await page.locator('[data-nav-more]').click();
+      await page.getByRole('dialog', { name: '더 보기' }).waitFor();
+      await checkpoint(page, '83-more-sheet', run);
+      await page.keyboard.press('Escape');
+    }
+  });
+  await withPage(browser, run, undefined, async (page) => {
+    await page.addInitScript(() => window.localStorage.removeItem('ohmydate.focus.owner'));
+    await go(page, '/login');
+    await page.getByRole('heading', { name: 'OhMyDate에 로그인' }).waitFor();
+    await checkpoint(page, '70-login', run);
+  });
 }
 
-async function flowMonth(browser, run) {
-  const { context, page } = await newPage(browser, run);
-  await go(page, '/month');
-  await monthReady(page);
-  await page.locator('[data-month-detail] .month-agenda-item').first().waitFor();
-  await dismissToasts(page);
-  await checkpoint(page, '52-month', run);
-
-  await page.locator('[role="gridcell"][data-date="2026-11-20"]').click();
-  await page.locator('[data-month-detail] h2', { hasText: '11월 20일' }).waitFor();
-  await checkpoint(page, '53-month-day', run);
-
-  await page.locator('[data-month-next]').click();
-  await page.getByRole('heading', { name: '2026년 12월', level: 1 }).waitFor();
-  await monthReady(page);
-  await checkpoint(page, '54-month-next', run);
-
-  await go(page, '/month?m=2026-10');
-  await monthReady(page);
-  await page.locator('[data-month-empty]').waitFor();
-  await dismissToasts(page);
-  await checkpoint(page, '55-month-empty', run);
-  await context.close();
+// ── ① 담기: the capture bar, from a line to the hand-off; and the search ─────
+async function flowCapture(browser, run) {
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/planner');
+    await page.locator('[data-planner="week"]').waitFor();
+    await openCapture(page, run);
+    await captureInput(page).fill('금요일까지 보고서 초안, 내일 장보기');
+    await checkpoint(page, '10-capture-line', run);
+    await page.keyboard.press('Enter');
+    await page.locator('[data-capture-row]').filter({ visible: true }).first().waitFor();
+    await checkpoint(page, '10-capture-drafts', run);
+    await page.locator('[data-capture-flip]').filter({ visible: true }).first().click();
+    await checkpoint(page, '10-capture-flipped', run);
+    await page.locator('[data-capture-flip]').filter({ visible: true }).first().click();
+    await page.locator('[data-capture-submit]').filter({ visible: true }).first().click();
+    await page.locator('[data-capture-done]').filter({ visible: true }).first().waitFor();
+    await checkpoint(page, '11-capture-done', run);
+    // The hand-off: 계획에 넣기, with what was just put down picked.
+    await page.locator('[data-capture-next="plan"]').filter({ visible: true }).first().click();
+    await page.waitForURL(/\/plan\/schedule\?taskIds=/);
+    await checkpoint(page, '12-capture-to-plan', run);
+  });
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/overview');
+    await page.locator('[data-today-board] .today-card').first().waitFor();
+    await openCapture(page, run);
+    await page.locator('[data-capture-mode-button="search"]').filter({ visible: true }).first().click();
+    await captureInput(page).fill('논문');
+    await page.locator('[data-capture-result]').filter({ visible: true }).first().waitFor();
+    await checkpoint(page, '13-capture-search', run);
+  });
 }
 
-// HOLO-02: 플래너 in its three views on the seeded November (this week holds
-// the pinned today): the week grid, the detail card of today's next block,
-// the 약속 추가 dialog, the day beside its timetable, and the month.
-async function flowPlanner(browser, run) {
-  const { context, page } = await newPage(browser, run);
-  await go(page, '/planner');
-  await page.locator('[data-week-grid]:not([aria-busy])').waitFor();
-  await page.locator('.wg-day--today .wg-item').first().waitFor();
-  await dismissToasts(page);
-  await checkpoint(page, '70-planner-week', run);
-
-  await page.locator('.wg-day--today .wg-item--block').first().click();
-  await page.locator('[data-planner-card]').waitFor();
-  await checkpoint(page, '71-planner-week-card', run);
-  await page.keyboard.press('Escape');
-  await page.locator('[data-planner-card]').waitFor({ state: 'detached' });
-
-  await page.locator('[data-planner-add]').click();
-  await page.locator('[data-planner-add-dialog]').waitFor();
-  await checkpoint(page, '72-planner-add', run);
-  await page.keyboard.press('Escape');
-  await page.locator('[data-planner-add-dialog]').waitFor({ state: 'detached' });
-
-  await go(page, '/planner?view=day');
-  await page.locator('.planner-agenda-item').first().waitFor();
-  await page.locator('.day-timetable').waitFor();
-  await dismissToasts(page);
-  await checkpoint(page, '73-planner-day', run);
-
-  await go(page, '/planner?view=month');
-  await monthReady(page);
-  await page.locator('[data-month-detail] .month-agenda-item').first().waitFor();
-  await dismissToasts(page);
-  await checkpoint(page, '74-planner-month', run);
-  await context.close();
+// ── ③ → ④ → ⑤: start the next block, finish it, review, the next step, the recap ─
+async function flowLoop(browser, run) {
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/overview');
+    await page.locator('[data-primary="start"]').waitFor();
+    await page.locator('[data-primary="start"]').click();
+    await page.waitForURL(/\/focus\//);
+    await page.locator('.focus-timer').waitFor();
+    await checkpoint(page, '40-focus-running', run);
+    await page.getByRole('button', { name: /^완료/ }).first().click();
+    await page.getByRole('heading', { name: '이번 세션은 어땠나요?' }).waitFor();
+    await checkpoint(page, '40-focus-review', run);
+    await page.locator('.review-submit').click();
+    await page.locator('[data-focus-next]').waitFor();
+    await checkpoint(page, '40-focus-next', run);
+    // 오늘은 여기까지 → the recap on 개요.
+    await page.locator('[data-focus-next-done]').click();
+    await page.locator('[data-day-recap]').waitFor();
+    await checkpoint(page, '41-overview-recap', run);
+  });
+  // ⑥ 다시 맞추기: a proposal waits on 개요 and opens before → after.
+  await withPage(browser, run, { replan: 'pending' }, async (page) => {
+    await go(page, '/overview');
+    await page.locator('.replan-card, [data-replan-card]').first().waitFor();
+    await checkpoint(page, '42-overview-replan', run);
+    await go(page, '/replan');
+    await page.locator('.replan-page, [data-replan]').first().waitFor();
+    await checkpoint(page, '43-replan', run);
+  });
+  // A running session: the now pill, and 개요 saying so.
+  await withPage(browser, run, { sessions: 'running' }, async (page) => {
+    await go(page, '/planner');
+    await page.locator('[data-now-pill][data-now="active"]').waitFor();
+    await checkpoint(page, '44-now-pill-running', run);
+  });
 }
 
-// HOLO-02: 타임 트래커 — waiting with the next block's task picked, the picker
-// open, the record filtered by project, a session running, and no record yet.
-async function flowTracker(browser, run) {
-  const ready = async (page) => {
-    await page.locator('[data-tracker-log][data-state="ready"]').waitFor();
-  };
-
-  const idle = await newPage(browser, run);
-  await go(idle.page, '/tracker');
-  await ready(idle.page);
-  await idle.page.locator('[data-tracker-hint]').waitFor();
-  await dismissToasts(idle.page);
-  await checkpoint(idle.page, '75-tracker', run);
-  await idle.page.locator('#tracker-task').click();
-  await idle.page.locator('#tracker-task-list [role="option"]').first().waitFor();
-  await checkpoint(idle.page, '76-tracker-picker', run);
-  await idle.page.keyboard.press('Escape');
-  await idle.page.locator('[data-filter-project]').selectOption({ label: '졸업 논문' });
-  await checkpoint(idle.page, '77-tracker-filtered', run);
-  await idle.context.close();
-
-  const running = await newPage(browser, run, { sessions: 'running' });
-  await go(running.page, '/tracker');
-  await ready(running.page);
-  await running.page.locator('[data-tracker-timer][data-status="active"]').waitFor();
-  await dismissToasts(running.page);
-  await checkpoint(running.page, '78-tracker-running', run);
-  await running.context.close();
-
-  const empty = await newPage(browser, run, { sessions: 'none' });
-  await go(empty.page, '/tracker');
-  await ready(empty.page);
-  await empty.page.locator('[data-tracker-log] [data-empty]').waitFor();
-  await dismissToasts(empty.page);
-  await checkpoint(empty.page, '79-tracker-empty', run);
-  await empty.context.close();
+// ── 처음 한 번: the three steps, the ending, and 개요's 시작 마무리 card ─────
+async function flowFirstRun(browser, run) {
+  await withPage(browser, run, NEW_OWNER, async (page) => {
+    await go(page, '/overview');
+    await page.locator('[data-first-run-step="hours"]').waitFor();
+    await checkpoint(page, '02-first-run-hours', run);
+    await page.locator('[data-first-run] [data-preset]').first().check();
+    await page.locator('[data-first-run-next]').click();
+    await page.locator('[data-first-run-step="commitments"]').waitFor();
+    await checkpoint(page, '03-first-run-commitments', run);
+    await page.locator('[data-first-run-next]').click();
+    await page.locator('[data-first-run-step="ai"]').waitFor();
+    await checkpoint(page, '04-first-run-ai', run);
+    await page.locator('[data-first-run-skip]').click();
+    await page.locator('[data-first-run-step="ready"]').waitFor();
+    await checkpoint(page, '05-first-run-ready', run);
+  });
+  await withPage(browser, run, NEW_OWNER, async (page) => {
+    await go(page, '/overview');
+    await page.locator('[data-first-run-step="hours"]').waitFor();
+    await page.locator('[data-first-run-close]').click();
+    await page.locator('[data-setup-card]').waitFor();
+    await checkpoint(page, '06-overview-setup-card', run);
+    // Empty states lead back a stage.
+    await go(page, '/tasks');
+    await page.locator('[data-inbox]').waitFor();
+    await checkpoint(page, '07-tasks-empty', run);
+    await go(page, '/planner?view=list');
+    await page.locator('[data-planner-list-empty]').waitFor();
+    await checkpoint(page, '08-planner-list-empty', run);
+  });
 }
 
-// CAL-04: 캘린더 연동 in every status of the mock state machine
-// (src/mocks/google.ts, picked through __OHMYDATE_MOCK__.google), the
-// messages after coming back from Google, the disconnect dialog, and the
-// imported items on 약속 and 한달.
-async function calendarReady(page, status) {
-  await page.locator(`[data-google-status="${status}"]`).waitFor();
-}
-
-async function flowCalendar(browser, run) {
-  for (const [name, google, status] of [
-    ['56-calendar-not-configured', 'not_configured', 'not_configured'],
-    ['57-calendar-disconnected', 'disconnected', 'disconnected'],
-    ['60-calendar-needs-reauth', 'needs_reauth', 'needs_reauth'],
-    ['61-calendar-partial', 'partial', 'connected'],
-  ]) {
-    const { context, page } = await newPage(browser, run, { google });
-    await go(page, '/settings/calendar');
-    await calendarReady(page, status);
-    await dismissToasts(page);
-    await checkpoint(page, name, run);
-    await context.close();
-  }
-  {
-    const { context, page } = await newPage(browser, run);
-    await go(page, '/settings/calendar');
-    await calendarReady(page, 'connected');
-    await dismissToasts(page);
-    await checkpoint(page, '58-calendar-connected', run);
-    await page.locator('[data-google-disconnect]').click();
-    await page.getByRole('alertdialog', { name: '구글 연결을 끊을까요?' }).waitFor();
-    await checkpoint(page, '59-calendar-disconnect-dialog', run);
-    await context.close();
-  }
-  {
-    const { context, page } = await newPage(browser, run);
-    await go(page, '/settings/calendar?google=connected');
-    await page.locator('[data-google-returned="connected"]').waitFor();
-    await calendarReady(page, 'connected');
-    await dismissToasts(page);
-    await checkpoint(page, '62-calendar-returned', run);
-    await context.close();
-  }
-  {
-    const { context, page } = await newPage(browser, run, { google: 'disconnected' });
-    await go(page, '/settings/calendar?google=denied');
-    await page.locator('[data-google-returned="denied"]').waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '63-calendar-denied', run);
-    await context.close();
-  }
-  {
-    const { context, page } = await newPage(browser, run);
-    await go(page, '/commitments');
-    await page.locator('.commitment-item[data-source="google"]').first().waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '64-commitments-google', run);
-    await context.close();
-  }
-  {
-    const { context, page } = await newPage(browser, run, { google: 'needs_reauth' });
-    await go(page, '/commitments');
-    await page.locator('[data-google-stale]').waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '65-commitments-google-stale', run);
-    await context.close();
-  }
-  {
-    const { context, page } = await newPage(browser, run);
-    await go(page, '/month');
-    await monthReady(page);
-    await page.locator('[data-month-day-labels]').first().waitFor({ state: 'attached' });
-    await page.locator('[role="gridcell"][data-date="2026-11-28"]').click();
-    await page.locator('[data-month-detail-labels]').waitFor();
-    await dismissToasts(page);
-    await checkpoint(page, '66-month-labels', run);
-    await context.close();
-  }
-}
-
-// The dev server can reload a page while it optimises deps; retry a flow once
-// (findings from the failed attempt are discarded).
-async function withRetry(flow, browser, run) {
-  const mark = findings.length;
-  try {
-    await flow(browser, run);
-  } catch (error) {
-    const detail = String(error?.message ?? error)
-      .split('\n')
-      .filter((line) => /Timeout|waiting for|intercepts/.test(line))
-      .slice(0, 3)
-      .join(' / ');
-    console.log(`  retrying ${flow.name} (${run.viewport.name} ${run.scheme}): ${detail}`);
-    findings.length = mark;
-    await flow(browser, run);
-  }
-}
+const FLOWS = { places: flowPlaces, shell: flowShell, capture: flowCapture, loop: flowLoop, 'first-run': flowFirstRun };
 
 async function main() {
   await mkdir(outDir, { recursive: true });
@@ -972,60 +410,32 @@ async function main() {
   }
   const browser = await chromium.launch();
   try {
-    for (const viewport of VIEWPORTS) {
-      for (const scheme of SCHEMES) {
+    for (const scheme of SCHEMES) {
+      for (const viewport of VIEWPORTS) {
         const run = { viewport, scheme };
-        console.log(`${label} · ${viewport.name} ${viewport.width}x${viewport.height} · ${scheme}`);
-        const flows = {
-          overview: flowOverview,
-          main: flowMain,
-          daily: flowDaily,
-          ai: flowAi,
-          plan: flowPlan,
-          replan: flowReplan,
-          insights: flowInsights,
-          adaptive: flowAdaptive,
-          notes: flowNotes,
-          month: flowMonth,
-          calendar: flowCalendar,
-          planner: flowPlanner,
-          tracker: flowTracker,
-        };
-        for (const [name, flow] of Object.entries(flows)) {
+        console.log(`${scheme} ${viewport.name} (${viewport.width}x${viewport.height})`);
+        for (const [name, flow] of Object.entries(FLOWS)) {
           if (flowFilter.length > 0 && !flowFilter.includes(name)) continue;
-          await withRetry(flow, browser, run);
+          try {
+            await flow(browser, run);
+          } catch (cause) {
+            findings.push({ screen: `flow:${name}`, viewport: `${viewport.width}x${viewport.height}`, scheme, error: String(cause).slice(0, 400) });
+            console.log(`  ! flow ${name} stopped: ${String(cause).split('\n')[0]}`);
+          }
         }
       }
     }
   } finally {
     await browser.close();
-    vite?.kill('SIGTERM');
+    vite?.kill();
   }
-
-  const failing = findings.filter((item) => item.overflowX || item.violations.length > 0);
-  const summary = {
-    label,
-    generatedFrom: 'VITE_MOCK=1 synthetic data (src/mocks)',
-    axeTags: AXE_TAGS,
-    visits: findings.length,
-    failing: failing.length,
-    findings,
-  };
-  if (only.length === 0) {
-    await writeFile(join(outDir, 'sweep-report.json'), `${JSON.stringify(summary, null, 2)}\n`);
-  }
-  console.log(`\n${findings.length} visits · ${failing.length} with overflow or critical/serious axe violations`);
-  for (const item of failing) {
-    console.log(
-      `  ${item.screen} ${item.viewport} ${item.scheme}: ${item.overflowX ? `overflow ${item.scrollWidth}px ` : ''}${item.violations
-        .map((violation) => `${violation.id}(${violation.impact}) ${violation.targets.slice(0, 3).join(' | ')}`)
-        .join('; ')}`,
-    );
-  }
-  if (failing.length > 0 && !reportOnly) process.exitCode = 1;
+  const bad = findings.filter((entry) => entry.error !== undefined || entry.overflowX === true || (entry.violations?.length ?? 0) > 0);
+  await writeFile(
+    join(outDir, 'sweep-report.json'),
+    `${JSON.stringify({ generatedFor: label, checks: findings.length, failing: bad.length, findings: bad }, null, 2)}\n`,
+  );
+  console.log(`${findings.length} checks, ${bad.length} failing → docs/ui-polish/${label}/sweep-report.json`);
+  if (bad.length > 0 && !reportOnly) process.exitCode = 1;
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+await main();
