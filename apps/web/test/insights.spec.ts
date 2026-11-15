@@ -111,7 +111,9 @@ describe('AI 분석 — 예상과 실제 (what reviews taught)', () => {
     const empty = wrapper.get('[data-insights-empty="estimate"]');
     expect(empty.text()).toContain('아직 기록이 부족해요');
     expect(empty.text()).toContain('회고가 3개 쌓이면 예상과 실제를 비교해 드려요. 지금은 2개예요.');
-    expect(empty.get('a').attributes('href')).toBe('/overview');
+    // No record yet leads back a stage: to 집중, where records are made (FLOW §5).
+    expect(empty.get('a').attributes('href')).toBe('/focus');
+    expect(empty.get('a').text()).toBe('집중하러 가기');
     // There are records, so this is not the cold start.
     expect(empty.attributes('data-cold-start')).toBeUndefined();
     expect(wrapper.find('[data-estimate-ratio]').exists()).toBe(false);
@@ -206,13 +208,15 @@ describe('AI 분석 — when the owner works (sessions of the last eight weeks)'
     expect(wrapper.find('[data-insights-partial]').exists()).toBe(false);
   });
 
-  it('without sessions nothing is drawn and no peak is named; the card leads back to 오늘 (negative)', async () => {
+  it('without sessions nothing is drawn and no peak is named; the card leads back to 집중 (negative)', async () => {
     const { wrapper } = await mountInsights();
     await vi.waitFor(() => expect(wrapper.find('[data-insights-empty="weeks"]').exists()).toBe(true));
     const empty = wrapper.get('[data-insights-empty="weeks"]');
     expect(empty.text()).toContain('아직 기록이 부족해요');
     expect(empty.text()).toContain('최근 8주 동안 집중 기록이 없어요.');
-    expect(empty.get('a').attributes('href')).toBe('/overview');
+    // No record yet leads back a stage: to 집중, where records are made (FLOW §5).
+    expect(empty.get('a').attributes('href')).toBe('/focus');
+    expect(empty.get('a').text()).toBe('집중하러 가기');
     expect(wrapper.get('[data-insights-empty="weekday"]').text()).toBe('기록이 생기면 어느 요일에 잘 집중하는지 보여 드려요.');
     expect(wrapper.get('[data-insights-empty="hours"]').text()).toBe('기록이 생기면 하루 중 언제 잘 집중하는지 보여 드려요.');
     expect(wrapper.find('[data-insights-peak]').exists()).toBe(false);

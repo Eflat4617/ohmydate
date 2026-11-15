@@ -81,6 +81,7 @@ export const ko = {
       inbox: '인박스',
       projects: '프로젝트',
     },
+    toPlan: '계획에 넣기',
   },
 
   // HOLO-04: 설정, one screen with four sections.
@@ -93,6 +94,10 @@ export const ko = {
       calendar: '캘린더 연동',
       ai: 'AI',
       display: '화면',
+    },
+    return: {
+      body: '하던 일에서 잠깐 나왔어요. 여기서 볼일이 끝나면 돌아가요.',
+      go: '하던 곳으로 돌아가기',
     },
     display: {
       title: '화면',
@@ -210,8 +215,8 @@ export const ko = {
       risk: '오늘 계획 위험도 {level}',
       riskUnknown: '오늘 계획 위험도를 아직 몰라요',
       consentTitle: 'AI 계획 도움이 꺼져 있어요',
-      consentBody: 'AI 설정에서 동의하면 재계획 제안과 계획 도움을 받을 수 있어요.',
-      consentLink: 'AI 설정 열기',
+      consentBody: '동의하면 재계획 제안과 계획 도움을 받을 수 있어요. 무엇이 나가는지 먼저 보여 드려요.',
+      consentLink: '여기서 AI 켜기',
     },
     log: {
       title: '작업 기록',
@@ -473,8 +478,8 @@ export const ko = {
     removed: '‘{title}’ 초안을 뺐어요.',
     unavailable: '지금은 AI로 읽을 수 없어요. 메모는 그대로 두었으니 위 빠른 추가로 하나씩 적어 주세요.',
     budget: 'AI 사용 한도에 닿아 지금은 읽을 수 없어요. 위 빠른 추가로 하나씩 적어 주세요.',
-    consentOff: 'AI를 쓰지 않도록 설정되어 있어요. 위 빠른 추가로 적거나 AI 설정에서 켤 수 있어요.',
-    consentLink: 'AI 설정 열기',
+    consentOff: 'AI를 쓰지 않도록 설정되어 있어요. 위 빠른 추가로 적거나 여기서 켤 수 있어요.',
+    consentLink: '여기서 AI 켜기',
     readError: '메모를 읽지 못했어요. 다시 시도하거나 위 빠른 추가로 적어 주세요.',
   },
 
@@ -783,7 +788,7 @@ export const ko = {
     partError: '이 부분을 불러오지 못했어요.',
     offline: '오프라인 · 읽기 전용이에요. 기록을 바꾸거나 지울 수 없어요.',
     notEnough: '아직 기록이 부족해요',
-    toToday: '오늘 보기',
+    toFocus: '집중하러 가기',
     toPlan: '계획 세우기',
     partial: '기록이 많아서 최근 것만 셌어요.',
     samples: '반영된 기록',
@@ -982,6 +987,7 @@ export const ko = {
     note: '메모 (선택, 나만 볼 수 있어요)',
     count: '{count} / {max}',
     submit: '회고 저장',
+    resubmit: '회고 고쳐 저장',
     submitting: '회고를 저장하는 중…',
     feedbackTitle: '추정 피드백',
     feedback: '예상 {estimated} · 실제 {actual} · {quality}',
@@ -990,6 +996,35 @@ export const ko = {
       outlier: '평소와 많이 달랐어요',
       excluded: '통계에서는 제외돼요',
     },
+  },
+
+  // HOLO-04 (FLOW.md §2 ④, §5): what a finished session hands on to.
+  focusNext: {
+    title: '회고를 저장했어요',
+    nextLine: '다음은 ‘{title}’ · {when}',
+    lastBlock: '오늘 계획한 블록을 모두 지났어요.',
+    startNext: '다음 블록 시작',
+    recap: '오늘 돌아보기',
+    rest: '쉬었다 하기',
+    doneForToday: '오늘은 여기까지',
+  },
+
+  // HOLO-04 (FLOW.md §2 ⑤): 개요's recap of the day.
+  recap: {
+    title: '오늘 정리',
+    blocks: '블록 {total}개 중 {done}개를 끝냈어요',
+    noBlocks: '오늘은 계획한 블록이 없었어요',
+    focusOfPlan: '집중 {focused} · 계획 {planned}',
+    focus: '집중 {focused}',
+    sessions: plural({ other: '세션 {count}번' }),
+    noFocus: '오늘은 집중 기록이 없어요. 기록이 생기면 계획과 비교해 드려요.',
+    lesson: {
+      even: '계획한 만큼 집중했어요.',
+      more: '계획보다 {duration} 더 집중했어요.',
+      less: '계획보다 {duration} 덜 집중했어요.',
+    },
+    tomorrow: '내일 미리 보기',
+    insights: '분석 보기',
   },
 
   layout: {
@@ -2482,8 +2517,8 @@ export const ko = {
       removed: '‘{title}’ 초안을 뺐어요.',
       unavailable: '지금은 AI로 읽을 수 없어요. 메모는 그대로 두었으니 아래 직접 입력으로 적어 주세요.',
       budget: 'AI 사용 한도에 닿아 지금은 읽을 수 없어요. 아래 직접 입력으로 적어 주세요.',
-      consentOff: 'AI를 쓰지 않도록 설정되어 있어요. 아래 직접 입력으로 적거나 AI 설정에서 켤 수 있어요.',
-      consentLink: 'AI 설정 열기',
+      consentOff: 'AI를 쓰지 않도록 설정되어 있어요. 아래 직접 입력으로 적거나 여기서 켤 수 있어요.',
+      consentLink: '여기서 AI 켜기',
       readError: '메모를 읽지 못했어요. 다시 시도하거나 아래 직접 입력으로 적어 주세요.',
     },
     // CAL-04: 약속 imported from Google Calendar are read-only here.

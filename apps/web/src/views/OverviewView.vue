@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useQueryClient } from '@tanstack/vue-query';
 import AiWidget from '../components/overview/AiWidget.vue';
+import DayRecap from '../components/overview/DayRecap.vue';
 import DaySummaryWidget from '../components/overview/DaySummaryWidget.vue';
 import ProgressWidget from '../components/overview/ProgressWidget.vue';
 import SessionLogWidget from '../components/overview/SessionLogWidget.vue';
@@ -18,6 +19,7 @@ import { useFocusStart, useRunningSession, useSecondTick, useTaskDirectory } fro
 import { useOwnerTimeZone } from '../composables/usePlannerRange';
 import { displayNameOf } from '../domain/displayName';
 import { greetingPeriod, nextBlockOf, plannedMinutes } from '../domain/overview';
+import { dayIsOver } from '../domain/recap';
 import { addDaysToDate, localParts, startOfWeek, todayInZone } from '../domain/time';
 import { t } from '../i18n';
 import { formatCivilDateRange, formatTime } from '../i18n/format';
@@ -41,6 +43,7 @@ import { useSessionStore } from '../stores/session';
  *   the AI layer knows, the session log — all computed from the owner's own
  *   data (domain/overview.ts).
  */
+const route = useRoute();
 const router = useRouter();
 const queryClient = useQueryClient();
 const auth = useAuthStore();
@@ -140,6 +143,16 @@ function resume(): void {
   if (session !== null) void router.push(`/focus/${session.id}`);
 }
 
+/**
+ * ⑤ 돌아보기: the day's recap takes the page's filled button when the day's
+ * blocks are over, or when the owner asked for it (`?recap`, from "오늘은
+ * 여기까지" after a session) — never while a session is still running.
+ */
+const recapAsked = computed(() => route.query['recap'] !== undefined);
+const recapShown = computed(
+  () => plan.value !== null && running.value === null && (recapAsked.value || dayIsOver(plan.value.blocks, now.value)),
+);
+
 // One session at a time: while one runs, the way on is "이어서 보기", so nothing
 // offers a start the server would refuse.
 const canStart = computed(() => focus.canStart.value && running.value === null);
@@ -170,8 +183,11 @@ const canStart = computed(() => focus.canStart.value && running.value === null);
     <!-- FLOW §5 되돌아오기: a plan that was started and not finished, with the way back in. -->
     <PlanResumeList :limit="1" compact />
 
-    <!-- ③ 오늘: the day's blocks, and the page's one filled button. -->
-    <TodayBoard />
+    <!-- ⑤ 돌아보기: once the day's blocks are over (or the owner called it a day). -->
+    <DayRecap v-if="recapShown && plan" :plan="plan" :today="today" :time-zone="timeZone" :ready="ready" :now-ms="liveNow" />
+
+    <!-- ③ 오늘: the day's blocks, and the page's one filled button (the recap's, while it shows). -->
+    <TodayBoard :quiet="recapShown" />
 
     <section class="overview-week" aria-labelledby="overview-week-title">
       <header class="overview-week-head">

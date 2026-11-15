@@ -1,4 +1,5 @@
 import { mount, type VueWrapper } from '@vue/test-utils';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createPinia, type Pinia } from 'pinia';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import { defineComponent, nextTick } from 'vue';
@@ -44,7 +45,7 @@ async function mountFocus(pinia: Pinia, router: Router, session: WorkSession): P
   useSessionStore(pinia).remember(session);
   await router.push(`/focus/${session.id}`);
   const wrapper = mount(FocusView, {
-    global: { plugins: [pinia, router] },
+    global: { plugins: [pinia, router, VueQueryPlugin] },
     attachTo: document.body,
   });
   await vi.waitFor(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
@@ -238,7 +239,7 @@ describe('Focus mode', () => {
     const router = testRouter();
     await router.push(`/focus/${session.id}`);
     const wrapper = mount(FocusView, {
-      global: { plugins: [pinia, router] },
+      global: { plugins: [pinia, router, VueQueryPlugin] },
       attachTo: document.body,
     });
     await vi.waitFor(() => expect(wrapper.text()).toContain('이 집중 세션을 열 수 없어요'));
@@ -258,7 +259,7 @@ describe('Focus mode', () => {
     const router = testRouter();
     await router.push(`/focus/${session.id}`);
     const wrapper = mount(FocusView, {
-      global: { plugins: [pinia, router] },
+      global: { plugins: [pinia, router, VueQueryPlugin] },
       attachTo: document.body,
     });
     await vi.waitFor(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
@@ -322,7 +323,7 @@ describe('Focus mode', () => {
       const router = testRouter();
       await router.push(`/focus/${entry.session.id}`);
       const wrapper = mount(FocusView, {
-        global: { plugins: [pinia, router] },
+        global: { plugins: [pinia, router, VueQueryPlugin] },
         attachTo: document.body,
       });
       await vi.waitFor(() => expect(wrapper.find('.focus-timer').exists()).toBe(true));
@@ -372,7 +373,7 @@ describe('Focus mode', () => {
       await router.push(`/focus/${session.id}`);
       store.remember(session);
       const wrapper = mount(FocusView, {
-        global: { plugins: [pinia, router] },
+        global: { plugins: [pinia, router, VueQueryPlugin] },
         attachTo: document.body,
       });
       await nextTick();

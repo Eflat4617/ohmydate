@@ -1,4 +1,5 @@
 import { mount, type VueWrapper } from '@vue/test-utils';
+import { VueQueryPlugin } from '@tanstack/vue-query';
 import { createPinia, type Pinia } from 'pinia';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import { defineComponent, nextTick } from 'vue';
@@ -56,7 +57,7 @@ async function mountInCalmMode(
   const session = await startedSession();
   useSessionStore(pinia).remember(session);
   await router.push(`/focus/${session.id}`);
-  const wrapper = mount(FocusView, { global: { plugins: [pinia, router] }, attachTo: document.body });
+  const wrapper = mount(FocusView, { global: { plugins: [pinia, router, VueQueryPlugin] }, attachTo: document.body });
   // Let the mount-time restore render (it disables the controls) before waiting for it to finish.
   await nextTick();
   await vi.waitFor(() => expect(button(wrapper, '일시정지').attributes('disabled')).toBeUndefined());

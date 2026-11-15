@@ -16,6 +16,20 @@
   align-self: stretch;
 }
 
+.tasks-place-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  align-self: stretch;
+  max-width: var(--content-wide);
+}
+
+.tasks-to-plan {
+  text-decoration: none;
+}
+
 .tasks-views .segmented-item,
 .settings-sections .segmented-item {
   gap: var(--space-1-5);

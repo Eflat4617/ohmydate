@@ -21,6 +21,7 @@ import { server } from '../src/mocks/server';
 import { OWNER_STORAGE_KEY } from '../src/session/owner';
 import { adoptActiveOwner } from '../src/session/ownerEpoch';
 import { useAuthStore } from '../src/stores/auth';
+import { useLlmConsentStore } from '../src/stores/llmConsent';
 import { useOfflineStore } from '../src/stores/offline';
 import OverviewView from '../src/views/OverviewView.vue';
 
@@ -455,15 +456,27 @@ describe('개요 — AI 도우미', () => {
     expect(ai.find('[data-ai-replan] a').exists()).toBe(false);
   });
 
-  it('without AI consent says so and points to AI 설정, with no figures (negative)', async () => {
+  it('without AI consent says so and asks for it right there, with no figures (negative: no link to 설정)', async () => {
     seedWeek();
     mockDb.user = { ...mockDb.user, llmProvider: 'deepseek' };
-    const { wrapper } = await mountOverview();
+    const { wrapper, pinia, router } = await mountOverview();
     const ai = card(wrapper, 'ai');
     const consent = ai.get('[data-ai-consent]');
     expect(consent.text()).toContain('AI 계획 도움이 꺼져 있어요');
-    expect(consent.get('a').attributes('href')).toBe('/settings/ai');
-    expect(consent.get('a').text()).toBe('AI 설정 열기');
+    // HOLO-04 (FLOW §1): nobody is sent to a settings screen to become ready.
+    expect(consent.find('a').exists()).toBe(false);
+    const ask = consent.get('[data-ai-consent-ask]');
+    expect(ask.text()).toBe('여기서 AI 켜기');
+    // The shell hosts the consent dialog; with a host, the press asks for it in place.
+    const llmConsent = useLlmConsentStore(pinia);
+    const detach = llmConsent.attachHost();
+    llmConsent.closed();
+    expect(llmConsent.open).toBe(false);
+    await ask.trigger('click');
+    expect(llmConsent.requested).toBe(true);
+    expect(llmConsent.open).toBe(true);
+    expect(router.currentRoute.value.name).toBe('overview');
+    detach();
     expect(ai.find('[data-ratio]').exists()).toBe(false);
     expect(ai.find('.ai-facts').exists()).toBe(false);
     expect(ai.find('[data-open]').exists()).toBe(false);

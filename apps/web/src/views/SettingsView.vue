@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, type Component } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
+import { clearFlowReturn, useFlowReturn } from '../composables/flowReturn';
+import { captureOwnerBinding } from '../session/ownerEpoch';
 import AiSettings from '../components/settings/AiSettings.vue';
 import AvailabilitySettings from '../components/settings/AvailabilitySettings.vue';
 import CalendarSettings from '../components/settings/CalendarSettings.vue';
@@ -19,7 +21,17 @@ import { t } from '../i18n';
  * linked to and the Google sign-in comes back to its own section.
  */
 const route = useRoute();
+const router = useRouter();
 const section = computed(() => settingsSectionOf(route.params['section']));
+
+// FLOW §5 되돌아오기: a flow that sent the owner here (to connect a calendar) left its address.
+const { path: returnPath } = useFlowReturn();
+function goBack(): void {
+  const target = returnPath.value;
+  if (target === null) return;
+  clearFlowReturn(captureOwnerBinding());
+  void router.push(target);
+}
 
 const SECTIONS: Readonly<Record<SettingsSection, { readonly icon: IconName; readonly component: Component }>> = {
   availability: { icon: 'availability', component: AvailabilitySettings },
@@ -50,6 +62,17 @@ const SECTIONS: Readonly<Record<SettingsSection, { readonly icon: IconName; read
         </RouterLink>
       </nav>
     </header>
+
+    <!-- Sent here from a flow: the way back is the first thing on the screen. -->
+    <div v-if="returnPath" class="banner banner--accent banner--inline settings-return" role="status" data-settings-return>
+      <UiIcon name="arrow-left" :size="18" class="banner-icon" />
+      <div class="banner-content">
+        <p class="banner-body">{{ t('settings.return.body') }}</p>
+      </div>
+      <div class="banner-actions">
+        <button type="button" class="btn btn--sm" data-settings-return-go @click="goBack">{{ t('settings.return.go') }}</button>
+      </div>
+    </div>
 
     <!-- One section at a time; a section keeps nothing of another's state. -->
     <component :is="SECTIONS[section].component" :key="section" />

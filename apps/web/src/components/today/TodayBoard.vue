@@ -63,6 +63,14 @@ import {
  * the list and the day's time table beside it. With nothing planned it sends
  * the owner back a stage: 계획 세우기, or one task started right away.
  */
+const props = withDefaults(
+  defineProps<{
+    /** Another part of the page holds its one filled button (개요's recap of the day): nothing here is filled. */
+    quiet?: boolean;
+  }>(),
+  { quiet: false },
+);
+
 const router = useRouter();
 const offline = useOfflineStore();
 const sessionStore = useSessionStore();
@@ -574,7 +582,15 @@ function resumeActive(): void {
       <UiBanner v-if="activeSession" tone="accent" inline icon="clock" class="resume-banner" role="status">
         <span>{{ t('today.resumeWaiting') }}</span>
         <template #actions>
-          <UiButton variant="primary" size="sm" icon="play" data-primary="resume" @click="resumeActive">{{ t('today.resumeSession') }}</UiButton>
+          <UiButton
+            :variant="props.quiet ? 'secondary' : 'primary'"
+            size="sm"
+            icon="play"
+            :data-primary="props.quiet ? undefined : 'resume'"
+            @click="resumeActive"
+          >
+            {{ t('today.resumeSession') }}
+          </UiButton>
         </template>
       </UiBanner>
 
@@ -683,11 +699,11 @@ function resumeActive(): void {
                 <!-- One filled button on the screen: starting the next block (or, while a
                      session waits, 세션 이어가기 in the banner above). -->
                 <UiButton
-                  :variant="block.id === nextBlockId && !activeSession ? 'primary' : 'secondary'"
+                  :variant="block.id === nextBlockId && !activeSession && !props.quiet ? 'primary' : 'secondary'"
                   icon="play"
                   :disabled="readOnly || startingBlockId !== null"
                   :busy="startingBlockId === block.id"
-                  :data-primary="block.id === nextBlockId && !activeSession ? 'start' : undefined"
+                  :data-primary="block.id === nextBlockId && !activeSession && !props.quiet ? 'start' : undefined"
                   @click="startFocus(block)"
                 >
                   {{ startingBlockId === block.id ? t('today.starting') : t('today.startFocus') }}
@@ -718,9 +734,9 @@ function resumeActive(): void {
             <template #actions>
               <RouterLink
                 class="btn"
-                :class="activeSession ? 'btn--secondary' : 'btn--primary'"
+                :class="activeSession || props.quiet ? 'btn--secondary' : 'btn--primary'"
                 to="/plan"
-                :data-primary="activeSession ? undefined : 'plan'"
+                :data-primary="activeSession || props.quiet ? undefined : 'plan'"
               >
                 <UiIcon name="plan" :size="18" class="btn-icon" />{{ t('today.makePlan') }}
               </RouterLink>

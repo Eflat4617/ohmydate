@@ -259,6 +259,15 @@ async function promote(): Promise<void> {
         >
           {{ focus.startingTaskId.value !== null ? t('overview.starting') : t('taskDetail.startFocus') }}
         </UiButton>
+        <!-- The selection travels: this task arrives picked in 계획 (FLOW §5). -->
+        <RouterLink
+          v-if="task.status !== 'done'"
+          class="btn"
+          :to="{ path: '/plan/schedule', query: { taskIds: task.id } }"
+          data-task-to-plan
+        >
+          <UiIcon name="plan" :size="18" class="btn-icon" />{{ t('tasks.toPlan') }}
+        </RouterLink>
       </div>
     </header>
 

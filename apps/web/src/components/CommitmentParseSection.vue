@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { RouterLink } from 'vue-router';
 import type { QueryKey } from '@tanstack/vue-query';
 import { plannerClient, type CommitmentCreate, type CommitmentDraft, type CommitmentDraftNote } from '../api';
 import { useNlDraftRead, type NlDraftRow } from '../composables/useNlDraftRead';
@@ -17,6 +16,7 @@ import {
 import { t, tp } from '../i18n';
 import { formatCivilDate, formatDateTimeRange } from '../i18n/format';
 import { useAuthStore } from '../stores/auth';
+import { useLlmConsentStore } from '../stores/llmConsent';
 import LlmDisclosure from './LlmDisclosure.vue';
 import UiBadge from './ui/UiBadge.vue';
 import UiBanner from './ui/UiBanner.vue';
@@ -60,6 +60,7 @@ interface DraftRow extends NlDraftRow<CommitmentDraft> {
 }
 
 const auth = useAuthStore();
+const llmConsent = useLlmConsentStore();
 
 function rowInput(row: DraftRow): CommitmentCreate | null {
   return draftCreateInput(row.draft, { start: row.start, end: row.end });
@@ -256,9 +257,10 @@ function edit(row: DraftRow): void {
       class="nl-failure"
     >
       {{ failureText }}
-      <RouterLink v-if="failure === 'consent'" to="/settings/ai" class="nl-failure-link">
+      <!-- Asked for where it is needed (FLOW §1): the consent dialog opens here, not in 설정. -->
+      <button v-if="failure === 'consent'" type="button" class="nl-failure-link" data-nl-consent @click="llmConsent.ask()">
         {{ t('commitments.parse.consentLink') }}
-      </RouterLink>
+      </button>
     </UiBanner>
 
     <section v-if="showResult" class="nl-result" aria-labelledby="nl-result-heading" data-testid="nl-result">

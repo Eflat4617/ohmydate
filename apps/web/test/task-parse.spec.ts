@@ -619,14 +619,23 @@ describe('/inbox 말로 적기: AI consent (FU-91 rules)', () => {
     host.unmount();
   });
 
-  it('AI turned off: no request, one line with the way to AI 설정, the quick add right there (negative)', async () => {
+  it('AI turned off: no request, one line that offers to turn it on right there, the quick add beside it (negative)', async () => {
     const seen = recordRequests();
     const pinia = await signedIn(deepseek({ granted: false }));
     const wrapper = await mountInbox(pinia);
     await read(wrapper, TWO);
     await vi.waitFor(() => expect(wrapper.find('[data-testid="task-parse"] .nl-failure').exists()).toBe(true));
     expect(wrapper.get('[data-testid="task-parse"] .nl-failure').text()).toContain('AI를 쓰지 않도록 설정되어 있어요.');
-    expect(wrapper.get('[data-testid="task-parse"] .nl-failure a').attributes('href')).toBe('/settings/ai');
+    // HOLO-04 (FLOW §1): the way on is asked for right here — the consent dialog, not a link to 설정.
+    expect(wrapper.find('[data-testid="task-parse"] .nl-failure a').exists()).toBe(false);
+    const turnOn = wrapper.get('[data-testid="task-parse"] .nl-failure [data-nl-consent]');
+    expect(turnOn.text()).toBe('여기서 AI 켜기');
+    const consent = useLlmConsentStore(pinia);
+    const detach = consent.attachHost();
+    expect(consent.open).toBe(false); // turned off by answer: the dialog does not come by itself
+    await turnOn.trigger('click');
+    expect(consent.open).toBe(true);
+    detach();
     expect(parseRequests(seen)).toHaveLength(0);
     expect((wrapper.get('#task-note').element as HTMLTextAreaElement).value).toBe(TWO);
     expect(wrapper.get('#quick-add-title').attributes('disabled')).toBeUndefined();

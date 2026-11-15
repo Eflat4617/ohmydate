@@ -26,6 +26,7 @@ const VIEWS = [
 
 <template>
   <div class="tasks-place" data-tasks-place :data-tasks-view="view">
+    <div class="tasks-place-head">
     <nav class="segmented glass glass--still glass--flat tasks-views" :aria-label="t('tasks.views.label')">
       <RouterLink
         v-for="item in VIEWS"
@@ -39,6 +40,11 @@ const VIEWS = [
         {{ t(item.label) }}
       </RouterLink>
     </nav>
+      <!-- ① → ②: what was put down goes on to the plan, picked there (FLOW §5). -->
+      <RouterLink class="btn btn--sm tasks-to-plan" to="/plan/schedule" data-tasks-to-plan>
+        <UiIcon name="plan" :size="16" class="btn-icon" />{{ t('tasks.toPlan') }}
+      </RouterLink>
+    </div>
     <InboxView v-if="view === 'inbox'" />
     <ProjectListView v-else />
   </div>

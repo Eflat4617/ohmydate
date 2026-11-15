@@ -15,8 +15,10 @@ const props = withDefaults(
     busy?: boolean;
     error?: string | null;
     feedback?: EstimationFeedback | null;
+    /** The review is in: the screen's filled button has moved on to the next step. */
+    submitted?: boolean;
   }>(),
-  { disabled: false, busy: false, error: null, feedback: null },
+  { disabled: false, busy: false, error: null, feedback: null, submitted: false },
 );
 const emit = defineEmits<{ submit: [review: SessionReviewRequest] }>();
 
@@ -106,8 +108,15 @@ function submit(): void {
 
     <UiBanner v-if="error" tone="error" role="alert">{{ error }}</UiBanner>
 
-    <UiButton variant="primary" size="lg" class="review-submit" :disabled="disabled || busy" :busy="busy" @click="submit">
-      {{ busy ? t('review.submitting') : t('review.submit') }}
+    <UiButton
+      :variant="submitted ? 'secondary' : 'primary'"
+      size="lg"
+      class="review-submit"
+      :disabled="disabled || busy"
+      :busy="busy"
+      @click="submit"
+    >
+      {{ busy ? t('review.submitting') : submitted ? t('review.resubmit') : t('review.submit') }}
     </UiButton>
 
     <div v-if="feedback" class="estimation-feedback banner banner--success" role="status">

@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { useRoute } from 'vue-router';
+import { rememberFlowReturn } from '../../composables/flowReturn';
+import { captureOwnerBinding } from '../../session/ownerEpoch';
 import { t } from '../../i18n';
 import { useOfflineStore } from '../../stores/offline';
 import CommitmentAddDialog from '../planner/CommitmentAddDialog.vue';
@@ -23,7 +26,12 @@ defineProps<{
 const emit = defineEmits<{ saved: [] }>();
 
 const offline = useOfflineStore();
+const route = useRoute();
 const adding = ref(false);
+
+function rememberWhere(): void {
+  rememberFlowReturn(captureOwnerBinding(), route.fullPath);
+}
 const added = ref(false);
 
 function onSaved(): void {
@@ -43,7 +51,8 @@ function onSaved(): void {
       <UiButton icon="plus" :disabled="!offline.mutationsEnabled" data-plan-commitment-add @click="adding = true">
         {{ t('planScope.commitments.add') }}
       </UiButton>
-      <RouterLink v-if="offerGoogle" class="btn btn--ghost" to="/settings/calendar" data-plan-google>
+      <!-- Connecting leaves the app for Google and returns to 설정: where the plan was is remembered, and 설정 offers the way back. -->
+      <RouterLink v-if="offerGoogle" class="btn btn--ghost" to="/settings/calendar" data-plan-google @click="rememberWhere">
         <UiIcon name="link" :size="18" class="btn-icon" />{{ t('planScope.commitments.google') }}
       </RouterLink>
     </div>

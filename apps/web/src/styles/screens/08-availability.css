@@ -617,8 +617,24 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* "여기서 AI 켜기": a text link inside the line (it opens the consent dialog in place). */
 .nl-failure-link {
+  min-height: 0;
   margin-left: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-link);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.nl-failure-link:hover:not(:disabled) {
+  border: 0;
+  background: none;
+  text-decoration-thickness: 2px;
 }
 
 .nl-result {

@@ -499,14 +499,23 @@ describe('/commitments 말로 적기: AI consent (FU-91 rules)', () => {
     host.unmount();
   });
 
-  it('AI turned off (직접 작성 모드): no request, one line with the way to AI 설정, the manual form right there (negative)', async () => {
+  it('AI turned off (직접 작성 모드): no request, one line that offers to turn it on right there, the manual form beside it (negative)', async () => {
     const seen = recordRequests();
     const pinia = await signedIn(deepseek({ granted: false }));
     const wrapper = await mountView(pinia);
     await read(wrapper, TWO);
     await vi.waitFor(() => expect(wrapper.find('.nl-failure').exists()).toBe(true));
     expect(wrapper.get('.nl-failure').text()).toContain('AI를 쓰지 않도록 설정되어 있어요.');
-    expect(wrapper.get('.nl-failure a').attributes('href')).toBe('/settings/ai');
+    // HOLO-04 (FLOW §1): the way on is asked for right here — the consent dialog, not a link to 설정.
+    expect(wrapper.find('.nl-failure a').exists()).toBe(false);
+    const turnOn = wrapper.get('.nl-failure [data-nl-consent]');
+    expect(turnOn.text()).toBe('여기서 AI 켜기');
+    const consent = useLlmConsentStore(pinia);
+    const detach = consent.attachHost();
+    expect(consent.open).toBe(false); // turned off by answer: the dialog does not come by itself
+    await turnOn.trigger('click');
+    expect(consent.open).toBe(true);
+    detach();
     expect(parseRequests(seen)).toBe(0);
     expect((wrapper.get('#commitment-note').element as HTMLTextAreaElement).value).toBe(TWO);
     expect(wrapper.find('#planner-commitment-title').attributes('disabled')).toBeUndefined();

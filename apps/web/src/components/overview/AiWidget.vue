@@ -81,7 +81,10 @@ const state = computed(() => {
     <div v-if="consent.needed" class="ai-panel glass glass--flat ai-consent" data-ai-consent>
       <p class="ai-consent-title">{{ t('overview.ai.consentTitle') }}</p>
       <p class="ai-consent-body">{{ t('overview.ai.consentBody') }}</p>
-      <RouterLink class="btn btn--secondary btn--sm" to="/settings/ai">{{ t('overview.ai.consentLink') }}</RouterLink>
+      <!-- Asked for where it is needed (FLOW §1): the consent dialog opens here, not in 설정. -->
+      <button type="button" class="btn btn--secondary btn--sm" data-ai-consent-ask @click="consent.ask()">
+        {{ t('overview.ai.consentLink') }}
+      </button>
     </div>
 
     <template v-else>
