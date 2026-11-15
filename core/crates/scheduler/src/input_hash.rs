@@ -7,8 +7,10 @@
 
 use serde_json::{Map, Value, json};
 
-use crate::canonical::{canonical_json, compare_utf16, sha256_hex};
+use crate::canonical::{canonical_json, compare_utf16, number_value, sha256_hex};
+use crate::js;
 use crate::time::{instant_to_utc, parse_instant};
+use crate::types::{GenerateOptions, ScheduleInput};
 
 /// Default and maximum of `GenerateOptions.maxLocalImprovement` (06 §4).
 pub const MAX_LOCAL_IMPROVEMENT: f64 = 200.0;
@@ -132,6 +134,32 @@ pub fn input_hash(input: &Value, options: &Value) -> String {
     )))
 }
 
+/// The local-improvement cap that drives generation: the option, or 200,
+/// held inside `[0, 200]`.
+#[must_use]
+pub fn effective_max_local_improvement(options: &GenerateOptions) -> f64 {
+    js::max(
+        0.0,
+        js::min(
+            MAX_LOCAL_IMPROVEMENT,
+            options
+                .max_local_improvement
+                .unwrap_or(MAX_LOCAL_IMPROVEMENT),
+        ),
+    )
+}
+
+/// `inputHash` of `generate(input, options)` for typed values.
+#[must_use]
+pub fn input_hash_of(input: &ScheduleInput, options: &GenerateOptions) -> String {
+    let seed = options.seed.unwrap_or(input.seed);
+    sha256_hex(&canonical_json(&canonical_input(
+        &input.to_json(),
+        &number_value(seed),
+        effective_max_local_improvement(options),
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,6 +241,31 @@ mod tests {
         assert_eq!(
             input_hash(&input(), &json!({"policies": ["balanced"]})),
             base
+        );
+    }
+
+    #[test]
+    fn typed_values_hash_like_their_json() {
+        let typed = ScheduleInput::from_json(&input()).unwrap();
+        for options in [
+            Value::Null,
+            json!({"seed": 8}),
+            json!({"maxLocalImprovement": 50}),
+            json!({"maxLocalImprovement": 9000, "policies": ["balanced"]}),
+            json!({"maxLocalImprovement": -5}),
+        ] {
+            let typed_options = GenerateOptions::from_json(&options).unwrap();
+            assert_eq!(
+                input_hash_of(&typed, &typed_options),
+                input_hash(&input(), &options),
+                "{options}"
+            );
+        }
+        let mut reseeded = typed.clone();
+        reseeded.seed = 8.0;
+        assert_ne!(
+            input_hash_of(&reseeded, &GenerateOptions::default()),
+            input_hash_of(&typed, &GenerateOptions::default())
         );
     }
 

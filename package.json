@@ -26,7 +26,8 @@
     "ci": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:api-client && pnpm run check:boundaries && node scripts/ci/build-smoke.mjs --required",
     "core:check": "cd core && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
     "core:parity": "cd core && cargo build -p ohmydate-server && cd .. && tsc --noEmit -p tests-core && vitest run --config tests-core/vitest.config.ts",
-    "core:oracle": "tsc --noEmit -p packages/scheduler/scripts && pnpm --filter @ohmydate/contracts exec tsx ../scheduler/scripts/export-oracle.mts"
+    "core:oracle": "tsc --noEmit -p packages/scheduler/scripts && pnpm --filter @ohmydate/contracts exec tsx ../scheduler/scripts/export-oracle.mts",
+    "core:diff": "pnpm run core:oracle --count ${ORACLE_COUNT:-2000} --seed ${ORACLE_SEED:-20261113} --name diff --out core/target/oracle && cd core && OHMYDATE_ORACLE_DIR=target/oracle cargo test -p ohmydate-scheduler --test oracle -- --nocapture"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.0",

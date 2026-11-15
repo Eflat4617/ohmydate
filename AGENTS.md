@@ -34,7 +34,7 @@ DB가 필요한 테스트는 `DATABASE_URL`(planner_test)과 `VIKUNJA_URL`이 �
 리눅스 데스크톱 앱의 백엔드. TypeScript 코어(`services/api`, `packages/*`)는 전환 전까지 기준 구현이고 기능 동결(버그 수정만)이다.
 - **경계** (Cargo 의존 방향이 곧 규칙): `server → app → {store, scheduler, llm} → domain`.
   - `crates/domain`: 표준 라이브러리만. I/O·serde·외부 크레이트 금지.
-  - `crates/scheduler`: 순수 함수. I/O·시계·전역 상태 금지, 워크스페이스의 다른 크레이트에 의존 금지. TypeScript 스케줄러와 출력이 바이트 단위로 같아야 한다(오라클 테스트). 정렬은 `sort_by`(안정)만, 문자열 순서는 `compare_utf16`, 수를 글자로 바꿀 때는 `js_number`, `HashMap` 순회 금지.
+  - `crates/scheduler`: 순수 함수. I/O·시계·전역 상태 금지, 워크스페이스의 다른 크레이트에 의존 금지. TypeScript 스케줄러와 출력이 바이트 단위로 같아야 한다(오라클 테스트). 정렬은 `sort_by`(안정)만, 문자열 순서는 `compare_utf16`, 수를 글자로 바꿀 때는 `js_number`/`js::number_to_string`, `Math.max`·`Math.min`·`Math.round`는 `js::max`·`js::min`·`js::round`(`f64`의 같은 이름 함수는 NaN과 절반 처리가 다르다). `HashMap`·`HashSet`과 `sort_unstable*`는 이 크레이트의 `clippy.toml`이 막는다 — 삽입 순서를 지키는 구조를 쓴다.
   - `crates/store`: SQL과 엔터티만. HTTP·업무 규칙 금지. 스키마 변경은 새 마이그레이션 파일(배포된 파일 수정 금지).
   - `crates/app`: 유스케이스. 규칙 검사와 쓰기는 같은 트랜잭션(`App::read` / `App::mutate_idempotent`).
   - `crates/server`: HTTP만. 경로·헤더 규칙·요청 검증은 `packages/contracts/openapi.json`에서 온다. operation은 `handlers::table()`에 등록하고 `tests-core/support/routes.ts`에 한 줄을 추가한다. 계약에 없는 경로를 만들지 않는다.
@@ -48,8 +48,9 @@ DB가 필요한 테스트는 `DATABASE_URL`(planner_test)과 `VIKUNJA_URL`이 �
 - **명령** (한 번에 하나, `CARGO_BUILD_JOBS=4`, 워커는 `--release` 빌드 금지; `export PATH="$HOME/.cargo/bin:$PATH"`):
   - `corepack pnpm run core:check` = `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` + `cargo test`.
   - `corepack pnpm run core:parity` = 바이너리 빌드 + `tests-core/`(블랙박스 계약 패리티, 계획 문서 표 검사).
-  - `corepack pnpm run core:oracle -- --count N` = TypeScript 스케줄러로 오라클 팩 다시 만들기.
-  - 둘은 아직 `pnpm run ci`에 들어 있지 않다(15 §7.6). RC Task는 "Exact tests"에 적어 돌린다.
+  - `corepack pnpm run core:oracle -- --count N` = TypeScript 스케줄러로 오라클 팩 다시 만들기(인자 없이 = 커밋하는 `sample.json`).
+  - `corepack pnpm run core:diff` = 2,000건 팩을 `core/target/oracle/`에 만들고(커밋하지 않는다) Rust 스케줄러와 층별로 대조. `ORACLE_COUNT`·`ORACLE_SEED`로 개수·시드를 바꾼다. 불일치 허용 0.
+  - 이 명령들은 아직 `pnpm run ci`에 들어 있지 않다(15 §7.6). RC Task는 "Exact tests"에 적어 돌린다.
 
 ## Dev infrastructure (orchestrator-managed; workers must not run docker/sudo)
 - PostgreSQL 18: `127.0.0.1:55432`, user `ohmydate`, password `ohmydate-dev-only`, DBs `planner`, `planner_test`, `vikunja` (Vikunja-owned; never write).

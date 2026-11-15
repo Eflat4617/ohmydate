@@ -1,0 +1,22 @@
+# Lints of the scheduler crate (blueprint 15 §5.2). Clippy reads the nearest
+# clippy.toml, so the workspace settings are repeated here.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-print-in-tests = true
+allow-dbg-in-tests = true
+
+# The scheduler must return the same bytes as the TypeScript reference.
+# JavaScript sorts are stable and `Map`/`Set` iterate in insertion order, so
+# an unstable sort or a hash container's iteration order would change output.
+disallowed-methods = [
+  { path = "slice::sort_unstable", reason = "JavaScript sorts are stable: use sort_by" },
+  { path = "slice::sort_unstable_by", reason = "JavaScript sorts are stable: use sort_by" },
+  { path = "slice::sort_unstable_by_key", reason = "JavaScript sorts are stable: use sort_by" },
+  { path = "slice::select_nth_unstable", reason = "the order of equal elements must not depend on the algorithm" },
+  { path = "slice::select_nth_unstable_by", reason = "the order of equal elements must not depend on the algorithm" },
+  { path = "slice::select_nth_unstable_by_key", reason = "the order of equal elements must not depend on the algorithm" },
+]
+disallowed-types = [
+  { path = "std::collections::HashMap", reason = "iteration order is not insertion order: use a Vec, an index or the crate's ordered map" },
+  { path = "std::collections::HashSet", reason = "iteration order is not insertion order: use a Vec, an index or the crate's ordered set" },
+]

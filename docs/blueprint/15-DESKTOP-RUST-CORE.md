@@ -414,17 +414,20 @@ TypeScript에 그대로 남는 것: `apps/web`, `packages/contracts`(계약의 �
 |---|---|---|---|---|
 | `prng.ts` | 32 | `prng.rs` | **있음** | `primitives.prng` |
 | `hash.ts` | 159 | `canonical.rs` (SHA-256은 `sha2`) | **있음** | `primitives.canonical`, `resultHash` |
-| `time.ts` | 277 | `time.rs` — 지금: 시각 파싱·출력, 로컬 날짜 분할. 남은 것: `parseClock`, `projectWindowOnSegment`, 그리드 정렬 | **일부 있음** / RC-30 | `primitives.instants`, `primitives.partitions` |
+| — (`Math.max`·`Math.min`·`Math.round`, `Number::toString`) | — | `js.rs` — `f64`의 같은 이름 함수와 결과가 다른 것만 | **있음**(RC-30) | 단위 테스트 |
+| `time.ts` | 277 | `time.rs` — 시각 파싱·출력, `Zone`(시간대 id 해석·오프셋·로컬 날짜 분할), `LocalDate`, `parse_clock`, `project_window_on_segment`, 그리드 정렬 | **있음**(RC-30) | `primitives.instants`·`zones`·`dates`·`clocks`·`partitions` |
 | `generate.ts`의 `canonicalInput` | — | `input_hash.rs` | **있음** | 모든 후보의 `inputHash` |
-| `types.ts` | 331 | `types.rs` | RC-30 | — |
-| `slots.ts` | 249 | `slots.rs` | RC-30 | `slots` |
-| `requirements.ts`, `sessions.ts` | 79 | 같은 이름 | RC-30 | 단위 테스트 |
+| `types.ts` (입력) | 331 | `types.rs` — 입력 타입과 JSON 읽기·쓰기 | **있음**(RC-30) | 입력 왕복(`to_json`의 정규 JSON = 입력) |
+| `slots.ts` | 249 | `slots.rs` | **있음**(RC-30) | `slots` |
+| `requirements.ts`, `sessions.ts` | 79 | 같은 이름 | **있음**(RC-30) | `primitives.sessions`, 단위 테스트 |
 | `codes.ts` | 278 | `codes.rs` (닫힌 enum + params) | RC-31 | 계약의 enum 목록과 일치 테스트 |
-| `validate.ts` | 1,407 | `validate.rs` — 생성기와 **다른 구현**이라는 규칙 유지(자체 분할 로직을 따로 둔다) | RC-31 | `inputIssues`, `validation` |
-| `explain.ts` | 238 | `explain.rs` | RC-31 | 후보의 `capacityDeficitMin` |
+| `validate.ts` | 1,407 | `validate.rs` — 생성기와 **다른 구현**이라는 규칙 유지(자체 분할 로직을 따로 둔다) | RC-31 | `inputIssues`, `validation`, `probes` |
+| `explain.ts` | 238 | `explain.rs` | RC-31 | `deficit`, 후보의 `capacityDeficitMin` |
 | `policies.ts` | 97 | `policies.rs` | RC-32 | — |
 | `generate.ts` (새 계획) | 약 2,400 | `generate/{mod,context,order,place,h6,improve,metrics,lines}.rs` | RC-32 | `result`(재계획 아닌 건) |
 | `generate.ts` (재계획·빈틈 맞춤) | 약 1,600 | `generate/{replan,gapfit}.rs` | RC-33 | `result`(재계획 건) |
+
+타입 모델(RC-30에서 정함): JavaScript의 수는 전부 `f64`로 둔다 — `12.5`분이나 `1e21`분짜리 추정이 틀렸다고 판정하는 것이 `validate_input`의 일이라, 타입이 그런 값을 담을 수 있어야 한다. 닫힌 문자열 집합(`riskLevel`, 예외·가용 `kind`, `preferredWindows`, `autoSplit`, 정책 이름)은 enum이다. `ScheduleInput::from_json`은 작업·가용 규칙·예외·`prefs` 객체에 모르는 필드가 있으면 거부한다(기준 구현은 그 객체들을 통째로 해시하므로, 조용히 버리면 `inputHash`가 달라진다). 최상위·약속·블록의 모르는 필드는 기준 구현처럼 무시한다. 오류 문구에는 위치(JSON 포인터)와 종류만 있고 값은 없다.
 
 ### 5.2 결정론 계약
 
@@ -433,48 +436,68 @@ TypeScript에 그대로 남는 것: `apps/web`, `packages/contracts`(계약의 �
 | 항목 | TypeScript | Rust |
 |---|---|---|
 | 난수 | mulberry32, 시드 `ToUint32(trunc(seed))`, 0이면 `0x9e3779b9`. 정책별 시드 오프셋 0 / 7919 / 15486. 쓰는 곳은 국소 개선의 셔플(`nextInt(index + 1)`)뿐 | `u32` wrapping 연산 — 있음, 스트림 비트 일치 확인 |
-| 시간 | epoch ms(double이지만 정수) | `i64`. 2^53 미만이라 손실 없음 |
+| 시간 | epoch ms(double이지만 정수) | 분할·슬롯은 `i64`(2^53 미만이라 손실 없음). 분 단위 값과 섞이는 계산은 `f64` — 기준 구현의 ±∞ 표식과 NaN 규칙을 그대로 쓴다 |
 | 실수 | 목적함수 `objectiveScore`와 지표(`avgDailyLoadMin`, `p90CoverageRatio`)만 double. 식의 순서가 결과다 | `f64`, **같은 순서로 같은 연산**. Rust는 식을 재배열하거나 FMA로 합치지 않는다. 비교는 비트 단위 |
-| 반올림 | `Math.round`(절반은 +∞ 쪽) | `f64::round`와 다르다 → `js_round` 헬퍼. `floor`/`ceil`/`trunc`는 같다 |
+| 반올림·최대·최소 | `Math.round`(절반은 +∞ 쪽), `Math.max`/`Math.min`(NaN이 하나라도 있으면 NaN, `+0` > `-0`) | `f64::round`·`f64::max`·`f64::min`과 다르다 → `js::round`·`js::max`·`js::min` — 있음. `floor`/`ceil`/`trunc`/`%`는 같다 |
 | NaN 비교 | `compareDue`의 `Infinity - Infinity = NaN`은 `\|\|` 사슬에서 0으로 취급된다 | 비교 헬퍼가 NaN을 "같음"으로 넘긴다 |
-| 정렬 | `Array.prototype.sort`는 안정 정렬 | `sort_by`만 쓴다. `sort_unstable` 금지(clippy 설정으로 막는다, RC-30) |
+| 정렬 | `Array.prototype.sort`는 안정 정렬 | `sort_by`만 쓴다. `sort_unstable*`·`select_nth_unstable*`는 `core/crates/scheduler/clippy.toml`의 `disallowed-methods`가 막는다 — 있음(RC-30, 일부러 넣어 보고 clippy가 거부하는 것을 확인) |
 | 문자열 순서 | `<`, `.sort()` = UTF-16 코드 유닛 순 | `compare_utf16` — 있음. `str::cmp`(UTF-8 바이트 순)를 쓰지 않는다 |
-| 맵 순회 | `Map`/`Set`은 삽입 순 | 삽입 순서를 지키는 구조만 쓴다. `HashMap` 순회 금지 |
-| 수 → 글자 | 설명 문장과 정규 JSON의 수는 `Number::toString` (`1e+21`, `5`) | `js_number`(`ryu-js`) — 있음 |
+| 맵 순회 | `Map`/`Set`은 삽입 순 | 삽입 순서를 지키는 구조만 쓴다. 스케줄러 크레이트에서는 `HashMap`·`HashSet` 타입 자체를 쓸 수 없다(같은 `clippy.toml`의 `disallowed-types`) — 있음(RC-30) |
+| 수 → 글자 | 설명 문장과 정규 JSON의 수는 `Number::toString` (`1e+21`, `5`) | 정규 JSON은 `js_number`, 문장은 `js::number_to_string`(`NaN`·`Infinity`까지) — 있음 |
 | 정규 JSON | 키 정렬(UTF-16), `JSON.stringify` 이스케이프, `undefined` 생략 | `canonical_json` — 있음 |
 | 시간대 전환 | `getTimeZoneTransition('next')` = **오프셋이 바뀌는** 전환만 | tzdb의 전환 중 오프셋이 그대로인 것(약어·DST 표시만 바뀜)은 건너뛴다 — 있음 |
-| 시각 표기 | `Temporal.Instant`: 초 생략 허용, ms보다 가는 값 거부, 출력은 소수부를 필요한 만큼만 | `jiff::Timestamp` + ms 검사 — 있음, 12개 표기 일치 확인 |
+| 시각 표기 | `Temporal.Instant`: 초 생략 허용, ms보다 가는 값 거부, 출력은 소수부를 필요한 만큼만 | `jiff::Timestamp` + ms 검사 — 있음, 50개 표기 일치 확인(소문자 `t`/`z`, 공백 구분, 쉼표 소수점, 기본 형식, `+0900`/`+09`, 초 단위 오프셋, 대괄호 주석, `:60` 초) |
+| 시간대 id | `Temporal`이 받는 것: IANA 이름(대소문자 무시, 옛 별칭 포함), `±HH`·`±HHMM`·`±HH:MM` 오프셋, 시간대를 가리키는 ISO 날짜-시각 문자열 | `time::Zone::get` — 있음, 54개 id 일치 확인. `Etc/Unknown`·`Factory`는 거부 |
+| 날짜 | 예외의 `date`는 **문자열로** 비교한다(`exception.date === segment.date`). 유효성 검사는 `Temporal.PlainDate.from` | `LocalDate::from_printed`(출력 형태 그대로일 때만 날짜), `is_plain_date` — 있음, 28개 표기 일치 확인 |
+| 로컬 시각 | `/^(\d{1,2}):(\d{2})$/`, `24:00` 허용 | `parse_clock` — 있음, 23개 표기 일치 확인 |
 | 탐색 상한 | 국소 개선 200회, 빈틈 맞춤 512회, 전환 4096개 | 같은 상수, 같은 순회 순서 → 같은 지점에서 멈춘다 |
 | 출력 | 블록 배열 순서, 선택 필드는 생략(null 아님) | serde `skip_serializing_if` |
 
-tzdata: 기준 구현은 Node에 든 ICU의 tzdata(오늘 2026c), Rust는 `jiff-tzdb`에 든 것(2026e, 바이너리에 포함 — 시스템 tzdata를 보지 않으므로 기계마다 결과가 달라지지 않는다)을 쓴다. 팩이 기준의 버전(`oracle.tzdata`)과 분할 결과를 싣고 있으므로, 데이터 차이는 스케줄 불일치가 아니라 **분할 불일치**로 먼저 드러난다. RC-00의 16개 구간(Santiago 자정 갭, Goose_Bay 2009 자정 역행, St_Johns, Lord_Howe 30분 DST, Apia 날짜선 건너뜀, Berlin 1년 전체 포함)에서 불일치는 없었다.
+tzdata: 기준 구현은 Node에 든 ICU의 tzdata(오늘 2026c), Rust는 `jiff-tzdb`에 든 것(2026e, 바이너리에 포함 — 시스템 tzdata를 보지 않으므로 기계마다 결과가 달라지지 않는다)을 쓴다. 팩이 기준의 버전(`oracle.tzdata`)과 분할 결과를 싣고 있으므로, 데이터 차이는 스케줄 불일치가 아니라 **분할 불일치**로 먼저 드러난다. 팩의 29개 구간(RC-00의 16개 + RC-30에서 더한 13개: 분 단위가 아닌 오프셋(1908년 서울 +08:27:52, 1972년 Monrovia), Kathmandu +05:45, 오프셋으로 준 시간대, 모로코의 라마단 전환, 1988년 서울 DST, Troll의 2시간 전환, 표 밖의 미래(뉴욕 2037·2100, 베를린 2060))에서 불일치는 없다.
+
+Rust 쪽이 기준 구현과 **다르게 답하지 않고 거부하는** 입력(문서화한 한계, `time::tests::known_differences_from_the_reference_are_refusals_not_other_answers`):
+
+| 입력 | 기준 구현(Temporal) | Rust(`jiff`) | 영향 |
+|---|---|---|---|
+| 9999-12-30T22:00Z 뒤, −9999-01-02 앞의 시각 | ±275760년까지 받는다 | 잘못된 시각으로 본다 | 없음: 앱은 그런 시각을 만들지 않는다 |
+| critical 표시가 붙은 주석(`…Z[!u-ca=iso8601]`) | 받는다 | 잘못된 시각으로 본다 | 없음: 앱은 주석을 쓰지 않는다 |
 
 ### 5.3 차분 테스트
 
-- 내보내기: `packages/scheduler/scripts/export-oracle.mts`(**있음**). `corepack pnpm run core:oracle -- --count N --seed S --name NAME --out DIR`. 같은 시드·개수면 같은 파일이 나온다(RC-00에서 두 번 돌려 SHA-256 일치 확인).
-- 팩 형식(`formatVersion` 1):
+- 내보내기: `packages/scheduler/scripts/export-oracle.mts`(**있음**). `corepack pnpm run core:oracle -- --count N --seed S --name NAME --out DIR`. 같은 시드·개수면 같은 파일이 나온다(RC-00에서 두 번 돌려 SHA-256 일치 확인, RC-30에서 다시 확인).
+- 팩 형식(`formatVersion` 2 — RC-30에서 올렸다. 버전이 다른 팩은 Rust 테스트가 "다시 만들라"는 말과 함께 거부한다):
 
 ```text
-{ format: "ohmydate-scheduler-oracle", formatVersion: 1,
+{ format: "ohmydate-scheduler-oracle", formatVersion: 2,
   oracle: { generatorVersion, policyVersion, node, tzdata, seed, count },
   primitives: {
     prng:       [{ seed, floats[8], ints: [{ maxExclusive, values[8] }] }],
     canonical:  [{ value, text, sha256 }],
-    instants:   [{ text, epochMs | null, utc | null }],
+    instants:   [{ text, epochMs | null, utc | null, subMillisecond }],
+    zones:      [{ id, valid }],                       // isValidTimeZone
+    dates:      [{ text, valid, printed | null }],     // Temporal.PlainDate.from
+    clocks:     [{ text, minutes | null }],            // parseClock
+    sessions:   [{ breakAfterMin, maxDailyFocusMin, limit | null, autoSplitMin[] }],
     partitions: [{ timeZone, start, end, segments: [{ date, weekday, offsetMs, startMs, endMs, localMidnightMs }] }] },
-  cases: [{ id, kind: "golden" | "generated" | "replan" | "invalid",
+  cases: [{ id, kind: "golden" | "generated" | "replan" | "invalid",   // 한 줄에 한 건
             input: ScheduleInput, options: GenerateOptions | null,
             inputIssues,        // validateInput(input)
-            slots | null,       // computeAvailableSlots(input)
+            slots | null,       // computeAvailableSlots(input), 던지면 null
+            deficit | null,     // deficit(input), 던지면 null
             result,             // generate(input, options): candidates[], diversityNote?, diversityNoteItems?
-            validation,         // 후보마다 validate(input, blocks, { riskLevel, historyBlocks })
+            validation,         // 후보마다 validate(input, blocks, { riskLevel, historyBlocks }) 전체
+            probes,             // 일부러 망가뜨린 계획 4개와 그 validate 결과
             resultHash }] }     // sha256(canonicalJson(result))
 ```
 
-- 시나리오: golden 15개 전부 + 시드로 만든 입력. 시간대 7종(DST 있는 곳 5), 전환 직전에 시작하는 기간, 그리드에서 벗어난 약속, +09:00 표기의 마감, 과부하 25%, 3건 중 1건은 "승인한 계획 위에 약속을 얹은" 재계획, 6건 중 1건은 잘못된 입력(없는 시간대, 뒤집힌 기간, 중복 id, 자기 의존, 정수가 아닌 추정).
-- 커밋하는 것: `core/crates/scheduler/tests/oracle/sample.json` 하나(27건). 큰 팩은 커밋하지 않고 `core/target/oracle/`에 만들어 `OHMYDATE_ORACLE_DIR`로 읽는다(RC-30에서 추가).
+- 시나리오(RC-30에서 넓혔다): golden 15개 전부 + 시드로 만든 입력. 시간대 7종(DST 있는 곳 5), 전환 직전에 시작하는 기간, 그리드에서 벗어난 약속과 가용 규칙, +09:00 표기의 마감, 과부하 25%, 그리드에 안 맞거나 5분보다 짧은 추정, `autoSplit` 표시, `remainingMin`, 예외 4종(종일 off/extra, 시간 범위 off/extra). 작업의 85%는 혼자서는 가능하게 만든다(한 블록짜리는 휴식 규칙과 자기 세션 범위 안, 나눌 수 있는 것은 최소 세션 이상) — 그래야 feasible 후보와 재계획이 충분히 나온다.
+  - 재계획(3건 중 1건을 시도, feasible 후보가 있어야 성립): 승인한 계획 위에 바뀐 것 1–3가지를 얹는다 — 블록 위에 새 약속, `now`가 지나 일부 블록이 이력이 됨(+ 절반은 `remainingMin`), 블록 잠금(`lockedBlocks`에만 / 양쪽에), 추정 변경, 새 의존 관계, 블록이 있는 날을 쉬는 날로, 새 작업, 호출자가 지정한 `affectedTaskIds`(없는 id 포함).
+  - 잘못된 입력(6건 중 1건): 24가지 변형 — 없는 시간대, 뒤집힌·너무 긴·읽을 수 없는 기간, 잘못된 `now`, 중복 id, 자기·없는 의존, 정수가 아닌 추정과 세션 범위, 뒤집힌 세션 범위와 음수 버퍼, 빈 작업 창, 잘못된 마감, 잘못된 `prefs`, 요일 9·뒤집힌 창·잘못된 시각, 잘못된 예외(없는 날짜, 한쪽만 있는 창, 뒤집힌 창), 잘못된·너무 긴 약속, 모르는 작업·그리드 밖·ms보다 가는·뒤집힌·읽을 수 없는·너무 긴 블록. 2,000건 팩에서 입력 문제 코드 29개가 전부 나온다. `validate`는 공개 함수이므로 거부된 입력에서도 판정을 싣는다.
+  - 검증기 탐침(`probes`): 생성된 후보는 대부분 feasible이라 그것만으로는 validator의 가지를 거의 지나지 않는다. 그래서 건마다 후보의 블록을 1–2군데 망가뜨린 계획 4개(밀기, 늘이기, 빼기, 작업 바꾸기, 복제, 기간 밖, 그리드 밖, ms보다 가는 시각, 읽을 수 없는 시각, 뒤집기, 모르는 작업, 겹치기)를 만들어 기준 구현의 판정을 싣는다. 2,000건 팩에서 위반 코드 24개가 전부 나온다(판정 44,087건). 생성기 문장 코드는 15개 중 14개가 나온다 — 나머지 `heuristic_estimate_below_grid`는 기준 구현에서 도달할 수 없다(5분 미만으로 남은 양은 5로 나누어떨어지지 않으므로 항상 `estimate_not_grid_aligned`가 먼저 붙는다).
+- 커밋하는 것: `core/crates/scheduler/tests/oracle/sample.json` 하나(27건, 372 KiB)와 `README.md`(시드 목록·명령). 큰 팩은 커밋하지 않고 `core/target/oracle/`에 만들어 `OHMYDATE_ORACLE_DIR`로 읽는다(**있음**, RC-30). 팩은 한 줄에 한 건이라 테스트가 한 건씩 읽는다(큰 팩을 통째로 메모리에 올리지 않는다).
+- 실행: `corepack pnpm run core:diff` = 2,000건 팩을 만들고 `OHMYDATE_ORACLE_DIR=target/oracle cargo test -p ohmydate-scheduler --test oracle -- --nocapture`. 층마다 "비교 수, 불일치 수"를 찍는다. `ORACLE_COUNT`·`ORACLE_SEED`로 개수와 시드를 바꾼다.
 - 개수: 스케줄러 슬라이스의 "Exact tests"는 2,000건, 전환 관문은 10,000건 + golden 15(§7.7). 불일치 허용 0.
-- 대조 순서(앞 층이 틀리면 뒤는 보지 않는다): `inputIssues` → `slots` → 정책별 `blocks` → `metrics` → `explanation`/`explanationItems` → `diversityNote` → `validation` → `resultHash`. 보고는 건 id + 층 + JSON 포인터 + 양쪽 값.
+- 대조 순서(앞 층이 틀리면 뒤는 보지 않는다): 원시값 → 입력 왕복 → `inputHash` → `slots` → `inputIssues` → `deficit` → `validation`·`probes` → 정책별 `blocks` → `metrics` → `explanation`/`explanationItems` → `diversityNote` → `resultHash`. 보고는 건 id + 층 + JSON 포인터 + 양쪽 값. 한 층의 비교 수가 기대보다 적어도 실패한다(빈 팩이 통과하지 못하게).
 - 최소화(RC-31): `packages/scheduler/scripts/shrink-oracle.mts`가 불일치 건의 입력에서 작업·약속·가용 규칙·예외를 하나씩 빼 보며, 빼도 불일치가 남으면 뺀 채로 둔다(delta debugging). 양쪽 실행은 TypeScript 함수와 Rust 쪽 작은 CLI(`sched-diff`: 입력 JSON → 결과 JSON). 남은 최소 입력을 `tests/oracle/regressions/`에 건 하나짜리 팩으로 커밋한다.
 
 ### 5.4 옮길 테스트
@@ -487,6 +510,22 @@ tzdata: 기준 구현은 Node에 든 ICU의 tzdata(오늘 2026c), Rust는 `jiff-
 | `performance.test.ts` | 작업 50 / 14일 / 3정책 | criterion 없이 단순 시간 측정 테스트(의존성 최소) |
 
 성능 목표: 06 §11의 "작업 50 / 14일 / 3정책 p95 < 500 ms"를 그대로 관문으로 두고, 추가로 **같은 입력에서 TypeScript 엔진보다 느리지 않을 것**(p95 비율 ≤ 1.0). 실측은 RC-32에서 한다. 수치는 그때 이 절에 적는다.
+
+### 5.5 스케줄러 테스트 대응과 단계별 결과
+
+TypeScript 테스트 파일 → Rust 테스트(스케줄러 크레이트의 원장. `core/PARITY.md`가 생기면 이 표를 그대로 옮긴다).
+
+| TypeScript (`packages/scheduler/test`) | Rust (`core/crates/scheduler`) | 상태 |
+|---|---|---|
+| `slots.test.ts`(5) | `tests/slots.rs` — 슬롯 단언 5건 + 기준 동작을 고정한 3건(예외 종류별 효과, 약속·잠금 블록 빼기와 그리드 정렬, 읽을 수 없는 입력이 오류가 되는 지점) | 슬롯 부분 옮김(RC-30). 같은 블록의 `validate` 단언은 RC-31 |
+| `transitions.test.ts`(17) | `tests/transitions.rs` — 슬롯·1분 오라클 단언 9건(고정 7개 표는 한 테스트), `time::tests::a_runaway_transition_walk_stops_at_the_guard`(전환 4096개 상한) | 슬롯·분 오라클 부분 옮김(RC-30). `validate` 코드 단언과 validator 쪽 상한은 RC-31 |
+| `minuteOracle.ts` | `tests/support/minute_oracle.rs` — `jiff`의 로컬 시각 변환만 쓰는 1분 단위 오라클(크레이트의 분할·투영 코드를 쓰지 않는다) | 옮김(RC-30) |
+| 나머지 19개 파일 | — | RC-31~33 |
+
+| 단계 | 팩 | 층별 비교 수 → 불일치 | Rust 테스트(스케줄러) |
+|---|---|---|---|
+| RC-00 | sample 27건 | 원시값·`inputHash`·`resultHash` → 0 | 단위 19 + 오라클 8 |
+| RC-30 | sample 27건 + 시드 20261113의 2,015건(golden 15, 생성 1,260, 재계획 407, 잘못된 입력 333; 후보 feasible 2,005 / infeasible 2,169) | 원시값 1,214(prng 260, canonical 108, instants 300, zones 108, dates 112, clocks 46, sessions 222, partitions 58) → 0 · 입력 왕복 2,042 → 0 · `inputHash` 4,216(후보) → 0 · `slots` 2,042건(구간 25,881개, 읽을 수 없어 `null`인 입력 64건 포함) → 0 | 단위 49 + 오라클 15 + `slots` 8 + `transitions` 8 |
 
 ## 6. 영역별로 Rust에서 필요한 것
 
