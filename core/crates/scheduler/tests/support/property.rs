@@ -35,3 +35,15 @@ pub fn config() -> Config {
         ..Config::default()
     }
 }
+
+/// A fixed corpus: `cases` inputs drawn from `seed`, whatever the
+/// environment says. For properties that are regression corpora rather than
+/// theorems, as the reference runs them (`{ numRuns, seed }`).
+pub fn corpus(seed: u64, cases: u32) -> Config {
+    Config {
+        cases,
+        max_global_rejects: cases.saturating_mul(100),
+        rng_seed: RngSeed::Fixed(seed),
+        ..config()
+    }
+}

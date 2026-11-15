@@ -18,6 +18,8 @@
 //! byte: same blocks, same floats in the metrics, same explanation text.
 
 mod context;
+#[cfg(test)]
+mod fixture;
 mod gapfit;
 mod improve;
 mod order;

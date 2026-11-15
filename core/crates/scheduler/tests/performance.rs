@@ -75,33 +75,17 @@ fn timed(input: &ScheduleInput, options: &GenerateOptions) -> (f64, GenerateResu
     (start.elapsed().as_secs_f64() * 1000.0, result)
 }
 
-#[test]
-fn fifty_tasks_fourteen_days_three_policies_stay_inside_the_budget() {
-    let input = build_large_input();
+/// Times `generate` on the input (20 samples a batch, the best p95 of up to
+/// 5 batches), prints the numbers and, when `SCHED_PERF_ASSERT=1`, holds the
+/// best p95 to the 500 ms budget.
+fn measure(name: &str, input: &ScheduleInput) -> GenerateResult {
     let options = three_policies();
-    let (_, first) = timed(&input, &options);
-    // The workload is the one the budget names: every policy places all 50
-    // tasks, and the three plans differ.
-    assert_eq!(
-        first
-            .candidates
-            .iter()
-            .map(|candidate| candidate.feasible)
-            .collect::<Vec<_>>(),
-        [true, true, true]
-    );
-    assert!(
-        first
-            .candidates
-            .iter()
-            .all(|candidate| candidate.deficit_min == 0.0)
-    );
-
+    let (_, first) = timed(input, &options);
     let mut best_p95 = f64::INFINITY;
     for batch in 1..=5 {
         let mut samples: Vec<f64> = (0..20)
             .map(|_| {
-                let (elapsed_ms, result) = timed(&input, &options);
+                let (elapsed_ms, result) = timed(input, &options);
                 assert_eq!(result, first, "generation is not deterministic");
                 elapsed_ms
             })
@@ -109,7 +93,7 @@ fn fifty_tasks_fourteen_days_three_policies_stay_inside_the_budget() {
         samples.sort_by(f64::total_cmp);
         let p95 = percentile(&samples, 0.95);
         println!(
-            "generator perf batch {batch}: p50={:.1}ms p95={p95:.1}ms min={:.1}ms max={:.1}ms ({})",
+            "{name} perf batch {batch}: p50={:.1}ms p95={p95:.1}ms min={:.1}ms max={:.1}ms ({})",
             percentile(&samples, 0.5),
             samples[0],
             samples[samples.len() - 1],
@@ -131,8 +115,72 @@ fn fifty_tasks_fourteen_days_three_policies_stay_inside_the_budget() {
         );
     } else {
         println!(
-            "generator perf assertion skipped (SCHED_PERF_ASSERT not set); best p95={best_p95:.1}ms."
+            "{name} perf assertion skipped (SCHED_PERF_ASSERT not set); best p95={best_p95:.1}ms."
         );
+    }
+    first
+}
+
+#[test]
+fn fifty_tasks_fourteen_days_three_policies_stay_inside_the_budget() {
+    let first = measure("generator", &build_large_input());
+    // The workload is the one the budget names: every policy places all 50
+    // tasks, and the three plans differ.
+    assert_eq!(
+        first
+            .candidates
+            .iter()
+            .map(|candidate| candidate.feasible)
+            .collect::<Vec<_>>(),
+        [true, true, true]
+    );
+    assert!(
+        first
+            .candidates
+            .iter()
+            .all(|candidate| candidate.deficit_min == 0.0)
+    );
+}
+
+/// The budget workload replanned: the `front_loaded` plan was approved, then
+/// Tuesday morning (09:00–13:00 in Seoul) was taken by a commitment and one
+/// task doubled.
+fn build_large_replan() -> ScheduleInput {
+    let mut input = build_large_input();
+    let approved = generate(
+        &input,
+        &GenerateOptions {
+            policies: Some(vec![PolicyName::FrontLoaded]),
+            seed: Some(50.0),
+            max_local_improvement: None,
+        },
+    )
+    .unwrap()
+    .candidates
+    .remove(0);
+    input.existing_blocks = Some(approved.blocks);
+    input.commitments = vec![ohmydate_scheduler::types::Commitment {
+        start: "2026-11-10T00:00:00Z".to_owned(),
+        end: "2026-11-10T04:00:00Z".to_owned(),
+    }];
+    input.tasks[7].estimate.p50_min = 120.0;
+    input.tasks[7].estimate.p90_min = 120.0;
+    input
+}
+
+#[test]
+fn a_replan_of_the_budget_workload_stays_inside_the_budget() {
+    // Not in the reference's suite: the budget names a workload, not a path,
+    // and a replan runs the scope, seed and staged-expansion code as well.
+    let input = build_large_replan();
+    let existing = input.existing().len();
+    let first = measure("replan", &input);
+    assert!(existing >= 50);
+    for candidate in &first.candidates {
+        assert!(candidate.feasible, "{}", candidate.policy);
+        // The change reached some blocks and left most of the plan alone.
+        assert!(candidate.metrics.changed_blocks > 0.0);
+        assert!(candidate.blocks.len() >= existing);
     }
 }
 

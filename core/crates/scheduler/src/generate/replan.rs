@@ -611,3 +611,287 @@ pub(super) fn best_replan_attempt(
     }
     Ok(best)
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::super::fixture::{at, block, day, instant, placement, state_with, task};
+    use super::*;
+    use crate::types::ScheduleInput;
+
+    fn set(context: &Context<'_>, ids: &[&str]) -> TaskSet {
+        context
+            .tasks
+            .iter()
+            .map(|info| ids.contains(&info.task.id.as_str()))
+            .collect()
+    }
+
+    fn names(context: &Context<'_>, tasks: &TaskSet) -> Vec<String> {
+        context
+            .tasks
+            .iter()
+            .zip(tasks)
+            .filter(|(_, member)| **member)
+            .map(|(info, _)| info.task.id.clone())
+            .collect()
+    }
+
+    #[test]
+    fn a_change_reaches_every_successor_and_expansion_adds_one_level_of_predecessors() {
+        // A ← B ← C, and D on its own.
+        let input = day(
+            &[
+                task("A", 60, &[]),
+                task("B", 60, &["A"]),
+                task("C", 60, &["B"]),
+                task("D", 60, &[]),
+            ],
+            &json!({}),
+        );
+        let context = Context::build(&input).unwrap();
+        let reach =
+            |ids: &[&str]| names(&context, &propagate_affected(&context, &set(&context, ids)));
+        assert_eq!(reach(&["A"]), ["A", "B", "C"]);
+        assert_eq!(reach(&["B"]), ["B", "C"]);
+        // Nothing depends on C or D: the set does not grow backwards.
+        assert_eq!(reach(&["C"]), ["C"]);
+        assert_eq!(reach(&["D"]), ["D"]);
+        assert_eq!(reach(&[]), Vec::<String>::new());
+
+        let expand = |ids: &[&str]| {
+            names(
+                &context,
+                &with_direct_predecessors(&context, &set(&context, ids)),
+            )
+        };
+        // One dependency depth at a time: C releases B, not A.
+        assert_eq!(expand(&["C"]), ["B", "C"]);
+        assert_eq!(expand(&["B", "C"]), ["A", "B", "C"]);
+        assert_eq!(expand(&["A"]), ["A"]);
+    }
+
+    #[test]
+    fn a_session_is_on_the_grid_and_inside_the_bounds_of_its_task() {
+        let input = day(&[task("A", 90, &[])], &json!({}));
+        let splittable = &input.tasks[0];
+        for (minutes, valid) in [
+            (30.0, true),
+            (120.0, true),
+            (90.0, true),
+            (25.0, false),
+            (125.0, false),
+            (32.0, false),
+            (0.0, false),
+            (-30.0, false),
+            (f64::NAN, false),
+        ] {
+            assert_eq!(
+                is_session_valid(splittable, 90.0, minutes),
+                valid,
+                "{minutes}"
+            );
+        }
+        // A task that may not be split has one session: all of it.
+        let mut whole = splittable.clone();
+        whole.splittable = false;
+        assert!(is_session_valid(&whole, 90.0, 90.0));
+        assert!(!is_session_valid(&whole, 90.0, 60.0));
+        assert!(!is_session_valid(&whole, 90.0, 120.0));
+    }
+
+    /// Four hours planned at 10:00, 11:00, 13:00 and 14:00, given out of
+    /// order, with a past block of A and a locked block of D beside them.
+    fn approved(extra: &serde_json::Value) -> ScheduleInput {
+        let mut members = json!({
+            "now": instant("09:30"),
+            "lockedBlocks": [block("D", "15:00", "16:00")],
+            "existingBlocks": [
+                block("C", "13:00", "14:00"),
+                block("A", "09:00", "09:30"),
+                block("B", "11:00", "12:00"),
+                block("D", "15:00", "16:00"),
+                block("A", "10:00", "11:00"),
+                block("D", "14:00", "15:00"),
+            ],
+        });
+        if let (Some(target), Some(extra)) = (members.as_object_mut(), extra.as_object()) {
+            for (name, value) in extra {
+                target.insert(name.clone(), value.clone());
+            }
+        }
+        let mut input = day(
+            &[
+                task("A", 60, &[]),
+                task("B", 60, &[]),
+                task("C", 60, &["B"]),
+                task("D", 120, &[]),
+            ],
+            &members,
+        );
+        // What is left of A after its past half hour.
+        input.tasks[0].remaining_min = Some(60.0);
+        input
+    }
+
+    type TimeRange = (Ms, Ms);
+
+    fn times(intervals: &[Interval]) -> Vec<(usize, TimeRange)> {
+        intervals
+            .iter()
+            .map(|item| (item.task, (item.start_ms, item.end_ms)))
+            .collect()
+    }
+
+    #[test]
+    fn a_replan_may_move_future_unlocked_blocks_and_releases_only_what_changed() {
+        let input = approved(&json!({}));
+        let context = Context::build(&input).unwrap();
+        let replan = prepare_replan(&context).unwrap();
+        // History (A 09:00) and the locked block (D 15:00) are not movable;
+        // the rest is in time order.
+        assert_eq!(
+            times(&replan.movable),
+            [
+                (0, (at("10:00"), at("11:00"))),
+                (1, (at("11:00"), at("12:00"))),
+                (2, (at("13:00"), at("14:00"))),
+                (3, (at("14:00"), at("15:00"))),
+            ]
+        );
+        assert_eq!(replan.movable_existing.len(), 4);
+        // Nothing changed: nothing is released, everything is frozen.
+        assert_eq!(
+            names(&context, &replan.base_affected_tasks),
+            Vec::<String>::new()
+        );
+        let scope = scope_for_replan(&context, &replan, &replan.base_affected_tasks);
+        assert_eq!(scope.frozen.len(), 4);
+        assert_eq!(scope.affected_existing_blocks, 0);
+        assert_eq!(names(&context, &scope.frozen_tasks), ["A", "B", "C", "D"]);
+    }
+
+    #[test]
+    fn a_replan_releases_tasks_a_commitment_a_changed_estimate_or_the_caller_reaches() {
+        let released = |extra: &serde_json::Value, edit: &dyn Fn(&mut ScheduleInput)| {
+            let mut input = approved(extra);
+            edit(&mut input);
+            let context = Context::build(&input).unwrap();
+            let replan = prepare_replan(&context).unwrap();
+            let scope = scope_for_replan(&context, &replan, &replan.base_affected_tasks);
+            (
+                names(&context, &replan.base_affected_tasks),
+                names(&context, &scope.frozen_tasks),
+                scope.affected_existing_blocks,
+            )
+        };
+        let own = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+
+        // A commitment over B's block releases B and its successor C.
+        let commitment =
+            json!({"commitments": [{"start": instant("11:30"), "end": instant("12:00")}]});
+        assert_eq!(
+            released(&commitment, &|_| {}),
+            (own(&["B", "C"]), own(&["A", "D"]), 2)
+        );
+        // A grown task no longer matches its blocks.
+        assert_eq!(
+            released(&json!({}), &|input| input.tasks[0].remaining_min =
+                Some(90.0)),
+            (own(&["A"]), own(&["B", "C", "D"]), 1)
+        );
+        // The caller names B; an id that is not a task is ignored.
+        assert_eq!(
+            released(&json!({"affectedTaskIds": ["B", "ghost"]}), &|_| {}),
+            (own(&["B", "C"]), own(&["A", "D"]), 2)
+        );
+        // A block that is no session of its task (25 minutes).
+        let odd =
+            json!({"existingBlocks": [block("B", "11:00", "11:25"), block("A", "10:00", "11:00")]});
+        assert_eq!(released(&odd, &|_| {}).0, own(&["B", "C"]));
+    }
+
+    #[test]
+    fn frozen_blocks_are_preserved_only_when_reproduced_exactly() {
+        let input = approved(&json!({}));
+        let context = Context::build(&input).unwrap();
+        let replan = prepare_replan(&context).unwrap();
+        // B and C are released; A and D stay frozen.
+        let scope = scope_for_replan(&context, &replan, &set(&context, &["B", "C"]));
+        assert_eq!(scope.affected_existing_blocks, 2);
+        let kept = [
+            placement(&context, 0, "10:00", "11:00"),
+            placement(&context, 3, "14:00", "15:00"),
+        ];
+        assert!(preserves_frozen(&kept, &scope));
+        // Blocks of released tasks do not matter.
+        let mut with_released = kept.to_vec();
+        with_released.push(placement(&context, 1, "12:00", "13:00"));
+        assert!(preserves_frozen(&with_released, &scope));
+        // Moved, missing, or joined by another block of a frozen task.
+        let moved = [
+            placement(&context, 0, "10:05", "11:05"),
+            placement(&context, 3, "14:00", "15:00"),
+        ];
+        assert!(!preserves_frozen(&moved, &scope));
+        assert!(!preserves_frozen(&kept[..1], &scope));
+        let mut extra = kept.to_vec();
+        extra.push(placement(&context, 0, "16:00", "16:30"));
+        assert!(!preserves_frozen(&extra, &scope));
+    }
+
+    #[test]
+    fn seeds_know_when_dependencies_end_where_successors_start_and_what_is_free() {
+        let input = approved(&json!({}));
+        let context = Context::build(&input).unwrap();
+        let none: Vec<Vec<Placement>> = vec![Vec::new(); 4];
+        // Without blocks a dependency is "complete" at the horizon start.
+        assert_eq!(dependency_completion(&context, &none, &[1]), at("09:00"));
+        // History and locked blocks count (A 09:00–09:30, D 15:00–16:00).
+        assert_eq!(dependency_completion(&context, &none, &[0]), at("09:30"));
+        assert_eq!(dependency_completion(&context, &none, &[0, 3]), at("16:00"));
+        let mut seeds = none.clone();
+        seeds[1].push(placement(&context, 1, "11:00", "12:00"));
+        assert_eq!(dependency_completion(&context, &seeds, &[1]), at("12:00"));
+
+        // C depends on B: B's earliest seeded successor is C's first seed.
+        assert_eq!(earliest_seeded_successor_start(&context, &seeds, 1), None);
+        seeds[2].push(placement(&context, 2, "14:00", "14:30"));
+        seeds[2].push(placement(&context, 2, "13:00", "13:30"));
+        assert_eq!(
+            earliest_seeded_successor_start(&context, &seeds, 1),
+            Some(at("13:00"))
+        );
+        assert_eq!(earliest_seeded_successor_start(&context, &seeds, 2), None);
+
+        // Free minutes count whole free cells; the state already holds the
+        // locked block and the history.
+        let state = state_with(&context, &[(1, "11:00", "12:00")]);
+        assert_eq!(
+            free_minutes_between(&context, &state, at("10:00"), at("13:00")),
+            120.0
+        );
+        assert_eq!(
+            free_minutes_between(&context, &state, at("14:30"), at("16:30")),
+            60.0
+        );
+        assert_eq!(
+            free_minutes_between(&context, &state, at("11:00"), at("12:00")),
+            0.0
+        );
+        assert_eq!(
+            free_minutes_between(&context, &state, at("12:00"), at("12:00")),
+            0.0
+        );
+        assert_eq!(
+            free_minutes_between(&context, &state, at("13:00"), at("12:00")),
+            0.0
+        );
+        // A window that cuts a cell does not count it.
+        assert_eq!(
+            free_minutes_between(&context, &state, at("12:02"), at("12:13")),
+            5.0
+        );
+    }
+}

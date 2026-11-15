@@ -841,3 +841,377 @@ pub(super) fn fit_sessions_into_gaps(
     }
     Ok(Some(sessions))
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::super::fixture::{at, block, day, instant, prefs, state_with, task};
+    use super::*;
+
+    fn cells(ranges: &[CellRange]) -> Vec<(usize, usize)> {
+        ranges
+            .iter()
+            .map(|range| (range.first_cell, range.end_cell))
+            .collect()
+    }
+
+    fn spans(placements: &[Placement]) -> Vec<(Ms, Ms)> {
+        let mut spans: Vec<(Ms, Ms)> = placements
+            .iter()
+            .map(|placement| (placement.start_ms, placement.end_ms))
+            .collect();
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        spans
+    }
+
+    #[test]
+    fn focus_under_the_break_rule_is_stretches_separated_by_breaks() {
+        // 120 minutes of focus (24 cells), then a 15-minute break (3 cells).
+        let input = day(&[task("A", 60, &[])], &json!({"prefs": prefs(480, 120)}));
+        let context = Context::build(&input).unwrap();
+        for (free, focus) in [
+            (0.0, 0.0),
+            (-3.0, 0.0),
+            (10.0, 10.0),
+            (24.0, 24.0),
+            (27.0, 24.0),
+            (30.0, 27.0),
+            (54.0, 48.0),
+            (60.0, 54.0),
+        ] {
+            assert_eq!(focus_cells_with_breaks(&context, free), focus, "{free}");
+        }
+        // With the rule off every free cell can be focus.
+        let input = day(&[task("A", 60, &[])], &json!({"prefs": prefs(480, 0)}));
+        let context = Context::build(&input).unwrap();
+        assert_eq!(focus_cells_with_breaks(&context, 60.0), 60.0);
+    }
+
+    #[test]
+    fn free_cells_are_the_slots_minus_what_is_occupied() {
+        let input = day(&[task("A", 60, &[]), task("B", 60, &[])], &json!({}));
+        let context = Context::build(&input).unwrap();
+        let empty = context.create_state();
+        assert_eq!(
+            cells(&free_cell_ranges(
+                &context,
+                &empty,
+                at("09:00"),
+                at("17:00")
+            )),
+            [(0, 96)]
+        );
+        // Blocks that touch are one occupied stretch.
+        let state = state_with(
+            &context,
+            &[
+                (0, "10:00", "11:00"),
+                (1, "11:00", "11:30"),
+                (0, "14:00", "15:00"),
+            ],
+        );
+        assert_eq!(
+            cells(&free_cell_ranges(
+                &context,
+                &state,
+                at("09:00"),
+                at("17:00")
+            )),
+            [(0, 12), (30, 60), (72, 96)]
+        );
+        assert_eq!(
+            cells(&free_cell_ranges(
+                &context,
+                &state,
+                at("09:30"),
+                at("16:00")
+            )),
+            [(6, 12), (30, 60), (72, 84)]
+        );
+        // Only whole cells count, and an empty window has none.
+        assert_eq!(
+            cells(&free_cell_ranges(
+                &context,
+                &state,
+                at("09:02"),
+                at("09:58")
+            )),
+            [(1, 11)]
+        );
+        assert_eq!(
+            cells(&free_cell_ranges(
+                &context,
+                &state,
+                at("10:00"),
+                at("11:30")
+            )),
+            Vec::new()
+        );
+        assert_eq!(
+            cells(&free_cell_ranges(
+                &context,
+                &state,
+                at("12:00"),
+                at("12:00")
+            )),
+            Vec::new()
+        );
+    }
+
+    #[test]
+    fn a_free_run_holds_what_the_daily_cap_and_the_break_rule_leave_of_it() {
+        let usable = |extra: &serde_json::Value, blocks: &[(usize, &str, &str)], min_units: f64| {
+            let input = day(&[task("A", 60, &[]), task("F", 120, &[])], extra);
+            let context = Context::build(&input).unwrap();
+            let state = state_with(&context, blocks);
+            free_runs(&context, &state, at("09:00"), at("17:00"), min_units)
+                .iter()
+                .map(|run| {
+                    (
+                        run.start_ms,
+                        run.cell_count,
+                        run.usable_cells,
+                        run.day_load_min,
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        // An hour is planned and the day allows three: two more hours fit,
+        // in a run of one hour and in a run of six.
+        let hour = [(1, "10:00", "11:00")];
+        assert_eq!(
+            usable(&json!({"prefs": prefs(180, 480)}), &hour, 6.0),
+            [
+                (at("09:00"), 12.0, 12.0, 60.0),
+                (at("11:00"), 72.0, 24.0, 60.0),
+            ]
+        );
+        // A run that cannot host one minimum session is dropped ...
+        assert_eq!(
+            usable(&json!({"prefs": prefs(180, 480)}), &hour, 13.0),
+            [(at("11:00"), 72.0, 24.0, 60.0)]
+        );
+        // ... and so is one whose share of the day cannot.
+        assert_eq!(
+            usable(&json!({"prefs": prefs(100, 480)}), &hour, 9.0),
+            Vec::new()
+        );
+
+        // A two-hour block under a two-hour focus limit: a session beside it
+        // must keep a break away, on either side. The 150 free minutes
+        // before it hold 120 focus minutes, the 210 after it 180.
+        let full = [(1, "11:30", "13:30")];
+        assert_eq!(
+            usable(&json!({"prefs": prefs(480, 120)}), &full, 6.0),
+            [
+                (at("09:00"), 30.0, 24.0, 120.0),
+                (at("13:30"), 42.0, 36.0, 120.0),
+            ]
+        );
+        // Without the block the same day is one run: 480 minutes, 24 cells
+        // of focus and 3 of break at a time.
+        assert_eq!(
+            usable(&json!({"prefs": prefs(480, 120)}), &[], 6.0),
+            [(at("09:00"), 96.0, 87.0, 0.0)]
+        );
+    }
+
+    #[test]
+    fn a_session_may_start_at_once_a_break_later_or_where_it_can_join_what_follows() {
+        let starts = |extra: &serde_json::Value, blocks: &[(usize, &str, &str)], from: f64| {
+            let input = day(&[task("A", 120, &[]), task("F", 60, &[])], extra);
+            let context = Context::build(&input).unwrap();
+            let state = state_with(&context, blocks);
+            let runs = free_runs(&context, &state, at("09:00"), at("17:00"), 1.0);
+            start_offsets(&context, &state, &runs[0], from)
+        };
+        let limit = |break_after: u32, break_min: u32| {
+            let mut prefs = prefs(480, break_after);
+            prefs["breakMin"] = json!(break_min);
+            json!({"now": instant("09:00"), "prefs": prefs})
+        };
+        // F ends where the run begins: start at once (joining F) or a full
+        // break later (cell 3).
+        let after_f = json!({
+            "prefs": prefs(480, 120),
+            "horizon": {"start": instant("10:00"), "end": instant("17:00")},
+            "now": instant("10:00"),
+            "existingBlocks": [block("F", "09:00", "10:00")],
+        });
+        assert_eq!(starts(&after_f, &[], 0.0), [0.0, 3.0]);
+        // Further into the run the break is already over.
+        assert_eq!(starts(&after_f, &[], 6.0), [6.0]);
+
+        // F (10:10–10:35) follows the run under a 90-minute limit: a session
+        // that reaches F may start no earlier than 09:05 (cell 1).
+        assert_eq!(
+            starts(&limit(90, 30), &[(1, "10:10", "10:35")], 0.0),
+            [0.0, 1.0]
+        );
+        // A longer limit lets a session from the first cell join F.
+        assert_eq!(
+            starts(&limit(240, 30), &[(1, "10:10", "10:35")], 0.0),
+            [0.0]
+        );
+        // Nothing beside the run, or the rule off: one start.
+        assert_eq!(starts(&limit(90, 30), &[], 0.0), [0.0]);
+        assert_eq!(starts(&limit(0, 30), &[(1, "10:10", "10:35")], 0.0), [0.0]);
+    }
+
+    #[test]
+    fn the_latest_start_with_room_counts_back_from_the_limit() {
+        let input = day(&[task("A", 60, &[]), task("B", 60, &[])], &json!({}));
+        let context = Context::build(&input).unwrap();
+        let state = state_with(&context, &[(0, "12:00", "13:00")]);
+        let ranges = free_cell_ranges(&context, &state, at("09:00"), at("17:00"));
+        assert_eq!(cells(&ranges), [(0, 36), (48, 96)]);
+        let latest = |limit: &str, need: f64, piece: f64, contiguous: bool| {
+            latest_start_with_room(
+                &context,
+                &ranges,
+                at("09:00"),
+                at(limit),
+                need,
+                piece,
+                contiguous,
+            )
+        };
+        // An hour before 17:00 starts at 16:00 at the latest.
+        assert_eq!(latest("17:00", 12.0, 6.0, false), Some(at("16:00")));
+        // Before 13:30 only half an hour is free after the block: the other
+        // half comes from before it.
+        assert_eq!(latest("13:30", 12.0, 6.0, false), Some(at("11:30")));
+        // In one piece the hour has to lie before the block.
+        assert_eq!(latest("13:30", 12.0, 12.0, true), Some(at("11:00")));
+        // A range too short for one session does not count.
+        assert_eq!(latest("13:20", 12.0, 6.0, false), Some(at("11:00")));
+        // More than the day holds, or a piece no range holds: no room.
+        assert_eq!(latest("17:00", 85.0, 6.0, false), None);
+        assert_eq!(latest("17:00", 49.0, 49.0, true), None);
+        assert_eq!(latest("09:00", 1.0, 1.0, false), None);
+    }
+
+    #[test]
+    fn a_predecessor_must_end_before_the_room_its_dependents_still_need() {
+        // P ← S ← T, an hour each, all due at 17:00.
+        let chain = [
+            task("P", 60, &[]),
+            task("S", 60, &["P"]),
+            task("T", 60, &["S"]),
+        ];
+        let input = day(&chain, &json!({}));
+        let context = Context::build(&input).unwrap();
+        let ordered = [0, 1, 2];
+        let empty = context.create_state();
+        // T needs 16:00–17:00, so S must end by 16:00 and needs 15:00–16:00.
+        assert_eq!(
+            successor_bound(&context, &empty, &ordered, 0, 0.0),
+            at("15:00")
+        );
+        assert_eq!(
+            successor_bound(&context, &empty, &ordered, 1, 0.0),
+            at("16:00")
+        );
+        // Nothing depends on T.
+        assert_eq!(
+            successor_bound(&context, &empty, &ordered, 2, 0.0),
+            f64::INFINITY
+        );
+        // Slack keeps a break free before each dependent's room.
+        let quarter = 15.0 * 60_000.0;
+        assert_eq!(
+            successor_bound(&context, &empty, &ordered, 0, quarter),
+            at("14:30")
+        );
+        // A dependent that already has its blocks bounds by where it starts.
+        let placed = state_with(&context, &[(1, "11:00", "12:00")]);
+        assert_eq!(
+            successor_bound(&context, &placed, &ordered, 0, 0.0),
+            at("11:00")
+        );
+
+        // A dependent that can never be placed imposes no bound.
+        let mut never = day(&chain[..2], &json!({}));
+        never.tasks[1].estimate.p50_min = 600.0;
+        never.tasks[1].estimate.p90_min = 600.0;
+        never.tasks[1].splittable = false;
+        never.tasks[1].min_session_min = 600.0;
+        never.tasks[1].max_session_min = 600.0;
+        let context = Context::build(&never).unwrap();
+        let empty = context.create_state();
+        assert_eq!(
+            successor_bound(&context, &empty, &[0, 1], 0, 0.0),
+            f64::INFINITY
+        );
+    }
+
+    #[test]
+    fn a_task_is_split_into_the_gaps_only_when_a_complete_split_exists() {
+        // 09:00–17:00 with a commitment 10:55–14:10 leaves 115 + 170 minutes.
+        let around = json!({"commitments": [{"start": instant("10:55"), "end": instant("14:10")}]});
+        let mut input = day(&[task("A", 175, &[])], &around);
+        input.tasks[0].max_session_min = 180.0;
+        let context = Context::build(&input).unwrap();
+        let fit = |state: &mut State, policy: PolicyName, minutes: f64| {
+            fit_sessions_into_gaps(
+                &context,
+                state,
+                policy,
+                0,
+                minutes,
+                at("09:00"),
+                at("17:00"),
+                &[],
+                false,
+            )
+            .unwrap()
+        };
+        // front_loaded fills the earliest gap first.
+        let mut state = context.create_state();
+        let sessions = fit(&mut state, PolicyName::FrontLoaded, 175.0).unwrap();
+        assert_eq!(
+            spans(&sessions),
+            [(at("09:00"), at("10:55")), (at("14:10"), at("15:10"))]
+        );
+        // The split is committed to the state.
+        assert_eq!(spans(&state.placements), spans(&sessions));
+        // focus_blocked takes the longest gap first and leaves a valid rest.
+        let mut state = context.create_state();
+        let sessions = fit(&mut state, PolicyName::FocusBlocked, 175.0).unwrap();
+        assert_eq!(
+            spans(&sessions),
+            [(at("09:00"), at("09:30")), (at("14:10"), at("16:35"))]
+        );
+
+        // No complete split: nothing is returned and the state is untouched.
+        let mut state = context.create_state();
+        assert!(fit(&mut state, PolicyName::FrontLoaded, 290.0).is_none());
+        assert!(state.placements.is_empty());
+        // Off the grid, nothing to place, or below one session.
+        for minutes in [172.0, 0.0, -5.0, 25.0] {
+            assert!(
+                fit(&mut state, PolicyName::FrontLoaded, minutes).is_none(),
+                "{minutes}"
+            );
+        }
+        // A task that may not be split is never split.
+        let mut whole = input.clone();
+        whole.tasks[0].splittable = false;
+        let context = Context::build(&whole).unwrap();
+        let mut state = context.create_state();
+        let sessions = fit_sessions_into_gaps(
+            &context,
+            &mut state,
+            PolicyName::FrontLoaded,
+            0,
+            175.0,
+            at("09:00"),
+            at("17:00"),
+            &[],
+            false,
+        )
+        .unwrap();
+        assert!(sessions.is_none());
+    }
+}

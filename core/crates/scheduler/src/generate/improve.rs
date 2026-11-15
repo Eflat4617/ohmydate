@@ -330,3 +330,136 @@ pub(super) fn count_context_switches(
     }
     Ok(switches)
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::super::fixture::{at, day, instant, state_with, task};
+    use super::*;
+
+    fn due(mut task: serde_json::Value, clock: &str) -> serde_json::Value {
+        task["dueAt"] = json!(instant(clock));
+        task
+    }
+
+    #[test]
+    fn a_block_may_lie_between_its_dependencies_and_its_dependents() {
+        // A ← B ← C; B is due at 15:00 with a 30-minute buffer.
+        let mut middle = due(task("B", 60, &["A"]), "15:00");
+        middle["bufferBeforeDueMin"] = json!(30);
+        middle["earliestStartAt"] = json!(instant("09:30"));
+        let input = day(
+            &[task("A", 60, &[]), middle, task("C", 60, &["B"])],
+            &json!({}),
+        );
+        let context = Context::build(&input).unwrap();
+        let empty = context.create_state();
+        assert_eq!(
+            placement_window(&context, &empty, 0),
+            (at("09:00"), at("17:00"))
+        );
+        assert_eq!(
+            placement_window(&context, &empty, 1),
+            (at("09:30"), at("14:30"))
+        );
+        // With A and C placed, B has to fit between them.
+        let state = state_with(&context, &[(0, "09:00", "10:30"), (2, "13:00", "14:00")]);
+        assert_eq!(
+            placement_window(&context, &state, 1),
+            (at("10:30"), at("13:00"))
+        );
+        // A may not run past where B starts once B is placed.
+        let state = state_with(&context, &[(1, "11:00", "12:00")]);
+        assert_eq!(
+            placement_window(&context, &state, 0),
+            (at("09:00"), at("11:00"))
+        );
+        assert_eq!(
+            placement_window(&context, &state, 2),
+            (at("12:00"), at("17:00"))
+        );
+    }
+
+    #[test]
+    fn slack_is_the_tightest_deadline_or_the_room_left_in_the_horizon() {
+        let mut buffered = due(task("B", 60, &[]), "15:00");
+        buffered["bufferBeforeDueMin"] = json!(30);
+        let input = day(
+            &[
+                due(task("A", 60, &[]), "12:00"),
+                buffered,
+                task("C", 60, &[]),
+            ],
+            &json!({}),
+        );
+        let context = Context::build(&input).unwrap();
+        // A ends an hour before its deadline; B two hours before its
+        // buffered one. The block of C, which has no deadline, is ignored.
+        let state = state_with(
+            &context,
+            &[
+                (0, "10:00", "11:00"),
+                (1, "11:30", "12:30"),
+                (2, "16:00", "17:00"),
+            ],
+        );
+        assert_eq!(min_slack_minutes(&context, &state), 60.0);
+        // An unplaced task with a deadline counts from the horizon start,
+        // and a missed deadline is negative slack.
+        let late = state_with(&context, &[(0, "12:00", "13:00")]);
+        assert_eq!(min_slack_minutes(&context, &late), -60.0);
+        assert_eq!(min_slack_minutes(&context, &context.create_state()), 180.0);
+
+        // Without any deadline: the horizon end minus the last block.
+        let free = day(&[task("A", 60, &[])], &json!({}));
+        let context = Context::build(&free).unwrap();
+        let state = state_with(&context, &[(0, "10:00", "11:00")]);
+        assert_eq!(min_slack_minutes(&context, &state), 360.0);
+        assert_eq!(min_slack_minutes(&context, &context.create_state()), 480.0);
+    }
+
+    #[test]
+    fn a_context_switch_is_a_change_of_task_within_one_local_day() {
+        let two_days = json!({
+            "horizon": {"start": instant("09:00"), "end": "2026-11-10T17:00:00Z"},
+            "availability": [
+                {"weekday": 1, "startLocal": "09:00", "endLocal": "24:00", "kind": "work"},
+                {"weekday": 2, "startLocal": "00:00", "endLocal": "17:00", "kind": "work"},
+            ],
+        });
+        let input = day(&[task("A", 120, &[]), task("B", 120, &[])], &two_days);
+        let context = Context::build(&input).unwrap();
+        let interval = |task: usize, start_ms: Ms, minutes: f64| Interval {
+            start_ms,
+            end_ms: start_ms + minutes * MINUTE_MS_F,
+            task,
+        };
+        let switches =
+            |intervals: &[Interval]| count_context_switches(&context, intervals).unwrap();
+        // A, A, B, A on Monday: two changes of task.
+        assert_eq!(
+            switches(&[
+                interval(0, at("09:00"), 60.0),
+                interval(0, at("10:00"), 60.0),
+                interval(1, at("11:00"), 60.0),
+                interval(0, at("13:00"), 60.0),
+            ]),
+            2.0
+        );
+        // The first block of the next day is not a switch ...
+        let tuesday = at("09:00") + 24.0 * 60.0 * MINUTE_MS_F;
+        assert_eq!(
+            switches(&[interval(0, at("16:00"), 60.0), interval(1, tuesday, 60.0)]),
+            0.0
+        );
+        // ... and a block that ends exactly at midnight belongs to its day.
+        let midnight = at("23:00") + 60.0 * MINUTE_MS_F;
+        assert_eq!(
+            switches(&[interval(0, at("23:00"), 60.0), interval(1, midnight, 60.0)]),
+            0.0
+        );
+        assert_eq!(switches(&[]), 0.0);
+        assert_eq!(switches(&[interval(0, at("09:00"), 60.0)]), 0.0);
+    }
+}

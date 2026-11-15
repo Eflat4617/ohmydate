@@ -42,7 +42,7 @@ export function iso(epochMs: number): string {
 
 export interface OracleCase {
   readonly id: string;
-  readonly kind: 'golden' | 'generated' | 'replan' | 'invalid' | 'reference-test';
+  readonly kind: 'golden' | 'generated' | 'replan' | 'invalid' | 'reference-test' | 'path';
   readonly input: ScheduleInput;
   readonly options: GenerateOptions | null;
   /** Seeds the validator probes of this case. */

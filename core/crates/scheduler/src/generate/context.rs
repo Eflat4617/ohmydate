@@ -426,3 +426,112 @@ impl<'a> Context<'a> {
         compare_utf16(&self.tasks[a].task.id, &self.tasks[b].task.id)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::super::fixture::{at, block, day, instant, task};
+    use super::*;
+
+    #[test]
+    fn minute_totals_saturate_and_skip_what_is_not_a_positive_number() {
+        assert_eq!(bounded_minute_add(30.0, 15.0), 45.0);
+        for skipped in [0.0, -5.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(bounded_minute_add(30.0, skipped), 30.0, "{skipped}");
+        }
+        assert_eq!(
+            bounded_minute_add(MAX_SAFE_INTEGER - 1.0, 5.0),
+            MAX_SAFE_INTEGER
+        );
+        assert_eq!(bounded_minute_add(f64::MAX, f64::MAX), MAX_SAFE_INTEGER);
+        assert_eq!(bounded_minute_add(f64::INFINITY, 1.0), MAX_SAFE_INTEGER);
+        assert_eq!(
+            bounded_minute_add(MAX_SAFE_INTEGER - 5.0, 5.0),
+            MAX_SAFE_INTEGER
+        );
+    }
+
+    #[test]
+    fn a_context_reads_the_input_once_slots_dependencies_and_fixed_blocks() {
+        let input = day(
+            &[
+                task("A", 60, &[]),
+                task("B", 60, &["A", "ghost"]),
+                task("C", 60, &["A"]),
+            ],
+            &json!({
+                "now": instant("10:00"),
+                "commitments": [{"start": instant("12:00"), "end": instant("13:00")}],
+                "lockedBlocks": [block("C", "15:00", "16:00")],
+                "existingBlocks": [
+                    block("A", "09:00", "09:30"),
+                    block("B", "13:00", "14:00"),
+                    block("C", "15:00", "16:00"),
+                    block("ghost", "16:00", "16:30"),
+                    block("B", "14:00", "14:00"),
+                ],
+            }),
+        );
+        let context = Context::build(&input).unwrap();
+        // The commitment and the locked block cut the day into three slots.
+        let slots: Vec<(Ms, Ms, usize)> = context
+            .slots_by_start
+            .iter()
+            .map(|slot| (slot.start_ms, slot.end_ms, slot.cell_starts.len()))
+            .collect();
+        assert_eq!(
+            slots,
+            [
+                (at("09:00"), at("12:00"), 36),
+                (at("13:00"), at("15:00"), 24),
+                (at("16:00"), at("17:00"), 12),
+            ]
+        );
+        assert_eq!(
+            context
+                .find_containing_slot(at("13:30"), at("14:30"))
+                .map(|slot| slot.id),
+            Some(1)
+        );
+        // Across a cut, or outside the day, no slot holds the block.
+        assert!(
+            context
+                .find_containing_slot(at("11:30"), at("12:30"))
+                .is_none()
+        );
+        assert!(
+            context
+                .find_containing_slot(at("14:30"), at("15:30"))
+                .is_none()
+        );
+        assert!(
+            context
+                .find_containing_slot(at("17:00"), at("17:30"))
+                .is_none()
+        );
+
+        // Dependencies on tasks that do not exist are dropped (the input
+        // check reports them); dependents are the reverse edges.
+        assert_eq!(context.tasks[1].depends_on, [0]);
+        assert_eq!(context.tasks[0].dependents, [1, 2]);
+        assert!(context.tasks[2].dependents.is_empty());
+
+        // History is what started before now; a block of an unknown task or
+        // without length is not an interval at all.
+        assert_eq!(context.history_by_task[0].len(), 1);
+        assert_eq!(context.future_existing_by_task[1].len(), 1);
+        assert_eq!(context.existing_intervals.len(), 3);
+        assert!(context.is_locked_key(2, at("15:00"), at("16:00")));
+        assert!(!context.is_locked_key(1, at("13:00"), at("14:00")));
+        // A new state already holds the locked block and the history.
+        let state = context.create_state();
+        let held: Vec<(usize, Ms)> = state
+            .intervals
+            .iter()
+            .map(|interval| (interval.task, interval.start_ms))
+            .collect();
+        assert_eq!(held, [(0, at("09:00")), (2, at("15:00"))]);
+        assert!(state.placements.is_empty());
+    }
+}

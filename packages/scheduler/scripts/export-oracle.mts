@@ -23,7 +23,7 @@
  *     },
  *     cases: [                                             // one per line
  *       {
- *         id, kind: "golden" | "generated" | "replan" | "invalid" | "reference-test",
+ *         id, kind: "golden" | "generated" | "replan" | "invalid" | "reference-test" | "path",
  *         input, options | null,
  *         inputIssues[],          // validateInput(input)
  *         slots[] | null,         // computeAvailableSlots(input); null if it throws
@@ -649,6 +649,184 @@ function budgetWorkloadCase(): OracleCase {
   };
 }
 
+/**
+ * Hand-written inputs, one per generator path that random inputs reach
+ * rarely and that deserves a case in every pack, the committed sample
+ * included (blueprint 15 §5.3). Each id names its path and runs the policy
+ * for which that path decides the plan (with every policy at once, similar
+ * candidates would be dropped from the result). All are one or two UTC days
+ * from Monday 2026-11-09.
+ */
+function pathCases(): OracleCase[] {
+  const utc = (clock: string, day = 9): string => `2026-11-${String(day).padStart(2, '0')}T${clock}:00Z`;
+  const prefs = (overrides: Partial<Preferences> = {}): Preferences => ({
+    maxDailyFocusMin: 480,
+    breakAfterMin: 480,
+    breakMin: 15,
+    riskLevel: 'p50',
+    dayStartLocal: '00:00',
+    dayEndLocal: '24:00',
+    ...overrides,
+  });
+  const task = (id: string, minutes: number, overrides: Partial<Task> = {}): Task => ({
+    id,
+    estimate: { p50Min: minutes, p90Min: minutes },
+    splittable: true,
+    minSessionMin: 30,
+    maxSessionMin: 120,
+    priority: 1,
+    dependsOn: [],
+    ...overrides,
+  });
+  const everyDay = (startLocal: string, endLocal: string): AvailabilityRule[] =>
+    ([1, 2, 3, 4, 5, 6, 7] as const).map((weekday) => ({ weekday, startLocal, endLocal, kind: 'work' as const }));
+  const block = (taskId: string, start: string, end: string): Block => ({ taskId, start, end });
+  const input = (
+    end: string,
+    members: Partial<ScheduleInput> & Pick<ScheduleInput, 'tasks'>,
+  ): ScheduleInput => ({
+    now: utc('09:00'),
+    timeZone: 'UTC',
+    horizon: { start: utc('09:00'), end },
+    availability: everyDay('09:00', '17:00'),
+    exceptions: [],
+    commitments: [],
+    lockedBlocks: [],
+    prefs: prefs(),
+    seed: 7,
+    ...members,
+  });
+
+  const inputs: Array<[string, PolicyName, ScheduleInput]> = [
+    // Gap-fitted split, time-order retry. Two gaps 15 minutes apart, each
+    // with room for one 90-minute session. focus_blocked fills the longer,
+    // later gap first from its first cell; the session in the earlier gap
+    // would then join it into 195 minutes of focus, and nothing beside the
+    // later gap suggests another start. Only the search in time order knows
+    // the first session when it places the second.
+    [
+      'gap-time-order-retry',
+      'focus_blocked',
+      input(utc('13:15'), {
+        tasks: [task('A', 180, { minSessionMin: 90 })],
+        availability: [{ weekday: 1, startLocal: '09:00', endLocal: '13:15', kind: 'work' }],
+        commitments: [{ start: utc('10:30'), end: utc('10:45') }],
+        prefs: prefs({ breakAfterMin: 120, breakMin: 30 }),
+      }),
+    ],
+    // Replan seeds, rejection by the day's rules. Three approved hours on
+    // Monday, then the daily cap drops to two: no task changed, so the seeds
+    // are taken in time order until one no longer passes, and only that task
+    // is released.
+    [
+      'replan-seed-rejected',
+      'balanced',
+      input(utc('00:00', 11), {
+        now: utc('00:00'),
+        horizon: { start: utc('00:00'), end: utc('00:00', 11) },
+        tasks: [task('A', 60), task('B', 60), task('C', 60)],
+        existingBlocks: [
+          block('A', utc('09:00'), utc('10:00')),
+          block('B', utc('10:00'), utc('11:00')),
+          block('C', utc('11:00'), utc('12:00')),
+        ],
+        prefs: prefs({ maxDailyFocusMin: 120 }),
+      }),
+    ],
+    // Staged expansion, one level. P2 <- P1 <- X; X grew to 90 minutes and
+    // is due at 12:00. With P1 frozen X cannot fit; releasing P1 (depth 1)
+    // is enough, and P2 (depth 2) stays where it was.
+    [
+      'replan-expansion-depth-1',
+      'front_loaded',
+      input(utc('00:00', 11), {
+        now: utc('00:00'),
+        horizon: { start: utc('00:00'), end: utc('00:00', 11) },
+        tasks: [
+          task('P2', 30, { priority: 2 }),
+          task('P1', 60, { priority: 2, dependsOn: ['P2'] }),
+          task('X', 90, { priority: 2, dependsOn: ['P1'], dueAt: utc('12:00') }),
+        ],
+        existingBlocks: [
+          block('P2', utc('09:00'), utc('09:30')),
+          block('P1', utc('10:00'), utc('11:00')),
+          block('X', utc('11:00'), utc('12:00')),
+        ],
+        affectedTaskIds: ['X'],
+      }),
+    ],
+    // Successor bound. F and G hold Monday's and Tuesday's mornings; the
+    // horizon ends an hour into Wednesday. S was planned before P and now
+    // depends on it: the released P must not take the Wednesday tail that S
+    // needs after it.
+    [
+      'successor-bound-tail',
+      'balanced',
+      input(utc('10:00', 11), {
+        tasks: ['F', 'G', 'P', 'S'].map((id) =>
+          task(id, id === 'F' || id === 'G' ? 240 : 60, {
+            dueAt: utc('10:00', 11),
+            earliestStartAt: utc('09:00'),
+            maxSessionMin: id === 'F' || id === 'G' ? 240 : 120,
+            dependsOn: id === 'S' ? ['P'] : [],
+          }),
+        ),
+        existingBlocks: [
+          block('F', utc('09:00'), utc('13:00')),
+          block('G', utc('09:00', 10), utc('13:00', 10)),
+          block('S', utc('13:00'), utc('14:00')),
+          block('P', utc('13:00', 10), utc('14:00', 10)),
+        ],
+      }),
+    ],
+    // Gap-fitted split, break-offset start. A grew from 60 to 120 minutes
+    // next to the frozen F under a 120-minute focus limit: right after F at
+    // most 60 minutes fit, and only a session that starts a break later
+    // (10:15) leaves a remainder the last gap can hold.
+    [
+      'gap-break-offset-start',
+      'focus_blocked',
+      input(utc('12:45'), {
+        tasks: [
+          task('F', 60, { minSessionMin: 15, maxSessionMin: 60, priority: 2 }),
+          task('A', 120, { minSessionMin: 45 }),
+        ],
+        availability: [{ weekday: 1, startLocal: '09:00', endLocal: '12:45', kind: 'work' }],
+        commitments: [{ start: utc('11:30'), end: utc('12:00') }],
+        existingBlocks: [block('F', utc('09:00'), utc('10:00')), block('A', utc('10:15'), utc('11:15'))],
+        prefs: prefs({ breakAfterMin: 120 }),
+      }),
+    ],
+    // Change bound. T0 grew by 150 minutes between five frozen half hours:
+    // five new sessions, more than 2 x 1 + 2 changed blocks, which the
+    // candidate and the diversity note have to say.
+    [
+      'replan-change-bound-exceeded',
+      'front_loaded',
+      input(utc('00:00', 10), {
+        now: utc('00:00'),
+        horizon: { start: utc('00:00'), end: utc('00:00', 10) },
+        availability: everyDay('09:00', '15:00'),
+        tasks: [
+          task('T0', 210, { maxSessionMin: 240 }),
+          ...[0, 1, 2, 3, 4].map((index) => task(`F${index}`, 30, { maxSessionMin: 30 })),
+        ],
+        existingBlocks: [
+          block('T0', utc('09:00'), utc('10:00')),
+          ...[10, 11, 12, 13, 14].map((hour, index) => block(`F${index}`, utc(`${hour}:00`), utc(`${hour}:30`))),
+        ],
+      }),
+    ],
+  ];
+  return inputs.map(([name, policy, caseInput], index) => ({
+    id: `path-${name}`,
+    kind: 'path' as const,
+    input: caseInput,
+    options: { policies: [policy] },
+    probeSeed: 0x9a7c_0000 + index,
+  }));
+}
+
 function generatedCases(masterSeed: number, count: number): OracleCase[] {
   const cases: OracleCase[] = [];
   for (let index = 0; index < count; index += 1) {
@@ -1027,6 +1205,7 @@ function main(): void {
   // committed sample.
   const cases = [
     ...goldenCases(),
+    ...pathCases(),
     ...corpus.cases,
     ...(args.corpus === null ? [] : [budgetWorkloadCase()]),
     ...generatedCases(args.seed, args.count),

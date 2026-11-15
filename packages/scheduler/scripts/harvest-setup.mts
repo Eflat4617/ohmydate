@@ -20,14 +20,22 @@ import type * as GenerateModule from '../src/generate.js';
 import { canonicalJson } from '../src/hash.js';
 import { survivesJson } from './oracle-lib.mjs';
 
-/** Property tests call `generate` thousands of times; keep the first ones. */
-const MAX_PER_TEST_FILE = 400;
+/**
+ * Property tests call `generate` thousands of times; keep the first inputs
+ * of each test. The limit is per test, not per file, so that the later tests
+ * of a file — the seeded replan corpora among them — are recorded too.
+ */
+const MAX_PER_TEST = 200;
 
 const out = process.env['ORACLE_HARVEST_OUT'];
 const seen = new Set<string>();
+const perTest = new Map<string, number>();
 
 function record(input: unknown, options: unknown): void {
-  if (out === undefined || seen.size >= MAX_PER_TEST_FILE) return;
+  if (out === undefined) return;
+  const test = expect.getState().currentTestName ?? '';
+  const recorded = perTest.get(test) ?? 0;
+  if (recorded >= MAX_PER_TEST) return;
   // NaN, Infinity and holes would be rewritten by JSON: such inputs probe the
   // reference itself and cannot be handed to the port unchanged.
   if (!survivesJson(input) || !survivesJson(options ?? null)) return;
@@ -36,6 +44,7 @@ function record(input: unknown, options: unknown): void {
     const key = canonicalJson({ input, options: options ?? null });
     if (seen.has(key)) return;
     seen.add(key);
+    perTest.set(test, recorded + 1);
     line = JSON.stringify({
       file: basename(expect.getState().testPath ?? 'unknown'),
       input,
