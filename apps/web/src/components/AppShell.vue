@@ -219,6 +219,7 @@ onUnmounted(() => {
   </div>
   <template v-else>
     <a class="skip-link" href="#main-content">{{ t('app.skipToContent') }}</a>
+    <div class="ambient" aria-hidden="true" data-ambient></div>
     <div class="app-shell" :class="{ 'app-shell--calm': calmMode, 'app-shell--nav-collapsed': ui.navCollapsed }">
       <NavRail />
       <div class="app-main">

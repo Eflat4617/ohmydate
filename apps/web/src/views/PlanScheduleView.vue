@@ -946,7 +946,7 @@ const firstOwn = computed(() => {
                it floats over the grid, so showing it moves nothing (FU-86F). -->
           <p
             id="plan-lock-hold"
-            class="block-lock-saving"
+            class="block-lock-saving glass"
             :class="{ 'block-lock-saving--shown': lockHoldShown }"
             role="status"
             aria-live="polite"

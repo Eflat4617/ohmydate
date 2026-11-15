@@ -8,6 +8,124 @@
  * heavy shadow; only what floats (a dialog, a menu, a toast) lifts off.
  */
 
+/* ── Glass: the one material of everything that floats (FLOW.md §6) ──
+   Three layers make the app: the ambient light (`.ambient`), the content
+   (cards: solid, numbers are read on them) and the glass — sidebar, top bar,
+   menus and popovers, dialogs and sheets, toasts, the phone's nav, segmented
+   controls. Every one of them carries `.glass`; nothing else blurs.
+
+   - `.glass`: what is behind shows through, blurred, saturated and brought
+     toward the scheme's ground (dimmed in the dark scheme, lifted in the
+     light one), under a fill that is the scrim text sits on. A hairline, an
+     inner highlight on the upper edge and a faint sheen say "glass".
+   - `.glass--still`: the same body without a backdrop filter, for glass that
+     only ever has the ambient light or a card behind it (the sidebar, a
+     segmented control). It costs nothing to paint.
+   - `.glass--host`: the material sits on a layer behind the content, so the
+     surface can hold other glass (the top bar holds its menus). A backdrop
+     filter on the element itself would cut its popovers off from the page
+     behind them in Chromium.
+   - Glass inside (non-host) glass is solid: one refraction at a time.
+
+   Guarantees: text on glass is AA in both schemes whatever is behind
+   (test/holo-material.spec.ts computes it from tokens.css); without
+   `backdrop-filter`, under `prefers-reduced-transparency: reduce` and under
+   `:root[data-transparency='reduce']` the material is the opaque raised surface;
+   the pointer's light does not move under reduced motion (theme/glassLight). */
+.glass {
+  --glass-body: var(--glass-fill);
+  --glass-backdrop: var(--glass-filter);
+
+  border: var(--rule-hair) solid var(--glass-edge);
+  background:
+    radial-gradient(16rem circle at var(--glass-x, -40rem) var(--glass-y, -40rem), var(--glass-light), transparent 72%),
+    linear-gradient(140deg, var(--glass-light) 0%, transparent 36%),
+    var(--glass-body);
+  box-shadow: var(--glass-highlight), var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+}
+
+.glass--still {
+  --glass-body: var(--glass-fill-still);
+  --glass-backdrop: none;
+}
+
+/* Close to the page (the sidebar, the bars): a short shadow. */
+.glass--low {
+  box-shadow: var(--glass-highlight), var(--glass-shadow-low);
+}
+
+/* Resting on a card, not lifted off it: no drop shadow. */
+.glass--flat {
+  box-shadow: var(--glass-highlight);
+}
+
+.glass--host {
+  position: relative;
+  isolation: isolate;
+  background: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.glass--host::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background:
+    radial-gradient(16rem circle at var(--glass-x, -40rem) var(--glass-y, -40rem), var(--glass-light), transparent 72%),
+    linear-gradient(140deg, var(--glass-light) 0%, transparent 36%),
+    var(--glass-body);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  pointer-events: none;
+}
+
+/* One refraction at a time: glass set into glass is the solid material. */
+.glass:not(.glass--host) .glass:not(.glass--still) {
+  --glass-body: var(--glass-solid);
+  --glass-backdrop: none;
+}
+
+/* The three ways the material turns opaque. Each sets the same two
+   properties, so the fill never depends on a filter that is not there. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass:not(.glass--still) {
+    --glass-body: var(--glass-solid);
+    --glass-backdrop: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass--still {
+    --glass-body: var(--glass-solid);
+    --glass-backdrop: none;
+  }
+}
+
+:root[data-transparency='reduce'] .glass,
+:root[data-transparency='reduce'] .glass--still {
+  --glass-body: var(--glass-solid);
+  --glass-backdrop: none;
+}
+
+/* ── Ambient light: the still layer under everything ───────────────── */
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(64rem 44rem at 0% 0%, var(--ambient-a), transparent 68%),
+    radial-gradient(56rem 40rem at 100% 100%, var(--ambient-b), transparent 70%),
+    radial-gradient(36rem 26rem at 78% 8%, var(--ambient-b), transparent 72%),
+    var(--color-ground);
+  pointer-events: none;
+}
+
 /* ── A bright hue fill keeps dark text in both schemes ─────────────── */
 .hl {
   --color-ink: var(--color-on-accent);
@@ -234,14 +352,14 @@
 }
 
 /* ── Segmented control: one of a few, side by side ─────────────────── */
+/* The track is still glass (`glass glass--still glass--flat` beside this
+   class); the picked tile is set into it, concentric with its corners. */
 .segmented {
   display: inline-flex;
   align-items: stretch;
   gap: var(--space-0-5);
   padding: var(--space-0-5);
-  border: var(--rule-hair) solid var(--color-line-strong);
   border-radius: var(--radius-md);
-  background: var(--color-inset);
 }
 
 .segmented-item {
@@ -251,7 +369,7 @@
 
   min-height: calc(var(--control-height) - 2 * var(--space-0-5) - 2px);
   padding: 0 var(--space-3);
-  border-radius: calc(var(--radius-md) - 3px);
+  border-radius: calc(var(--radius-md) - var(--space-0-5) - 1px);
   font-size: var(--text-xs);
 }
 
@@ -264,12 +382,13 @@
 .segmented-item[aria-pressed='true'],
 .segmented-item[aria-checked='true'],
 .segmented-item[aria-selected='true'] {
-  --btn-bg: var(--color-fill-2);
+  --btn-bg: var(--glass-well-strong);
   --btn-fg: var(--color-text);
-  --btn-border: var(--color-line-strong);
-  --btn-bg-hover: var(--color-fill-2);
-  --btn-border-hover: var(--color-line-strong);
+  --btn-border: var(--glass-edge);
+  --btn-bg-hover: var(--glass-well-strong);
+  --btn-border-hover: var(--glass-edge);
 
+  box-shadow: var(--glass-highlight);
   font-weight: var(--weight-semibold);
 }
 
@@ -1295,7 +1414,7 @@
   border-top: var(--rule-hair) solid var(--color-line);
 }
 
-/* ── Menu: a small floating list (the one thing allowed to blur) ───── */
+/* ── Menu: a small floating list, in glass (`menu glass`) ──────────── */
 .menu {
   position: absolute;
   z-index: var(--z-popover);
@@ -1305,12 +1424,8 @@
   min-width: 12rem;
   margin: 0;
   padding: var(--space-1-5);
-  border: var(--rule-hair) solid var(--color-line-strong);
   border-radius: var(--radius-lg);
-  background: color-mix(in oklab, var(--color-raised) 88%, transparent);
-  box-shadow: var(--shadow-float);
   list-style: none;
-  backdrop-filter: blur(var(--blur-float));
   animation: menu-in var(--duration-base) var(--ease-out);
 }
 
@@ -1366,7 +1481,8 @@
   animation: backdrop-in var(--duration-base) var(--ease-standard);
 }
 
-/* A raised card over the scrim: a hairline, a large radius, one soft shadow. */
+/* A sheet of glass over the scrim (`dialog glass`): a large radius, the
+   highlight on its upper edge, one soft shadow. */
 .dialog {
   display: flex;
   flex-direction: column;
@@ -1375,12 +1491,18 @@
   max-height: calc(100dvh - 2 * var(--space-4));
   overflow-y: auto;
   padding: var(--space-6);
-  border: var(--rule-hair) solid var(--color-line-strong);
   border-radius: var(--radius-xl);
-  background: var(--color-raised);
-  box-shadow: var(--shadow-float);
   color: var(--color-text-2);
   animation: dialog-in var(--duration-slow) var(--ease-out);
+}
+
+/* A field set into glass is a well of the glass, not a hole to the ground. */
+.glass :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']), select, textarea, .control) {
+  background-color: var(--glass-well);
+}
+
+.glass :where(.card--sunken) {
+  background: var(--glass-well);
 }
 
 .dialog:focus-visible {
@@ -1508,9 +1630,11 @@
   }
 }
 
+/* By colour, not opacity: an ancestor that is fading would cut the dialog's
+   glass off from the page behind it for as long as the fade lasts. */
 @keyframes backdrop-in {
   from {
-    opacity: 0;
+    background-color: transparent;
   }
 }
 
@@ -1535,7 +1659,7 @@
   }
 }
 
-/* ── Toast: a small raised card ────────────────────────────────────── */
+/* ── Toast: a small piece of glass (`toast glass`) ─────────────────── */
 .toast-region {
   position: fixed;
   inset: auto var(--space-3) calc(var(--bottom-nav-height) + var(--space-3) + env(safe-area-inset-bottom))
@@ -1554,10 +1678,7 @@
   gap: var(--space-2-5);
   width: min(30rem, 100%);
   padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
-  border: var(--rule-hair) solid var(--color-line-strong);
   border-radius: var(--radius-lg);
-  background: var(--color-raised);
-  box-shadow: var(--shadow-float);
   color: var(--color-text);
   font-size: var(--text-sm);
   pointer-events: auto;

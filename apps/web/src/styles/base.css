@@ -24,9 +24,10 @@ body,
   min-height: 100%;
 }
 
+/* The ground is the root's; the body is clear so the ambient light
+   (`.ambient`, fixed under everything) shows between the cards. */
 body {
   margin: 0;
-  background: var(--color-ground);
   color: var(--color-text-2);
   font-family: var(--font-body);
   font-size: var(--text-md);

@@ -49,7 +49,7 @@ function signOut(): void {
 </script>
 
 <template>
-  <nav class="bottom-nav" :aria-label="t('nav.primary')">
+  <nav class="bottom-nav glass glass--low" :aria-label="t('nav.primary')">
     <RouterLink to="/today" class="bottom-nav-item">
       <UiIcon name="today" :size="22" />
       <span>{{ t('nav.today') }}</span>

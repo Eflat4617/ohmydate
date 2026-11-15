@@ -21,7 +21,7 @@ function runSecondary(item: Toast): void {
     <div
       v-for="item in toast.toasts"
       :key="item.id"
-      class="toast"
+      class="toast glass"
       :class="`toast--${item.tone}`"
       role="status"
     >

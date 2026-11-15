@@ -261,6 +261,7 @@ A light scheme shares every token: a pale ground, white cards, ink text. There l
 - Pretendard, bundled; headings medium, body 16px.
 - Hand-written SVG charts with a text alternative each.
 - Motion is short and functional; nothing moves under reduced motion.
+- Three layers: ambient light, solid content, and liquid glass for everything that floats.
 - One glass object, made by this project, in at most one or two places.
 
 ## Colors
@@ -280,7 +281,7 @@ Stylesheets read only `data-scheme`. No stylesheet has a `prefers-color-scheme` 
 ### Surfaces
 - **Ground** (`--color-ground`): the page, the sidebar, the top bar.
 - **Surface** (`--color-surface`): a card.
-- **Raised** (`--color-raised`): what floats: dialog, sheet, menu, toast, a chart callout.
+- **Raised** (`--color-raised`): a chart callout, and the opaque form of glass (`--glass-solid`). What floats is glass (see Elevation & Depth).
 - **Inset** (`--color-inset`): a well inside a card (the tracker's timer) and every field.
 - **Fill** / **Fill 2** (`--color-fill`, `--color-fill-2`): the neutral tag, a skeleton, the selected segment, an avatar.
 - **Hover** / **Press** (`--color-hover`, `--color-press`): laid over any surface.
@@ -402,15 +403,38 @@ Breakpoints in use: 480, 640, 768, 1024, 1280, 1440px, the container steps 44rem
 
 ## Elevation & Depth
 
-Depth is said with surface steps and hairlines, not with shadows.
+Three layers (FLOW.md §6, HOLO-04): **ambient light**, **content**, **glass**. What floats is glass; what is read is solid.
 
-- A card is one step up from the ground with a hairline edge. In the dark scheme it has a faint sheen from its top-left corner (`--card-sheen`); in the light scheme it is plain white.
-- A well (`--color-inset`) is one step down, inside a card.
-- What floats (dialog, sheet, menu, toast) is the raised surface with a stronger hairline and the one soft shadow (`--shadow-float`), over a scrim for dialogs.
-- Blur is allowed for one floating thing at a time: a menu, or the frosted panel laid over the glass object.
+1. **Ambient light** (`.ambient`): the ground with a very faint lime light from the upper left and a cyan one from the lower right. It does not move. It is what the glass has to bend, and it is faint enough that quiet text on the ground keeps 6:1 at its brightest point.
+2. **Content**: cards. A card is one step up from the ground with a hairline edge and is opaque — numbers and running text are never set on glass. In the dark scheme it has a faint sheen from its top-left corner (`--card-sheen`); in the light scheme it is plain white. A well (`--color-inset`) is one step down, inside a card.
+3. **Glass** (`.glass`): the sidebar, the top bar and what it holds, menus and popovers, the planner's detail card, dialogs and sheets, toasts, the phone's nav, segmented controls, the pane over the glass object.
+
+### Glass (`.glass`, `src/styles/primitives.css`)
+One primitive, used as a class beside the component's own. Its values are the `--glass-*` tokens.
+
+- **Body:** what is behind shows through blurred (24px) and saturated, and is brought toward the scheme's ground — dimmed in the dark scheme (`brightness(0.3)`), lifted in the light one (`contrast(0.5) brightness(1.5)`) — under a fill (`--glass-fill`: 72% dark, 76% white). That is how the glass "darkens itself" when something bright slides under it. The fill is the scrim text sits on.
+- **Edge:** a hairline (`--glass-edge`), an inner highlight along the upper edge and a shade along the lower one (`--glass-highlight`), and a faint sheen from the upper left. Under a mouse the sheen follows the pointer (`theme/glassLight.ts`); that is an enhancement and nothing depends on it.
+- **Shape:** corners are concentric with what the glass holds: an item's radius is the surface's radius less its padding (sidebar 20 → items 10; menu 14 → items 8; segmented 10 → tiles 7).
+- **Variants:** `.glass--still` has the same body with no backdrop filter, for glass that only ever has the ambient light or a card behind it (the sidebar, a segmented control, the top bar below 1024px where it scrolls with the page). `.glass--host` puts the material on a layer behind the content so the surface can hold other glass (the top bar and its menus). `.glass--low` is the short shadow of the sidebar and the bars; `.glass--flat` has none (glass set on a card).
+- **Glass in glass is solid:** a `.glass` inside another (other than a host) takes the opaque material. One refraction at a time.
+
+**Guarantees** (`test/holo-material.spec.ts` computes them from `tokens.css`):
+
+| On glass, worst case behind it | Dark | Light |
+| --- | --- | --- |
+| Text / Text 2 / Text 3 | 12.1 / 8.1 / 4.9:1 | 12.5 / 7.9 / 4.9:1 |
+| Lime text / danger text / link | 10.2 / 6.4 / 9.6:1 | 5.7 / 4.9 / 6.1:1 |
+| The opaque material, Text 3 | 6.3:1 | 6.9:1 |
+
+- **Contrast:** every text token is at least 4.5:1 on glass whatever is behind it — white, black, or any fill of the app — with the sheen at its brightest.
+- **No transparency:** the material is the opaque raised surface (`--glass-solid`) where `backdrop-filter` is missing (`@supports`), under `prefers-reduced-transparency: reduce`, and when the root carries `data-transparency="reduce"` (설정 › 화면, and for a desktop shell whose compositor does not paint backdrop filters). The fill alone does not hold the contrast, so the fill and the filter always change together.
+- **Stillness:** under `prefers-reduced-motion` the pointer's light is not installed and overlays do not animate. The ambient light never moves.
+- **Cost:** a backdrop filter is on the top bar (from 1024px), the phone's nav (below it), and at most one floating thing at a time (a menu, a popover, a dialog) plus a toast while it shows. The sidebar and every segmented control are still glass and cost nothing. Only `.glass` may blur; a test fails any other `backdrop-filter` or `filter: blur()`. Refraction (bending what is behind) is not used: it exists in one engine only.
 
 ### Named Rules
-**The No Glow Rule.** No drop shadow on a card, no glow behind a number, no gradient text, no blur on an ordinary card. The only gradient fill is the current nav item (lime to cyan) and the brand tile.
+**The Layer Rule.** Glass floats, content is solid. A card never blurs and never becomes translucent; a floating surface is never an opaque box of its own making — it takes `.glass`. Lime stays the signal on glass too: one lime thing per view.
+
+**The No Glow Rule.** No drop shadow on a card, no glow behind a number, no gradient text. The only gradient fill is the current nav item (lime to cyan) and the brand tile.
 
 ## Shapes
 
@@ -431,7 +455,7 @@ Every class named here existed before HOLO-01 and kept its name; the screens not
 - **Pressed toggle** (`.btn[aria-pressed='true']`): lime tint, lime text and edge.
 - **States:** hover, `:focus-visible` (2px lime ring, offset 2px; deep green in the light scheme), active (1px down), disabled (50%), busy (spinner in the icon's box, `aria-busy`).
 - **Icon link** (`.icon-link`, new): the 32px "open" corner of a card.
-- **Segmented control** (`.segmented` / `.segmented-item`, new): one of a few, in an inset track; the picked one is a lifted, heavier tile with its icon in lime.
+- **Segmented control** (`.segmented` / `.segmented-item`): one of a few, in a track of still glass; the picked one is a tile set into it, heavier, with its icon in lime.
 
 ### Tags
 `.badge` / `.chip`: a small rounded rectangle (6px, 24px high, 13px medium) with a tinted fill and matching text. Neutral is the fill surface. Tones: `--accent` / `--lime`, `--success` / `--ok` / `--green`, `--warn` / `--amber`, `--info` / `--sky`, `--danger` / `--red`, and the category hues `--cyan`, `--orange`, `--violet`. One hue per category: a project keeps the same hue everywhere (`projectHue`). `--offline` and `--outline` are outlines without a fill. The word carries the state; there is no leading dot.
@@ -457,12 +481,12 @@ Every class named here existed before HOLO-01 and kept its name; the screens not
 - **Sidebar item** (`.nav-link`): 34px high, 14px, an 18px line icon in text 3. The current item (`.nav-link--current` or `.router-link-active`) is the lime-to-cyan gradient with dark text, weight 600, and `aria-current="page"`.
 - **Folded sidebar:** icons only; the labels stay in the accessibility tree and as tooltips; a group's name becomes a hairline.
 - **Bottom nav:** five slots (오늘, 인박스, 새 작업, 계획, 더 보기), icon over a 12px label; the current slot's icon sits in the gradient pill. 개요 is the first link of the 더 보기 sheet.
-- **Menu** (`.menu` / `.menu-item`, new): a small floating list (the account menu).
+- **Menu** (`.menu` / `.menu-item`): a small floating list in glass (the account menu, the task picker's list).
 
 ### Banner, Dialog, Toast
 - **Banner:** a tinted line with its hue on the edge and the icon; text stays the page's text. Info is sky, success green, warning and conflict amber, accent lime, error red with a red title. Offline is neutral and dashed.
-- **Dialog:** the raised surface, 20px corners, 24px padding, title at 22px medium, actions right-aligned over a hairline and stacked below 640px. A sheet rises from the bottom on small screens and stands at the right (27rem) from 1024px.
-- **Toast:** a small raised card, bottom centre above the bottom nav, bottom right from 1024px.
+- **Dialog:** a sheet of glass over the scrim, 20px corners, 24px padding, title at 22px medium, actions right-aligned over a hairline and stacked below 640px. A sheet rises from the bottom on small screens and stands at the right (27rem) from 1024px.
+- **Toast:** a small piece of glass, bottom centre above the bottom nav, bottom right from 1024px.
 
 ### Charts (new, `src/components/charts`)
 Hand-written SVG, no library. Each takes plain numbers, handles zero, one and missing values, and has a text alternative. Geometry is in `geometry.ts` (pure, tested).
@@ -574,7 +598,7 @@ Short and functional. Durations are 120, 180 and 260ms, plus 520ms (`--duration-
 
 - **Charts:** bars grow from the floor once; ring arcs and the trend fade in once. Numbers do not count up.
 - **The timer ticks.** That is its motion.
-- **Overlays:** the scrim fades in; a dialog, sheet, toast or menu fades in while settling 4 to 16px into place.
+- **Overlays:** the scrim fades in (by colour, so the dialog's glass sees the page from its first frame); a dialog, sheet, toast or menu fades in while settling 4 to 16px into place.
 - **Layout switch:** panels fade in by opacity only (a transform would trap the Focus calm-mode overlay).
 - **Controls:** colour and edge changes take 120ms; a button moves 1px when pressed.
 - **Waiting:** the spinner and the skeleton shimmer loop only while something is loading.
@@ -595,7 +619,7 @@ Short and functional. Durations are 120, 180 and 260ms, plus 520ms (`--duration-
 - **Do** keep controls at 44px or more on coarse pointers and the focus ring visible.
 
 ### Don't:
-- **Don't** add a drop shadow, a glow, gradient text or a blur to an ordinary card.
+- **Don't** add a drop shadow, a glow, gradient text, a blur or translucency to a card. Don't write `backdrop-filter` anywhere but the `.glass` primitive, and don't set numbers or running text on glass.
 - **Don't** use lime for ok, caution or information, or red for anything but danger and overdue.
 - **Don't** set lime (or any bright hue) as text on a light surface.
 - **Don't** read `prefers-color-scheme` in a stylesheet; key on `data-scheme`.

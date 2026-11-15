@@ -90,7 +90,7 @@ function show(view: PlannerViewKind): void {
           @click="emit('next')"
         />
       </div>
-      <div class="segmented planner-views" role="group" :aria-label="t('planner.views')">
+      <div class="segmented glass glass--still glass--flat planner-views" role="group" :aria-label="t('planner.views')">
         <button
           v-for="item in views"
           :key="item.view"

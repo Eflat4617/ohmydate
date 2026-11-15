@@ -38,7 +38,7 @@ function newTask(): void {
 <template>
   <nav
     id="app-sidebar"
-    class="nav-rail"
+    class="nav-rail glass glass--still glass--low"
     :class="{ 'nav-rail--collapsed': ui.navCollapsed }"
     :aria-label="t('nav.primary')"
     :data-collapsed="ui.navCollapsed ? 'true' : 'false'"

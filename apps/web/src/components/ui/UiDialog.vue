@@ -165,7 +165,7 @@ onBeforeUnmount(() => {
       :is="as"
       ref="panel"
       v-bind="$attrs"
-      class="dialog"
+      class="dialog glass"
       :class="[`dialog--${variant}`, size === 'md' ? null : `dialog--${size}`]"
       :role="role"
       aria-modal="true"

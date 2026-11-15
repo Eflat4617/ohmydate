@@ -82,7 +82,7 @@ function signOut(): void {
 </script>
 
 <template>
-  <header class="app-topbar">
+  <header class="app-topbar glass glass--host glass--low">
     <div class="topbar-start">
       <button
         type="button"
@@ -110,7 +110,7 @@ function signOut(): void {
     </div>
 
     <div class="topbar-end">
-      <div class="segmented theme-switch" role="group" :aria-label="t('theme.label')">
+      <div class="segmented glass glass--still glass--flat theme-switch" role="group" :aria-label="t('theme.label')">
         <button
           v-for="option in THEME_OPTIONS"
           :key="option.value"
@@ -154,7 +154,7 @@ function signOut(): void {
           <span v-if="name" class="topbar-user-name">{{ name }}</span>
           <UiIcon name="chevron-down" :size="16" class="topbar-user-caret" />
         </button>
-        <div v-if="userOpen" id="topbar-user-menu" class="menu topbar-user-menu">
+        <div v-if="userOpen" id="topbar-user-menu" class="menu glass topbar-user-menu">
           <p v-if="auth.user" class="menu-note">{{ auth.user.email }}</p>
           <button type="button" class="btn btn--ghost menu-item" data-user-sign-out @click="signOut">
             <UiIcon name="logout" :size="18" />

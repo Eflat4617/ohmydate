@@ -92,7 +92,7 @@ const notes = computed(() => notesQuery.data.value?.items ?? []);
       </div>
     </header>
 
-    <div class="segmented project-tabs" role="tablist" :aria-label="t('projects.tabs.label')" data-project-tabs>
+    <div class="segmented glass glass--still glass--flat project-tabs" role="tablist" :aria-label="t('projects.tabs.label')" data-project-tabs>
       <button
         v-for="item in TABS"
         :id="`project-tab-${item}`"

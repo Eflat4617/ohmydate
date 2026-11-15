@@ -118,7 +118,29 @@
   /* ── Elevation: hairlines, a sheen, one soft shadow for what floats ─ */
   --card-sheen: linear-gradient(140deg, oklch(96% 0.005 150 / 5%) 0%, oklch(96% 0.005 150 / 0%) 42%);
   --shadow-float: 0 18px 48px oklch(4% 0.01 150 / 55%);
-  --blur-float: 18px;
+
+  /* ── Glass: the floating layer (FLOW.md §6, `.glass` in primitives.css).
+        The fill is the scrim text sits on: with the filter it keeps every
+        text token at 4.5:1 or more whatever is behind (test/holo-material).
+        `--glass-fill-still` is for glass whose backdrop is only the ambient
+        light; `--glass-solid` is the material without transparency. ───── */
+  --glass-fill: oklch(20% 0.012 150 / 72%);
+  --glass-fill-still: oklch(21% 0.012 150 / 62%);
+  --glass-solid: var(--color-raised);
+  --glass-blur: 24px;
+  --glass-filter: blur(var(--glass-blur)) saturate(1.7) brightness(0.3); /* a bright backdrop is dimmed */
+  --glass-edge: oklch(96% 0.005 150 / 13%);
+  --glass-highlight: inset 0 1px 0 oklch(100% 0 0 / 15%), inset 0 -1px 0 oklch(0% 0 0 / 24%);
+  --glass-light: oklch(100% 0 0 / 4%); /* the sheen and the pointer's light: the most it adds */
+  --glass-shadow: 0 18px 48px oklch(4% 0.01 150 / 50%);
+  --glass-shadow-low: 0 8px 24px oklch(4% 0.01 150 / 30%); /* the sidebar and the bars: close to the page */
+  --glass-well: oklch(96% 0.005 150 / 7%); /* a control set into glass */
+  --glass-well-strong: oklch(96% 0.005 150 / 12%);
+
+  /* ── Ambient light: what the glass has to bend. Still, and faint enough
+        that text 3 on the ground keeps 6:1 at its brightest point. ───── */
+  --ambient-a: color-mix(in oklab, var(--lime) 8%, transparent);
+  --ambient-b: color-mix(in oklab, var(--cyan) 7%, transparent);
 
   /* ── Spacing scale (4px base) ───────────────────────────────────── */
   --space-0-5: 0.125rem;
@@ -198,7 +220,8 @@
   --nav-width: 15rem;
   --nav-width-collapsed: 4.5rem;
   --topbar-height: 4rem;
-  --sticky-top: calc(var(--topbar-height) + var(--space-4)); /* a sticky aside under the top bar (≥1024px) */
+  --shell-gap: 0.5rem; /* between the window's edge and the floating sidebar, bar and phone nav */
+  --sticky-top: calc(var(--topbar-height) + var(--shell-gap) + var(--space-4)); /* a sticky aside under the top bar (≥1024px) */
   --bottom-nav-height: 3.75rem;
   --content-max: 46rem;
   --content-wide: 84rem;
@@ -328,6 +351,20 @@
 
   --card-sheen: none;
   --shadow-float: 0 16px 40px oklch(21% 0.015 150 / 16%);
+
+  --glass-fill: oklch(100% 0 0 / 76%);
+  --glass-fill-still: oklch(100% 0 0 / 66%);
+  --glass-filter: blur(var(--glass-blur)) saturate(1.8) contrast(0.5) brightness(1.5); /* a dark backdrop is lifted */
+  --glass-edge: oklch(21% 0.015 150 / 12%);
+  --glass-highlight: inset 0 1px 0 oklch(100% 0 0 / 90%), inset 0 0 0 1px oklch(100% 0 0 / 45%);
+  --glass-light: oklch(100% 0 0 / 55%);
+  --glass-shadow: 0 16px 40px oklch(21% 0.015 150 / 14%);
+  --glass-shadow-low: 0 8px 24px oklch(21% 0.015 150 / 8%);
+  --glass-well: oklch(21% 0.015 150 / 5%);
+  --glass-well-strong: oklch(21% 0.015 150 / 9%);
+
+  --ambient-a: color-mix(in oklab, var(--lime) 20%, transparent);
+  --ambient-b: color-mix(in oklab, var(--cyan) 16%, transparent);
 
   --color-rule: oklch(89% 0.008 140);
   --color-rule-2: oklch(94% 0.006 140);
