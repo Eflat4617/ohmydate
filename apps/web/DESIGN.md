@@ -263,11 +263,11 @@ A light scheme shares every token: a pale ground, white cards, ink text. There l
 - Motion is short and functional; nothing moves under reduced motion.
 - Three layers: ambient light, solid content, and liquid glass for everything that floats.
 - One screen where things float freely: 할 일, a canvas of to-dos and folders.
-- One glass object, made by this project, in at most one or two places.
+- One glass object, made by this project (three.js, lazily loaded, with a still image behind it), in at most one or two places.
 
 ## Colors
 
-Every value is an OKLCH custom property in `src/styles/tokens.css`; no raw colour appears in any other stylesheet or in any Vue file (the glass shader's own light colours are the one exception, inside `glassOrbShader.ts`). The dark scheme is `:root`; the light scheme redefines the same names under `:root[data-scheme='light']` (the `-light` entries in the frontmatter).
+Every value is an OKLCH custom property in `src/styles/tokens.css`; no raw colour appears in any other stylesheet or in any Vue file (the glass scene's own light colours are the one exception, inside `glassScene.js`). The dark scheme is `:root`; the light scheme redefines the same names under `:root[data-scheme='light']` (the `-light` entries in the frontmatter).
 
 ### How a theme reaches the page
 `src/theme/theme.ts` keeps two attributes on `<html>`:
@@ -513,12 +513,13 @@ Hand-written SVG, no library. Each takes plain numbers, handles zero, one and mi
 - **`RatioBar`** (HOLO-03A): one ratio against "as estimated". A track with a dashed mark at 1 and a bar from the mark toward the ratio — to the right (cyan) when it took longer, to the left (lime) when it took less. Every bar of one list shares one scale. Hidden from assistive technology: the ratio is written beside it.
 - **Legend** (`.legend`): the list used by the ring; use it wherever a mark needs a name.
 
-### Glass Object (new, `src/components/ui/GlassOrb.vue`)
-OhMyDate's own: three nested bands of glass turning around a small core, the brand mark's ring and dot in the round, lime at the upper left to cyan at the lower right. A WebGL fragment shader written for this project (`glassOrbShader.ts`) ray-marches it; no library, model or image goes into it.
+### Glass Object (HOLO-05, `src/components/ui/GlassOrb.vue`)
+OhMyDate's own: the brand mark in the round — an open ring of glass (the O, a day) with a bead of glass in its opening (the date, now), a smaller band turning inside it and a small glowing core for the glass to bend. Lime at the upper left to cyan at the lower right. It is drawn by three.js (`glassScene.js`): physically based glass (`MeshPhysicalMaterial`: transmission 1 across a thickness of 1.25, index of refraction 1.46, a little dispersion and thin-film iridescence, a clear coat) in a small studio made in code (a lime soft box, a cyan one, a white strip). No model, texture file or image goes into it.
 
-- It animates only while it is on screen, the tab is visible and motion is allowed, at no more than 30 frames a second and 1.5 device pixels per CSS pixel.
-- Under `prefers-reduced-motion` it draws one still frame.
-- Without WebGL, or when the context is lost, it shows `src/assets/glass-orb.webp`, which `scripts/render-glass-orb.mjs` renders from the same shader.
+- **The still image is always there first** (`src/assets/glass-orb.webp`, rendered by `scripts/render-glass-orb.mjs` from the same scene). It is what shows without WebGL — the desktop shell's WebKitGTK cannot be assumed to have it — while the scene loads, for a second object on a page, when the context is lost, and when frames come too slowly (a mean over 55ms across the first 24 frames: it gives up for good).
+- **three.js is loaded lazily:** only `glassScene.js` imports it and only a dynamic import reaches that file, so it is a chunk of its own (529 kB, 132 kB gzipped) that is asked for when an object is on screen with WebGL to draw it — never on a screen without one.
+- **One renderer on a page.** A second object keeps its still.
+- Live, it turns only while it is on screen, the tab is visible and motion is allowed, at no more than 30 frames a second and 1.5 device pixels per CSS pixel. Under `prefers-reduced-motion` it draws one still frame. The turn is slow and never a spin.
 - It is decorative (`aria-hidden`).
 - It is used on the AI card of 개요 and on the login screen, each time behind a frosted panel laid over its lower edge. Do not add a third place without a reason.
 
@@ -651,7 +652,7 @@ Short and functional. Durations are 120, 180 and 260ms, plus 520ms (`--duration-
 - **Waiting:** the spinner and the skeleton shimmer loop only while something is loading.
 - **The 할 일 canvas sways.** It is the one place where something moves without a change of state: slowly, a few pixels, by transform only, still near the pointer and wherever motion is not wanted (see The Canvas).
 - **Never** animate a layout property (width, height, padding, grid tracks). The sidebar folds at once.
-- **Reduced motion:** every duration token becomes 0, animations and transitions are cut, the spinner and skeleton stop, the glass object holds one frame.
+- **Reduced motion:** every duration token becomes 0, animations and transitions are cut, the spinner and skeleton stop, the glass object holds one frame, and nothing on the 할 일 canvas sways.
 
 ## Do's and Don'ts
 
@@ -672,7 +673,7 @@ Short and functional. Durations are 120, 180 and 260ms, plus 520ms (`--duration-
 - **Don't** set lime (or any bright hue) as text on a light surface.
 - **Don't** read `prefers-color-scheme` in a stylesheet; key on `data-scheme`.
 - **Don't** invent a metric, a placeholder statistic or a decorative count-up.
-- **Don't** add a chart, icon or 3D library, or fetch a font or image from the network.
+- **Don't** add a chart or icon library, or fetch a font or image from the network. three.js is the one 3D library, for the glass object only: it stays behind a dynamic import, and nothing that carries text is drawn with it.
 - **Don't** set a size or weight outside the scale, or set text in capitals.
 - **Don't** animate a layout property, or anything that is not a change of state (the canvas's sway is the one exception, and it stops near the pointer and under reduced motion).
 - **Don't** bring in a name, logo, wording, image or exact screen from another product.

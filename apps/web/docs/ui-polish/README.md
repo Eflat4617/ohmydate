@@ -82,7 +82,7 @@ paragraph. Colours change with the scheme through `data-scheme` on `<html>`
 | `UiCard` | the unit: a surface with a hairline edge and 20px corners. `flat` is a plain section without a surface, `sunken` an inset well, `compact` the small one |
 | `UiBadge` | a tag: a small tinted rectangle with matching text. `tone` neutral/accent/success/warn/danger/info/offline/outline, plus the category hues as classes (`badge--cyan`, `--orange`, `--violet`); `dot` renders nothing: the word carries the state |
 | `UiBanner` | a tinted line with its hue on the edge and the icon. `tone` info/success/warn/error/offline/conflict/accent; the live `role` is opt-in so existing live regions are not duplicated |
-| `GlassOrb` | OhMyDate's own glass object (WebGL shader, still image without WebGL), decorative; the AI card of 개요 and the login screen only |
+| `GlassOrb` | OhMyDate's own glass object (a three.js scene loaded lazily over a still image; the still alone without WebGL), decorative; the AI card of 개요 and the login screen only |
 | `BarWeekChart` / `RingChart` / `TrendChart` | hand-written SVG charts (`src/components/charts`), each with a text alternative |
 | `UiEmptyState` | what is missing and the next action, as plain text |
 | `UiSkeleton` / `UiSpinner` | loading. Skeletons are decorative and always come with a status message |

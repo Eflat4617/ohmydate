@@ -93,4 +93,15 @@
 
 - 사용: `apps/web/src/styles/tokens.css`의 `@font-face`(weight 45–920)와 `apps/web/index.html`의 preload. 의존성(`package.json`)으로는 추가하지 않았고 CDN을 쓰지 않는다(HOLO-01, 사용자 승인 2026-11-13).
 - OFL 1.1 조건: 글꼴 파일을 수정하지 않고 그대로 넣었다(Reserved Font Name "Pretendard" 유지). 글꼴만 따로 팔지 않는다. 라이선스 전문을 글꼴 옆에 둔다. 글꼴을 서브셋하거나 변환하면 수정본이 되므로 이름을 바꿔야 한다.
-- `apps/web/src/assets/glass-orb.webp`는 서드파티 자산이 아니다. 이 프로젝트의 셰이더(`apps/web/src/components/ui/glassOrbShader.ts`)를 `apps/web/scripts/render-glass-orb.mjs`로 직접 렌더링한 그림이다.
+- `apps/web/src/assets/glass-orb.webp`는 서드파티 자산이 아니다. 이 프로젝트의 장면(`apps/web/src/components/ui/glassScene.js`)을 `apps/web/scripts/render-glass-orb.mjs`로 직접 렌더링한 그림이다.
+
+### 10.1 웹 앱의 런타임 의존성으로 들어온 것 (HOLO-05, 2026-11-16)
+파일로 넣은 자산은 아니지만, 빌드 결과물에 함께 묶여 배포되므로 여기에 적는다.
+
+| 패키지 | 버전 (고정) | 쓰는 곳 | 출처 | 라이선스 | 무결성 |
+|---|---|---|---|---|---|
+| three (three.js) | 0.187.0 | `apps/web`의 유리 오브젝트 하나(`src/components/ui/glassScene.js`). 그 파일만 `three`를 가져오고, 그 파일은 동적 import로만 불려서 별도 청크(`glassScene-*.js`, 529 kB / gzip 132 kB)가 된다. WebGL이 없으면 내려받지 않는다 | npm `three@0.187.0` (`https://registry.npmjs.org/three/-/three-0.187.0.tgz`). 저장소: https://github.com/mrdoob/three.js | MIT (Copyright © 2010-2026 three.js authors; 전문은 패키지의 `LICENSE`) | `pnpm-lock.yaml`의 integrity `sha512-Qiu7R+Cmh8CstZsY1uJOSWnVlfo7ZtNLV7mF8Jltk3LB3AtDu9cRZlcnRKkAk8Y4z6KKw35z7Y7Urd7jWY8etA==` |
+
+- MIT 조건: 배포물에 저작권 고지와 허가 고지를 포함한다. 빌드된 청크에 three.js의 라이선스 주석(`@license`)이 그대로 남는다.
+- `three`의 타입 패키지(`@types/three`)는 추가하지 않았다. 장면 파일은 JavaScript이고 그 옆의 `glassScene.d.ts`가 이 프로젝트가 쓰는 두 함수만 선언한다.
+- 장면의 환경(조명 상자)은 코드로 만든다. 모델·텍스처·HDR 파일을 넣지 않았고 네트워크 요청이 없다.

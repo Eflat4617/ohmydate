@@ -1,101 +1,45 @@
-import { GLASS_FRAGMENT_SHADER, GLASS_VERTEX_SHADER } from './glassOrbShader';
-
 /**
- * The WebGL side of the glass object (HOLO-01): one program, one full-canvas
- * triangle, three uniforms. `createGlassRenderer` returns null whenever WebGL
- * cannot be used (no API, no context, a shader that does not compile), and
- * the component then shows the still image instead.
+ * The rules of OhMyDate's glass object (HOLO-05), kept apart from the scene
+ * so that nothing here needs three.js: when it may be drawn live, when it may
+ * move, how much it may cost, and that there is one renderer on a page.
+ *
+ * The scene itself is components/ui/glassScene.js, loaded only when a live
+ * object is about to be drawn; without WebGL (the desktop shell's WebKitGTK
+ * cannot be assumed to have it), while the chunk loads, when a second object
+ * is on the page or when frames come too slowly, the still image stands in.
  */
-export interface GlassRenderer {
-  /** Draw one frame. `light` is 0 on the dark scheme and 1 on the light one. */
-  draw(timeSec: number, light: number): void;
-  dispose(): void;
-}
-
-function compile(gl: WebGLRenderingContext, kind: number, source: string): WebGLShader | null {
-  const shader = gl.createShader(kind);
-  if (shader === null) return null;
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (gl.getShaderParameter(shader, gl.COMPILE_STATUS) !== true) {
-    gl.deleteShader(shader);
-    return null;
-  }
-  return shader;
-}
-
-export function webglAvailable(): boolean {
-  return typeof WebGLRenderingContext !== 'undefined';
-}
-
-/** A WebGL context for the canvas, or null when the browser will not give one. */
-function contextOf(canvas: HTMLCanvasElement): WebGLRenderingContext | null {
-  try {
-    return canvas.getContext('webgl', {
-      alpha: true,
-      premultipliedAlpha: true,
-      antialias: false,
-      depth: false,
-      stencil: false,
-      powerPreference: 'low-power',
-    });
-  } catch {
-    return null;
-  }
-}
-
-export function createGlassRenderer(canvas: HTMLCanvasElement): GlassRenderer | null {
-  if (!webglAvailable()) return null;
-  const context = contextOf(canvas);
-  if (context === null) return null;
-
-  const vertex = compile(context, context.VERTEX_SHADER, GLASS_VERTEX_SHADER);
-  const fragment = compile(context, context.FRAGMENT_SHADER, GLASS_FRAGMENT_SHADER);
-  const program = context.createProgram();
-  if (vertex === null || fragment === null || program === null) return null;
-  context.attachShader(program, vertex);
-  context.attachShader(program, fragment);
-  context.linkProgram(program);
-  if (context.getProgramParameter(program, context.LINK_STATUS) !== true) return null;
-  context.useProgram(program);
-
-  const buffer = context.createBuffer();
-  context.bindBuffer(context.ARRAY_BUFFER, buffer);
-  // One triangle that covers the canvas.
-  context.bufferData(context.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), context.STATIC_DRAW);
-  const position = context.getAttribLocation(program, 'a_pos');
-  context.enableVertexAttribArray(position);
-  context.vertexAttribPointer(position, 2, context.FLOAT, false, 0, 0);
-
-  const resolution = context.getUniformLocation(program, 'u_res');
-  const time = context.getUniformLocation(program, 'u_time');
-  const scheme = context.getUniformLocation(program, 'u_light');
-  context.clearColor(0, 0, 0, 0);
-
-  return {
-    draw(timeSec, light) {
-      context.viewport(0, 0, canvas.width, canvas.height);
-      context.uniform2f(resolution, canvas.width, canvas.height);
-      context.uniform1f(time, timeSec);
-      context.uniform1f(scheme, light);
-      context.clear(context.COLOR_BUFFER_BIT);
-      context.drawArrays(context.TRIANGLES, 0, 3);
-    },
-    dispose() {
-      context.deleteBuffer(buffer);
-      context.deleteProgram(program);
-      context.deleteShader(vertex);
-      context.deleteShader(fragment);
-    },
-  };
-}
 
 /** Frames are at least this far apart: 30 a second is plenty for a slow turn. */
 export const GLASS_FRAME_MS = 1000 / 30;
 /** The backing store never exceeds this many device pixels per CSS pixel. */
 export const GLASS_MAX_DPR = 1.5;
-/** How fast shader time runs against the clock: a slow, calm turn. */
+/** How fast the scene's clock runs against the wall clock: a slow, calm turn. */
 export const GLASS_SPEED = 0.35;
+/** The pose the still image is rendered at, and where a live object starts. */
+export const GLASS_STILL_TIME = 47;
+
+/**
+ * The glass, as physically based numbers (the scene reads them from here and
+ * the tests hold them): light goes through it (transmission) across a real
+ * thickness, bends by an index of refraction, and picks up a little
+ * thin-film colour on the way.
+ */
+export const GLASS_MATERIAL = {
+  transmission: 1,
+  thickness: 1.25,
+  ior: 1.46,
+  roughness: 0.07,
+  /** A little of the colours splitting on the way out. */
+  dispersion: 3,
+  iridescence: 0.45,
+  iridescenceIOR: 1.3,
+  clearcoat: 1,
+} as const;
+
+/** Does this browser have the WebGL API at all? (A context may still be refused.) */
+export function webglAvailable(): boolean {
+  return typeof WebGLRenderingContext !== 'undefined' || typeof WebGL2RenderingContext !== 'undefined';
+}
 
 /** May the object animate right now? Only on screen, in a visible tab, with motion allowed. */
 export function glassShouldAnimate(state: {
@@ -104,4 +48,34 @@ export function glassShouldAnimate(state: {
   readonly reducedMotion: boolean;
 }): boolean {
   return state.onScreen && state.tabVisible && !state.reducedMotion;
+}
+
+/** Frames watched before the object is judged, and the mean gap (ms) above which it is "slow". */
+export const GLASS_PROBE_FRAMES = 24;
+export const GLASS_SLOW_MS = 55;
+
+/**
+ * Is WebGL here too slow to be worth it? `gaps` are the times between the
+ * first drawn frames; once enough are in, a mean above GLASS_SLOW_MS (about
+ * 18 a second, against the 30 it asks for) says yes — and the still image
+ * takes over for good.
+ */
+export function glassTooSlow(gaps: readonly number[]): boolean {
+  if (gaps.length < GLASS_PROBE_FRAMES) return false;
+  const recent = gaps.slice(-GLASS_PROBE_FRAMES);
+  return recent.reduce((sum, gap) => sum + gap, 0) / recent.length > GLASS_SLOW_MS;
+}
+
+// ── One renderer per page ───────────────────────────────────────────────
+let holder: symbol | null = null;
+
+/** Ask for the page's one live renderer. False when another glass object already has it. */
+export function claimGlassRenderer(who: symbol): boolean {
+  if (holder !== null && holder !== who) return false;
+  holder = who;
+  return true;
+}
+
+export function releaseGlassRenderer(who: symbol): void {
+  if (holder === who) holder = null;
 }

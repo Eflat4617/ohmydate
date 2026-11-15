@@ -211,6 +211,9 @@ importers:
       pinia:
         specifier: 3.0.4
         version: 3.0.4(typescript@5.9.3)(vue@3.5.45(typescript@5.9.3))
+      three:
+        specifier: 0.187.0
+        version: 0.187.0
       vue:
         specifier: 3.5.45
         version: 3.5.45(typescript@5.9.3)
@@ -2108,6 +2111,9 @@ packages:
   thread-stream@4.2.1:
     resolution: {integrity: sha512-Stg6edJXC/6/xqGwSXwFokrUhChJ18amEjpKH89WrQQ0oVFDF+pUUcTpiwWhFUrE89Vf16FBOlwhaw+lescxMQ==}
     engines: {node: '>=20'}
+
+  three@0.187.0:
+    resolution: {integrity: sha512-Qiu7R+Cmh8CstZsY1uJOSWnVlfo7ZtNLV7mF8Jltk3LB3AtDu9cRZlcnRKkAk8Y4z6KKw35z7Y7Urd7jWY8etA==}
 
   tinybench@6.2.3:
     resolution: {integrity: sha512-Al01C2JIBnO2CXCAPbpAl6sUiOZHeThGtHYNTa51JRw9PyWOCdr+9Ong05R4qg/Sk3+H645E8ov1h2c58ityNw==}
@@ -4055,6 +4061,8 @@ snapshots:
   thread-stream@4.2.1:
     dependencies:
       real-require: 1.0.0
+
+  three@0.187.0: {}
 
   tinybench@6.2.3: {}
 
