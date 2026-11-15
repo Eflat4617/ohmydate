@@ -12,6 +12,9 @@ import {
 } from '../../src/api';
 import LlmConsentDialog from '../../src/components/LlmConsentDialog.vue';
 import CaptureBar from '../../src/components/capture/CaptureBar.vue';
+import FirstRunGuide from '../../src/components/FirstRunGuide.vue';
+import { useFirstRun } from '../../src/composables/firstRun';
+import { seedNewOwner } from '../../src/mocks/first-run-seed';
 import NotificationsPanel from '../../src/components/NotificationsPanel.vue';
 import WizardNotesPanel from '../../src/components/notes/WizardNotesPanel.vue';
 import { setTopLevelNavigator } from '../../src/composables/useGoogleCalendar';
@@ -24,6 +27,7 @@ import {
   mockDb,
   seedTodayRisk,
 } from '../../src/mocks/db';
+import { useUiStore } from '../../src/stores/ui';
 import { seedGoogle } from '../../src/mocks/google';
 import { NOTE_MEETING_ID } from '../../src/mocks/notes-seed';
 import { REPLAN_PENDING_ID, seedReplanScenario } from '../../src/mocks/replan';
@@ -72,6 +76,23 @@ const ConsentHost = defineComponent({
     return () => h(LlmConsentDialog, { open: consent.open, onClose: () => consent.closed() });
   },
 });
+
+/** The start guide as AppShell hosts it (HOLO-04): open, for an owner who still has everything to do. */
+const FirstRunHost = defineComponent({
+  setup() {
+    const guide = useFirstRun();
+    const ui = useUiStore();
+    ui.setFirstRun(true);
+    return () => (ui.firstRunOpen ? h(FirstRunGuide, { guide }) : null);
+  },
+});
+
+/** A brand-new owner, signed in: no hours, no 약속, the AI question unanswered. */
+async function seedFirstRun(stage: OwnerSwitchStage): Promise<void> {
+  seedGoogle(mockDb, 'disconnected');
+  seedNewOwner(mockDb);
+  await useAuthStore(stage.pinia).loadCurrent();
+}
 
 /** Where the connect case's page would have gone, and who was signed in then (the top-level navigation seam). */
 const googleNavigations: { readonly url: string; readonly owner: string | null }[] = [];
@@ -352,6 +373,53 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       await wrapper.get('[data-capture-submit]').trigger('click');
     },
     markers: ['A-private-capture-draft'],
+  },
+  // HOLO-04 시작 안내: the two things the guide saves — the hours picked in its
+  // first step, and the answer to the AI question in its third.
+  {
+    name: 'first run: save the hours',
+    covers: ['src/components/FirstRunGuide.vue', 'src/composables/firstRun.ts'],
+    seed: seedFirstRun,
+    mount: (stage) => stage.mount(FirstRunHost),
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('[data-first-run-step="hours"] [data-preset]').exists()).toBe(true));
+      await until(() => expect(wrapper.get('[data-preset]').attributes('disabled')).toBeUndefined());
+      await wrapper.get('[data-preset]').setValue(true);
+      await until(() => expect(wrapper.get('[data-first-run-next]').attributes('disabled')).toBeUndefined());
+    },
+    hold: { method: 'PUT', path: '/availability' },
+    act: async (wrapper) => {
+      await wrapper.get('[data-first-run-next]').trigger('click');
+    },
+  },
+  {
+    name: 'first run: allow AI',
+    covers: ['src/components/FirstRunGuide.vue', 'src/composables/firstRun.ts'],
+    seed: async (stage) => {
+      await seedFirstRun(stage);
+      server.use(
+        http.patch('*/api/v1/me/settings', () => {
+          const next: User = {
+            ...mockDb.user,
+            version: mockDb.user.version + 1,
+            llm: { consent: { granted: true, at: '2026-11-12T09:30:00.000Z', provider: 'deepseek' } },
+          };
+          return HttpResponse.json(next as unknown as Record<string, unknown>, { headers: { ETag: `W/"${next.version}"` } });
+        }),
+      );
+    },
+    mount: (stage) => stage.mount(FirstRunHost),
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('[data-first-run]').exists()).toBe(true));
+      // Past the first two steps: skipping is a local note, nothing is sent.
+      await wrapper.get('[data-first-run-skip]').trigger('click');
+      await wrapper.get('[data-first-run-skip]').trigger('click');
+      await until(() => expect(wrapper.find('[data-first-run-step="ai"] [data-first-run-ai]').exists()).toBe(true));
+    },
+    hold: { method: 'PATCH', path: '/me/settings' },
+    act: async (wrapper) => {
+      await wrapper.get('[data-first-run-next]').trigger('click');
+    },
   },
   // HOLO-02 플래너: 약속 추가 (the manual fields of the dialog) and starting
   // a session from an item's detail card.

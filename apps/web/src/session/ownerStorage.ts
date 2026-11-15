@@ -118,6 +118,13 @@ const OWNER_SLOTS = {
     onOwnerChange: 'preserve',
     why: 'Which plans the owner has not finished making (a planning session, a schedule being compared), so 개요 and 계획 세우기 can offer to go on. Ids and a time only; every title is read from the server.',
   },
+  firstRun: {
+    area: 'local',
+    prefix: 'ohmydate.firstRun',
+    staleWrites: 'drop',
+    onOwnerChange: 'preserve',
+    why: 'How far the owner got in the three-step start guide on this device: which steps they skipped and whether they ended it, so a returning owner never sees it again. Step names and flags, no user content.',
+  },
   flowReturn: {
     area: 'session',
     prefix: 'ohmydate.flow.return',

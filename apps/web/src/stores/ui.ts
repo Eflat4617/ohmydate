@@ -19,12 +19,15 @@ export const useUiStore = defineStore('ui', () => {
   const captureRequest = ref(0);
   const captureMode = ref<CaptureMode>('capture');
   const captureSheetOpen = ref(false);
+  /** HOLO-04: the three-step start guide (FLOW.md §3) is on screen. Who needs it is composables/firstRun.ts. */
+  const firstRunOpen = ref(false);
   // HOLO-01: the sidebar folded down to icons, remembered per owner.
   const navCollapsed = ref(readNavCollapsed(currentOwnerId()));
   onActiveOwnerChange((nextOwnerId) => {
     navCollapsed.value = readNavCollapsed(nextOwnerId);
     captureSheetOpen.value = false;
     captureMode.value = 'capture';
+    firstRunOpen.value = false;
   });
 
   function setNavCollapsed(collapsed: boolean): void {
@@ -82,6 +85,15 @@ export const useUiStore = defineStore('ui', () => {
     captureSheetOpen.value = open;
   }
 
+  function setFirstRun(open: boolean): void {
+    if (open) {
+      helpOpen.value = false;
+      notificationsOpen.value = false;
+      captureSheetOpen.value = false;
+    }
+    firstRunOpen.value = open;
+  }
+
   return {
     helpOpen,
     notificationsOpen,
@@ -90,6 +102,7 @@ export const useUiStore = defineStore('ui', () => {
     captureRequest,
     captureMode,
     captureSheetOpen,
+    firstRunOpen,
     navCollapsed,
     setNavCollapsed,
     toggleNav,
@@ -102,5 +115,6 @@ export const useUiStore = defineStore('ui', () => {
     setCaptureMode,
     openCapture,
     setCaptureSheet,
+    setFirstRun,
   };
 });

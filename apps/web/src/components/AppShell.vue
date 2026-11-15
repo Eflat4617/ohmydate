@@ -8,6 +8,7 @@ import { useUiStore } from '../stores/ui';
 import { useSessionStore } from '../stores/session';
 import BottomNav from './BottomNav.vue';
 import CaptureBar from './capture/CaptureBar.vue';
+import FirstRunGuide from './FirstRunGuide.vue';
 import HelpDialog from './HelpDialog.vue';
 import LlmConsentDialog from './LlmConsentDialog.vue';
 import NavRail from './NavRail.vue';
@@ -22,6 +23,7 @@ import UiDialog from './ui/UiDialog.vue';
 import UiIcon from './ui/UiIcon.vue';
 import UiSpinner from './ui/UiSpinner.vue';
 import { calmMode } from '../composables/useCalmMode';
+import { useFirstRun } from '../composables/firstRun';
 import { useMediaQuery } from '../composables/useMediaQuery';
 import { NAV_PLACES } from '../layout/navigation';
 import { t } from '../i18n';
@@ -118,6 +120,22 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
+// HOLO-04 (FLOW.md §3): a new owner is met by the three-step start guide. It
+// opens by itself once — for an owner this device has never shown it to and
+// who has no hours at all — and holds the consent dialog back meanwhile: the
+// AI question is its third step, not a second dialog on top of the first.
+const firstRun = useFirstRun();
+watch(
+  () => firstRun.wanted.value,
+  (wanted) => {
+    if (wanted && !ui.firstRunOpen) firstRun.start();
+  },
+  { immediate: true },
+);
+const consentHeld = computed(
+  () => !llmConsent.requested && (firstRun.pending.value || firstRun.wanted.value || firstRun.open.value),
+);
+
 // HOLO-04: the capture bar lives in the top bar from 1024px. Below that the
 // bar is not on screen, so a request for it opens the same thing as a sheet.
 const wide = useMediaQuery('(min-width: 1024px)');
@@ -139,7 +157,7 @@ const PLACE_KEYS = new Map(NAV_PLACES.flatMap((item) => (item.shortcut === undef
 function onKeydown(event: KeyboardEvent): void {
   // Ctrl+K (⌘K): the capture bar, from anywhere — also from a field.
   if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'k') {
-    if (ui.conflictOpen) return;
+    if (ui.conflictOpen || ui.firstRunOpen) return;
     event.preventDefault();
     ui.openCapture('capture');
     return;
@@ -153,7 +171,7 @@ function onKeydown(event: KeyboardEvent): void {
     return;
   }
 
-  if (ui.helpOpen || ui.notificationsOpen || ui.captureSheetOpen) {
+  if (ui.helpOpen || ui.notificationsOpen || ui.captureSheetOpen || ui.firstRunOpen) {
     if (event.key === 'Escape') {
       event.preventDefault();
       ui.closeDialogs();
@@ -280,6 +298,7 @@ onUnmounted(() => {
       @close="ui.closeDialogs()"
       @unread="unreadNotifications = $event"
     />
-    <LlmConsentDialog :open="llmConsent.open" @close="llmConsent.closed()" />
+    <FirstRunGuide v-if="ui.firstRunOpen" :guide="firstRun" />
+    <LlmConsentDialog :open="llmConsent.open && !consentHeld" @close="llmConsent.closed()" />
   </template>
 </template>

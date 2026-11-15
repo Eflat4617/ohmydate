@@ -7,6 +7,7 @@ import DayRecap from '../components/overview/DayRecap.vue';
 import DaySummaryWidget from '../components/overview/DaySummaryWidget.vue';
 import ProgressWidget from '../components/overview/ProgressWidget.vue';
 import SessionLogWidget from '../components/overview/SessionLogWidget.vue';
+import SetupCard from '../components/overview/SetupCard.vue';
 import TimeTrackerWidget from '../components/overview/TimeTrackerWidget.vue';
 import PlanResumeList from '../components/plan/PlanResumeList.vue';
 import TodayBoard from '../components/today/TodayBoard.vue';
@@ -14,6 +15,7 @@ import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
 import UiButton from '../components/ui/UiButton.vue';
 import UiIcon from '../components/ui/UiIcon.vue';
+import { useFirstRun } from '../composables/firstRun';
 import { focusContextFor, rememberFocusBlocks } from '../composables/focusContext';
 import { useFocusStart, useRunningSession, useSecondTick, useTaskDirectory } from '../composables/useOverview';
 import { useOwnerTimeZone } from '../composables/usePlannerRange';
@@ -62,6 +64,7 @@ const shownWeekText = computed(() =>
   formatCivilDateRange(shownWeekStart.value, addDaysToDate(shownWeekStart.value, 6)),
 );
 
+const firstRun = useFirstRun();
 const snapshot = useTodaySnapshot();
 const plan = computed(() => snapshot.today.value);
 const planReady = computed(() => !snapshot.isLoading.value && !snapshot.isError.value);
@@ -179,6 +182,9 @@ const canStart = computed(() => focus.canStart.value && running.value === null);
       </template>
     </UiBanner>
     <p v-if="!offline.mutationsEnabled" class="visually-hidden" role="status">{{ t('overview.startOffline') }}</p>
+
+    <!-- FLOW §3: only while the start guide is not over. -->
+    <SetupCard :guide="firstRun" />
 
     <!-- FLOW §5 되돌아오기: a plan that was started and not finished, with the way back in. -->
     <PlanResumeList :limit="1" compact />

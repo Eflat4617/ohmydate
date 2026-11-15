@@ -998,6 +998,52 @@ export const ko = {
     },
   },
 
+  // HOLO-04 (FLOW.md §3): the three-step start guide and 개요's 시작 마무리 card.
+  firstRun: {
+    eyebrow: '시작하기',
+    steps: '시작 안내 단계',
+    close: '안내 닫기',
+    skip: '건너뛰기',
+    later: '나중에',
+    next: '다음',
+    offline: '오프라인이에요. 다시 연결되면 저장할 수 있어요.',
+    state: {
+      done: '끝냈어요',
+      skipped: '건너뛰었어요',
+      todo: '아직이에요',
+      unknown: '확인하는 중',
+    },
+    hours: {
+      short: '일할 수 있는 시간',
+      title: '언제 일할 수 있나요?',
+      lede: '계획은 이 시간 안에만 블록을 놓아요. 대강 골라 두고 나중에 고쳐도 돼요.',
+      next: '저장하고 다음',
+    },
+    commitments: {
+      short: '고정된 일정',
+      title: '고정된 일정이 있나요?',
+      lede: '수업, 회의, 병원처럼 시간이 정해진 일을 넣어 두면 계획이 그 시간을 피해 가요.',
+    },
+    ai: {
+      short: 'AI 도움',
+      title: 'AI가 도와줄까요?',
+      lede: '말로 적은 글을 읽고, 목표를 단계로 나누는 일을 AI가 도와요. 무엇이 나가는지 먼저 확인하세요.',
+      allow: 'AI 도움 켜기',
+    },
+    ready: {
+      title: '준비됐어요',
+      lede: '이제 할 일을 담으면, 계획으로 이어져요.',
+      body: '생각나는 할 일이나 약속을 말로 적어 보세요. 건너뛴 것은 필요해지는 순간에 그 자리에서 다시 물어봐요.',
+      start: '첫 할 일 담기',
+    },
+    card: {
+      title: '시작 마무리',
+      left: plural({ other: '{count}가지가 남았어요. 지금 해 두면 계획이 더 잘 맞아요.' }),
+      resume: '이어서 하기',
+      later: '나중에 할게요',
+    },
+  },
+
   // HOLO-04 (FLOW.md §2 ④, §5): what a finished session hands on to.
   focusNext: {
     title: '회고를 저장했어요',
