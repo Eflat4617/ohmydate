@@ -550,7 +550,7 @@ mod tests {
     #[test]
     fn the_embedded_contract_has_the_expected_shape() {
         let contract = Contract::embedded();
-        assert_eq!(contract.operations().len(), 84);
+        assert_eq!(contract.operations().len(), 85);
         let mut ids: Vec<&str> = contract
             .operations()
             .iter()
@@ -558,7 +558,7 @@ mod tests {
             .collect();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), 84, "operation ids are unique");
+        assert_eq!(ids.len(), 85, "operation ids are unique");
     }
 
     #[test]
@@ -588,7 +588,11 @@ mod tests {
         );
         assert_eq!(
             route("POST", &format!("/tasks/{TASK_ID}/dependencies")),
-            Some(("createTaskDependency".into(), with_id))
+            Some(("createTaskDependency".into(), with_id.clone()))
+        );
+        assert_eq!(
+            route("PATCH", &format!("/projects/{TASK_ID}")),
+            Some(("updateProject".into(), with_id))
         );
         assert_eq!(
             route("POST", "/tasks:parse"),
@@ -606,6 +610,10 @@ mod tests {
         assert_eq!(route("POST", &format!("/tasks/{TASK_ID}")), None);
         assert_eq!(route("POST", &format!("/tasks/{TASK_ID}:explode")), None);
         assert_eq!(route("POST", "/tasks/:complete"), None);
+        // A project is renamed and archived, never read alone or deleted.
+        assert_eq!(route("GET", &format!("/projects/{TASK_ID}")), None);
+        assert_eq!(route("DELETE", &format!("/projects/{TASK_ID}")), None);
+        assert_eq!(route("PUT", &format!("/projects/{TASK_ID}")), None);
         assert_eq!(route("GET", "/does-not-exist"), None);
         assert_eq!(route("GET", "/tasks/a/b/c"), None);
     }
@@ -639,6 +647,8 @@ mod tests {
         assert_eq!(rule("getTask"), (IfMatchRule::None, false));
         assert_eq!(rule("createTask"), (IfMatchRule::None, true));
         assert_eq!(rule("updateTask"), (IfMatchRule::Version, true));
+        assert_eq!(rule("updateProject"), (IfMatchRule::Version, true));
+        assert_eq!(rule("createProject"), (IfMatchRule::None, true));
         assert_eq!(rule("deleteTask"), (IfMatchRule::Version, true));
         assert_eq!(rule("createTaskDependency"), (IfMatchRule::Version, true));
         assert_eq!(rule("putAvailability"), (IfMatchRule::Availability, true));

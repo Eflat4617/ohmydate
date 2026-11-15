@@ -1,4 +1,11 @@
-import { ProblemSchema, contractRoutes as routes, type RouteDefinition } from '../src/index.js';
+import {
+  ProblemSchema,
+  ProjectIdParamsSchema,
+  ProjectPatchSchema,
+  ProjectSchema,
+  contractRoutes as routes,
+  type RouteDefinition,
+} from '../src/index.js';
 import { compile } from './ajv.js';
 
 const ID = '0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55';
@@ -39,6 +46,12 @@ const EXPECTED: Readonly<Record<string, ExpectedRoute>> = {
     requiredHeaders: ['Idempotency-Key'],
     optionalHeaders: [],
     statuses: [201, 400, 401, 403, 409, 422],
+  },
+  // FOLD-01: no 503 — project routes do not declare the provider outage.
+  updateProject: {
+    requiredHeaders: ['If-Match', 'Idempotency-Key'],
+    optionalHeaders: [],
+    statuses: [200, 400, 401, 403, 404, 409, 412, 422, 428],
   },
   listTasks: {
     requiredHeaders: [],
@@ -488,6 +501,7 @@ test('route table covers task and project endpoints from 08 §2.2', () => {
   for (const expected of [
     'GET /projects',
     'POST /projects',
+    'PATCH /projects/{id}',
     'GET /tasks',
     'POST /tasks',
     'POST /tasks:parse',
@@ -499,6 +513,27 @@ test('route table covers task and project endpoints from 08 §2.2', () => {
   ]) {
     expect({ expected, present: keys.has(expected) }).toEqual({ expected, present: true });
   }
+});
+
+test('a project can be renamed and archived but has no delete operation (FOLD-01)', () => {
+  const projectRoutes = routes.filter((route) => route.path.startsWith('/projects'));
+  expect(projectRoutes.map((route) => keyOf(route.method, route.path)).sort()).toEqual([
+    'GET /projects',
+    'PATCH /projects/{id}',
+    'POST /projects',
+  ]);
+  expect(projectRoutes.some((route) => route.method === 'delete')).toBe(false);
+
+  const update = routes.find((route) => route.operationId === 'updateProject');
+  if (update === undefined) throw new Error('updateProject missing');
+  // The same header schema object and path parameter name updateTask uses.
+  const updateTask = routes.find((route) => route.operationId === 'updateTask');
+  expect(update.headers).toBe(updateTask?.headers);
+  expect(update.body).toBe(ProjectPatchSchema);
+  expect(update.params).toBe(ProjectIdParamsSchema);
+  expect(update.responses[200]?.schema).toBe(ProjectSchema);
+  // Unlike updateTask, no provider outage is declared for project routes.
+  expect(update.responses[503]).toBeUndefined();
 });
 
 test('route table covers intake and template endpoints from 08 §2.3', () => {
@@ -702,6 +737,7 @@ test('each declared header schema rejects missing and invalid required headers',
 test('existing-resource mutations require both If-Match and Idempotency-Key', () => {
   for (const operationId of [
     'updateMySettings',
+    'updateProject',
     'updateTask',
     'completeTask',
     'deleteTask',

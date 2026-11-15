@@ -81,11 +81,13 @@ export {
   PROJECT_KINDS,
   PageProjectSchema,
   ProjectCreateSchema,
+  ProjectIdParamsSchema,
   ProjectKindSchema,
   ProjectPatchSchema,
   ProjectSchema,
   type Project,
   type ProjectCreate,
+  type ProjectIdParams,
   type ProjectKind,
   type ProjectPatch,
 } from './project.js';

@@ -17,7 +17,7 @@ RC-00에서 측정한 것:
 
 | 항목 | 값 |
 |---|---|
-| 계약 operation | 84개 → 유지 54, 차이를 두고 유지 26, 제외 4 (§2.2) |
+| 계약 operation | 85개 → 유지 54, 차이를 두고 유지 27, 제외 4 (§2.2). RC-00 때는 84개였고, FOLD-01(2026-11-16)이 `updateProject`를 더했다 |
 | PostgreSQL 테이블 / 컬럼 (0001–0016) | 53 / 555 → 유지 28, 변형 11, 제외 14 테이블 (§3.3) |
 | 코드가 한 번도 읽지 않는 테이블 | `outbox_event`(쓰기 6곳, 읽기 0), `audit_event`(2/0), `estimate_evidence`(1/0), `job`·`inbox_event`·`task_dependency`·`external_provider_mapping`(0/0) |
 | advisory lock 호출 | 11곳 → 0 (프로세스 하나, 쓰기 트랜잭션 하나) |
@@ -99,7 +99,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 - 헤더 규칙: operation마다 `If-Match`가 필요한지(버전 태그인지 `availability:` 태그인지), `Idempotency-Key`가 필요한지.
 - 검증기: 경로 파라미터·쿼리·본문을 **계약의 JSON 스키마 그대로** `jsonschema` 크레이트로 검사한다(형식 `date-time`·`uuid`·`email`, 커스텀 `iana-time-zone`).
 
-핸들러는 `operationId`로 등록한 함수 하나다(`handlers::table()`). 그래서 계약이 바뀌면 Rust 쪽은 다시 빌드만 해도 경로·헤더·검증이 따라오고, 계약에 없는 것을 Rust가 따로 정의할 수 없다. 테스트가 고정하는 것: operation 84개, 도메인의 문제 코드 목록 = 계약의 목록, 모든 계약 경로가 자기 operation으로 풀림.
+핸들러는 `operationId`로 등록한 함수 하나다(`handlers::table()`). 그래서 계약이 바뀌면 Rust 쪽은 다시 빌드만 해도 경로·헤더·검증이 따라오고, 계약에 없는 것을 Rust가 따로 정의할 수 없다. 테스트가 고정하는 것: operation 85개, 도메인의 문제 코드 목록 = 계약의 목록, 모든 계약 경로가 자기 operation으로 풀림.
 
 핸들러가 아직 없는 operation은 501(`internal_error`, "Not implemented")로 답한다. 포팅이 끝나면 사라지는 임시 상태다. 제외한 4개는 404다.
 
@@ -175,6 +175,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | `getMe` | GET `/me` | 유지(차이) | RC-00 | 하나뿐인 로컬 owner. 쿠키·세션 없음. `email`은 표시용 값. `llm`·`llmProvider`(선택 필드)는 RC-70에서 채운다 |
 | `listProjects` | GET `/projects` | 유지 | RC-00 | Inbox는 데이터 파일을 만들 때 함께 만든다(읽기에서 쓰지 않음) |
 | `createProject` | POST `/projects` | 유지 | RC-00 |  |
+| `updateProject` | PATCH `/projects/{id}` | 유지(차이) | RC-10 | FOLD-01(2026-11-16): 폴더(프로젝트) 이름 바꾸기·보관. 계약과 TypeScript API에 먼저 들어왔고 Rust 핸들러는 아직 없다(501) |
 | `listTasks` | GET `/tasks` | 유지(차이) | RC-00 | 503 `provider_unavailable`이 더는 나오지 않는다(Vikunja 없음) |
 | `createTask` | POST `/tasks` | 유지(차이) | RC-00 | 503 없음. `external`은 항상 `[]` |
 | `getTask` | GET `/tasks/{id}` | 유지(차이) | RC-00 | 503 없음 |
@@ -652,7 +653,7 @@ TypeScript: 키 예약(pending) 커밋 → 유스케이스 실행 → 완료 기
 
 `tests-core/support/routes.ts`의 표에 operation 한 줄을 넣으면, `parity.test.ts`가 계약에서 메서드·경로·필수 헤더·스키마·선언된 상태 코드를 읽어 다음을 돌린다: 정상 요청(스키마 일치, `ETag` 종류), 토큰 없음 401, 다른 출처의 변경 403, `If-Match` 428/400/412, `Idempotency-Key` 400·재생·422, `If-None-Match` 304, 스키마 밖 본문·id·쿼리 400, 없는 id 404. 모든 응답은 그 operation에 **선언된 상태 코드**여야 한다. `services/api/test/conformance.test.ts`의 경우들(등록 여부, 미인증, 선언된 상태만, CSRF 없음 → 여기서는 Origin, 없는 프로젝트 404, 스키마 일치)이 들어 있다.
 
-`coverage` 테스트가 계약의 84개 operation을 전부 찔러 보고, 코어가 서빙하는데 표에 없는 operation이 있으면 실패한다. `lifecycle.test.ts`는 ready 파일(0600), 단일 인스턴스(종료 코드 3), 재시작 뒤 데이터·멱등 재생, 실행마다 다른 토큰을 본다.
+`coverage` 테스트가 계약의 85개 operation을 전부 찔러 보고, 코어가 서빙하는데 표에 없는 operation이 있으면 실패한다. `lifecycle.test.ts`는 ready 파일(0600), 단일 인스턴스(종료 코드 3), 재시작 뒤 데이터·멱등 재생, 실행마다 다른 토큰을 본다.
 
 ### 7.3 E2E를 Rust 코어로
 
@@ -691,7 +692,7 @@ TypeScript: 키 예약(pending) 커밋 → 유스케이스 실행 → 완료 기
 
 | # | 기준 | 수치 |
 |---|---|---|
-| 1 | 계약 패리티 | 유지하는 operation **80/80**이 하네스 표에 있고 통과. 501 응답 0. 선언되지 않은 상태 코드 0 |
+| 1 | 계약 패리티 | 유지하는 operation **81/81**이 하네스 표에 있고 통과. 501 응답 0. 선언되지 않은 상태 코드 0 |
 | 2 | 스케줄러 차분 | 생성 **10,000건** + golden 15건, `resultHash` 불일치 **0**. 회귀 팩 전부 통과 |
 | 3 | 스케줄러 속성 | 속성 17개 × **10,000회**, 실패 0 |
 | 4 | 스케줄러 성능 | 작업 50 / 14일 / 3정책 p95 < 500 ms, 그리고 TypeScript 대비 p95 비율 ≤ 1.0 |
@@ -839,7 +840,7 @@ RC-00 ─┬─► RC-10 ─► RC-20 ──────────┬─► RC
 | R8 | Google OAuth 클라이언트를 바꿔야 하고 다시 동의해야 한다 | Q2로 미리 묻는다. 테스트 상태 동의 화면의 7일 만료는 그대로 남는다(ADR-024) |
 | R9 | 가져오기에서 데이터가 빠진다(설명 HTML, Vikunja 전용 정보) | RC-110a를 RC-40 직후로 당겨 실제 데이터 드라이런을 일찍 돌린다 |
 | R10 | 연결 하나로는 긴 읽기(내보내기, 검색)가 쓰기를 막는다 | RC-50에서 작업 1만 개 파일로 실측, 필요하면 읽기 연결 추가 |
-| R11 | 동결 중에 계약이 바뀐다(웹 작업은 계속된다) | RC-10부터 계약 변경은 `packages/contracts` + Rust에만 구현한다. TypeScript API에 없는 operation은 원장에 "Rust 전용"으로 적는다. 스케줄러 입력을 바꾸는 변경은 전환 전까지 받지 않는다 |
+| R11 | 동결 중에 계약이 바뀐다(웹 작업은 계속된다) | RC-10부터 계약 변경은 `packages/contracts` + Rust에만 구현한다. TypeScript API에 없는 operation은 원장에 "Rust 전용"으로 적는다. 스케줄러 입력을 바꾸는 변경은 전환 전까지 받지 않는다. **예외(조정자 결정, 2026-11-16):** FOLD-01의 `updateProject`(`PATCH /projects/{id}`)는 계약·TypeScript API·Rust 코어 모두에 구현한다 — 어댑터(`ProjectRepository.update`)에 그 동작이 이미 있었고, 웹이 지금 필요로 하며, 전환 전 몇 주 동안 실제 앱은 TypeScript API로 돌기 때문이다 |
 | R12 | 노트북 메모리(15 GB)에서 cargo 빌드와 워커 2명 | `CARGO_BUILD_JOBS=4`, 워커 Task에서 release 빌드 금지, Tauri 빌드는 다른 워커가 없을 때 |
 | R13 | `jsonschema`와 Ajv의 판정이 형식 경계에서 다르다 | RC-10의 대조 도구: 계약 스키마마다 생성한 표본에 두 검증기를 돌려 판정 차이를 목록으로 만든다 |
 

@@ -52,6 +52,7 @@ import {
 import {
   PageProjectSchema,
   ProjectCreateSchema,
+  ProjectIdParamsSchema,
   ProjectSchema,
   ProjectPatchSchema,
 } from './project.js';
@@ -328,6 +329,22 @@ const coreRoutes: readonly RouteDefinition[] = [
     responses: {
       201: { description: 'Created project', schema: ProjectSchema },
       ...problems(400, 401, 403, 409, 422),
+    },
+  },
+  // FOLD-01: a folder is a project. Rename and archive only; there is no delete.
+  {
+    method: 'patch',
+    path: '/projects/{id}',
+    operationId: 'updateProject',
+    summary: 'Rename or archive a project',
+    description:
+      'Changes the title and/or the archived flag of a project the caller owns. An empty body changes nothing and answers 200 with the current project and its current ETag. The Inbox (kind "inbox") cannot be archived: 422 validation_failed with errors[{path: "archived"}]; it can be renamed and stays the Inbox. An archived project is renamed only by a patch that also brings it back (archived: false); otherwise 422 validation_failed with errors[{path: "title"}]. Archiving does not delete, move or change the tasks in the project, and archived: false brings it back. There is no delete operation.',
+    params: ProjectIdParamsSchema,
+    headers: IfMatchAndIdempotencyHeadersSchema,
+    body: ProjectPatchSchema,
+    responses: {
+      200: { description: 'Updated project', schema: ProjectSchema },
+      ...problems(400, 401, 403, 404, 409, 412, 422, 428),
     },
   },
   {
@@ -1458,6 +1475,7 @@ export const schemaRegistry = {
   ProjectCreate: ProjectCreateSchema,
   Project: ProjectSchema,
   ProjectPatch: ProjectPatchSchema,
+  ProjectIdParams: ProjectIdParamsSchema,
   PageProject: PageProjectSchema,
   Task: TaskSchema,
   TaskCreate: TaskCreateSchema,

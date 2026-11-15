@@ -40,8 +40,16 @@ export const ProjectPatchSchema = Type.Object(
   { additionalProperties: false, $id: 'ProjectPatch' },
 );
 
+export const ProjectIdParamsSchema = Type.Object(
+  {
+    id: IdSchema,
+  },
+  { additionalProperties: false, $id: 'ProjectIdParams' },
+);
+
 export const PageProjectSchema = pageSchema(ProjectSchema, { id: 'PageProject' });
 
 export type ProjectCreate = Static<typeof ProjectCreateSchema>;
 export type Project = Static<typeof ProjectSchema>;
 export type ProjectPatch = Static<typeof ProjectPatchSchema>;
+export type ProjectIdParams = Static<typeof ProjectIdParamsSchema>;

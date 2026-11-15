@@ -46,6 +46,8 @@ import {
   type LoginRequest,
   type Project as ProjectDto,
   type ProjectCreate,
+  type ProjectIdParams,
+  type ProjectPatch,
   type Task as TaskDto,
   type TaskCreate,
   type TaskDependency,
@@ -673,6 +675,30 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       };
     });
 
+  // FOLD-01: rename/archive a folder. Like createProject it writes no outbox
+  // row: outbox events carry a task id and no consumer follows projects.
+  const updateProject = async (request: FastifyRequest, reply: FastifyReply) =>
+    runIdempotent(runtime, request, reply, async () => {
+      const auth = currentAuth(request);
+      const id = (request.params as ProjectIdParams).id as Id;
+      const expected = requireIfMatch(request) as Version;
+      const input = request.body as ProjectPatch;
+      const project = await runtime.projects.update(
+        auth.userId,
+        id,
+        {
+          ...(input.title === undefined ? {} : { title: input.title }),
+          ...(input.archived === undefined ? {} : { archived: input.archived }),
+        },
+        expected,
+      );
+      return {
+        status: 200,
+        body: toProjectDto(project),
+        headers: { ETag: etagForVersion(project.version) },
+      };
+    });
+
   const createTask = async (request: FastifyRequest, reply: FastifyReply) =>
     runIdempotent(runtime, request, reply, async () => {
       const auth = currentAuth(request);
@@ -1200,6 +1226,7 @@ function buildHandlers(runtime: RouteRuntime): Record<string, (request: FastifyR
       return reply.code(200).header('ETag', etag).send(body);
     },
     createProject,
+    updateProject,
     listTasks: async (request, reply) => {
       const auth = currentAuth(request);
       const page = await runtime.tasks.list(
