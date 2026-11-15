@@ -210,6 +210,27 @@ describe('the step: separation, bounds, rest', () => {
     expect(insideBox(filed, inner, PAD)).toBe(true);
   });
 
+  it('a body wedged between two dishes leaves for open water, not into the other dish', () => {
+    const folders = layoutFolders(
+      [
+        { id: 'f1', count: 3, collapsed: false, labelLength: 3 },
+        { id: 'f2', count: 3, collapsed: false, labelLength: 3 },
+      ],
+      SURFACE,
+    );
+    const world = worldOf(SURFACE, folders);
+    const [upper, lower] = world.obstacles as [World['obstacles'][number], World['obstacles'][number]];
+    // In the slit between the two dishes of the column.
+    const wedged = createBody('wedged', { w: 180, h: 36 }, { x: upper.left + upper.width / 2, y: (upper.top + upper.height + lower.top) / 2 });
+    settle([wedged], world, { gap: 12, pad: PAD });
+    for (const dish of world.obstacles) {
+      const overlapsX = Math.abs(wedged.x - (dish.left + dish.width / 2)) < (wedged.w + dish.width) / 2;
+      const overlapsY = Math.abs(wedged.y - (dish.top + dish.height / 2)) < (wedged.h + dish.height) / 2;
+      expect(overlapsX && overlapsY).toBe(false);
+    }
+    expect(insideBox(wedged, { left: 0, top: 0, ...SURFACE }, PAD)).toBe(true);
+  });
+
   it('bodies of different waters do not push each other (negative)', () => {
     const open = createBody('open', { w: 140, h: 40 }, { x: 300, y: 300 });
     const filed = createBody('filed', { w: 140, h: 40 }, { x: 300, y: 300 }, 'f1');

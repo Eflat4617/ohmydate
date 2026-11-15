@@ -206,7 +206,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: quick add',
     covers: ['src/views/InboxView.vue', 'src/composables/useTaskActions.ts'],
-    path: '/tasks',
+    path: '/tasks?view=list',
     ready: inboxReady,
     hold: { method: 'POST', path: '/tasks' },
     act: async (wrapper) => {
@@ -219,7 +219,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: read a to-do note (말로 적기)',
     covers: ['src/components/TaskParseSection.vue', 'src/composables/useNlDraftRead.ts'],
-    path: '/tasks',
+    path: '/tasks?view=list',
     ready: async (wrapper) => {
       await inboxReady(wrapper);
       await until(() => expect(wrapper.find('#task-note').exists()).toBe(true));
@@ -234,7 +234,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: add a read task draft',
     covers: ['src/components/TaskParseSection.vue', 'src/composables/useNlDraftRead.ts'],
-    path: '/tasks',
+    path: '/tasks?view=list',
     // The read is part of getting ready; the action is adding the draft it gave.
     ready: async (wrapper) => {
       await inboxReady(wrapper);
@@ -252,7 +252,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: rename',
     covers: ['src/components/TaskList.vue', 'src/composables/useTaskActions.ts'],
-    path: '/tasks',
+    path: '/tasks?view=list',
     ready: inboxReady,
     hold: { method: 'PATCH', path: '/tasks/' },
     act: async (wrapper) => {
@@ -265,7 +265,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: complete',
     covers: ['src/components/TaskList.vue', 'src/composables/useTaskActions.ts'],
-    path: '/tasks',
+    path: '/tasks?view=list',
     ready: inboxReady,
     hold: { method: 'POST', path: ':complete' },
     act: async (wrapper) => {
@@ -275,7 +275,7 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
   {
     name: 'inbox: rename hits a version conflict',
     covers: ['src/components/TaskList.vue', 'src/composables/useTaskActions.ts'],
-    path: '/tasks',
+    path: '/tasks?view=list',
     ready: inboxReady,
     // The 412 itself is delivered; the follow-up read of the latest task is what is held.
     hold: { method: 'GET', path: /\/tasks\/[0-9a-f-]{36}$/ },
@@ -290,6 +290,89 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
       await wrapper.get('form.inline-edit').trigger('submit');
     },
     markers: ['A-private-server-title'],
+  },
+  // HOLO-05 할 일 as a canvas: what the place sends for the surface — a to-do
+  // filed, renamed and finished from it, a folder made and removed.
+  {
+    name: 'canvas: file a to-do into a folder',
+    covers: ['src/views/TasksView.vue', 'src/composables/useFolderActions.ts'],
+    path: '/tasks',
+    ready: canvasReady,
+    hold: { method: 'PATCH', path: '/tasks/' },
+    act: async (wrapper) => {
+      await canvasKey(wrapper, 'v');
+      await until(() => expect(document.body.querySelector('[data-folder-picker]')).not.toBeNull());
+      const folder = [...document.body.querySelectorAll<HTMLButtonElement>('[data-folder-picker] [role="menuitem"]')].find(
+        (item) => !item.disabled && item.dataset['folderPick'] !== 'new',
+      );
+      if (folder === undefined) throw new Error('no folder to file into');
+      folder.click();
+    },
+  },
+  {
+    name: 'canvas: rename in the detail',
+    covers: ['src/views/TasksView.vue', 'src/composables/useTaskActions.ts'],
+    path: '/tasks',
+    ready: canvasReady,
+    hold: { method: 'PATCH', path: '/tasks/' },
+    act: async (wrapper) => {
+      await canvasKey(wrapper, 'Enter');
+      await until(() => expect(wrapper.find('[data-todo-card-title]').exists()).toBe(true));
+      await wrapper.get('[data-todo-card-title]').setValue('A-private-canvas-rename');
+      await wrapper.get('form.pond-card-title').trigger('submit');
+    },
+    markers: ['A-private-canvas-rename'],
+  },
+  {
+    name: 'canvas: finish a to-do',
+    covers: ['src/views/TasksView.vue', 'src/composables/useTaskActions.ts'],
+    path: '/tasks',
+    ready: canvasReady,
+    hold: { method: 'POST', path: ':complete' },
+    act: async (wrapper) => {
+      await canvasKey(wrapper, 'Enter');
+      await until(() => expect(wrapper.find('[data-todo-card-complete]').exists()).toBe(true));
+      await wrapper.get('[data-todo-card-complete]').trigger('click');
+    },
+  },
+  {
+    name: 'canvas: make a folder',
+    covers: ['src/views/TasksView.vue', 'src/composables/useFolderActions.ts'],
+    path: '/tasks',
+    ready: canvasReady,
+    hold: { method: 'POST', path: '/projects' },
+    act: async (wrapper) => {
+      await wrapper.get('[data-new-folder]').trigger('click');
+      await until(() => expect(document.body.querySelector('[data-new-folder-name]')).not.toBeNull());
+      const input = document.body.querySelector<HTMLInputElement>('[data-new-folder-name]');
+      if (input === null) throw new Error('no folder name field');
+      input.value = 'A-private-folder';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await until(() => expect(document.body.querySelector<HTMLButtonElement>('[data-new-folder-submit]')?.disabled).toBe(false));
+      document.body.querySelector('[data-new-folder-dialog] form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    },
+    markers: ['A-private-folder'],
+  },
+  {
+    name: 'canvas: remove a folder (its to-dos go to the inbox first)',
+    covers: ['src/views/TasksView.vue', 'src/composables/useFolderActions.ts'],
+    path: '/tasks',
+    ready: canvasReady,
+    // The first move out of the folder is what is held: the archive must never follow for another owner.
+    hold: { method: 'PATCH', path: '/tasks/' },
+    seed: () => {
+      // One to-do in the seeded folder, so that there is something to move.
+      const task = [...mockDb.tasks.values()].find((item) => item.title === SEED_TASK_TITLE);
+      const folder = [...mockDb.projects.values()].find((item) => item.kind === 'normal');
+      if (task === undefined || folder === undefined) throw new Error('seed missing');
+      mockDb.tasks.set(task.id, { ...task, projectId: folder.id });
+    },
+    act: async (wrapper) => {
+      await wrapper.get('[data-folder-menu-button]').trigger('click');
+      await wrapper.get('[data-folder-remove]').trigger('click');
+      await until(() => expect(document.body.querySelector('[data-remove-folder-confirm]')).not.toBeNull());
+      document.body.querySelector<HTMLButtonElement>('[data-remove-folder-confirm]')?.click();
+    },
   },
   {
     name: 'today: accept the plan',
@@ -1282,6 +1365,20 @@ async function todayReady(wrapper: VueWrapper): Promise<void> {
 
 export async function inboxReady(wrapper: VueWrapper): Promise<void> {
   await until(() => expect(wrapper.text()).toContain(SEED_TASK_TITLE));
+}
+
+/** 할 일 as a canvas (HOLO-05): the surface is drawn and the seeded to-do floats on it. */
+async function canvasReady(wrapper: VueWrapper): Promise<void> {
+  await until(() => expect(wrapper.find('[data-todo-canvas]').exists()).toBe(true));
+  await until(() => expect(wrapper.find('[data-todo-canvas]').text()).toContain(SEED_TASK_TITLE));
+}
+
+/** A key on the seeded to-do's capsule, the way the keyboard drives the canvas. */
+async function canvasKey(wrapper: VueWrapper, key: string): Promise<void> {
+  const capsule = wrapper.findAll('[data-todo]').find((item) => item.text().includes(SEED_TASK_TITLE));
+  if (capsule === undefined) throw new Error('the seeded to-do is not on the canvas');
+  (capsule.element as HTMLElement).focus();
+  await capsule.trigger('keydown', { key });
 }
 
 /**

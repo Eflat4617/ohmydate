@@ -13,6 +13,8 @@ export type TaskCreate = components['schemas']['TaskCreate'];
 export type TaskPatch = components['schemas']['TaskPatch'];
 export type TaskStatus = Task['status'];
 export type Project = components['schemas']['Project'];
+/** FOLD-01: rename and/or archive a project (a folder of the 할 일 canvas). */
+export type ProjectPatch = components['schemas']['ProjectPatch'];
 /** FU-98: a planning goal (one wizard session) with the tasks its approval created. */
 export type GoalSummary = components['schemas']['GoalSummary'];
 export type User = components['schemas']['User'];
@@ -338,6 +340,33 @@ export class PlannerClient {
     const { data, error, response } = await this.client.POST('/projects', {
       body: { title },
       params: { header: { 'Idempotency-Key': idempotencyKey } },
+    });
+    if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
+    if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty project response');
+    this.remember(`project:${data.id}`, data.version, response.headers.get('ETag'));
+    return data;
+  }
+
+  /**
+   * FOLD-01 (`PATCH /projects/{id}`): rename and/or archive a folder. The
+   * answer carries the project's new version, which the next change needs —
+   * an archived project is no longer listed, so this is the only place the
+   * web learns the version a later `archived: false` must send.
+   */
+  async updateProject(
+    projectId: string,
+    patch: ProjectPatch,
+    idempotencyKey: string,
+    expectedVersion: number,
+    signal?: AbortSignal,
+  ): Promise<Project> {
+    const { data, error, response } = await this.client.PATCH('/projects/{id}', {
+      params: {
+        path: { id: projectId },
+        header: { 'If-Match': etagForVersion(expectedVersion), 'Idempotency-Key': idempotencyKey },
+      },
+      body: patch,
+      ...(signal === undefined ? {} : { signal }),
     });
     if (!response.ok) throw apiErrorFromPayload(response.status, error, response.headers);
     if (data === undefined) throw new ApiError(response.status, 'unknown', 'Empty project response');

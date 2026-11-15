@@ -309,10 +309,18 @@ describe('개요 — the recap takes the filled button when the day is over', ()
 describe('선택은 따라간다 — what was picked arrives picked', () => {
   it('할 일 hands on to the plan from its head', async () => {
     const { wrapper } = await mountAt(TasksView, '/tasks');
-    const link = wrapper.get('[data-tasks-to-plan]');
+    const link = await vi.waitFor(() => wrapper.get('[data-tasks-to-plan]'));
     expect(link.text()).toBe('계획에 넣기');
     expect(link.attributes('href')).toBe('/plan/schedule');
-    // It is not the place's filled button: the quick add keeps that.
+    // HOLO-05: on the canvas it is the place's one filled button — the next step of the loop.
+    expect(link.classes()).toContain('btn--primary');
+    expect(wrapper.findAll('.btn--primary')).toHaveLength(1);
+  });
+
+  it('in the list the quick add keeps the filled button, and the hand-off is a plain one (negative)', async () => {
+    const { wrapper } = await mountAt(TasksView, '/tasks?view=list');
+    const link = await vi.waitFor(() => wrapper.get('[data-tasks-to-plan]'));
+    expect(link.attributes('href')).toBe('/plan/schedule');
     expect(link.classes()).not.toContain('btn--primary');
   });
 

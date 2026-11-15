@@ -125,6 +125,13 @@ const OWNER_SLOTS = {
     onOwnerChange: 'preserve',
     why: 'How far the owner got in the three-step start guide on this device: which steps they skipped and whether they ended it, so a returning owner never sees it again. Step names and flags, no user content.',
   },
+  todoCanvas: {
+    area: 'local',
+    prefix: 'ohmydate.todo.canvas',
+    staleWrites: 'drop',
+    onOwnerChange: 'preserve',
+    why: 'Where the owner left each to-do and each folder on the 할 일 canvas (ids with a position as two fractions of the surface), which folders are folded, and whether they asked for the list instead. Ids, numbers and flags only; every title is read from the server.',
+  },
   flowReturn: {
     area: 'session',
     prefix: 'ohmydate.flow.return',

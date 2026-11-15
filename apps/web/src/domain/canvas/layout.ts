@@ -202,6 +202,7 @@ export const DISH_PAD = 10;
 /** Surface one to-do takes inside a dish. */
 const DISH_FOOTPRINT = 11_500;
 const DISH_MIN = { w: 248, h: 156 } as const;
+const DISH_EMPTY_HEIGHT = 104;
 /** Dishes that overflow one column by no more than this are squeezed into it. */
 const COLUMN_SQUEEZE = 1.25;
 const DISH_MAX = { w: 420, h: 360 } as const;
@@ -210,10 +211,12 @@ export const FOLDED_HEIGHT = 52;
 /** A dish as large as what it holds asks for, within its limits. `maxWidth` is the surface's. */
 export function dishSize(count: number, maxWidth: number): { w: number; h: number; capacity: number } {
   const limit = Math.max(160, Math.min(DISH_MAX.w, maxWidth));
-  const area = Math.max(1, count) * DISH_FOOTPRINT;
-  const w = Math.round(Math.max(Math.min(DISH_MIN.w, limit), Math.min(Math.sqrt(area * 1.5) + 2 * DISH_PAD, limit)));
+  const area = Math.max(0, count) * DISH_FOOTPRINT;
+  const w = Math.round(Math.max(Math.min(DISH_MIN.w, limit), Math.min(Math.sqrt(Math.max(area, DISH_FOOTPRINT) * 1.5) + 2 * DISH_PAD, limit)));
   const innerW = w - 2 * DISH_PAD;
-  const h = Math.round(Math.max(DISH_MIN.h, Math.min(area / innerW + DISH_HEAD + DISH_PAD, DISH_MAX.h)));
+  // An empty folder is its label and room to drop something in.
+  const least = count <= 0 ? DISH_EMPTY_HEIGHT : DISH_MIN.h;
+  const h = Math.round(Math.max(least, Math.min(area / innerW + DISH_HEAD + DISH_PAD, DISH_MAX.h)));
   const capacity = Math.max(1, Math.floor((innerW * (h - DISH_HEAD - DISH_PAD)) / (DISH_FOOTPRINT * 0.8)));
   return { w, h, capacity };
 }
@@ -246,7 +249,7 @@ export function layoutFolders(folders: readonly FolderInput[], surface: { width:
     const total = sizes.reduce((sum, size) => sum + size.h, 0);
     const room = surface.height - air;
     if (total > room && total <= room * COLUMN_SQUEEZE) {
-      const open = sizes.filter((_size, index) => !(folders[index] as FolderInput).collapsed);
+      const open = sizes.filter((size, index) => !(folders[index] as FolderInput).collapsed && size.h > DISH_MIN.h);
       const spare = open.reduce((sum, size) => sum + size.h, 0) - open.length * DISH_MIN.h;
       const over = total - room;
       if (spare >= over) {
@@ -367,10 +370,19 @@ export interface PlaceOptions {
   readonly pad: number;
   readonly insideGap?: number;
   readonly insidePad?: number;
+  /**
+   * How far down the open water a seeded field is centred (px from its top).
+   * On a surface longer than the window this is the middle of the first
+   * window, so the most urgent to-dos are what is seen first. Default: the middle.
+   */
+  readonly focusY?: number;
 }
 
+/** A field of fewer to-dos than this gathers nearer its middle instead of spreading to the edges. */
+const FULL_FIELD = 14;
+
 /** The simulation's distances for a density: the open water's, and a folder's inside. */
-export function bodySpacing(density: Density): Required<PlaceOptions> {
+export function bodySpacing(density: Density): Required<Omit<PlaceOptions, 'focusY'>> {
   return { gap: BODY_GAP[density], pad: BODY_PAD, insideGap: INSIDE_GAP, insidePad: INSIDE_PAD };
 }
 
@@ -399,24 +411,36 @@ export function placeBodies(
     else list.push(item);
   }
 
+  // The seeded places of each water: a sunflower over the whole of what holds
+  // it (so the field is evenly full), handed out nearest-the-focus first.
+  const seeded = new Map<string, Point>();
+  for (const [region, peers] of fresh) {
+    const box = region === null ? water : regionBox(world, region);
+    const pad = region === null ? options.pad : (options.insidePad ?? options.pad);
+    const turn = (hashSeed(region ?? 'open-water') / 4294967296) * Math.PI * 2;
+    // A handful of to-dos keep together; a full field reaches the edges.
+    const spread = region === null ? Math.min(1, Math.sqrt(peers.length / FULL_FIELD)) : 1;
+    const focusY = region === null && options.focusY !== undefined ? Math.max(0, Math.min(options.focusY, box.height)) : box.height / 2;
+    const focus = { x: box.left + box.width / 2, y: box.top + focusY };
+    const points = peers.map((_peer, index) => {
+      const radius = Math.sqrt((index + 0.5) / peers.length) * spread;
+      const angle = index * GOLDEN_ANGLE + turn;
+      return {
+        // A small field gathers around the focus; a full one is laid over the whole box.
+        x: box.left + box.width / 2 + radius * Math.max(0, box.width / 2 - pad) * Math.cos(angle),
+        y: (spread < 1 ? focus.y : box.top + box.height / 2) + radius * Math.max(0, box.height / 2 - pad) * Math.sin(angle),
+      };
+    });
+    const nearest = points
+      .map((point, index) => ({ point, index, far: Math.hypot((point.x - focus.x) / Math.max(1, box.width), (point.y - focus.y) / Math.max(1, box.height)) }))
+      .sort((a, b) => a.far - b.far || a.index - b.index);
+    peers.forEach((peer, index) => seeded.set(peer.id, (nearest[index] as { point: Point }).point));
+  }
+
   const bodies = items.map((item) => {
     const place = saved.get(item.id);
-    if (place !== undefined) return createBody(item.id, item, pointOf(place, regionBox(world, item.region)), item.region);
-    const peers = fresh.get(item.region) as SeedItem[];
-    const index = peers.indexOf(item);
-    const box = item.region === null ? water : regionBox(world, item.region);
-    const turn = (hashSeed(item.region ?? 'open-water') / 4294967296) * Math.PI * 2;
-    const radius = Math.sqrt((index + 0.5) / peers.length);
-    const angle = index * GOLDEN_ANGLE + turn;
-    const pad = item.region === null ? options.pad : (options.insidePad ?? options.pad);
-    const reachX = Math.max(0, box.width / 2 - pad - item.w / 2);
-    const reachY = Math.max(0, box.height / 2 - pad - item.h / 2);
-    return createBody(
-      item.id,
-      item,
-      { x: box.left + box.width / 2 + radius * reachX * Math.cos(angle), y: box.top + box.height / 2 + radius * reachY * Math.sin(angle) },
-      item.region,
-    );
+    const at = place !== undefined ? pointOf(place, regionBox(world, item.region)) : (seeded.get(item.id) as Point);
+    return createBody(item.id, item, at, item.region);
   });
   settle(bodies, world, options);
   return bodies;

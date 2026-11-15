@@ -58,7 +58,10 @@ const EXEMPT: Record<string, string> = {
   'src/theme/theme.ts':
     'HOLO-01 theme choice: one synchronous ownerSlot write at the click, under the binding captured there; no request, nothing awaited. holo-theme.spec.ts covers the owner scoping.',
   'src/views/ProjectDetailView.vue': 'Reads only; its task edits are TaskList / useTaskActions (inbox cases).',
-  'src/views/ProjectListView.vue': 'Reads only; writes nothing.',
+  'src/composables/useTodoBoard.ts':
+    'HOLO-05 할 일 board: reads only (every to-do, the projects, the blocks to come), through owner-keyed ownerFenced lookups; its cache patches are called from owner-bound tasks (the canvas cases).',
+  'src/composables/canvasMemory.ts':
+    'HOLO-05 canvas places: ownerSlot writes under the binding captured at the gesture that moved something (a drag, a fold, a view switch); a stale binding writes nothing; no request. holo-canvas.spec.ts covers the owner scoping.',
   'src/session/owner.ts': 'The device-level active-owner pointer; changed only by the owner change itself.',
   'src/session/quarantine.ts': 'Durable focus quarantine, written under the journal lock; m4-owner-bound.spec.ts and owner-guardrail.spec.ts.',
   'src/session/journal.ts': 'The focus journal; exercised through focusQueue (focus cases) and owner-guardrail.spec.ts.',
@@ -119,7 +122,7 @@ describe('inbox: delete with undo — the timer belongs to whoever clicked', () 
 
   async function clickDelete(): Promise<OwnerSwitchStage> {
     const created = await createOwnerSwitchStage();
-    const wrapper = await created.mountView('/tasks');
+    const wrapper = await created.mountView('/tasks?view=list');
     await inboxReady(wrapper);
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     await buttonByText(wrapper, `${SEED_TASK_TITLE} 삭제`).trigger('click');

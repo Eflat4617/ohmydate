@@ -150,6 +150,19 @@ function boxOf(world: World, region: string | null): Box {
   return { left: 0, top: 0, width: world.width, height: world.height };
 }
 
+/** True when a body centred on `at` is on the surface and in no dish but (perhaps) `leaving`'s edge. */
+function isOpenWater(at: Point, body: Pick<Body, 'w' | 'h'>, world: World, leaving: Box, options: RelaxOptions): boolean {
+  if (at.x - body.w / 2 < options.pad || at.x + body.w / 2 > world.width - options.pad) return false;
+  if (at.y - body.h / 2 < options.pad || at.y + body.h / 2 > world.height - options.pad) return false;
+  for (const dish of world.obstacles) {
+    if (dish === leaving) continue;
+    const overlapX = (body.w + dish.width) / 2 + options.gap - Math.abs(at.x - (dish.left + dish.width / 2));
+    const overlapY = (body.h + dish.height) / 2 + options.gap - Math.abs(at.y - (dish.top + dish.height / 2));
+    if (overlapX > 0.5 && overlapY > 0.5) return false;
+  }
+  return true;
+}
+
 /** The nearest value to `value` that keeps a span of `size` inside [min, min + room]. */
 function inside(value: number, size: number, min: number, room: number, pad: number): number {
   const low = min + pad + size / 2;
@@ -229,7 +242,8 @@ export function relax(bodies: readonly Body[], world: World, options: RelaxOptio
     let targetY = body.y + (moveY[i] as number);
 
     if (body.region === null) {
-      // Out of every dish, by the nearer edge.
+      // Out of every dish: by the nearest edge that leads to open water — not
+      // into another dish, not off the surface.
       for (const dish of world.obstacles) {
         const reachX = (body.w + dish.width) / 2 + options.gap;
         const reachY = (body.h + dish.height) / 2 + options.gap;
@@ -238,8 +252,15 @@ export function relax(bodies: readonly Body[], world: World, options: RelaxOptio
         const overlapX = reachX - Math.abs(dx);
         const overlapY = reachY - Math.abs(dy);
         if (overlapX <= 0 || overlapY <= 0) continue;
-        if (overlapX < overlapY) targetX += dx < 0 ? -overlapX : overlapX;
-        else targetY += dy < 0 ? -overlapY : overlapY;
+        const exits: Point[] = [
+          { x: targetX + (dx < 0 ? -overlapX : overlapX), y: targetY },
+          { x: targetX, y: targetY + (dy < 0 ? -overlapY : overlapY) },
+          { x: targetX + (dx < 0 ? 2 * reachX - overlapX : overlapX - 2 * reachX), y: targetY },
+          { x: targetX, y: targetY + (dy < 0 ? 2 * reachY - overlapY : overlapY - 2 * reachY) },
+        ].sort((a, b) => Math.abs(a.x - targetX) + Math.abs(a.y - targetY) - (Math.abs(b.x - targetX) + Math.abs(b.y - targetY)));
+        const open = exits.find((exit) => isOpenWater(exit, body, world, dish, options)) ?? (exits[0] as Point);
+        targetX = open.x;
+        targetY = open.y;
       }
     }
 

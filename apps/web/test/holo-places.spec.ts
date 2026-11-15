@@ -30,7 +30,7 @@ import SettingsView from '../src/views/SettingsView.vue';
 import TasksView from '../src/views/TasksView.vue';
 
 /**
- * HOLO-04 places (FLOW.md §4): 할 일 as one place with two views, 설정 as one
+ * HOLO-04 places (FLOW.md §4): 할 일 as one place (HOLO-05: its canvas and its list), 설정 as one
  * screen with four sections (with the glass switch of 화면), the planner's
  * fourth view in the address, and 개요 as the daily workspace's own page.
  */
@@ -83,42 +83,44 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-describe('할 일 — one place, two views for now', () => {
-  it('opens on the inbox, and the address picks the view', async () => {
+describe('할 일 — one place, the canvas and the list', () => {
+  it('opens on the canvas, and the address picks the list', async () => {
     const { wrapper, router } = await mountAt(TasksView, 'tasks', '/tasks');
     const place = wrapper.get('[data-tasks-place]');
-    expect(place.attributes('data-tasks-view')).toBe('inbox');
-    await vi.waitFor(() => expect(wrapper.find('[data-inbox]').exists()).toBe(true));
-    expect(wrapper.find('[data-projects]').exists()).toBe(false);
+    expect(place.attributes('data-tasks-view')).toBe('canvas');
+    await vi.waitFor(() => expect(wrapper.find('[data-todo-canvas]').exists()).toBe(true));
+    expect(wrapper.find('[data-tasks-list]').exists()).toBe(false);
     // The switch names the two views; the one on show is the current page.
     const links = wrapper.findAll('[data-tasks-view-link]');
     expect(wrapper.get('.tasks-views').attributes('aria-label')).toBe('할 일 보기');
     expect(links.map((link) => [link.text(), link.attributes('href'), link.attributes('aria-current')])).toEqual([
-      ['인박스', '/tasks', 'page'],
-      ['프로젝트', '/tasks?view=projects', undefined],
+      ['캔버스', '/tasks', 'page'],
+      ['목록', '/tasks?view=list', undefined],
     ]);
-    // One page heading: the view's own.
-    expect(wrapper.findAll('h1').map((heading) => heading.text())).toEqual(['인박스']);
+    // One page heading: the place's own, whichever view is on show.
+    expect(wrapper.findAll('h1').map((heading) => heading.text())).toEqual(['할 일']);
 
-    await router.push('/tasks?view=projects');
-    await vi.waitFor(() => expect(wrapper.find('[data-projects]').exists()).toBe(true));
-    expect(place.attributes('data-tasks-view')).toBe('projects');
-    expect(wrapper.find('[data-inbox]').exists()).toBe(false);
-    expect(wrapper.get('[data-tasks-view-link="projects"]').attributes('aria-current')).toBe('page');
-    expect(wrapper.findAll('h1').map((heading) => heading.text())).toEqual(['프로젝트']);
+    await router.push('/tasks?view=list');
+    await vi.waitFor(() => expect(wrapper.find('[data-tasks-list]').exists()).toBe(true));
+    expect(place.attributes('data-tasks-view')).toBe('list');
+    expect(wrapper.find('[data-todo-canvas]').exists()).toBe(false);
+    expect(wrapper.get('[data-tasks-view-link="list"]').attributes('aria-current')).toBe('page');
+    expect(wrapper.findAll('h1').map((heading) => heading.text())).toEqual(['할 일']);
+    await vi.waitFor(() => expect(wrapper.find('[data-inbox]').exists()).toBe(true));
   });
 
-  it('a view it does not know is the inbox (negative)', async () => {
+  it('a view it does not know is the canvas (negative)', async () => {
     const { wrapper } = await mountAt(TasksView, 'tasks', '/tasks?view=board');
-    expect(wrapper.get('[data-tasks-place]').attributes('data-tasks-view')).toBe('inbox');
+    expect(wrapper.get('[data-tasks-place]').attributes('data-tasks-view')).toBe('canvas');
   });
 
   it('the old addresses of both screens land in it', async () => {
     const router = createRouter({ history: createMemoryHistory(), routes });
     await router.push('/inbox');
     expect(router.currentRoute.value.fullPath).toBe('/tasks');
+    // The project list is gone: folders are on the canvas, which is where its address leads.
     await router.push('/projects');
-    expect(router.currentRoute.value.fullPath).toBe('/tasks?view=projects');
+    expect(router.currentRoute.value.fullPath).toBe('/tasks');
     // A project and a task keep their own addresses, under the place.
     expect(router.resolve('/projects/01900000-0000-7000-8000-000000000003').name).toBe('project');
     expect(router.resolve('/tasks/01900000-0000-7000-8000-000000000011').name).toBe('task');

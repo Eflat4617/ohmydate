@@ -225,7 +225,8 @@ describe('Task detail — 설명을 노트로 승격 (07 §7)', () => {
 
   it('opens from a task row: the title links to the task detail', async () => {
     const task = seededTask();
-    const app = await open('/inbox', '.task-item');
+    // HOLO-05: rows are 할 일's list view (the canvas opens the same page from its detail's 작업 열기).
+    const app = await open('/tasks?view=list', '.task-item');
     const link = app.wrapper.findAll('[data-task-detail-link]').find((item) => item.text() === SEED_TASK_TITLE);
     expect(link?.attributes('href')).toBe(`/tasks/${task.id}`);
   });

@@ -99,10 +99,11 @@ async function refresh(): Promise<void> {
 </script>
 
 <template>
-  <section class="page inbox-page" data-inbox>
-    <header class="page-header">
-      <div class="page-heading">
-        <h1>{{ t('inbox.title') }}</h1>
+  <!-- HOLO-05: the inbox as rows — the first section of 할 일's list view (TodoListView). -->
+  <section class="todo-list-section inbox-page" aria-labelledby="inbox-title" data-inbox>
+    <header class="todo-list-head">
+      <div class="todo-list-heading">
+        <h2 id="inbox-title" class="todo-list-title">{{ t('inbox.title') }}</h2>
         <p class="page-lede">{{ t('inbox.lede') }}</p>
       </div>
       <div class="page-actions">
