@@ -47,7 +47,8 @@ const props = defineProps<{
   /** Change this 약속 instead of adding one. */
   commitment?: Commitment | null;
 }>();
-const emit = defineEmits<{ close: []; saved: []; removed: [] }>();
+/** `saved` says when the 약속 that was just added starts (nothing for a change): the list goes to its week. */
+const emit = defineEmits<{ close: []; saved: [startAt?: string]; removed: [] }>();
 
 const editing = computed(() => props.commitment ?? null);
 
@@ -198,7 +199,7 @@ async function save(): Promise<void> {
           yield queryClient.invalidateQueries({ queryKey });
         }
         toast.show(t('planner.add.saved', { title: input.title }));
-        emit('saved');
+        emit('saved', input.startAt);
         emit('close');
       } catch (cause) {
         error.value = errorMessage(cause, t('commitments.saveError'));

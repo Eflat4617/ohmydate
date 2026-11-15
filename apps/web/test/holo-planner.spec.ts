@@ -886,6 +886,33 @@ describe('플래너 · 약속 — the week’s 약속 as a list (HOLO-04)', () =
     return wrapper.findAll('[data-planner-list] > li');
   }
 
+  async function addFromList(wrapper: VueWrapper, title: string, start: string, end: string): Promise<void> {
+    await wrapper.get('[data-planner-add]').trigger('click');
+    await vi.waitFor(() => expect(document.querySelector('[data-planner-add-dialog]')).not.toBeNull());
+    await type(field('#planner-commitment-title'), title);
+    await type(field('#planner-commitment-start'), start);
+    await type(field('#planner-commitment-end'), end);
+    field<HTMLFormElement>('[data-planner-add-manual]').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(document.querySelector('[data-planner-add-dialog]')).toBeNull());
+  }
+
+  it('a 약속 added for another week takes the list to that week, where it is listed', async () => {
+    const { wrapper, router } = await mountPlanner('/planner?view=list');
+    expect(wrapper.get('h1').text()).toBe('11월 9일 ~ 11월 15일');
+    await addFromList(wrapper, '다음 주 면담', '2026-11-25T10:00', '2026-11-25T11:00');
+    await vi.waitFor(() => expect(router.currentRoute.value.fullPath).toBe('/planner?view=list&w=2026-11-23'));
+    await vi.waitFor(() => expect(wrapper.get('h1').text()).toBe('11월 23일 ~ 11월 29일'));
+    await vi.waitFor(() => expect(rows(wrapper).some((row) => row.text().includes('다음 주 면담'))).toBe(true));
+  });
+
+  it('a 약속 added for the week on show leaves the list where it is (negative)', async () => {
+    const { wrapper, router } = await mountPlanner('/planner?view=list');
+    await addFromList(wrapper, '이번 주 스터디', '2026-11-13T19:00', '2026-11-13T20:00');
+    await vi.waitFor(() => expect(rows(wrapper).some((row) => row.text().includes('이번 주 스터디'))).toBe(true));
+    expect(router.currentRoute.value.fullPath).toBe('/planner?view=list');
+    expect(wrapper.get('h1').text()).toBe('11월 9일 ~ 11월 15일');
+  });
+
   it('lists the week’s 약속 in time order with when each happens and whether it repeats', async () => {
     const { wrapper } = await mountPlanner('/planner?view=list');
     expect(wrapper.get('[data-planner]').attributes('data-planner')).toBe('list');
