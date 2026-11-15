@@ -47,8 +47,14 @@ The product is one flow (`apps/web/FLOW.md`); the specs follow it.
   card. A test that signs in by hand does the same (E2E-1 closes it with
   Escape, as a keyboard user would).
 - **Places.** `openPlace(page, '할 일')` clicks the sidebar link (named by the
-  place alone); `openInbox()` is 할 일 › 인박스. The inbox is `/tasks`, the
-  projects `/tasks?view=projects`, the 약속 list `/planner?view=list`, the timer
+  place alone); `openInbox()` is 할 일, which opens on its canvas (HOLO-05).
+  `/tasks` is the canvas, `/tasks?view=list` the same to-dos as rows (with the
+  quick add and 말로 적기); `/projects` lands on the canvas, where a project is
+  a folder. On the canvas `putDownTodo()` adds with the capture bar,
+  `canvasTodo()` finds a to-do by its title and `openTodoDetail()` opens its
+  floating detail. A context that points at the canvas uses `STILL_CANVAS`
+  (reduced motion): floating to-dos sway, and a pointer action waits for its
+  target to hold still. The 약속 list is `/planner?view=list`, the timer
   and its record `/focus`, the settings `/settings/<section>`. The old
   addresses redirect; the a11y spec checks three of them on purpose.
 - **Signing out** is in the account menu: `signOut(page)`.
