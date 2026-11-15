@@ -98,10 +98,7 @@ const differsFromRust: Differ = (subject) => {
     if (canonicalJson(rust[layer]) !== canonicalJson(reference[layer])) return layer;
   }
   if (canonicalJson(rust['plans']) !== canonicalJson(reference['plans'])) return 'validation';
-  // `sched-diff` returns `result` once the generator is ported.
-  if (rust['result'] !== undefined && canonicalJson(rust['result']) !== canonicalJson(reference['result'])) {
-    return 'result';
-  }
+  if (canonicalJson(rust['result']) !== canonicalJson(reference['result'])) return 'result';
   return null;
 };
 

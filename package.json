@@ -28,7 +28,8 @@
     "core:parity": "cd core && cargo build -p ohmydate-server && cd .. && tsc --noEmit -p tests-core && vitest run --config tests-core/vitest.config.ts",
     "core:oracle": "tsc --noEmit -p packages/scheduler/scripts && pnpm --filter @ohmydate/contracts exec tsx ../scheduler/scripts/export-oracle.mts",
     "core:shrink": "cd core && cargo build -q -p ohmydate-scheduler --bin sched-diff && cd .. && tsc --noEmit -p packages/scheduler/scripts && pnpm --filter @ohmydate/contracts exec tsx ../scheduler/scripts/shrink-oracle.mts",
-    "core:diff": "pnpm run core:oracle --count ${ORACLE_COUNT:-2000} --seed ${ORACLE_SEED:-20261113} --name diff --out core/target/oracle && cd core && OHMYDATE_ORACLE_DIR=target/oracle cargo test -p ohmydate-scheduler --test oracle -- --nocapture"
+    "core:harvest": "mkdir -p core/target/oracle-corpus && rm -f core/target/oracle-corpus/reference-tests.jsonl && ORACLE_HARVEST_OUT=$PWD/core/target/oracle-corpus/reference-tests.jsonl SCHED_PROPERTY_RUNS=200 vitest run --config packages/scheduler/scripts/harvest.vitest.config.mts",
+    "core:diff": "pnpm run core:harvest && pnpm run core:oracle --count ${ORACLE_COUNT:-2000} --seed ${ORACLE_SEED:-20261113} --name diff --out core/target/oracle --corpus core/target/oracle-corpus/reference-tests.jsonl && cd core && OHMYDATE_ORACLE_DIR=target/oracle cargo test -p ohmydate-scheduler --test oracle -- --nocapture"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.0",

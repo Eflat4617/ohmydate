@@ -21,6 +21,8 @@
 //! * [`codes`]: the closed explanation, violation and input-issue codes;
 //! * [`validate`]: the hard-constraint validator and the input validator;
 //! * [`explain`]: the capacity report made before generation;
+//! * [`policies`], [`generate`]: the three published policies and the plan
+//!   generator, with replanning and the FU-69 repair passes;
 //! * [`replay`]: every ported layer on one input, in the oracle's JSON shape
 //!   (used by the differential test and the `sched-diff` binary).
 //!
@@ -41,8 +43,10 @@ mod macros;
 pub mod canonical;
 pub mod codes;
 pub mod explain;
+pub mod generate;
 pub mod input_hash;
 pub mod js;
+pub mod policies;
 pub mod prng;
 pub mod replay;
 pub mod requirements;

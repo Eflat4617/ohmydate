@@ -493,37 +493,159 @@ impl Zone {
         let changes = self.offset_changes(start_ms, end_ms)?;
         let mut piece_start = start_ms;
         for piece_end in changes.into_iter().chain(std::iter::once(end_ms)) {
-            if piece_end <= piece_start {
-                continue;
-            }
-            let offset_ms = self.offset_ms_at(piece_start)?;
-            let mut segment_start = piece_start;
-            let mut next_local_midnight =
-                ((piece_start + offset_ms).div_euclid(DAY_MS) + 1) * DAY_MS;
-            loop {
-                let midnight_ms = next_local_midnight - offset_ms;
-                let segment_end = midnight_ms.min(piece_end);
-                if segment_end > segment_start {
-                    let local_day = (segment_start + offset_ms).div_euclid(DAY_MS);
-                    let date = LocalDate::from_days(local_day);
-                    visit(LocalDaySegment {
-                        date,
-                        weekday: date.weekday(),
-                        offset_ms,
-                        start_ms: segment_start,
-                        end_ms: segment_end,
-                        local_midnight_ms: local_day * DAY_MS - offset_ms,
-                    });
-                    segment_start = segment_end;
-                }
-                if midnight_ms >= piece_end {
-                    break;
-                }
-                next_local_midnight += DAY_MS;
+            if piece_end > piece_start {
+                let offset_ms = self.offset_ms_at(piece_start)?;
+                split_at_local_midnights(piece_start, piece_end, offset_ms, &mut visit);
             }
             piece_start = piece_end;
         }
         Ok(())
+    }
+
+    /// The zone's offsets over `[from_ms, to_ms]`, read once.
+    pub fn window(&self, from_ms: i64, to_ms: i64) -> Result<ZoneWindow, TimeError> {
+        let offset_at_start_ms = self.offset_ms_at(from_ms)?;
+        let mut changes = Vec::new();
+        for change_ms in self.offset_changes(from_ms, to_ms.max(from_ms))? {
+            changes.push((change_ms, self.offset_ms_at(change_ms)?));
+        }
+        Ok(ZoneWindow {
+            zone: self.clone(),
+            from_ms,
+            to_ms: to_ms.max(from_ms),
+            offset_at_start_ms,
+            changes,
+        })
+    }
+}
+
+/// Splits a piece with one UTC offset at the local midnights inside it.
+fn split_at_local_midnights(
+    piece_start: i64,
+    piece_end: i64,
+    offset_ms: i64,
+    visit: &mut impl FnMut(LocalDaySegment),
+) {
+    let mut segment_start = piece_start;
+    let mut next_local_midnight = ((piece_start + offset_ms).div_euclid(DAY_MS) + 1) * DAY_MS;
+    loop {
+        let midnight_ms = next_local_midnight - offset_ms;
+        let segment_end = midnight_ms.min(piece_end);
+        if segment_end > segment_start {
+            let local_day = (segment_start + offset_ms).div_euclid(DAY_MS);
+            let date = LocalDate::from_days(local_day);
+            visit(LocalDaySegment {
+                date,
+                weekday: date.weekday(),
+                offset_ms,
+                start_ms: segment_start,
+                end_ms: segment_end,
+                local_midnight_ms: local_day * DAY_MS - offset_ms,
+            });
+            segment_start = segment_end;
+        }
+        if midnight_ms >= piece_end {
+            break;
+        }
+        next_local_midnight += DAY_MS;
+    }
+}
+
+/// A zone with its offsets over one range held in memory.
+///
+/// The generator asks for the local date of thousands of candidate
+/// positions inside one horizon. Looking each up in the time zone database
+/// would dominate its run time; here a question inside the range is a binary
+/// search and plain arithmetic, with the same answers ([`Zone`] is asked for
+/// anything outside the range).
+#[derive(Debug, Clone)]
+pub struct ZoneWindow {
+    zone: Zone,
+    from_ms: i64,
+    to_ms: i64,
+    offset_at_start_ms: i64,
+    /// Offset changes strictly inside the range: instant and the offset
+    /// from then on.
+    changes: Vec<(i64, i64)>,
+}
+
+impl ZoneWindow {
+    fn covers(&self, start_ms: i64, end_ms: i64) -> bool {
+        start_ms >= self.from_ms && end_ms <= self.to_ms
+    }
+
+    /// The UTC offset in effect at an instant, in milliseconds.
+    pub fn offset_ms_at(&self, epoch_ms: i64) -> Result<i64, TimeError> {
+        if !self.covers(epoch_ms, epoch_ms) {
+            return self.zone.offset_ms_at(epoch_ms);
+        }
+        let after = self
+            .changes
+            .partition_point(|(change_ms, _)| *change_ms <= epoch_ms);
+        Ok(match after.checked_sub(1) {
+            Some(index) => self.changes[index].1,
+            None => self.offset_at_start_ms,
+        })
+    }
+
+    /// The local calendar date at an instant.
+    pub fn local_date_at(&self, epoch_ms: i64) -> Result<LocalDate, TimeError> {
+        let offset_ms = self.offset_ms_at(epoch_ms)?;
+        Ok(LocalDate::from_days(
+            (epoch_ms + offset_ms).div_euclid(DAY_MS),
+        ))
+    }
+
+    /// The local wall-clock hour (0–23) at an instant.
+    pub fn local_hour_at(&self, epoch_ms: i64) -> Result<i64, TimeError> {
+        let offset_ms = self.offset_ms_at(epoch_ms)?;
+        Ok((epoch_ms + offset_ms).rem_euclid(DAY_MS) / (60 * MINUTE_MS))
+    }
+
+    /// [`Zone::for_each_segment`], answered from memory inside the range.
+    pub fn for_each_segment(
+        &self,
+        start_ms: i64,
+        end_ms: i64,
+        mut visit: impl FnMut(LocalDaySegment),
+    ) -> Result<(), TimeError> {
+        if end_ms <= start_ms {
+            return Ok(());
+        }
+        if !self.covers(start_ms, end_ms) {
+            return self.zone.for_each_segment(start_ms, end_ms, visit);
+        }
+        let first = self
+            .changes
+            .partition_point(|(change_ms, _)| *change_ms <= start_ms);
+        let mut offset_ms = match first.checked_sub(1) {
+            Some(index) => self.changes[index].1,
+            None => self.offset_at_start_ms,
+        };
+        let mut piece_start = start_ms;
+        for &(change_ms, offset_after_ms) in &self.changes[first..] {
+            if change_ms >= end_ms {
+                break;
+            }
+            split_at_local_midnights(piece_start, change_ms, offset_ms, &mut visit);
+            piece_start = change_ms;
+            offset_ms = offset_after_ms;
+        }
+        split_at_local_midnights(piece_start, end_ms, offset_ms, &mut visit);
+        Ok(())
+    }
+
+    /// [`Zone::partition`], answered from memory inside the range.
+    pub fn partition(&self, start_ms: i64, end_ms: i64) -> Result<Vec<LocalDaySegment>, TimeError> {
+        let mut segments = Vec::new();
+        self.for_each_segment(start_ms, end_ms, |segment| segments.push(segment))?;
+        Ok(segments)
+    }
+
+    /// The zone the window was read from.
+    #[must_use]
+    pub fn zone(&self) -> &Zone {
+        &self.zone
     }
 }
 
@@ -957,6 +1079,68 @@ mod tests {
         ] {
             assert!(!is_valid_time_zone(id), "{id}");
         }
+    }
+
+    #[test]
+    fn a_window_answers_like_the_zone_inside_and_outside_its_range() {
+        let cases = [
+            (
+                "America/New_York",
+                "2026-10-25T00:00:00Z",
+                "2026-11-08T00:00:00Z",
+            ),
+            (
+                "America/Santiago",
+                "2026-09-01T00:00:00Z",
+                "2026-09-10T00:00:00Z",
+            ),
+            (
+                "Australia/Lord_Howe",
+                "2026-04-01T00:00:00Z",
+                "2026-04-10T00:00:00Z",
+            ),
+            (
+                "America/Goose_Bay",
+                "2009-10-30T00:00:00Z",
+                "2009-11-03T00:00:00Z",
+            ),
+            (
+                "Europe/Berlin",
+                "2026-01-01T00:00:00Z",
+                "2027-01-01T00:00:00Z",
+            ),
+            ("-05:30", "2026-11-13T00:00:00Z", "2026-11-20T00:00:00Z"),
+        ];
+        let hour = 60 * MINUTE_MS;
+        for (name, from, to) in cases {
+            let zone = Zone::get(name).unwrap();
+            let (from_ms, to_ms) = (ms(from), ms(to));
+            let window = zone.window(from_ms, to_ms).unwrap();
+            // Ranges of many lengths and starts, inside the window, across
+            // its edges and outside it.
+            let mut start = from_ms - 30 * hour;
+            while start < to_ms + 30 * hour {
+                for length in [5 * MINUTE_MS, 95 * MINUTE_MS, 26 * hour, 80 * hour] {
+                    assert_eq!(
+                        window.partition(start, start + length),
+                        zone.partition(start, start + length),
+                        "{name} {start} +{length}"
+                    );
+                }
+                assert_eq!(window.offset_ms_at(start), zone.offset_ms_at(start));
+                assert_eq!(window.local_date_at(start), zone.local_date_at(start));
+                assert_eq!(window.local_hour_at(start), zone.local_hour_at(start));
+                start += 7 * hour + 25 * MINUTE_MS;
+            }
+            assert_eq!(window.partition(to_ms, from_ms), Ok(Vec::new()));
+        }
+        // The instant of a change belongs to the new offset.
+        let zone = Zone::get("America/New_York").unwrap();
+        let change = ms("2026-11-01T06:00:00Z");
+        let window = zone.window(change - hour, change + hour).unwrap();
+        assert_eq!(window.offset_ms_at(change - 1), Ok(-4 * hour));
+        assert_eq!(window.offset_ms_at(change), Ok(-5 * hour));
+        assert!(zone.window(i64::MAX, i64::MAX).is_err());
     }
 
     #[test]

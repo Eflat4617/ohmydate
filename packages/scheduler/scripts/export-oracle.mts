@@ -23,7 +23,7 @@
  *     },
  *     cases: [                                             // one per line
  *       {
- *         id, kind: "golden" | "generated" | "replan" | "invalid",
+ *         id, kind: "golden" | "generated" | "replan" | "invalid" | "reference-test",
  *         input, options | null,
  *         inputIssues[],          // validateInput(input)
  *         slots[] | null,         // computeAvailableSlots(input); null if it throws
@@ -44,6 +44,7 @@
  * Usage (from the repository root):
  *   corepack pnpm run core:oracle -- [--count 12] [--seed 20261113] [--name sample]
  *                                    [--out core/crates/scheduler/tests/oracle]
+ *                                    [--corpus core/target/oracle-corpus/reference-tests.jsonl]
  *
  * This file is tooling: it is not imported by the package and is not a test.
  */
@@ -78,6 +79,7 @@ import {
   MINUTE_MS,
   chance,
   evaluate,
+  isPortableInput,
   iso,
   orNull,
   packText,
@@ -101,6 +103,8 @@ interface Args {
   readonly count: number;
   readonly seed: number;
   readonly name: string;
+  /** JSON-lines file of `{ file, input, options }` written by `harvest-setup.mts`. */
+  readonly corpus: string | null;
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -110,7 +114,7 @@ function parseArgs(argv: readonly string[]): Args {
     if (flag === '--') continue;
     const value = argv[index + 1];
     if (flag === undefined || !flag.startsWith('--') || value === undefined) {
-      throw new Error(`usage: export-oracle [--out DIR] [--count N] [--seed N] [--name NAME]`);
+      throw new Error(`usage: export-oracle [--out DIR] [--count N] [--seed N] [--name NAME] [--corpus FILE]`);
     }
     values.set(flag.slice(2), value);
     index += 1;
@@ -131,6 +135,7 @@ function parseArgs(argv: readonly string[]): Args {
     count: integer('count', 12, 0, 100_000),
     seed: integer('seed', 20_261_113, 0, 0xffff_ffff),
     name,
+    corpus: values.has('corpus') ? resolve(repoRoot, values.get('corpus') ?? '') : null,
   };
 }
 
@@ -417,6 +422,20 @@ const addTask: ReplanChange = (prng, replan) => {
   ];
 };
 
+/**
+ * The user tightened a preference after approving: a lower daily cap, an
+ * earlier break or a longer one. Approved blocks that were fine can now be
+ * too much for a day or a run.
+ */
+const tightenPreferences: ReplanChange = (prng, replan) => {
+  const prefs = { ...replan.prefs };
+  const change = prng.nextInt(3);
+  if (change === 0) prefs.maxDailyFocusMin = Math.max(60, prefs.maxDailyFocusMin - pick(prng, [60, 120, 180]));
+  else if (change === 1) prefs.breakAfterMin = pick(prng, [30, 45, 50, 60]);
+  else prefs.breakMin = pick(prng, [20, 30, 45]);
+  replan.prefs = prefs;
+};
+
 /** The caller releases tasks explicitly (FU-59), including one it no longer has. */
 const releaseTasks: ReplanChange = (prng, replan) => {
   const ids = replan.tasks.filter(() => chance(prng, 0.3)).map((task) => task.id);
@@ -435,6 +454,8 @@ const REPLAN_CHANGES: readonly ReplanChange[] = [
   addDayOff,
   addTask,
   releaseTasks,
+  tightenPreferences,
+  tightenPreferences,
 ];
 
 function toReplan(prng: Prng, base: ScheduleInput): ScheduleInput | null {
@@ -539,6 +560,93 @@ function goldenCases(): OracleCase[] {
         probeSeed: 0x51ed_270b + index,
       };
     });
+}
+
+/**
+ * The inputs the reference's own tests give to `generate`, as harvested by
+ * `harvest-setup.mts`: the scenarios the reference was fixed against. Inputs
+ * the port cannot be given as they are (see `isPortableInput`) are left out
+ * and counted.
+ */
+function corpusCases(file: string): { cases: OracleCase[]; skipped: number } {
+  const cases: OracleCase[] = [];
+  const seen = new Set<string>();
+  const counters = new Map<string, number>();
+  let skipped = 0;
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (line === '') continue;
+    const entry = JSON.parse(line) as { file: string; input: unknown; options: unknown };
+    const options = (entry.options ?? null) as GenerateOptions | null;
+    if (!isPortableInput(entry.input, options)) {
+      skipped += 1;
+      continue;
+    }
+    const key = sha256Hex(canonicalJson({ input: entry.input, options }));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const source = entry.file.replace(/\.test\.ts$/, '').replace(/[^a-z0-9]+/gi, '-');
+    const number = (counters.get(source) ?? 0) + 1;
+    counters.set(source, number);
+    cases.push({
+      id: `ref-${source}-${String(number).padStart(4, '0')}`,
+      kind: 'reference-test',
+      input: entry.input,
+      options,
+      probeSeed: Number.parseInt(key.slice(0, 8), 16),
+    });
+  }
+  return { cases, skipped };
+}
+
+/**
+ * The 06 §11 budget workload (50 tasks, 14 days, 3 policies), as in
+ * `test/performance.test.ts`: the largest input of a pack.
+ */
+function budgetWorkloadCase(): OracleCase {
+  const tasks: Task[] = [];
+  for (let index = 0; index < 50; index += 1) {
+    tasks.push({
+      id: `T${String(index).padStart(2, '0')}`,
+      dueAt: '2026-11-23T00:00:00Z',
+      estimate: { p50Min: 60, p90Min: 60 },
+      splittable: true,
+      minSessionMin: 30,
+      maxSessionMin: 120,
+      priority: ((index % 4) + 1) as 1 | 2 | 3 | 4,
+      dependsOn: [],
+      preferredWindows: index % 3 === 0 ? ['morning'] : [],
+    });
+  }
+  return {
+    id: 'budget-workload',
+    kind: 'generated',
+    input: {
+      now: '2026-11-09T00:00:00Z',
+      timeZone: 'Asia/Seoul',
+      horizon: { start: '2026-11-09T00:00:00Z', end: '2026-11-23T00:00:00Z' },
+      tasks,
+      availability: ([1, 2, 3, 4, 5] as const).map((weekday) => ({
+        weekday,
+        startLocal: '08:00',
+        endLocal: '18:00',
+        kind: 'work' as const,
+      })),
+      exceptions: [],
+      commitments: [],
+      lockedBlocks: [],
+      prefs: {
+        maxDailyFocusMin: 480,
+        breakAfterMin: 240,
+        breakMin: 15,
+        riskLevel: 'p50',
+        dayStartLocal: '00:00',
+        dayEndLocal: '24:00',
+      },
+      seed: 50,
+    },
+    options: { policies: [...POLICIES], seed: 50 },
+    probeSeed: 0x0b0d_6e75,
+  };
 }
 
 function generatedCases(masterSeed: number, count: number): OracleCase[] {
@@ -914,7 +1022,15 @@ function partitionPrimitives(): unknown[] {
 
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
-  const cases = [...goldenCases(), ...generatedCases(args.seed, args.count)];
+  const corpus = args.corpus === null ? { cases: [], skipped: 0 } : corpusCases(args.corpus);
+  // The budget workload is large: it goes into the big packs, not the
+  // committed sample.
+  const cases = [
+    ...goldenCases(),
+    ...corpus.cases,
+    ...(args.corpus === null ? [] : [budgetWorkloadCase()]),
+    ...generatedCases(args.seed, args.count),
+  ];
   const header = {
     format: FORMAT,
     formatVersion: FORMAT_VERSION,
@@ -945,7 +1061,8 @@ function main(): void {
   for (const testCase of cases) kinds.set(testCase.kind, (kinds.get(testCase.kind) ?? 0) + 1);
   console.log(
     `wrote ${file}: ${cases.length} cases (${[...kinds].map(([kind, n]) => `${kind} ${n}`).join(', ')}), ` +
-      `${Math.round(Buffer.byteLength(text) / 1024)} KiB, tzdata ${header.oracle.tzdata}`,
+      `${Math.round(Buffer.byteLength(text) / 1024)} KiB, tzdata ${header.oracle.tzdata}` +
+      (args.corpus === null ? '' : `; ${corpus.skipped} corpus input(s) left out as not portable`),
   );
 }
 

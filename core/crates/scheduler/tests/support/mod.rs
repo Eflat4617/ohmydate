@@ -7,6 +7,7 @@
 pub mod minute_oracle;
 pub mod packs;
 pub mod property;
+pub mod scenarios;
 pub mod templates;
 
 use ohmydate_scheduler::types::{

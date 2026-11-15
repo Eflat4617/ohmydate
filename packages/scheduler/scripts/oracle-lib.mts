@@ -42,7 +42,7 @@ export function iso(epochMs: number): string {
 
 export interface OracleCase {
   readonly id: string;
-  readonly kind: 'golden' | 'generated' | 'replan' | 'invalid';
+  readonly kind: 'golden' | 'generated' | 'replan' | 'invalid' | 'reference-test';
   readonly input: ScheduleInput;
   readonly options: GenerateOptions | null;
   /** Seeds the validator probes of this case. */
@@ -166,6 +166,114 @@ export function evaluate(testCase: OracleCase): Record<string, unknown> {
     probes,
     resultHash: sha256Hex(canonicalJson(result)),
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasOnly(value: unknown, required: readonly string[], optional: readonly string[] = []): boolean {
+  return (
+    isRecord(value) &&
+    required.every((key) => value[key] !== undefined) &&
+    Object.keys(value).every((key) => required.includes(key) || optional.includes(key))
+  );
+}
+
+/** No NaN, Infinity or `undefined` array element anywhere: JSON would change them. */
+export function survivesJson(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((entry) => entry !== undefined && survivesJson(entry));
+  if (isRecord(value)) return Object.values(value).every((entry) => entry === undefined || survivesJson(entry));
+  return value === null || typeof value === 'string' || typeof value === 'boolean';
+}
+
+/**
+ * True when an input can be given to the Rust port as it is: it survives
+ * JSON, and it has the shape `ScheduleInput::from_json` reads (blueprint 15
+ * §5.1) — closed string sets hold known values, and tasks, estimates,
+ * availability rules, exceptions and preferences carry no field the
+ * reference would hash but the port does not know. Tests that probe the
+ * reference with NaN, `undefined` holes or made-up enum values are left out.
+ */
+export function isPortableInput(input: unknown, options: unknown): input is ScheduleInput {
+  if (!survivesJson(input) || !survivesJson(options)) return false;
+  if (!isRecord(input) || !Array.isArray(input['tasks'])) return false;
+  const text = (value: unknown): boolean => typeof value === 'string';
+  const blocks = (value: unknown): boolean =>
+    Array.isArray(value) &&
+    value.every((block) => isRecord(block) && text(block['taskId']) && text(block['start']) && text(block['end']));
+  const oneOf = (value: unknown, allowed: readonly string[]): boolean =>
+    typeof value === 'string' && allowed.includes(value);
+  const numbers = (record: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []): boolean =>
+    required.every((key) => typeof record[key] === 'number') &&
+    optional.every((key) => record[key] === undefined || typeof record[key] === 'number');
+  const prefs = input['prefs'];
+  const horizon = input['horizon'];
+  return (
+    text(input['now']) &&
+    text(input['timeZone']) &&
+    typeof input['seed'] === 'number' &&
+    isRecord(horizon) &&
+    text(horizon['start']) &&
+    text(horizon['end']) &&
+    input['tasks'].every(
+      (task) =>
+        hasOnly(
+          task,
+          ['id', 'estimate', 'splittable', 'minSessionMin', 'maxSessionMin', 'priority', 'dependsOn'],
+          ['dueAt', 'earliestStartAt', 'remainingMin', 'bufferBeforeDueMin', 'preferredWindows', 'autoSplit'],
+        ) &&
+        hasOnly(task['estimate'], ['p50Min', 'p90Min']) &&
+        isRecord(task) &&
+        isRecord(task['estimate']) &&
+        numbers(task['estimate'], ['p50Min', 'p90Min']) &&
+        numbers(task, ['minSessionMin', 'maxSessionMin', 'priority'], ['remainingMin', 'bufferBeforeDueMin']) &&
+        text(task['id']) &&
+        (task['dueAt'] === undefined || text(task['dueAt'])) &&
+        (task['earliestStartAt'] === undefined || text(task['earliestStartAt'])) &&
+        typeof task['splittable'] === 'boolean' &&
+        Array.isArray(task['dependsOn']) &&
+        task['dependsOn'].every(text) &&
+        (task['preferredWindows'] === undefined ||
+          (Array.isArray(task['preferredWindows']) &&
+            task['preferredWindows'].every((window) => oneOf(window, ['morning', 'afternoon', 'evening'])))) &&
+        (task['autoSplit'] === undefined || oneOf(task['autoSplit'], ['break_after', 'daily_cap'])),
+    ) &&
+    Array.isArray(input['availability']) &&
+    input['availability'].every(
+      (rule) =>
+        hasOnly(rule, ['weekday', 'startLocal', 'endLocal', 'kind']) &&
+        isRecord(rule) &&
+        typeof rule['weekday'] === 'number' &&
+        text(rule['startLocal']) &&
+        text(rule['endLocal']) &&
+        oneOf(rule['kind'], ['work', 'focus']),
+    ) &&
+    Array.isArray(input['exceptions']) &&
+    input['exceptions'].every(
+      (exception) =>
+        hasOnly(exception, ['date', 'kind'], ['startLocal', 'endLocal']) &&
+        isRecord(exception) &&
+        text(exception['date']) &&
+        (exception['startLocal'] === undefined || text(exception['startLocal'])) &&
+        (exception['endLocal'] === undefined || text(exception['endLocal'])) &&
+        oneOf(exception['kind'], ['off', 'extra']),
+    ) &&
+    Array.isArray(input['commitments']) &&
+    input['commitments'].every((entry) => isRecord(entry) && text(entry['start']) && text(entry['end'])) &&
+    blocks(input['lockedBlocks']) &&
+    (input['existingBlocks'] === undefined || blocks(input['existingBlocks'])) &&
+    (input['affectedTaskIds'] === undefined ||
+      (Array.isArray(input['affectedTaskIds']) && input['affectedTaskIds'].every(text))) &&
+    hasOnly(prefs, ['maxDailyFocusMin', 'breakAfterMin', 'breakMin', 'riskLevel', 'dayStartLocal', 'dayEndLocal']) &&
+    isRecord(prefs) &&
+    numbers(prefs, ['maxDailyFocusMin', 'breakAfterMin', 'breakMin']) &&
+    text(prefs['dayStartLocal']) &&
+    text(prefs['dayEndLocal']) &&
+    oneOf(prefs['riskLevel'], ['p50', 'p90']) &&
+    (options === null || options === undefined || isRecord(options))
+  );
 }
 
 /**

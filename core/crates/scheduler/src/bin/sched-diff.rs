@@ -7,8 +7,9 @@
 //! { "input": { … ScheduleInput … }, "options": null, "plans": [[{ "taskId": "…", "start": "…", "end": "…" }]] }
 //! ```
 //!
-//! and writes what the ported layers compute for it (`replay::replay`) to
-//! standard output. `packages/scheduler/scripts/shrink-oracle.mts` drives it
+//! and writes what the scheduler computes for it (`replay::replay`:
+//! `inputIssues`, `slots`, `deficit`, `result`, `resultHash`, `validation`
+//! and the verdicts on `plans`) to standard output. `packages/scheduler/scripts/shrink-oracle.mts` drives it
 //! to minimise an input on which the two implementations differ.
 //!
 //! Exit codes: 0 written, 2 the document could not be read. Messages name a

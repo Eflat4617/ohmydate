@@ -23,12 +23,17 @@ Large packs are not committed. They are generated into `core/target/oracle/`
 and read through `OHMYDATE_ORACLE_DIR`:
 
 ```sh
-corepack pnpm run core:diff                                  # 2,000 cases, seed 20261113
+corepack pnpm run core:diff                                  # 2,000 seeded cases (seed 20261113) + the reference tests' inputs
 ORACLE_COUNT=10000 corepack pnpm run core:diff               # the cut-over gate (15 §7.7)
 ORACLE_SEED=7 ORACLE_COUNT=2000 corepack pnpm run core:diff  # another stream
 ```
 
-Seeds used for the stage gates so far (2,000 cases each): `20261113`.
+`core:diff` first runs the reference test suite once (`core:harvest`) and
+records every input its tests give to `generate` — about 1,560 inputs from
+14 test files, the scenarios the reference was fixed against. They become
+`reference-test` cases next to the seeded ones.
+
+Seeds used for the stage gates so far (2,000 seeded cases each): `20261113`.
 
 The same seed and count give the same pack on the same Node version. After a
 change to the exporter or to the reference, regenerate `sample.json` and

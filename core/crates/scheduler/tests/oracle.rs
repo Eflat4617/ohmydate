@@ -9,8 +9,9 @@
 //! Layers, lowest first — a mismatch in one explains mismatches above it:
 //! primitives → input round trip → `inputHash` → `slots` → `inputIssues` →
 //! `deficit` → `validation` and `probes` (the validator on the reference's
-//! candidates and on deliberately broken plans). `result` follows with the
-//! generator.
+//! candidates and on deliberately broken plans) → `result`, itself compared
+//! in layers: candidates and their policies → blocks → metrics →
+//! explanation → diversity note → the rest (`resultHash`).
 
 // Test code: a failed unwrap is a failed test, and the layer numbers are
 // printed for the task report (`cargo test -- --nocapture`).
@@ -20,6 +21,7 @@ mod support;
 
 use ohmydate_scheduler::canonical::{canonical_json, sha256_hex};
 use ohmydate_scheduler::explain::deficit;
+use ohmydate_scheduler::generate::generate;
 use ohmydate_scheduler::input_hash::{input_hash, input_hash_of};
 use ohmydate_scheduler::prng::Prng;
 use ohmydate_scheduler::replay::{audit, history_blocks, read_plan, replay};
@@ -479,6 +481,126 @@ fn the_validator_agrees_on_deliberately_broken_plans() {
     tally.finish(100);
 }
 
+/// The first layer of a generated result that differs from the recorded
+/// one, with the place of the difference.
+fn result_difference(actual: &Value, expected: &Value) -> Option<(&'static str, String)> {
+    let policies = |result: &Value| -> Vec<Value> {
+        array(&result["candidates"], "candidates")
+            .iter()
+            .map(|candidate| candidate["policy"].clone())
+            .collect()
+    };
+    if let Some(difference) = first_difference(
+        &Value::Array(policies(actual)),
+        &Value::Array(policies(expected)),
+    ) {
+        return Some(("candidates", difference));
+    }
+    let per_candidate = |layer: &'static str, fields: &[&str]| {
+        for (index, (ours, theirs)) in array(&actual["candidates"], "candidates")
+            .iter()
+            .zip(array(&expected["candidates"], "candidates"))
+            .enumerate()
+        {
+            for field in fields {
+                if let Some(difference) = first_difference(&ours[*field], &theirs[*field]) {
+                    return Some((
+                        layer,
+                        format!(
+                            "{} /candidates/{index}/{field}{difference}",
+                            theirs["policy"]
+                        ),
+                    ));
+                }
+            }
+        }
+        None
+    };
+    per_candidate("blocks", &["blocks"])
+        .or_else(|| {
+            per_candidate(
+                "metrics",
+                &["metrics", "feasible", "deficitMin", "capacityDeficitMin"],
+            )
+        })
+        .or_else(|| per_candidate("explanation", &["explanation", "explanationItems"]))
+        .or_else(|| {
+            ["diversityNote", "diversityNoteItems"]
+                .iter()
+                .find_map(|field| {
+                    let absent = Value::Null;
+                    first_difference(
+                        actual.get(*field).unwrap_or(&absent),
+                        expected.get(*field).unwrap_or(&absent),
+                    )
+                    .map(|difference| ("diversity", format!("/{field}{difference}")))
+                })
+        })
+        .or_else(|| first_difference(actual, expected).map(|difference| ("rest", difference)))
+}
+
+/// A replan is an input that carries blocks of an earlier plan, whichever
+/// way the exporter made it.
+fn is_replan(case: &Value) -> bool {
+    case["input"]["existingBlocks"]
+        .as_array()
+        .is_some_and(|blocks| !blocks.is_empty())
+}
+
+/// Generates every wanted case and compares with the recorded result.
+fn check_results(layer: &'static str, wanted: impl Fn(&Value) -> bool, at_least: usize) {
+    let mut tally = Tally::new(layer);
+    let mut by_layer: Vec<(&'static str, usize)> = Vec::new();
+    let (mut candidates, mut feasible) = (0, 0);
+    for pack in packs() {
+        for case in pack.cases() {
+            if !wanted(&case) {
+                continue;
+            }
+            let (input, options) = typed(&case);
+            let actual = generate(&input, &options)
+                .unwrap_or_else(|error| panic!("{} {}: {error}", pack.name, case["id"]))
+                .to_json();
+            for candidate in array(&case["result"]["candidates"], "candidates") {
+                candidates += 1;
+                feasible += usize::from(candidate["feasible"] == true);
+            }
+            let difference = result_difference(&actual, &case["result"]);
+            if let Some((result_layer, _)) = &difference {
+                match by_layer.iter_mut().find(|(known, _)| known == result_layer) {
+                    Some(entry) => entry.1 += 1,
+                    None => by_layer.push((result_layer, 1)),
+                }
+            }
+            tally.check(difference.map(|(result_layer, place)| {
+                format!("{} {} [{result_layer}] {place}", pack.name, case["id"])
+            }));
+            // The hash is the definition of "the same result".
+            let hash = sha256_hex(&canonical_json(&actual));
+            tally.check((case["resultHash"] != hash.as_str()).then(|| {
+                format!(
+                    "{} {} resultHash {hash} != {}",
+                    pack.name, case["id"], case["resultHash"]
+                )
+            }));
+        }
+    }
+    println!(
+        "oracle layer {layer}: {candidates} candidate(s), {feasible} feasible; mismatching cases by first differing layer: {by_layer:?}"
+    );
+    tally.finish(at_least);
+}
+
+#[test]
+fn new_plans_match_the_reference() {
+    check_results("result (new plans)", |case| !is_replan(case), 46);
+}
+
+#[test]
+fn replans_match_the_reference() {
+    check_results("result (replans)", is_replan, 4);
+}
+
 #[test]
 fn replaying_a_case_gives_the_recorded_layers() {
     // The path `sched-diff` and the shrinker use: JSON in, JSON out.
@@ -491,7 +613,14 @@ fn replaying_a_case_gives_the_recorded_layers() {
                 .collect();
             let output = replay(&case["input"], &case["options"], &plans)
                 .unwrap_or_else(|error| panic!("{} {}: {error}", pack.name, case["id"]));
-            for layer in ["inputIssues", "slots", "deficit"] {
+            for layer in [
+                "inputIssues",
+                "slots",
+                "deficit",
+                "result",
+                "resultHash",
+                "validation",
+            ] {
                 tally.check(
                     first_difference(&output[layer], &case[layer]).map(|difference| {
                         format!("{} {} replay {layer}{difference}", pack.name, case["id"])
