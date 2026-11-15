@@ -790,6 +790,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename or archive a project
+         * @description Changes the title and/or the archived flag of a project the caller owns. An empty body changes nothing and answers 200 with the current project and its current ETag. The Inbox (kind "inbox") cannot be archived: 422 validation_failed with errors[{path: "archived"}]; it can be renamed and stays the Inbox. An archived project is renamed only by a patch that also brings it back (archived: false); otherwise 422 validation_failed with errors[{path: "title"}]. Archiving does not delete, move or change the tasks in the project, and archived: false brings it back. There is no delete operation.
+         */
+        patch: operations["updateProject"];
+        trace?: never;
+    };
     "/push-subscriptions": {
         parameters: {
             query?: never;
@@ -2647,6 +2667,10 @@ export interface components {
         };
         ProjectCreate: {
             title: string;
+        };
+        ProjectIdParams: {
+            /** Format: uuid */
+            id: string;
         };
         ProjectPatch: {
             archived?: boolean;
@@ -7352,6 +7376,107 @@ export interface operations {
             };
             /** @description Domain validation failed */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    updateProject: {
+        parameters: {
+            query?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectPatch"];
+            };
+        };
+        responses: {
+            /** @description Updated project */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unauthenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description State conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Version precondition failed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Domain validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description If-Match header required */
+            428: {
                 headers: {
                     [name: string]: unknown;
                 };

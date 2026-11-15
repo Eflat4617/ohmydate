@@ -35,6 +35,12 @@ the `Origin` check.
 The `coverage` test probes all contract operations and fails when the core
 serves one that has no entry (unported operations answer 501, dropped ones 404).
 
+`projects.test.ts` holds what is specific to `updateProject` (FOLD-01): the
+Inbox is never archived but can be renamed, an empty patch is a no-op, an
+archived project is renamed only together with bringing it back, archiving
+leaves the tasks alone. `services/api/test/project-update.test.ts` pins the
+same answers for the TypeScript API.
+
 `lifecycle.test.ts` covers the process: ready file (0600, removed on exit),
 single instance (exit 3), usage errors (exit 2), restart durability including
 stored idempotent responses, and a fresh launch token per start.

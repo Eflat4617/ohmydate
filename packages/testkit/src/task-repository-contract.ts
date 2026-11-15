@@ -1051,6 +1051,98 @@ export function describeTaskRepositoryContract(
       expect(renamed.title).toBe('Capture');
     });
 
+    // FOLD-01: what `updateProject` relies on in every adapter. Listing an
+    // archived project and renaming one are left out on purpose: Vikunja
+    // hides archived projects from its list and refuses to rename them.
+    it('renames, archives and restores a project for its owner only, one version per change, without touching its tasks', async () => {
+      const project = await createProject(context, context.ownerA, 'project-folder');
+      const task = await createTask(
+        context.repo,
+        context.ownerA,
+        project.id,
+        'Stays in the folder',
+        'task-in-folder',
+      );
+
+      const renamed = await context.projects.update(
+        context.ownerA,
+        project.id,
+        { title: 'Renamed folder' },
+        project.version,
+      );
+      expect(renamed).toMatchObject({
+        id: project.id,
+        ownerId: context.ownerA,
+        title: 'Renamed folder',
+        kind: 'normal',
+        archived: false,
+        version: project.version + 1,
+        createdAt: project.createdAt,
+      });
+
+      await expect(
+        context.projects.update(context.ownerA, project.id, { title: 'Stale' }, project.version),
+      ).rejects.toBeInstanceOf(VersionConflictError);
+      await expect(
+        context.projects.update(context.ownerB, project.id, { title: 'Foreign' }, renamed.version),
+      ).rejects.toBeInstanceOf(NotFoundError);
+      await expect(
+        context.projects.update(context.ownerB, project.id, { archived: true }, renamed.version),
+      ).rejects.toBeInstanceOf(NotFoundError);
+      await expect(
+        context.projects.update(context.ownerA, project.id, { title: '   ' }, renamed.version),
+      ).rejects.toBeInstanceOf(ValidationFailedError);
+      expect(await context.projects.get(context.ownerA, project.id)).toEqual(renamed);
+
+      const archived = await context.projects.update(
+        context.ownerA,
+        project.id,
+        { archived: true },
+        renamed.version,
+      );
+      let restored: Project;
+      try {
+        expect(archived).toMatchObject({
+          id: project.id,
+          title: 'Renamed folder',
+          kind: 'normal',
+          archived: true,
+          version: renamed.version + 1,
+        });
+        expect(await context.projects.get(context.ownerA, project.id)).toEqual(archived);
+        expect(await context.projects.get(context.ownerB, project.id)).toBeNull();
+        // Archiving neither deletes nor moves nor re-versions the tasks.
+        expect(await context.repo.get(context.ownerA, task.id)).toMatchObject({
+          id: task.id,
+          projectId: project.id,
+          title: 'Stays in the folder',
+          status: task.status,
+          version: task.version,
+        });
+      } finally {
+        // Always bring it back: Vikunja refuses the cleanup of tasks in an
+        // archived project.
+        restored = await context.projects.update(
+          context.ownerA,
+          project.id,
+          { title: 'Restored folder', archived: false },
+          archived.version,
+        );
+      }
+      expect(restored).toMatchObject({
+        id: project.id,
+        title: 'Restored folder',
+        archived: false,
+        version: archived.version + 1,
+      });
+      const listed = await context.projects.list(context.ownerA, { limit: 100 });
+      expect(listed.items.find((candidate) => candidate.id === project.id)).toEqual(restored);
+      expect(await context.repo.get(context.ownerA, task.id)).toMatchObject({
+        projectId: project.id,
+        version: task.version,
+      });
+    });
+
     it('cannot create a second Inbox through ProjectCreate', async () => {
       const before = await context.projects.getInbox(context.ownerA);
       await expect(

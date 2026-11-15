@@ -247,6 +247,7 @@ function requestPayload(route: RouteDefinition): Record<string, unknown> | undef
     case 'createProject':
     case 'createTask':
     case 'updateMySettings':
+    case 'updateProject':
     case 'updateTask':
       return { unexpectedField: true };
     case 'createTaskDependency':

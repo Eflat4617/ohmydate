@@ -54,6 +54,32 @@ pub fn insert(connection: &Connection, project: &Project) -> Result<(), StoreErr
     Ok(())
 }
 
+/// Rewrites what a project can change: title, archived flag, version and
+/// `updated_at`. `kind` and `created_at` are never written, so an update can
+/// neither make nor unmake the Inbox. The caller has already checked the
+/// version inside the same transaction.
+pub fn update(connection: &Connection, project: &Project) -> Result<(), StoreError> {
+    let changed = connection.execute(
+        "UPDATE project
+            SET title = ?2, archived = ?3, version = ?4, updated_at = ?5
+          WHERE id = ?1 AND deleted_at IS NULL",
+        (
+            project.id.as_str(),
+            &project.title,
+            project.archived,
+            project.version.get(),
+            project.updated_at.epoch_ms(),
+        ),
+    )?;
+    if changed != 1 {
+        return Err(StoreError::Corrupt {
+            table: "project",
+            column: "id",
+        });
+    }
+    Ok(())
+}
+
 /// A live project by id.
 pub fn get(connection: &Connection, id: &Id) -> Result<Option<Project>, StoreError> {
     connection
@@ -148,6 +174,86 @@ mod tests {
         let second =
             store.write(|transaction| insert(transaction, &sample(2, ProjectKind::Inbox, 20)));
         assert!(matches!(second, Err(StoreError::Sqlite(_))), "{second:?}");
+    }
+
+    #[test]
+    fn an_update_writes_title_archived_version_and_updated_at_and_nothing_else() {
+        let store = Store::open_in_memory().unwrap();
+        let inbox = sample(1, ProjectKind::Inbox, 10);
+        let normal = sample(2, ProjectKind::Normal, 20);
+        store
+            .write(|transaction| {
+                insert(transaction, &inbox)?;
+                insert(transaction, &normal)
+            })
+            .unwrap();
+
+        // `kind` and `created_at` of the value are ignored: only the four
+        // changeable columns reach the row.
+        let changed = Project {
+            title: "renamed".into(),
+            kind: ProjectKind::Inbox,
+            archived: true,
+            version: Version::new(2).unwrap(),
+            created_at: Instant::from_epoch_ms(999).unwrap(),
+            updated_at: Instant::from_epoch_ms(30).unwrap(),
+            ..normal.clone()
+        };
+        store
+            .write(|transaction| update(transaction, &changed))
+            .unwrap();
+        let stored = store.read(|c| get(c, &normal.id)).unwrap().unwrap();
+        assert_eq!(
+            stored,
+            Project {
+                kind: ProjectKind::Normal,
+                created_at: normal.created_at,
+                ..changed
+            }
+        );
+        // The other row, and the one Inbox, are as they were.
+        assert_eq!(store.read(get_inbox).unwrap(), Some(inbox));
+        assert_eq!(store.read(|c| list(c, None, 10)).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn an_update_of_a_missing_project_or_with_a_title_the_schema_refuses_fails() {
+        let store = Store::open_in_memory().unwrap();
+        let normal = sample(2, ProjectKind::Normal, 20);
+        let missing = store.write(|transaction| update(transaction, &normal));
+        assert!(
+            matches!(
+                missing,
+                Err(StoreError::Corrupt {
+                    table: "project",
+                    column: "id"
+                })
+            ),
+            "{missing:?}"
+        );
+        assert_eq!(store.read(|c| get(c, &normal.id)).unwrap(), None);
+
+        store
+            .write(|transaction| insert(transaction, &normal))
+            .unwrap();
+        for title in [String::new(), "x".repeat(201)] {
+            let refused = store.write(|transaction| {
+                update(
+                    transaction,
+                    &Project {
+                        title,
+                        version: Version::new(2).unwrap(),
+                        ..normal.clone()
+                    },
+                )
+            });
+            assert!(matches!(refused, Err(StoreError::Sqlite(_))), "{refused:?}");
+        }
+        assert_eq!(
+            store.read(|c| get(c, &normal.id)).unwrap(),
+            Some(normal),
+            "a refused update leaves the row as it was"
+        );
     }
 
     #[test]

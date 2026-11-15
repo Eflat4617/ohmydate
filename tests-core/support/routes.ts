@@ -65,6 +65,28 @@ async function oneTask(core: Core): Promise<Prepared> {
   return { params: { id: task.id }, version: task.version };
 }
 
+interface ProjectDto {
+  readonly id: string;
+  readonly version: number;
+}
+
+/** Creates a normal project (a folder) through the API and returns it. */
+export async function createProject(core: Core, title: string): Promise<ProjectDto> {
+  const response = await core.request('POST', `${API_PREFIX}/projects`, {
+    headers: { 'idempotency-key': newIdempotencyKey() },
+    body: { title },
+  });
+  if (response.status !== 201) {
+    throw new Error(`could not create a project: ${response.status} ${JSON.stringify(response.body)}`);
+  }
+  return response.body as ProjectDto;
+}
+
+async function oneProject(core: Core): Promise<Prepared> {
+  const project = await createProject(core, 'parity folder');
+  return { params: { id: project.id }, version: project.version };
+}
+
 /**
  * Operations served by the Rust core, in the order they were ported.
  * The suite fails when the core serves an operation that is missing here.
@@ -159,6 +181,15 @@ export const portedRoutes: readonly RouteEntry[] = [
     },
     body: (prepared) => ({ dependsOnTaskId: prepared.data?.['first'] }),
     otherBody: (prepared) => ({ dependsOnTaskId: prepared.data?.['second'] }),
+  },
+  // FOLD-01 — rename and archive a folder. Its own rules: `projects.test.ts`.
+  {
+    operationId: 'updateProject',
+    successStatus: 200,
+    etag: 'version',
+    prepare: oneProject,
+    body: () => ({ title: 'Renamed folder', archived: true }),
+    otherBody: () => ({ title: 'Renamed differently' }),
   },
 ];
 
