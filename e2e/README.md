@@ -278,7 +278,7 @@ Flow, all in the UI unless noted:
    lists one succeeded call with the same section hash.
 5. Create and approve a plan for the goal (API helpers). Starting a focus
    session from 오늘 (on 개요) switches to the focus layout, where RelatedNotes
-   lists the note (*이 프로젝트*, titles only). The toast's *되돌리기* restores
+   lists the note (*이 폴더*, titles only). The toast's *되돌리기* restores
    개요.
 
 A second test scans every notes screen with axe at 1280×860 and 390×844

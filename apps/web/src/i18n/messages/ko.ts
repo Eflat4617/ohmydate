@@ -4,7 +4,7 @@ import { plural } from '../types';
 
 /**
  * Korean UI copy (default locale). Glossary, used everywhere:
- *   오늘 (Today) · 인박스 (Inbox) · 작업 (task) · 프로젝트 · 알림 · 약속 (commitment)
+ *   오늘 (Today) · 인박스 (Inbox) · 작업 (task) · 폴더 (a project in the code and the API) · 알림 · 약속 (commitment)
  *   가용 시간 (availability) · 집중 / 집중 세션 (focus) · 몰입 모드 (calm mode)
  *   계획 세우기 (the plan flow: 목표 → 질문 → 단계 → 일정안 → 확정) · 일정안 (candidate schedule)
  *   블록 (time block) · 여유 (slack) · 위험도 (risk) · 축소 / 재배치
@@ -60,7 +60,7 @@ export const ko = {
     closeMore: '메뉴 닫기',
     // Screens under a place: the top bar says "place / screen".
     crumbTask: '작업',
-    crumbProject: '프로젝트',
+    crumbProject: '폴더',
     crumbTimer: '타이머',
     crumbReplan: '다시 맞추기',
     crumb: '현재 위치: {place}',
@@ -77,7 +77,7 @@ export const ko = {
     views: {
       label: '할 일 보기',
       inbox: '인박스',
-      projects: '프로젝트',
+      projects: '폴더',
     },
     toPlan: '계획에 넣기',
   },
@@ -375,7 +375,7 @@ export const ko = {
       title: '작업 기록',
       caption: '이번 주 집중 세션',
       colTask: '작업',
-      colProject: '프로젝트',
+      colProject: '폴더',
       colTime: '시간',
       colFocus: '집중',
       colState: '상태',
@@ -581,7 +581,7 @@ export const ko = {
     openCount: plural({ other: '열린 작업 {count}개' }),
     loading: '작업을 불러오는 중…',
     loadError: '작업을 불러오지 못했어요.',
-    missing: '인박스 프로젝트가 없어요. 프로젝트가 생기기 전에는 작업을 보여 드릴 수 없어요.',
+    missing: '인박스가 없어요. 인박스가 생기기 전에는 작업을 보여 드릴 수 없어요.',
     empty: '인박스가 비었어요. 떠오르는 다음 일을 위에 적어 보세요.',
     // HOLO-02: the one disclosure 말로 적기 is folded under.
     parseFold: '말로 여러 개 적기',
@@ -655,20 +655,20 @@ export const ko = {
     fallbackTitle: '폴더',
     taskCount: plural({ other: '작업 {count}개' }),
     tasksLoading: '작업을 불러오는 중…',
-    tasksLoadError: '프로젝트 작업을 불러오지 못했어요.',
-    tasksEmpty: '이 프로젝트에는 아직 작업이 없어요.',
+    tasksLoadError: '폴더의 작업을 불러오지 못했어요.',
+    tasksEmpty: '이 폴더에는 아직 작업이 없어요.',
     tabs: {
-      label: '프로젝트 보기',
+      label: '폴더 보기',
       tasks: '작업',
       notes: '노트',
     },
     notes: {
-      title: '이 프로젝트의 노트',
-      lede: '이 프로젝트에 연결한 노트예요.',
+      title: '이 폴더의 노트',
+      lede: '이 폴더에 연결한 노트예요.',
       loading: '노트를 불러오는 중…',
-      loadError: '프로젝트 노트를 불러오지 못했어요.',
-      empty: '이 프로젝트에 연결된 노트가 없어요.',
-      newNote: '이 프로젝트에 새 노트',
+      loadError: '폴더의 노트를 불러오지 못했어요.',
+      empty: '이 폴더에 연결된 노트가 없어요.',
+      newNote: '이 폴더에 새 노트',
     },
   },
 
@@ -1264,7 +1264,7 @@ export const ko = {
       list: '관련 노트 목록',
       via: {
         task: '이 작업',
-        project: '이 프로젝트',
+        project: '이 폴더',
         goal: '이 계획',
       },
       openAll: '노트 모두 보기',
@@ -1456,7 +1456,7 @@ export const ko = {
     },
     links: {
       title: '연결 대상',
-      lede: '노트를 계획 목표·프로젝트·작업에 연결하면 그 화면과 집중 모드의 관련 노트에 보여요.',
+      lede: '노트를 계획 목표·폴더·작업에 연결하면 그 화면과 집중 모드의 관련 노트에 보여요.',
       empty: '아직 연결된 대상이 없어요.',
       saveFirst: '노트를 먼저 저장하면 연결할 수 있어요.',
       add: '연결 추가',
@@ -1464,7 +1464,7 @@ export const ko = {
       removeAria: '{kind} “{target}” 연결 해제',
       kind: {
         goal: '계획 목표',
-        project: '프로젝트',
+        project: '폴더',
         task: '작업',
       },
       unknownTarget: '찾을 수 없는 대상',
@@ -1598,7 +1598,7 @@ export const ko = {
       status: '상태',
       due: '마감',
       noDue: '마감 없음',
-      project: '프로젝트',
+      project: '폴더',
       description: '작업 설명',
       descriptionHelp: '짧은 설명이에요. 서식 없이 글자만 보여 줘요.',
       notesTitle: '연결된 노트',
@@ -1912,7 +1912,7 @@ export const ko = {
     },
     existing: {
       title: '이미 담아 둔 작업으로',
-      body: '인박스나 프로젝트에 있는 작업을 골라 바로 일정안을 만들어요.',
+      body: '인박스나 폴더에 있는 작업을 골라 바로 일정안을 만들어요.',
       open: '작업 고르기',
     },
   },
@@ -2275,7 +2275,7 @@ export const ko = {
 
   // CAL-01: the month page of the planner.
   // HOLO-02: 작업 상세 — the task at the left, what belongs to it at the right.
-  // The fields' own words (상태, 마감, 프로젝트, 설명) are `notes.task.*` (M6-03).
+  // The fields' own words (상태, 마감, 폴더, 설명) are `notes.task.*` (M6-03).
   taskDetail: {
     startFocus: '집중 시작',
     blocks: {
@@ -2325,9 +2325,9 @@ export const ko = {
       title: '기록',
       week: '기록을 볼 주',
       weekAnnounce: '{range} 기록',
-      filterProject: '프로젝트로 거르기',
+      filterProject: '폴더로 거르기',
       filterState: '상태로 거르기',
-      allProjects: '모든 프로젝트',
+      allProjects: '모든 폴더',
       allStates: '모든 상태',
       caption: '{range} 집중 세션',
       subtotal: '이날 합계',

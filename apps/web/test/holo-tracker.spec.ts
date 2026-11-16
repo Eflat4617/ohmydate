@@ -451,7 +451,7 @@ describe('타임 트래커 — 기록', () => {
     expect(wrapper.get('[data-tracker-table] caption').text()).toBe('11월 9일 (월) ~ 11월 15일 (일) 집중 세션');
     expect(wrapper.findAll('[data-tracker-table] thead th').map((head) => head.text())).toEqual([
       '작업',
-      '프로젝트',
+      '폴더',
       '시간',
       '집중',
       '상태',
@@ -483,7 +483,7 @@ describe('타임 트래커 — 기록', () => {
     seedWeek();
     const { wrapper } = await mountTracker();
     const project = wrapper.get('[data-filter-project]');
-    expect(project.findAll('option').map((option) => option.text())).toEqual(['모든 프로젝트', '인박스', '졸업 논문']);
+    expect(project.findAll('option').map((option) => option.text())).toEqual(['모든 폴더', '인박스', '졸업 논문']);
     await project.setValue(SAMPLE_PROJECT_ID);
     expect(dayGroups(wrapper)).toEqual([
       { date: '2026-11-14', subtotal: '이날합계1시간2분', rows: ['졸업 논문 3장 초고'] },

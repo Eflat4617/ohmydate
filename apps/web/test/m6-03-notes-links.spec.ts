@@ -54,7 +54,7 @@ describe('note links (07 §3.5 연결 대상)', () => {
     const task = seededTask();
     const app = await open(`/notes/${NOTE_THESIS_ID}`, '[data-note-links]');
     await vi.waitFor(() => expect(app.wrapper.get('[data-note-links]').text()).toContain('졸업 논문'));
-    expect(app.wrapper.get('[data-note-link="project"]').text()).toContain('프로젝트');
+    expect(app.wrapper.get('[data-note-link="project"]').text()).toContain('폴더');
 
     await app.wrapper.get('[data-note-link-add]').trigger('click');
     await settle();
@@ -160,7 +160,7 @@ describe('Project detail — 노트 탭', () => {
   it('shows the empty state for a project without notes', async () => {
     const app = await open(`/projects/${INBOX_PROJECT_ID}?tab=notes`, '[data-project-notes]');
     await vi.waitFor(() => expect(app.wrapper.find('[data-linked-notes-empty]').exists()).toBe(true));
-    expect(app.wrapper.get('[data-project-notes]').text()).toContain('이 프로젝트에 연결된 노트가 없어요.');
+    expect(app.wrapper.get('[data-project-notes]').text()).toContain('이 폴더에 연결된 노트가 없어요.');
   });
 });
 
@@ -395,7 +395,7 @@ describe('RelatedNotes{limit} (07 §2.1, §3.4)', () => {
     const panel = app.wrapper.get('[data-panel="related-notes"]');
     expect(panel.find('[data-related-context]').text()).toBe('“연구 노트 요약” 기준');
     expect(panel.findAll('[data-related-note]')[0]?.text()).toContain('이 작업');
-    expect(panel.findAll('[data-related-note]')[1]?.text()).toContain('이 프로젝트');
+    expect(panel.findAll('[data-related-note]')[1]?.text()).toContain('이 폴더');
     expect(panel.get('[data-related-note] a').attributes('href')).toBe(`/notes/${NOTE_MEETING_ID}`);
     // Titles only: no note body in the panel.
     expect(panel.text()).not.toContain('회의실 예약');

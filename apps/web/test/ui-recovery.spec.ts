@@ -352,7 +352,7 @@ describe('inbox scoping', () => {
       expect(listTasks).toHaveBeenCalledWith({ projectId: INBOX_PROJECT_ID });
     });
     expect(cursors).toEqual([undefined, 'page-2']);
-    expect(wrapper.text()).not.toContain('인박스 프로젝트가 없어요');
+    expect(wrapper.text()).not.toContain('인박스가 없어요');
 
     listProjects.mockRestore();
     listTasks.mockRestore();
@@ -368,7 +368,7 @@ describe('inbox scoping', () => {
       global: { plugins: [createPinia(), VueQueryPlugin] },
       attachTo: document.body,
     });
-    await waitForText(wrapper, '인박스 프로젝트가 없어요');
+    await waitForText(wrapper, '인박스가 없어요');
 
     expect(wrapper.text()).not.toContain('Unscoped-looking task');
     expect(wrapper.get('#quick-add-title').attributes('disabled')).toBeUndefined();
@@ -376,7 +376,7 @@ describe('inbox scoping', () => {
     await wrapper.get('#quick-add-title').setValue('Recovered capture');
     await wrapper.get('form.quick-add').trigger('submit');
     await waitForText(wrapper, 'Recovered capture');
-    expect(wrapper.text()).not.toContain('인박스 프로젝트가 없어요');
+    expect(wrapper.text()).not.toContain('인박스가 없어요');
 
     wrapper.unmount();
   });

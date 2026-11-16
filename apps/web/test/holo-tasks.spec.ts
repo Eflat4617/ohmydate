@@ -201,7 +201,7 @@ describe('인박스 — the quick add on top, 말로 적기 folded under it', ()
 // what happens when the list cannot be read are in holo-canvas.spec.ts
 // ("folders: dishes on the surface", "many, none, and newly arrived").
 
-describe('프로젝트 상세 — its two views are the system’s segmented control', () => {
+describe('폴더 페이지 (프로젝트 상세) — its two views are the system’s segmented control', () => {
   it('switches 작업 and 노트 with one picked at a time, by click and by arrow key', async () => {
     const { wrapper, router } = await mountView(ProjectDetailView, `/projects/${SAMPLE_PROJECT_ID}`, { id: SAMPLE_PROJECT_ID });
     await vi.waitFor(() => expect(wrapper.findAll('.task-item').length).toBe(2));
@@ -245,7 +245,7 @@ describe('작업 상세 — the task at the left, what belongs to it at the righ
     expect(fields.get('[data-task-due]').text()).toBe('11월 27일 (금) 오후 6:00');
     // The project's name comes from its own lookup: the third field is there once it has answered.
     await vi.waitFor(() => expect(fields.get('[data-task-project]').text()).toBe('졸업 논문'));
-    expect(fields.findAll('dt').map((term) => term.text())).toEqual(['상태', '마감', '프로젝트']);
+    expect(fields.findAll('dt').map((term) => term.text())).toEqual(['상태', '마감', '폴더']);
     expect(fields.get('[data-task-project]').attributes('href')).toBe(`/projects/${SAMPLE_PROJECT_ID}`);
     // Developer-facing detail is not on the page at all.
     const text = wrapper.text();
