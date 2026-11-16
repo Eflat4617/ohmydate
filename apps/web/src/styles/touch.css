@@ -1,0 +1,73 @@
+/* Under a finger (HOLO-07). What a mouse reaches at 24 to 40px a thumb does
+   not: on a coarse pointer every tap target is the hit target (44px) at least
+   in both directions, wherever the layout lets it. The buttons, the segmented
+   tiles, the chips and the menu rows take theirs in primitives.css; these are
+   the ones the touch walk (scripts/touch-walk.mjs) found still short — a
+   field, a link that stands alone, a title that is a row's way in. A link
+   inside a sentence stays text. Nothing here changes what a mouse sees. */
+@media (pointer: coarse) {
+  /* A field is as tall as a button. */
+  input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']),
+  select {
+    min-height: var(--hit-target);
+  }
+
+  /* The capture bar's field is its form's box: the bare input inside fills it, and
+     a draft's title — a field that looks like words until it is pointed at —
+     shows that it is one, since a finger cannot point without pressing. */
+  .capture-input,
+  .glass .capture-input,
+  .capture-row-title,
+  .glass .capture-row-title {
+    min-height: var(--hit-target);
+  }
+
+  .capture-row-title,
+  .glass .capture-row-title {
+    border-color: var(--color-line-strong);
+    background: var(--glass-well);
+  }
+
+  /* A disclosure keeps its marker (it stays a list item); the line grows around its words. */
+  summary {
+    padding-block: max(0px, (var(--hit-target) - 1lh) / 2);
+  }
+
+  /* The top bar: the mark that leads to 개요, the account, the now pill's start. */
+  .topbar-brand,
+  .topbar-user-button {
+    align-items: center;
+    justify-content: center;
+    min-width: var(--hit-target);
+    min-height: var(--hit-target);
+  }
+
+  .now-pill-start {
+    width: var(--hit-target);
+    min-height: var(--hit-target);
+    margin: 0;
+  }
+
+  /* A link that stands on a line of its own: the line is the target. */
+  .layout-panel-link,
+  .ai-link,
+  .todo-list-title a,
+  .breadcrumb a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--hit-target);
+  }
+
+  /* A title that opens its row: as tall as the row it opens. */
+  .today-agenda-title,
+  .month-agenda-title,
+  .task-title-link {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--hit-target);
+  }
+
+  .insights-switch {
+    min-height: var(--hit-target);
+  }
+}

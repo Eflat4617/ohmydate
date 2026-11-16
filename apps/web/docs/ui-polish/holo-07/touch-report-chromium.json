@@ -1,0 +1,30 @@
+{
+  "browser": "chromium",
+  "gestures": "real (browser input pipeline)",
+  "steps": 64,
+  "failing": 0,
+  "findings": [],
+  "under44": [
+    {
+      "screen": "planner-week",
+      "target": "button.wg-item.wg-item--block.wg-item--short[data-item]",
+      "width": 40,
+      "height": 33,
+      "under": false
+    },
+    {
+      "screen": "planner-week",
+      "target": "button.wg-item.wg-item--commitment.wg-item--short[data-item]",
+      "width": 81,
+      "height": 33,
+      "under": false
+    },
+    {
+      "screen": "planner-week",
+      "target": "button.wg-item.wg-item--deadline.wg-item--short[data-item]",
+      "width": 40,
+      "height": 24,
+      "under": false
+    }
+  ]
+}

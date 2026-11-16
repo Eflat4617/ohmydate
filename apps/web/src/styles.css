@@ -7,7 +7,7 @@
  */
 /*
  * OhMyDate stylesheet entry. Order matters:
- *   tokens → base → primitives → charts → shell → screens
+ *   tokens → base → primitives → charts → shell → screens → touch
  * See DESIGN.md for the system rules.
  */
 @import './styles/tokens.css';
@@ -16,3 +16,4 @@
 @import './styles/charts.css';
 @import './styles/shell.css';
 @import './styles/screens.css';
+@import './styles/touch.css';

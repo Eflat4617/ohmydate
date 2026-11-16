@@ -110,6 +110,7 @@ export const ko = {
       nudge: '자리 옮기기',
       arrows: '화살표',
     },
+    touchHint: '눌러서 열고, 길게 눌러 고르고, 길게 누른 채 끌어 옮겨요.',
     inbox: '인박스',
     folderGroup: '폴더 {title}',
     toPlan: '계획에 넣기',

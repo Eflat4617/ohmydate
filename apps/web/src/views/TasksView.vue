@@ -485,6 +485,8 @@ onUnmounted(() => {
         </template>
       </UiBanner>
       <template v-else>
+        <!-- Under a finger the surface's gestures cannot be found by pointing at things: they are said (shown on a coarse pointer only). -->
+        <p v-if="todos.length > 0" class="pond-touch-hint" data-canvas-touch-hint>{{ t('canvas.touchHint') }}</p>
         <TodoCanvas
           v-model:selected="selected"
           :todos="todos"
