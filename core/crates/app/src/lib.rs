@@ -13,6 +13,7 @@ mod app;
 mod cursor;
 mod error;
 pub mod projects;
+pub mod settings;
 pub mod tasks;
 #[cfg(test)]
 mod testing;

@@ -6,8 +6,14 @@ contract the TypeScript API and the web client use. Design and the cut-over
 numbers: `docs/blueprint/15-DESKTOP-RUST-CORE.md` §7.
 
 ```sh
-corepack pnpm run core:parity    # builds the binary, typechecks, runs the suite
+corepack pnpm run core:parity    # builds the test binary, typechecks, runs the suite
+corepack pnpm run core:build     # only the test binary (cargo feature `test-clock`)
 ```
+
+The suite runs the **test build** of the binary: the one with the cargo
+feature `test-clock`, which adds `--clock-offset-ms`. A build without the
+feature — the default, and what gets packaged — has no such option
+(`cargo test` proves that side: `a_build_that_can_be_packaged_has_no_clock_offset`).
 
 Not part of `pnpm run ci` yet (blueprint 15 §7.6 says when it joins).
 
@@ -41,9 +47,50 @@ archived project is renamed only together with bringing it back, archiving
 leaves the tasks alone. `services/api/test/project-update.test.ts` pins the
 same answers for the TypeScript API.
 
+`settings.test.ts` holds what is specific to `updateMySettings` (RC-10A):
+time zone names are those of the tz database, compared as written; every
+accepted patch is a new version; a consent answer becomes a record with its
+time and provider; a budget patch fills the limit it does not name; amounts
+are kept to the micro-dollar. `services/api/test/llm-settings.test.ts` and
+`auth.test.ts` pin the reference's side.
+
+`web.test.ts` covers the web app the core serves with `--web-dir` and the
+boot hand-off (blueprint 15 §1.3), over a real socket: the document for the
+root and for routes of the app, types and cache rules of files, HEAD,
+404 for missing files, reserved and hostile paths (sent as written — `fetch`
+would tidy `..` away, so the client's `raw()` uses `node:http`), the exact
+launch cookie (never `Secure`), one answer for every wrong token, and that
+the token never reaches the process log. The directory is the fixture of the
+server crate (`core/crates/server/tests/fixtures/web`); the real web app is
+not built in tests.
+
+`ledger.test.ts` keeps the parity ledger `core/PARITY.md` honest (blueprint
+15 §7.5): every TypeScript test file of the reference core has exactly one
+line, every Rust or harness test a line points at exists, "not yet" lines
+wait for a task that is still open, and the totals match the lines. Adding a
+`*.test.ts` under `services/api/test`, `packages/*/test` or `e2e/tests`
+without a ledger line fails this test. `corepack pnpm run core:ledger` runs
+it alone (with `docs.test.ts`, no core process, under a second);
+`LEDGER_WRITE_TOTALS=1` rewrites the totals block.
+
+`schema.test.ts` is the schema verdict comparison (blueprint 15 §2.4, R13):
+for every request schema of the contract it builds a valid instance and
+thousands of one-change variants (`support/samples.ts`), asks Ajv — set up as
+`packages/contracts` sets it up — and the core (the `schema-verdict` binary,
+which calls what the dispatcher calls), and lists every sample the two judge
+differently. A difference is fixed in the core or decided and listed in
+`support/schema-differences.ts`; an unlisted difference fails the test, and
+so does a listed one that is gone, a keyword / format / pattern the generator
+does not know, or a zone name the reference accepts and the core does not.
+The full report goes to `core/target/schema-diff/report.md`.
+`corepack pnpm run core:schema-diff` runs it alone.
+
 `lifecycle.test.ts` covers the process: ready file (0600, removed on exit),
 single instance (exit 3), usage errors (exit 2), restart durability including
-stored idempotent responses, and a fresh launch token per start.
+stored idempotent responses, a fresh launch token per start, and the movable
+clock: with `--clock-offset-ms` every time the core writes (rows, updates,
+the time inside ids) is the wall clock plus the offset, forward or back, and
+an idempotency key expires when a day has passed on that clock.
 
 ## Adding a route (later slices)
 

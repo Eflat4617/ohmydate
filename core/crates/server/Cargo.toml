@@ -14,6 +14,18 @@ workspace = true
 name = "ohmydate-core"
 path = "src/main.rs"
 
+# The core's side of the schema comparison tool (blueprint 15 §11 R13).
+[[bin]]
+name = "schema-verdict"
+path = "src/bin/schema-verdict.rs"
+
+[features]
+# The movable clock for tests: `--clock-offset-ms` of the `ohmydate-core`
+# binary and `system::ShiftedClock`. Off by default, and it must stay off in
+# anything that is packaged: without it the option does not exist, so a
+# shipped app cannot be started on a shifted clock (blueprint 15 §7.3).
+test-clock = []
+
 [dependencies]
 ohmydate-app.workspace = true
 ohmydate-domain.workspace = true

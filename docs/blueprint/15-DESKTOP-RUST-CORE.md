@@ -2,7 +2,7 @@
 
 > 작성 2026-11-13 · Task RC-00 · 결정 근거는 `13-ADR.md` ADR-025.
 > 이 문서는 RC 프로그램(M7)의 기준 계획이다. 표의 수치와 분류는 코드에서 뽑았고, 표 두 개(§2.2, §3.3)는 `tests-core/docs.test.ts`가 계약·마이그레이션과 맞는지 검사한다.
-> "지금 있음"은 RC-00에서 구현해 시험까지 마친 것, 나머지는 계획이다. FOLD-01(2026-11-16)의 `updateProject`도 "지금 있음"이다.
+> "지금 있음"은 구현해 시험까지 마친 것(RC-00, RC-30~33, FOLD-01, RC-10A — 2026-11-16 기준), 나머지는 계획이다.
 
 ## 0. 한눈에 보기
 
@@ -13,6 +13,7 @@
 - RC-00에서 끝낸 것: 이 계획, 워크스페이스 5개 크레이트, owner·프로젝트·작업 API 10개, 스케줄러 포팅의 바닥 층(PRNG·정규 JSON·시간 분할·inputHash)과 TypeScript 오라클 대조, 블랙박스 패리티 하네스.
 - RC-30~33에서 끝낸 것(2026-11-16): 스케줄러 전체(`core/crates/scheduler`). 4,020건에서 TypeScript와 모든 층이 바이트 단위로 같고(불일치 0), 기준 테스트 21개 파일을 원장대로 옮겼다(§5.5). TypeScript 쪽 동작 결함은 나오지 않았다.
 - FOLD-01에서 더한 것(2026-11-16): `updateProject`(`PATCH /projects/{id}`) — 폴더(프로젝트)의 이름 바꾸기와 보관. 계약·TypeScript API·Rust 코어에 함께 넣었다(§11 R11의 예외). 코어가 서빙하는 operation은 이제 11개다.
+- RC-10A에서 더한 것(2026-11-16) — 코어가 웹을 실을 수 있게 됐다: `updateMySettings`(`PATCH /me/settings`: 시간대·로캘·AI 동의·예산; 코어가 서빙하는 operation은 12개), `--web-dir`로 빌드된 웹 앱을 같은 출처에서 서빙하기와 `/__boot`의 실행 쿠키(§1.3), 테스트 빌드의 움직이는 시계(`--clock-offset-ms`, §7.3), 패리티 원장 `core/PARITY.md`와 그것을 지키는 검사(§7.5), 두 검증기의 판정 대조(§2.4), `ci:core`(§7.6). 웹과 E2E 쪽 절반은 RC-10B다(§7.3 끝의 목록).
 
 RC-00에서 측정한 것:
 
@@ -23,8 +24,8 @@ RC-00에서 측정한 것:
 | 코드가 한 번도 읽지 않는 테이블 | `outbox_event`(쓰기 6곳, 읽기 0), `audit_event`(2/0), `estimate_evidence`(1/0), `job`·`inbox_event`·`task_dependency`·`external_provider_mapping`(0/0) |
 | advisory lock 호출 | 11곳 → 0 (프로세스 하나, 쓰기 트랜잭션 하나) |
 | EXCLUDE 제약 위반 처리(`23P01`) | 3곳(승인·Today·재계획) → 트랜잭션 안 코드 검사 |
-| Rust 테스트 (RC-00) | 178개: domain 37, store 27, app 26, scheduler 19 + 오라클 8, server 43 + bin 4 + HTTP 14 |
-| 패리티 하네스 | operation 11개, 테스트 103개 통과(해당 없는 조합 51개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를 더했다 |
+| Rust 테스트 | RC-00: 178개(domain 37, store 27, app 26, scheduler 19 + 오라클 8, server 43 + bin 4 + HTTP 14). RC-10A 뒤: 526개(domain 42, store 34, app 42, scheduler 309, server 99 = 단위 62 + bin 5 + `tests/http.rs` 20 + `tests/web.rs` 12). 서버 크레이트는 테스트 빌드(`test-clock`)로 한 번 더 돈다: 101개 |
+| 패리티 하네스 | operation 12개, 테스트 156개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개), 시계 테스트(141개), 원장 검사 `ledger.test.ts`와 기준 테스트의 두 경우(150개), 판정 대조 `schema.test.ts`(156개)를 더했다 |
 | 오라클 팩 `sample.json` | 27건(golden 15, 생성 9, 재계획 1, 잘못된 입력 2), 211 KiB, 기준 tzdata 2026c vs jiff 2026e — 불일치 0 |
 | 서드파티 크레이트 | 126개(리눅스 그래프). MIT/Apache-2.0/BSD 밖은 4건(§9.4) |
 
@@ -88,7 +89,33 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | Host | `127.0.0.1:<포트>` 또는 `localhost:<포트>`여야 한다(DNS rebinding 차단) | 403 `forbidden` |
 | Origin | 변경 요청에 브라우저가 붙인 `Origin`이 자기 출처가 아니면 거부. 개발용 출처는 `--allow-origin`으로만 추가 | 403 `forbidden` |
 
-웹뷰에 토큰을 넘기는 방법: 셸이 첫 주소로 `http://127.0.0.1:<포트>/__boot?token=<토큰>`을 연다 → 코어가 `Set-Cookie: omd_launch=…; HttpOnly; SameSite=Strict`와 303 `/`로 답한다. 그 뒤로는 전부 같은 출처 요청이다. 토큰은 디스크에 쓰지 않는다(창 없는 바이너리만 `--ready-file`에 0600으로 쓴다). 로그에 남기지 않는다(테스트로 확인).
+웹뷰에 토큰을 넘기는 방법(**있음**, RC-10A): 셸이 첫 주소로 `http://127.0.0.1:<포트>/__boot?token=<토큰>`을 연다 → 코어가 `Set-Cookie: omd_launch=<토큰>; Path=/; HttpOnly; SameSite=Strict`와 303 `/`로 답한다(`Cache-Control: no-store`, `Referrer-Policy: no-referrer` — 주소에 토큰이 들어 있으므로 남기지도 넘기지도 않는다). 그 뒤로는 전부 같은 출처 요청이다. 토큰은 디스크에 쓰지 않는다(창 없는 바이너리만 `--ready-file`에 0600으로 쓴다). 로그에 남기지 않는다: 요청 로그에는 경로도 쿼리도 없다(Rust 통합 테스트와 진짜 바이너리의 stderr 양쪽에서 확인).
+
+- 틀리거나 없는 토큰은 쿠키 없이 401 `unauthenticated`다. 토큰 없는 API 요청이 받는 답과 글자까지 같아서(`traceId` 제외), 토큰이 없었는지 틀렸는지 얼마나 가까웠는지 알 수 없다. 쿠키는 GET에만, 자기 Host 이름으로 온 요청에만 준다.
+- **쿠키에 `Secure`를 붙이지 않는다.** 코어는 127.0.0.1의 평문 HTTP이고 데스크톱 웹뷰는 WebKit인데, WebKit은 `http://127.0.0.1` 페이지가 준 `Secure` 쿠키를 저장하지 않는다(2026-11-16, 이 기계의 Playwright WebKit으로 TypeScript 스택에서 측정: Chromium은 저장하고 WebKit은 버려서 로그인이 붙지 않았다). `Secure`가 붙으면 앱은 부팅한 뒤 첫 요청에서 401이 된다. 코어가 앞으로 내는 어떤 쿠키에도 같은 규칙이다. `Set-Cookie`를 글자 그대로 고정하고 `Secure`가 보이면 실패하는 테스트가 세 곳에 있다(`security.rs`, `tests/web.rs`, `tests-core/web.test.ts`). `Max-Age`도 없다: 쿠키는 웹뷰 세션과, 토큰은 프로세스와 함께 끝난다.
+- 확인(RC-10A): 진짜 `apps/web` 빌드를 코어가 서빙하게 하고 Playwright의 Chromium과 WebKit으로 `/__boot`를 열었다. 두 엔진 모두 쿠키를 저장했고(HttpOnly, Secure 아님, SameSite=Strict, 세션 쿠키 — 스크립트의 `document.cookie`에는 보이지 않는다) `/overview`에 도착했다.
+
+웹 정적 파일(**있음**, RC-10A, `core/crates/server/src/web.rs`): `--web-dir <디렉터리>`를 주면 코어가 빌드된 웹 앱(`vite build` 결과)을 API와 같은 출처로 서빙한다. 주지 않으면 API 밖의 경로는 지금까지처럼 전부 404다.
+
+| 경로 | 답 |
+|---|---|
+| 디렉터리 안의 파일 | 그 파일. 형식은 확장자로 정하고(모르는 확장자는 `application/octet-stream`) `X-Content-Type-Options: nosniff`를 붙인다 |
+| `/`, 그리고 파일 이름이 아닌 경로(`/tasks/<id>`, `/settings/display`, `/tasks/`) | `index.html`. 웹은 history 라우팅을 쓰는 단일 페이지 앱이라 어느 화면 주소로 들어와도 문서를 받아야 한다 |
+| 없는 파일의 이름 — `assets/` 아래 전부, 마지막 마디에 점이 있는 경로(`/favicon.ico`) | 404. 문서로 대신하지 않는다: 낡은 청크 요청에 HTML로 답하면 읽을 수 없는 방식으로 깨진다 |
+| 예약 경로 `/api…`, `/healthz…`, `/readyz…`, `/__…` | 404(코어의 것이다. `/api/v1`은 계약 라우터로 간다) |
+| 디렉터리 안의 평범한 이름이 아닌 경로: `..`·`.`, 빈 마디(`//`), 점으로 시작하는 이름, 이름 안의 `%2f`(인코딩된 `/`)·역슬래시·`:`·제어 문자·NUL, 깨진 `%` 이스케이프, UTF-8이 아닌 바이트 | 404. 디스크를 보지 않는다. 인코딩은 마디로 나눈 **뒤에** 푼다(`%2f`가 구분자가 되지 않는다) |
+| 디렉터리 밖을 가리키는 심볼릭 링크 | 404(실제 경로가 루트 아래인지 확인한다). 디렉터리는 파일이 아니므로 목록을 보여 주는 일이 없다 |
+| GET·HEAD가 아닌 메서드 | 404 |
+
+- 캐시: `assets/` 아래에서 이름이 `<이름>-<8자>.<확장자>` 꼴인 파일(빌드가 내용 해시를 넣은 것)만 `public, max-age=31536000, immutable`. `index.html`은 `no-store`(문서가 지금의 해시 파일 이름을 가리킨다), 나머지는 `no-cache`. 8자가 전부 소문자면 해시로 보지 않는다(`app-settings.js` 같은 손으로 지은 이름을 1년 붙잡지 않도록).
+- 파일은 실행 토큰 없이 받는다. 앱의 코드이지 owner의 데이터가 아니고, 쿠키를 받기 전에 문서가 먼저 떠야 한다. Host 검사는 그대로 적용된다.
+- 보안 헤더(모든 정적 응답): `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Resource-Policy: same-origin`. API 응답의 헤더는 바꾸지 않았다.
+- CSP: `default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`.
+  - `script-src 'self'`가 핵심이다. 페이지는 실행 쿠키로 API를 부르므로 끼어든 스크립트는 owner의 데이터를 전부 갖는다. 인라인 스크립트도 `eval`도 없다 — 빌드에 둘 다 없다(Vue 템플릿은 빌드 때 컴파일되고, three.js의 셰이더는 스크립트가 아니다).
+  - 스타일시트는 빌드의 파일이라 `<style>` 요소는 막고(`style-src 'self'`), `style="…"` 속성만 허용한다(`style-src-attr 'unsafe-inline'`): Vue는 대부분의 스타일을 DOM으로 쓰지만(CSP가 막지 않는다) 큰 정적 블록은 마크업으로 넣기 때문에, 그런 블록의 속성이 패키징된 앱에서만 조용히 사라지는 일을 막는다. `style-src-attr`를 모르는 엔진은 `style-src 'self'`로 떨어지는데 지금 빌드는 그 아래서도 돈다.
+  - `img-src`의 `data:`는 빌드 도구가 4 KiB 밑의 이미지를 스스로 `data:` 주소로 바꾸기 때문이다. 다른 호스트의 주소는 없다: 노트가 원격 이미지를 불러오게 만들 수 없다.
+  - `connect-src 'self'`: 페이지는 API 말고 어디에도 닿지 않는다(LLM·Google은 코어가 부른다).
+- 확인(RC-10A, 테스트로 커밋하지 않은 한 번의 실측): 진짜 빌드(`index-*.js` 1.1 MB, 지연 로드되는 three.js 청크 `glassScene-*.js` 529 kB, Pretendard woff2 2 MB)를 이 정책 아래서 Chromium과 WebKit으로 열어 화면 여덟 곳을 돌았다 — 위반 0, 글꼴·스타일시트·라우트 청크 적용, three.js 청크 import와 WebGL 2 컨텍스트·셰이더 컴파일 성공. 같은 페이지에서 `new Function`, 인라인 `<script>`, 다른 출처의 이미지와 `fetch`는 막혔다. 빌드 산출물에 `createElement("style")`·`eval`·`new Function`·`blob:`·Worker·`data:` 주소가 없는 것도 확인했다. 계약에 없는 operation이 501이라 화면은 대부분 빈 상태·오류 상태였다 — 데이터가 찬 화면의 확인은 RC-10B의 E2E `core` 대상이 한다(웹을 코어가 서빙하게 해야 이 정책 아래서 돈다).
 
 이 방식이 로그인·세션·CSRF·로그인 rate limit을 대신한다. 위협 모델은 "다른 로컬 사용자와 웹 페이지"까지다. 같은 사용자로 도는 악성 프로그램은 데이터 파일을 직접 읽을 수 있으므로 범위 밖이다.
 
@@ -107,7 +134,8 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 요청 한 건이 지나는 순서(TypeScript 코어의 `preValidation` → 검증 → 핸들러 순서와 같다):
 
 ```text
-/healthz·/readyz → Host → 라우트 찾기(없으면 404) → 실행 토큰(401) → Origin(403) → 핸들러 유무(501)
+/healthz·/readyz → Host(403) → /__boot → /api/v1 밖이면: 웹 파일(--web-dir가 있을 때) 또는 404
+→ 라우트 찾기(없으면 404) → 실행 토큰(401) → Origin(403) → 핸들러 유무(501)
 → If-Match(428 없음 / 400 형식) → Idempotency-Key(400) → 경로 파라미터 → 본문 → 쿼리(각 400)
 → 핸들러(blocking 스레드): 멱등 조회 + 유스케이스 + 응답 저장이 한 트랜잭션
 ```
@@ -173,7 +201,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 <!-- route-matrix:start -->
 | operationId | 메서드·경로 | 판정 | 단계 | 차이·이유 |
 |---|---|---|---|---|
-| `getMe` | GET `/me` | 유지(차이) | RC-00 | 하나뿐인 로컬 owner. 쿠키·세션 없음. `email`은 표시용 값. `llm`·`llmProvider`(선택 필드)는 RC-70에서 채운다 |
+| `getMe` | GET `/me` | 유지(차이) | RC-00 | 하나뿐인 로컬 owner. 쿠키·세션 없음. `email`은 표시용 값. `llm`은 owner가 정한 것이 있을 때만 나온다(RC-10A). `llmProvider`(선택 필드)는 RC-70에서 채운다 — 그때까지 웹은 그것이 없는 것을 "AI 없음"으로 읽어 동의를 묻지 않는다 |
 | `listProjects` | GET `/projects` | 유지 | RC-00 | Inbox는 데이터 파일을 만들 때 함께 만든다(읽기에서 쓰지 않음) |
 | `createProject` | POST `/projects` | 유지 | RC-00 |  |
 | `updateProject` | PATCH `/projects/{id}` | 유지(차이) | RC-00 | FOLD-01(2026-11-16)에서 계약·TypeScript API·Rust에 함께 추가(§11 R11의 예외). 규칙은 같다: 없는 id 404, 낡은 `If-Match` 412, Inbox는 보관할 수 없고(422) 이름은 바꿀 수 있다, 보관된 프로젝트의 이름은 되살리는 패치(`archived: false`)로만 바뀐다(422), 빈 패치는 그대로 200(버전 불변), 작업은 건드리지 않는다. 차이는 보관한 뒤에 보인다: 여기서는 보관한 프로젝트가 `listProjects`에 `archived: true`로 계속 나오고 그 안의 작업도 계속 읽고 쓴다. 지금 운영 중인 Vikunja 경로에서는 보관한 프로젝트가 목록에서 빠지고, 그 안의 작업은 범위 없는 `listTasks`에서 빠지며 쓰기가 503으로 거부된다(되살리면 돌아온다) |
@@ -184,7 +212,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | `completeTask` | POST `/tasks/{id}:complete` | 유지(차이) | RC-00 | 503 없음. 이미 완료된 작업은 그대로 200(버전 불변) — 기준 구현과 같음 |
 | `deleteTask` | DELETE `/tasks/{id}` | 유지(차이) | RC-00 | 503 없음. 지운 작업을 기다리던 작업의 `dependsOn`에서 그 id를 같은 트랜잭션에서 뺀다(그 작업 version +1). 지금 운영 중인 Vikunja 경로의 동작(FU-81)과 같고, InMemory 기준 구현과는 다르다 |
 | `createTaskDependency` | POST `/tasks/{id}/dependencies` | 유지(차이) | RC-00 | 503 없음 |
-| `updateMySettings` | PATCH `/me/settings` | 유지(차이) | RC-10 | `timeZone`·`locale`은 RC-10, `llm`(동의·예산)은 값은 저장하되 효과는 RC-70. IANA 별칭 이름도 받는다(§2.3 ⑧) |
+| `updateMySettings` | PATCH `/me/settings` | 유지(차이) | RC-10 | RC-10A에서 구현. 규칙은 기준 구현과 같다: 낡은 `If-Match` 412, 받아들인 패치는 빈 패치여도 버전 +1, 동의 답은 지금 시각과 제공자(`deepseek`)를 적은 기록이 되고, 예산 패치는 적지 않은 한도를 기존 값(없으면 기본 0.2 / 5달러)으로 채운다. 응답의 `ETag`는 `W/"<version>"`(`getMe`는 `W/"<id>:<version>"`). 차이 셋: ① `timeZone`은 번들 tzdb의 이름을 적힌 그대로 비교한다 — 링크 이름도 받는다(§2.3 ⑧). ② 금액은 마이크로달러 정수로 보관한다(§3.2): 소수 여섯 자리 밑은 반올림하고, 10억 달러를 넘으면 422 `validation_failed`(기준 구현은 어떤 수든 받는다). ③ `llm`의 효과(동의·예산 관문)는 RC-70 |
 | `login` | POST `/auth/login` | 제외 | — | 계정이 없다(결정 5). 404 `not_found` |
 | `logout` | POST `/auth/logout` | 제외 | — | 위와 같음 |
 | `createPushSubscription` | POST `/push-subscriptions` | 제외 | — | Web Push 대신 OS 알림(§4.2). 404 |
@@ -268,11 +296,45 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 ② 깨진 JSON, `application/json`이 아닌 본문, 1 MiB를 넘는 본문은 400 `validation_failed`다. TypeScript 코어는 이 셋을 500으로 답한다(Fastify 오류가 일반 분기로 떨어진다) — 기준 구현의 결함으로 보고 따라가지 않는다.
 ③ 본문 스키마가 없는 operation에 온 본문은 읽지 않는다(요청 해시에도 넣지 않는다). TypeScript는 파싱해서 해시에 넣는다. 웹 클라이언트는 그런 요청을 보내지 않는다.
 ④ 400의 `errors[].message` 문구는 Ajv가 아니라 `jsonschema` 문구다. `path`(JSON 포인터, 최상위는 `/`)와 `code`·`status`는 같다. 클라이언트는 문구에 기대지 않는다.
-⑤ `format: date-time`: Ajv가 받아 주고 도메인이 422로 거부하던 일부 표기(구분자 공백, 소문자 `t`/`z`, `+0900`)는 400이 된다. 둘 다 클라이언트 오류이고 웹은 `toISOString()`만 보낸다.
+⑤ `format: date-time`: Ajv가 받아 주고 도메인이 422로 거부하던 표기 셋(구분자 공백, `+0900`, `+09`)은 400이 된다. 둘 다 클라이언트 오류이고 웹은 `toISOString()`만 보낸다. 소문자 `t`/`z`는 두 검증기가 모두 받고 양쪽 도메인이 모두 422로 거부한다 — RC-00 때는 이것도 400이 된다고 적었는데 대조 도구(§2.4)로 보니 아니었다.
 ⑥ 쿼리 스키마가 있는 operation은 모르는 파라미터를 400으로 거부하고, 없는 operation은 쿼리를 보지 않는다 — TypeScript와 같다.
 ⑦ 문제 `detail`은 리소스 종류와 id만 담는다(제목 없음) — 같다.
-⑧ `iana-time-zone` 형식: 번들 tzdb가 아는 이름이면 받는다. TypeScript는 `Intl.supportedValuesOf('timeZone')`의 대표 이름만 받으므로 별칭(`Asia/Calcutta`)은 Rust에서만 통과한다.
+⑧ `iana-time-zone` 형식: 번들 tzdb에 있는 이름을 **적힌 그대로** 받는다(`asia/seoul`은 400 — RC-10A에서 기준 구현에 맞췄다. 그 전에는 대소문자를 가리지 않았다). `Factory`는 받지 않는다. TypeScript는 실행 환경의 `Intl.supportedValuesOf('timeZone')`에 `UTC`·`Etc/UTC`를 더한 목록만 받는다. 그 목록은 ICU의 대표 표기라서(Node 24.21 / ICU 78.3에서 418개: `Asia/Calcutta`, `Europe/Kiev`, `America/Buenos_Aires`) tzdb가 지금 쓰는 이름(`Asia/Kolkata`, `Europe/Kyiv`, `America/Argentina/Buenos_Aires`)과 `Etc/GMT+9` 같은 이름, 옛 링크(`US/Pacific`)는 TypeScript에서 400이고 Rust에서만 통과한다. 거꾸로 TypeScript가 받는 이름은 Rust도 전부 받는다(§2.4 S3 — 테스트가 그 방향을 확인한다). RC-00 때 이 항목은 방향을 거꾸로 적었다("별칭 `Asia/Calcutta`는 Rust에서만"): 그 이름은 양쪽 다 받는다. 목록을 한 실행 환경의 ICU가 아니라 tzdb에서 가져오는 이유: 데스크톱에서 시간대 목록을 보여 주는 쪽은 웹뷰의 ICU이고 시스템 시간대가 어느 표기일지 알 수 없어, 코어는 그 어느 쪽이 내놓는 이름도 받아야 한다.
 ⑨ 응답의 `ownerId`는 언제나 하나뿐인 owner의 id다. 다른 owner의 리소스라는 경우가 없으므로 "남의 것 404" 테스트는 "없는 것 404"와 같아진다.
+
+### 2.4 두 검증기의 판정 대조 (R13)
+
+계약의 JSON 스키마를 TypeScript 코어는 Ajv로, Rust 코어는 `jsonschema` 크레이트로 검사한다. 판정이 갈리는 값이 있으면 같은 요청이 한쪽에서는 지나가고 다른 쪽에서는 400이 된다. `corepack pnpm run core:schema-diff`(`tests-core/schema.test.ts` — `core:parity`에도 들어 있다, 1.5초)가 그런 값을 찾는다. **있음**(RC-10A).
+
+- 무엇을 비교하나: 계약의 모든 요청 스키마 — 본문 37개, 쿼리 14개, 경로 파라미터 45개, 그리고 헤더 `If-Match`·`Idempotency-Key`·`If-None-Match`. 스키마마다 통과하는 기준 값 하나를 만들고 한 군데씩 바꾼 표본을 만든다(`tests-core/support/samples.ts`): 다른 형의 값, 길이의 경계(이모지처럼 UTF-16으로는 둘인 글자, 결합 문자), 정수·수의 경계와 표기(`1.0`, `1e0`, `-0`, `1e400`, 2^53+1), 형식 `date-time`·`date`·`uuid`·`email`·`iana-time-zone`·`uri`마다 수십 가지 표기, 계약에 있는 `pattern` 10개의 근처 값, 여러 가지 공백·NUL·짝 없는 서러게이트, 빠진·더해진·두 번 나온 프로퍼티, `__proto__` 같은 이름, 배열의 개수와 중복.
+- 어떻게: 기준 쪽은 `packages/contracts/test/ajv.ts`의 `compile`(계약 패키지가 Ajv를 설정하는 그대로)을 라우트의 TypeBox 스키마에 쓴다. 코어 쪽은 `schema-verdict` 바이너리가 디스패처가 부르는 바로 그 함수를 부른다(`core/crates/server/src/verdict.rs`). 표본은 값이 아니라 JSON 글자로 오간다 — 자바스크립트 값으로는 `1.0`과 `1`, 짝 없는 서러게이트를 구별해 보낼 수 없다.
+- 낡지 않게: 생성기가 모르는 키워드·형식·패턴이 계약에 생기면 실패한다(비교하지 않은 채 지나가지 않는다). 목록에 없는 차이가 생겨도, 목록에 있는 차이가 사라져도 실패한다. 스키마가 컴파일되지 않으면 코어는 그 부분을 검사하지 않게 되므로, 모든 요청 스키마가 컴파일된다는 것을 Rust 테스트가 따로 고정한다(`every_request_schema_of_the_contract_compiles`).
+- 결과(2026-11-16; Node 24.21 / ICU 78.3, `jsonschema` 0.61.2): 표본 14,747개, 570가지. 처음에는 41가지(552개)에서 판정이 갈렸다. 7가지는 코어를 고쳤고, 남은 34가지(390개)는 아래처럼 정했다. 보고서 전문(판정이 갈린 표본 전부와 570가지의 판정)은 실행할 때마다 `core/target/schema-diff/report.md`에 쓴다.
+
+코어를 고친 것(계약의 뜻이 분명한 곳):
+
+| 차이 | 전 | 후 |
+|---|---|---|
+| `If-Match`의 수가 버전의 범위(u32)를 넘는다: `W/"4294967296"` | 400(형식 오류) | 계약의 패턴 `[1-9][0-9]*`에는 자릿수 한도가 없다. 잘 만들어진 태그이고 현재 버전이 아니므로 412 `version_conflict` |
+| 빈 `If-None-Match` | 무시하고 200 | 계약이 `minLength: 1`이다. 그 헤더를 선언한 읽기에서 400 `validation_failed` |
+| 시간대 `Factory` | 통과 | tzdb에 있지만 "설정하지 않은 기계"의 자리 이름이다. 400 |
+| 시간대 이름의 대소문자(`asia/seoul`) — 첫 슬라이스에서 | 통과 | 적힌 그대로 비교한다. 400 |
+
+정한 것(목록: `tests-core/support/schema-differences.ts`):
+
+| id | 값 | 기준(Ajv) | 코어 | 결정 |
+|---|---|---|---|---|
+| S1 | `date-time`의 `+0900`, `+09`, 날짜와 시각 사이의 공백 (3가지, 69개) | 스키마 통과 → 도메인이 422 | 400 | 그대로 둔다. RFC 3339에 없는 표기이고 양쪽 다 거부한다 — 상태 코드만 다르다(§2.3 ⑤). 웹은 `toISOString()`만 보낸다 |
+| S2 | `Idempotency-Key: urn:uuid:<uuid>` (2가지, 114개) | 통과 | 400 | 그대로 둔다. UUID의 글자 표현은 36자이고 `urn:uuid:`는 ajv-formats가 덤으로 받는 URN이다. 웹은 맨 UUID만 보낸다. 본문과 경로의 id는 v7 패턴이 있어 양쪽 다 거부한다 |
+| S3 | tzdb에는 있고 기준 실행 환경의 ICU 목록에는 없는 시간대 이름 (지금 19가지, 114개): `Asia/Kolkata`·`Europe/Kyiv`·`Asia/Ho_Chi_Minh`·`America/Nuuk`·`Pacific/Kanton`·`America/Argentina/Buenos_Aires`, `Etc/GMT`·`Etc/GMT+9`·`Etc/Zulu`, `US/Pacific`·`Japan`·`ROK`·`GMT`·`UCT`·`Zulu`·`Universal`, `EST`·`EST5EDT`·`CET` | 400 | 통과 | 그대로 둔다(§2.3 ⑧). 정하는 것은 방향이다: 코어는 기준이 받는 이름을 전부 받는다(테스트가 따로 확인한다). 어느 이름이 갈리는지는 Node의 ICU와 번들 tzdb의 버전에 달려 있어서 목록으로 고정하지 않는다. 따라오는 것 하나: 코어가 그런 이름을 저장하면 `User.timeZone`이 기준 검증기의 형식 검사를 통과하지 못한다(응답 쪽). 웹은 응답을 검증하지 않지만, 받은 `timeZone`이 자기 `Intl.supportedValuesOf` 목록에 있다고 가정하면 안 된다 — 새로 만든 데이터 파일의 시간대는 시스템 시간대이고 그 표기는 tzdb의 것이다. 거부하는 쪽으로 정했다면 그런 시스템에서 첫 실행이 조용히 UTC가 됐을 것이다 |
+| S4 | 짝 없는 서러게이트가 든 문자열(`"\ud800"`) (4가지, 87개) | 통과 | 400(읽을 수 없는 JSON) | 그대로 둔다. 유니코드 글이 아니다. §2.3 ②와 같은 종류다 |
+| — | `email` 형식 6가지(따옴표 친 local, IP 리터럴, TLD 없는 호스트, 64자를 넘는 마디 등) | 갈림 | 갈림 | 정하지 않는다. `email`은 `login`의 본문에만 있고 그 operation은 제외라, 코어는 검증하기 전에 404로 답한다. 보고서에는 남는다 |
+
+갈릴 법한데 같았던 것(같다는 것도 결과다): 소문자 `t`·`z`(둘 다 스키마 통과), 윤초 `23:59:60`(둘 다 통과)와 `09:30:60`(둘 다 거부), `0000`년(통과), `24:00:00`(거부). `maxLength`는 둘 다 코드 포인트로 센다 — 이모지 200개는 통과, 201개는 거부. `\S` 패턴의 공백 집합이 같다 — U+FEFF·U+00A0·U+3000은 공백, U+0085·U+200B·U+180E는 공백이 아니다(자바스크립트의 정의). 정수 자리의 `1.0`·`1e0`은 둘 다 통과, `1e400`·`NaN`·앞자리 0은 둘 다 거부. 같은 키가 두 번 나오면 둘 다 뒤의 것으로 판정한다. 닫힌 객체의 `__proto__`·`constructor` 프로퍼티는 둘 다 거부. 전각·아라비아 숫자는 어느 쪽도 숫자로 치지 않는다.
+
+이 비교가 보지 않는 것: 쿼리 문자열을 객체로 만드는 단계(정수 변환 `^-?\d+$`는 양쪽이 같은 규칙을 따로 구현했다), HTTP 계층이 지우는 헤더 앞뒤의 공백, 그리고 TypeScript API가 실제로 쓰는 Fastify 안의 Ajv 인스턴스(옵션이 계약 패키지의 설정과 같다는 것은 이 도구가 증명하지 않는다).
+
+곁에서 나온 결함 하나: 두 검증기 모두 U+0000을 글자로 받는다(스키마로는 맞다). SQLite의 글자 함수는 NUL에서 멈추므로, 제목이 NUL 하나인 요청은 스키마의 CHECK에 걸려 500이 됐다(RC-00부터 있던 결함). 도메인 규칙으로 막았다: 제목·설명·로캘에 NUL이 있으면 422 `validation_failed`.
 
 ## 3. 데이터 모델
 
@@ -284,7 +346,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 - 모든 테이블 `STRICT`. boolean은 INTEGER 0/1, enum은 TEXT + CHECK, JSON은 TEXT + `CHECK (json_valid(x))`.
 - 낙관적 잠금 `version INTEGER`(1부터), soft delete `deleted_at`.
 - SQL에 시간 기본값(`now()`)을 두지 않는다. 시각은 항상 `Clock`이 준다(테스트에서 시간을 고정할 수 있다).
-- 마이그레이션: `core/crates/store/migrations/NNNN_name.sql`, 전진 전용, 바이너리에 포함. 적용 기록에 SHA-256을 남겨, 이미 적용한 파일이 바뀌었으면 열기를 거부한다. 파일이 이 빌드보다 새 스키마면 열기를 거부한다(다운그레이드 방지). 데이터가 있는 파일을 올리기 전에는 사본을 뜬다. **모두 있음**(`migrate.rs`, 테스트 6개).
+- 마이그레이션: `core/crates/store/migrations/NNNN_name.sql`, 전진 전용, 바이너리에 포함. 적용 기록에 SHA-256을 남겨, 이미 적용한 파일이 바뀌었으면 열기를 거부한다. 파일이 이 빌드보다 새 스키마면 열기를 거부한다(다운그레이드 방지). 데이터가 있는 파일을 올리기 전에는 사본을 뜬다. **모두 있음**(`migrate.rs`, 테스트 7개 — 첫 스키마의 파일이 0002를 지나며 owner 행을 지키는지 포함).
 - 연결: 쓰기·읽기 연결 하나를 뮤텍스로 직렬화, 모든 쓰기는 `BEGIN IMMEDIATE`. 사용자 한 명 규모에 맞고 쓰기 충돌 재시도가 없다. 읽기 지연이 문제가 되면 WAL이라 읽기 전용 연결을 더하면 된다(호출자 변경 없음).
 
 ### 3.2 PostgreSQL 전용 기능의 대체
@@ -304,7 +366,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | 복합 FK `(id, owner_id)` | 단순 FK(owner가 하나) | 있음 |
 | `DEFERRABLE INITIALLY DEFERRED` FK (`plan.current_version_id`) | SQLite가 지원한다 | RC-40 |
 | 트리거(availability version 단조 증가) | SQLite 트리거 `RAISE(ABORT)` | RC-20 |
-| `numeric`(USD) | INTEGER 마이크로달러. 계약의 `dailyUsd: number`와는 경계에서 변환 | RC-70 |
+| `numeric`(USD) | INTEGER 마이크로달러(`domain::MicroUsd`, 0 ~ 10억 달러). 계약의 `dailyUsd: number`와는 경계에서 변환: 들어올 때 가장 가까운 마이크로달러로 반올림, 나갈 때는 달러 수(정수 달러는 `20`처럼 소수점 없이) | owner 예산은 있음(RC-10A), 지출 원장은 RC-70 |
 | `real` | REAL | — |
 | `bytea` | 암호문 컬럼은 키링으로 이동, 내보내기 산출물은 파일 | RC-90/110 |
 | `date` | TEXT `YYYY-MM-DD` + GLOB CHECK | RC-20 |
@@ -319,7 +381,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 <!-- data-model:start -->
 | PostgreSQL 테이블 | 마이그레이션 | 판정 | SQLite 테이블 | 단계 | 컬럼 | 비고 |
 |---|---|---|---|---|---|---|
-| `user` | 0001 | 변형 | `owner` | RC-00 | `id` `email` ~~`password_hash`~~ `time_zone` `locale` `settings` ~~`llm_consent`~~ `created_at` `updated_at` `version` | 행 1개(`singleton` UNIQUE). `password_hash`: 로그인 없음. `llm_consent`: 코드에서 읽고 쓰는 곳 없음(동의는 `settings.llm.consent`). `email`은 계약의 `User.email` 표시용으로만 남는다. `settings` jsonb → JSON TEXT |
+| `user` | 0001 | 변형 | `owner` | RC-00 | `id` `email` ~~`password_hash`~~ `time_zone` `locale` `settings`→`llm_consent_granted`+`llm_consent_at`+`llm_consent_provider`+`llm_budget_daily_micro_usd`+`llm_budget_monthly_micro_usd` ~~`llm_consent`~~ `created_at` `updated_at` `version` | 행 1개(`singleton` UNIQUE). `password_hash`: 로그인 없음. `llm_consent`: 코드에서 읽고 쓰는 곳 없음(동의는 `settings.llm.consent`). `email`은 계약의 `User.email` 표시용으로만 남는다. `settings` jsonb에 든 것은 `llm.consent`(`granted`·`at`·`provider`)와 `llm.budget`(`dailyUsd`·`monthlyUsd`)뿐이라 검사할 수 있는 컬럼 다섯으로 풀었다(RC-10A, 마이그레이션 0002: 동의 기록과 예산은 통째로 있거나 없다 — CHECK). 금액은 마이크로달러 INTEGER(§3.2). RC-00의 0001이 만든 JSON `settings` 컬럼은 쓰인 적이 없어 0002가 지운다 |
 | `project` | 0001 | 유지 | `project` | RC-00 | `id` ~~`owner_id`~~ `title` `archived` `created_at` `updated_at` `version` `deleted_at` `kind` | inbox 1개 부분 유니크 인덱스 유지(SQLite 지원) |
 | `task` | 0001 | 변형 | `task` | RC-00 | `id` ~~`owner_id`~~ `project_id` `title_cache`→`title` `status_cache`→`status` `due_at` `splittable` `min_session_min` `max_session_min` `priority` ~~`earliest_start_at`~~ ~~`provider_etag`~~ `created_at` `updated_at` `version` `deleted_at` | 작업의 원본이 된다. 새 컬럼 `description`(Vikunja가 갖고 있던 것). `earliest_start_at`·`provider_etag`: 코드에서 읽고 쓰는 곳 없음 |
 | `task_dependency` | 0001 | 변형 | `task_dependency` | RC-00 | `task_id` `depends_on_task_id` ~~`owner_id`~~ ~~`kind`~~ ~~`created_at`~~ ~~`updated_at`~~ ~~`version`~~ | 새 컬럼 `position`(`dependsOn` 배열 순서). `kind`는 값이 하나뿐(`finish_to_start`). 지금까지 이 테이블은 한 번도 쓰이지 않았다(의존 관계는 Vikunja relation + `vikunja_planner_fields`). 순환 검사는 코드(`domain::assert_acyclic`), 같은 트랜잭션 |
@@ -541,7 +603,7 @@ p95 비율(Rust 최적화 / TypeScript) = 5.2 / 280 ≈ **0.019** (약 54배 빠
 
 ### 5.5 스케줄러 테스트 대응과 단계별 결과
 
-TypeScript 테스트 파일 → Rust 테스트(스케줄러 크레이트의 원장. `core/PARITY.md`가 생기면 이 표를 그대로 옮긴다).
+TypeScript 테스트 파일 → Rust 테스트(스케줄러 크레이트의 원장). RC-10A에서 `core/PARITY.md`로 옮겼다 — 상태와 경로는 그쪽이 정본이고 검사된다. 아래 표는 건별 설명(무엇을 묶었고 무엇을 더했는지)으로 남긴다.
 
 | TypeScript (`packages/scheduler/test`) | Rust (`core/crates/scheduler`) | 상태 |
 |---|---|---|
@@ -643,11 +705,13 @@ TypeScript: 키 예약(pending) 커밋 → 유스케이스 실행 → 완료 기
 | 층 | 도구 | 무엇을 | 명령 | 상태 |
 |---|---|---|---|---|
 | 정적 | `cargo fmt --check`, `clippy -D warnings`, `#![forbid(unsafe_code)]`(워크스페이스 lint) | 전체 | `core:check` | 있음 |
-| 단위 | `cargo test`. 동작마다 네거티브 1개 이상 | 크레이트별 | `core:check` | 있음(178) |
-| 속성 | `proptest` | 스케줄러 하드 제약, DAG, 블록 겹침 불변식, 시간 | `core:check`(1,000) / 관문(10,000) | RC-30~ |
-| 차분 | 오라클 팩 | 스케줄러(RC-30~33), 마스킹(RC-70a) | `core:oracle` + `cargo test` | 바닥 층 있음 |
-| 계약 패리티 | `tests-core/`(vitest + ajv + `@ohmydate/contracts`), 진짜 바이너리 | operation마다 상태 코드·스키마·헤더 행렬·오류 | `core:parity` | 있음(11 operation) |
-| E2E | 지금의 Playwright, 대상만 Rust 코어 | 사용자 흐름 | `e2e`(대상 선택) | RC-10~ |
+| 단위 | `cargo test`. 동작마다 네거티브 1개 이상. 서버 크레이트는 기본 빌드와 테스트 빌드(`test-clock`) 두 번 | 크레이트별 | `core:check` | 있음(526) |
+| 속성 | `proptest` | 스케줄러 하드 제약, DAG, 블록 겹침 불변식, 시간 | `core:check`(1,000) / 관문(10,000) | 스케줄러 있음(RC-31~33) |
+| 차분 | 오라클 팩 | 스케줄러(RC-30~33), 마스킹(RC-70a) | `core:oracle`, `core:diff` | 스케줄러 있음 |
+| 계약 패리티 | `tests-core/`(vitest + ajv + `@ohmydate/contracts`), 진짜 바이너리(테스트 빌드) | operation마다 상태 코드·스키마·헤더 행렬·오류; 웹 서빙과 `/__boot`; 수명 주기와 시계 | `core:parity` | 있음(12 operation, 156개) |
+| 판정 대조 | `tests-core/schema.test.ts` + `schema-verdict` 바이너리 | 계약의 요청 스키마마다 Ajv와 코어의 판정(§2.4) | `core:schema-diff`(`core:parity`에 포함) | 있음(표본 14,747개) |
+| 원장 | `tests-core/ledger.test.ts`, `docs.test.ts` | `core/PARITY.md`와 이 문서의 표가 코드와 맞는지(§7.5) | `core:ledger`(`core:parity`에 포함) | 있음 |
+| E2E | 지금의 Playwright, 대상만 Rust 코어 | 사용자 흐름 | `e2e`(대상 선택) | RC-10B~ |
 | 가져오기 | 내보내기 → 가져오기 → 내보내기 | 전환 | RC-110 | 계획 |
 
 ### 7.2 계약 패리티 하네스 (지금 있음)
@@ -656,35 +720,74 @@ TypeScript: 키 예약(pending) 커밋 → 유스케이스 실행 → 완료 기
 
 `coverage` 테스트가 계약의 85개 operation을 전부 찔러 보고, 코어가 서빙하는데 표에 없는 operation이 있으면 실패한다. `lifecycle.test.ts`는 ready 파일(0600), 단일 인스턴스(종료 코드 3), 재시작 뒤 데이터·멱등 재생, 실행마다 다른 토큰을 본다.
 
+operation마다의 규칙은 그 옆의 파일에 둔다: `projects.test.ts`(`updateProject`), `settings.test.ts`(`updateMySettings`). 계약 표 밖의 것: `web.test.ts`(웹 서빙과 `/__boot` — 소켓으로, `fetch`가 `..`를 정리해 버리므로 `node:http`로 적힌 그대로 보낸다), `lifecycle.test.ts`의 시계 테스트, `ledger.test.ts`(§7.5), `schema.test.ts`(§2.4). 하네스는 테스트 빌드의 바이너리를 쓴다(`core:build`).
+
 ### 7.3 E2E를 Rust 코어로
 
 지금 `e2e/global-setup.ts`는 PostgreSQL 스키마, Vikunja 사용자·토큰, `create-user` CLI, API(`PROVIDER=vikunja`), Vite를 띄운다. spec 13개(약 35건) 중 로그인 화면, Vikunja API 확인, DB 직접 조회(`helpers/db.ts`), 여러 owner 전환(`e2e-5-owner-reset`), `NODE_OPTIONS`로 시계 옮기기에 기대는 부분이 있다.
 
-- RC-10: `E2E_TARGET=core` 모드. global-setup이 `ohmydate-core`를 임시 디렉터리로 띄우고 Vite 프록시가 실행 토큰 헤더를 붙인다(`--allow-origin`에 Vite 출처). 헬퍼는 "드라이버" 뒤로 옮긴다(작업 존재 확인 = API 조회). 시계는 코어의 테스트 전용 옵션 `--clock-offset-ms`로 옮긴다.
+- RC-10B: `E2E_TARGET=core` 모드. global-setup이 `ohmydate-core`(테스트 빌드)를 임시 디렉터리로 띄운다. 헬퍼는 "드라이버" 뒤로 옮긴다(작업 존재 확인 = API 조회). 시계는 코어의 테스트 전용 옵션 `--clock-offset-ms`로 옮긴다(아래). 웹을 어디서 받느냐는 둘 중 하나다: ① 빌드한 웹을 `--web-dir`로 코어가 서빙하고 Playwright가 `/__boot?token=…`으로 들어간다 — 운영과 같은 경로이고 CSP 아래서 돈다(권장). ② Vite 개발 서버가 `/api`를 코어로 프록시하며 `Authorization: Bearer <토큰>`을 붙이고 코어는 `--allow-origin <Vite 출처>`로 뜬다 — `core:dev`의 모양.
 - 해당 없음으로 분류할 것(원장에 사유): 로그인·로그아웃 화면, owner 전환(`e2e-5-owner-reset` 전체), Vikunja 쪽 확인.
+- 움직이는 시계(**있음**, RC-10A): `--clock-offset-ms <n>`은 시스템 시계에 n 밀리초를 더한 시계로 프로세스를 돌린다(음수면 과거로. 프로세스가 사는 동안 고정 — 지금 E2E의 `E2E_FAKE_NOW`와 같은 모델이다). 행의 `createdAt`·`updatedAt`, id 안의 시각, 멱등 기록의 만료가 모두 같은 시계를 따른다(`lifecycle.test.ts`: ±400일에서 찍힌 시각, 23시간 뒤에는 재생되고 25시간 뒤에는 풀리는 멱등 키).
+  - **패키징되는 빌드에서는 켤 수 없다.** 옵션과 `system::ShiftedClock`은 cargo feature `test-clock`(기본 꺼짐)이 있을 때만 컴파일된다. feature 없는 빌드 — 기본 빌드이고 셸이 링크하게 될 것 — 에는 그 코드가 없어서 `--clock-offset-ms`는 값이 무엇이든 인자 오류(종료 코드 2, 데이터 디렉터리를 건드리기 전)이고 도움말에도 나오지 않는다. 실행 때의 스위치(환경 변수, 두 번째 플래그)로 하지 않은 이유: 런처 인자나 남아 있던 환경 변수로 실수로 켜질 수 있고, 켜진 앱은 조용히 틀린 날짜를 저장한다. `debug_assertions`로 하지 않은 이유: 워커는 release 빌드를 할 수 없어 "없는 쪽"을 시험할 길이 없다 — feature는 두 쪽 모두 dev 프로필로 시험한다.
+  - 테스트용 바이너리: `corepack pnpm run core:build`(= `cargo build -p ohmydate-server --features test-clock`). `core:parity`가 먼저 돌리고, E2E `core` 대상도 이것을 쓴다. `core:check`는 기본 빌드(옵션을 거부하는지)와 feature 빌드(시계가 맞는지)를 차례로 lint·test한다. 켜져 있으면 시작할 때 `warn` 로그 한 줄(`clock_offset_ms`)을 남긴다. RC-100a는 셸의 의존성에 `test-clock`을 넣지 않는다.
 - 슬라이스마다 그 기능의 spec을 `core` 대상으로 통과시키는 것이 수용 기준이다(§10).
+
+**RC-10B가 할 일**(코어는 바꾸지 않는다 — RC-10A가 이 목록이 돌도록 만들어 두었다):
+
+웹(`apps/web`):
+
+1. 인증은 할 일이 없다. `/__boot`를 지나면 실행 쿠키가 같은 출처의 모든 요청에 실리고 `GET /api/v1/me`가 200이라, 지금의 부팅 코드가 그대로 "로그인된 상태"가 된다. 클라이언트의 `/api/v1`과 `credentials: 'include'`는 그대로 둔다. `X-CSRF-Token`은 보내도 코어가 무시한다.
+2. 데스크톱 모드 스위치를 둔다(빌드 때의 값을 권한다: 데스크톱은 자기 웹 빌드를 갖는다, §9.3). 그 모드에서: 로그인 화면으로 보내지 않는다 — `/me`가 401이면 "앱에서 다시 열어 주세요"를 보인다(쿠키가 없다는 뜻이고 로그인할 곳이 없다). 로그아웃·푸시 구독 UI를 숨긴다(`login`·`logout`·푸시 구독 2개는 404). 서비스 워커를 등록하지 않는다.
+3. 아직 포팅되지 않은 operation은 501(`internal_error`, "Not implemented")이다. 지금 되는 것은 12개(§2.2의 RC-00·RC-10 줄) — 할 일 화면과 설정의 시간대·로캘.
+4. `user.llmProvider`가 없다(RC-70까지). 지금의 웹은 그것을 "AI 없음"으로 읽는다 — 그대로면 된다.
+5. `user.timeZone`이 웹뷰의 `Intl.supportedValuesOf('timeZone')` 목록에 없을 수 있다(§2.4 S3). 목록에서 못 찾았다고 비우거나 오류로 보지 않는다.
+6. 빌드는 Vite 기본값을 지킨다: `base: '/'`, 해시가 든 파일은 `assets/` 아래. 코어의 캐시 규칙과 "없는 파일은 404" 규칙이 그 모양에 기대고 있다(§1.3).
+7. CSP 아래서 돌아야 한다(§1.3): 인라인 `<script>`·`eval`·`new Function` 없음, 실행 중에 `<style>` 요소를 끼워 넣지 않음(`style` 속성은 된다), 이미지는 같은 출처나 `data:`, `fetch`는 같은 출처만. 더 필요해지면 코어의 정책을 이유와 함께 넓힌다(AGENTS.md) — 그것은 코어 변경이다.
+
+개발 실행 `core:dev`:
+
+8. `corepack pnpm run core:build` 뒤 `core/target/debug/ohmydate-core --data-dir <디렉터리> --ready-file <파일> --allow-origin http://127.0.0.1:5173 --allow-origin http://localhost:5173`. ready 파일(0600)의 `{port, token, pid}`를 읽는다.
+9. Vite의 `/api` 프록시가 대상(`http://127.0.0.1:<port>`)으로 `Authorization: Bearer <token>`을 붙여 보낸다. `changeOrigin: true`는 그대로 둔다(Host가 코어의 주소여야 403이 아니다). 브라우저가 붙이는 `Origin`(Vite 출처)은 `--allow-origin`이 받는다.
+
+E2E(`e2e/`):
+
+10. global-setup의 `core` 대상: 웹을 빌드하고(`vite build`), 임시 데이터 디렉터리로 테스트 빌드의 코어를 띄운다 — `--data-dir`, `--ready-file`, `--web-dir apps/web/dist`, `--time-zone`, `--locale`, 필요하면 `--clock-offset-ms <n>`(지금의 `E2E_FAKE_NOW`가 계산하는 그 값). ready 파일이 생기면 `baseURL = http://127.0.0.1:<port>`.
+11. 로그인 대신 `page.goto('/__boot?token=<token>')`(→ 303 `/`). 쿠키를 직접 심으려면 `omd_launch`, `httpOnly`, `sameSite: 'Strict'`, **`secure` 없이**.
+12. 헬퍼의 "드라이버": 확인과 준비는 API로 한다 — `Authorization: Bearer <token>`, 변경에는 `Idempotency-Key`(UUID)와 `If-Match`. DB 직접 조회(`helpers/db.ts`), Vikunja 확인, 사용자 만들기는 `core` 대상에 없다.
+13. 테스트 사이의 초기화는 새 데이터 디렉터리 + 새 프로세스다. 같은 디렉터리에 두 번째 프로세스는 뜨지 않는다(종료 코드 3). 끝낼 때는 SIGTERM(종료 코드 0, ready 파일 삭제).
+14. 통과시킬 것: `e2e-1`(로그인·Vikunja 부분 제외)과 a11y의 할 일 화면. 끝나면 `core/PARITY.md`에서 그 두 줄을 고치고 RC-10B를 "끝난 Task"로 옮긴다(원장 검사가 요구한다).
 
 ### 7.4 가져오기 왕복 — §8.4
 
 ### 7.5 패리티 원장
 
-`core/PARITY.md`(RC-10에서 만든다): TypeScript 테스트 파일마다 한 줄 — `옮김(→ Rust 테스트 경로)` / `대체(→ 무엇)` / `해당 없음(사유)`. 오늘의 모수:
+`core/PARITY.md`(**있음**, 초판 RC-10A): TypeScript 테스트 파일마다 한 줄 — `옮김(→ Rust 테스트 경로)` / `대체(→ 무엇)` / `해당 없음(사유)` / `아직(맡을 Task)`. 한 파일에 성격이 다른 건이 섞여 있으면 큰 쪽으로 분류하고 나머지를 같은 줄에 적는다.
 
-| 위치 | 파일 | 테스트(소스에서 센 어림수) | 예상 |
-|---|---|---|---|
-| `services/api/test` | 105 | 793 | 인증·세션·CSRF·풀·리더·Vikunja·종료 정산 일부는 해당 없음, 나머지는 옮김 또는 패리티 하네스로 대체 |
-| `packages/scheduler/test` | 21 | 236(실행 결과, 속성 17개 포함) | 전부 옮김 |
-| `packages/llm/test` | 20 | 267 | 평가 도구 2개 빼고 옮김 |
-| `packages/domain/test` | 11 | 100 | 옮김 |
-| `packages/provider-native/test`, `packages/testkit` | 4 | 계약 스위트 | `app::tasks` 테스트로 대체(RC-00에서 일부) |
-| `packages/provider-vikunja/test` | 15 | 120 | 해당 없음 |
-| `packages/contracts/test` | 19 | 121 | TypeScript에 남는다 |
-| `e2e/tests` | 13 | 35 | §7.3 |
+원장은 스스로 낡지 못한다. `tests-core/ledger.test.ts`(`corepack pnpm run core:ledger`, `core:parity`에도 들어 있다)가 다음에서 실패한다: 원장에 없는 `*.test.ts`·`*.spec.ts`가 생겼을 때, 원장의 파일이 사라졌을 때, 줄이 가리키는 Rust·하네스 테스트 파일이나 테스트 이름이 없을 때, `아직` 줄이 끝난 Task를 가리킬 때, 합계 표가 줄과 다를 때, 원장의 Task 목록이 §10의 표와 다를 때. 그래서 Task를 끝내는 사람은 자기 Task를 "끝난 Task"로 옮기는 순간 자기 `아직` 줄을 전부 고쳐야 한다. (확인: 줄 하나를 지우고, 경로 하나와 테스트 이름 하나를 틀리게 하고, `아직`을 끝난 Task로 바꿨을 때 각각 실패했다.)
+
+초판의 수(2026-11-16, 파일 212개):
+
+| 위치 | 파일 | 옮김 | 대체 | 해당 없음 | 아직 | 비고 |
+|---|---|---|---|---|---|---|
+| `services/api/test` | 107 | 6 | 10 | 34 | 57 | 해당 없음: 로그인·세션·CSRF, pg 풀, 리더 잠금, Vikunja, Node 산출물. 아직: RC-20 1, RC-40 7, RC-50 8, RC-60 7, RC-70b 21, RC-80 4, RC-90 9 |
+| `packages/scheduler/test` | 21 | 19 | 1 | 1 | 0 | §5.5의 표를 옮겼다 |
+| `packages/llm/test` | 20 | 0 | 0 | 3 | 17 | 평가 도구 2개와 smoke는 TypeScript에 남는다. RC-70a 16, RC-70b 1 |
+| `packages/domain/test` | 11 | 5 | 0 | 1 | 5 | id·시각·버전·DAG·오류는 옮김. 추정(RC-60 1)·인테이크(RC-70b 3)·노트(RC-80 1)는 그 슬라이스에서 |
+| `packages/provider-native/test`, `packages/testkit/test` | 6 | 0 | 3 | 3 | 0 | 저장소 포트가 없다 — `app::tasks`·`app::projects`와 스토어 테스트가 대신한다 |
+| `packages/provider-vikunja/test` | 15 | 0 | 1 | 14 | 0 | FU-81(지운 작업을 기다리던 작업 풀기)만 네이티브 규칙으로 남았다 |
+| `packages/contracts/test` | 19 | 0 | 0 | 19 | 0 | TypeScript에 남는다 |
+| `e2e/tests` | 13 | 0 | 0 | 2 | 11 | §7.3. 옮기지 않고 대상만 바꾼다: RC-10B 2, RC-40 1, RC-50 2, RC-60 1, RC-70b 4, RC-80 1 |
+| 합계 | 212 | 30 | 15 | 77 | 90 | "아직"을 맡은 Task: RC-10B 2 · RC-20 1 · RC-40 8 · RC-50 10 · RC-60 9 · RC-70a 16 · RC-70b 29 · RC-80 6 · RC-90 9 |
+
+이 표는 초판의 기록이다. 지금의 수는 원장의 합계 표가 정본이다(검사된다). RC-00 때의 어림(파일 105 + 21 + 20 + 11 + 4 + 15 + 19 + 13 = 208)보다 4개 많다: `services/api/test`에 2개(`project-service`, `project-update` — FOLD-01)와 `packages/testkit/test` 2개가 더해졌다.
 
 ### 7.6 CI에 넣는 시점
 
-- 지금: `core:check`와 `core:parity`는 `pnpm run ci`에 **넣지 않는다**(이 Task의 조건: 통합 CI는 오늘 그대로). RC Task의 "Exact tests"에 둘을 적는다.
-- RC-10이 끝나면: `ci:core`(= `core:check` + `core:parity`) 스크립트를 따로 두고 병합 뒤 통합 테스트에서 함께 돌린다. `ci` 자체는 그대로 둔다(Rust 없이 웹 작업을 하는 워커가 있다).
+- 지금(RC-10A 뒤): `corepack pnpm run ci:core`(= `core:check` + `core:parity`)가 **있다**. `core:parity` 안에 원장 검사와 판정 대조가 들어 있어 따로 부를 것이 없다(둘 다 2초 안). 병합 뒤 통합 테스트에서 `ci`와 함께 돌린다. RC Task의 "Exact tests"에는 `ci:core`를 적는다.
+- `pnpm run ci` 자체는 그대로다(Rust 없이 웹 작업을 하는 워커가 있다). `ci:core`는 `ci`에 **들어 있지 않다**.
+- 한 가지는 `ci`를 쓰는 사람에게도 닿는다: TypeScript 테스트 파일을 더하면 `core/PARITY.md`에 한 줄을 더해야 `ci:core`가 통과한다(§7.5). `ci`만 돌리는 워커는 모르고 지나갈 수 있으므로, 조정자가 병합 뒤 `ci:core`에서 잡는다 — 고치는 것은 한 줄이다.
+- 스케줄러를 건드렸으면 `core:diff`도(AGENTS.md). 4분이 걸려 `ci:core`에는 넣지 않았다.
 - 전환(RC-110) 때: `ci`가 `ci:core`를 포함하고, TypeScript 코어의 테스트는 계약·웹·`packages/llm` 프롬프트 검사만 남긴다.
 
 ### 7.7 "패리티에 도달했다"의 뜻 (전환 관문)
@@ -775,6 +878,8 @@ Tauri 셸을 이 Task에서 빌드해 보지 못했으므로(시스템 패키지
 
 바이너리에 들어가는 것: 코어(SQLite·tzdb·계약·프롬프트·스키마 포함), 웹 빌드(`apps/web/dist` — 코어가 같은 출처로 서빙). 런타임에 Node·PostgreSQL·docker가 필요 없다.
 
+RC-10A의 코어는 웹 빌드를 디렉터리에서 읽는다(`--web-dir`, 라이브러리로는 `ServerState::with_web(WebRoot::open(dir))`). 패키지 안에 디렉터리로 둘지 바이너리에 넣을지는 RC-100a가 정한다 — 넣는다면 바뀌는 곳은 `web.rs`에서 파일을 읽는 한 군데이고, 경로 규칙·헤더·CSP는 그대로다.
+
 ### 9.2 데이터 위치 — §1.6
 
 ### 9.3 업그레이드와 마이그레이션 정책
@@ -795,13 +900,13 @@ AGENTS.md 규칙(MIT / Apache-2.0 / BSD / ISC는 검토 없이)에 비춘 현재
 각 Task는 사용자가 돌려 볼 수 있는 것으로 끝난다(B 레인의 순수 크레이트 Task는 오라클 수치로 끝나고, 사용자에게는 RC-40에서 보인다). 워커는 최대 2명: **A 레인**(저장·API)과 **B 레인**(순수 크레이트·셸)이 서로 다른 크레이트를 만지므로 같이 갈 수 있다.
 
 ```text
-RC-00 ─┬─► RC-10 ─► RC-20 ──────────┬─► RC-40 ─► RC-50 ─┬─► RC-60 ─────────► RC-90 ─┐
- (완료) │   (A)      (A)             │    (A)      (A)   │    (A)              (A)   │
-        │                            │                   │                           ├─► RC-110b ─► 전환
+RC-00 ─┬─► RC-10A ─┬─► RC-20 ───────┬─► RC-40 ─► RC-50 ─┬─► RC-60 ─────────► RC-90 ─┐
+ (완료) │   (완료)   │   (A)          │    (A)      (A)   │    (A)              (A)   │
+        │           └─► RC-10B (웹·E2E; RC-20과 나란히 갈 수 있다)                    ├─► RC-110b ─► 전환
         ├─► RC-30 ─► RC-31 ─► RC-32 ─┘─► RC-33 ──────────┘                           │
-        │   (B)      (B)      (B)        (B)                                         │
+        │   (완료)   (완료)   (완료)     (완료)                                      │
         ├─► RC-05 (B, 짧음)   RC-70a (B, RC-33 뒤) ─► RC-70b (A, RC-40 뒤) ─► RC-80 ─┤
-        └─────────► RC-100a (B, RC-10 뒤, 사용자 준비 필요) ─────► RC-100b (B, RC-50 뒤)┤
+        └─────────► RC-100a (B, RC-10A 뒤, 사용자 준비 필요) ────► RC-100b (B, RC-50 뒤)┤
                                               RC-110a (A/B 빈 틈, RC-40 뒤) ─────────┘
 ```
 
@@ -809,8 +914,9 @@ RC-00 ─┬─► RC-10 ─► RC-20 ──────────┬─► RC
 |---|---|---|---|---|---|---|
 | RC-00 | — | 이 문서, ADR-025, 골격(owner·프로젝트·작업 10 operation), 패리티 하네스, 오라클 내보내기 | — | `core:check`, `core:parity` | `ohmydate-core`를 띄워 curl로 작업 만들기 | — (완료) |
 | RC-05 | B | 지금 E2E를 Playwright의 WebKit 엔진으로 TypeScript 스택에 돌려 본다(코드 변경 없음, 보고서만) | — | 실패 목록 보고서 | — | WebKit에서 깨지는 웹 기능을 일찍 안다(R1) |
-| RC-10 | A | `updateMySettings`, 웹 정적 파일 서빙 + `/__boot`, 개발 실행(`core:dev`: 코어 + Vite 프록시), E2E `core` 대상과 드라이버, `--clock-offset-ms`, `core/PARITY.md`, Ajv ↔ `jsonschema` 스키마 판정 대조 도구, `ci:core` | RC-00 | 패리티 12 operation, `e2e-1`(로그인 부분 제외)·a11y inbox가 `core` 대상 통과, 원장 초판 | 브라우저에서 Rust 코어로 인박스 쓰기 | E2E 헬퍼 개조 범위(R7) |
-| RC-20 | A | 가용 시간·약속·`rrule` 포팅·availability version·`listCalendarDayEvents`(빈 목록) | RC-10 | 패리티 +7, `rrule.test.ts` 옮김, 약속 화면 E2E 부분 | 약속·가용 시간 화면 | 반복 전개의 DST 경계 |
+| RC-10A | A | RC-10의 코어 쪽 절반: `updateMySettings`, 웹 정적 파일 서빙(`--web-dir`) + `/__boot`, `--clock-offset-ms`(테스트 빌드), `core/PARITY.md`, Ajv ↔ `jsonschema` 스키마 판정 대조 도구, `ci:core`. **끝**(2026-11-16) | RC-00 | 패리티 12 operation, `core:check`·`core:parity`·`core:schema-diff`·`ci:core`, 원장 초판 | `ohmydate-core --web-dir <빌드된 웹>`을 띄우고 브라우저에서 `/__boot?token=…`으로 들어가기(쓸 수 있는 화면은 RC-10B 뒤) | CSP가 웹을 막는다 → 진짜 빌드로 확인했다(§1.3) |
+| RC-10B | A | RC-10의 웹·E2E 쪽 절반: 웹의 데스크톱 부팅(로그인 화면 없이), 개발 실행 `core:dev`(코어 + Vite 프록시), E2E `core` 대상과 드라이버. 코어는 건드리지 않는다(§7.3의 "RC-10B가 할 일") | RC-10A | `e2e-1`(로그인 부분 제외)·a11y 할 일 화면이 `core` 대상 통과 | 브라우저에서 Rust 코어로 인박스 쓰기 | E2E 헬퍼 개조 범위(R7) |
+| RC-20 | A | 가용 시간·약속·`rrule` 포팅·availability version·`listCalendarDayEvents`(빈 목록) | RC-10A | 패리티 +7, `rrule.test.ts` 옮김, 약속 화면 E2E 부분 | 약속·가용 시간 화면 | 반복 전개의 DST 경계 |
 | RC-30 | B | 스케줄러 `types`·`time` 나머지·`slots`·`sessions`·`requirements`, 큰 팩 읽기, `sort_unstable`·`HashMap` 순회 금지 lint | RC-00 | 2,000건에서 `slots` 불일치 0, `slots.test`·`transitions.test` 옮김 | — | tzdata 차이(R3) |
 | RC-31 | B | `codes`·`validate`·`validateInput`·`explain`, `sched-diff` CLI, `shrink-oracle.mts` | RC-30 | 2,000건에서 `inputIssues`·`validation` 불일치 0, validator ↔ 분 단위 오라클 속성 | — | validator 1,407줄의 독립 구현 유지 |
 | RC-32 | B | `policies`·`generate`·지표·설명 문장·다양성. (실제로는 생성기 전체를 여기서 옮겼다 — §5.1) | RC-31 | 재계획 아닌 건 `resultHash` 불일치 0(2,000), golden 통과, 속성(H1–H8) 1,000회, 성능 실측 | — | 실수·정렬 순서의 정확한 재현(R2) |
@@ -823,7 +929,7 @@ RC-00 ─┬─► RC-10 ─► RC-20 ──────────┬─► RC
 | RC-70b | A | 키링, LLM 클라이언트 연결, 말로 적기 2 + 인테이크 11 + 템플릿 2 + 목표 1 operation, 긴 호출 규칙 | RC-70a, RC-40 | 패리티 +16, `intake*`·`*-parse*` 옮김, `e2e-2-wizard`·`e2e-7`·`e2e-8`·`e2e-ai-wait` | 말로 적기·마법사 | 키링이 없는 환경(R6) |
 | RC-80 | A | 노트 9 operation, FTS5, AI 근거, 승격 | RC-70b | 패리티 +9, `notes*` 옮김, `e2e-6-notes` | 노트 | 검색 결과 집합의 동등성 |
 | RC-90 | A | Google 5 operation + 종일 일정, loopback OAuth, 주기 동기화, 넛지 | RC-50, RC-70b | 패리티 +5, `google-*` 옮김(가짜 Google), 로그 검사 | 폰 캘린더와 동기화 | OAuth 클라이언트 종류(R8) |
-| RC-100a | B | 셸 스파이크: Tauri 창에 웹 띄우기, `/__boot`, 단일 인스턴스, 패키징 시도 | RC-10 + 사용자 준비(Q1) | 앱 창에서 인박스 동작, `.deb` 하나 | 아이콘을 눌러 앱 실행 | WebKitGTK(R1), 시스템 패키지 |
+| RC-100a | B | 셸 스파이크: Tauri 창에 웹 띄우기(코어의 `--web-dir`에 해당하는 것을 라이브러리로: `ServerState::with_web`), `/__boot`, 단일 인스턴스, 패키징 시도. 셸의 의존성에 `test-clock`을 넣지 않는다 | RC-10A + 사용자 준비(Q1) | 앱 창에서 인박스 동작, `.deb` 하나 | 아이콘을 눌러 앱 실행 | WebKitGTK(R1), 시스템 패키지 |
 | RC-100b | B | 트레이, OS 알림, 자동 시작, 백업·복원, 로그 회전, 웹의 데스크톱 모드 | RC-100a, RC-50 | 수동 체크리스트 + 셸 단위 테스트 | 창을 닫아도 알림이 온다 | 데스크톱 환경별 트레이 차이 |
 | RC-110b | A | 내보내기 2 operation, 가져오기 완성, 전환 관문(§7.7) 측정, 전환 | 전부 | §7.7 표 | 내 데이터로 데스크톱 앱 사용 | 데이터 충실도(R9) |
 
@@ -831,7 +937,7 @@ RC-00 ─┬─► RC-10 ─► RC-20 ──────────┬─► RC
 
 | # | 위험 / 모르는 것 | 일찍 없애는 방법 |
 |---|---|---|
-| R1 | 웹 앱이 WebKitGTK에서 다르게 동작한다(웹은 Chromium으로만 시험했다: `navigator.locks`, IndexedDB, `AbortSignal.any`, CSS) | RC-05: 지금 E2E를 Playwright WebKit으로 돌린다(Rust와 무관, 바로 가능). RC-100a: 진짜 WebKitGTK 창에서 스모크 |
+| R1 | 웹 앱이 WebKitGTK에서 다르게 동작한다(웹은 Chromium으로만 시험했다: `navigator.locks`, IndexedDB, `AbortSignal.any`, CSS) | RC-05: 지금 E2E를 Playwright WebKit으로 돌린다(Rust와 무관, 바로 가능). RC-100a: 진짜 WebKitGTK 창에서 스모크. **이미 드러난 차이 하나(2026-11-16):** WebKit은 `http://127.0.0.1`에서 `Secure` 쿠키를 저장하지 않는다 — TypeScript 스택의 로그인이 WebKit에서 붙지 않는 이유다. 코어의 실행 쿠키는 `Secure` 없이 내고 테스트로 고정했다(§1.3). **RC-10A에서 본 것:** 진짜 웹 빌드가 코어의 정적 서빙·CSP 아래서 Playwright WebKit으로 부팅하고(쿠키 저장, 위반 0) three.js 청크와 WebGL 2가 동작한다. Playwright의 WebKit은 WebKitGTK와 같은 엔진이지만 같은 빌드는 아니므로 RC-100a의 창 스모크는 그대로 필요하다 |
 | R2 | `generate.ts` 3,992줄을 바이트 단위로 재현하지 못한다 | 바닥 층은 이미 일치(RC-00). 층별 대조 + 최소화 도구를 생성기보다 먼저 만든다(RC-31). 불일치가 TypeScript 쪽 결함이면 TypeScript를 고치고(버그 수정은 동결 예외) 팩을 다시 만든다. **RC-33 뒤:** 4,020건에서 불일치 0, 포팅 중에 실제 불일치는 한 번도 나오지 않았고 TypeScript 동작 결함도 없었다. 남은 위험은 팩이 지나지 않는 경로다 — 변이 확인으로 찾아 경로 건을 더한다(§5.3) |
 | R3 | Node의 tzdata와 `jiff-tzdb`가 어긋난다(오늘 2026c vs 2026e) | 팩의 분할 결과가 먼저 잡는다. 생성 시나리오의 날짜는 2026–2027로 묶는다. 어긋나면 그 시간대를 보고하고 팩에서 뺀 뒤 원인을 적는다. **RC-33 뒤:** 2026c와 2026e 사이에서 팩의 시간대 7종(+ 속성 테스트의 6종)은 어긋나지 않았다 |
 | R4 | 마스킹 포팅에서 재현율이 떨어진다 | 구현 전에 오라클 팩과 관문부터(RC-70a 첫 단계). lookbehind 없는 `regex`로 안 되는 패턴 목록을 첫날 확정 |
@@ -843,7 +949,7 @@ RC-00 ─┬─► RC-10 ─► RC-20 ──────────┬─► RC
 | R10 | 연결 하나로는 긴 읽기(내보내기, 검색)가 쓰기를 막는다 | RC-50에서 작업 1만 개 파일로 실측, 필요하면 읽기 연결 추가 |
 | R11 | 동결 중에 계약이 바뀐다(웹 작업은 계속된다) | RC-10부터 계약 변경은 `packages/contracts` + Rust에만 구현한다. TypeScript API에 없는 operation은 원장에 "Rust 전용"으로 적는다. 스케줄러 입력을 바꾸는 변경은 전환 전까지 받지 않는다. **예외(조정자 결정, 2026-11-16):** FOLD-01의 `updateProject`(`PATCH /projects/{id}`)는 계약·TypeScript API·Rust 코어 모두에 구현한다 — 어댑터(`ProjectRepository.update`)에 그 동작이 이미 있었고, 웹이 지금 필요로 하며, 전환 전 몇 주 동안 실제 앱은 TypeScript API로 돌기 때문이다 |
 | R12 | 노트북 메모리(15 GB)에서 cargo 빌드와 워커 2명 | `CARGO_BUILD_JOBS=4`, 워커 Task에서 release 빌드 금지, Tauri 빌드는 다른 워커가 없을 때 |
-| R13 | `jsonschema`와 Ajv의 판정이 형식 경계에서 다르다 | RC-10의 대조 도구: 계약 스키마마다 생성한 표본에 두 검증기를 돌려 판정 차이를 목록으로 만든다 |
+| R13 | `jsonschema`와 Ajv의 판정이 형식 경계에서 다르다 | RC-10의 대조 도구: 계약 스키마마다 생성한 표본에 두 검증기를 돌려 판정 차이를 목록으로 만든다. **RC-10A 뒤:** 도구가 있고 `core:parity`에서 돈다(§2.4). 표본 14,747개에서 41가지가 갈렸고, 7가지는 코어를 고치고 34가지는 결정을 적었다. 남은 위험은 계약이 바뀔 때다 — 새 차이는 테스트가 실패로 알린다 |
 
 사용자에게 물어야 하는 것(사용자만 정할 수 있는 것):
 

@@ -106,7 +106,7 @@ pub(super) fn list_tasks(app: &App, call: &Call) -> Result<Reply, Problem> {
         status: status(&call.query),
     };
     let page = call.read(app, |unit| tasks::list(unit, &filter, &call.page_query()))?;
-    let owner_id = &app.owner().id;
+    let owner_id = app.owner_id();
     let body = dto::page(&page, |task| dto::task(task, owner_id));
     Ok(Reply::conditional(call, &etag_for_body(&body), &body))
 }
@@ -114,7 +114,7 @@ pub(super) fn list_tasks(app: &App, call: &Call) -> Result<Reply, Problem> {
 /// `POST /tasks`.
 pub(super) fn create_task(app: &App, call: &Call) -> Result<Reply, Problem> {
     let input = task_create(call.body_object()?);
-    let owner_id = &app.owner().id;
+    let owner_id = app.owner_id();
     call.mutate(app, |unit| {
         let task = tasks::create(unit, &input)?;
         Ok(Reply::json(201, &dto::task(&task, owner_id))
@@ -131,7 +131,7 @@ pub(super) fn get_task(app: &App, call: &Call) -> Result<Reply, Problem> {
     Ok(Reply::conditional(
         call,
         &etag_for_version(task.version),
-        &dto::task(&task, &app.owner().id),
+        &dto::task(&task, app.owner_id()),
     ))
 }
 
@@ -140,7 +140,7 @@ pub(super) fn update_task(app: &App, call: &Call) -> Result<Reply, Problem> {
     let id = call.id()?;
     let expected = call.expected_version()?;
     let patch = task_patch(call.body_object()?);
-    let owner_id = &app.owner().id;
+    let owner_id = app.owner_id();
     call.mutate(app, |unit| {
         let task = tasks::update(unit, &id, &patch, expected)?;
         Ok(Reply::json(200, &dto::task(&task, owner_id))
@@ -152,7 +152,7 @@ pub(super) fn update_task(app: &App, call: &Call) -> Result<Reply, Problem> {
 pub(super) fn complete_task(app: &App, call: &Call) -> Result<Reply, Problem> {
     let id = call.id()?;
     let expected = call.expected_version()?;
-    let owner_id = &app.owner().id;
+    let owner_id = app.owner_id();
     call.mutate(app, |unit| {
         let task = tasks::complete(unit, &id, expected)?;
         Ok(Reply::json(200, &dto::task(&task, owner_id))

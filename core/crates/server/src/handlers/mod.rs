@@ -90,6 +90,7 @@ pub type Handler = fn(&App, &Call) -> Result<Reply, Problem>;
 pub fn table() -> Vec<(&'static str, Handler)> {
     vec![
         ("getMe", me::get_me),
+        ("updateMySettings", me::update_my_settings),
         ("listProjects", projects::list_projects),
         ("createProject", projects::create_project),
         ("updateProject", projects::update_project),

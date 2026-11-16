@@ -87,6 +87,15 @@ async function oneProject(core: Core): Promise<Prepared> {
   return { params: { id: project.id }, version: project.version };
 }
 
+/** The single owner as `GET /me` answers it. */
+export async function readMe(core: Core): Promise<{ readonly id: string; readonly version: number }> {
+  const response = await core.request('GET', `${API_PREFIX}/me`);
+  if (response.status !== 200) {
+    throw new Error(`could not read the owner: ${response.status} ${JSON.stringify(response.body)}`);
+  }
+  return response.body as { id: string; version: number };
+}
+
 /**
  * Operations served by the Rust core, in the order they were ported.
  * The suite fails when the core serves an operation that is missing here.
@@ -190,6 +199,17 @@ export const portedRoutes: readonly RouteEntry[] = [
     prepare: oneProject,
     body: () => ({ title: 'Renamed folder', archived: true }),
     otherBody: () => ({ title: 'Renamed differently' }),
+  },
+  // RC-10A — the owner's settings. Its own rules: `settings.test.ts`.
+  {
+    operationId: 'updateMySettings',
+    successStatus: 200,
+    etag: 'version',
+    // The owner is one row for the whole suite: its version moves with every
+    // accepted patch, so each check reads it first.
+    prepare: async (core) => ({ version: (await readMe(core)).version }),
+    body: () => ({ timeZone: 'Asia/Seoul', locale: 'ko-KR' }),
+    otherBody: () => ({ locale: 'en-GB' }),
   },
 ];
 

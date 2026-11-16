@@ -316,6 +316,33 @@ describe('task rules the TypeScript conformance and task suites pin', () => {
     expect((created.body as { projectId: string }).projectId).toBe(inboxes[0]?.id);
   });
 
+  test('createProject cannot make an Inbox: `kind` is not a field of the request', async () => {
+    const response = await core.request('POST', `${API_PREFIX}/projects`, {
+      headers: key(),
+      body: { title: 'My inbox', kind: 'inbox' },
+    });
+    expectProblem(routeById('createProject'), response, 400, 'validation_failed');
+    const projects = await core.request('GET', `${API_PREFIX}/projects?limit=100`);
+    const items = (projects.body as { items: { kind: string; title: string }[] }).items;
+    expect(items.filter((project) => project.kind === 'inbox')).toHaveLength(1);
+    expect(items.map((project) => project.title)).not.toContain('My inbox');
+  });
+
+  test('request bodies are not type-coerced; a query number is read as a number', async () => {
+    const route = routeById('createTask');
+    for (const body of [
+      { title: 123, priority: '4' },
+      { title: 'x', priority: '4' },
+      { title: 'x', splittable: 'true' },
+      { title: 'x', session: { minMinutes: '30', maxMinutes: 90 } },
+    ]) {
+      const response = await core.request('POST', `${API_PREFIX}/tasks`, { headers: key(), body });
+      expectProblem(route, response, 400, 'validation_failed');
+    }
+    const query = await core.request('GET', `${API_PREFIX}/tasks?limit=10`);
+    expectSuccess(routeById('listTasks'), query, 200);
+  });
+
   test('domain validation is 422 with field errors, and nothing is created', async () => {
     const route = routeById('createTask');
     const blank = await core.request('POST', `${API_PREFIX}/tasks`, { headers: key(), body: { title: '   ' } });

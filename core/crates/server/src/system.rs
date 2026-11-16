@@ -25,6 +25,45 @@ impl Clock for SystemClock {
     }
 }
 
+/// The wall clock moved by a fixed number of milliseconds. **Tests only.**
+///
+/// End-to-end tests need "now" to be a chosen moment (a Monday morning, the
+/// night before a time-zone change) while every tier — core, browser, test —
+/// agrees on it. The offset is fixed for the life of the process, like the
+/// reference's `E2E_FAKE_NOW`.
+///
+/// The type exists only with the cargo feature `test-clock`, which is off by
+/// default. A build without it — every build that is packaged — has no way
+/// to run on any clock but the system's.
+#[cfg(feature = "test-clock")]
+#[derive(Debug, Clone, Copy)]
+pub struct ShiftedClock {
+    offset_ms: i64,
+}
+
+#[cfg(feature = "test-clock")]
+impl ShiftedClock {
+    #[must_use]
+    pub fn new(offset_ms: i64) -> Self {
+        Self { offset_ms }
+    }
+}
+
+#[cfg(feature = "test-clock")]
+impl Clock for ShiftedClock {
+    fn now(&self) -> Instant {
+        // Past either end of 1970..9999 the clock stops at that end.
+        SystemClock
+            .now()
+            .checked_add_ms(self.offset_ms)
+            .unwrap_or(if self.offset_ms < 0 {
+                Instant::MIN
+            } else {
+                Instant::MAX
+            })
+    }
+}
+
 /// The operating system's random number generator.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct OsRandom;
@@ -108,6 +147,36 @@ mod tests {
         let second = SystemClock.now();
         assert!(first > Instant::from_epoch_ms(1_700_000_000_000).unwrap());
         assert!(second >= first);
+    }
+
+    #[cfg(feature = "test-clock")]
+    #[test]
+    fn a_shifted_clock_is_the_wall_clock_plus_its_offset() {
+        const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+        for offset_ms in [0, 1, 90 * DAY_MS, -400 * DAY_MS] {
+            let before = SystemClock.now().epoch_ms();
+            let shifted = ShiftedClock::new(offset_ms).now().epoch_ms();
+            let after = SystemClock.now().epoch_ms();
+            assert!(
+                (before + offset_ms..=after + offset_ms).contains(&shifted),
+                "{offset_ms}: {shifted} is not between {before} and {after} plus the offset"
+            );
+        }
+    }
+
+    #[cfg(feature = "test-clock")]
+    #[test]
+    fn a_shifted_clock_stops_at_the_ends_of_the_supported_range() {
+        assert_eq!(ShiftedClock::new(i64::MAX).now(), Instant::MAX);
+        assert_eq!(ShiftedClock::new(i64::MIN).now(), Instant::MIN);
+        assert_eq!(
+            ShiftedClock::new(Instant::MAX.epoch_ms()).now(),
+            Instant::MAX
+        );
+        assert_eq!(
+            ShiftedClock::new(-Instant::MAX.epoch_ms()).now(),
+            Instant::MIN
+        );
     }
 
     #[test]
