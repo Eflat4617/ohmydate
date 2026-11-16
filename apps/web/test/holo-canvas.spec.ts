@@ -956,6 +956,48 @@ describe('under a finger (HOLO-07): scroll, tap, long press, hold and drag', () 
     expect(picked(wrapper)).toEqual([id]);
   });
 
+  it('the surface laid out again under a resting finger is not the finger moving: still a long press', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const stage = wrapper.get('[data-todo-canvas]').element as HTMLElement;
+    const at = fingerDown(wrapper, id);
+    await vi.advanceTimersByTimeAsync(HOLD);
+    // The list was refreshed and everything above the surface grew by 60px: the surface is lower in the window now.
+    const shifted = { x: 0, y: 60, left: 0, top: 60, right: 1100, bottom: 760, width: 1100, height: 700, toJSON: () => ({}) };
+    stage.getBoundingClientRect = () => shifted as DOMRect;
+    // The finger has not moved in the window.
+    pointer(stage, 'pointermove', at, TOUCH);
+    await fingerUp(wrapper, at);
+    expect(picked(wrapper)).toEqual([id]);
+    expect(card()).toBeNull();
+  });
+
+  it('only the answered touch is ended that way: the next tap, on the selection bar, still clicks (negative)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const stage = wrapper.get('[data-todo-canvas]').element;
+    // A long press whose own touchend never reached the surface (the finger slid off the window).
+    const at = fingerDown(wrapper, id);
+    await vi.advanceTimersByTimeAsync(HOLD);
+    pointer(stage, 'pointerup', at, TOUCH);
+    await flushPromises();
+    await nextTick();
+    expect(picked(wrapper)).toEqual([id]);
+    // The next touch: 폴더로 옮기기 in the selection bar, which the surface's own handler leaves alone.
+    const move = wrapper.get('[data-canvas-selection-move]').element;
+    pointer(move, 'pointerdown', { x: 200, y: 600 }, TOUCH);
+    pointer(move, 'pointerup', { x: 200, y: 600 }, TOUCH);
+    const end = new Event('touchend', { bubbles: true, cancelable: true });
+    move.dispatchEvent(end);
+    // Not cancelled: the browser goes on to click the button.
+    expect(end.defaultPrevented).toBe(false);
+    move.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await nextTick();
+    expect(document.body.querySelector('[data-folder-picker]')).not.toBeNull();
+  });
+
   it('the hold ticks where the device can, and a tap does not (negative)', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const vibrate = vi.fn(() => true);

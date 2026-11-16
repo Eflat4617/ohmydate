@@ -230,7 +230,9 @@ async function step(run, what, check) {
   try {
     await check();
   } catch (cause) {
-    const reason = String(cause instanceof Error ? cause.message : cause).split('\n')[0];
+    // The first line says what failed; the line after a timeout says what was waited for.
+    const lines = String(cause instanceof Error ? cause.message : cause).split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
+    const reason = lines.slice(0, lines[0]?.includes('Timeout') ? 3 : 1).join(' ');
     findings.push({ stop: `${what} ${run.viewport.width}x${run.viewport.height} ${run.scheme}`, failed: reason });
     console.log(`  ✗ ${what}: ${reason}`);
     throw cause;
@@ -329,10 +331,16 @@ const samePlace = (left, right) => Math.hypot(left.x - right.x, left.y - right.y
 const at = (place) => `${place.x},${place.y}`;
 const picked = (page) => page.locator('[data-todo][aria-selected="true"]').count();
 
-/** Bring a to-do to the middle of the screen, so a finger has room around it. */
+/** Bring a to-do to the middle of the screen, so a finger has room around it, and let the surface come to rest. */
 async function bringToMiddle(page, locator) {
   await locator.evaluate((element) => element.scrollIntoView({ block: 'center' }));
-  await page.waitForTimeout(120);
+  let last = '';
+  for (let tries = 0; tries < 12; tries += 1) {
+    await page.waitForTimeout(80);
+    const now = JSON.stringify(await locator.boundingBox());
+    if (now === last) return;
+    last = now;
+  }
 }
 
 /**
@@ -393,6 +401,36 @@ async function walkCanvas(browser, run) {
       expectThat(head.includes('2'), `the head's button does not carry the two: "${head}"`);
       await second.tap();
       expectThat((await picked(page)) === 1, 'a second tap did not unpick it');
+    });
+
+    await step(run, 'canvas: 폴더로 옮기기 files what is picked into a folder, without a drag', async () => {
+      expectThat((await first.getAttribute('data-folder')) === 'inbox', 'the to-do is not in the inbox to begin with');
+      await page.locator('[data-canvas-selection-move]').tap();
+      await page.locator('[data-folder-picker]').waitFor();
+      await stop(page, run, 'canvas-folder-picker');
+      const folder = page.locator('[data-folder-picker] [data-folder-pick]:not([data-folder-pick="inbox"]):not([data-folder-pick="new"])').first();
+      const id = await folder.getAttribute('data-folder-pick');
+      await folder.tap();
+      await page.locator('[data-folder-picker]').waitFor({ state: 'detached' });
+      await page.waitForFunction(
+        ({ title, folderId }) => [...document.querySelectorAll('[data-todo]')].some((element) => element.textContent?.includes(title) && element.getAttribute('data-folder') === folderId),
+        { title: '영어 회화 과제', folderId: id },
+      );
+      // The lists are read again after a filing: the next press waits for them.
+      await settle(page);
+      // Back to the open water, the same way.
+      await bringToMiddle(page, first);
+      await longPress(page, run, first);
+      await page.locator('[data-canvas-selection-move]').tap();
+      await page.locator('[data-folder-picker] [data-folder-pick="inbox"]').tap();
+      await page.waitForFunction(
+        (title) => [...document.querySelectorAll('[data-todo]')].some((element) => element.textContent?.includes(title) && element.getAttribute('data-folder') === 'inbox'),
+        '영어 회화 과제',
+      );
+      await settle(page);
+      await bringToMiddle(page, first);
+      await longPress(page, run, first);
+      await page.locator('[data-canvas-selection]').waitFor();
     });
 
     await step(run, 'canvas: 선택 풀기 lets go', async () => {

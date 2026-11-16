@@ -959,10 +959,15 @@ const detailActions = computed<CanvasActions>(() => ({
 //   - a tap opens the detail — or, while something is picked, picks and unpicks;
 //   - a long press that goes nowhere picks: the touch way to pick several;
 //   - a long press and then a drag moves the to-do (and what is picked with it).
+//
+// `start` is where the press is on the surface (what a drag moves from);
+// `down` is where it is in the window. Whether the pointer has moved is read
+// in the window: the surface can be laid out again under a resting finger (the
+// list was refreshed), and that is not the finger moving.
 type Gesture =
-  | { kind: 'press' | 'drag'; pointerId: number; id: string; start: Point; ids: string[]; grab: Map<string, Point>; armed: boolean; modifier: boolean; touch: boolean; moved: boolean }
-  | { kind: 'lasso'; pointerId: number; start: Point; add: boolean; moved: boolean }
-  | { kind: 'dish'; pointerId: number; id: string; start: Point; grab: Point; armed: boolean; moved: boolean; touch: boolean };
+  | { kind: 'press' | 'drag'; pointerId: number; id: string; start: Point; down: Point; ids: string[]; grab: Map<string, Point>; armed: boolean; modifier: boolean; touch: boolean; moved: boolean }
+  | { kind: 'lasso'; pointerId: number; start: Point; down: Point; add: boolean; moved: boolean }
+  | { kind: 'dish'; pointerId: number; id: string; start: Point; down: Point; grab: Point; armed: boolean; moved: boolean; touch: boolean };
 
 let gesture: Gesture | null = null;
 let holdTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1002,13 +1007,16 @@ function capture(event: PointerEvent): void {
 }
 
 function onPointerDown(event: PointerEvent): void {
+  // A new press: whatever the last touch was answered with is over. Before anything else —
+  // a press on the selection bar leaves this handler early, and its tap must still click.
+  answeredTouch = false;
   if (event.button !== 0 || gesture !== null) return;
   const target = event.target;
   if (!(target instanceof Element)) return;
   if (target.closest('[data-pond-ignore]') !== null) return;
   const point = stagePoint(event);
+  const down = { x: event.clientX, y: event.clientY };
   const touch = event.pointerType === 'touch';
-  answeredTouch = false;
 
   const todoEl = target.closest<HTMLElement>('[data-todo]');
   if (todoEl !== null) {
@@ -1019,6 +1027,7 @@ function onPointerDown(event: PointerEvent): void {
       pointerId: event.pointerId,
       id,
       start: point,
+      down,
       ids: [],
       grab: new Map(),
       armed: !touch,
@@ -1043,6 +1052,7 @@ function onPointerDown(event: PointerEvent): void {
       pointerId: event.pointerId,
       id,
       start: point,
+      down,
       grab: { x: point.x - (box.left + box.width / 2), y: point.y - (box.top + box.height / 2) },
       armed: !touch,
       moved: false,
@@ -1060,7 +1070,7 @@ function onPointerDown(event: PointerEvent): void {
     if (selection.value.ids.size > 0) setSelection(NO_SELECTION);
     return;
   }
-  gesture = { kind: 'lasso', pointerId: event.pointerId, start: point, add: event.shiftKey, moved: false };
+  gesture = { kind: 'lasso', pointerId: event.pointerId, start: point, down, add: event.shiftKey, moved: false };
   capture(event);
 }
 
@@ -1109,7 +1119,7 @@ function onPointerMove(event: PointerEvent): void {
   const current = gesture;
   if (current === null || current.pointerId !== event.pointerId) return;
   const slop = current.kind !== 'lasso' && current.touch ? TOUCH_SLOP : DRAG_SLOP;
-  const far = Math.hypot(point.x - current.start.x, point.y - current.start.y) > slop;
+  const far = Math.hypot(event.clientX - current.down.x, event.clientY - current.down.y) > slop;
 
   if (current.kind === 'press') {
     if (!far) return;

@@ -1,7 +1,7 @@
 {
   "browser": "webkit",
   "gestures": "tap real; long press, drag and swipe as pointer events",
-  "steps": 140,
+  "steps": 144,
   "failing": 0,
   "findings": [],
   "under44": [
