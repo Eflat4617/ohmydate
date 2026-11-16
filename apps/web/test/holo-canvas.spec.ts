@@ -1265,6 +1265,67 @@ describe('folders: dishes on the surface, and real projects', () => {
     await vi.waitFor(() => expect(todo(wrapper, id).attributes('data-folder')).toBe(created?.id));
   });
 
+  it('폴더 만들기 while to-dos are picked: the button says so, the new folder takes them, and the selection ends (HOLO-07)', async () => {
+    const { wrapper } = await mountCanvas();
+    const first = seedTaskId();
+    await click(wrapper, first, { shiftKey: true });
+    await click(wrapper, MONTH_TASK_ENGLISH_ID, { shiftKey: true });
+    const button = wrapper.get('[data-new-folder]');
+    expect(button.text()).toBe('고른 2개로 폴더 만들기');
+    await button.trigger('click');
+    const form = dialog('[data-new-folder-dialog]');
+    expect(form.querySelector('[data-new-folder-help]')?.textContent?.trim()).toBe('이름을 정하면 고른 할 일 2개가 이 폴더로 들어가요.');
+    await setInput(form.querySelector('[data-new-folder-name]'), '이번 주');
+    form.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(task(first).projectId).not.toBe(INBOX_PROJECT_ID));
+    const created = [...mockDb.projects.values()].find((item) => item.title === '이번 주');
+    await vi.waitFor(() => expect(task(MONTH_TASK_ENGLISH_ID).projectId).toBe(created?.id));
+    expect(task(first).projectId).toBe(created?.id);
+    expect(mutations().sort()).toEqual(['POST /projects', `PATCH /tasks/${first}`, `PATCH /tasks/${MONTH_TASK_ENGLISH_ID}`].sort());
+    // The selection ended with what it was for.
+    await vi.waitFor(() => expect(wrapper.findAll('[aria-selected="true"]')).toHaveLength(0));
+    expect(wrapper.find('[data-canvas-selection]').exists()).toBe(false);
+    expect(wrapper.get('[data-new-folder]').text()).toBe('폴더 만들기');
+    expect(wrapper.get('[data-tasks-to-plan]').text()).toBe('계획에 넣기');
+    await vi.waitFor(() => expect(todo(wrapper, first).attributes('data-folder')).toBe(created?.id));
+  });
+
+  it('with nothing picked 폴더 만들기 is plain and the new folder takes nothing; so it is in the list view (negative)', async () => {
+    const { wrapper } = await mountCanvas();
+    expect(wrapper.get('[data-new-folder]').text()).toBe('폴더 만들기');
+    await wrapper.get('[data-new-folder]').trigger('click');
+    const form = dialog('[data-new-folder-dialog]');
+    expect(form.querySelector('[data-new-folder-help]')?.textContent?.trim()).toBe('이름을 정하면 수면에 폴더가 놓여요. 할 일을 끌어다 넣어 정리해요.');
+    await setInput(form.querySelector('[data-new-folder-name]'), '빈 폴더');
+    form.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect([...mockDb.projects.values()].some((item) => item.title === '빈 폴더')).toBe(true));
+    await flushPromises();
+    expect(mutations()).toEqual(['POST /projects']);
+
+    // Picked on the canvas, then a look at the list: the picks are not on show there, and the button does not speak for them.
+    await click(wrapper, seedTaskId(), { shiftKey: true });
+    expect(wrapper.get('[data-new-folder]').text()).toBe('고른 1개로 폴더 만들기');
+    await wrapper.get('[data-tasks-view-link="list"]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-tasks-list]').exists()).toBe(true));
+    expect(wrapper.get('[data-new-folder]').text()).toBe('폴더 만들기');
+  });
+
+  it('a to-do the new folder could not take stays picked (negative)', async () => {
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    await click(wrapper, id, { shiftKey: true });
+    server.use(http.patch(`*/api/v1/tasks/${id}`, () => HttpResponse.json({ type: 'about:blank', title: 'x', status: 503, code: 'unavailable' }, { status: 503 })));
+    await wrapper.get('[data-new-folder]').trigger('click');
+    const form = dialog('[data-new-folder-dialog]');
+    await setInput(form.querySelector('[data-new-folder-name]'), '안 되는 폴더');
+    form.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect([...mockDb.projects.values()].some((item) => item.title === '안 되는 폴더')).toBe(true));
+    await vi.waitFor(() => expect(document.body.querySelector('[data-new-folder-dialog]')).toBeNull());
+    await flushPromises();
+    expect(task(id).projectId).toBe(INBOX_PROJECT_ID);
+    expect(todo(wrapper, id).attributes('aria-selected')).toBe('true');
+  });
+
   it('renames in place on the folder’s label', async () => {
     const { wrapper } = await mountCanvas();
     const name = wrapper.get(`[data-folder-name="${SAMPLE_PROJECT_ID}"]`);

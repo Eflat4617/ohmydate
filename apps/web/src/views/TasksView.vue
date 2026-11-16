@@ -326,7 +326,12 @@ async function submitNewFolder(): Promise<void> {
       }
       creating.value = null;
       toast.show(t('canvas.folder.created', { title: project.title }));
-      if (request.thenFile.length > 0) yield* owner.wait(folderActions.file(request.thenFile, project.id));
+      if (request.thenFile.length > 0) {
+        const filed = yield* owner.wait(folderActions.file(request.thenFile, project.id));
+        // What went into the folder is no longer picked: the selection ends with what it was for.
+        const gone = new Set(filed.moved.map((task) => task.id));
+        selected.value = selected.value.filter((id) => !gone.has(id));
+      }
       void board.refresh();
     },
     {
@@ -406,6 +411,22 @@ const planLabel = computed(() =>
   selected.value.length > 0 && view.value === 'canvas' ? tp('canvas.toPlanPicked', selected.value.length) : t('canvas.toPlan'),
 );
 
+/**
+ * 폴더 만들기 while to-dos are picked on the canvas (HOLO-07): the new folder
+ * takes them — the button says so — and the selection ends.
+ */
+const pickedForFolder = computed<Task[]>(() => {
+  if (view.value !== 'canvas' || selected.value.length === 0) return [];
+  const byId = new Map(todos.value.map((todo) => [todo.task.id, todo.task]));
+  return selected.value.flatMap((id) => {
+    const task = byId.get(id);
+    return task === undefined ? [] : [task];
+  });
+});
+const newFolderLabel = computed(() =>
+  pickedForFolder.value.length > 0 ? tp('canvas.newFolderPicked', pickedForFolder.value.length) : t('canvas.newFolder'),
+);
+
 function openCapture(): void {
   ui.openCapture('capture');
 }
@@ -434,8 +455,8 @@ onUnmounted(() => {
         <UiBadge v-if="!offline.mutationsEnabled" tone="offline" dot class="offline-note" role="status">
           {{ t('common.readOnlyOffline') }}
         </UiBadge>
-        <UiButton icon="projects" :disabled="!offline.mutationsEnabled" data-new-folder @click="newFolder()">
-          {{ t('canvas.newFolder') }}
+        <UiButton icon="projects" :disabled="!offline.mutationsEnabled" data-new-folder @click="newFolder(pickedForFolder)">
+          {{ newFolderLabel }}
         </UiButton>
         <nav class="segmented glass glass--still glass--flat tasks-views" :aria-label="t('canvas.view.label')">
           <a
@@ -528,7 +549,9 @@ onUnmounted(() => {
         <header class="dialog-header">
           <h2 id="new-folder-title" class="dialog-title">{{ t('canvas.folder.createTitle') }}</h2>
         </header>
-        <p id="new-folder-help" class="muted">{{ t('canvas.folder.createHelp') }}</p>
+        <p id="new-folder-help" class="muted" data-new-folder-help>
+          {{ creating.thenFile.length > 0 ? tp('canvas.folder.createHelpPicked', creating.thenFile.length) : t('canvas.folder.createHelp') }}
+        </p>
         <div class="field">
           <label for="new-folder-name" class="field-label">{{ t('canvas.folder.name') }}</label>
           <input

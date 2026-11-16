@@ -116,6 +116,7 @@ export const ko = {
     toPlan: '계획에 넣기',
     toPlanPicked: plural({ other: '고른 {count}개 계획에 넣기' }),
     newFolder: '폴더 만들기',
+    newFolderPicked: plural({ other: '고른 {count}개로 폴더 만들기' }),
     empty: {
       title: '수면이 비어 있어요',
       body: '떠오르는 일을 적으면 여기에 떠올라요. 정리는 나중에 해도 돼요.',
@@ -186,6 +187,7 @@ export const ko = {
       create: '만들기',
       createTitle: '새 폴더',
       createHelp: '이름을 정하면 수면에 폴더가 놓여요. 할 일을 끌어다 넣어 정리해요.',
+      createHelpPicked: plural({ other: '이름을 정하면 고른 할 일 {count}개가 이 폴더로 들어가요.' }),
       rename: '이름 바꾸기',
       renameAria: '{title} 폴더 이름 바꾸기',
       fold: '접기',
