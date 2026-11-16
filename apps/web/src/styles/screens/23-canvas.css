@@ -151,9 +151,13 @@
 }
 
 .pond[data-density='compact'] .pond-title,
-.pond-todo[data-filed] .pond-title,
 .pond--narrow .pond-title {
   max-width: 10.5rem;
+}
+
+/* Put away in a folder: short enough that two usually share a row of its dish. */
+.pond-todo[data-filed] .pond-title {
+  max-width: 8.5rem;
 }
 
 /* The mark: a ring (to do), a ring with its dot (under way), a tick (picked, or done on its way out). */

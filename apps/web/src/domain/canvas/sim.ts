@@ -150,6 +150,11 @@ function boxOf(world: World, region: string | null): Box {
   return { left: 0, top: 0, width: world.width, height: world.height };
 }
 
+/** The width of what holds a region's bodies. */
+function roomOf(world: World, region: string): number {
+  return world.regions.find((item) => item.id === region)?.box.width ?? world.width;
+}
+
 /** True when a body centred on `at` is on the surface and in no dish but (perhaps) `leaving`'s edge. */
 function isOpenWater(at: Point, body: Pick<Body, 'w' | 'h'>, world: World, leaving: Box, options: RelaxOptions): boolean {
   if (at.x - body.w / 2 < options.pad || at.x + body.w / 2 > world.width - options.pad) return false;
@@ -208,6 +213,12 @@ export function relax(bodies: readonly Body[], world: World, options: RelaxOptio
 
       let nx = dx / reachX;
       let ny = dy / reachY;
+      // Two that cannot lie side by side in what holds them (a folder's dish
+      // is narrow) can only part one above the other.
+      if (a.region !== null && a.w + b.w + gap > roomOf(world, a.region) - 2 * insidePad) {
+        nx = 0;
+        ny = Math.abs(dy) > 1e-6 ? Math.sign(dy) : a.id < b.id ? 1 : -1;
+      }
       let length = Math.hypot(nx, ny);
       if (length < 1e-6) {
         // Exactly on top of each other: a direction from the two ids, always the same one.

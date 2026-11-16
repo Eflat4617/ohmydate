@@ -18,7 +18,7 @@ export interface Fraction {
 export type Density = 'airy' | 'compact';
 
 /** Surface (px²) one to-do takes with the calm around it, per density. */
-export const FOOTPRINT: Readonly<Record<Density, number>> = { airy: 23_000, compact: 14_500 };
+export const FOOTPRINT: Readonly<Record<Density, number>> = { airy: 22_000, compact: 14_500 };
 /** The least distance between two to-dos at rest, per density. */
 export const BODY_GAP: Readonly<Record<Density, number>> = { airy: 22, compact: 12 };
 /** How far a to-do sways from its anchor (px), per density: always less than half the gap. */
@@ -30,6 +30,8 @@ export const BODY_PAD = 14;
 /** Inside a folder things are put away: the compact size, closer together. */
 export const INSIDE_GAP = 10;
 export const INSIDE_PAD = 10;
+/** …and it sways less, without the lean: never across that gap. */
+export const INSIDE_SWAY = 3;
 /** On a narrow surface wide capsules pack worse: each takes this much more room. */
 const NARROW_FOOTPRINT = 1.3;
 /** The surface may grow to this many times the window's room before anything is held back. */
@@ -187,6 +189,11 @@ export interface FolderInput {
   readonly place?: Fraction | undefined;
   /** Its name's length in glyphs (the folded object is as wide as its label). */
   readonly labelLength: number;
+  /**
+   * The widths of its to-dos' capsules, most urgent first: the dish is as
+   * large as they need. Without them a usual width is assumed for each.
+   */
+  readonly widths?: readonly number[];
 }
 
 export interface FolderBox {
@@ -203,26 +210,77 @@ export interface FolderBox {
 
 export const DISH_HEAD = 44;
 export const DISH_PAD = 10;
-/** Surface one to-do takes inside a dish. */
-const DISH_FOOTPRINT = 11_500;
-const DISH_MIN = { w: 248, h: 156 } as const;
+/**
+ * A dish holds its to-dos in rows, flowed like words into lines: as many
+ * capsules to a row as fit its width. A row is a compact capsule, the gap
+ * under it and a little air.
+ */
+const DISH_ROW = 50;
+/** …and the least a row can be before the capsules in it touch. */
+const DISH_ROW_MIN = 46;
+/** A dish of up to three to-dos is this wide; a fuller one, twice a capsule. */
+const DISH_WIDTH = { small: 264, large: 404 } as const;
+const DISH_SMALL_COUNT = 3;
+/** Rows a dish shows before it says "+N". */
+const DISH_MAX_ROWS = 6;
 const DISH_EMPTY_HEIGHT = 104;
+/** The width assumed for a capsule nobody has measured. */
+const USUAL_CAPSULE = 168;
 /** Dishes that overflow one column by no more than this are squeezed into it. */
 const COLUMN_SQUEEZE = 1.25;
-const DISH_MAX = { w: 420, h: 360 } as const;
 export const FOLDED_HEIGHT = 52;
 
-/** A dish as large as what it holds asks for, within its limits. `maxWidth` is the surface's. */
-export function dishSize(count: number, maxWidth: number): { w: number; h: number; capacity: number } {
-  const limit = Math.max(160, Math.min(DISH_MAX.w, maxWidth));
-  const area = Math.max(0, count) * DISH_FOOTPRINT;
-  const w = Math.round(Math.max(Math.min(DISH_MIN.w, limit), Math.min(Math.sqrt(Math.max(area, DISH_FOOTPRINT) * 1.5) + 2 * DISH_PAD, limit)));
-  const innerW = w - 2 * DISH_PAD;
-  // An empty folder is its label and room to drop something in.
-  const least = count <= 0 ? DISH_EMPTY_HEIGHT : DISH_MIN.h;
-  const h = Math.round(Math.max(least, Math.min(area / innerW + DISH_HEAD + DISH_PAD, DISH_MAX.h)));
-  const capacity = Math.max(1, Math.floor((innerW * (h - DISH_HEAD - DISH_PAD)) / (DISH_FOOTPRINT * 0.8)));
-  return { w, h, capacity };
+/**
+ * Capsules of `widths` flowed into rows of `room` pixels, `gap` apart, in
+ * the order given: each row is the indexes it holds. One wider than the room
+ * has a row to itself.
+ */
+export function flowRows(widths: readonly number[], room: number, gap: number): number[][] {
+  const rows: number[][] = [];
+  let used = 0;
+  widths.forEach((width, index) => {
+    const row = rows[rows.length - 1];
+    if (row === undefined || used + gap + width > room) {
+      rows.push([index]);
+      used = width;
+    } else {
+      row.push(index);
+      used += gap + width;
+    }
+  });
+  return rows;
+}
+
+/** The pixels of a dish's width that capsules can lie in. */
+function dishRoom(width: number): number {
+  // The same room `flowPlaces` flows them into: the dish's inside, less its pad.
+  return width - 2 * INSIDE_PAD;
+}
+
+/**
+ * A dish as large as what it holds needs. `maxWidth` is the most the surface
+ * gives it; `width` fixes it (a narrow surface's dishes are as wide as the
+ * surface). `shown` is how many of its to-dos its rows hold (the rest are
+ * "+N"), `least` the height it cannot go under without crowding them.
+ */
+export function dishSize(
+  widths: readonly number[],
+  maxWidth: number,
+  width?: number,
+): { w: number; h: number; shown: number; least: number } {
+  const limit = Math.max(160, maxWidth);
+  const widest = widths.reduce((most, item) => Math.max(most, item), 0);
+  const wanted = widths.length > DISH_SMALL_COUNT ? DISH_WIDTH.large : DISH_WIDTH.small;
+  // Wide enough for its widest capsule, whatever else.
+  const w = Math.round(width ?? Math.min(limit, Math.max(wanted, widest + 2 * INSIDE_PAD + 8)));
+  if (widths.length === 0) return { w, h: DISH_EMPTY_HEIGHT, shown: 0, least: DISH_EMPTY_HEIGHT };
+  const rows = flowRows(widths, dishRoom(w), INSIDE_GAP).slice(0, DISH_MAX_ROWS);
+  return {
+    w,
+    h: DISH_HEAD + rows.length * DISH_ROW + 2 * DISH_PAD,
+    shown: rows.reduce((sum, row) => sum + row.length, 0),
+    least: DISH_HEAD + rows.length * DISH_ROW_MIN + 2 * DISH_PAD,
+  };
 }
 
 function foldedSize(labelLength: number, maxWidth: number): { w: number; h: number } {
@@ -243,21 +301,36 @@ export function layoutFolders(folders: readonly FolderInput[], surface: { width:
   const narrow = surface.width < NARROW_SURFACE;
   const maxWidth = surface.width - 2 * pad;
   const sizes = folders.map((folder) => {
-    if (folder.collapsed) return { ...foldedSize(folder.labelLength, maxWidth), capacity: 0 };
-    return narrow ? { ...dishSize(folder.count, maxWidth), w: Math.round(maxWidth) } : dishSize(folder.count, maxWidth);
+    if (folder.collapsed) {
+      const folded = foldedSize(folder.labelLength, maxWidth);
+      return { ...folded, shown: 0, least: folded.h };
+    }
+    const widths = folder.widths ?? Array.from({ length: Math.max(0, folder.count) }, () => USUAL_CAPSULE);
+    return narrow ? dishSize(widths, maxWidth, maxWidth) : dishSize(widths, maxWidth);
   });
 
-  // Nearly one column: dishes give up a little height each so that they are one, not two.
-  if (!narrow && sizes.length > 1) {
+  // One column down the edge, if at all possible.
+  if (!narrow && sizes.length > 0) {
     const air = (sizes.length - 1) * gap + 2 * pad;
-    const total = sizes.reduce((sum, size) => sum + size.h, 0);
     const room = surface.height - air;
+    const heightOf = (): number => sizes.reduce((sum, size) => sum + size.h, 0);
+    // Too tall: every open dish becomes a wide one, with two capsules to a row.
+    if (heightOf() > room && maxWidth >= DISH_WIDTH.large * 2) {
+      folders.forEach((folder, index) => {
+        if (folder.collapsed) return;
+        const widths = folder.widths ?? Array.from({ length: Math.max(0, folder.count) }, () => USUAL_CAPSULE);
+        const wide = dishSize(widths, maxWidth, DISH_WIDTH.large);
+        if (wide.h < (sizes[index] as { h: number }).h) sizes[index] = wide;
+      });
+    }
+    // Still a little too tall: each gives up air — never below what its to-dos need.
+    const total = heightOf();
     if (total > room && total <= room * COLUMN_SQUEEZE) {
-      const open = sizes.filter((size, index) => !(folders[index] as FolderInput).collapsed && size.h > DISH_MIN.h);
-      const spare = open.reduce((sum, size) => sum + size.h, 0) - open.length * DISH_MIN.h;
-      const over = total - room;
-      if (spare >= over) {
-        for (const size of open) size.h = Math.floor(size.h - ((size.h - DISH_MIN.h) / spare) * over);
+      const open = sizes.filter((size, index) => !(folders[index] as FolderInput).collapsed && size.h > size.least);
+      const spare = open.reduce((sum, size) => sum + size.h - size.least, 0);
+      const over = Math.min(total - room, spare);
+      if (spare > 0) {
+        for (const size of open) size.h = Math.floor(size.h - ((size.h - size.least) / spare) * over);
       }
     }
   }
@@ -297,10 +370,10 @@ export function layoutFolders(folders: readonly FolderInput[], surface: { width:
 
   return folders.map((folder, index) => {
     const body = bodies[index] as Body;
-    const size = sizes[index] as { w: number; h: number; capacity: number };
+    const size = sizes[index] as { w: number; h: number; shown: number };
     const box: Box = { left: Math.round(body.x - body.w / 2), top: Math.round(body.y - body.h / 2), width: body.w, height: body.h };
     if (folder.collapsed) return { id: folder.id, collapsed: true, box, inner: null, shown: 0, hidden: folder.count };
-    const shown = Math.min(folder.count, size.capacity);
+    const shown = Math.min(folder.count, size.shown);
     return {
       id: folder.id,
       collapsed: false,
@@ -362,6 +435,40 @@ export function openWater(world: World): Box {
   return { left: 0, top: 0, width: left, height: world.height };
 }
 
+/**
+ * Where a dish keeps its to-dos: flowed into rows in the order given (the
+ * same rows the dish was sized for), each row's slack going to alternate
+ * sides so that it is not a table. What is filed is put away — a dish is
+ * always tidy, whatever was dropped into it and wherever.
+ */
+export function flowPlaces(
+  peers: readonly { readonly id: string; readonly w: number; readonly h: number }[],
+  dish: Box,
+  options: Pick<PlaceOptions, 'gap' | 'pad' | 'insideGap' | 'insidePad'>,
+): Map<string, Point> {
+  const places = new Map<string, Point>();
+  const pad = options.insidePad ?? options.pad;
+  const gap = options.insideGap ?? options.gap;
+  const room = dish.width - 2 * pad;
+  const rows = flowRows(
+    peers.map((peer) => peer.w),
+    room,
+    gap,
+  );
+  const rowHeight = Math.max(1, (dish.height - 2 * pad) / Math.max(1, rows.length));
+  rows.forEach((row, rowIndex) => {
+    const used = row.reduce((sum, index) => sum + (peers[index] as { w: number }).w, 0) + (row.length - 1) * gap;
+    const slack = Math.max(0, room - used);
+    let x = dish.left + pad + (rowIndex % 2 === 0 ? slack * 0.25 : slack * 0.75);
+    for (const index of row) {
+      const peer = peers[index] as { id: string; w: number };
+      places.set(peer.id, { x: x + peer.w / 2, y: dish.top + pad + rowHeight * (rowIndex + 0.5) });
+      x += peer.w + gap;
+    }
+  });
+  return places;
+}
+
 export interface SeedItem {
   readonly id: string;
   readonly w: number;
@@ -419,6 +526,10 @@ export function placeBodies(
   // it (so the field is evenly full), handed out nearest-the-focus first.
   const seeded = new Map<string, Point>();
   for (const [region, peers] of fresh) {
+    if (region !== null) {
+      for (const [id, at] of flowPlaces(peers, regionBox(world, region), options)) seeded.set(id, at);
+      continue;
+    }
     const box = region === null ? water : regionBox(world, region);
     const pad = region === null ? options.pad : (options.insidePad ?? options.pad);
     const turn = (hashSeed(region ?? 'open-water') / 4294967296) * Math.PI * 2;

@@ -438,14 +438,15 @@ async function flowCanvas(browser, run) {
     // 폴더로 옮기기, from the keyboard.
     await page.keyboard.press('v');
     await page.locator('[data-folder-picker]').waitFor();
-    await checkpoint(page, '93-canvas-picker', run);
+    // A floating menu with no scrim: what it covers for a moment is not a target while it is open.
+    await checkpoint(page, '93-canvas-picker', run, '[data-folder-picker]');
     await page.keyboard.press('Escape');
     await page.locator('[data-canvas-selection-clear]').click();
 
     // A folder's menu, open.
     await page.locator('[data-folder-menu-button]').first().click();
     await page.locator('[data-folder-menu]').waitFor();
-    await checkpoint(page, '94-canvas-folder-menu', run);
+    await checkpoint(page, '94-canvas-folder-menu', run, '[data-folder-menu]');
     await page.keyboard.press('Escape');
 
     // One folder folded to a single object beside two that are open.

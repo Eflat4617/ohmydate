@@ -5,6 +5,7 @@ import type { CanvasMemory } from '../../composables/canvasMemory';
 import { useMediaQuery } from '../../composables/useMediaQuery';
 import { createGovernor, governorTick, type MotionLevel } from '../../domain/canvas/governor';
 import {
+  INSIDE_SWAY,
   NARROW_GROWTH,
   NARROW_SURFACE,
   NARROW_SWAY,
@@ -13,6 +14,7 @@ import {
   bodySpacing,
   dishAreaOf,
   estimateCapsule,
+  flowPlaces,
   folderAt,
   footprintOf,
   fractionOf,
@@ -96,6 +98,7 @@ const MIN_ROOM = 420;
 const MIN_WATER = 200;
 const EMPTY_WATER = 280;
 const DISH_STACK_GAP = 14;
+const DISH_COLUMN_PAD = 12;
 
 const stage = ref<HTMLElement | null>(null);
 const width = ref(FALLBACK_WIDTH);
@@ -110,7 +113,8 @@ function measureStage(): void {
   if (typeof window === 'undefined') return;
   // What the window leaves under the page's head (and, on a phone, over its nav).
   const top = element.getBoundingClientRect().top + window.scrollY;
-  const reserve = window.innerWidth >= 1024 ? 60 : 104;
+  // Under it on a wide window: the line of keys and the page's own foot, so the page does not scroll.
+  const reserve = window.innerWidth >= 1024 ? 100 : 104;
   const left = window.innerHeight - top - reserve;
   room.value = Math.max(MIN_ROOM, Number.isFinite(left) ? left : FALLBACK_ROOM);
 }
@@ -150,15 +154,28 @@ const byRegion = computed(() => {
   return map;
 });
 
-const folderInputs = computed<FolderInput[]>(() =>
-  props.folders.map((folder) => ({
-    id: folder.id,
-    count: byRegion.value.get(folder.id)?.length ?? 0,
-    collapsed: folded.value.has(folder.id),
-    place: liveFolderPlace.get(folder.id) ?? props.memory.folders[folder.id],
-    labelLength: [...folder.title].length,
-  })),
-);
+/** Bumped when capsules have been measured: the dishes are sized for the widths they really have. */
+const measuredAt = ref(0);
+/** Ids in the order they are drawn into the DOM: the reading order, group by group. */
+const renderOrder = shallowRef<string[]>([]);
+
+const folderInputs = computed<FolderInput[]>(() => {
+  void measuredAt.value;
+  // A dish is sized for its to-dos in the order it keeps them: where they were left, else most urgent first.
+  const order = new Map(renderOrder.value.map((id, index) => [id, index]));
+  const position = (todo: CanvasTodo<Task>): number => order.get(todo.task.id) ?? Number.MAX_SAFE_INTEGER;
+  return props.folders.map((folder) => {
+    const filed = [...(byRegion.value.get(folder.id) ?? [])].sort((a, b) => position(a) - position(b));
+    return {
+      id: folder.id,
+      count: filed.length,
+      collapsed: folded.value.has(folder.id),
+      place: liveFolderPlace.get(folder.id) ?? props.memory.folders[folder.id],
+      labelLength: [...folder.title].length,
+      widths: filed.map((todo) => sizeOf(todo).w),
+    };
+  });
+});
 
 /** The dishes before the surface's height is known: their sizes do not depend on it. */
 const dishSizes = computed(() => layoutFolders(folderInputs.value, { width: width.value, height: room.value }));
@@ -176,7 +193,9 @@ const waterRoom = computed(() => {
     // The dishes stand in one column down the right edge: the surface is at
     // least as tall as that column (up to two windows), so they never spill
     // into the water as a second column.
-    const column = dishSizes.value.reduce((sum, dish) => sum + dish.box.height + DISH_STACK_GAP, 0) + DISH_STACK_GAP;
+    // (Counted as layoutFolders lays them out: a gap between two, and the surface's pad at both ends.)
+    const dishes = dishSizes.value;
+    const column = dishes.reduce((sum, dish) => sum + dish.box.height, 0) + Math.max(0, dishes.length - 1) * DISH_STACK_GAP + 2 * DISH_COLUMN_PAD;
     return Math.max(room.value, Math.min(column, room.value * 2));
   }
   const open = byRegion.value.get(null)?.length ?? 0;
@@ -268,8 +287,6 @@ const known = new Set<string>();
 let ready = false;
 let prevWorld: World | null = null;
 
-/** Ids in the order they are drawn into the DOM: the reading order, group by group. */
-const renderOrder = shallowRef<string[]>([]);
 /** Just put down: they arrive with a small entrance. */
 const arriving = reactive(new Set<string>());
 /**
@@ -309,6 +326,7 @@ function sizeOf(todo: CanvasTodo<Task>): { w: number; h: number } {
 /** Read the real size of every capsule that has not been measured as it is now. True when one differed. */
 function measureBodies(): boolean {
   let changed = false;
+  let filedMeasured = false;
   for (const todo of shown.value) {
     const id = todo.task.id;
     const key = sizeKey(todo);
@@ -317,6 +335,7 @@ function measureBodies(): boolean {
     if (element === undefined || element.offsetWidth === 0) continue;
     const size = { w: element.offsetWidth, h: element.offsetHeight };
     measured.set(id, { key, ...size });
+    if (regionOf(todo) !== null) filedMeasured = true;
     const body = bodies.get(id);
     if (body !== undefined && (Math.abs(body.w - size.w) > 0.5 || Math.abs(body.h - size.h) > 0.5)) {
       body.w = size.w;
@@ -324,6 +343,8 @@ function measureBodies(): boolean {
       changed = true;
     }
   }
+  // A folder's dish follows the widths of what is in it.
+  if (filedMeasured) measuredAt.value += 1;
   return changed;
 }
 
@@ -413,6 +434,7 @@ function sync(): void {
   for (const todo of shown.value) known.add(todo.task.id);
   prevWorld = next;
 
+  tidyDishes();
   if (ready && motionOn.value) disturb();
   else settle(bodyList, next, options);
   ready = true;
@@ -420,6 +442,26 @@ function sync(): void {
   paint();
   if (seeded) rememberSoon();
   if (openId.value !== null) placeDetail();
+}
+
+/**
+ * What is filed is put away: each dish keeps its to-dos in its rows, in the
+ * order they were left (top to bottom, left to right). Called whenever what a
+ * dish holds, or how wide those things are, has changed.
+ */
+function tidyDishes(only?: string): void {
+  const next = world.value;
+  for (const region of next.regions) {
+    if (only !== undefined && region.id !== only) continue;
+    const inside = readingOrder(bodyList.filter((body) => body.region === region.id && !body.held));
+    if (inside.length === 0) continue;
+    for (const [id, at] of flowPlaces(inside, region.box, bodyOptions.value)) {
+      const body = bodies.get(id);
+      if (body === undefined) continue;
+      body.x = at.x;
+      body.y = at.y;
+    }
+  }
 }
 
 function markArriving(id: string): void {
@@ -436,6 +478,7 @@ const motionOn = computed(() => !reducedMotion.value && tabVisible.value);
 const governor = createGovernor();
 const motionLevel = ref<MotionLevel>('full');
 const swayReach = computed(() => SWAY_REACH[plan.value.density] * (narrow.value ? NARROW_SWAY : 1));
+const insideReach = computed(() => INSIDE_SWAY * (narrow.value ? NARROW_SWAY : 1));
 
 let frame = 0;
 let lastFrame = 0;
@@ -462,13 +505,14 @@ function paint(): void {
   for (const body of bodyList) {
     const element = bodyEls.get(body.id);
     if (element === undefined) continue;
-    const offset = reach > 0 ? swayAt(body, clock, reach) : null;
+    // What is put away in a folder sits closer together, so it sways less: never across its gap.
+    const offset = reach > 0 ? swayAt(body, clock, body.region === null ? reach : Math.min(reach, insideReach.value)) : null;
     const left = body.x - body.w / 2;
     const top = body.y - body.h / 2;
     const text =
       offset === null || (offset.dx === 0 && offset.dy === 0)
         ? `translate3d(${Math.round(left)}px, ${Math.round(top)}px, 0)`
-        : `translate3d(${(left + offset.dx).toFixed(2)}px, ${(top + offset.dy).toFixed(2)}px, 0)${lean ? ` rotate(${offset.tilt.toFixed(3)}deg)` : ''}`;
+        : `translate3d(${(left + offset.dx).toFixed(2)}px, ${(top + offset.dy).toFixed(2)}px, 0)${lean && body.region === null ? ` rotate(${offset.tilt.toFixed(3)}deg)` : ''}`;
     if (painted.get(body.id) === text) continue;
     painted.set(body.id, text);
     element.style.transform = text;
@@ -806,6 +850,7 @@ function fileInto(ids: readonly string[], folderId: string | null, at: Point | n
       body.y = target.top + target.height / 2 + (index - (moving.length - 1) / 2) * 12;
     }
   });
+  tidyDishes();
   disturb();
   rememberSoon();
   const folder = folderId === null ? undefined : folderById.value.get(folderId);
@@ -1141,6 +1186,8 @@ function endDrag(drag: Extract<Gesture, { kind: 'press' | 'drag' }>, point: Poin
   }
   if (!cancelled && !props.disabled) fileInto(drag.ids, target, point);
   // Not filed (the same water, offline, cancelled): each body is drawn back into what holds it.
+  // Dropped in a dish, it takes its place in the dish's rows.
+  tidyDishes();
   disturb();
   rememberSoon();
 }
@@ -1236,6 +1283,7 @@ function nudge(id: string, direction: Direction, by: number): void {
   body.held = true;
   settle(bodyList, world.value, bodyOptions.value, 60);
   body.held = false;
+  if (body.region !== null) tidyDishes(body.region);
   disturb();
   paint();
   rememberSoon();
@@ -1389,6 +1437,7 @@ onMounted(() => {
   // Before the first frame is shown: the capsules as wide as they really are.
   void nextTick(() => {
     if (measureBodies()) {
+      tidyDishes();
       settle(bodyList, world.value, bodyOptions.value);
       refreshOrder();
     }
@@ -1411,6 +1460,7 @@ watch(
   () => {
     void nextTick(() => {
       if (!measureBodies()) return;
+      tidyDishes();
       disturb();
       paint();
     });

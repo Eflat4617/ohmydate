@@ -3,6 +3,9 @@ import {
   BODY_GAP,
   BODY_PAD,
   FOOTPRINT,
+  INSIDE_GAP,
+  INSIDE_PAD,
+  INSIDE_SWAY,
   SWAY_REACH,
   NARROW_SURFACE,
   SURFACE_GROWTH,
@@ -15,6 +18,8 @@ import {
   dishAreaOf,
   dishSize,
   estimateCapsule,
+  flowPlaces,
+  flowRows,
   folderAt,
   fractionOf,
   freeSpot,
@@ -229,6 +234,18 @@ describe('the step: separation, bounds, rest', () => {
       expect(overlapsX && overlapsY).toBe(false);
     }
     expect(insideBox(wedged, { left: 0, top: 0, ...SURFACE }, PAD)).toBe(true);
+  });
+
+  it('two filed to-dos too wide to lie side by side in their dish part one above the other', () => {
+    const narrow: World = { ...SURFACE, regions: [{ id: 'f1', box: { left: 100, top: 100, width: 244, height: 170 } }], obstacles: [] };
+    // Seeded on one row, as when their real widths turned out larger than estimated.
+    const a = createBody('a', { w: 153, h: 36 }, { x: 180, y: 140 }, 'f1');
+    const b = createBody('b', { w: 181, h: 36 }, { x: 250, y: 140 }, 'f1');
+    expect(overlapping(a, b, 10)).toBe(true);
+    settle([a, b], narrow, { gap: 22, pad: PAD, insideGap: 10, insidePad: 10 });
+    expect(overlapping(a, b, 9.5)).toBe(false);
+    expect(Math.abs(a.y - b.y)).toBeGreaterThanOrEqual(36 + 9.5);
+    for (const body of [a, b]) expect(insideBox(body, narrow.regions[0]?.box ?? { left: 0, top: 0, width: 0, height: 0 }, 10)).toBe(true);
   });
 
   it('bodies of different waters do not push each other (negative)', () => {
@@ -464,13 +481,36 @@ describe('the density rule', () => {
 describe('folders: dishes on the surface', () => {
   const folder = (id: string, count: number, extra: Partial<FolderInput> = {}): FolderInput => ({ id, count, collapsed: false, labelLength: 4, ...extra });
 
-  it('a dish grows with what it holds, within its limits, and says how many it can show', () => {
-    const small = dishSize(1, 1000);
-    const large = dishSize(12, 1000);
+  const capsules = (count: number, width = 168): number[] => Array.from({ length: count }, () => width);
+
+  it('flows capsules into rows like words into lines, in the order given', () => {
+    expect(flowRows([100, 100, 100], 320, 10)).toEqual([[0, 1, 2]]);
+    expect(flowRows([100, 100, 100], 310, 10)).toEqual([[0, 1], [2]]);
+    // One wider than the room has a row to itself.
+    expect(flowRows([500, 80, 80], 300, 10)).toEqual([[0], [1, 2]]);
+    expect(flowRows([], 300, 10)).toEqual([]);
+  });
+
+  it('a dish is as large as what it holds needs, and says how many its rows show', () => {
+    const small = dishSize(capsules(1), 1000);
+    const large = dishSize(capsules(12), 1000);
     expect(large.w * large.h).toBeGreaterThan(small.w * small.h);
-    expect(dishSize(500, 1000).w).toBeLessThanOrEqual(420);
-    expect(dishSize(500, 1000).h).toBeLessThanOrEqual(360);
-    expect(dishSize(3, 1000).capacity).toBeGreaterThanOrEqual(3);
+    expect(small.shown).toBe(1);
+    // Up to three to-dos the dish is narrow (a row each); a fuller one is twice a capsule wide.
+    expect(dishSize(capsules(3), 1000).w).toBe(264);
+    expect(dishSize(capsules(4), 1000).w).toBe(404);
+    expect(dishSize(capsules(4), 1000).h).toBe(44 + 2 * 50 + 20);
+    // Six rows at most, however many it holds: the rest are "+N".
+    const full = dishSize(capsules(500), 1000);
+    expect(full.h).toBe(44 + 6 * 50 + 20);
+    expect(full.shown).toBe(12);
+    // Wide enough for its widest capsule, and never wider than the surface gives it.
+    expect(dishSize([300], 1000).w).toBeGreaterThanOrEqual(300 + 2 * INSIDE_PAD);
+    expect(flowRows([300], dishSize([300], 1000).w - 2 * INSIDE_PAD, 10)).toEqual([[0]]);
+    expect(dishSize(capsules(9), 300).w).toBeLessThanOrEqual(300);
+    // An empty folder is its label and room to drop something in.
+    expect(dishSize([], 1000)).toMatchObject({ shown: 0, h: 104 });
+    expect(dishSize([], 1000).h).toBeLessThan(small.h);
   });
 
   it('lines dishes up down the right edge, apart and on the surface', () => {
@@ -509,6 +549,48 @@ describe('folders: dishes on the surface', () => {
     expect(folded).toMatchObject({ collapsed: true, inner: null, shown: 0, hidden: 9 });
     expect(folded?.box.height).toBe(52);
     expect(worldOf(SURFACE, [folded as NonNullable<typeof folded>]).regions).toEqual([]);
+  });
+
+  it('a dish keeps its to-dos in its rows, in the order given: nothing in it is ever on top of anything', () => {
+    const dish = { left: 600, top: 100, width: 404, height: 44 + 2 * 50 + 20 - 44 };
+    const filed = [164, 92, 131, 180].map((w, index) => ({ id: `t${index}`, w, h: 36 }));
+    const places = flowPlaces(filed, dish, bodySpacing('airy'));
+    // 164 + 92 share the first row (131 would not fit beside them), 131 + 180 the second.
+    expect(places.get('t0')?.y).toBe(places.get('t1')?.y);
+    expect(places.get('t2')?.y).toBe(places.get('t3')?.y);
+    expect((places.get('t2')?.y ?? 0) - (places.get('t0')?.y ?? 0)).toBeGreaterThanOrEqual(36 + INSIDE_GAP);
+    const bodies = filed.map((item) => createBody(item.id, item, places.get(item.id) ?? { x: 0, y: 0 }, 'f1'));
+    expect(anyOverlap(bodies, INSIDE_GAP - 0.5)).toBe(false);
+    expect(bodies.every((body) => insideBox(body, dish, INSIDE_PAD))).toBe(true);
+    // The same to-dos in another order sit in another order; nothing is lost (negative: it is not a fixed grid).
+    const reversed = flowPlaces([...filed].reverse(), dish, bodySpacing('airy'));
+    expect(reversed.size).toBe(4);
+    expect(reversed.get('t3')?.y).toBeLessThan(reversed.get('t0')?.y ?? 0);
+  });
+
+  it('a dish in a tight column gives up air, never the room its to-dos need', () => {
+    // Three dishes that do not fit one column of a short surface at their full height.
+    const short = { width: 1100, height: 600 };
+    // Long capsules: a title at its limit with a deadline beside it.
+    const long = estimateCapsule('참고 문헌 정리해서 올리기', 2, 'compact', '7일 남음');
+    const inputs = [5, 3, 3].map((count, index) => folder(`f${index}`, count, { widths: capsules(count, long.w) }));
+    const boxes = layoutFolders(inputs, short);
+    inputs.forEach((input, index) => {
+      const box = boxes[index] as (typeof boxes)[number];
+      expect(box.box.height).toBeGreaterThanOrEqual(dishSize(input.widths ?? [], short.width - 24).least);
+      // Everything it holds is shown.
+      expect(box.hidden).toBe(0);
+    });
+    // …and the filed capsules fit without touching.
+    const world = worldOf(short, boxes);
+    const filed = inputs.flatMap((input) =>
+      Array.from({ length: input.count }, (_unused, index) => ({ id: `${input.id}-${index}`, ...long, region: input.id })),
+    );
+    const spacing = bodySpacing('airy');
+    const bodies = placeBodies(filed, world, new Map(), spacing);
+    expect(anyOverlap(bodies, spacing.insideGap - 1)).toBe(false);
+    // …and what is put away sways less than its gap allows.
+    expect(INSIDE_SWAY * 2).toBeLessThan(spacing.insideGap);
   });
 
   it('a dish that cannot show everything says how many it holds back', () => {
