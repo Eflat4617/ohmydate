@@ -10,6 +10,7 @@ import {
   type Project,
   type Task,
 } from '../api';
+import { isNotReady } from '../platform/notReady';
 import type { OwnerBinding } from '../session/ownerEpoch';
 import {
   MAX_LOOKUP_PAGES,
@@ -47,9 +48,10 @@ export function keyOwner(queryKey: readonly unknown[]): string {
   return String(queryKey[1]);
 }
 
-/** Retry transient failures only: never a stale-owner lookup or a 404. */
+/** Retry transient failures only: never a stale-owner lookup, a 404 or a place that is not ready. */
 export function retryFenced(limit = 2): (count: number, cause: unknown) => boolean {
-  return (count, cause) => !(cause instanceof OwnerChangedError) && !isApiStatus(cause, 404) && count < limit;
+  return (count, cause) =>
+    !(cause instanceof OwnerChangedError) && !isApiStatus(cause, 404) && !isNotReady(cause) && count < limit;
 }
 
 export const noteKeys = {

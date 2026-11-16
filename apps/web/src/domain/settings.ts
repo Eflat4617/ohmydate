@@ -15,3 +15,16 @@ export function settingsSectionOf(value: unknown): SettingsSection {
     ? (name as SettingsSection)
     : DEFAULT_SETTINGS_SECTION;
 }
+
+/**
+ * The zones a time zone field offers: the engine's list, and always the zone
+ * that is set. The owner's zone comes from the server's time zone database;
+ * a web view's `Intl.supportedValuesOf('timeZone')` can be older or leave out
+ * an alias (blueprint 15 §2.4 S3, §7.3 item 5). A zone the engine does not
+ * list is still the owner's zone: it stays in the field, first, and is never
+ * blanked or treated as a mistake.
+ */
+export function timeZoneChoices(listed: readonly string[], current: string | null | undefined): string[] {
+  if (typeof current !== 'string' || current.length === 0 || listed.includes(current)) return [...listed];
+  return [current, ...listed];
+}

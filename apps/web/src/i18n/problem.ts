@@ -1,4 +1,5 @@
 import { ApiError, type ApiErrorCode } from '../api/errors';
+import { isNotReady } from '../platform/notReady';
 import { t } from './index';
 
 /**
@@ -22,6 +23,8 @@ export function problemMessage(code: ApiErrorCode): string {
 }
 
 export function apiErrorMessage(error: ApiError): string {
+  // Desktop: the core does not serve this yet. Said as it is, not as a server fault.
+  if (isNotReady(error)) return t('errors.notReady');
   if (error.code === 'rate_limited' && error.retryAfterSeconds !== undefined && error.retryAfterSeconds > 0) {
     return t('errors.rateLimitedRetry', { seconds: Math.ceil(error.retryAfterSeconds) });
   }

@@ -2,6 +2,7 @@ import { computed, type ComputedRef } from 'vue';
 import { useQuery } from '@tanstack/vue-query';
 import { plannerClient, type Today } from '../api';
 import { localDateAt, useLayoutNow } from './now';
+import { isNotReady } from '../platform/notReady';
 import { captureOwnerBinding } from '../session/ownerEpoch';
 import { useSessionStore } from '../stores/session';
 
@@ -9,6 +10,8 @@ export interface TodaySnapshot {
   readonly today: ComputedRef<Today | null>;
   readonly isLoading: ComputedRef<boolean>;
   readonly isError: ComputedRef<boolean>;
+  /** Desktop: the core does not serve today's plan yet (also an error; this says which). */
+  readonly notReady: ComputedRef<boolean>;
 }
 
 /**
@@ -31,6 +34,7 @@ export function useTodaySnapshot(): TodaySnapshot {
     today: computed(() => query.data.value ?? null),
     isLoading: computed(() => query.isLoading.value),
     isError: computed(() => query.isError.value),
+    notReady: computed(() => isNotReady(query.error.value)),
   };
 }
 

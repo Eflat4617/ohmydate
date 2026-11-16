@@ -2878,6 +2878,22 @@ export const ko = {
     lastErrorUnknown: '동기화하다가 문제가 있었어요. 다음 동기화에 다시 해요.',
   },
 
+  // RC-10B: the desktop bundle (platform/mode.ts). Never reached in a server build.
+  desktop: {
+    locked: {
+      title: '앱에서 다시 열어 주세요',
+      body: '이 화면은 OhMyDate 앱이 열어 줄 때만 쓸 수 있어요. 앱을 닫았다가 다시 열면 이어서 쓸 수 있어요.',
+      note: '여기에는 로그인하는 곳이 없어요. 내 데이터는 이 컴퓨터에만 있어요.',
+    },
+    notReady: {
+      card: '아직 준비 중이에요.',
+      today: '오늘 계획은 아직 준비 중이에요. 할 일은 지금 적고 정리할 수 있어요.',
+      next: '할 일부터 적어 두세요. 오늘 계획은 아직 준비 중이에요.',
+      notifications: '알림은 아직 준비 중이에요.',
+      openTasks: '할 일 열기',
+    },
+  },
+
   problem: {
     validation_failed: '입력한 내용을 다시 확인해 주세요.',
     version_conflict: '다른 곳에서 먼저 바뀌었어요. 최신 내용을 불러온 뒤 다시 시도해 주세요.',
@@ -2910,6 +2926,8 @@ export const ko = {
     ownerChanged: '로그인한 사용자가 바뀌어서 요청을 보내지 않았어요.',
     rateLimitedRetry: '요청이 너무 많아요. {seconds}초 뒤에 다시 시도해 주세요.',
     unknownStatus: '요청을 처리하지 못했어요 (HTTP {status}).',
+    // The desktop core does not serve this operation yet (501): calm, and not a failure to retry.
+    notReady: '이 부분은 아직 준비 중이에요.',
   },
 
   duration: {

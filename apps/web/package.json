@@ -15,6 +15,7 @@
     "dev": "vite",
     "dev:mock": "VITE_MOCK=1 vite",
     "build": "vite build",
+    "build:desktop": "vite build --mode desktop",
     "preview": "vite preview",
     "gen:api": "node scripts/generate-api.mjs",
     "lint": "eslint .",

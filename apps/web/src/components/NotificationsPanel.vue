@@ -3,6 +3,7 @@ import { inject, onMounted, ref, watch } from 'vue';
 import { routerKey } from 'vue-router';
 import { plannerClient, uuidV7Key, type Notification as PlannerNotification } from '../api';
 import { notificationLabel, useNotifications } from '../notifications/useNotifications';
+import { isDesktop } from '../platform/mode';
 import { runOwnerBound } from '../session/ownerBound';
 import { useOfflineStore } from '../stores/offline';
 import { useAuthStore } from '../stores/auth';
@@ -22,7 +23,9 @@ const emit = defineEmits<{ close: []; unread: [count: number] }>();
 const offline = useOfflineStore();
 const auth = useAuthStore();
 const router = inject(routerKey, null);
-const { items, visibleItems, loading, error, start, dismiss } = useNotifications();
+const { items, visibleItems, loading, error, notReady, start, dismiss } = useNotifications();
+// Desktop: notifications are the operating system's (15 §4.2). No Web Push, no service worker.
+const desktop = isDesktop();
 const busyId = ref<string | null>(null);
 // HOLO-01: the top bar's bell shows a dot while something delivered is still
 // listed here (sent, not dismissed).
@@ -37,6 +40,7 @@ const pushBusy = ref(false);
 
 onMounted(() => {
   pushSupported.value =
+    !desktop &&
     typeof navigator !== 'undefined' &&
     'serviceWorker' in navigator &&
     typeof Notification !== 'undefined' &&
@@ -223,9 +227,10 @@ async function enablePush(): Promise<void> {
         </UiButton>
       </li>
     </ul>
+    <UiEmptyState v-else-if="notReady" icon="bell" :title="t('desktop.notReady.notifications')" compact data-not-ready />
     <UiEmptyState v-else icon="bell" :title="t('notifications.empty')" compact />
 
-    <section class="push-opt-in" aria-labelledby="push-title">
+    <section v-if="!desktop" class="push-opt-in" aria-labelledby="push-title">
       <div class="push-opt-in-text">
         <h3 id="push-title">{{ t('notifications.push.title') }}</h3>
         <p class="muted">{{ t('notifications.push.lede') }}</p>

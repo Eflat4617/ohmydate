@@ -19,8 +19,28 @@ function renderBlockingEntry(): Plugin {
   };
 }
 
-export default defineConfig({
+/**
+ * Two bundles come out of this config (src/platform/mode.ts):
+ *
+ * - the server's web: `vite build` → `dist/`. What is deployed.
+ * - the desktop's web: `vite build --mode desktop` → `desktop/dist/`. What the
+ *   Rust core serves with `--web-dir` (blueprint 15 §1.3).
+ *
+ * They never share a directory: `local:start` serves `dist/`, and a desktop
+ * bundle left there would be a deployed app without a login form.
+ *
+ * Everything else is Vite's default, on purpose (15 §7.3 item 6): `base: '/'`
+ * and content-hashed files under `assets/` are what the core's cache rules
+ * and its "a missing file is a 404" rule rest on.
+ */
+export default defineConfig(({ mode }) => ({
   plugins: [vue(), renderBlockingEntry()],
+  // `public/` holds one file, the mock API's service worker. The desktop
+  // bundle registers no service worker (15 §4.2), so it does not carry one.
+  publicDir: mode === 'desktop' ? false : 'public',
+  build: {
+    outDir: mode === 'desktop' ? 'desktop/dist' : 'dist',
+  },
   server: {
     port: 5173,
     proxy: {
@@ -30,4 +50,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

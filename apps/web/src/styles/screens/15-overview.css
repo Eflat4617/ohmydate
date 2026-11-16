@@ -164,6 +164,14 @@
   font-size: var(--text-sm);
 }
 
+/* Desktop: what the card reads is not served yet. One calm line where the body would be. */
+.overview-card-not-ready {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  font-size: var(--text-sm);
+}
+
 /* The one big number of a card over its small label. */
 .overview-figure {
   display: flex;

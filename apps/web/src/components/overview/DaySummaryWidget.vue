@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { anyNotReady } from '../../platform/notReady';
 import { computed } from 'vue';
 import type { Today } from '../../api';
 import RingChart, { type RingSegment } from '../charts/RingChart.vue';
@@ -31,6 +32,8 @@ const props = defineProps<{
   plan: Today | null;
   planLoading: boolean;
   planError: boolean;
+  /** Desktop: the core does not serve today's plan yet. */
+  planNotReady?: boolean;
   today: string;
   timeZone: string;
   ready: boolean;
@@ -87,6 +90,7 @@ const dueCount = computed(
 
 const state = computed(() => {
   if (!props.ready || props.planLoading || agenda.isLoading.value || sessions.isLoading.value) return 'loading' as const;
+  if (props.planNotReady === true || anyNotReady(agenda.error.value, sessions.error.value)) return 'not-ready' as const;
   if (props.planError || agenda.isError.value || sessions.isError.value) return 'error' as const;
   return 'ready' as const;
 });

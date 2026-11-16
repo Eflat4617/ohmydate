@@ -15,6 +15,7 @@ import AvailabilityWeekGrid from '../AvailabilityWeekGrid.vue';
 import ClockInput from '../ClockInput.vue';
 import { DAY_MINUTES, WEEKDAYS, parseClock } from '../../domain/availabilityGrid';
 import { exceptionSummary } from '../../domain/availabilityExceptions';
+import { timeZoneChoices } from '../../domain/settings';
 import UiBadge from '../ui/UiBadge.vue';
 import UiBanner from '../ui/UiBanner.vue';
 import UiButton from '../ui/UiButton.vue';
@@ -44,7 +45,7 @@ const FALLBACK_ZONES = [
   'Europe/Berlin',
 ];
 
-const timeZones = computed<string[]>(() => {
+function listedTimeZones(): string[] {
   const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf;
   if (typeof supported === 'function') {
     try {
@@ -54,7 +55,7 @@ const timeZones = computed<string[]>(() => {
     }
   }
   return FALLBACK_ZONES;
-});
+}
 
 const availabilityQuery = useQuery({
   queryKey: ['availability'],
@@ -62,6 +63,8 @@ const availabilityQuery = useQuery({
 });
 
 const draft = ref<Availability | null>(null);
+// The zone that is set is always one of the choices, listed by this engine or not.
+const timeZones = computed<string[]>(() => timeZoneChoices(listedTimeZones(), draft.value?.timeZone));
 const dirty = ref(false);
 const saving = ref(false);
 const message = ref('');

@@ -4,6 +4,7 @@ import { ApiError, plannerClient, type Commitment, type ScheduleBlock, type Task
 import type { OwnerBinding } from '../session/ownerEpoch';
 import { OwnerChangedError, collectPages, ownerFenced, useOwnerKey } from '../session/ownerBound';
 import { browserTimeZone } from '../i18n/format';
+import { isNotReady } from '../platform/notReady';
 
 /**
  * Read-only lookups for the calendar views: the month page (CAL-01) reads the
@@ -75,9 +76,10 @@ export async function readPlannerRange(binding: OwnerBinding, range: InstantRang
   };
 }
 
-/** Retry what may pass on its own (network, 5xx); never a stale owner or a 4xx answer. */
+/** Retry what may pass on its own (network, 5xx); never a stale owner, a 4xx answer or a place that is not ready. */
 export function retryTransient(count: number, cause: unknown): boolean {
   if (cause instanceof OwnerChangedError) return false;
+  if (isNotReady(cause)) return false;
   if (cause instanceof ApiError && cause.status >= 400 && cause.status < 500) return false;
   return count < 2;
 }

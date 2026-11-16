@@ -7,6 +7,7 @@ import { useOfflineStore } from '../stores/offline';
 import { useUiStore } from '../stores/ui';
 import { useSessionStore } from '../stores/session';
 import BottomNav from './BottomNav.vue';
+import DesktopLocked from './desktop/DesktopLocked.vue';
 import CaptureBar from './capture/CaptureBar.vue';
 import FirstRunGuide from './FirstRunGuide.vue';
 import HelpDialog from './HelpDialog.vue';
@@ -26,6 +27,7 @@ import { calmMode } from '../composables/useCalmMode';
 import { useFirstRun } from '../composables/firstRun';
 import { useMediaQuery } from '../composables/useMediaQuery';
 import { NAV_PLACES } from '../layout/navigation';
+import { isDesktop } from '../platform/mode';
 import { t } from '../i18n';
 
 const ui = useUiStore();
@@ -224,9 +226,16 @@ onMounted(() => {
   void auth.ensureOwnerConfirmed();
 });
 
+// The desktop bundle has no login: without the launch cookie it says to open
+// the app (DesktopLocked) and goes nowhere. A server bundle never takes this
+// branch — `desktop` is false in it at build time (platform/mode.ts).
+const desktop = isDesktop();
+const desktopLocked = computed(() => desktop && auth.bootstrapState === 'anonymous');
+
 watch(
   () => auth.bootstrapState,
   (state) => {
+    if (desktop) return;
     if (state === 'anonymous' && route.name !== 'login' && router.hasRoute('login')) {
       void router.replace({ name: 'login' });
     }
@@ -244,7 +253,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="!auth.confirmed" class="app-shell app-shell--loading" role="status" aria-live="polite">
+  <DesktopLocked v-if="desktopLocked" />
+  <div v-else-if="!auth.confirmed" class="app-shell app-shell--loading" role="status" aria-live="polite">
     <BrandMark :size="40" />
     <p class="app-loading-text"><UiSpinner /> <span>{{ t('app.loading') }}</span></p>
   </div>
