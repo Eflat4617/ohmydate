@@ -269,6 +269,74 @@ describe('glass: where it is', () => {
   });
 });
 
+describe('glass: the 할 일 canvas (HOLO-05)', () => {
+  const canvas = readFileSync(resolve(STYLES, 'screens', '23-canvas.css'), 'utf8');
+  const clean = canvas.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  /** Everything a capsule or a dish sets as text. */
+  const CAPSULE_TEXT = ['--color-text', '--color-text-2', '--color-text-3', '--orange-text', '--color-danger-text', '--color-accent-text'] as const;
+
+  /** The water under still glass: the well the surface is, under the ambient light at its brightest. */
+  function water(scheme: Map<string, string>): Rgb[] {
+    const well = colour(scheme, '--color-inset').rgb;
+    return [well, ...['--ambient-a', '--ambient-b'].map((name) => over(tint(scheme, name), well))];
+  }
+
+  it.each([
+    ['dark', dark],
+    ['light', light],
+  ] as const)('%s scheme: a capsule’s words are AA on still glass over the water, deadline colours included', (_name, scheme) => {
+    expect(worstContrastOf(scheme, CAPSULE_TEXT, '--glass-fill-still', false, water(scheme))).toBeGreaterThanOrEqual(4.5);
+    // Without transparency the capsule is the opaque material.
+    for (const name of CAPSULE_TEXT) {
+      expect(contrast(colour(scheme, name).rgb, colour(scheme, '--glass-solid').rgb), name).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it.each([
+    ['dark', dark],
+    ['light', light],
+  ] as const)('%s scheme: a picked capsule (lime over the opaque material) keeps its words AA', (_name, scheme) => {
+    const picked = over({ rgb: colour(scheme, '--lime').rgb, alpha: 0.16 }, colour(scheme, '--glass-solid').rgb);
+    for (const name of ['--color-text', '--color-text-2', '--orange-text', '--color-danger-text'] as const) {
+      expect(contrast(colour(scheme, name).rgb, picked), name).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(blockAfter(canvas, ".pond-todo[aria-selected='true'] .pond-capsule")).toContain('color-mix(in oklab, var(--lime) 16%, var(--glass-solid))');
+  });
+
+  it('the surface is a well lit by the ambient light, and a capsule’s place is one transform', () => {
+    const pond = blockAfter(canvas, '.pond {');
+    expect(pond).toContain('var(--color-inset)');
+    expect(pond).toContain('var(--ambient-a)');
+    expect(pond).toContain('var(--ambient-b)');
+    const body = blockAfter(canvas, '.pond-todo {');
+    expect(body).toContain('will-change: transform');
+    expect(body).toContain('position: absolute');
+  });
+
+  it('nothing on the canvas animates a layout property (negative)', () => {
+    const ALLOWED = new Set(['transform', 'opacity', 'border-color', 'background-color', 'box-shadow', 'border-radius', 'color']);
+    for (const match of clean.matchAll(/transition:\s*([^;]+);/g)) {
+      for (const part of (match[1] ?? '').split(',')) {
+        const property = part.trim().split(/\s+/)[0] ?? '';
+        expect(ALLOWED.has(property), `transition of ${property}`).toBe(true);
+      }
+    }
+    for (const match of clean.matchAll(/@keyframes\s+[\w-]+\s*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g)) {
+      for (const declaration of (match[1] ?? '').matchAll(/([\w-]+)\s*:/g)) {
+        expect(ALLOWED.has(declaration[1] ?? ''), `keyframe of ${declaration[1] ?? ''}`).toBe(true);
+      }
+    }
+    expect(clean.match(/@keyframes/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(/transition:\s*all/.test(clean)).toBe(false);
+  });
+
+  it('takes every colour from the tokens: no raw colour in the stylesheet (negative)', () => {
+    expect(clean).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(clean).not.toMatch(/\b(?:rgb|rgba|hsl|hsla|oklch|oklab)\(/);
+  });
+});
+
 describe('glass: the pointer\'s light', () => {
   function media(matches: Record<string, boolean>): typeof window.matchMedia {
     return ((query: string) => ({ matches: matches[query] ?? false, media: query })) as unknown as typeof window.matchMedia;

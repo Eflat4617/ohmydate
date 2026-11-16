@@ -5,10 +5,12 @@ import { login } from '../helpers/app';
 import { installBrowserClockAt, testClock } from '../helpers/clock';
 import { nextLocalMorningMs } from '../helpers/day-clock';
 import {
+  apiFetch,
   approveCandidateWithBlocks,
   createApprovedGoalWithSingleStep,
   createOverlappingCommitment,
   createPlanFromGoal,
+  expectOk,
   listCommitmentIntervals,
   listScheduleBlockIntervals,
   setContinuousWeeklyAvailability,
@@ -41,7 +43,7 @@ import { readState } from '../helpers/state';
 // is the same screen's month view. It also adds 타임 트래커 (/tracker): the
 // timer card with its task picker and the week's record, at both widths.
 // HOLO-04 walks the same screens where they live now — the places of the loop:
-// 개요 holds 오늘 (one filled button, on the next block), 할 일 holds the inbox
+// 개요 holds 오늘 (one filled button, on the next block), 할 일 is the canvas (HOLO-05) and holds the inbox
 // and the projects, the planner's 목록 holds the 약속 (the old addresses still
 // lead there), 집중 is the timer and its record, and one 설정 has four
 // sections. It adds the capture bar (the top bar's field, or the nav's sheet on
@@ -201,7 +203,8 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expect(cards).toHaveCount(5);
         await expect(page.locator('[data-overview] [data-widget][data-state="ready"]')).toHaveCount(5);
         for (const title of ['진행', '타임 트래커', '오늘 요약', 'AI 도우미', '작업 기록']) {
-          await expect(page.getByRole('heading', { name: title, level: 2 })).toBeVisible();
+          // The cards are parts of 이번 주 (an h2): their titles are h3.
+          await expect(page.getByRole('heading', { name: title, level: 3 })).toBeVisible();
         }
         // The plan seeded above has blocks today (earlier suites may have left
         // others on this account): the dashboard names what is next in one
@@ -229,21 +232,56 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expect(panel).toHaveCount(0);
       });
 
-      await test.step(`할 일: inbox, projects + project detail (${size})`, async () => {
+      await test.step(`할 일: canvas, detail, list + folder page (${size})`, async () => {
+        // HOLO-05: 할 일 opens on its canvas — every open to-do a named option of one listbox.
         await page.goto(`${state.webUrl}/tasks`);
-        await expect(page.locator('[data-tasks-place]')).toHaveAttribute('data-tasks-view', 'inbox');
-        await expect(page.getByRole('heading', { name: '인박스', level: 1 })).toBeVisible();
-        await expectAccessible(page, `tasks inbox ${size}`);
-        await page.locator('[data-tasks-view-link="projects"]').click();
-        await expect(page).toHaveURL(/\/tasks\?view=projects$/);
-        await expect(page.getByRole('heading', { name: '프로젝트', level: 1 })).toBeVisible();
-        const firstProject = page.locator('.project-link').first();
-        await expect(firstProject).toBeVisible();
-        await expectAccessible(page, `projects ${size}`);
+        await expect(page.locator('[data-tasks-place]')).toHaveAttribute('data-tasks-view', 'canvas');
+        await expect(page.getByRole('heading', { name: '할 일', level: 1 })).toBeVisible();
+        const canvas = page.locator('[data-todo-canvas]');
+        await expect(canvas).toBeVisible();
+        // The plan seeded above made tasks: they float here, in one tab stop.
+        const todos = canvas.getByRole('option');
+        await expect(todos.first()).toBeVisible();
+        await expect(canvas.getByRole('listbox')).toHaveAttribute('aria-multiselectable', 'true');
+        await expect(canvas.locator('[role="option"][tabindex="0"]')).toHaveCount(1);
+        // One filled button: the hand-off to the plan flow.
+        await expect(page.locator('main .btn--primary')).toHaveCount(1);
+        await expect(page.locator('main .btn--primary')).toHaveText('계획에 넣기');
+        await expectAccessible(page, `tasks canvas ${size}`);
 
-        const projectTitle = (await firstProject.locator('.project-title').innerText()).trim();
-        await firstProject.click();
-        await expect(page.getByRole('heading', { name: projectTitle, level: 1 })).toBeVisible();
+        // The floating detail, by the keyboard (Enter), and away again (Escape).
+        await canvas.locator('[role="option"][tabindex="0"]').focus();
+        await page.keyboard.press('Enter');
+        const card = page.locator('[data-todo-card]');
+        await expect(card).toBeVisible();
+        await expect(card.getByLabel('작업 제목')).toBeVisible();
+        await expect(card.locator('.btn--primary')).toHaveCount(0);
+        await expectAccessible(page, `tasks detail ${size}`);
+        await page.keyboard.press('Escape');
+        await expect(card).toBeHidden();
+
+        // 목록으로 보기: the same to-dos as rows.
+        await page.locator('[data-tasks-view-link="list"]').click();
+        await expect(page).toHaveURL(/\/tasks\?view=list$/);
+        await expect(page.locator('[data-tasks-place]')).toHaveAttribute('data-tasks-view', 'list');
+        await expect(page.getByRole('heading', { name: '인박스', level: 2 })).toBeVisible();
+        await expect(page.locator('[data-inbox] form.quick-add')).toBeVisible();
+        await expectAccessible(page, `tasks list ${size}`);
+        // The old project list's address lands on the canvas.
+        await page.goto(`${state.webUrl}/projects`);
+        await page.waitForURL(/\/tasks$/);
+        await expect(page.locator('[data-tasks-place]')).toHaveAttribute('data-tasks-view', 'list');
+        await page.locator('[data-tasks-view-link="canvas"]').click();
+        await expect(page.locator('[data-todo-canvas]')).toBeVisible();
+
+        // A folder (a project) keeps its own page; the inbox is one too.
+        const projects = (await expectOk(await apiFetch(page, state, '/projects?limit=100'), 'GET /projects')) as {
+          items: { id: string; kind: string; title: string }[];
+        };
+        const project = projects.items.find((item) => item.kind === 'inbox') ?? projects.items[0];
+        if (project === undefined) throw new Error('no project');
+        await page.goto(`${state.webUrl}/projects/${project.id}`);
+        await expect(page.getByRole('heading', { name: project.kind === 'inbox' ? '인박스' : project.title, level: 1 })).toBeVisible();
         await expect(page.getByText(/^작업 \d+개$/)).toBeVisible();
         await expectAccessible(page, `project detail ${size}`);
       });

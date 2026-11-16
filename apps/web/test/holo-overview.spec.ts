@@ -144,7 +144,9 @@ describe('개요 — greeting and the one primary button', () => {
     expect(wrapper.get('.overview-week h2').text()).toBe('이번 주');
     expect(wrapper.find('.overview-week [data-week]').exists()).toBe(true);
     // Every card has a title; all but the log have an "open" corner to the screen that owns the detail.
-    expect(wrapper.findAll('[data-widget] h2').map((title) => title.text())).toEqual([
+    // The five cards are parts of 이번 주: their titles are one level under its h2.
+    expect(wrapper.findAll('[data-widget] h2')).toHaveLength(0);
+    expect(wrapper.findAll('[data-widget] h3').map((title) => title.text())).toEqual([
       '진행',
       '타임 트래커',
       '오늘 요약',

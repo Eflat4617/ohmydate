@@ -1,6 +1,6 @@
 import { type BrowserContext, type Page } from '@playwright/test';
 import { expect, test } from '../helpers/test';
-import { login, openInbox, settleStartGuide, signOut } from '../helpers/app';
+import { login, openInbox, putDownTodo, settleStartGuide, signOut } from '../helpers/app';
 import { apiFetch, expectOk, idempotencyKey } from '../helpers/planner';
 import { readState } from '../helpers/state';
 
@@ -192,8 +192,8 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
 
     const aOnlyTitle = `FU-56 owner A only ${Date.now().toString(36)}`;
     await openInbox(pageA);
-    await pageA.getByLabel('작업 빠르게 추가').fill(aOnlyTitle);
-    await pageA.getByRole('button', { name: '작업 추가' }).click();
+    // HOLO-05: put down with the capture bar; it floats up on the canvas.
+    await putDownTodo(pageA, aOnlyTitle);
     await expect(pageA.getByText(aOnlyTitle, { exact: true })).toBeVisible();
 
     const sessionsKeyA = `ohmydate.focus.sessions:${ownerA.id}`;
@@ -224,7 +224,8 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
 
     const pageB = await context.newPage();
     await pageB.goto(`${state.webUrl}/tasks`);
-    await expect(pageB.getByRole('heading', { name: '인박스' })).toBeVisible();
+    // HOLO-05: 할 일 opens on its canvas; A's to-do floats there.
+    await expect(pageB.locator('[data-todo-canvas]')).toBeVisible();
     await expect(pageB.getByText(aOnlyTitle, { exact: true })).toBeVisible();
 
     // Tab 1's own GET /me (B). HOLO-04: the hard reset reloads it onto 개요; from
@@ -275,7 +276,7 @@ test.describe('E2E-5 — owner identity hard reset on cross-tab login and logout
     );
     await openInbox(pageA);
     await tabOneTasksAfterReset;
-    await expect(pageA.locator('.task-list')).toBeVisible({ timeout: 20_000 });
+    await expect(pageA.locator('[data-todo-canvas]')).toBeVisible({ timeout: 20_000 });
     await expect(pageA.getByText(aOnlyTitle, { exact: true })).toHaveCount(0);
 
     const tabOneMe = await pageA.request.get(`${state.apiUrl}/api/v1/me`);

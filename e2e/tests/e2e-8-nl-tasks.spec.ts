@@ -2,11 +2,13 @@ import AxeBuilder from '@axe-core/playwright';
 import { type Page } from '@playwright/test';
 import { expect, test } from '../helpers/test';
 import { agentRunStatuses } from '../helpers/db';
-import { fetchPlannerTasks, login, waitForPlannerTask } from '../helpers/app';
+import { STILL_CANVAS, canvasTodo, fetchPlannerTasks, login, openTodoDetail, waitForPlannerTask } from '../helpers/app';
 import { readState } from '../helpers/state';
 
 /**
  * CAL-05 E2E — 인박스 "말로 적기" against the real API with the fake provider.
+ * HOLO-05: 말로 적기 and the quick add live in 할 일's list view (`?view=list`);
+ * the capture bar puts a to-do onto the canvas.
  *
  * The AI-wait owner's fake AI (`LLM_FAKE_SCRIPTED_OWNERS`) answers after
  * `aiWaitLatencyMs` (~5 s) with the deterministic task_parse reader
@@ -37,7 +39,7 @@ test.describe('E2E-8 — 할 일을 말로 적기 (CAL-05)', () => {
     const before = await agentRunStatuses(state, state.aiWaitOwnerId, 'task_parse');
 
     const title = `보고서 초안 E${Date.now().toString(36)}`;
-    await page.goto(`${state.webUrl}/tasks`);
+    await page.goto(`${state.webUrl}/tasks?view=list`);
     // HOLO-02: 말로 적기 is folded under one disclosure below the quick add.
     await expect(page.getByRole('heading', { name: '말로 적기' })).toBeHidden();
     await page.getByText('말로 여러 개 적기', { exact: true }).click();
@@ -94,7 +96,7 @@ test.describe('E2E-8 — 할 일을 말로 적기 (CAL-05)', () => {
     const page = await context.newPage();
     await login(page, state, account);
     const before = await agentRunStatuses(state, state.aiWaitOwnerId, 'task_parse');
-    await page.goto(`${state.webUrl}/tasks`);
+    await page.goto(`${state.webUrl}/tasks?view=list`);
     const title = `빠른 추가 E${Date.now().toString(36)}`;
     await page.getByLabel('작업 빠르게 추가').fill(title);
     await page.getByLabel('작업 빠르게 추가').press('Enter');
@@ -112,7 +114,7 @@ test.describe('E2E-8 — 할 일을 말로 적기 (CAL-05)', () => {
   });
 
   test('담기 줄 (HOLO-04): one line is read as a to-do, saved only on 담기, and handed to 계획', async ({ browser }) => {
-    const context = await browser.newContext();
+    const context = await browser.newContext(STILL_CANVAS);
     const page = await context.newPage();
     await login(page, state, account);
     const before = await agentRunStatuses(state, state.aiWaitOwnerId, 'task_parse');
@@ -149,15 +151,19 @@ test.describe('E2E-8 — 할 일을 말로 적기 (CAL-05)', () => {
     await bar.locator('[data-capture-next="plan"]').click();
     await expect(page).toHaveURL(new RegExp(`/plan/schedule\\?taskIds=${task.id}`));
 
-    // Leave the owner as it was.
+    // HOLO-05: what was put down floats on the 할 일 canvas, with its deadline in a word.
     await page.goto(`${state.webUrl}/tasks`);
-    const listed = page.locator('li.task-item').filter({ hasText: title });
-    await expect(listed).toHaveCount(1);
+    const floating = canvasTodo(page, title);
+    await expect(floating).toHaveCount(1);
+    await expect(floating.locator('[data-todo-due]')).toHaveText(/^(오늘|내일|\d+일 남음)$/);
+    // Leave the owner as it was: 삭제 from its detail (sent when the undo window closes).
+    const card = await openTodoDetail(page, title);
     const deleted = page.waitForResponse(
       (candidate) => candidate.request().method() === 'DELETE' && new URL(candidate.url()).pathname.includes('/api/v1/tasks/'),
       { timeout: 30_000 },
     );
-    await listed.getByRole('button', { name: `${title} 삭제` }).click();
+    await card.getByRole('button', { name: `${title} 삭제` }).click();
+    await expect(floating).toHaveCount(0);
     expect((await deleted).status()).toBe(204);
     await context.close();
   });

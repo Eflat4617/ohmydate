@@ -1,6 +1,6 @@
 import { HttpResponse, http, type JsonBodyType } from 'msw';
 import type { ProblemCode } from '../api/errors';
-import type { Project, Task, TaskCreate, TaskPatch, TaskStatus, User } from '../api/client';
+import type { Project, ProjectPatch, Task, TaskCreate, TaskPatch, TaskStatus, User } from '../api/client';
 import { createUuidV7, type MockDb, type StoredResponse } from './db';
 import { createDailyHandlers } from './daily';
 
@@ -170,6 +170,23 @@ function visibleTasks(db: MockDb): Task[] {
   return [...db.tasks.values()].filter((task) => task.deletedAt === undefined);
 }
 
+/**
+ * FOLD-01, as the live backend behaves: the task provider refuses every write
+ * to a to-do whose folder is archived, and the API reports that as an outage.
+ * (Which is why a folder is emptied before it is archived, never after.)
+ */
+function archivedFolderRefusal(db: MockDb, task: Task): Response | null {
+  if (db.projects.get(task.projectId)?.archived !== true) return null;
+  return problem(503, 'provider_unavailable', 'The task provider refused the write');
+}
+
+function validationProblem(detail: string, path: string): { status: number; body: Record<string, unknown> } {
+  return {
+    status: 422,
+    body: { type: 'about:blank', title: 'Request failed', status: 422, code: 'validation_failed', detail, errors: [{ path, message: detail }] },
+  };
+}
+
 function hashString(value: string): string {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
@@ -328,6 +345,61 @@ export function createHandlers(db: MockDb) {
       return json(project, 201, { ETag: etag(project.version) });
     }),
 
+    // FOLD-01: rename and/or archive a folder (services/api project-service.ts,
+    // in its order: yours → current version → the two rules → an empty patch).
+    http.patch('*/api/v1/projects/:id', async ({ request, params }) => {
+      if (!db.authenticated) return unauthenticated();
+      const raw = await request.text();
+      const token = parseIdempotency(db, request, raw);
+      if (token instanceof Response) return token;
+      const ifMatch = parseIfMatch(request);
+      if (ifMatch instanceof Response) return ifMatch;
+      const project = db.projects.get(String(params.id));
+      // Another owner's id answers like one that does not exist.
+      if (project === undefined || project.ownerId !== db.user.id) return problem(404, 'not_found', 'Project not found');
+      if (project.version !== ifMatch.version) {
+        return problem(412, 'version_conflict', `Server version is ${project.version}; the request used ${ifMatch.version}`);
+      }
+      const patch = parseBody<ProjectPatch>(raw);
+      if (patch === undefined || patch === null || typeof patch !== 'object') {
+        return problem(400, 'validation_failed', 'Malformed JSON body');
+      }
+      if (patch.title !== undefined && !validTitle(patch.title)) {
+        return rememberDomainResult(db, token, 422, 'validation_failed', 'title must be 1-200 characters');
+      }
+      const refuse = (detail: string, path: string): Response => {
+        const failure = validationProblem(detail, path);
+        remember(db, token, failure.status, failure.body, { 'Content-Type': 'application/problem+json' });
+        return HttpResponse.json(failure.body as JsonBodyType, {
+          status: failure.status,
+          headers: { 'Content-Type': 'application/problem+json' },
+        });
+      };
+      if (project.kind === 'inbox' && patch.archived === true) {
+        return refuse('the inbox project cannot be archived or deleted', 'archived');
+      }
+      if (project.archived && patch.title !== undefined && patch.archived !== false) {
+        return refuse('an archived project cannot be renamed; bring it back first', 'title');
+      }
+      // An empty patch changes nothing: the project as it is, with its current tag.
+      if (patch.title === undefined && patch.archived === undefined) {
+        remember(db, token, 200, project, { ETag: etag(project.version) });
+        return json(project, 200, { ETag: etag(project.version) });
+      }
+      const updated: Project = {
+        ...project,
+        ...(patch.title === undefined ? {} : { title: patch.title.trim() }),
+        ...(patch.archived === undefined ? {} : { archived: patch.archived }),
+        version: project.version + 1,
+        updatedAt: new Date().toISOString(),
+      };
+      db.projects.set(updated.id, updated);
+      db.projectRevision += 1;
+      // Archiving moves, deletes and changes no task.
+      remember(db, token, 200, updated, { ETag: etag(updated.version) });
+      return json(updated, 200, { ETag: etag(updated.version) });
+    }),
+
     http.get('*/api/v1/tasks', ({ request }) => {
       if (!db.authenticated) return unauthenticated();
       const url = new URL(request.url);
@@ -341,7 +413,12 @@ export function createHandlers(db: MockDb) {
       if (projectId !== null) items = items.filter((task) => task.projectId === projectId);
       if (status !== null) items = items.filter((task) => task.status === status);
       items.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-      const page = items.slice(0, Number.isFinite(limit) ? limit : 50);
+      // HOLO-05: the list is paged like the API's — the cursor is where the next page starts.
+      const size = Number.isFinite(limit) && limit > 0 ? limit : 50;
+      const cursor = url.searchParams.get('cursor');
+      const offset = cursor !== null && /^\d+$/.test(cursor) ? Number(cursor) : 0;
+      const page = items.slice(offset, offset + size);
+      const nextCursor = offset + size < items.length ? String(offset + size) : null;
       const current = collectionEtag('tasks', db.taskRevision, {
         cursor: url.searchParams.get('cursor'),
         limit: url.searchParams.get('limit'),
@@ -351,7 +428,7 @@ export function createHandlers(db: MockDb) {
       if (request.headers.get('If-None-Match') === current) {
         return new HttpResponse(null, { status: 304, headers: { ETag: current } });
       }
-      return json({ items: page, nextCursor: null }, 200, { ETag: current });
+      return json({ items: page, nextCursor }, 200, { ETag: current });
     }),
 
     http.post('*/api/v1/tasks', async ({ request }) => {
@@ -425,8 +502,15 @@ export function createHandlers(db: MockDb) {
           `Server version is ${task.version}; the request used ${ifMatch.version}`,
         );
       }
+      const refused = archivedFolderRefusal(db, task);
+      if (refused !== null) return refused;
       const patch = parseBody<TaskPatch>(raw);
       if (patch === undefined) return problem(400, 'validation_failed', 'Malformed JSON body');
+      if (patch.projectId !== undefined) {
+        const target = db.projects.get(patch.projectId);
+        if (target === undefined) return problem(404, 'not_found', 'projectId does not exist');
+        if (target.archived) return problem(503, 'provider_unavailable', 'The task provider refused the write');
+      }
       if (patch.title !== undefined && !validTitle(patch.title)) {
         return rememberDomainResult(db, token, 422, 'validation_failed', 'title must be 1-200 characters');
       }
@@ -461,6 +545,8 @@ export function createHandlers(db: MockDb) {
           `Server version is ${task.version}; the request used ${ifMatch.version}`,
         );
       }
+      const refused = archivedFolderRefusal(db, task);
+      if (refused !== null) return refused;
       if (task.status === 'done') {
         return rememberDomainResult(db, token, 409, 'validation_failed', 'Task is already completed');
       }
@@ -492,6 +578,8 @@ export function createHandlers(db: MockDb) {
           `Server version is ${task.version}; the request used ${ifMatch.version}`,
         );
       }
+      const refused = archivedFolderRefusal(db, task);
+      if (refused !== null) return refused;
       const deleted: Task = {
         ...task,
         deletedAt: new Date().toISOString(),

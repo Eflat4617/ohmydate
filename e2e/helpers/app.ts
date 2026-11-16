@@ -46,10 +46,49 @@ export async function signOut(page: Page): Promise<void> {
   await page.locator('[data-user-sign-out]').click();
 }
 
-/** 할 일 › 인박스, from wherever the page is. */
+/**
+ * HOLO-05: a context for a test that points at the 할 일 canvas. Its to-dos
+ * sway a few pixels, and a pointer action waits for its target to hold still —
+ * so these tests ask for reduced motion, under which every to-do is exactly
+ * where it was left. (The keyboard needs no such thing: Enter on a to-do opens it.)
+ */
+export const STILL_CANVAS = { reducedMotion: 'reduce' } as const;
+
+/** 할 일, from wherever the page is: the canvas (HOLO-05), with the inbox as its open water. */
 export async function openInbox(page: Page): Promise<void> {
   await openPlace(page, '할 일');
-  await expect(page.getByRole('heading', { name: '인박스' })).toBeVisible();
+  await expect(page.locator('[data-tasks-place]')).toHaveAttribute('data-tasks-view', 'canvas');
+  await expect(page.locator('[data-todo-canvas]')).toBeVisible();
+}
+
+/** A to-do on the canvas, by its title. */
+export function canvasTodo(page: Page, title: string) {
+  return page.locator('[data-todo]').filter({ has: page.getByText(title, { exact: true }) });
+}
+
+/** The one floating detail, opened on a to-do (a click, or the same to-do again if it is already open). */
+export async function openTodoDetail(page: Page, title: string) {
+  const card = page.locator('[data-todo-card]');
+  const todo = canvasTodo(page, title);
+  await expect(todo).toBeVisible();
+  if ((await todo.getAttribute('data-open')) !== 'true') await todo.click();
+  await expect(card).toBeVisible();
+  await expect(card.getByLabel('작업 제목')).toHaveValue(title);
+  return card;
+}
+
+/**
+ * 담기 (the top bar's field): a line with no day or time in it is put down at
+ * once as a to-do, and floats up on the canvas.
+ */
+export async function putDownTodo(page: Page, title: string): Promise<void> {
+  const input = page.locator('.app-topbar [data-capture-input]');
+  await input.click();
+  await input.fill(title);
+  await input.press('Enter');
+  await expect(page.locator('.app-topbar [data-capture-done]')).toContainText(title);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-capture-panel]')).toHaveCount(0);
 }
 
 /** Signs in. HOLO-04: the app opens on 개요; the start guide, if it opens, is put away. */

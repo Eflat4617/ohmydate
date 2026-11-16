@@ -133,7 +133,7 @@ function retry(): void {
     </div>
 
     <section class="tracker-recent" aria-labelledby="overview-tracker-recent">
-      <h3 id="overview-tracker-recent" class="overview-subtitle">{{ t('overview.tracker.recentTitle') }}</h3>
+      <h4 id="overview-tracker-recent" class="overview-subtitle">{{ t('overview.tracker.recentTitle') }}</h4>
       <ul v-if="recent.length > 0" class="tracker-recent-list" data-recent>
         <li v-for="item in recent" :key="item.id" class="tracker-recent-item">
           <div class="tracker-recent-text">

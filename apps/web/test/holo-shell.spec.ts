@@ -135,7 +135,7 @@ describe('sidebar', () => {
     for (const [path, place] of [
       ['/projects/01900000-0000-7000-8000-000000000003', '할 일'],
       ['/tasks/01900000-0000-7000-8000-000000000011', '할 일'],
-      ['/tasks?view=projects', '할 일'],
+      ['/tasks?view=list', '할 일'],
       ['/plan/schedule', '계획'],
       ['/replan', '계획'],
       ['/planner?view=list', '플래너'],
@@ -248,7 +248,7 @@ describe('navigation model', () => {
     for (const [old, home] of [
       ['/today', '/overview'],
       ['/inbox', '/tasks'],
-      ['/projects', '/tasks?view=projects'],
+      ['/projects', '/tasks'],
       ['/commitments', '/planner?view=list'],
       ['/tracker', '/focus'],
       ['/settings/layout', '/settings/display'],

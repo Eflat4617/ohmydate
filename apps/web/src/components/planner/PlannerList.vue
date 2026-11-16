@@ -8,7 +8,7 @@ import { useOwnerTimeZone, usePlannerRange } from '../../composables/usePlannerR
 import { weeklyRepeatOf } from '../../domain/commitmentDraft';
 import { weekRange } from '../../domain/overview';
 import { plannerLocation, plannerWeekOf } from '../../domain/plannerRoute';
-import { addDaysToDate, startOfWeek, todayInZone } from '../../domain/time';
+import { addDaysToDate, localDateOf, startOfWeek, todayInZone } from '../../domain/time';
 import { t, tp } from '../../i18n';
 import { formatCivilDate, formatCivilDateRange, formatDateTimeRange } from '../../i18n/format';
 import { useLayoutNow } from '../../layout/now';
@@ -124,6 +124,15 @@ function goToWeek(start: string): void {
   void router.push(plannerLocation('list', start, today.value, route.name));
 }
 
+/**
+ * A 약속 was added: the list shows one week, so when the new one starts in
+ * another, the list goes there — what was just added is on the screen.
+ */
+function onAdded(startAt: string): void {
+  const week = startOfWeek(localDateOf(startAt, timeZone.value));
+  if (week !== weekStart.value) goToWeek(week);
+}
+
 /** The 약속 open in the dialog. A re-read replaces the rows; the dialog keeps the one it was opened with. */
 const editing = ref<Commitment | null>(null);
 
@@ -149,6 +158,7 @@ function edit(row: Row): void {
       @previous="goToWeek(addDaysToDate(weekStart, -7))"
       @next="goToWeek(addDaysToDate(weekStart, 7))"
       @current="goToWeek(thisWeek)"
+      @added="onAdded"
     />
 
     <p class="visually-hidden" role="status" aria-live="polite">

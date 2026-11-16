@@ -23,8 +23,8 @@ old addresses still work: they redirect, keeping their query.
 |---|---|
 | `/` , after signing in, after an owner reset | `/overview` (개요) |
 | `/today` (오늘) | `/overview` — 오늘 is the board on 개요 (`components/today/TodayBoard.vue`) |
-| `/inbox` (인박스) | `/tasks` (할 일 › 인박스) |
-| `/projects` | `/tasks?view=projects` (할 일 › 프로젝트); `/projects/:id` and `/tasks/:id` are unchanged |
+| `/inbox` (인박스) | `/tasks` (할 일: the canvas, HOLO-05 — the inbox is its open water; `/tasks?view=list` is the same to-dos as rows) |
+| `/projects` | `/tasks` (a project is a folder on the canvas); `/projects/:id` and `/tasks/:id` are unchanged |
 | `/commitments` (약속) | `/planner?view=list` (플래너 › 목록); 약속 are added and changed in the planner's dialog |
 | `/tracker` (타임 트래커) | `/focus` (집중); a session is still `/focus/:sessionId` |
 | `/availability`, `/settings/availability` | `/settings/availability` (설정 › 가용 시간) |
@@ -43,6 +43,13 @@ replaced: what they say about data rules still holds (approval only by the
 owner, `If-Match`, idempotent replay, the before snapshot as the only source of
 a diff, no note text in statistics); what they say about layout, headings,
 `/plan/new`, `/plans/…` and `/patterns` does not. Those addresses redirect.
+
+HOLO-05 (2026-11-16) made 할 일 a canvas: every open to-do floats on a wide
+surface, folders are dishes on it (and real projects), and the same surface is
+a list to the keyboard. `DESIGN.md` › The Canvas is the description; the pure
+parts are `src/domain/canvas`, the screen `src/components/canvas` and
+`views/TasksView.vue`, the styles `screens/23-canvas.css`. The project list
+screen is gone. Its captures are in `holo-05/`.
 
 ## Stylesheet layers
 
@@ -75,7 +82,7 @@ paragraph. Colours change with the scheme through `data-scheme` on `<html>`
 | `UiCard` | the unit: a surface with a hairline edge and 20px corners. `flat` is a plain section without a surface, `sunken` an inset well, `compact` the small one |
 | `UiBadge` | a tag: a small tinted rectangle with matching text. `tone` neutral/accent/success/warn/danger/info/offline/outline, plus the category hues as classes (`badge--cyan`, `--orange`, `--violet`); `dot` renders nothing: the word carries the state |
 | `UiBanner` | a tinted line with its hue on the edge and the icon. `tone` info/success/warn/error/offline/conflict/accent; the live `role` is opt-in so existing live regions are not duplicated |
-| `GlassOrb` | OhMyDate's own glass object (WebGL shader, still image without WebGL), decorative; the AI card of 개요 and the login screen only |
+| `GlassOrb` | OhMyDate's own glass object (a three.js scene loaded lazily over a still image; the still alone without WebGL), decorative; the AI card of 개요 and the login screen only |
 | `BarWeekChart` / `RingChart` / `TrendChart` | hand-written SVG charts (`src/components/charts`), each with a text alternative |
 | `UiEmptyState` | what is missing and the next action, as plain text |
 | `UiSkeleton` / `UiSpinner` | loading. Skeletons are decorative and always come with a status message |
@@ -448,9 +455,13 @@ synced to the task tool.
 
 ## Evidence
 
-`holo-04/` holds the current screens. Everything older was removed with
-HOLO-04 (it showed two visual systems ago). The PNGs are reduced to a
-256-colour palette to keep the folder small. The captures use only synthetic
+`holo-04/` holds the current screens, and `holo-05/` those of 할 일's canvas
+(the composed field in both themes, with motion allowed, the floating detail,
+a selection, 폴더로 옮기기, a folder's menu, a folded folder, 폴더 만들기, the
+list view, five and two hundred to-dos, and the empty surface). Everything
+older was removed with HOLO-04 (it showed two visual systems ago). The PNGs
+are reduced to a 256-colour palette to keep the folders small
+(`convert in.png -colors 256 PNG8:out.png`). The captures use only synthetic
 MSW data (`VITE_MOCK=1`, `src/mocks`) with the clock pinned to 2026-11-14
 Asia/Seoul; there are no real accounts or personal data.
 
@@ -459,16 +470,18 @@ Asia/Seoul; there are no real accounts or personal data.
 node scripts/ui-screenshots.mjs                      # every flow, into docs/ui-polish/holo-04
 node scripts/ui-screenshots.mjs --flows loop,capture # some of them
 node scripts/ui-screenshots.mjs --only 10-capture    # screens whose name starts with this
+node scripts/ui-screenshots.mjs --flows canvas --label holo-05   # 할 일, the canvas
 ```
 
-The script walks the product the way `FLOW.md` describes it, in five flows:
+The script walks the product the way `FLOW.md` describes it, in six flows:
 
 | Flow | Screens |
 |---|---|
-| `places` | 개요 (00), 할 일 (20–21), 계획 (25–26), 플래너 일·주·월·목록 and the 약속 dialog (30–34), 집중 (45), 분석 (50), 노트 (55–56), 설정's four sections (60–63) |
+| `places` | 개요 (00), 할 일's canvas and list (20–21), 계획 (25–26), 플래너 일·주·월·목록 and the 약속 dialog (30–34), 집중 (45), 분석 (50), 노트 (55–56), 설정's four sections (60–63) |
 | `shell` | the account menu (80), notifications (81), shortcuts (82), the 더 보기 sheet (83, narrow only), 로그인 (70) |
 | `capture` | a line typed (10), its drafts, one turned into the other kind, done with the hand-off (11), the plan flow it opens (12), the search (13) |
 | `loop` | start the next block → the timer (40) → the review → the next-step card → 오늘 정리 on 개요 (41); a 다시 맞추기 proposal on 개요 and opened (42–43); the now pill with a session running (44) |
+| `canvas` | 할 일 (HOLO-05), into `holo-05/` with `--label holo-05`: the composed field (90; with motion allowed, 90-motion), the floating detail (91), three picked (92), 폴더로 옮기기 (93), a folder's menu, a folded folder and 폴더 만들기 (94), the list view (95), five to-dos (96, `todos: 'few'`), two hundred — held back, then all (97, `todos: 'many'`), and the empty surface (98) |
 | `first-run` | the start guide's three steps and its ending (02–05), 개요's 시작 마무리 card (06), the empty 할 일 and 약속 list (07–08) as a brand-new owner (`window.__OHMYDATE_MOCK__ = { owner: 'new' }`) |
 
 Every screen is visited at 1440×900, 1024×768, 390×844 and 360×780, in the
@@ -476,7 +489,8 @@ dark theme and the light theme. PNGs are kept at 1440 and 390 in the dark
 theme, and in the light theme for a few screens that show the material. On
 every visit it runs axe-core (`wcag2a/aa`, `wcag21a/aa`, `wcag22aa`) and a
 horizontal-overflow check, and exits 1 on any critical or serious violation or
-any overflow. Results are in `holo-04/sweep-report.json`:
+any overflow. Results are in `holo-04/sweep-report.json` (and, for the canvas
+flow, `holo-05/sweep-report.json`: 104 checks, none failing):
 
 | | Visits | Failing | Issues |
 |---|---|---|---|

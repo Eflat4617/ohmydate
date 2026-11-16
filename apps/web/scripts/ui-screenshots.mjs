@@ -5,6 +5,7 @@
 //
 //   node scripts/ui-screenshots.mjs                       # every flow, into docs/ui-polish/holo-04
 //   node scripts/ui-screenshots.mjs --flows loop,capture  # some of them
+//   node scripts/ui-screenshots.mjs --flows canvas --label holo-05   # 할 일, the canvas (HOLO-05)
 //   node scripts/ui-screenshots.mjs --only 10-capture     # screens whose name starts with this
 //   node scripts/ui-screenshots.mjs --url http://127.0.0.1:5197   # a dev server that is already up
 //   node scripts/ui-screenshots.mjs --report-only         # never exit 1
@@ -55,7 +56,7 @@ const VIEWPORTS = [
 ];
 // The theme is the owner's choice (dark by default), not the system's.
 const SCHEMES = ['dark', 'light'];
-const LIGHT_CAPTURES = /^(00-overview|02-first-run-hours|10-capture-drafts|11-capture-done|30-planner-week|33-planner-list|40-focus-next|63-settings-display|70-login)/;
+const LIGHT_CAPTURES = /^(00-overview|02-first-run-hours|10-capture-drafts|11-capture-done|30-planner-week|33-planner-list|40-focus-next|63-settings-display|70-login|90-canvas$|91-canvas-detail|95-canvas-list)/;
 // The mock's signed-in owner (src/mocks/db.ts USER_ID): the theme is stored per owner.
 const MOCK_OWNER_ID = '01900000-0000-7000-8000-000000000002';
 const NOTE_THESIS_ID = '01900000-0000-7000-8000-0000000003a1';
@@ -143,12 +144,13 @@ async function checkpoint(page, name, run, within) {
   console.log(`  ${file.replace(`${webRoot}/`, '')}${flags ? `  ! ${flags}` : ''}`);
 }
 
-async function newPage(browser, run, overrides) {
+async function newPage(browser, run, overrides, options = {}) {
   const context = await browser.newContext({
     viewport: { width: run.viewport.width, height: run.viewport.height },
     deviceScaleFactor: 1,
     colorScheme: run.scheme,
-    reducedMotion: 'reduce',
+    // Everything is captured still; `motion` lets the 할 일 canvas sway for one capture.
+    reducedMotion: options.motion === true ? 'no-preference' : 'reduce',
     timezoneId: 'Asia/Seoul',
     locale: 'ko-KR',
   });
@@ -180,8 +182,8 @@ async function go(page, path) {
 const isWide = (run) => run.viewport.width >= 1024;
 
 /** One page per flow; `screens` are visited in order on it. */
-async function withPage(browser, run, overrides, visit) {
-  const { context, page } = await newPage(browser, run, overrides);
+async function withPage(browser, run, overrides, visit, options) {
+  const { context, page } = await newPage(browser, run, overrides, options);
   try {
     await visit(page);
   } finally {
@@ -207,12 +209,13 @@ async function flowPlaces(browser, run) {
     await page.locator('[data-today-board] .today-card').first().waitFor();
     await checkpoint(page, '00-overview', run);
 
+    // 할 일 is the canvas (HOLO-05); its states have a flow of their own (`canvas`).
     await go(page, '/tasks');
-    await page.locator('[data-inbox]').waitFor();
-    await checkpoint(page, '20-tasks-inbox', run);
-    await go(page, '/tasks?view=projects');
-    await page.locator('[data-projects]').waitFor();
-    await checkpoint(page, '21-tasks-projects', run);
+    await page.locator('[data-todo-canvas] [data-todo]').first().waitFor();
+    await checkpoint(page, '20-tasks-canvas', run);
+    await go(page, '/tasks?view=list');
+    await page.locator('[data-inbox] .task-item').first().waitFor();
+    await checkpoint(page, '21-tasks-list', run);
 
     await go(page, '/plan');
     await page.locator('.plan-rail').waitFor();
@@ -391,7 +394,7 @@ async function flowFirstRun(browser, run) {
     await checkpoint(page, '06-overview-setup-card', run);
     // Empty states lead back a stage.
     await go(page, '/tasks');
-    await page.locator('[data-inbox]').waitFor();
+    await page.locator('[data-canvas-empty]').waitFor();
     await checkpoint(page, '07-tasks-empty', run);
     await go(page, '/planner?view=list');
     await page.locator('[data-planner-list-empty]').waitFor();
@@ -399,7 +402,113 @@ async function flowFirstRun(browser, run) {
   });
 }
 
-const FLOWS = { places: flowPlaces, shell: flowShell, capture: flowCapture, loop: flowLoop, 'first-run': flowFirstRun };
+// ── 할 일, the canvas (HOLO-05): its states, and how many it holds ───────────
+async function canvasReady(page) {
+  await page.locator('[data-todo-canvas]').waitFor();
+}
+
+/** A to-do's capsule, by its title. */
+function capsule(page, title) {
+  return page.locator('[data-todo]').filter({ has: page.getByText(title, { exact: true }) });
+}
+
+async function flowCanvas(browser, run) {
+  // The composed field: about thirty to-dos, three folders, still (reduced motion).
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/tasks');
+    await canvasReady(page);
+    await capsule(page, '영어 회화 과제').waitFor();
+    await checkpoint(page, '90-canvas', run);
+
+    // The one floating detail, by the keyboard.
+    await capsule(page, '영어 회화 과제').focus();
+    await page.keyboard.press('Enter');
+    await page.locator('[data-todo-card]').waitFor();
+    await checkpoint(page, '91-canvas-detail', run);
+    await page.keyboard.press('Escape');
+
+    // Three picked: the head's button carries them to the plan.
+    for (const title of ['도서관 책 반납', '세미나 발표 자료', '통계 과제 2번 풀이']) {
+      await capsule(page, title).focus();
+      await page.keyboard.press('Space');
+    }
+    await page.locator('[data-canvas-selection]').waitFor();
+    await checkpoint(page, '92-canvas-selection', run);
+
+    // 폴더로 옮기기, from the keyboard.
+    await page.keyboard.press('v');
+    await page.locator('[data-folder-picker]').waitFor();
+    // A floating menu with no scrim: what it covers for a moment is not a target while it is open.
+    await checkpoint(page, '93-canvas-picker', run, '[data-folder-picker]');
+    await page.keyboard.press('Escape');
+    await page.locator('[data-canvas-selection-clear]').click();
+
+    // A folder's menu, open.
+    await page.locator('[data-folder-menu-button]').first().click();
+    await page.locator('[data-folder-menu]').waitFor();
+    await checkpoint(page, '94-canvas-folder-menu', run, '[data-folder-menu]');
+    await page.keyboard.press('Escape');
+
+    // One folder folded to a single object beside two that are open.
+    await page.locator('[data-folder-fold]').first().click();
+    await page.locator('[data-folder-unfold]').waitFor();
+    await checkpoint(page, '94-canvas-folder-folded', run);
+    await page.locator('[data-folder-unfold]').click();
+
+    // 폴더 만들기.
+    await page.locator('[data-new-folder]').click();
+    await page.locator('[data-new-folder-dialog]').waitFor();
+    await checkpoint(page, '94-canvas-new-folder', run);
+    await page.keyboard.press('Escape');
+
+    // 목록으로 보기: the same to-dos as rows.
+    await page.locator('[data-tasks-view-link="list"]').click();
+    await page.locator('[data-tasks-list] .task-item').first().waitFor();
+    await checkpoint(page, '95-canvas-list', run);
+  });
+
+  // The same field with motion allowed: it sways a few pixels (captured a moment in).
+  await withPage(
+    browser,
+    run,
+    undefined,
+    async (page) => {
+      await go(page, '/tasks');
+      await canvasReady(page);
+      await capsule(page, '영어 회화 과제').waitFor();
+      await page.waitForTimeout(1500);
+      await checkpoint(page, '90-canvas-motion', run);
+    },
+    { motion: true },
+  );
+
+  // Five, and two hundred.
+  await withPage(browser, run, { todos: 'few' }, async (page) => {
+    await go(page, '/tasks');
+    await canvasReady(page);
+    await page.locator('[data-todo]').first().waitFor();
+    await checkpoint(page, '96-canvas-few', run);
+  });
+  await withPage(browser, run, { todos: 'many' }, async (page) => {
+    await go(page, '/tasks');
+    await canvasReady(page);
+    await page.locator('[data-canvas-more-button]').waitFor();
+    await checkpoint(page, '97-canvas-many', run);
+    await page.locator('[data-canvas-more-button]').click();
+    await page.locator('[data-canvas-less-button]').waitFor();
+    await checkpoint(page, '97-canvas-many-all', run);
+  });
+
+  // Nothing put down yet: the capture bar is the invitation.
+  await withPage(browser, run, NEW_OWNER, async (page) => {
+    await go(page, '/tasks');
+    await page.locator('[data-first-run-close]').click().catch(() => undefined);
+    await page.locator('[data-canvas-empty]').waitFor();
+    await checkpoint(page, '98-canvas-empty', run);
+  });
+}
+
+const FLOWS = { places: flowPlaces, shell: flowShell, capture: flowCapture, loop: flowLoop, 'first-run': flowFirstRun, canvas: flowCanvas };
 
 async function main() {
   await mkdir(outDir, { recursive: true });

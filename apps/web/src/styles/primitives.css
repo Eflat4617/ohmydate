@@ -1759,8 +1759,8 @@
 }
 
 /* ── Glass object: OhMyDate's own (components/ui/GlassOrb.vue) ─────── */
-/* A canvas drawn by this project's shader, or its still when WebGL is
-   missing. Decorative; at most one or two per screen. */
+/* The still image, and — where WebGL can draw it — the live scene over it
+   (three.js, loaded lazily). Decorative; one live renderer on a page. */
 .glass-orb {
   display: inline-grid;
   flex: none;
@@ -1774,4 +1774,15 @@
   grid-area: 1 / 1;
   width: 100%;
   height: 100%;
+  transition: opacity var(--duration-slow) var(--ease-standard);
+}
+
+/* The still stands in until the scene is drawn; then the scene takes its place. */
+.glass-orb-canvas,
+.glass-orb[data-glass='live'] .glass-orb-still {
+  opacity: 0;
+}
+
+.glass-orb[data-glass='live'] .glass-orb-canvas {
+  opacity: 1;
 }

@@ -38,13 +38,14 @@ export const routes: RouteRecordRaw[] = [
   { path: '/overview', name: 'overview', component: OverviewView },
   { path: '/today', redirect: movedTo('overview') },
 
-  // 할 일: everything put down, as one place with two views (`?view=projects`).
-  // HOLO-05 replaces the inside of this place; the address and the mount point stay.
+  // 할 일 (HOLO-05): everything put down, as one place — a canvas of floating
+  // to-dos with folders on it, or the same things as rows (`?view=list`).
   { path: '/tasks', name: 'tasks', component: TasksView },
   { path: '/tasks/:id', name: 'task', component: TaskDetailView, props: true },
   { path: '/projects/:id', name: 'project', component: ProjectDetailView, props: true },
   { path: '/inbox', redirect: movedTo('tasks') },
-  { path: '/projects', redirect: movedTo('tasks', { view: 'projects' }) },
+  // The project list is gone: a project is a folder on the canvas.
+  { path: '/projects', redirect: movedTo('tasks') },
 
   // 계획: one flow — 목표 (`/plan`), 질문 and 단계 of a planning session, then
   // what goes into the schedules (`?goalId`, `?taskIds`; `?session` names the

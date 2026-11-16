@@ -38,7 +38,8 @@ const props = withDefaults(
   }>(),
   { summary: null, hooks: null },
 );
-const emit = defineEmits<{ previous: []; next: []; current: [] }>();
+/** `added`: a 약속 was added from this head; it starts at the instant given. */
+const emit = defineEmits<{ previous: []; next: []; current: []; added: [startAt: string] }>();
 
 const route = useRoute();
 const router = useRouter();
@@ -108,5 +109,11 @@ function show(view: PlannerViewKind): void {
       </UiButton>
     </div>
   </header>
-  <CommitmentAddDialog v-if="adding" :time-zone="timeZone" :date="anchor" @close="adding = false" />
+  <CommitmentAddDialog
+    v-if="adding"
+    :time-zone="timeZone"
+    :date="anchor"
+    @close="adding = false"
+    @saved="(startAt) => startAt !== undefined && emit('added', startAt)"
+  />
 </template>

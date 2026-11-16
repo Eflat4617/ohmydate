@@ -34,6 +34,7 @@ export {
   type PlannerClientOptions,
   type PreviewEditResponse,
   type Project,
+  type ProjectPatch,
   type ScheduleBlock,
   type Task,
   type TaskCreate,

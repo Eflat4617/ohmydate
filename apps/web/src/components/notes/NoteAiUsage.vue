@@ -9,6 +9,7 @@ import { useAuthStore } from '../../stores/auth';
 import UiBadge from '../ui/UiBadge.vue';
 import UiBanner from '../ui/UiBanner.vue';
 import UiButton from '../ui/UiButton.vue';
+import UiIcon from '../ui/UiIcon.vue';
 import UiSkeleton from '../ui/UiSkeleton.vue';
 
 /**
@@ -89,25 +90,32 @@ function shortHash(hash: string): string {
             <UiBadge :tone="STATUS_TONES[item.status]" dot>{{ t(`notes.ai.status.${item.status}`) }}</UiBadge>
             <UiBadge v-if="item.stale" tone="warn" :title="t('notes.ai.staleHelp')">{{ t('notes.ai.stale') }}</UiBadge>
           </div>
-          <p class="note-ai-meta tabular">
+          <!-- The plain account first: when, how much of this note was sent, and of which version. -->
+          <p class="note-ai-meta tabular" data-note-ai-account>
             <time :datetime="item.createdAt">{{ formatDateTime(item.createdAt, timeZone) }}</time>
             <span>{{ tp('notes.ai.sections', item.sectionHashes.length) }}</span>
             <span>{{ t('notes.ai.bytes', { size: sizeText(item.sentBytes) }) }}</span>
             <span>{{ t('notes.ai.version', { version: item.documentVersion }) }}</span>
           </p>
           <p v-if="item.stale" class="field-help">{{ t('notes.ai.staleHelp') }}</p>
-          <p class="note-ai-meta note-ai-meta--run muted">
-            <span>{{ t('notes.ai.model', { provider: item.provider, model: item.model }) }}</span>
-            <span class="tabular">{{ t('notes.ai.run', { id: item.agentRunId.slice(-8) }) }}</span>
-          </p>
-          <div class="note-ai-hashes">
-            <span class="muted">{{ t('notes.ai.hashesLabel') }}</span>
-            <ul class="chip-row">
-              <li v-for="hash in item.sectionHashes" :key="hash" class="chip tabular" :data-section-hash="hash">
-                {{ t('notes.ai.section', { hash: shortHash(hash) }) }}
-              </li>
-            </ul>
-          </div>
+          <!-- The technical record (who ran it, which run, which sections by hash) is one press away. -->
+          <details class="note-ai-details" data-note-ai-details>
+            <summary class="note-ai-more">
+              <UiIcon name="chevron-down" :size="14" class="note-ai-more-icon" />{{ t('notes.ai.details') }}
+            </summary>
+            <p class="note-ai-meta note-ai-meta--run muted">
+              <span>{{ t('notes.ai.model', { provider: item.provider, model: item.model }) }}</span>
+              <span class="tabular">{{ t('notes.ai.run', { id: item.agentRunId.slice(-8) }) }}</span>
+            </p>
+            <div class="note-ai-hashes">
+              <span class="muted">{{ t('notes.ai.hashesLabel') }}</span>
+              <ul class="chip-row">
+                <li v-for="hash in item.sectionHashes" :key="hash" class="chip tabular" :data-section-hash="hash">
+                  {{ t('notes.ai.section', { hash: shortHash(hash) }) }}
+                </li>
+              </ul>
+            </div>
+          </details>
         </li>
       </ol>
       <UiButton

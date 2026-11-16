@@ -262,11 +262,12 @@ A light scheme shares every token: a pale ground, white cards, ink text. There l
 - Hand-written SVG charts with a text alternative each.
 - Motion is short and functional; nothing moves under reduced motion.
 - Three layers: ambient light, solid content, and liquid glass for everything that floats.
-- One glass object, made by this project, in at most one or two places.
+- One screen where things float freely: 할 일, a canvas of to-dos and folders.
+- One glass object, made by this project (three.js, lazily loaded, with a still image behind it), in at most one or two places.
 
 ## Colors
 
-Every value is an OKLCH custom property in `src/styles/tokens.css`; no raw colour appears in any other stylesheet or in any Vue file (the glass shader's own light colours are the one exception, inside `glassOrbShader.ts`). The dark scheme is `:root`; the light scheme redefines the same names under `:root[data-scheme='light']` (the `-light` entries in the frontmatter).
+Every value is an OKLCH custom property in `src/styles/tokens.css`; no raw colour appears in any other stylesheet or in any Vue file (the glass scene's own light colours are the one exception, inside `glassScene.js`). The dark scheme is `:root`; the light scheme redefines the same names under `:root[data-scheme='light']` (the `-light` entries in the frontmatter).
 
 ### How a theme reaches the page
 `src/theme/theme.ts` keeps two attributes on `<html>`:
@@ -329,6 +330,7 @@ Computed from the token values (WCAG 2.x relative luminance, tints composited as
 | Text 3 on inset | 7.4:1 | 6.4:1 |
 | Text 3 on fill | 6.0:1 | 5.8:1 |
 | Text 3 on fill 2 | 5.3:1 | 5.2:1 |
+| On a capsule of still glass over the canvas's water, worst of text / text 2 / text 3 / deadline orange / overdue red | at least 4.5:1 (tested) | at least 4.5:1 (tested) |
 | Dark text on lime (primary button) | 14.3:1 | 13.5:1 |
 | Dark text on lime, hover | 16.1:1 | 11.8:1 |
 | Dark text on cyan / orange / violet | 13.4 / 8.8 / 8.5:1 | 12.2 / 7.9 / 7.3:1 |
@@ -391,7 +393,7 @@ Below 1024px small text is 15px and the two numeral sizes step down (36 and 48px
 
 From 1024px a sidebar (15rem; 4.5rem folded to icons) floats at the left, `--shell-gap` (8px) off the window's edges, and the canvas scrolls beside it. The canvas opens with the top bar, a floating bar of glass that stays at the top while the page moves under it. Below 1024px the sidebar is replaced by a floating bottom nav (3.75rem plus the safe area) and the top bar scrolls away with the page.
 
-- **Sidebar:** the brand (a link to 개요), then the seven places in the order of the loop (`apps/web/FLOW.md`) — 개요, 할 일, 계획, 플래너, 집중, 분석, 노트 — and at the foot 설정 and 도움말. No groups, no action button: putting something down is the capture bar's job, signing out is in the account menu. `src/layout/navigation.ts` is the one list; the sidebar, the bottom nav, the phone's 더 보기 sheet, the breadcrumb, the shortcuts and the search read it. A place owns its sub-screens (할 일 owns a project and a task, 계획 owns 다시 맞추기, 집중 owns the timer), and stays lit while one of them is open.
+- **Sidebar:** the brand (a link to 개요), then the seven places in the order of the loop (`apps/web/FLOW.md`) — 개요, 할 일, 계획, 플래너, 집중, 분석, 노트 — and at the foot 설정 and 도움말. No groups, no action button: putting something down is the capture bar's job, signing out is in the account menu. `src/layout/navigation.ts` is the one list; the sidebar, the bottom nav, the phone's 더 보기 sheet, the breadcrumb, the shortcuts and the search read it. A place owns its sub-screens (할 일 owns a folder's page and a task's, 계획 owns 다시 맞추기, 집중 owns the timer), and stays lit while one of them is open.
 - **Top bar:** sidebar toggle and breadcrumb (place, or place / page) at the left; the capture bar in the middle (from 1024px); the now pill, notifications and the account at the right. It holds no page action. The account menu holds the theme, 설정 and 로그아웃.
 - **Page:** `.page` is 46rem wide, `.page--wide` 84rem, starting at the canvas's left edge. Page padding is 16px, 24px from 640px, 32px from 1024px. A page opens with its title at the left and its actions at the right, with no rule under it.
 - **Dashboard grid:** 12 columns, 16px gaps (12px below 1024px). A dashboard page is a size container (`container: <name> / inline-size`) and its cards change span by the canvas's width, not the window's: three columns from 66rem, two from 44rem, one below. Cards in a row stretch to one height; what a card ends with sits on its floor (`margin-top: auto`).
@@ -407,7 +409,7 @@ Three layers (FLOW.md §6, HOLO-04): **ambient light**, **content**, **glass**. 
 
 1. **Ambient light** (`.ambient`): the ground with a very faint lime light from the upper left and a cyan one from the lower right. It does not move. It is what the glass has to bend, and it is faint enough that quiet text on the ground keeps 6:1 at its brightest point.
 2. **Content**: cards. A card is one step up from the ground with a hairline edge and is opaque — numbers and running text are never set on glass. In the dark scheme it has a faint sheen from its top-left corner (`--card-sheen`); in the light scheme it is plain white. A well (`--color-inset`) is one step down, inside a card.
-3. **Glass** (`.glass`): the sidebar, the top bar and what it holds, menus and popovers, the planner's detail card, dialogs and sheets, toasts, the phone's nav, segmented controls, the pane over the glass object.
+3. **Glass** (`.glass`): the sidebar, the top bar and what it holds, menus and popovers, the planner's detail card, dialogs and sheets, toasts, the phone's nav, segmented controls, the pane over the glass object — and, on the 할 일 canvas, the floating to-dos, the folders and the one floating detail.
 
 ### Glass (`.glass`, `src/styles/primitives.css`)
 One primitive, used as a class beside the component's own. Its values are the `--glass-*` tokens.
@@ -429,10 +431,10 @@ One primitive, used as a class beside the component's own. Its values are the `-
 - **Contrast:** every text token is at least 4.5:1 on glass whatever is behind it — white, black, or any fill of the app — with the sheen at its brightest.
 - **No transparency:** the material is the opaque raised surface (`--glass-solid`) where `backdrop-filter` is missing (`@supports`), under `prefers-reduced-transparency: reduce`, and when the root carries `data-transparency="reduce"` (설정 › 화면, and for a desktop shell whose compositor does not paint backdrop filters). The fill alone does not hold the contrast, so the fill and the filter always change together.
 - **Stillness:** under `prefers-reduced-motion` the pointer's light is not installed and overlays do not animate. The ambient light never moves.
-- **Cost:** a backdrop filter is on the top bar (from 1024px), the phone's nav (below it), and at most one floating thing at a time (a menu, a popover, a dialog) plus a toast while it shows. The sidebar and every segmented control are still glass and cost nothing. Only `.glass` may blur; a test fails any other `backdrop-filter` or `filter: blur()`. Refraction (bending what is behind) is not used: it exists in one engine only.
+- **Cost:** a backdrop filter is on the top bar (from 1024px), the phone's nav (below it), and at most one floating thing at a time (a menu, a popover, a dialog, the canvas's detail) plus a toast while it shows. The sidebar, every segmented control and everything that floats on the 할 일 canvas — two hundred to-dos, twenty folders — are still glass and cost nothing. Only `.glass` may blur; a test fails any other `backdrop-filter` or `filter: blur()`. Refraction (bending what is behind) is not used: it exists in one engine only.
 
 ### Named Rules
-**The Layer Rule.** Glass floats, content is solid. A card never blurs and never becomes translucent; a floating surface is never an opaque box of its own making — it takes `.glass`. Lime stays the signal on glass too: one lime thing per view.
+**The Layer Rule.** Glass floats, content is solid. A card never blurs and never becomes translucent; a floating surface is never an opaque box of its own making — it takes `.glass`. Lime stays the signal on glass too: one lime thing per view. A to-do on the canvas floats, so it is glass, and what it carries is a label — a title and a few words — never a number to be read or a paragraph.
 
 **The No Glow Rule.** No drop shadow on a card, no glow behind a number, no gradient text. The only gradient fill is the current nav item (lime to cyan) and the brand tile.
 
@@ -511,12 +513,13 @@ Hand-written SVG, no library. Each takes plain numbers, handles zero, one and mi
 - **`RatioBar`** (HOLO-03A): one ratio against "as estimated". A track with a dashed mark at 1 and a bar from the mark toward the ratio — to the right (cyan) when it took longer, to the left (lime) when it took less. Every bar of one list shares one scale. Hidden from assistive technology: the ratio is written beside it.
 - **Legend** (`.legend`): the list used by the ring; use it wherever a mark needs a name.
 
-### Glass Object (new, `src/components/ui/GlassOrb.vue`)
-OhMyDate's own: three nested bands of glass turning around a small core, the brand mark's ring and dot in the round, lime at the upper left to cyan at the lower right. A WebGL fragment shader written for this project (`glassOrbShader.ts`) ray-marches it; no library, model or image goes into it.
+### Glass Object (HOLO-05, `src/components/ui/GlassOrb.vue`)
+OhMyDate's own: the brand mark in the round — an open ring of glass (the O, a day) with a bead of glass in its opening (the date, now), a smaller band turning inside it and a small glowing core for the glass to bend. Lime at the upper left to cyan at the lower right. It is drawn by three.js (`glassScene.js`): physically based glass (`MeshPhysicalMaterial`: transmission 1 across a thickness of 1.25, index of refraction 1.46, a little dispersion and thin-film iridescence, a clear coat) in a small studio made in code (a lime soft box, a cyan one, a white strip). No model, texture file or image goes into it.
 
-- It animates only while it is on screen, the tab is visible and motion is allowed, at no more than 30 frames a second and 1.5 device pixels per CSS pixel.
-- Under `prefers-reduced-motion` it draws one still frame.
-- Without WebGL, or when the context is lost, it shows `src/assets/glass-orb.webp`, which `scripts/render-glass-orb.mjs` renders from the same shader.
+- **The still image is always there first** (`src/assets/glass-orb.webp`, rendered by `scripts/render-glass-orb.mjs` from the same scene). It is what shows without WebGL — the desktop shell's WebKitGTK cannot be assumed to have it — while the scene loads, for a second object on a page, when the context is lost, and when frames come too slowly (a mean over 55ms across the first 24 frames: it gives up for good).
+- **three.js is loaded lazily:** only `glassScene.js` imports it and only a dynamic import reaches that file, so it is a chunk of its own (529 kB, 132 kB gzipped) that is asked for when an object is on screen with WebGL to draw it — never on a screen without one.
+- **One renderer on a page.** A second object keeps its still.
+- Live, it turns only while it is on screen, the tab is visible and motion is allowed, at no more than 30 frames a second and 1.5 device pixels per CSS pixel. Under `prefers-reduced-motion` it draws one still frame. The turn is slow and never a spin.
 - It is decorative (`aria-hidden`).
 - It is used on the AI card of 개요 and on the login screen, each time behind a frosted panel laid over its lower edge. Do not add a third place without a reason.
 
@@ -587,13 +590,43 @@ An analytics page of the owner's own records on the dashboard grid. The numbers 
 - **집중:** one card. The task's name (never an id), the timer at the display size in the light weight, the planned time as the system's meter ticked every ten minutes, then the timer's own filled button and 완료. Done, the timer steps back to a figure and the review sheet — a card in the dialog's manner — leads. Once the review is saved the next-step card stands above it with the filled button, and the sheet's own button turns secondary (회고 고쳐 저장).
 - **Calm mode** is dark whatever the theme: the page takes `.scheme-dark`, which declares every token of the dark scheme again for its subtree. No card, no chrome: the name, one number, the two buttons.
 
-### Tasks and Projects (HOLO-02)
-- **할 일** (`views/TasksView.vue`) is the place: a segmented control (인박스, 프로젝트) over the two lists, and a link that takes what is open to 계획. A project and a task open under it.
-- **Quick add** (`.quick-add`): the top field of 인박스, in a card of its own — one inset field holding the plus, the words and its button. Under it one disclosure, 말로 여러 개 적기, holds the whole 말로 적기 section.
-- **Task list** (`.task-items`): one card of quiet rows on hairlines. A row is the title (a link to the task), its state, and its deadline; an open task past its deadline adds the red 지났어요 tag (red is only ever "overdue"). With a mouse the row's actions wait until the row is pointed at or holds the focus; they are always in the tab order and always shown on touch.
-- **Project card** (`.project-item`): the project's mark and name over one light number, the tasks still open. The whole card is the link.
-- **Project page:** its two views (작업, 노트) are the segmented control (`role="tablist"`).
-- **Task page** (`.task-page`): two columns of cards from 56rem. Left, the task: state, deadline, project tag, description. Right, what belongs to it: 일정 (its blocks to come), 집중 기록 (its focused time of the last four weeks as the card's number, then the newest sessions), 연결된 노트. The page's one filled button starts a focus session on the task. No id and no version number is on the page.
+### The Canvas: 할 일 (HOLO-05, `components/canvas`, `domain/canvas`)
+할 일 is the product's signature screen: a wide, calm surface on which every open to-do floats. Nothing is in rows. The inbox is the open water; a folder is a dish on it.
+
+- **Built in the DOM, not in WebGL.** A to-do is a real element — named, focusable, in the tab order, with Korean text that is read, clicked, dragged and edited. Its place is one CSS transform, written by one small loop (`TodoCanvas.vue`); the arithmetic is pure and tested (`domain/canvas/*.ts`).
+- **The surface** (`.pond`): a well (`--color-inset`) under the same ambient light as the page, hairline edge, 20px corners. It is as tall as the window leaves it, and grows only by the density rule below.
+- **A to-do** (`.pond-todo` › `.pond-capsule`): a capsule of **still glass** (`glass glass--still glass--flat`: tint, edge and sheen, no backdrop blur). A mark, the title on one line (ellipsis past 13.5rem), and quietly what matters:
+  - **Depth.** A closer deadline is nearer: due within two days (or past) is the largest and brightest at the edge and casts the short glass shadow (46px, 16px type); within a week is the middle (42px, 14px medium); further off or undated is the far one (38px, 14px regular, text 2).
+  - **Deadline, in the fewest words:** 오늘, 내일, N일 남음, a date beyond two weeks; within the week in the deadline's orange, further off quiet, and past it N일 지남 in red — the only red on the surface.
+  - **Mark:** a ring (to do), a ring with a dot (under way), a lime tick in a square (picked), a green tick (done, on its way out).
+  - **In a plan:** the planner's own mark for a block, a small lime bar.
+- **Motion: moored, not roaming.** Each to-do is anchored to the place it was left and sways a few pixels around it (7px airy, 4px compact, 60% of that on a narrow surface; one period is 9 to 17 seconds, with a lean of at most 0.7°). The sway is a closed form of time, so it never drifts and the still picture is the same picture. Bodies are kept a gap apart at their anchors (22px airy, 12px compact) — more than twice the sway — so nothing ever touches.
+  - **Near the pointer things hold still** (still within 28px, free from 180px; quick to settle, slow to wake). A to-do in focus, picked, open or in the hand is still.
+  - **Soft separation.** What is dropped on something eases it aside; the open water's to-dos keep out of every dish; nothing leaves the surface.
+  - **Nothing moves** under `prefers-reduced-motion` or in a hidden tab, and no frame is asked for. A frame governor thins the motion before it stutters (full → every other frame without the lean → still) and never steps back up within a visit.
+  - **Arriving and leaving.** A to-do put down while the canvas is open arrives from above with its edge lit for a moment; a finished one shows its tick, rises a little and is gone. Both are transforms and opacity, 520ms.
+- **Direct manipulation.** Drag to move — the place is remembered per owner on this device (`composables/canvasMemory.ts`, a declared owner slot: ids and fractions of the surface, never a title). A click, or Enter, opens the **floating detail**.
+- **Floating detail** (`TodoDetailCard`, `.pond-card glass`): the screen's one frosted surface, anchored to its to-do (right, else left, else under, else over). Title edited in place, 마감 set / changed / cleared, 폴더 picked, then 완료 · 집중 시작 · 계획에 넣기 as secondary buttons, 작업 열기 as a link and 삭제 as a danger ghost. Never a filled button. Escape and 닫기 give the focus back; a press on the water, or opening another, closes it.
+- **Selection.** Shift-click, a lasso drawn on the water (a dashed lime outline), Space, Shift+arrow, Ctrl+A. A picked capsule takes the lime edge and a lime tint over the opaque material, and its mark becomes a ticked square. The screen's **one filled button** — 계획에 넣기 in the head — carries the selection to the plan flow (`/plan/schedule?taskIds=…`); a bar of still glass at the foot of the surface offers 폴더로 옮기기, 완료 and 선택 풀기.
+- **Folders** (`.pond-folder`): a dish of still glass, 20px corners, tinted faintly with its hue (`projectHue`, the same hue the folder has everywhere), with a 44px head: hue dot, name, count, fold, menu. A folder is a **real project**.
+  - Dragging a to-do into a dish files it (its edge turns dashed lime while one is held over it: dashed is "not real yet"); dragging it out returns it to the inbox. What is filed is **put away**: drawn at the compact size, and kept in the dish's rows — flowed like words into lines, in the order they were left, each row's slack to alternate sides so it is not a table. A dish is as large as the capsules it holds need (264px wide up to three, 404px beyond; six rows at most, then `+N개`), sways less (3px, no lean) and is always tidy: nothing in it is ever on top of anything.
+  - The name is a button: renaming is in place. The head is the handle that moves the dish.
+  - **Folded**, a folder is one pill with its name and count; its to-dos are not drawn.
+  - The menu: 이 폴더를 계획에 넣기, 이름 바꾸기, 폴더 페이지 열기, 폴더 없애기. Removing asks first, moves every to-do (finished ones too) to the inbox, then archives the empty folder; the toast offers 되돌리기. Nothing is deleted.
+  - The inbox has no dish and no label: it is the water.
+- **Density** (`planDensity`). (1) Everything fits with air: full size, the window's height. (2) It fits closer together: the compact size. (3) It needs more room: the surface grows, up to two windows (three on a narrow surface, which scrolls anyway). The folders stand in one column down the right edge: when the column would be taller than the window, every dish becomes a wide one (two capsules to a row), then each gives up a little air, and only then is the surface as tall as the column. The rule counts only the open water beside it. (4) More still: the most urgent are shown and the rest become one **N개 더 보기** at the foot; pressing it lets the surface grow as long as it must (never more than 300 bodies). A dish holds what its size can show and says `+N개` for the rest. A field never seeded before puts the most urgent in the middle of the first window; a handful of to-dos gather there instead of spreading to the edges.
+- **Narrow** (under 560px of its own width): a vertical field — the open water as tall as its to-dos ask for, then the dishes stacked under it at full width. A finger scrolls the page; a to-do it rests on (280ms) is dragged.
+- **Without a pointer or sight it is a list.** One `listbox` (many can be picked), a `group` for the inbox and one for each folder, an `option` a to-do, named in full (title, state, deadline, plan, where it is). One tab stop. Arrows go to the nearest to-do that way, Home and End to the first and last in reading order, Enter opens, Space picks, `v` opens 폴더로 옮기기 (a menu of the inbox, the folders and a new one), Alt+arrow moves the to-do. The keys are written under the surface for a fine pointer. What happens is said in a polite live region.
+- **목록** (`TodoListView`): the visible switch beside 폴더 만들기 (캔버스 | 목록, a segmented control) shows the same to-dos as rows — the inbox with the one-line quick add and 말로 여러 개 적기, then each folder as a section, finished to-dos included. The choice is remembered. In the list the filled button is the quick add's, and 계획에 넣기 is a secondary one.
+- **Empty.** With nothing put down the surface says so and offers 할 일 담기, which opens the capture bar — the one filled button then.
+- **Offline** the surface can still be arranged (where things are is the device's), but nothing is filed, finished, renamed or removed.
+- **Cost, measured** (this laptop, headless Chromium, 1440×900): 31, 99 and 201 floating to-dos all hold 16.6ms a frame (p95 16.7, max 16.8) with no long task; settling a full surface of 106 bodies takes about 11ms.
+
+### Tasks and Folders as pages (HOLO-02, HOLO-05)
+- **Task list** (`.task-items`, 할 일 › 목록 and a folder's page): one card of quiet rows on hairlines. A row is the title (a link to the task), its state, and its deadline; an open task past its deadline adds the red 지났어요 tag (red is only ever "overdue"). With a mouse the row's actions wait until the row is pointed at or holds the focus; they are always in the tab order and always shown on touch.
+- **Quick add** (`.quick-add`): the top field of the list's inbox, in a card of its own — one inset field holding the plus, the words and its button. Under it one disclosure, 말로 여러 개 적기, holds the whole 말로 적기 section.
+- **Folder page** (`/projects/:id`): its two views (작업, 노트) are the segmented control (`role="tablist"`). It opens from a folder's menu on the canvas and from its heading in the list.
+- **Task page** (`.task-page`, behind 작업 열기): two columns of cards from 56rem. Left, the task: state, deadline, project tag, description. Right, what belongs to it: 일정 (its blocks to come), 집중 기록 (its focused time of the last four weeks as the card's number, then the newest sessions), 연결된 노트. The page's one filled button starts a focus session on the task. No id and no version number is on the page.
 
 ### 집중, the place (`views/TrackerView.vue`)
 The timer and its record: what the sidebar's 집중 opens while no session runs (with one running it opens that session). Two cards. The numbers are computed in `domain/tracker.ts` (pure, tested) from the same lookups 개요 uses.
@@ -617,8 +650,9 @@ Short and functional. Durations are 120, 180 and 260ms, plus 520ms (`--duration-
 - **Layout switch:** panels fade in by opacity only (a transform would trap the Focus calm-mode overlay).
 - **Controls:** colour and edge changes take 120ms; a button moves 1px when pressed.
 - **Waiting:** the spinner and the skeleton shimmer loop only while something is loading.
+- **The 할 일 canvas sways.** It is the one place where something moves without a change of state: slowly, a few pixels, by transform only, still near the pointer and wherever motion is not wanted (see The Canvas).
 - **Never** animate a layout property (width, height, padding, grid tracks). The sidebar folds at once.
-- **Reduced motion:** every duration token becomes 0, animations and transitions are cut, the spinner and skeleton stop, the glass object holds one frame.
+- **Reduced motion:** every duration token becomes 0, animations and transitions are cut, the spinner and skeleton stop, the glass object holds one frame, and nothing on the 할 일 canvas sways.
 
 ## Do's and Don'ts
 
@@ -639,9 +673,9 @@ Short and functional. Durations are 120, 180 and 260ms, plus 520ms (`--duration-
 - **Don't** set lime (or any bright hue) as text on a light surface.
 - **Don't** read `prefers-color-scheme` in a stylesheet; key on `data-scheme`.
 - **Don't** invent a metric, a placeholder statistic or a decorative count-up.
-- **Don't** add a chart, icon or 3D library, or fetch a font or image from the network.
+- **Don't** add a chart or icon library, or fetch a font or image from the network. three.js is the one 3D library, for the glass object only: it stays behind a dynamic import, and nothing that carries text is drawn with it.
 - **Don't** set a size or weight outside the scale, or set text in capitals.
-- **Don't** animate a layout property, or anything that is not a change of state.
+- **Don't** animate a layout property, or anything that is not a change of state (the canvas's sway is the one exception, and it stops near the pointer and under reduced motion).
 - **Don't** bring in a name, logo, wording, image or exact screen from another product.
 
 ## Old Token Names

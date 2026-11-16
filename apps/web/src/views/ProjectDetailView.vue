@@ -85,7 +85,7 @@ const notes = computed(() => notesQuery.data.value?.items ?? []);
     <header class="page-header">
       <div class="page-heading">
         <p class="breadcrumb">
-          <RouterLink to="/tasks?view=projects"><UiIcon name="arrow-left" :size="16" />{{ t('projects.back') }}</RouterLink>
+          <RouterLink to="/tasks"><UiIcon name="arrow-left" :size="16" />{{ t('projects.back') }}</RouterLink>
         </p>
         <h1>{{ heading }}</h1>
         <p v-if="tasksQuery.data.value" class="page-lede">{{ tp('projects.taskCount', tasks.length) }}</p>

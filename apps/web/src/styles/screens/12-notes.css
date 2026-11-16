@@ -510,6 +510,51 @@
   font-size: var(--text-xs);
 }
 
+/* The technical record of a call, behind 자세히. */
+.note-ai-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.note-ai-details[open] > .note-ai-more {
+  margin-bottom: var(--space-2);
+}
+
+.note-ai-more {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-height-sm);
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  list-style: none;
+  cursor: pointer;
+}
+
+.note-ai-more::-webkit-details-marker {
+  display: none;
+}
+
+.note-ai-more:hover {
+  color: var(--color-text);
+}
+
+.note-ai-more-icon {
+  transform: rotate(-90deg);
+}
+
+.note-ai-details[open] .note-ai-more-icon {
+  transform: none;
+}
+
+@media (pointer: coarse) {
+  .note-ai-more {
+    min-height: var(--hit-target);
+  }
+}
+
 .note-conflict-choices {
   gap: var(--space-2);
 }

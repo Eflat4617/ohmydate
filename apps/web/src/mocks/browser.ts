@@ -14,6 +14,7 @@ import { createNotesHandlers, seedFocusNote } from './notes';
 import { createPlanningHandlers } from './planning-handlers';
 import { createReplanHandlers, seedColdEstimation, seedReplanScenario } from './replan';
 import { mockDb, seedMonth, seedTodayRisk, type MockDb } from './db';
+import { seedCanvas, trimCanvas } from './canvas-seed';
 import { seedNewOwner } from './first-run-seed';
 import { seedOverviewSessions } from './overview-seed';
 
@@ -56,6 +57,13 @@ declare global {
        * The default owner is a returning one.
        */
       owner?: 'new';
+      /**
+       * HOLO-05: what floats on the 할 일 canvas. Mock mode seeds about thirty
+       * open to-dos and three folders by default; `few` leaves five, `many`
+       * adds a hundred and seventy more (two hundred in all), `none` leaves
+       * only the three the database starts with.
+       */
+      todos?: 'few' | 'many' | 'none';
     };
     /** Mock-mode only: the in-page synthetic database, for screenshot/state scripts. */
     __OHMYDATE_MOCK_DB__?: MockDb;
@@ -65,6 +73,11 @@ declare global {
 const overrides = typeof window === 'undefined' ? undefined : window.__OHMYDATE_MOCK__;
 // CAL-01: mock mode opens on a believable month (src/mocks/db.ts seedMonth).
 if (overrides?.month !== 'none') seedMonth(mockDb);
+// HOLO-05: the canvas's to-dos and folders (src/mocks/canvas-seed.ts).
+if (overrides?.todos !== 'none' && overrides?.month !== 'none') {
+  seedCanvas(mockDb, { extra: overrides?.todos === 'many' ? 170 : 0 });
+  if (overrides?.todos === 'few') trimCanvas(mockDb, 5);
+}
 // HOLO-01: after the month, so the sessions belong to its tasks.
 if (overrides?.sessions !== 'none') seedOverviewSessions(mockDb, { running: overrides?.sessions === 'running' });
 if (overrides?.llmProvider !== undefined) {

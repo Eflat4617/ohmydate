@@ -10,7 +10,6 @@ import TaskItem from '../src/components/TaskItem.vue';
 import { clearFocusContexts, focusTaskTitle } from '../src/composables/focusContext';
 import { setLayoutClock } from '../src/layout/clock';
 import {
-  INBOX_PROJECT_ID,
   MONTH_TASK_ENGLISH_ID,
   MONTH_TASK_SUMMARY_ID,
   MONTH_TASK_THESIS_ID,
@@ -26,7 +25,6 @@ import { useAuthStore } from '../src/stores/auth';
 import { useOfflineStore } from '../src/stores/offline';
 import InboxView from '../src/views/InboxView.vue';
 import ProjectDetailView from '../src/views/ProjectDetailView.vue';
-import ProjectListView from '../src/views/ProjectListView.vue';
 import TaskDetailView from '../src/views/TaskDetailView.vue';
 
 /**
@@ -198,50 +196,10 @@ describe('인박스 — the quick add on top, 말로 적기 folded under it', ()
   });
 });
 
-describe('프로젝트 — cards with what is still open', () => {
-  it('shows each project as a card with its count of open tasks, and the whole card opens it', async () => {
-    const { wrapper } = await mountView(ProjectListView, '/projects');
-    await vi.waitFor(() => expect(wrapper.findAll('[data-project-open]')).toHaveLength(2));
-    const cards = wrapper.findAll('.project-item');
-    expect(cards.every((card) => card.classes().includes('card'))).toBe(true);
-    expect(cards.map((card) => [card.get('.project-title').text(), compact(card.get('[data-project-open]'))])).toEqual([
-      // 3 seeded + 3 of the month in the inbox (the finished one does not count); 2 in the project.
-      ['인박스', '6열린작업'],
-      ['졸업 논문', '2열린작업'],
-    ]);
-    expect(wrapper.get(`[data-project="${SAMPLE_PROJECT_ID}"] a.project-link`).attributes('href')).toBe(
-      `/projects/${SAMPLE_PROJECT_ID}`,
-    );
-    expect(wrapper.get(`[data-project="${INBOX_PROJECT_ID}"] a.project-link`).attributes('href')).toBe(
-      `/projects/${INBOX_PROJECT_ID}`,
-    );
-    expect(wrapper.find('.btn--primary').exists()).toBe(false);
-  });
-
-  it('counts only tasks that are not done, says 0 for an empty project, and marks an archived one', async () => {
-    for (const task of [...mockDb.tasks.values()]) {
-      if (task.projectId === SAMPLE_PROJECT_ID) mockDb.tasks.set(task.id, { ...task, status: 'done' });
-    }
-    const sample = mockDb.projects.get(SAMPLE_PROJECT_ID);
-    if (sample === undefined) throw new Error('missing project');
-    mockDb.projects.set(sample.id, { ...sample, archived: true });
-    const { wrapper } = await mountView(ProjectListView, '/projects');
-    await vi.waitFor(() => expect(wrapper.findAll('[data-project-open]')).toHaveLength(2));
-    const card = wrapper.get(`[data-project="${SAMPLE_PROJECT_ID}"]`);
-    expect(compact(card.get('[data-project-open]'))).toBe('0열린작업');
-    expect(card.text()).toContain('보관됨');
-    expect(wrapper.get(`[data-project="${INBOX_PROJECT_ID}"]`).text()).not.toContain('보관됨');
-  });
-
-  it('shows the names without counts when the task list cannot be read (negative)', async () => {
-    server.use(http.get('*/api/v1/tasks', () => forbidden()));
-    const { wrapper } = await mountView(ProjectListView, '/projects');
-    await vi.waitFor(() => expect(wrapper.findAll('.project-item')).toHaveLength(2));
-    await flushPromises();
-    expect(wrapper.findAll('[data-project-open]')).toHaveLength(0);
-    expect(wrapper.findAll('.project-title').map((title) => title.text())).toEqual(['인박스', '졸업 논문']);
-  });
-});
+// The project list (cards with what is still open) is gone with HOLO-05: a
+// project is a folder on the 할 일 canvas. Its counts, its archived state and
+// what happens when the list cannot be read are in holo-canvas.spec.ts
+// ("folders: dishes on the surface", "many, none, and newly arrived").
 
 describe('프로젝트 상세 — its two views are the system’s segmented control', () => {
   it('switches 작업 and 노트 with one picked at a time, by click and by arrow key', async () => {
@@ -283,10 +241,11 @@ describe('작업 상세 — the task at the left, what belongs to it at the righ
     expect(wrapper.get('h1').text()).toBe('졸업 논문 3장 초고');
     const fields = wrapper.get('[data-task-fields]');
     expect(fields.classes()).toContain('card');
-    expect(fields.findAll('dt').map((term) => term.text())).toEqual(['상태', '마감', '프로젝트']);
     expect(fields.text()).toContain('진행 중');
     expect(fields.get('[data-task-due]').text()).toBe('11월 27일 (금) 오후 6:00');
+    // The project's name comes from its own lookup: the third field is there once it has answered.
     await vi.waitFor(() => expect(fields.get('[data-task-project]').text()).toBe('졸업 논문'));
+    expect(fields.findAll('dt').map((term) => term.text())).toEqual(['상태', '마감', '프로젝트']);
     expect(fields.get('[data-task-project]').attributes('href')).toBe(`/projects/${SAMPLE_PROJECT_ID}`);
     // Developer-facing detail is not on the page at all.
     const text = wrapper.text();

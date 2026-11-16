@@ -2,29 +2,36 @@ import AxeBuilder from '@axe-core/playwright';
 import { type Page } from '@playwright/test';
 import { expect, test } from '../helpers/test';
 import {
+  STILL_CANVAS,
+  canvasTodo,
   expectVikunjaDone,
   expectVikunjaTitle,
   externalIdOf,
   fetchVikunjaTask,
   login,
   openInbox,
+  openTodoDetail,
+  putDownTodo,
   waitForPlannerTask,
 } from '../helpers/app';
 import { readState } from '../helpers/state';
 
 const state = readState();
 
+/** HOLO-05: a to-do is put down with the capture bar and floats up on the canvas. */
 async function quickAdd(page: Page, title: string): Promise<void> {
-  await page.getByLabel('작업 빠르게 추가').fill(title);
-  await page.getByRole('button', { name: '작업 추가' }).click();
-  await expect(page.getByText(title, { exact: true })).toBeVisible();
+  await putDownTodo(page, title);
+  await expect(canvasTodo(page, title)).toBeVisible();
 }
 
+/** HOLO-05: the title is edited in the to-do's floating detail. */
 async function editTask(page: Page, currentTitle: string, nextTitle: string): Promise<void> {
-  await page.getByRole('button', { name: `${currentTitle} 제목 수정` }).click();
-  await page.getByLabel('작업 제목').fill(nextTitle);
-  await page.getByRole('button', { name: '저장' }).click();
-  await expect(page.getByText(nextTitle, { exact: true })).toBeVisible();
+  const card = await openTodoDetail(page, currentTitle);
+  await card.getByLabel('작업 제목').fill(nextTitle);
+  await card.getByRole('button', { name: '저장' }).click();
+  await expect(canvasTodo(page, nextTitle)).toBeVisible();
+  await card.getByRole('button', { name: '닫기' }).click();
+  await expect(card).toBeHidden();
 }
 
 test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
@@ -37,7 +44,7 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     const secondEdit = `${createdTitle} second context edit`;
     const conflictEdit = `${createdTitle} overwritten`;
 
-    const contextA = await browser.newContext();
+    const contextA = await browser.newContext(STILL_CANVAS);
     const pageA = await contextA.newPage();
     await login(pageA, state);
     await openInbox(pageA);
@@ -52,40 +59,47 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     await editTask(pageA, createdTitle, firstEdit);
     await expectVikunjaTitle(state, externalId, firstEdit);
 
-    const contextB = await browser.newContext();
+    const contextB = await browser.newContext(STILL_CANVAS);
     const pageB = await contextB.newPage();
     await login(pageB, state);
     await openInbox(pageB);
     await editTask(pageB, firstEdit, secondEdit);
     await expectVikunjaTitle(state, externalId, secondEdit);
 
-    await pageA.getByRole('button', { name: `${firstEdit} 제목 수정` }).click();
-    await pageA.getByLabel('작업 제목').fill(conflictEdit);
+    // Context A still shows the first edit: its rename now meets a newer version.
+    const cardA = await openTodoDetail(pageA, firstEdit);
+    await cardA.getByLabel('작업 제목').fill(conflictEdit);
     const conflictResponsePromise = pageA.waitForResponse(
       (response) =>
         response.request().method() === 'PATCH' &&
         response.url().includes(`/api/v1/tasks/${created.id}`),
     );
-    await pageA.getByRole('button', { name: '저장' }).click();
+    await cardA.getByRole('button', { name: '저장' }).click();
     const conflictResponse = await conflictResponsePromise;
     expect(conflictResponse.status()).toBe(412);
     expect(conflictResponse.headers()['content-type']).toContain('application/problem+json');
 
-    const dialog = pageA.getByRole('dialog');
+    // The conflict dialog (the to-do's own detail is a dialog too, so it is found by its class).
+    const dialog = pageA.locator('.conflict-dialog');
     await expect(dialog).toBeVisible();
     await expect(dialog).toContainText('다른 곳에서 이 작업이 바뀌었어요');
     await expect(dialog).toContainText(secondEdit);
 
     await dialog.getByRole('button', { name: '내 수정으로 덮어쓰기' }).click();
     await expect(dialog).toBeHidden();
-    await expect(pageA.getByText(conflictEdit, { exact: true })).toBeVisible();
+    await expect(canvasTodo(pageA, conflictEdit)).toBeVisible();
     await expectVikunjaTitle(state, externalId, conflictEdit);
 
-    await pageA.getByRole('button', { name: `${conflictEdit} 완료로 표시` }).click();
+    // 완료, from the detail: the to-do is finished and leaves the surface…
+    const finishing = await openTodoDetail(pageA, conflictEdit);
+    await finishing.getByRole('button', { name: `${conflictEdit} 완료로 표시` }).click();
+    await expect(canvasTodo(pageA, conflictEdit)).toHaveCount(0);
+    await expectVikunjaDone(state, externalId);
+    // …and the list view still has it, as a finished row.
+    await pageA.locator('[data-tasks-view-link="list"]').click();
     await expect(
       pageA.locator('.task-item', { hasText: conflictEdit }).getByText('완료', { exact: true }),
     ).toBeVisible();
-    await expectVikunjaDone(state, externalId);
 
     await contextA.close();
     await contextB.close();
@@ -139,7 +153,7 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
   });
 
   test('offline banner appears and disables mutations', async ({ browser }) => {
-    const context = await browser.newContext();
+    const context = await browser.newContext(STILL_CANVAS);
     const page = await context.newPage();
     await login(page, state);
     await openInbox(page);
@@ -163,14 +177,14 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
 
     await context.setOffline(true);
     await expect(page.getByText(/오프라인이에요\. 저장해 둔 데이터를 보여 드리고 있어요/)).toBeVisible();
-    await expect(page.getByLabel('작업 빠르게 추가')).toBeDisabled();
-    await expect(page.getByRole('button', { name: '작업 추가' })).toBeDisabled();
-    await expect(
-      page.getByRole('button', { name: `${title} 제목 수정` }),
-    ).toBeDisabled();
-    await expect(
-      page.getByRole('button', { name: `${title} 완료로 표시` }),
-    ).toBeDisabled();
+    // The canvas reads only: no folder is made, and the to-do's detail changes nothing.
+    await expect(page.locator('[data-tasks-place] .offline-note')).toHaveText('오프라인 · 읽기 전용');
+    await expect(page.getByRole('button', { name: '폴더 만들기' })).toBeDisabled();
+    const card = await openTodoDetail(page, title);
+    await expect(card.getByLabel('작업 제목')).toBeDisabled();
+    await expect(card.getByRole('button', { name: `${title} 완료로 표시` })).toBeDisabled();
+    await expect(card.getByRole('button', { name: `${title} 삭제` })).toBeDisabled();
+    await expect(card).toContainText('오프라인이라 지금은 고칠 수 없어요.');
     await page.waitForTimeout(300);
     expect(mutationRequests).toBe(0);
 
@@ -180,7 +194,7 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     await context.close();
   });
 
-  test('login, 개요 and the inbox have no critical or serious axe violations', async ({ browser }) => {
+  test('login, 개요 and the 할 일 canvas have no critical or serious axe violations', async ({ browser }) => {
     const context = await browser.newContext();
     const page = await context.newPage();
 
@@ -201,7 +215,7 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     ).toEqual([]);
 
     await login(page, state);
-    // HOLO-04: the app opens on 개요 — checked too, before the inbox.
+    // HOLO-04: the app opens on 개요 — checked too, before the 할 일 canvas.
     const overviewResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
       .analyze();

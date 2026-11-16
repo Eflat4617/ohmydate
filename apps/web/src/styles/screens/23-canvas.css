@@ -1,0 +1,836 @@
+/* 할 일, the canvas (HOLO-05, DESIGN.md › The Canvas).
+
+   A wide, calm surface — a well in the page, lit by the same ambient light
+   as everything else. On it: to-dos as capsules of still glass, moored where
+   they were left and swaying a few pixels; folders as dishes of still glass
+   under them. Still glass has a tint, an edge and a sheen but no backdrop
+   blur, so a surface of two hundred capsules costs no more than their
+   transforms. The one frosted thing is the floating detail (`pond-card glass`).
+
+   Where each capsule is comes from one transform written by
+   components/canvas/TodoCanvas.vue. Nothing here animates a layout property. */
+
+.todo-place {
+  gap: var(--space-4);
+}
+
+.todo-place-head {
+  align-items: flex-end;
+}
+
+.todo-place-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+}
+
+.todo-place-summary > span + span::before {
+  content: '·';
+  margin-right: var(--space-3);
+}
+
+.todo-place .tasks-views .segmented-item {
+  gap: var(--space-1-5);
+  text-decoration: none;
+}
+
+.todo-place-plan {
+  text-decoration: none;
+}
+
+/* ── The surface ───────────────────────────────────────────────────── */
+.pond {
+  --folder-hue: var(--color-text-3);
+  --folder-edge: var(--color-text-3);
+
+  position: relative;
+  isolation: isolate;
+  contain: layout;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+  border: var(--rule-hair) solid var(--color-line);
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(70% 90% at 12% 0%, var(--ambient-a), transparent 70%),
+    radial-gradient(60% 80% at 100% 100%, var(--ambient-b), transparent 72%),
+    var(--color-inset);
+  -webkit-user-select: none;
+  user-select: none;
+  /* A finger scrolls the page; a to-do it rests on is dragged (TodoCanvas). */
+  touch-action: pan-y;
+}
+
+.pond-loading {
+  height: 28rem;
+  border-radius: var(--radius-xl);
+}
+
+/* The to-dos lie over the dishes; only the capsules themselves take the pointer. */
+.pond-field {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* ── A to-do: a capsule of still glass ─────────────────────────────── */
+.pond-todo {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  border-radius: var(--radius-pill);
+  outline: none;
+  cursor: grab;
+  pointer-events: auto;
+  will-change: transform;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pond-capsule {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 2.625rem;
+  padding: 0 var(--space-4) 0 var(--space-3);
+  border-radius: var(--radius-pill);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  white-space: nowrap;
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-out);
+}
+
+/* Depth: a closer deadline is nearer — larger, brighter at the edge, lifted. */
+.pond-todo[data-depth='0'] .pond-capsule {
+  height: 2.875rem;
+  border-color: var(--color-line-strong);
+  box-shadow: var(--glass-highlight), var(--glass-shadow-low);
+  font-size: var(--text-md);
+}
+
+.pond-todo[data-depth='2'] .pond-capsule {
+  height: 2.375rem;
+  color: var(--color-text-2);
+  font-weight: var(--weight-regular);
+}
+
+/* Compact: a crowded surface, and anything put away in a folder. */
+.pond[data-density='compact'] .pond-capsule,
+.pond-todo[data-filed] .pond-capsule {
+  gap: var(--space-1-5);
+  height: 2.25rem;
+  padding: 0 var(--space-3) 0 var(--space-2-5);
+  font-size: var(--text-xs);
+}
+
+.pond[data-density='compact'] .pond-todo[data-depth='0'] .pond-capsule,
+.pond-todo[data-filed][data-depth='0'] .pond-capsule {
+  height: 2.375rem;
+  font-size: var(--text-sm);
+}
+
+.pond[data-density='compact'] .pond-todo[data-depth='2'] .pond-capsule,
+.pond-todo[data-filed][data-depth='2'] .pond-capsule {
+  height: 2.125rem;
+}
+
+.pond-title {
+  max-width: 13.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pond[data-density='compact'] .pond-title,
+.pond--narrow .pond-title {
+  max-width: 10.5rem;
+}
+
+/* Put away in a folder: short enough that two usually share a row of its dish. */
+.pond-todo[data-filed] .pond-title {
+  max-width: 8.5rem;
+}
+
+/* The mark: a ring (to do), a ring with its dot (under way), a tick (picked, or done on its way out). */
+.pond-mark {
+  position: relative;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 1.5px solid var(--color-edge);
+  border-radius: var(--radius-pill);
+  color: transparent;
+  transition:
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    border-radius var(--duration-fast) var(--ease-standard);
+}
+
+.pond-todo[data-status='in_progress'] .pond-mark {
+  border-color: var(--color-info-text);
+}
+
+.pond-todo[data-status='in_progress'] .pond-mark::after {
+  content: '';
+  position: absolute;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-info-text);
+}
+
+/* In a confirmed plan: the planner's own mark for a block, a small bar. */
+.pond-planned {
+  flex: none;
+  width: 3px;
+  height: 0.875rem;
+  border-radius: 2px;
+  background: var(--data-1);
+  box-shadow: 0 0 0 1px var(--data-1-edge);
+}
+
+/* A deadline in the fewest words. Within the week it is the deadline's orange;
+   further off it is quiet; past it, red (the only red on the surface). */
+.pond-due {
+  flex: none;
+  color: var(--color-text-3);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-regular);
+}
+
+.pond-due[data-due='soon'] {
+  color: var(--orange-text);
+  font-weight: var(--weight-medium);
+}
+
+.pond-due[data-due='overdue'] {
+  color: var(--color-danger-text);
+  font-weight: var(--weight-medium);
+}
+
+/* States. */
+@media (hover: hover) {
+  .pond-todo:hover .pond-capsule {
+    border-color: var(--color-edge);
+  }
+}
+
+.pond-todo:focus-visible .pond-capsule {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.pond-todo[data-open] .pond-capsule {
+  border-color: var(--color-text-3);
+}
+
+.pond-todo[aria-selected='true'] .pond-capsule {
+  --glass-body: color-mix(in oklab, var(--lime) 16%, var(--glass-solid));
+
+  border-color: var(--color-accent-text);
+}
+
+.pond-todo[aria-selected='true'] .pond-mark {
+  border-color: var(--lime);
+  border-radius: var(--radius-xs);
+  background: var(--lime);
+  color: var(--color-on-accent);
+}
+
+.pond-todo[aria-selected='true'] .pond-mark::after {
+  content: none;
+}
+
+.pond-todo[data-state='held'] {
+  z-index: 3;
+  cursor: grabbing;
+}
+
+.pond-todo[data-state='held'] .pond-capsule {
+  border-color: var(--color-edge);
+  box-shadow: var(--glass-highlight), var(--glass-shadow);
+  transform: scale(1.04);
+}
+
+/* Just put down: it arrives from above, its edge lit for a moment. */
+.pond-todo[data-state='arriving'] .pond-capsule {
+  animation:
+    pond-arrive var(--duration-draw) var(--ease-out),
+    pond-arrive-edge calc(var(--duration-draw) * 3) var(--ease-standard);
+}
+
+/* Just finished: the tick, a small rise, and it is gone. */
+.pond-todo[data-state='leaving'] {
+  pointer-events: none;
+}
+
+.pond-todo[data-state='leaving'] .pond-capsule {
+  animation: pond-leave var(--duration-draw) var(--ease-standard) forwards;
+}
+
+.pond-todo[data-state='leaving'] .pond-mark {
+  border-color: var(--color-ok);
+  background: var(--color-ok);
+  color: var(--color-on-accent);
+}
+
+.pond-todo[data-state='leaving'] .pond-mark::after {
+  content: none;
+}
+
+@keyframes pond-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(-1.5rem) scale(0.94);
+  }
+}
+
+@keyframes pond-arrive-edge {
+  from {
+    border-color: var(--color-accent-text);
+  }
+}
+
+@keyframes pond-leave {
+  0% {
+    opacity: 1;
+    transform: none;
+  }
+
+  35% {
+    opacity: 1;
+    transform: scale(1.03);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-1.25rem) scale(0.97);
+  }
+}
+
+/* ── A folder: a dish of still glass ───────────────────────────────── */
+.pond-folder {
+  --glass-body: color-mix(in oklab, var(--folder-hue) 6%, var(--glass-fill-still));
+
+  position: absolute;
+  z-index: 1;
+  border-radius: var(--radius-xl);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.pond-folder[data-hue='cyan'],
+.pond-dot[data-hue='cyan'] {
+  --folder-hue: var(--cyan);
+  --folder-edge: var(--data-2-edge);
+}
+
+.pond-folder[data-hue='violet'],
+.pond-dot[data-hue='violet'] {
+  --folder-hue: var(--violet);
+  --folder-edge: var(--data-4-edge);
+}
+
+.pond-folder[data-hue='orange'],
+.pond-dot[data-hue='orange'] {
+  --folder-hue: var(--orange);
+  --folder-edge: var(--data-3-edge);
+}
+
+.pond-folder[data-hue='sky'],
+.pond-dot[data-hue='sky'] {
+  --folder-hue: var(--sky);
+  --folder-edge: var(--sky-text);
+}
+
+/* A to-do in the hand is over it: dashed means "not real yet". */
+.pond-folder--drop {
+  --glass-body: color-mix(in oklab, var(--lime) 10%, var(--glass-fill-still));
+
+  border-style: dashed;
+  border-color: var(--color-accent-text);
+}
+
+.pond-folder-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 2.75rem;
+  padding: 0 var(--space-1-5) 0 var(--space-4);
+  cursor: grab;
+}
+
+.pond-dot {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--folder-hue);
+  box-shadow: 0 0 0 1px var(--folder-edge);
+}
+
+.pond-folder-title {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+}
+
+.pond-folder-name {
+  display: block;
+  max-width: 100%;
+  margin-left: calc(-1 * var(--space-1-5));
+  padding: var(--space-1) var(--space-1-5);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: text;
+}
+
+.pond-folder-name:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+
+.pond-folder-name:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 0;
+}
+
+.pond-folder-name-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pond-folder-rename {
+  flex: 1;
+  min-width: 0;
+}
+
+.pond-folder-rename-input {
+  width: 100%;
+  height: var(--control-height-sm);
+  font-size: var(--text-sm);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.pond-folder-count {
+  flex: none;
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.pond-folder-button {
+  flex: none;
+  color: var(--color-text-3);
+}
+
+.pond-folder-menu-wrap {
+  position: relative;
+  flex: none;
+}
+
+.pond-folder-menu {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  z-index: 6;
+  min-width: 13.5rem;
+}
+
+.pond-folder-menu .menu-item {
+  text-decoration: none;
+}
+
+.pond-folder-more {
+  position: absolute;
+  right: var(--space-4);
+  bottom: var(--space-2);
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+/* Its menu is open: the dish comes over the to-dos, so the menu is not under them. */
+.pond-folder--menu {
+  z-index: 4;
+}
+
+/* Folded: one object with its count. */
+.pond-folder--folded {
+  border-radius: var(--radius-pill);
+  box-shadow: var(--glass-highlight), var(--glass-shadow-low);
+}
+
+.pond-folder-unfold {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--space-4);
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.pond-folder-unfold .pond-folder-name-text {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.pond-folder-unfold:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+/* ── Lasso ─────────────────────────────────────────────────────────── */
+.pond-lasso {
+  position: absolute;
+  z-index: 4;
+  border: var(--rule-hair) dashed var(--color-accent-text);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+  pointer-events: none;
+}
+
+/* ── The floating detail: the screen's one frosted thing ───────────── */
+.pond-card {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(21rem, calc(100% - var(--space-4)));
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-2);
+  cursor: auto;
+  -webkit-user-select: text;
+  user-select: text;
+  animation: pond-card-in var(--duration-base) var(--ease-out);
+}
+
+.pond-card:focus,
+.pond-card:focus-visible {
+  outline: none;
+}
+
+@keyframes pond-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.25rem);
+  }
+}
+
+.pond-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.pond-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1-5);
+  min-width: 0;
+  padding-top: var(--space-1);
+}
+
+.pond-card-close {
+  flex: none;
+  margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-1)) 0 0;
+}
+
+.pond-card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.pond-card-title-input {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text);
+  font-weight: var(--weight-medium);
+}
+
+.pond-card-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height-sm);
+  font-size: var(--text-sm);
+}
+
+.pond-card-row-icon {
+  flex: none;
+  color: var(--color-text-3);
+}
+
+.pond-card-due {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-text);
+}
+
+.pond-card-due--overdue {
+  color: var(--color-danger-text);
+}
+
+.pond-card-link {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) 0;
+  border: 0;
+  background: none;
+  color: var(--color-link);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+.pond-card-link:disabled {
+  color: var(--color-text-3);
+  cursor: default;
+}
+
+.pond-card-link:focus-visible {
+  border-radius: var(--radius-xs);
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+.pond-card-due-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pond-card-due-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.pond-card-folder {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-height-sm);
+  font-size: var(--text-sm);
+}
+
+.pond-card-note {
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+.pond-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: var(--rule-hair) solid var(--glass-edge);
+}
+
+.pond-card-actions .btn {
+  text-decoration: none;
+}
+
+.pond-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+/* ── 폴더로 옮기기 ─────────────────────────────────────────────────── */
+.pond-picker {
+  position: absolute;
+  z-index: 6;
+  width: 16rem;
+  max-height: 22.5rem;
+  overflow-y: auto;
+  cursor: auto;
+}
+
+.pond-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pond-picker-here {
+  flex: none;
+  color: var(--color-text-3);
+  font-size: var(--text-2xs);
+}
+
+/* ── What stays in reach while the surface scrolls ─────────────────── */
+.pond-foot {
+  position: sticky;
+  bottom: calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + env(safe-area-inset-bottom) + var(--space-3));
+  z-index: 4;
+  display: flex;
+  align-self: flex-start;
+  justify-content: center;
+  /* Over the open water, not over the folders' heads beside it. */
+  width: min(100%, var(--pond-water, 100%));
+  padding: var(--space-3);
+  pointer-events: none;
+}
+
+.pond-foot > * {
+  pointer-events: auto;
+}
+
+.pond-selection,
+.pond-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  padding: var(--space-2);
+  border-radius: var(--radius-lg);
+  cursor: auto;
+}
+
+.pond-selection-count {
+  padding: 0 var(--space-2) 0 var(--space-3);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.pond-more-note {
+  padding: 0 var(--space-2) 0 var(--space-3);
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
+/* ── Empty: the capture bar is the invitation ──────────────────────── */
+/* In the middle of the open water (not over a folder beside or under it). */
+.pond-empty {
+  position: absolute;
+  top: calc(var(--pond-water-height, 100%) / 2);
+  left: calc(var(--pond-water, 100%) / 2);
+  z-index: 2;
+  width: min(26rem, calc(var(--pond-water, 100%) - var(--space-8)));
+  cursor: auto;
+  translate: -50% -50%;
+}
+
+/* ── Under the surface: the keys ───────────────────────────────────── */
+.pond-hints {
+  display: none;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-5);
+  color: var(--color-text-3);
+  font-size: var(--text-2xs);
+}
+
+.pond-hints > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+/* ── 목록: the same to-dos as rows ─────────────────────────────────── */
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  width: 100%;
+  max-width: var(--content-max);
+}
+
+.todo-list-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.todo-list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+}
+
+.todo-list-heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.todo-list-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+}
+
+.todo-list-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.todo-list-title a:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+@media (min-width: 1024px) {
+  .pond-foot {
+    bottom: var(--space-4);
+  }
+}
+
+@media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
+  .pond-hints {
+    display: flex;
+  }
+}
+
+@media (pointer: coarse) {
+  .pond-capsule,
+  .pond-todo[data-depth='0'] .pond-capsule,
+  .pond-todo[data-depth='2'] .pond-capsule {
+    min-height: var(--hit-target);
+  }
+}

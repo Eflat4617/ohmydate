@@ -37,10 +37,11 @@ defineEmits<{ retry: [] }>();
     :data-state="state"
   >
     <header class="card-header overview-card-head">
-      <h2 :id="`overview-${widget}-title`" class="card-title">
+      <!-- An h3: the cards are parts of 이번 주, whose own heading is the h2 above them. -->
+      <h3 :id="`overview-${widget}-title`" class="card-title">
         <UiIcon :name="icon" :size="18" />
         {{ title }}
-      </h2>
+      </h3>
       <RouterLink v-if="to && openLabel" :to="to" class="icon-link" :aria-label="openLabel" data-open>
         <UiIcon name="open" :size="16" />
       </RouterLink>
