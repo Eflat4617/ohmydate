@@ -54,6 +54,32 @@ time and provider; a budget patch fills the limit it does not name; amounts
 are kept to the micro-dollar. `services/api/test/llm-settings.test.ts` and
 `auth.test.ts` pin the reference's side.
 
+`availability.test.ts` holds what is specific to the available hours
+(RC-20): the availability version (`W/"availability:<n>"`, version 1 before
+anything is set, 412 `availability_changed`, not stored for its key), the
+answer of a PUT in the order of the request and a read in weekday and date
+order, the contract's shapes and bounds, and the rules between values (a
+window ends after it starts, an extra day has a window) — 422 here, a failed
+CHECK and 500 in the reference. An operation whose `If-Match` is the
+availability tag says so in `routes.ts` (`ifMatch: 'availability'`).
+
+`commitments.test.ts` holds what is specific to appointments and to
+`listCalendarDayEvents` (RC-20): every create, change and delete is one
+availability version; a rule's occurrences inside the window, printed as the
+reference prints them, also across a clock change; the caps (366 days, 2,000
+occurrences on a page); the order of the answers of a patch (the patch
+itself, then 404, then 412). `services/api/test/planning.test.ts` pins the
+reference's side. An appointment imported from Google Calendar (409) cannot
+be created over HTTP before RC-90; that rule is tested in the Rust crates.
+
+`recurrence.test.ts` needs no core process: it writes the recurrence oracle
+pack again from the TypeScript reference (`support/recurrence-oracle.ts`) and
+fails when the committed sample
+(`core/crates/recurrence/tests/oracle/sample.jsonl`) is not what the
+reference answers today. `cargo test` replays that sample against the Rust
+port; `corepack pnpm run core:rrule-oracle` writes it,
+`corepack pnpm run core:rrule-diff` compares a large one.
+
 `web.test.ts` covers the web app the core serves with `--web-dir` and the
 boot hand-off (blueprint 15 §1.3), over a real socket: the document for the
 root and for routes of the app, types and cache rules of files, HEAD,
