@@ -658,6 +658,11 @@ export const ko = {
     tasksLoading: '작업을 불러오는 중…',
     tasksLoadError: '폴더의 작업을 불러오지 못했어요.',
     tasksEmpty: '이 폴더에는 아직 작업이 없어요.',
+    missing: {
+      title: '이 폴더는 없어요',
+      body: '없앤 폴더이거나 주소가 맞지 않아요. 할 일에서 폴더를 다시 골라 주세요.',
+      back: '할 일로 돌아가기',
+    },
     tabs: {
       label: '폴더 보기',
       tasks: '작업',
