@@ -5,7 +5,8 @@
     "paths": {
       "@ohmydate/contracts": ["../packages/contracts/src/index.ts"],
       "ajv": ["../packages/contracts/node_modules/ajv/dist/ajv.d.ts"],
-      "ajv-formats": ["../packages/contracts/node_modules/ajv-formats/dist/index.d.ts"]
+      "ajv-formats": ["../packages/contracts/node_modules/ajv-formats/dist/index.d.ts"],
+      "temporal-polyfill": ["../services/api/node_modules/temporal-polyfill/index.d.ts"]
     }
   },
   "include": ["**/*.ts"]

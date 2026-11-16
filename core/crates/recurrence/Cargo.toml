@@ -1,0 +1,17 @@
+[package]
+name = "ohmydate-recurrence"
+description = "Recurring appointments of the OhMyDate core: a port of services/api/src/application/rrule.ts. Pure, no I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+jiff.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

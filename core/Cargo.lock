@@ -740,6 +740,14 @@ name = "ohmydate-domain"
 version = "0.1.0"
 
 [[package]]
+name = "ohmydate-recurrence"
+version = "0.1.0"
+dependencies = [
+ "jiff",
+ "serde_json",
+]
+
+[[package]]
 name = "ohmydate-scheduler"
 version = "0.1.0"
 dependencies = [
