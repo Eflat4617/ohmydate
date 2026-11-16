@@ -2,6 +2,7 @@ import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { allowedHostsFromEnv } from './config/allowedHosts';
 import { CORE_READY_FILE_ENV, coreApiProxy } from './config/coreProxy';
+import { desktopWithoutInstallHead } from './config/installHead';
 
 /**
  * HOLO-01: the entry module puts the stored theme on <html> before it mounts
@@ -38,9 +39,12 @@ function renderBlockingEntry(): Plugin {
  * and its "a missing file is a 404" rule rest on.
  */
 export default defineConfig(({ mode, command }) => ({
-  plugins: [vue(), renderBlockingEntry()],
-  // `public/` holds one file, the mock API's service worker. The desktop
-  // bundle registers no service worker (15 §4.2), so it does not carry one.
+  // The desktop bundle is not something to install: its document loses the
+  // install block (config/installHead.ts, HOLO-07).
+  plugins: [vue(), renderBlockingEntry(), ...(mode === 'desktop' ? [desktopWithoutInstallHead()] : [])],
+  // `public/` holds the mock API's service worker and what a phone installs
+  // (the manifest, the icons). The desktop bundle registers no service worker
+  // (15 §4.2) and is not installed, so it carries none of it.
   publicDir: mode === 'desktop' ? false : 'public',
   build: {
     outDir: mode === 'desktop' ? 'desktop/dist' : 'dist',

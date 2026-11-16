@@ -231,6 +231,15 @@
   --shell-gap: 0.5rem; /* between the window's edge and the floating sidebar, bar and phone nav */
   --sticky-top: calc(var(--topbar-height) + var(--shell-gap) + var(--space-4)); /* a sticky aside under the top bar (≥1024px) */
   --bottom-nav-height: 3.75rem;
+  /* The device's own edges (HOLO-07): a notch, rounded corners, the gesture
+     bar. index.html asks for the whole screen (`viewport-fit=cover`), so what
+     floats at an edge — the phone's nav, a sheet, a toast, a dialog — adds
+     these. They are 0 on a screen without such edges. Only this file reads
+     `env(safe-area-inset-*)`. */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
   --content-max: 46rem;
   --content-wide: 84rem;
   --aside-width: 20rem;

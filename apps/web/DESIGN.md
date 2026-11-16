@@ -403,6 +403,14 @@ Spacing is a 4px scale (2, 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64px). A car
 
 Breakpoints in use: 480, 640, 768, 1024, 1280, 1440px, the container steps 44rem and 66rem, plus `pointer: coarse`.
 
+### On a phone (HOLO-07)
+The server's web is installable: `public/manifest.webmanifest` (standalone, upright, opens 개요), icons rendered from the brand mark by `scripts/render-app-icons.mjs`, and a `theme-color` tag that `theme/theme.ts` keeps on the scheme's ground (`theme/themeColor.ts` — the two grounds as hex, held to the tokens by a test) so the browser's bar and an installed app's status bar are the page's own surface. There is **no service worker and no cache**: off its network the installed app is the page, with the page's offline state. The desktop bundle carries none of it (`config/installHead.ts`).
+
+- **The device's edges.** The page asks for the whole screen (`viewport-fit=cover`); the four insets are the tokens `--safe-top/right/bottom/left` and only `tokens.css` reads `env(safe-area-inset-*)`. The shell pads by them; the phone's nav, a sheet, a dialog, a toast, the canvas's selection bar and the sticky save bar stand on `--safe-bottom`.
+- **The keyboard takes its space from the page** (`interactive-widget=resizes-content`): a sheet and its buttons stand on the keyboard. While a field has the caret and the window is that short (`min-aspect-ratio: 3/5`, coarse pointer) the phone's nav steps away, so it is never under a typing thumb.
+- **Behind a sheet the page stays put** (coarse pointer): the root does not scroll and does not pull-to-refresh while a `.dialog-backdrop` is open; a dialog contains its own overscroll.
+- **No zoom on focus:** under a coarse pointer every field's text is 16px at least (a floor in `base.css`). Pinch zoom is never disabled.
+
 ## Elevation & Depth
 
 Three layers (FLOW.md §6, HOLO-04): **ambient light**, **content**, **glass**. What floats is glass; what is read is solid.

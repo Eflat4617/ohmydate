@@ -46,6 +46,17 @@ export function parseOklch(value: string): Colour | null {
 const encode = (value: number): number => (value <= 0.0031308 ? 12.92 * value : 1.055 * value ** (1 / 2.4) - 0.055);
 const decode = (value: number): number => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
 
+/** `#rrggbb`, the way a browser would write the colour for a tag that takes no `oklch()`. */
+export function toHex(colour: Colour): string {
+  return `#${colour.rgb
+    .map((channel) =>
+      Math.round(clamp(encode(channel)) * 255)
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`;
+}
+
 export function luminance(rgb: Rgb): number {
   return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
 }

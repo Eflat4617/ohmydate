@@ -2,10 +2,27 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover: the page reaches under a notch and the gesture bar, and the shell keeps
+         clear of them with the safe-area insets (styles/tokens.css `--safe-*`).
+         interactive-widget=resizes-content: the on-screen keyboard takes its space from the page, so
+         a sheet and its buttons stand on top of the keyboard, not under it. Zoom stays the reader's. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <!-- Dark is the default theme; src/theme/theme.ts rewrites this with the user's choice. -->
     <meta name="color-scheme" content="dark" />
     <title>OhMyDate</title>
+    <!-- install:start
+         The phone's home screen (HOLO-07): the manifest, the icons (rendered from the product's own
+         mark by scripts/render-app-icons.mjs) and the browser bar's colour, which src/theme/theme.ts
+         keeps in step with the theme. No service worker and no cache: off its network the installed
+         app shows the same offline state as the page. The desktop bundle carries none of this block
+         (config/installHead.ts cuts it out). -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#070a08" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icons/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="OhMyDate" />
+    <!-- install:end -->
     <!-- The bundled text face (no network font): fetched with the page so the first paint does not jump. -->
     <link rel="preload" href="/src/assets/fonts/PretendardVariable.woff2" as="font" type="font/woff2" crossorigin />
     <!-- blocking="render": no frame is painted before the entry has put the stored theme on <html>. -->

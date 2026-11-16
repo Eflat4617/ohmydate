@@ -453,7 +453,7 @@
    above the phone's nav. */
 .form-actions--sticky {
   position: sticky;
-  bottom: calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + env(safe-area-inset-bottom));
+  bottom: calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + var(--safe-bottom));
   z-index: var(--z-sticky);
   align-self: flex-start;
   padding: var(--space-2);

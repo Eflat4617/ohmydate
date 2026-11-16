@@ -131,6 +131,31 @@ textarea {
   letter-spacing: inherit;
 }
 
+/* A phone (HOLO-07). Two things a touch browser does to a page that a mouse
+   browser does not:
+
+   1. It zooms into a field whose text is under 16px when the field takes the
+      caret, and does not zoom back. So under a finger every field's text is
+      the body size at least — whatever its own class says (hence
+      `!important`: this is a floor, not a style). Pinch zoom stays allowed.
+   2. A drag that reaches the end of a sheet's own scroll goes on to drag the
+      page behind it, and a pull down reloads the page — with a draft in the
+      sheet. While a dialog or a sheet is open the page behind stays put.
+      (Under a mouse nothing changes: hiding the root's scrollbar there would
+      shift the page sideways each time a dialog opened.) */
+@media (pointer: coarse) {
+  input:not([type='checkbox'], [type='radio'], [type='range'], [type='color']),
+  select,
+  textarea {
+    font-size: max(1rem, 16px) !important;
+  }
+
+  :root:has(.dialog-backdrop) {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+}
+
 /* Fields take the text colour around them; a button's colour is its own
    (--btn-fg in primitives.css), so a bare <button> is never an accident. */
 input,

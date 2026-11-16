@@ -699,7 +699,7 @@
 /* ── What stays in reach while the surface scrolls ─────────────────── */
 .pond-foot {
   position: sticky;
-  bottom: calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + env(safe-area-inset-bottom) + var(--space-3));
+  bottom: calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + var(--safe-bottom) + var(--space-3));
   z-index: 4;
   display: flex;
   align-self: flex-start;
