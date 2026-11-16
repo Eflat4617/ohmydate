@@ -6,8 +6,14 @@ contract the TypeScript API and the web client use. Design and the cut-over
 numbers: `docs/blueprint/15-DESKTOP-RUST-CORE.md` §7.
 
 ```sh
-corepack pnpm run core:parity    # builds the binary, typechecks, runs the suite
+corepack pnpm run core:parity    # builds the test binary, typechecks, runs the suite
+corepack pnpm run core:build     # only the test binary (cargo feature `test-clock`)
 ```
+
+The suite runs the **test build** of the binary: the one with the cargo
+feature `test-clock`, which adds `--clock-offset-ms`. A build without the
+feature — the default, and what gets packaged — has no such option
+(`cargo test` proves that side: `a_build_that_can_be_packaged_has_no_clock_offset`).
 
 Not part of `pnpm run ci` yet (blueprint 15 §7.6 says when it joins).
 
@@ -60,7 +66,10 @@ not built in tests.
 
 `lifecycle.test.ts` covers the process: ready file (0600, removed on exit),
 single instance (exit 3), usage errors (exit 2), restart durability including
-stored idempotent responses, and a fresh launch token per start.
+stored idempotent responses, a fresh launch token per start, and the movable
+clock: with `--clock-offset-ms` every time the core writes (rows, updates,
+the time inside ids) is the wall clock plus the offset, forward or back, and
+an idempotency key expires when a day has passed on that clock.
 
 ## Adding a route (later slices)
 

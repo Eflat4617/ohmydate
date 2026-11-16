@@ -42,12 +42,16 @@ DB가 필요한 테스트는 `DATABASE_URL`(planner_test)과 `VIKUNJA_URL`이 �
 - **unsafe 금지:** 워크스페이스 lint `unsafe_code = "forbid"`. 예외 없음.
 - **시간·id:** `SystemTime::now()`·난수를 직접 부르지 않는다 — `Clock`·`RandomSource`·`IdGenerator`를 받는다(어댑터는 `server::system`뿐). id는 UUIDv7(`domain::Id`), 시각은 UTC 밀리초(`domain::Instant`), 시간대는 IANA 이름 + `jiff`(tzdb는 바이너리에 포함). SQL에 시간 기본값을 두지 않는다.
 - **로그:** `tracing` 구조화 로그. id·코드·개수·시간만. 제목·본문·노트·프롬프트·쿼리 문자열·경로·토큰·비밀 금지. `StoreError`는 `kind()`와 `sqlite_code()`만 남긴다. 새 영역은 "사용자 글이 로그에 없다"는 테스트를 함께 넣는다.
-- **비밀:** OS 키링(없으면 0600 파일)에만 둔다. DB·로그에 쓰지 않는다. 실행 토큰은 메모리와 `--ready-file`(0600)에만 있고 `Debug` 출력에 나오지 않는다.
+- **비밀:** OS 키링(없으면 0600 파일)에만 둔다. DB·로그에 쓰지 않는다. 실행 토큰은 메모리와 `--ready-file`(0600)에만 있고 `Debug` 출력에 나오지 않는다. 요청 로그에 경로와 쿼리를 넣지 않는다(`/__boot?token=…`의 쿼리가 토큰이다).
+- **쿠키:** 코어가 내는 쿠키에 `Secure`를 붙이지 않는다. 데스크톱 웹뷰(WebKit)는 `http://127.0.0.1`이 준 `Secure` 쿠키를 저장하지 않는다. 실행 쿠키는 `omd_launch=<토큰>; Path=/; HttpOnly; SameSite=Strict` 그대로이고 테스트가 글자까지 고정한다(15 §1.3).
+- **웹 서빙:** `--web-dir <디렉터리>`가 있을 때만 `core/crates/server/src/web.rs`가 빌드된 웹을 같은 출처로 서빙한다. 경로 규칙(문서로 대신할 것 / 404 / 예약 경로)과 CSP는 그 파일과 15 §1.3이 정본이다. CSP를 넓히려면 이유를 그 주석과 15 §1.3에 적고, 웹이 그 정책 아래서 도는지 진짜 빌드로 확인한다.
+- **테스트 시계:** `--clock-offset-ms`와 `system::ShiftedClock`은 cargo feature `test-clock`(기본 꺼짐)에만 있다. 패키징되는 빌드에 이 feature를 넣지 않는다. `test-clock` 뒤에 두는 것은 시계뿐이다 — 다른 테스트 전용 동작을 여기에 얹지 않는다.
 - **의존성:** 추가·갱신 시 라이선스를 확인하고 `docs/blueprint/10-LICENSE-AND-MIGRATION.md` §9 표를 갱신한다. MIT/Apache-2.0/BSD/ISC 밖은 사용자 확인. `Cargo.lock`은 커밋한다.
 - **테스트:** 새 동작마다 단위 테스트 + 네거티브 1개 이상. 테스트 삭제·`#[ignore]`·assert 완화 금지. 스케줄러·마스킹은 오라클 팩과 불일치 0.
 - **명령** (한 번에 하나, `CARGO_BUILD_JOBS=4`, 워커는 `--release` 빌드 금지; `export PATH="$HOME/.cargo/bin:$PATH"`):
-  - `corepack pnpm run core:check` = `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` + `cargo test`.
-  - `corepack pnpm run core:parity` = 바이너리 빌드 + `tests-core/`(블랙박스 계약 패리티, 계획 문서 표 검사).
+  - `corepack pnpm run core:check` = `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` + `cargo test`, 그리고 서버 크레이트는 테스트 빌드(`--features test-clock`)로 clippy와 test를 한 번 더.
+  - `corepack pnpm run core:build` = 테스트용 바이너리 빌드(`cargo build -p ohmydate-server --features test-clock`). 하네스와 E2E가 쓰는 바이너리다.
+  - `corepack pnpm run core:parity` = `core:build` + `tests-core/`(블랙박스 계약 패리티, 웹 서빙·`/__boot`·수명 주기, 계획 문서 표 검사).
   - `corepack pnpm run core:oracle -- --count N` = TypeScript 스케줄러로 오라클 팩 다시 만들기(인자 없이 = 커밋하는 `sample.json`).
   - `corepack pnpm run core:diff` = 기준 테스트의 입력을 모으고(`core:harvest`) 시드 2,000건과 함께 팩을 `core/target/oracle/`에 만들어(커밋하지 않는다) Rust 스케줄러와 층별로 대조. `ORACLE_COUNT`·`ORACLE_SEED`로 개수·시드를 바꾼다. 불일치 허용 0. 스케줄러(`packages/scheduler/src` 또는 `core/crates/scheduler`)를 건드린 Task는 이것을 돌린다. 생성기 코드를 일부러 틀리게 해도 이것과 테스트가 통과하면, 그 코드가 결과를 가르는 입력을 내보내기의 `pathCases()`에 더하고 `core:oracle`로 `sample.json`을 다시 만들어 함께 커밋한다(15 §5.3).
   - `corepack pnpm run core:shrink -- --pack <팩> --case <건 id>` = 불일치 건의 입력을 최소로 줄여 `core/crates/scheduler/tests/oracle/regressions/`에 건 하나짜리 팩으로 쓴다(15 §5.3). 스케줄러 불일치를 고칠 때는 그 팩을 함께 커밋한다.

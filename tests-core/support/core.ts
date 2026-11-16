@@ -8,14 +8,20 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
-/** The core binary under test: `OHMYDATE_CORE_BIN`, else the debug build. */
+/**
+ * The core binary under test: `OHMYDATE_CORE_BIN`, else the debug build.
+ *
+ * It must be the test build (`corepack pnpm run core:build`: cargo feature
+ * `test-clock`), because `lifecycle.test.ts` moves the clock. A build
+ * without the feature — what gets packaged — refuses `--clock-offset-ms`.
+ */
 export function coreBinary(): string {
   const binary =
     process.env['OHMYDATE_CORE_BIN'] ?? join(repoRoot, 'core/target/debug/ohmydate-core');
   if (!existsSync(binary)) {
     throw new Error(
       `core binary not found at ${binary}. Build it first: ` +
-        '`corepack pnpm run core:parity` does, or run `cargo build -p ohmydate-server` in core/.',
+        '`corepack pnpm run core:build` (which `core:parity` runs before the suite).',
     );
   }
   return binary;

@@ -13,7 +13,7 @@
 - RC-00에서 끝낸 것: 이 계획, 워크스페이스 5개 크레이트, owner·프로젝트·작업 API 10개, 스케줄러 포팅의 바닥 층(PRNG·정규 JSON·시간 분할·inputHash)과 TypeScript 오라클 대조, 블랙박스 패리티 하네스.
 - RC-30~33에서 끝낸 것(2026-11-16): 스케줄러 전체(`core/crates/scheduler`). 4,020건에서 TypeScript와 모든 층이 바이트 단위로 같고(불일치 0), 기준 테스트 21개 파일을 원장대로 옮겼다(§5.5). TypeScript 쪽 동작 결함은 나오지 않았다.
 - FOLD-01에서 더한 것(2026-11-16): `updateProject`(`PATCH /projects/{id}`) — 폴더(프로젝트)의 이름 바꾸기와 보관. 계약·TypeScript API·Rust 코어에 함께 넣었다(§11 R11의 예외). 코어가 서빙하는 operation은 이제 11개다.
-- RC-10A에서 더한 것(2026-11-16): `updateMySettings`(`PATCH /me/settings`) — 시간대·로캘·AI 동의·예산. 코어가 서빙하는 operation은 이제 12개다. 그리고 웹을 싣는 쪽: `--web-dir`로 빌드된 웹 앱을 같은 출처에서 서빙하고(§1.3), `/__boot`가 실행 쿠키를 넘긴다.
+- RC-10A에서 더한 것(2026-11-16): `updateMySettings`(`PATCH /me/settings`) — 시간대·로캘·AI 동의·예산. 코어가 서빙하는 operation은 이제 12개다. 그리고 웹을 싣는 쪽: `--web-dir`로 빌드된 웹 앱을 같은 출처에서 서빙하고(§1.3), `/__boot`가 실행 쿠키를 넘기고, 테스트 빌드는 시계를 옮길 수 있다(`--clock-offset-ms`, §7.3).
 
 RC-00에서 측정한 것:
 
@@ -25,7 +25,7 @@ RC-00에서 측정한 것:
 | advisory lock 호출 | 11곳 → 0 (프로세스 하나, 쓰기 트랜잭션 하나) |
 | EXCLUDE 제약 위반 처리(`23P01`) | 3곳(승인·Today·재계획) → 트랜잭션 안 코드 검사 |
 | Rust 테스트 (RC-00) | 178개: domain 37, store 27, app 26, scheduler 19 + 오라클 8, server 43 + bin 4 + HTTP 14 |
-| 패리티 하네스 | operation 12개, 테스트 136개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개)를 더했다 |
+| 패리티 하네스 | operation 12개, 테스트 141개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개), 시계 테스트(141개)를 더했다 |
 | 오라클 팩 `sample.json` | 27건(golden 15, 생성 9, 재계획 1, 잘못된 입력 2), 211 KiB, 기준 tzdata 2026c vs jiff 2026e — 불일치 0 |
 | 서드파티 크레이트 | 126개(리눅스 그래프). MIT/Apache-2.0/BSD 밖은 4건(§9.4) |
 
@@ -688,8 +688,11 @@ TypeScript: 키 예약(pending) 커밋 → 유스케이스 실행 → 완료 기
 
 지금 `e2e/global-setup.ts`는 PostgreSQL 스키마, Vikunja 사용자·토큰, `create-user` CLI, API(`PROVIDER=vikunja`), Vite를 띄운다. spec 13개(약 35건) 중 로그인 화면, Vikunja API 확인, DB 직접 조회(`helpers/db.ts`), 여러 owner 전환(`e2e-5-owner-reset`), `NODE_OPTIONS`로 시계 옮기기에 기대는 부분이 있다.
 
-- RC-10: `E2E_TARGET=core` 모드. global-setup이 `ohmydate-core`를 임시 디렉터리로 띄우고 Vite 프록시가 실행 토큰 헤더를 붙인다(`--allow-origin`에 Vite 출처). 헬퍼는 "드라이버" 뒤로 옮긴다(작업 존재 확인 = API 조회). 시계는 코어의 테스트 전용 옵션 `--clock-offset-ms`로 옮긴다.
+- RC-10B: `E2E_TARGET=core` 모드. global-setup이 `ohmydate-core`(테스트 빌드)를 임시 디렉터리로 띄운다. 헬퍼는 "드라이버" 뒤로 옮긴다(작업 존재 확인 = API 조회). 시계는 코어의 테스트 전용 옵션 `--clock-offset-ms`로 옮긴다(아래). 웹을 어디서 받느냐는 둘 중 하나다: ① 빌드한 웹을 `--web-dir`로 코어가 서빙하고 Playwright가 `/__boot?token=…`으로 들어간다 — 운영과 같은 경로이고 CSP 아래서 돈다(권장). ② Vite 개발 서버가 `/api`를 코어로 프록시하며 `Authorization: Bearer <토큰>`을 붙이고 코어는 `--allow-origin <Vite 출처>`로 뜬다 — `core:dev`의 모양.
 - 해당 없음으로 분류할 것(원장에 사유): 로그인·로그아웃 화면, owner 전환(`e2e-5-owner-reset` 전체), Vikunja 쪽 확인.
+- 움직이는 시계(**있음**, RC-10A): `--clock-offset-ms <n>`은 시스템 시계에 n 밀리초를 더한 시계로 프로세스를 돌린다(음수면 과거로. 프로세스가 사는 동안 고정 — 지금 E2E의 `E2E_FAKE_NOW`와 같은 모델이다). 행의 `createdAt`·`updatedAt`, id 안의 시각, 멱등 기록의 만료가 모두 같은 시계를 따른다(`lifecycle.test.ts`: ±400일에서 찍힌 시각, 23시간 뒤에는 재생되고 25시간 뒤에는 풀리는 멱등 키).
+  - **패키징되는 빌드에서는 켤 수 없다.** 옵션과 `system::ShiftedClock`은 cargo feature `test-clock`(기본 꺼짐)이 있을 때만 컴파일된다. feature 없는 빌드 — 기본 빌드이고 셸이 링크하게 될 것 — 에는 그 코드가 없어서 `--clock-offset-ms`는 값이 무엇이든 인자 오류(종료 코드 2, 데이터 디렉터리를 건드리기 전)이고 도움말에도 나오지 않는다. 실행 때의 스위치(환경 변수, 두 번째 플래그)로 하지 않은 이유: 런처 인자나 남아 있던 환경 변수로 실수로 켜질 수 있고, 켜진 앱은 조용히 틀린 날짜를 저장한다. `debug_assertions`로 하지 않은 이유: 워커는 release 빌드를 할 수 없어 "없는 쪽"을 시험할 길이 없다 — feature는 두 쪽 모두 dev 프로필로 시험한다.
+  - 테스트용 바이너리: `corepack pnpm run core:build`(= `cargo build -p ohmydate-server --features test-clock`). `core:parity`가 먼저 돌리고, E2E `core` 대상도 이것을 쓴다. `core:check`는 기본 빌드(옵션을 거부하는지)와 feature 빌드(시계가 맞는지)를 차례로 lint·test한다. 켜져 있으면 시작할 때 `warn` 로그 한 줄(`clock_offset_ms`)을 남긴다. RC-100a는 셸의 의존성에 `test-clock`을 넣지 않는다.
 - 슬라이스마다 그 기능의 spec을 `core` 대상으로 통과시키는 것이 수용 기준이다(§10).
 
 ### 7.4 가져오기 왕복 — §8.4

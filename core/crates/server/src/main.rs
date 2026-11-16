@@ -15,12 +15,23 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ohmydate_app::{App, OwnerDefaults};
-use ohmydate_domain::UuidV7Generator;
+use ohmydate_domain::{Clock, UuidV7Generator};
 use ohmydate_server::security::Guard;
 use ohmydate_server::system::{self, OsRandom, SystemClock};
 use ohmydate_server::web::WebRoot;
 use ohmydate_server::{ServerState, contract};
 use ohmydate_store::Store;
+
+/// The option of a test build (cargo feature `test-clock`). The text is
+/// part of the help only where the option exists.
+#[cfg(feature = "test-clock")]
+const TEST_USAGE: &str = "
+
+TEST BUILD (cargo feature `test-clock`; never packaged):
+    --clock-offset-ms <N>  Run on the system clock moved by N milliseconds
+                           (negative moves back). Fixed for the process.";
+#[cfg(not(feature = "test-clock"))]
+const TEST_USAGE: &str = "";
 
 const USAGE: &str = "\
 ohmydate-core — the OhMyDate core as a local HTTP server
@@ -61,6 +72,9 @@ struct Options {
     locale: Option<String>,
     allow_origins: Vec<String>,
     web_dir: Option<PathBuf>,
+    /// Always `None` in a build without the `test-clock` feature: there the
+    /// option is refused before it gets here.
+    clock_offset_ms: Option<i64>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -101,10 +115,48 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
             }
             "--allow-origin" => options.allow_origins.push(value()?),
             "--web-dir" => options.web_dir = Some(PathBuf::from(value()?)),
+            "--clock-offset-ms" => {
+                options.clock_offset_ms = Some(parse_clock_offset(&value()?)?);
+            }
             other => return Err(format!("unknown option {other}")),
         }
     }
     Ok(Command::Run(options))
+}
+
+#[cfg(feature = "test-clock")]
+fn parse_clock_offset(text: &str) -> Result<i64, String> {
+    text.parse()
+        .map_err(|_| "--clock-offset-ms must be a whole number of milliseconds".to_owned())
+}
+
+/// A build that can be packaged has no movable clock: the option is a usage
+/// error whatever its value.
+#[cfg(not(feature = "test-clock"))]
+fn parse_clock_offset(_text: &str) -> Result<i64, String> {
+    Err("--clock-offset-ms exists only in a test build (cargo feature `test-clock`)".to_owned())
+}
+
+/// The clock of this process: the system's, or — in a test build that was
+/// asked to — the system's moved by a fixed offset.
+#[cfg(feature = "test-clock")]
+fn process_clock(offset_ms: Option<i64>) -> Arc<dyn Clock> {
+    match offset_ms {
+        Some(offset_ms) => {
+            tracing::warn!(
+                target: "ohmydate::core",
+                clock_offset_ms = offset_ms,
+                "test build: running on a shifted clock"
+            );
+            Arc::new(system::ShiftedClock::new(offset_ms))
+        }
+        None => Arc::new(SystemClock),
+    }
+}
+
+#[cfg(not(feature = "test-clock"))]
+fn process_clock(_offset_ms: Option<i64>) -> Arc<dyn Clock> {
+    Arc::new(SystemClock)
 }
 
 fn init_logging() {
@@ -238,8 +290,11 @@ async fn run(options: Options) -> Result<(), u8> {
             })
             .unwrap_or_else(|| "en".to_owned()),
     };
-    let ids = Arc::new(UuidV7Generator::new(SystemClock, OsRandom));
-    let app = App::open(store, Arc::new(SystemClock), ids, &defaults).map_err(|_| {
+    // One clock for rows and for ids, so a row's `createdAt` and the time
+    // inside its id never disagree.
+    let clock = process_clock(options.clock_offset_ms);
+    let ids = Arc::new(UuidV7Generator::new(clock.clone(), OsRandom));
+    let app = App::open(store, clock, ids, &defaults).map_err(|_| {
         tracing::error!(target: "ohmydate::core", "cannot initialise the data file");
         EXIT_FAILURE
     })?;
@@ -311,7 +366,7 @@ fn main() -> ExitCode {
     let options = match parse_args(std::env::args().skip(1)) {
         Ok(Command::Run(options)) => options,
         Ok(Command::Help) => {
-            println!("{USAGE}");
+            println!("{USAGE}{TEST_USAGE}");
             return ExitCode::SUCCESS;
         }
         Ok(Command::Version) => {
@@ -319,7 +374,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Err(message) => {
-            eprintln!("error: {message}\n\n{USAGE}");
+            eprintln!("error: {message}\n\n{USAGE}{TEST_USAGE}");
             return ExitCode::from(EXIT_USAGE);
         }
     };
@@ -379,6 +434,7 @@ mod tests {
                     "http://localhost:5173".into()
                 ],
                 web_dir: Some(PathBuf::from("/opt/ohmydate/web")),
+                clock_offset_ms: None,
             }))
         );
         assert_eq!(parse_args(args(&[])), Ok(Command::Run(Options::default())));
@@ -400,6 +456,65 @@ mod tests {
         ] {
             assert!(parse_args(args(&list)).is_err(), "{list:?}");
         }
+    }
+
+    #[cfg(feature = "test-clock")]
+    #[test]
+    fn a_test_build_reads_the_clock_offset() {
+        for (text, expected) in [
+            ("0", 0),
+            ("86400000", 86_400_000),
+            ("-3600000", -3_600_000),
+            ("9223372036854775807", i64::MAX),
+        ] {
+            let parsed = parse_args(args(&["--clock-offset-ms", text]));
+            assert_eq!(
+                parsed,
+                Ok(Command::Run(Options {
+                    clock_offset_ms: Some(expected),
+                    ..Options::default()
+                })),
+                "{text}"
+            );
+        }
+        for bad in [
+            vec!["--clock-offset-ms"],
+            vec!["--clock-offset-ms", ""],
+            vec!["--clock-offset-ms", "abc"],
+            vec!["--clock-offset-ms", "1.5"],
+            vec!["--clock-offset-ms", "1e3"],
+            vec!["--clock-offset-ms", "2 days"],
+            vec!["--clock-offset-ms", "9223372036854775808"],
+        ] {
+            assert!(parse_args(args(&bad)).is_err(), "{bad:?}");
+        }
+        assert!(TEST_USAGE.contains("--clock-offset-ms"));
+    }
+
+    /// What ships: no movable clock, whatever is asked.
+    #[cfg(not(feature = "test-clock"))]
+    #[test]
+    fn a_build_that_can_be_packaged_has_no_clock_offset() {
+        for list in [
+            vec!["--clock-offset-ms", "0"],
+            vec!["--clock-offset-ms", "86400000"],
+            vec!["--clock-offset-ms", "-1"],
+            vec!["--clock-offset-ms"],
+            vec!["--data-dir", "/tmp/x", "--clock-offset-ms", "1"],
+        ] {
+            let refused = parse_args(args(&list));
+            assert!(refused.is_err(), "{list:?}");
+        }
+        assert_eq!(
+            parse_args(args(&["--clock-offset-ms", "1"])),
+            Err(
+                "--clock-offset-ms exists only in a test build (cargo feature `test-clock`)".into()
+            )
+        );
+        // The help does not offer what the build does not have.
+        assert!(!USAGE.contains("clock") && TEST_USAGE.is_empty());
+        // And nothing else can put an offset into the options.
+        assert_eq!(Options::default().clock_offset_ms, None);
     }
 
     #[test]
