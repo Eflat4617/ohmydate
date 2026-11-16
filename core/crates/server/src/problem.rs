@@ -149,6 +149,12 @@ impl From<DomainError> for Problem {
                 "Version precondition failed",
                 detail,
             ),
+            DomainError::AvailabilityChanged { .. } => Self::new(
+                412,
+                ProblemCode::AvailabilityChanged,
+                "Availability changed",
+                detail,
+            ),
             DomainError::ValidationFailed(issues) => Self {
                 errors: issues
                     .into_iter()
@@ -227,6 +233,14 @@ mod tests {
                 412,
                 "version_conflict",
             ),
+            (
+                DomainError::AvailabilityChanged {
+                    expected: Version::INITIAL,
+                    actual: Version::INITIAL.next(),
+                },
+                412,
+                "availability_changed",
+            ),
             (DomainError::invalid("title", "x"), 422, "validation_failed"),
             (
                 DomainError::DependencyCycle(vec![id(), id()]),
@@ -255,6 +269,12 @@ mod tests {
         assert!(Problem::from(DomainError::invalid("title", "x")).is_storable());
         assert!(Problem::from(DomainError::IllegalTransition("no".into())).is_storable());
         assert!(!Problem::from(DomainError::not_found("task", &id())).is_storable());
+        // A stale availability tag can be retried with the same key.
+        let stale = DomainError::AvailabilityChanged {
+            expected: Version::INITIAL,
+            actual: Version::INITIAL.next(),
+        };
+        assert!(!Problem::from(stale).is_storable());
         assert!(!Problem::from(&AppError::IdempotencyInProgress).is_storable());
         assert!(!Problem::internal().is_storable());
         assert!(!Problem::malformed("x", Vec::new()).is_storable());

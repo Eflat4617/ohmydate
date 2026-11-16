@@ -336,13 +336,13 @@ async fn unknown_routes_and_unported_operations_are_distinguished() {
     );
 
     // In the contract, not yet served by this build.
-    let unported = server.get("/api/v1/availability").await;
+    let unported = server.get("/api/v1/today?date=2026-11-16").await;
     assert_eq!((unported.status, unported.code()), (501, "internal_error"));
     assert!(
         unported.body["detail"]
             .as_str()
             .unwrap()
-            .contains("getAvailability")
+            .contains("getToday")
     );
 }
 
@@ -1471,4 +1471,188 @@ async fn request_logs_hold_ids_and_codes_but_no_user_text_or_secrets() {
             "{secret} leaked into the logs: {logs}"
         );
     }
+}
+
+fn hours_body() -> Value {
+    json!({
+        "timeZone": "Europe/Berlin",
+        "rules": [
+            {"weekday": 3, "startLocal": "13:00", "endLocal": "18:00", "kind": "work"},
+            {"weekday": 1, "startLocal": "09:00", "endLocal": "12:00", "kind": "focus"},
+        ],
+        "exceptions": [
+            {"date": "2026-12-25", "kind": "off"},
+            {"date": "2026-11-21", "kind": "extra", "startLocal": "10:00", "endLocal": "14:00"},
+        ],
+        "prefs": {
+            "maxDailyFocusMin": 300, "breakAfterMin": 50, "breakMin": 10,
+            "dayStartLocal": "07:00", "dayEndLocal": "22:00", "riskLevel": "p90",
+        },
+    })
+}
+
+#[tokio::test]
+async fn the_hours_are_read_and_replaced_under_the_availability_tag() {
+    let server = TestServer::new();
+    // Nothing set yet: version 1, the owner's zone, the default limits.
+    let first = server.get("/api/v1/availability").await;
+    assert_eq!(first.status, 200);
+    assert_eq!(first.header("etag"), Some("W/\"availability:1\""));
+    assert_eq!(
+        first.body,
+        json!({
+            "version": 1,
+            "timeZone": "Asia/Seoul",
+            "rules": [],
+            "exceptions": [],
+            "prefs": {
+                "maxDailyFocusMin": 240, "breakAfterMin": 60, "breakMin": 15,
+                "dayStartLocal": "08:00", "dayEndLocal": "18:00", "riskLevel": "p50",
+            },
+        })
+    );
+    let cached = server
+        .call(
+            "GET",
+            "/api/v1/availability",
+            &[("if-none-match", "W/\"availability:1\"")],
+            None,
+        )
+        .await;
+    assert_eq!((cached.status, cached.body.clone()), (304, Value::Null));
+
+    let key = server.key();
+    let put = server
+        .call(
+            "PUT",
+            "/api/v1/availability",
+            &[
+                ("if-match", "W/\"availability:1\""),
+                ("idempotency-key", &key),
+            ],
+            Some(hours_body()),
+        )
+        .await;
+    assert_eq!(put.status, 200, "{}", put.body);
+    assert_eq!(put.header("etag"), Some("W/\"availability:2\""));
+    // The answer repeats the request, in its order, with the new version.
+    let mut expected = hours_body();
+    expected["version"] = json!(2);
+    assert_eq!(put.body, expected);
+
+    // A read orders windows by weekday and exceptions by date.
+    let read = server.get("/api/v1/availability").await;
+    assert_eq!(read.header("etag"), Some("W/\"availability:2\""));
+    assert_eq!(read.body["rules"][0]["weekday"], 1);
+    assert_eq!(read.body["rules"][1]["weekday"], 3);
+    assert_eq!(read.body["exceptions"][0]["date"], "2026-11-21");
+    assert_eq!(
+        read.body["exceptions"][1],
+        json!({"date": "2026-12-25", "kind": "off"})
+    );
+    assert_eq!(read.body["prefs"], hours_body()["prefs"]);
+    assert_eq!(read.body["timeZone"], "Europe/Berlin");
+
+    // The same key replays the stored answer although its tag is now old.
+    let replay = server
+        .call(
+            "PUT",
+            "/api/v1/availability",
+            &[
+                ("if-match", "W/\"availability:1\""),
+                ("idempotency-key", &key),
+            ],
+            Some(hours_body()),
+        )
+        .await;
+    assert_eq!((replay.status, &replay.body), (200, &expected));
+    assert_eq!(server.get("/api/v1/availability").await.body["version"], 2);
+
+    // The hours survive a restart.
+    let reopened = server.reopen();
+    assert_eq!(reopened.get("/api/v1/availability").await.body, read.body);
+}
+
+#[tokio::test]
+async fn the_hours_are_refused_by_the_tag_the_contract_and_the_window_rules() {
+    let server = TestServer::new();
+    let put = |tag: &'static str, body: Value| {
+        let key = server.key();
+        let server = &server;
+        async move {
+            server
+                .call(
+                    "PUT",
+                    "/api/v1/availability",
+                    &[("if-match", tag), ("idempotency-key", &key)],
+                    Some(body),
+                )
+                .await
+        }
+    };
+    // A stale tag is its own code, and no entity version stands in for it.
+    let stale = put("W/\"availability:2\"", hours_body()).await;
+    assert_problem(&stale, 412, "availability_changed");
+    assert_eq!(
+        stale.body["detail"],
+        "availability changed: expected 2, found 1"
+    );
+    assert_problem(
+        &put("W/\"1\"", hours_body()).await,
+        400,
+        "validation_failed",
+    );
+    assert_problem(
+        &put("W/\"availability:0\"", hours_body()).await,
+        400,
+        "validation_failed",
+    );
+    let missing = server
+        .call(
+            "PUT",
+            "/api/v1/availability",
+            &[("idempotency-key", &server.key())],
+            Some(hours_body()),
+        )
+        .await;
+    assert_problem(&missing, 428, "version_conflict");
+
+    // The contract: shapes and ranges (400).
+    for (pointer, value) in [
+        ("/rules/0/weekday", json!(8)),
+        ("/rules/0/startLocal", json!("24:00")),
+        ("/rules/0/endLocal", json!("24:30")),
+        ("/rules/0/kind", json!("rest")),
+        ("/exceptions/0/date", json!("2026-02-30")),
+        ("/exceptions/0/kind", json!("holiday")),
+        ("/prefs/breakMin", json!(100001)),
+        ("/prefs/riskLevel", json!("p95")),
+        ("/timeZone", json!("Mars/Olympus_Mons")),
+    ] {
+        let mut body = hours_body();
+        *body.pointer_mut(pointer).unwrap() = value;
+        let answer = put("W/\"availability:1\"", body).await;
+        assert_problem(&answer, 400, "validation_failed");
+    }
+
+    // The rules between values (422): the reference's database refuses
+    // these with a failed CHECK, which its API answers as 500.
+    let mut inverted = hours_body();
+    inverted["rules"][1]["endLocal"] = json!("09:00");
+    let answer = put("W/\"availability:1\"", inverted).await;
+    assert_problem(&answer, 422, "validation_failed");
+    assert_eq!(
+        answer.body["errors"],
+        json!([{"path": "/rules/1/endLocal", "message": "endLocal must be after startLocal"}])
+    );
+    let mut windowless = hours_body();
+    windowless["exceptions"][1] = json!({"date": "2026-11-21", "kind": "extra"});
+    let answer = put("W/\"availability:1\"", windowless).await;
+    assert_problem(&answer, 422, "validation_failed");
+    assert_eq!(answer.body["errors"][0]["path"], "/exceptions/1/startLocal");
+
+    // Nothing of any refused request was kept.
+    let read = server.get("/api/v1/availability").await;
+    assert_eq!(read.body["version"], 1);
+    assert_eq!(read.body["rules"], json!([]));
 }

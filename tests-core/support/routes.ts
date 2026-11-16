@@ -27,6 +27,13 @@ export interface RouteEntry {
    * (`pattern`), or no tag at all.
    */
   readonly etag: 'version' | 'content' | 'none' | { readonly pattern: RegExp };
+  /**
+   * What the required `If-Match` names. Default: the version of the
+   * resource (`W/"<n>"`, stale 412 `version_conflict`). `availability`: the
+   * owner-wide availability version (`W/"availability:<n>"`, stale 412
+   * `availability_changed`).
+   */
+  readonly ifMatch?: 'version' | 'availability';
   /** Creates the resources a single request needs. */
   readonly prepare?: (core: Core) => Promise<Prepared>;
   /** Query string of a valid request, without `?`. */
@@ -95,6 +102,48 @@ export async function readMe(core: Core): Promise<{ readonly id: string; readonl
   }
   return response.body as { id: string; version: number };
 }
+
+interface AvailabilityDto {
+  readonly version: number;
+  readonly timeZone: string;
+  readonly rules: readonly unknown[];
+  readonly exceptions: readonly unknown[];
+  readonly prefs: Readonly<Record<string, unknown>>;
+}
+
+/** The available hours as `GET /availability` answers them. */
+export async function readAvailability(core: Core): Promise<AvailabilityDto> {
+  const response = await core.request('GET', `${API_PREFIX}/availability`);
+  if (response.status !== 200) {
+    throw new Error(`could not read the hours: ${response.status} ${JSON.stringify(response.body)}`);
+  }
+  return response.body as AvailabilityDto;
+}
+
+/** A valid `AvailabilityPut`: two weekly windows, a day off, an extra day. */
+export function sampleHours(): Record<string, unknown> {
+  return {
+    timeZone: 'Europe/Berlin',
+    rules: [
+      { weekday: 3, startLocal: '13:00', endLocal: '18:00', kind: 'work' },
+      { weekday: 1, startLocal: '09:00', endLocal: '12:00', kind: 'focus' },
+    ],
+    exceptions: [
+      { date: '2026-12-25', kind: 'off' },
+      { date: '2026-11-21', kind: 'extra', startLocal: '10:00', endLocal: '14:00' },
+    ],
+    prefs: {
+      maxDailyFocusMin: 300,
+      breakAfterMin: 50,
+      breakMin: 10,
+      dayStartLocal: '07:00',
+      dayEndLocal: '22:00',
+      riskLevel: 'p90',
+    },
+  };
+}
+
+const AVAILABILITY_TAG = /^W\/"availability:[1-9][0-9]*"$/;
 
 /**
  * Operations served by the Rust core, in the order they were ported.
@@ -210,6 +259,24 @@ export const portedRoutes: readonly RouteEntry[] = [
     prepare: async (core) => ({ version: (await readMe(core)).version }),
     body: () => ({ timeZone: 'Asia/Seoul', locale: 'ko-KR' }),
     otherBody: () => ({ locale: 'en-GB' }),
+  },
+  // RC-20 — available hours. Their own rules: `availability.test.ts`.
+  {
+    operationId: 'getAvailability',
+    successStatus: 200,
+    etag: { pattern: AVAILABILITY_TAG },
+  },
+  {
+    operationId: 'putAvailability',
+    successStatus: 200,
+    etag: { pattern: AVAILABILITY_TAG },
+    ifMatch: 'availability',
+    // One availability version for the whole suite: it moves with every
+    // accepted PUT (and with every change of an appointment), so each check
+    // reads it first.
+    prepare: async (core) => ({ version: (await readAvailability(core)).version }),
+    body: () => sampleHours(),
+    otherBody: () => ({ ...sampleHours(), rules: [] }),
   },
 ];
 

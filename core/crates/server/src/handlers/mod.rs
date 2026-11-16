@@ -6,6 +6,7 @@
 //! writing its function and listing it in [`table`]; paths, header rules and
 //! shapes come from the contract.
 
+mod availability;
 mod me;
 mod projects;
 mod tasks;
@@ -101,6 +102,8 @@ pub fn table() -> Vec<(&'static str, Handler)> {
         ("completeTask", tasks::complete_task),
         ("deleteTask", tasks::delete_task),
         ("createTaskDependency", tasks::create_task_dependency),
+        ("getAvailability", availability::get_availability),
+        ("putAvailability", availability::put_availability),
     ]
 }
 

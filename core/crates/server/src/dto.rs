@@ -4,7 +4,7 @@
 //! the TypeScript core's `toTaskDto` / `toProjectDto` / `toUserDto` do.
 
 use ohmydate_app::Page;
-use ohmydate_domain::{Id, MicroUsd, Owner, Project, Task};
+use ohmydate_domain::{Availability, Id, MicroUsd, Owner, Project, Task};
 use serde_json::{Map, Value, json};
 
 /// `Task` of the contract. `external` is always empty: it listed Vikunja
@@ -103,6 +103,54 @@ pub fn user(owner: &Owner) -> Value {
     body.insert("createdAt".into(), json!(owner.created_at.to_rfc3339()));
     body.insert("updatedAt".into(), json!(owner.updated_at.to_rfc3339()));
     Value::Object(body)
+}
+
+/// `Availability` of the contract. A window an exception does not have is
+/// absent, not `null`.
+#[must_use]
+pub fn availability(hours: &Availability) -> Value {
+    let rules: Vec<Value> = hours
+        .rules
+        .iter()
+        .map(|rule| {
+            json!({
+                "weekday": rule.weekday,
+                "startLocal": rule.start.to_string(),
+                "endLocal": rule.end.to_string(),
+                "kind": rule.kind.as_str(),
+            })
+        })
+        .collect();
+    let exceptions: Vec<Value> = hours
+        .exceptions
+        .iter()
+        .map(|exception| {
+            let mut body = Map::new();
+            body.insert("date".into(), json!(exception.date.to_string()));
+            body.insert("kind".into(), json!(exception.kind.as_str()));
+            if let Some(start) = exception.start {
+                body.insert("startLocal".into(), json!(start.to_string()));
+            }
+            if let Some(end) = exception.end {
+                body.insert("endLocal".into(), json!(end.to_string()));
+            }
+            Value::Object(body)
+        })
+        .collect();
+    json!({
+        "version": hours.version.get(),
+        "timeZone": hours.time_zone,
+        "rules": rules,
+        "exceptions": exceptions,
+        "prefs": {
+            "maxDailyFocusMin": hours.prefs.max_daily_focus_min,
+            "breakAfterMin": hours.prefs.break_after_min,
+            "breakMin": hours.prefs.break_min,
+            "dayStartLocal": hours.prefs.day_start.to_string(),
+            "dayEndLocal": hours.prefs.day_end.to_string(),
+            "riskLevel": hours.prefs.risk_level.as_str(),
+        },
+    })
 }
 
 /// `{items, nextCursor}` (08 §1).

@@ -45,13 +45,21 @@ interface Attempt {
   readonly body: unknown;
 }
 
+/**
+ * The `If-Match` tag of an entry for version `n`: an entity version, or the
+ * owner-wide availability version (08 §2.4a).
+ */
+function ifMatchTag(entry: RouteEntry, version: number): string {
+  return entry.ifMatch === 'availability' ? `W/"availability:${version}"` : `W/"${version}"`;
+}
+
 /** Builds a valid request for an entry on freshly prepared state. */
 async function attempt(route: RouteDefinition, entry: RouteEntry): Promise<Attempt> {
   const prepared = (await entry.prepare?.(core)) ?? {};
   const query = entry.query?.(prepared);
   const headers: Record<string, string> = {};
   const required = requiredHeaders(route);
-  if (required.includes('If-Match')) headers['if-match'] = `W/"${prepared.version ?? 1}"`;
+  if (required.includes('If-Match')) headers['if-match'] = ifMatchTag(entry, prepared.version ?? 1);
   if (required.includes('Idempotency-Key')) headers['idempotency-key'] = newIdempotencyKey();
   return {
     prepared,
@@ -198,14 +206,17 @@ describe.each(portedRoutes.map((entry) => [entry.operationId, entry] as const))(
       const request = await attempt(route, entry);
       const missing = await send(route, request, { headers: { 'if-match': undefined } });
       expectProblem(route, missing, 428, 'version_conflict');
-      for (const malformed of ['"1"', '1', 'W/"0"', '*']) {
+      const availability = entry.ifMatch === 'availability';
+      // The two kinds of tag do not stand in for each other.
+      const otherKind = availability ? 'W/"1"' : 'W/"availability:1"';
+      for (const malformed of ['"1"', '1', 'W/"0"', 'W/"availability:0"', '*', otherKind]) {
         const response = await send(route, request, { headers: { 'if-match': malformed } });
         expectProblem(route, response, 400, 'validation_failed');
       }
       const stale = await send(route, request, {
-        headers: { 'if-match': `W/"${(request.prepared.version ?? 1) + 7}"` },
+        headers: { 'if-match': ifMatchTag(entry, (request.prepared.version ?? 1) + 7) },
       });
-      expectProblem(route, stale, 412, 'version_conflict');
+      expectProblem(route, stale, 412, availability ? 'availability_changed' : 'version_conflict');
       // None of the refused attempts consumed the key or changed the resource.
       expectSuccess(route, await send(route, request), entry.successStatus);
     });

@@ -10,6 +10,7 @@
 //! thread pool.
 
 mod app;
+pub mod availability;
 mod cursor;
 mod error;
 pub mod projects;
