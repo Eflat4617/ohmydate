@@ -498,6 +498,20 @@
   cursor: grabbing;
 }
 
+/* Under a finger a block is not dragged (HOLO-07): the page scrolls from it,
+   a tap opens its card, and the edge that resizes — a strip no thumb could
+   take — is not there. */
+@media (pointer: coarse) {
+  .wg-item--editable {
+    cursor: pointer;
+    touch-action: auto;
+  }
+
+  .wg-item--editable .wg-item-resize {
+    display: none;
+  }
+}
+
 /* The server refused it as it stands: amber, and a warning mark. */
 .wg-item--invalid {
   --wg-fill: var(--amber-soft);

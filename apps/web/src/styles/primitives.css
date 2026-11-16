@@ -1772,10 +1772,14 @@
 
 /* While a sheet is open the toasts step out of its way: to the top edge on
    a phone (the sheet rises from the bottom), to the left on a wide screen
-   (the sheet stands at the right). */
-:root:has(.dialog-backdrop--sheet) .toast-region {
-  inset: calc(var(--space-3) + var(--safe-top)) calc(var(--space-3) + var(--safe-right)) auto
-    calc(var(--space-3) + var(--safe-left));
+   (the sheet stands at the right). On a phone a dialog does the same
+   (HOLO-07): a tall one ends in its buttons, right where a toast would lie —
+   and a toast's own button under a thumb that was going for 저장. */
+@media (max-width: 1023.98px) {
+  :root:has(.dialog-backdrop) .toast-region {
+    inset: calc(var(--space-3) + var(--safe-top)) calc(var(--space-3) + var(--safe-right)) auto
+      calc(var(--space-3) + var(--safe-left));
+  }
 }
 
 @media (min-width: 1024px) {

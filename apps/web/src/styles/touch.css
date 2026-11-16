@@ -48,9 +48,16 @@
     margin: 0;
   }
 
-  /* A link that stands on a line of its own: the line is the target. */
+  /* A small select in a card's head (집중 › 기록) is still a field. */
+  .tracker-filter select {
+    min-height: var(--hit-target);
+  }
+
+  /* A link that stands on a line of its own: the line is the target. The quiet
+     second choice of a next-step card is one (오늘은 여기까지, 쉬었다 하기). */
   .layout-panel-link,
   .ai-link,
+  .plan-next-link,
   .todo-list-title a,
   .breadcrumb a {
     display: inline-flex;
@@ -69,5 +76,22 @@
 
   .insights-switch {
     min-height: var(--hit-target);
+  }
+
+  /* A chip of one letter (a weekday) is still a thumb wide. */
+  .choice-chip {
+    justify-content: center;
+    min-width: var(--hit-target);
+  }
+
+  /* A schedule is chosen by its whole card; its name's row is a thumb tall. */
+  .plan-option-head {
+    min-height: var(--hit-target);
+  }
+
+  .plan-option-name {
+    display: flex;
+    align-items: center;
+    align-self: stretch;
   }
 }

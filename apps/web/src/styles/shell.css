@@ -171,6 +171,11 @@
   padding-inline: var(--space-2);
 }
 
+/* In a narrow menu the words win the room: the mark keeps its size. */
+.theme-switch-item > .icon {
+  flex: none;
+}
+
 .topbar-bell {
   color: var(--color-text-2);
 }

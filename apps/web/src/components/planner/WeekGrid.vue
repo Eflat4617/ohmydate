@@ -206,10 +206,26 @@ function endDrag(): void {
   window.removeEventListener('pointercancel', endDrag);
 }
 
+/**
+ * HOLO-07: on a phone a finger on a block is a scroll or a tap, never a drag.
+ * (A swipe that began on a block moved the block and the page stood still.)
+ * The block's card, one tap away, moves and resizes it in steps. A touch
+ * screen whose first pointer is a mouse keeps the finger drag it had.
+ */
+function fingerOnPhone(event: PointerEvent): boolean {
+  return (
+    event.pointerType === 'touch' &&
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches
+  );
+}
+
 function onItemPointerDown(event: PointerEvent, item: WeekItem, mode: 'move' | 'resize'): void {
   const interval = intervalOf(item);
   if (interval === null || event.button !== 0) return;
   dragged = false;
+  if (fingerOnPhone(event)) return;
   if (!props.editable) {
     emit('edit-blocked', item);
     return;

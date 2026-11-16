@@ -1313,6 +1313,21 @@ a.plan-rail-label:hover {
   line-height: var(--leading-snug);
 }
 
+/* Two ways to change a block, one line each: the pointer's and the finger's. */
+.plan-hint-coarse {
+  display: none;
+}
+
+@media (pointer: coarse) {
+  .plan-hint-fine {
+    display: none;
+  }
+
+  .plan-hint-coarse {
+    display: inline;
+  }
+}
+
 .plan-week-hint > .icon {
   flex: none;
   margin-top: 0.1em;

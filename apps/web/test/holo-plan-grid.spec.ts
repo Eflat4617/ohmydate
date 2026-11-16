@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import WeekGrid from '../src/components/planner/WeekGrid.vue';
 import {
   EDIT_GRID_MINUTES,
@@ -487,6 +487,72 @@ describe('WeekGrid: proposals on the page', () => {
     await item.trigger('click');
     expect(wrapper.emitted('open')).toHaveLength(1);
     wrapper.unmount();
+  });
+
+  describe('under a finger (HOLO-07)', () => {
+    /** A press as a pointer of this type; `coarse` is what the device's first pointer is. */
+    function pressAs(element: Element, clientY: number, pointerType: string, coarse: boolean): void {
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: query === '(pointer: coarse)' ? coarse : false,
+        media: query,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }));
+      const event = new MouseEvent('pointerdown', { button: 0, clientY, bubbles: true });
+      Object.defineProperty(event, 'pointerType', { value: pointerType });
+      element.dispatchEvent(event);
+    }
+
+    function tallGrid() {
+      const wrapper = mountGrid({ editable: true });
+      Object.defineProperty(wrapper.get('[data-week-body]').element, 'clientHeight', { configurable: true, value: 900 });
+      return wrapper;
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('on a phone a finger that moves over a block does not move it: a scroll is not a drag (negative)', async () => {
+      const wrapper = tallGrid();
+      const item = wrapper.get('[data-item="proposal:0@2026-11-10"]');
+      pressAs(item.element, 100, 'touch', true);
+      window.dispatchEvent(new MouseEvent('pointermove', { clientY: 160 }));
+      window.dispatchEvent(new MouseEvent('pointermove', { clientY: 260 }));
+      window.dispatchEvent(new MouseEvent('pointerup', { clientY: 260 }));
+      expect(wrapper.emitted('edit')).toBeUndefined();
+      expect(wrapper.emitted('edit-blocked')).toBeUndefined();
+      // Nor by its lower edge.
+      pressAs(item.get('[data-resize]').element, 300, 'touch', true);
+      window.dispatchEvent(new MouseEvent('pointermove', { clientY: 250 }));
+      expect(wrapper.emitted('edit')).toBeUndefined();
+      wrapper.unmount();
+    });
+
+    it('on a phone a tap opens the block’s card, where it is changed in steps', async () => {
+      const wrapper = tallGrid();
+      const item = wrapper.get('[data-item="proposal:0@2026-11-10"]');
+      pressAs(item.element, 100, 'touch', true);
+      window.dispatchEvent(new MouseEvent('pointerup', { clientY: 100 }));
+      await item.trigger('click');
+      expect(wrapper.emitted('open')).toHaveLength(1);
+      expect(wrapper.emitted('edit')).toBeUndefined();
+      wrapper.unmount();
+    });
+
+    it('a mouse on the same phone-sized device still drags, and so does a finger where the first pointer is a mouse (negative)', async () => {
+      for (const [pointerType, coarse] of [['mouse', true], ['touch', false], ['pen', true]] as const) {
+        const wrapper = tallGrid();
+        const item = wrapper.get('[data-item="proposal:0@2026-11-10"]');
+        pressAs(item.element, 100, pointerType, coarse);
+        window.dispatchEvent(new MouseEvent('pointermove', { clientY: 125 }));
+        window.dispatchEvent(new MouseEvent('pointerup', { clientY: 125 }));
+        expect((wrapper.emitted('edit') ?? []).map((edit) => edit[1]), `${pointerType}, coarse ${String(coarse)}`).toEqual([
+          { startAt: seoul('2026-11-10', '09:30'), endAt: seoul('2026-11-10', '11:00') },
+        ]);
+        wrapper.unmount();
+      }
+    });
   });
 
   it('draws the 쉼 of a day as a labelled band and says so in the day’s head and name', () => {

@@ -26,7 +26,7 @@
 //   - every field's text is 16px at least (no zoom on focus).
 // Output: docs/ui-polish/<label>/touch-report-<browser>.json. Exit code 1 on
 // a failed step, a horizontal scroll, a target under 24px or a field under 16px.
-/* global document, window, getComputedStyle, PointerEvent -- used only inside page.evaluate() browser callbacks */
+/* global document, window, getComputedStyle, PointerEvent, Event -- used only inside page.evaluate() browser callbacks */
 import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -47,6 +47,8 @@ const label = arg('label', 'holo-07');
 const only = arg('only', '');
 const port = Number(arg('port', '5196'));
 const reportOnly = process.argv.includes('--report-only');
+/** `--shots <dir>`: a picture of every stop of the first run (390 wide, dark), for looking at. */
+const shotsDir = arg('shots', '');
 let baseUrl = arg('url', '');
 const outDir = join(webRoot, 'docs', 'ui-polish', label);
 
@@ -172,11 +174,12 @@ async function measure(page) {
       };
       const targets = [];
       for (const element of document.querySelectorAll(
-        'a[href], button, summary, select, textarea, input:not([type="hidden"]), [role="button"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="checkbox"], [role="radio"]',
+        'a[href], button, summary, select, textarea, input:not([type="hidden"]), [role="button"], [role="option"], [role="tab"], [role="menuitem"], [role="switch"], [role="checkbox"], [role="radio"], [role="gridcell"][tabindex]',
       )) {
         if (element.disabled === true) continue;
-        // A checkbox or radio is pressed through its label: the label is the target.
-        const hit = element.matches('input[type="checkbox"], input[type="radio"]') ? (element.closest('label') ?? element) : element;
+        // A checkbox or radio is pressed through its label (around it, or `for` it): the label is the target.
+        const labelled = element.matches('input[type="checkbox"], input[type="radio"]');
+        const hit = labelled ? (element.closest('label') ?? (element.id ? document.querySelector(`label[for="${element.id}"]`) : null) ?? element) : element;
         // A link inside a sentence is text, as WCAG 2.5.8 has it.
         if (hit.matches('a') && getComputedStyle(hit).display === 'inline') continue;
         const box = seen(hit);
@@ -198,6 +201,9 @@ async function measure(page) {
 
 async function stop(page, run, name) {
   await settle(page);
+  if (shotsDir.length > 0 && run.viewport.width === 390 && run.scheme === 'dark') {
+    await page.screenshot({ path: join(resolve(shotsDir), `${name}-${engineName}.png`), animations: 'disabled' }).catch(() => undefined);
+  }
   const measured = await measure(page);
   const where = `${name} ${run.viewport.width}x${run.viewport.height} ${run.scheme}`;
   const overflowX = measured.scrollWidth > measured.clientWidth;
@@ -538,7 +544,271 @@ async function walkLoop(browser, run) {
   });
 }
 
-const WALKS = { places: walkPlaces, loop: walkLoop, canvas: walkCanvas };
+/** ③ → ④ → ⑤: 개요's next block, 집중 시작, 완료, the one-tap review, the next step. */
+async function walkFocus(browser, run) {
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/overview');
+    const start = page.locator('[data-primary="start"]');
+    await start.waitFor();
+
+    await step(run, '개요: the page scrolls with a swipe that starts on the timetable', async () => {
+      const table = page.locator('.tt').first();
+      await table.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(150);
+      const before = await scrollY(page);
+      const from = await centre(table);
+      await finger(page, run, from, { x: from.x, y: from.y - 240 }, { steps: 12 });
+      await page.waitForTimeout(350);
+      if (run.touch !== null) expectThat((await scrollY(page)) > before + 60, `the page did not scroll from the timetable (${before} → ${await scrollY(page)})`);
+      await stop(page, run, 'overview-timetable');
+    });
+
+    await step(run, '개요: 집중 시작 on the next block opens the timer', async () => {
+      await start.scrollIntoViewIfNeeded();
+      await start.tap();
+      await page.waitForURL(/\/focus\//);
+      await page.locator('.focus-timer').waitFor();
+      await stop(page, run, 'focus-running');
+    });
+
+    await step(run, '집중: 완료 ends the session and the review is one tap', async () => {
+      await page.getByRole('button', { name: /^완료/ }).first().tap();
+      await page.getByRole('heading', { name: '이번 세션은 어땠나요?' }).waitFor();
+      await stop(page, run, 'focus-review');
+      const submit = page.locator('.review-submit');
+      await submit.scrollIntoViewIfNeeded();
+      await submit.tap();
+      await page.locator('[data-focus-next]').waitFor();
+      await stop(page, run, 'focus-next');
+    });
+
+    await step(run, '집중: 오늘은 여기까지 leads back to 개요’s recap', async () => {
+      const done = page.locator('[data-focus-next-done]');
+      await done.scrollIntoViewIfNeeded();
+      await done.tap();
+      await page.locator('[data-day-recap]').waitFor();
+      await stop(page, run, 'overview-recap');
+    });
+  });
+
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/focus');
+    await page.locator('[data-tracker-idle], [data-tracker-start]').first().waitFor();
+    await step(run, '집중, the place: the task picker opens under a thumb and a tap picks', async () => {
+      const field = page.locator('.task-finder input').first();
+      await field.tap();
+      await page.locator('.task-finder [role="option"]').first().waitFor();
+      await stop(page, run, 'focus-home-picker');
+      const option = page.locator('.task-finder [role="option"]').nth(1);
+      const title = (await option.locator('.task-finder-option-title').innerText()).trim();
+      await option.tap();
+      await page.locator('.task-finder-list').waitFor({ state: 'hidden' });
+      expectThat((await field.inputValue()) === title, `the field does not hold what was picked ("${await field.inputValue()}" for "${title}")`);
+    });
+  });
+}
+
+/** 플래너: a phone arrives on the day; the week scrolls inside its own frame; the 약속 dialog. */
+async function walkPlanner(browser, run) {
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/overview');
+    await page.locator('[data-today-board] .today-card').first().waitFor();
+
+    await step(run, '플래너: from 더 보기, a phone arrives on the day', async () => {
+      await page.locator('[data-nav-more]').tap();
+      await page.getByRole('dialog', { name: '더 보기' }).waitFor();
+      await stop(page, run, 'more-sheet');
+      await page.getByRole('dialog', { name: '더 보기' }).getByRole('link', { name: '플래너' }).tap();
+      await page.locator('[data-planner="day"]').waitFor();
+      expectThat(/[?&]view=day/.test(page.url()), `the address is not the day: ${page.url()}`);
+      await stop(page, run, 'planner-day');
+    });
+
+    await step(run, '플래너: 주 is still the week, and a sideways swipe on it does not drag the page', async () => {
+      await page.locator('[data-planner-view="week"]').tap();
+      await page.locator('[data-planner="week"]').waitFor();
+      await stop(page, run, 'planner-week');
+      const grid = page.locator('[data-week-grid]');
+      const from = await centre(grid);
+      await finger(page, run, { x: from.x + 120, y: from.y }, { x: from.x - 120, y: from.y }, { steps: 10 });
+      await page.waitForTimeout(250);
+      const sideways = await page.evaluate(() => window.scrollX);
+      expectThat(sideways === 0, `the page moved sideways (${sideways}px)`);
+    });
+
+    await step(run, '플래너: a tap on a block shows what it is, and a tap elsewhere puts it away', async () => {
+      const item = page.locator('[data-week-grid] [data-item]').first();
+      await item.scrollIntoViewIfNeeded();
+      await item.tap();
+      await page.locator('.planner-card').waitFor();
+      await stop(page, run, 'planner-item-card');
+      await page.locator('h1').first().tap();
+      await page.locator('.planner-card').waitFor({ state: 'detached' });
+    });
+
+    await step(run, '플래너: 약속 추가 opens its dialog, which closes from its own button', async () => {
+      const add = page.locator('[data-planner-add]');
+      await add.scrollIntoViewIfNeeded();
+      await add.tap();
+      await page.locator('[data-planner-add-dialog]').waitFor();
+      await stop(page, run, 'planner-add');
+      await page.locator('[data-planner-add-dialog]').getByRole('button', { name: '닫기' }).first().tap();
+      await page.locator('[data-planner-add-dialog]').waitFor({ state: 'detached' });
+    });
+  });
+}
+
+/** What floats: 더 보기, the account menu, the notifications — each reached, and each put away by a tap outside. */
+async function walkFloating(browser, run) {
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/overview');
+    await page.locator('[data-today-board] .today-card').first().waitFor();
+
+    await step(run, '더 보기: opens from the nav, and a tap on the scrim closes it', async () => {
+      await page.locator('[data-nav-more]').tap();
+      const sheet = page.getByRole('dialog', { name: '더 보기' });
+      await sheet.waitFor();
+      await tapOutside(page, sheet);
+      await sheet.waitFor({ state: 'detached' });
+    });
+
+    await step(run, 'the account menu: opens under a thumb, holds the theme, and a tap outside closes it', async () => {
+      await page.locator('[data-user-menu]').tap();
+      await page.locator('#topbar-user-menu').waitFor();
+      await stop(page, run, 'account-menu');
+      await page.locator('#topbar-user-menu [data-theme-choice="light"]').tap();
+      const bar = await page.locator('meta[name="theme-color"]').getAttribute('content');
+      expectThat(bar === '#f0f4ef', `the browser bar did not follow the theme (${bar})`);
+      await page.locator('#topbar-user-menu [data-theme-choice="dark"]').tap();
+      const dark = await page.locator('meta[name="theme-color"]').getAttribute('content');
+      expectThat(dark === '#070a08', `the browser bar did not come back (${dark})`);
+      // The page's own margin, beside the cards: nothing to press there but "outside".
+      await page.touchscreen.tap(5, Math.round(run.viewport.height * 0.6));
+      await page.locator('#topbar-user-menu').waitFor({ state: 'detached' });
+    });
+
+    await step(run, '알림: the panel opens from 더 보기 and closes from its own button', async () => {
+      await page.locator('[data-nav-more]').tap();
+      await page.getByRole('dialog', { name: '더 보기' }).getByRole('button', { name: '알림' }).tap();
+      const panel = page.getByRole('dialog', { name: '알림' });
+      await panel.waitFor();
+      await stop(page, run, 'notifications');
+      await panel.getByRole('button', { name: /닫기/ }).first().tap();
+      await panel.waitFor({ state: 'detached' });
+    });
+
+    await step(run, 'offline: the page says so in its own words, and comes back', async () => {
+      await page.context().setOffline(true);
+      await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+      await page.locator('.offline-banner').waitFor();
+      await stop(page, run, 'offline');
+      await page.context().setOffline(false);
+      await page.evaluate(() => window.dispatchEvent(new Event('online')));
+      await page.locator('.offline-banner').waitFor({ state: 'detached' });
+    });
+  });
+}
+
+/** ② 계획: the stages, the three schedules stacked, and a block changed by touch. */
+async function walkPlan(browser, run) {
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/plan/schedule');
+    const create = page.locator('[data-plan-create]');
+    await create.waitFor();
+    await stop(page, run, 'plan-scope');
+
+    await step(run, '계획: to-dos are picked by tapping their rows', async () => {
+      const rows = page.locator('[data-scope-picker] .task-picker-row');
+      for (const index of [1, 2, 3]) {
+        const row = rows.nth(index);
+        await row.scrollIntoViewIfNeeded();
+        await row.tap();
+      }
+      expectThat((await page.locator('[data-scope-picker] .task-picker-row input:checked').count()) === 3, 'three taps did not pick three to-dos');
+    });
+
+    await step(run, '계획: 일정안 만들기 leads to three schedules, stacked one under another', async () => {
+      await create.scrollIntoViewIfNeeded();
+      await create.tap();
+      await page.waitForURL(/\/plan\/schedule\/[0-9a-f-]+/);
+      const cards = page.locator('[data-candidate]');
+      await cards.first().waitFor();
+      await stop(page, run, 'plan-options');
+      const boxes = await cards.evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().toJSON()));
+      expectThat(boxes.length === 3, `expected three schedules, found ${boxes.length}`);
+      for (const [index, box] of boxes.entries()) {
+        expectThat(Math.abs(box.left - boxes[0].left) < 2, `schedule ${index + 1} is not under the first`);
+        if (index > 0) expectThat(box.top >= boxes[index - 1].bottom - 1, `schedule ${index + 1} overlaps the one above`);
+      }
+    });
+
+    const block = page.locator('[data-week-grid] [data-kind="proposal"]').first();
+    await step(run, '계획: a swipe that starts on a block scrolls the page and does not move the block', async () => {
+      await block.waitFor();
+      await bringToMiddle(page, block);
+      // The week scrolls inside its own frame: the swipe moves that, or the page once the frame is at its end.
+      const scrolled = () =>
+        page.evaluate(() => {
+          let total = window.scrollY;
+          for (let node = document.querySelector('[data-week-grid] [data-item]'); node !== null; node = node.parentElement) total += node.scrollTop;
+          return total;
+        });
+      const before = { y: await scrolled(), name: await block.getAttribute('aria-label') };
+      const from = await centre(block);
+      await finger(page, run, from, { x: from.x, y: from.y - 160 }, { steps: 12 });
+      await page.waitForTimeout(350);
+      if (run.touch !== null) expectThat((await scrolled()) > before.y + 40, `nothing scrolled from the block (${before.y} → ${await scrolled()})`);
+      expectThat((await block.getAttribute('aria-label')) === before.name, `the swipe moved the block ("${before.name}" → "${await block.getAttribute('aria-label')}")`);
+    });
+
+    await step(run, '계획: a tap on a block opens its card, and 더 늦게 moves it', async () => {
+      await bringToMiddle(page, block);
+      const before = await block.getAttribute('aria-label');
+      await block.tap();
+      const later = page.locator('[data-card-later]');
+      await later.waitFor();
+      await stop(page, run, 'plan-block-card');
+      await later.tap();
+      await page.waitForTimeout(250);
+      expectThat((await block.getAttribute('aria-label')) !== before, 'the block did not move');
+    });
+  });
+}
+
+/** 설정 › 가용 시간: a finger paints a cell; a swipe on the time column moves the page. */
+async function walkHours(browser, run) {
+  await withPage(browser, run, undefined, async (page) => {
+    await go(page, '/settings/availability');
+    await page.locator('[data-settings-section="availability"] .settings-section').waitFor();
+    const cell = page.locator('.avail-cell').nth(30);
+    await cell.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(150);
+    await stop(page, run, 'settings-hours');
+
+    await step(run, '가용 시간: a swipe on the time column scrolls the page, and paints nothing', async () => {
+      const column = page.locator('.avail-time').nth(4);
+      const states = () => page.locator('.avail-cell').evaluateAll((cells) => cells.map((cell) => cell.getAttribute('data-state')).join(','));
+      const painted = await states();
+      const before = await scrollY(page);
+      const from = await centre(column);
+      await finger(page, run, from, { x: from.x, y: from.y - 200 }, { steps: 12 });
+      await page.waitForTimeout(350);
+      if (run.touch !== null) expectThat((await scrollY(page)) > before + 60, `the page did not scroll from the time column (${before} → ${await scrollY(page)})`);
+      expectThat((await states()) === painted, 'the swipe painted cells');
+    });
+
+    await step(run, '가용 시간: a tap on a cell paints it', async () => {
+      const target = page.locator('.avail-cell').nth(30);
+      await target.scrollIntoViewIfNeeded();
+      const before = await target.getAttribute('aria-label');
+      await target.tap();
+      await page.waitForTimeout(200);
+      expectThat((await target.getAttribute('aria-label')) !== before, 'the tap did not change the cell');
+    });
+  });
+}
+
+const WALKS = { places: walkPlaces, loop: walkLoop, canvas: walkCanvas, focus: walkFocus, planner: walkPlanner, plan: walkPlan, hours: walkHours, floating: walkFloating };
 
 async function main() {
   await mkdir(outDir, { recursive: true });

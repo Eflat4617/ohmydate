@@ -51,6 +51,40 @@ parts are `src/domain/canvas`, the screen `src/components/canvas` and
 `views/TasksView.vue`, the styles `screens/23-canvas.css`. The project list
 screen is gone. Its captures are in `holo-05/`.
 
+HOLO-07 (2026-11-16) is the phone: the server's web is installable, keeps
+clear of the device's edges, and was walked with a finger. `DESIGN.md` › On a
+phone is the description. What a finger does, screen by screen:
+
+| Where | A finger |
+|---|---|
+| 할 일, the canvas | a swipe that starts on a to-do scrolls the page; a tap opens the detail; a long press that goes nowhere picks (and while something is picked a tap picks and unpicks); a long press and then a drag moves; a folder's head, held, moves the folder. The line over the surface says so. |
+| 계획 › a schedule | a swipe on a block scrolls the week; a tap opens the block's card, whose buttons move and resize it in 5-minute steps. A finger does not drag a block on a phone (the hint says 끌어서 고치기는 넓은 화면에서). |
+| 플래너 | a phone that arrives at `/planner` gets the day; 주 in the view switch is the week, which scrolls inside its own frame. |
+| 설정 › 가용 시간 | a tap or a drag across cells paints; the time column, swiped, moves the page (FU-97). |
+| a sheet, a dialog | the page behind does not scroll or pull-to-refresh; a tap on the scrim closes a sheet; toasts stand at the top while one is open. |
+| the capture sheet | with the keyboard up its button rides the sheet's foot. |
+
+`node scripts/touch-walk.mjs` (and `--browser webkit`) walks all of it in a
+phone emulation with touch, 390×844 and 360×780, dark and light, and measures
+at every stop: no sideways scroll, every tap target 24px at least (the ones
+under 44px are listed), every field's text 16px at least. Its reports are
+`holo-07/touch-report-<browser>.json`. On Chromium the gestures go in through
+the browser's own input pipeline; on WebKit a tap is real and the other
+gestures are the pointer events of one finger, handed to the page.
+
+Targets that stay under 44px, and why: a block of the week grid (its height is
+its length in time, its width a seventh of a phone — the day view is the
+phone's own) and a cell of the available-hours grid (half an hour, 24px: the
+floor). Everything else on the walked screens is 44px or more.
+
+**What only a real phone can show** (not checked here):
+- that Chrome on Android offers 설치 and makes the home-screen app (the manifest, the icons and the HTTPS address are what it asks for; no emulation mints one), and how the maskable icon is cut by the launcher;
+- the real safe-area insets (a notch, the gesture bar): the layout was checked by setting the `--safe-*` tokens by hand, not by a device reporting them;
+- the on-screen keyboard: its space was stood in for by a shorter window (`interactive-widget=resizes-content` makes the two the same on Chrome for Android); iOS Safari does not resize the page for its keyboard, so there the capture sheet's foot can still be under it;
+- the long-press menu and the tick (`navigator.vibrate`) on a held to-do, pull-to-refresh, and rubber-banding: the rules are in place, their effect on a device is not seen;
+- WebKit's own scroll arbitration (a swipe that starts on a to-do there): the page's handling was run on WebKit, the browser's was not;
+- a finger's real size: 44px is the rule, a thumb is the test.
+
 ## Stylesheet layers
 
 `src/styles.css` imports these in order, and each layer may only use the ones
@@ -64,6 +98,7 @@ above it:
 | Charts | `src/styles/charts.css` | the bar set, the ring and its legend, the trend (`src/components/charts`) |
 | Shell | `src/styles/shell.css` | sidebar, top bar, bottom nav and More sheet, page frame, adaptive frame, calm (Focus) mode |
 | Screens | `src/styles/screens/NN-*.css` (indexed by `src/styles/screens.css`) | one file per group of screens: layout and screen-specific pieces only |
+| Touch | `src/styles/touch.css` | the 44px floor for the tap targets a coarse pointer still found short (HOLO-07); every rule is inside `@media (pointer: coarse)` |
 
 Rule: **no colour and no font name outside `tokens.css`**, and no raw length in
 `padding`, `margin` or `gap`. Vue files have no `<style>` blocks. Screens get
