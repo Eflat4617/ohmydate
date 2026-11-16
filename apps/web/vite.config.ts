@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin, type ProxyOptions } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import { allowedHostsFromEnv } from './config/allowedHosts';
 import { CORE_READY_FILE_ENV, coreApiProxy } from './config/coreProxy';
 
 /**
@@ -50,7 +51,16 @@ export default defineConfig(({ mode, command }) => ({
       '/api': mode === 'desktop' && command === 'serve' ? desktopDevProxy() : serverDevProxy(),
     },
   },
+  // The built server web (`vite preview`, started by `local:start`): loopback
+  // names always, plus the exact names the operator listed — a tailnet name
+  // behind `tailscale serve` (config/allowedHosts.ts). Never the desktop's.
+  ...(mode === 'desktop' ? {} : previewHosts()),
 }));
+
+function previewHosts(): { preview?: { allowedHosts: string[] } } {
+  const hosts = allowedHostsFromEnv();
+  return hosts.length === 0 ? {} : { preview: { allowedHosts: hosts } };
+}
 
 /** The server's web in development: the planner API, which signs people in itself. */
 function serverDevProxy(): ProxyOptions {

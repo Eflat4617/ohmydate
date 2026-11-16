@@ -331,11 +331,14 @@ export function googleEnvironment(context, preflight, env = process.env) {
   return { ...preflight.google.env, ...googleTunables(env, context.settings) };
 }
 
-function webEnvironment(context, marker) {
+export function webEnvironment(context, marker) {
+  const allowedHosts = (context.webAllowedHosts ?? '').trim();
   return {
     ...childProcessEnv(),
     OHMYDATE_API_PROXY_TARGET: context.apiUrl,
     VITE_MOCK: '0',
+    // Loopback names only unless this machine's settings list more (a tailnet name).
+    ...(allowedHosts.length === 0 ? {} : { OHMYDATE_WEB_ALLOWED_HOSTS: allowedHosts }),
     [PROCESS_MARKER_ENV]: marker,
   };
 }

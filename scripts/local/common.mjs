@@ -59,8 +59,22 @@ export function localEnvPath(env = process.env) {
   return resolve(repoRoot, env.OHMYDATE_LOCAL_ENV_FILE ?? 'deploy/local/local.env');
 }
 
+/**
+ * Settings of THIS machine only, never committed (`.local/` is ignored): the
+ * same `KEY=value` lines as `deploy/local/local.env`, read after it. Meant for
+ * what differs per machine and is not a secret — for example
+ * `WEB_ALLOWED_HOSTS=<this machine's tailnet name>`. A missing file is fine.
+ */
+export function localOverridePath(env = process.env) {
+  return resolve(repoRoot, env.OHMYDATE_LOCAL_OVERRIDE_FILE ?? '.local/local.override.env');
+}
+
 export function localSettings(env = process.env) {
-  return { ...LOCAL_ENV_DEFAULTS, ...readEnvFile(localEnvPath(env)) };
+  return {
+    ...LOCAL_ENV_DEFAULTS,
+    ...readEnvFile(localEnvPath(env)),
+    ...readEnvFile(localOverridePath(env)),
+  };
 }
 
 export function resolveFromRepo(value) {
@@ -126,6 +140,8 @@ export function createContext(env = process.env) {
     databaseUrlOverride,
     apiUrl,
     webUrl,
+    // Extra host names the web may be asked for (apps/web/config/allowedHosts.ts); '' = loopback only.
+    webAllowedHosts: env.OHMYDATE_WEB_ALLOWED_HOSTS ?? settings.WEB_ALLOWED_HOSTS ?? '',
     postgresEnvPath,
     vikunjaEnvPath,
     legacyStackEnvPath,
