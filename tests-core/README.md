@@ -64,6 +64,15 @@ the token never reaches the process log. The directory is the fixture of the
 server crate (`core/crates/server/tests/fixtures/web`); the real web app is
 not built in tests.
 
+`ledger.test.ts` keeps the parity ledger `core/PARITY.md` honest (blueprint
+15 §7.5): every TypeScript test file of the reference core has exactly one
+line, every Rust or harness test a line points at exists, "not yet" lines
+wait for a task that is still open, and the totals match the lines. Adding a
+`*.test.ts` under `services/api/test`, `packages/*/test` or `e2e/tests`
+without a ledger line fails this test. `corepack pnpm run core:ledger` runs
+it alone (with `docs.test.ts`, no core process, under a second);
+`LEDGER_WRITE_TOTALS=1` rewrites the totals block.
+
 `lifecycle.test.ts` covers the process: ready file (0600, removed on exit),
 single instance (exit 3), usage errors (exit 2), restart durability including
 stored idempotent responses, a fresh launch token per start, and the movable

@@ -52,6 +52,7 @@ DB가 필요한 테스트는 `DATABASE_URL`(planner_test)과 `VIKUNJA_URL`이 �
   - `corepack pnpm run core:check` = `cargo fmt --check` + `cargo clippy --all-targets -- -D warnings` + `cargo test`, 그리고 서버 크레이트는 테스트 빌드(`--features test-clock`)로 clippy와 test를 한 번 더.
   - `corepack pnpm run core:build` = 테스트용 바이너리 빌드(`cargo build -p ohmydate-server --features test-clock`). 하네스와 E2E가 쓰는 바이너리다.
   - `corepack pnpm run core:parity` = `core:build` + `tests-core/`(블랙박스 계약 패리티, 웹 서빙·`/__boot`·수명 주기, 계획 문서 표 검사).
+  - `corepack pnpm run core:ledger` = 패리티 원장 `core/PARITY.md`와 계획 문서 표 검사(코어 프로세스 없이 1초 안). TypeScript 테스트 파일(`services/api/test`, `packages/*/test`, `e2e/tests`)을 더하면 원장에 한 줄을 더한다. RC Task를 끝내면 원장에서 그 Task를 "끝난 Task"로 옮기고 자기 `아직` 줄을 전부 `옮김`·`대체`·`해당 없음`으로 바꾼다. 합계 표는 `LEDGER_WRITE_TOTALS=1 corepack pnpm run core:ledger`가 다시 쓴다.
   - `corepack pnpm run core:oracle -- --count N` = TypeScript 스케줄러로 오라클 팩 다시 만들기(인자 없이 = 커밋하는 `sample.json`).
   - `corepack pnpm run core:diff` = 기준 테스트의 입력을 모으고(`core:harvest`) 시드 2,000건과 함께 팩을 `core/target/oracle/`에 만들어(커밋하지 않는다) Rust 스케줄러와 층별로 대조. `ORACLE_COUNT`·`ORACLE_SEED`로 개수·시드를 바꾼다. 불일치 허용 0. 스케줄러(`packages/scheduler/src` 또는 `core/crates/scheduler`)를 건드린 Task는 이것을 돌린다. 생성기 코드를 일부러 틀리게 해도 이것과 테스트가 통과하면, 그 코드가 결과를 가르는 입력을 내보내기의 `pathCases()`에 더하고 `core:oracle`로 `sample.json`을 다시 만들어 함께 커밋한다(15 §5.3).
   - `corepack pnpm run core:shrink -- --pack <팩> --case <건 id>` = 불일치 건의 입력을 최소로 줄여 `core/crates/scheduler/tests/oracle/regressions/`에 건 하나짜리 팩으로 쓴다(15 §5.3). 스케줄러 불일치를 고칠 때는 그 팩을 함께 커밋한다.

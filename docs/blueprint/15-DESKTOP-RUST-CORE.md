@@ -25,7 +25,7 @@ RC-00에서 측정한 것:
 | advisory lock 호출 | 11곳 → 0 (프로세스 하나, 쓰기 트랜잭션 하나) |
 | EXCLUDE 제약 위반 처리(`23P01`) | 3곳(승인·Today·재계획) → 트랜잭션 안 코드 검사 |
 | Rust 테스트 (RC-00) | 178개: domain 37, store 27, app 26, scheduler 19 + 오라클 8, server 43 + bin 4 + HTTP 14 |
-| 패리티 하네스 | operation 12개, 테스트 141개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개), 시계 테스트(141개)를 더했다 |
+| 패리티 하네스 | operation 12개, 테스트 150개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개), 시계 테스트(141개), 원장 검사 `ledger.test.ts`와 기준 테스트의 두 경우(150개)를 더했다 |
 | 오라클 팩 `sample.json` | 27건(golden 15, 생성 9, 재계획 1, 잘못된 입력 2), 211 KiB, 기준 tzdata 2026c vs jiff 2026e — 불일치 0 |
 | 서드파티 크레이트 | 126개(리눅스 그래프). MIT/Apache-2.0/BSD 밖은 4건(§9.4) |
 
@@ -569,7 +569,7 @@ p95 비율(Rust 최적화 / TypeScript) = 5.2 / 280 ≈ **0.019** (약 54배 빠
 
 ### 5.5 스케줄러 테스트 대응과 단계별 결과
 
-TypeScript 테스트 파일 → Rust 테스트(스케줄러 크레이트의 원장. `core/PARITY.md`가 생기면 이 표를 그대로 옮긴다).
+TypeScript 테스트 파일 → Rust 테스트(스케줄러 크레이트의 원장). RC-10A에서 `core/PARITY.md`로 옮겼다 — 상태와 경로는 그쪽이 정본이고 검사된다. 아래 표는 건별 설명(무엇을 묶었고 무엇을 더했는지)으로 남긴다.
 
 | TypeScript (`packages/scheduler/test`) | Rust (`core/crates/scheduler`) | 상태 |
 |---|---|---|
@@ -699,18 +699,25 @@ TypeScript: 키 예약(pending) 커밋 → 유스케이스 실행 → 완료 기
 
 ### 7.5 패리티 원장
 
-`core/PARITY.md`(RC-10에서 만든다): TypeScript 테스트 파일마다 한 줄 — `옮김(→ Rust 테스트 경로)` / `대체(→ 무엇)` / `해당 없음(사유)`. 오늘의 모수:
+`core/PARITY.md`(**있음**, 초판 RC-10A): TypeScript 테스트 파일마다 한 줄 — `옮김(→ Rust 테스트 경로)` / `대체(→ 무엇)` / `해당 없음(사유)` / `아직(맡을 Task)`. 한 파일에 성격이 다른 건이 섞여 있으면 큰 쪽으로 분류하고 나머지를 같은 줄에 적는다.
 
-| 위치 | 파일 | 테스트(소스에서 센 어림수) | 예상 |
-|---|---|---|---|
-| `services/api/test` | 105 | 793 | 인증·세션·CSRF·풀·리더·Vikunja·종료 정산 일부는 해당 없음, 나머지는 옮김 또는 패리티 하네스로 대체 |
-| `packages/scheduler/test` | 21 | 236(실행 결과, 속성 17개 포함) | 전부 옮김 |
-| `packages/llm/test` | 20 | 267 | 평가 도구 2개 빼고 옮김 |
-| `packages/domain/test` | 11 | 100 | 옮김 |
-| `packages/provider-native/test`, `packages/testkit` | 4 | 계약 스위트 | `app::tasks` 테스트로 대체(RC-00에서 일부) |
-| `packages/provider-vikunja/test` | 15 | 120 | 해당 없음 |
-| `packages/contracts/test` | 19 | 121 | TypeScript에 남는다 |
-| `e2e/tests` | 13 | 35 | §7.3 |
+원장은 스스로 낡지 못한다. `tests-core/ledger.test.ts`(`corepack pnpm run core:ledger`, `core:parity`에도 들어 있다)가 다음에서 실패한다: 원장에 없는 `*.test.ts`·`*.spec.ts`가 생겼을 때, 원장의 파일이 사라졌을 때, 줄이 가리키는 Rust·하네스 테스트 파일이나 테스트 이름이 없을 때, `아직` 줄이 끝난 Task를 가리킬 때, 합계 표가 줄과 다를 때, 원장의 Task 목록이 §10의 표와 다를 때. 그래서 Task를 끝내는 사람은 자기 Task를 "끝난 Task"로 옮기는 순간 자기 `아직` 줄을 전부 고쳐야 한다. (확인: 줄 하나를 지우고, 경로 하나와 테스트 이름 하나를 틀리게 하고, `아직`을 끝난 Task로 바꿨을 때 각각 실패했다.)
+
+초판의 수(2026-11-16, 파일 212개):
+
+| 위치 | 파일 | 옮김 | 대체 | 해당 없음 | 아직 | 비고 |
+|---|---|---|---|---|---|---|
+| `services/api/test` | 107 | 6 | 10 | 34 | 57 | 해당 없음: 로그인·세션·CSRF, pg 풀, 리더 잠금, Vikunja, Node 산출물. 아직: RC-20 1, RC-40 7, RC-50 8, RC-60 7, RC-70b 21, RC-80 4, RC-90 9 |
+| `packages/scheduler/test` | 21 | 19 | 1 | 1 | 0 | §5.5의 표를 옮겼다 |
+| `packages/llm/test` | 20 | 0 | 0 | 3 | 17 | 평가 도구 2개와 smoke는 TypeScript에 남는다. RC-70a 16, RC-70b 1 |
+| `packages/domain/test` | 11 | 5 | 0 | 1 | 5 | id·시각·버전·DAG·오류는 옮김. 추정(RC-60 1)·인테이크(RC-70b 3)·노트(RC-80 1)는 그 슬라이스에서 |
+| `packages/provider-native/test`, `packages/testkit/test` | 6 | 0 | 3 | 3 | 0 | 저장소 포트가 없다 — `app::tasks`·`app::projects`와 스토어 테스트가 대신한다 |
+| `packages/provider-vikunja/test` | 15 | 0 | 1 | 14 | 0 | FU-81(지운 작업을 기다리던 작업 풀기)만 네이티브 규칙으로 남았다 |
+| `packages/contracts/test` | 19 | 0 | 0 | 19 | 0 | TypeScript에 남는다 |
+| `e2e/tests` | 13 | 0 | 0 | 2 | 11 | §7.3. 옮기지 않고 대상만 바꾼다: RC-10B 2, RC-40 1, RC-50 2, RC-60 1, RC-70b 4, RC-80 1 |
+| 합계 | 212 | 30 | 15 | 77 | 90 | "아직"을 맡은 Task: RC-10B 2 · RC-20 1 · RC-40 8 · RC-50 10 · RC-60 9 · RC-70a 16 · RC-70b 29 · RC-80 6 · RC-90 9 |
+
+이 표는 초판의 기록이다. 지금의 수는 원장의 합계 표가 정본이다(검사된다). RC-00 때의 어림(파일 105 + 21 + 20 + 11 + 4 + 15 + 19 + 13 = 208)보다 4개 많다: `services/api/test`에 2개(`project-service`, `project-update` — FOLD-01)와 `packages/testkit/test` 2개가 더해졌다.
 
 ### 7.6 CI에 넣는 시점
 
@@ -840,7 +847,8 @@ RC-00 ─┬─► RC-10 ─► RC-20 ──────────┬─► RC
 |---|---|---|---|---|---|---|
 | RC-00 | — | 이 문서, ADR-025, 골격(owner·프로젝트·작업 10 operation), 패리티 하네스, 오라클 내보내기 | — | `core:check`, `core:parity` | `ohmydate-core`를 띄워 curl로 작업 만들기 | — (완료) |
 | RC-05 | B | 지금 E2E를 Playwright의 WebKit 엔진으로 TypeScript 스택에 돌려 본다(코드 변경 없음, 보고서만) | — | 실패 목록 보고서 | — | WebKit에서 깨지는 웹 기능을 일찍 안다(R1) |
-| RC-10 | A | `updateMySettings`, 웹 정적 파일 서빙 + `/__boot`, 개발 실행(`core:dev`: 코어 + Vite 프록시), E2E `core` 대상과 드라이버, `--clock-offset-ms`, `core/PARITY.md`, Ajv ↔ `jsonschema` 스키마 판정 대조 도구, `ci:core` | RC-00 | 패리티 12 operation, `e2e-1`(로그인 부분 제외)·a11y inbox가 `core` 대상 통과, 원장 초판 | 브라우저에서 Rust 코어로 인박스 쓰기 | E2E 헬퍼 개조 범위(R7) |
+| RC-10A | A | RC-10의 코어 쪽 절반: `updateMySettings`, 웹 정적 파일 서빙(`--web-dir`) + `/__boot`, `--clock-offset-ms`(테스트 빌드), `core/PARITY.md`, Ajv ↔ `jsonschema` 스키마 판정 대조 도구, `ci:core`. **끝**(2026-11-16) | RC-00 | 패리티 12 operation, `core:check`·`core:parity`·`core:schema-diff`·`ci:core`, 원장 초판 | `ohmydate-core --web-dir <빌드된 웹>`을 띄우고 브라우저에서 `/__boot?token=…`으로 들어가기(쓸 수 있는 화면은 RC-10B 뒤) | CSP가 웹을 막는다 → 진짜 빌드로 확인했다(§1.3) |
+| RC-10B | A | RC-10의 웹·E2E 쪽 절반: 웹의 데스크톱 부팅(로그인 화면 없이), 개발 실행 `core:dev`(코어 + Vite 프록시), E2E `core` 대상과 드라이버. 코어는 건드리지 않는다(§7.3의 "RC-10B가 할 일") | RC-10A | `e2e-1`(로그인 부분 제외)·a11y 할 일 화면이 `core` 대상 통과 | 브라우저에서 Rust 코어로 인박스 쓰기 | E2E 헬퍼 개조 범위(R7) |
 | RC-20 | A | 가용 시간·약속·`rrule` 포팅·availability version·`listCalendarDayEvents`(빈 목록) | RC-10 | 패리티 +7, `rrule.test.ts` 옮김, 약속 화면 E2E 부분 | 약속·가용 시간 화면 | 반복 전개의 DST 경계 |
 | RC-30 | B | 스케줄러 `types`·`time` 나머지·`slots`·`sessions`·`requirements`, 큰 팩 읽기, `sort_unstable`·`HashMap` 순회 금지 lint | RC-00 | 2,000건에서 `slots` 불일치 0, `slots.test`·`transitions.test` 옮김 | — | tzdata 차이(R3) |
 | RC-31 | B | `codes`·`validate`·`validateInput`·`explain`, `sched-diff` CLI, `shrink-oracle.mts` | RC-30 | 2,000건에서 `inputIssues`·`validation` 불일치 0, validator ↔ 분 단위 오라클 속성 | — | validator 1,407줄의 독립 구현 유지 |
