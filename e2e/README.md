@@ -357,3 +357,16 @@ Flow, all in the UI unless noted:
 A second test scans every notes screen with axe at 1280×860 and 390×844
 (0 critical/serious, no horizontal page scroll).
 
+
+## E2E-10 hours and appointments (RC-20)
+
+`tests/e2e-10-hours-appointments.spec.ts` covers what no earlier spec walked
+by hand: the start guide's first two steps, 설정 › 가용 시간 (including the
+412 dialog when the hours changed elsewhere), and 플래너 › 목록 — add an
+appointment, make it weekly, rename it, delete it. It runs on both targets:
+it was written when the Rust core began to serve these seven operations, and
+it is in `targets/core-specs.json` (Chromium and WebKit).
+
+Running the `core` target on WebKit: `corepack pnpm run e2e:core -- --browser=webkit`.
+Check that the lines of the run are tagged `[webkit]` — before RC-20 the
+script handed the `--` on to Playwright, which then ran Chromium.
