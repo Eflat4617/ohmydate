@@ -161,7 +161,7 @@ describe('개요 — greeting and the one primary button', () => {
       ['집중 열기', '/focus'],
       // HOLO-02: 오늘 요약 opens today in 플래너 (한달 is that screen's month view now).
       ['플래너에서 오늘 열기', '/planner?view=day'],
-      ['재계획 제안 열기', '/replan'],
+      ['다시 맞춘 일정안 열기', '/replan'],
     ]);
   });
 
@@ -213,7 +213,7 @@ describe('개요 — greeting and the one primary button', () => {
     expect(risky.wrapper.find('[data-today-accept]').exists()).toBe(false);
   });
 
-  it('a plan with no block today still offers 재계획 요청: the card that holds it stays, without the zeros (found by E2E-5R)', async () => {
+  it('a plan with no block today still offers 다시 맞추기 요청: the card that holds it stays, without the zeros (found by E2E-5R)', async () => {
     seedReplanScenario(mockDb, { history: true });
     mockDb.today = { ...mockDb.today, blocks: [], risk: { level: 'low', reasons: [] } };
     const { wrapper } = await mountOverview();
@@ -467,7 +467,7 @@ describe('개요 — AI 도우미', () => {
     expect(ai.get('[data-chart="trend"]').attributes('data-points')).toBe('4');
     expect(ai.get('.ai-link').attributes('href')).toBe('/insights');
 
-    await vi.waitFor(() => expect(ai.get('[data-ai-replan]').text()).toContain('재계획 제안 1건이 기다려요'));
+    await vi.waitFor(() => expect(ai.get('[data-ai-replan]').text()).toContain('다시 맞춘 일정안 1건이 기다려요'));
     expect(proposal.id).toBe(REPLAN_PENDING_ID);
     expect(ai.get('[data-ai-replan] a').attributes('href')).toBe(`/replan/${REPLAN_PENDING_ID}`);
     expect(ai.get('[data-ai-replan] .ai-fact-note').text().length).toBeGreaterThan(0);
@@ -489,7 +489,7 @@ describe('개요 — AI 도우미', () => {
     expect(ai.text()).toContain('회고를 3번 남기면');
     expect(ai.find('[data-ratio]').exists()).toBe(false);
     expect(ai.find('[data-chart="trend"]').exists()).toBe(false);
-    expect(ai.get('[data-ai-replan]').text()).toContain('기다리는 재계획 제안이 없어요');
+    expect(ai.get('[data-ai-replan]').text()).toContain('기다리는 제안이 없어요');
     expect(ai.find('[data-ai-replan] a').exists()).toBe(false);
   });
 

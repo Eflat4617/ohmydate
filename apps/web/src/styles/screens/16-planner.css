@@ -509,7 +509,7 @@
   color: var(--amber-text);
 }
 
-/* Where a block stood before a 재계획: an empty outline and struck words. */
+/* Where a block stood before a 다시 맞추기: an empty outline and struck words. */
 .wg-item--ghost {
   --wg-fill: transparent;
   --wg-fill-hover: var(--color-hover);

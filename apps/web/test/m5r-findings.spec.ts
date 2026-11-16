@@ -157,7 +157,7 @@ describe('M5-03R-1 H1: diff only from the authoritative before snapshot', () => 
     const processed = reviewerProposal({ state: 'rejected', version: 2 });
     const request = vi.spyOn(plannerClient, 'requestReplanProposal');
     const { wrapper } = await mountProposal(processed);
-    await buttonWith(wrapper, '재계획 요청').trigger('click');
+    await buttonWith(wrapper, '다시 맞추기 요청').trigger('click');
     await vi.waitFor(() => expect(request).toHaveBeenCalled());
     await request.mock.results[0]?.value;
     expect(request.mock.calls[0]?.[0]).toEqual({ planId: MOCK_PLAN_ID });
@@ -178,13 +178,13 @@ describe('M5-03R-1 M1: transient answers keep the logical Idempotency-Key', () =
     localStorage.clear();
   });
 
-  it('재계획 요청: timeout → in-progress → success replays with one key', async () => {
+  it('다시 맞추기 요청: timeout → in-progress → success replays with one key', async () => {
     const [lost, busy] = transient();
     const request = vi.spyOn(plannerClient, 'requestReplanProposal');
     request.mockRejectedValueOnce(lost).mockRejectedValueOnce(busy);
     const { wrapper, router } = await mountView(ReplanRequestButton, { path: '/overview', props: { planId: MOCK_PLAN_ID } });
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await buttonWith(wrapper, '재계획 요청').trigger('click');
+      await buttonWith(wrapper, '다시 맞추기 요청').trigger('click');
       await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(attempt + 1));
       await request.mock.results[attempt]?.value?.catch?.(() => undefined);
     }
@@ -195,13 +195,13 @@ describe('M5-03R-1 M1: transient answers keep the logical Idempotency-Key', () =
     wrapper.unmount();
   });
 
-  it('재계획 요청: a stored replan_suppressed still rotates the key (negative)', async () => {
+  it('다시 맞추기 요청: a stored replan_suppressed still rotates the key (negative)', async () => {
     mockDb.replanSuppressions.set('user_request', Date.now() + 3_600_000);
     const request = vi.spyOn(plannerClient, 'requestReplanProposal');
     const { wrapper } = await mountView(ReplanRequestButton, { path: '/overview', props: { planId: MOCK_PLAN_ID } });
-    await buttonWith(wrapper, '재계획 요청').trigger('click');
-    await waitForText(wrapper, '지금은 재계획을 더 요청할 수 없어요.');
-    await buttonWith(wrapper, '재계획 요청').trigger('click');
+    await buttonWith(wrapper, '다시 맞추기 요청').trigger('click');
+    await waitForText(wrapper, '지금은 다시 맞추기를 더 요청할 수 없어요.');
+    await buttonWith(wrapper, '다시 맞추기 요청').trigger('click');
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     expect(request.mock.calls[0]?.[1]).not.toBe(request.mock.calls[1]?.[1]);
     wrapper.unmount();

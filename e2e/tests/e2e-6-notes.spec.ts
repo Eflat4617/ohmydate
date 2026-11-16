@@ -288,7 +288,7 @@ test.describe('E2E-6 — notes: injection-safe note, grounded evidence, related 
       const related = page.locator('[data-layout-item="RelatedNotes"]');
       await expect(related.locator(`[data-related-note="${noteId}"]`)).toBeVisible();
       await expect(related.locator(`[data-related-note="${noteId}"]`)).toContainText(noteTitle);
-      await expect(related.locator(`[data-related-note="${noteId}"]`)).toContainText('이 프로젝트');
+      await expect(related.locator(`[data-related-note="${noteId}"]`)).toContainText('이 폴더');
       await expect(related.locator(`[data-related-note="${noteId}"] a`)).toHaveAttribute('href', `/notes/${noteId}`);
       // Titles only: the panel never shows note text.
       await expect(related).not.toContainText('금요일까지');

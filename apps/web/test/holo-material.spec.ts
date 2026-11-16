@@ -155,6 +155,137 @@ describe('glass: text contrast', () => {
   });
 });
 
+/**
+ * HOLO-06: an engine can claim `backdrop-filter` and still not paint it (no
+ * accelerated compositing, some GPUs, WebKitGTK without it) — `@supports` does
+ * not catch that. Seen on the WebKit the desktop shell uses: the canvas's
+ * detail card was see-through, and the to-dos behind it were written across
+ * its own words. So glass comes in two tiers, and neither needs the blur:
+ *
+ * - **overlay** (`.glass`, `--glass-fill-over`): floats over content, so text
+ *   can be behind it. Its scrim alone keeps the text on it AA and lets what is
+ *   behind through at no more than `BLEED_MAX`.
+ * - **chrome** (`.glass--chrome`, `.glass--still`): only the ambient light or
+ *   a card is ever behind it, so it may stay airy.
+ */
+describe('glass: two tiers, and neither needs the blur (HOLO-06)', () => {
+  /**
+   * The most that something written behind overlay glass may show: its
+   * contrast against the glass's own surface beside it. At 1.2:1 it is a
+   * faint shade, far under anything that reads as text (3:1 is the least for
+   * large text), and it cannot be mistaken for the card's own words.
+   */
+  const BLEED_MAX = 1.2;
+
+  /** What is behind glass where nothing is written: the page's own grounds. */
+  const GROUNDS = ['--color-ground', '--color-surface', '--color-inset'] as const;
+
+  /** How strongly `ink`, written on the page, comes through a fill: both seen under it, with no filter. */
+  function bleed(scheme: Map<string, string>, fill: string, ink: Rgb): number {
+    const body = colour(scheme, fill);
+    return Math.max(...GROUNDS.map((name) => contrast(over(body, ink), over(body, colour(scheme, name).rgb))));
+  }
+
+  /** The strongest things written on a page — the theme's strongest text colour and the lime — and the two ends beyond them. */
+  function inks(scheme: Map<string, string>): Rgb[] {
+    return [colour(scheme, '--color-text').rgb, colour(scheme, '--lime').rgb, WHITE, BLACK];
+  }
+
+  const worstBleed = (scheme: Map<string, string>, fill: string): number => Math.max(...inks(scheme).map((ink) => bleed(scheme, fill, ink)));
+
+  it.each([
+    ['dark', dark],
+    ['light', light],
+  ] as const)('%s scheme: text on overlay glass is AA whatever is behind it, with no filter painted', (_name, scheme) => {
+    expect(worstContrast(scheme, '--glass-fill-over', false, backdrops(scheme))).toBeGreaterThanOrEqual(4.5);
+    // …and where the filter is painted it only helps: the blur is a bonus.
+    expect(worstContrast(scheme, '--glass-fill-over', true, backdrops(scheme))).toBeGreaterThanOrEqual(
+      worstContrast(scheme, '--glass-fill-over', false, backdrops(scheme)),
+    );
+  });
+
+  it.each([
+    ['dark', dark],
+    ['light', light],
+  ] as const)('%s scheme: what is written behind overlay glass comes through at no more than 1.2:1', (_name, scheme) => {
+    for (const ink of inks(scheme)) expect(bleed(scheme, '--glass-fill-over', ink)).toBeLessThanOrEqual(BLEED_MAX);
+  });
+
+  it('the airy fills let it through — they were the overlay numbers until HOLO-06 (negative)', () => {
+    // 72% and 76%: a line of text behind the card read at about 2.5:1 and 1.7:1.
+    expect(worstBleed(dark, '--glass-fill')).toBeGreaterThan(2.4);
+    expect(worstBleed(light, '--glass-fill')).toBeGreaterThan(1.6);
+    for (const scheme of [dark, light]) {
+      expect(worstBleed(scheme, '--glass-fill')).toBeGreaterThan(BLEED_MAX);
+      expect(worstBleed(scheme, '--glass-fill-still')).toBeGreaterThan(BLEED_MAX);
+    }
+    // …and the dark one did not keep its own text AA once the filter was not painted.
+    expect(worstContrast(dark, '--glass-fill', false, backdrops(dark))).toBeLessThan(4.5);
+  });
+
+  it.each([
+    ['dark', dark],
+    ['light', light],
+  ] as const)('%s scheme: chrome glass needs no filter either: over the ambient light or a card its text is AA', (_name, scheme) => {
+    const ground = colour(scheme, '--color-ground').rgb;
+    const behind = [ground, ...['--ambient-a', '--ambient-b'].map((name) => over(tint(scheme, name), ground)), colour(scheme, '--color-surface').rgb];
+    expect(worstContrast(scheme, '--glass-fill', false, behind)).toBeGreaterThanOrEqual(4.5);
+    expect(worstContrast(scheme, '--glass-fill-still', false, behind)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('matches the overlay rows of the table in DESIGN.md (Elevation & Depth › Glass)', () => {
+    const row = (scheme: Map<string, string>): string =>
+      TEXT_TOKENS.map((name) => worstContrastOf(scheme, [name], '--glass-fill-over', false, backdrops(scheme)).toFixed(1)).join(' ');
+    expect(row(dark)).toBe('12.3 8.2 5.0 10.4 6.6 9.7');
+    expect(row(light)).toBe('15.4 9.8 6.1 7.1 6.1 7.5');
+    expect([worstBleed(dark, '--glass-fill-over').toFixed(2), worstBleed(light, '--glass-fill-over').toFixed(2)]).toEqual(['1.18', '1.14']);
+    expect([colour(dark, '--glass-fill-over').alpha, colour(light, '--glass-fill-over').alpha]).toEqual([0.94, 0.94]);
+  });
+
+  it('the primitive: overlay is what `.glass` is; airy is asked for by name, and the opaque fallbacks still win', () => {
+    expect(blockAfter(primitives, '.glass {')).toMatch(/--glass-body:\s*var\(--glass-fill-over\);/);
+    const chrome = blockAfter(primitives, '.glass--chrome {');
+    expect(chrome).toMatch(/--glass-body:\s*var\(--glass-fill\);/);
+    expect(chrome).not.toContain('--glass-backdrop');
+    expect(blockAfter(primitives, '.glass--still {')).toMatch(/--glass-body:\s*var\(--glass-fill-still\);/);
+    // Still glass over content: the overlay's scrim, and still no filter.
+    const stillOver = blockAfter(primitives, '.glass--still:where(.glass--over) {');
+    expect(stillOver).toMatch(/--glass-body:\s*var\(--glass-fill-over\);/);
+    expect(stillOver).not.toContain('--glass-backdrop');
+    // Each of these is one class heavy and written before the three opaque
+    // fallbacks, so a fallback (as heavy or heavier, and later) always wins.
+    const clean = primitives.replace(/\/\*[\s\S]*?\*\//g, '');
+    const fallbacks = clean.indexOf('@supports not');
+    expect(fallbacks).toBeGreaterThan(-1);
+    for (const prelude of ['.glass--chrome {', '.glass--still {', '.glass--still:where(.glass--over) {']) {
+      expect(clean.indexOf(prelude), prelude).toBeGreaterThan(-1);
+      expect(clean.indexOf(prelude), prelude).toBeLessThan(fallbacks);
+    }
+    expect(clean).not.toContain('.glass--still.glass--over');
+  });
+
+  it('where it is: only glass with nothing but the light or a card behind it is airy', () => {
+    const SRC = resolve(__dirname, '../src');
+    const vueFiles = (readdirSync(SRC, { recursive: true }) as string[]).filter((name) => name.endsWith('.vue'));
+    const read = (name: string): string => readFileSync(resolve(SRC, name), 'utf8');
+    // Chrome with a filter: the sign-in card (over the light) and the AI panels (set on a card).
+    expect(vueFiles.filter((name) => read(name).includes('glass--chrome')).sort()).toEqual(['components/overview/AiWidget.vue', 'views/LoginView.vue']);
+    // The canvas's foot bars float over the to-dos: the overlay's scrim, with no filter.
+    const canvasView = read('components/canvas/TodoCanvas.vue');
+    expect(canvasView).toContain('class="pond-selection glass glass--still glass--over glass--low"');
+    expect(canvasView.match(/class="pond-more glass glass--still glass--over glass--low"/g)).toHaveLength(2);
+    // The top bar is airy only below 1024px, where it scrolls away with the page; from there up the
+    // page scrolls under it. The phone's nav is over the page at every width. Neither asks to be airy.
+    const shell = readFileSync(resolve(STYLES, 'shell.css'), 'utf8');
+    const narrow = blockAfter(shell, '@media (max-width: 1023.98px)');
+    expect(narrow).toContain('.app-topbar');
+    expect(narrow).toMatch(/--glass-body:\s*var\(--glass-fill-still\);/);
+    expect(shell.replace(narrow, '').match(/--glass-body/g)).toBeNull();
+    expect(read('components/TopBar.vue')).toContain('class="app-topbar glass glass--host glass--low"');
+    expect(read('components/BottomNav.vue')).toContain('class="bottom-nav glass glass--low"');
+  });
+});
+
 /** The body of the first rule whose prelude is exactly `prelude` (comments removed). */
 function blockAfter(css: string, prelude: string): string {
   const clean = css.replace(/\/\*[\s\S]*?\*\//g, '');

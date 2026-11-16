@@ -35,7 +35,7 @@ import UiIcon from '../ui/UiIcon.vue';
  * The planning screens (HOLO-03A) draw on the same grid what is not real
  * yet: a proposal is a dashed outline over the faintest tint, never a fill —
  * an approved block and a proposed one cannot be mistaken for each other —
- * and a ghost is where a block stood before a 재계획. Behind the items a day
+ * and a ghost is where a block stood before a 다시 맞추기. Behind the items a day
  * can carry its available hours, focus windows and 쉼.
  *
  * `editable`: a proposal can be moved and made longer or shorter in steps of

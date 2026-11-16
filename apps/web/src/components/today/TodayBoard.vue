@@ -283,14 +283,14 @@ const riskTone = computed(() => {
   }
 });
 
-// M5-03: "재계획 요청" targets the plan of the newest replan proposal (its
+// M5-03: "다시 맞추기 요청" targets the plan of the newest replan proposal (its
 // server-provided planId, FU-70); Today itself carries no plan id.
 const { planId: replanPlanId } = useLatestReplanPlan();
 
 // An empty day has nothing to add up and nothing to accept: its figures and
 // the 수락 button wait for blocks. The risk card stays while it has something
 // to say or to offer — a risk above low or with a reason (an overdue task, a
-// day past its limit), or a plan that can be asked to be re-planned (재계획
+// day past its limit), or a plan that can be asked to be re-planned (다시 맞추기
 // 요청 lives on it, also on a day that plan has no block in).
 const hasBlocks = computed(() => blocks.value.length > 0);
 const riskShown = computed(

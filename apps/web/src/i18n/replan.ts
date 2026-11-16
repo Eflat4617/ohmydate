@@ -11,7 +11,7 @@ import { formatDateTime, formatDuration, formatNumber, formatPercent } from './f
 import { t } from './index';
 
 /**
- * Korean labels for 재계획 and AI 분석 (M5-03). Every contract
+ * Korean labels for 다시 맞추기 and AI 분석 (M5-03). Every contract
  * enum value has a catalog entry (checked by test/i18n-catalog.spec.ts), so
  * these never fall back to raw codes.
  */
@@ -75,7 +75,7 @@ export function stepKindLabel(kind: NonNullable<EstimationProfileGroup['taskKind
 
 /**
  * `409 replan_suppressed` with `Retry-After`: "1일 뒤(11월 15일 (일) 오후 6:30)
- * 에 다시 요청할 수 있어요". Without a usable header the generic copy is used.
+ * 에 요청할 수 있어요". Without a usable header the generic copy is used.
  */
 export function suppressedText(retryAfterSeconds: number | undefined, nowMs: number, timeZone: string): string {
   const wait = retryAfterSeconds === undefined ? null : retryWait(retryAfterSeconds, nowMs);

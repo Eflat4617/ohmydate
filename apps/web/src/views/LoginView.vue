@@ -28,7 +28,7 @@ async function submit(): Promise<void> {
   <main class="auth-page">
     <div class="ambient" aria-hidden="true" data-ambient></div>
     <GlassOrb class="auth-visual" :size="232" />
-    <section class="auth-card glass" aria-labelledby="login-heading">
+    <section class="auth-card glass glass--chrome" aria-labelledby="login-heading">
       <header class="auth-header">
         <BrandMark :size="44" />
         <h1 id="login-heading">{{ t('login.title') }}</h1>

@@ -706,18 +706,18 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     name: 'replan: request a new proposal',
     covers: ['src/components/ReplanRequestButton.vue', 'src/composables/useReplanRequest.ts', 'src/views/ReplanView.vue'],
     path: '/replan',
-    // Nothing waits (the proposal ran out), so 재계획 offers to ask for a new one.
+    // Nothing waits (the proposal ran out), so 다시 맞추기 offers to ask for a new one.
     seed: () => {
       const proposal = seedReplanScenario(mockDb);
       mockDb.replanProposals.set(proposal.id, { ...proposal, state: 'expired', version: proposal.version + 1 });
     },
     ready: async (wrapper) => {
-      await until(() => expect(wrapper.findAll('button').some((item) => item.text().includes('재계획 요청'))).toBe(true));
-      await until(() => expect(buttonByText(wrapper, '재계획 요청').attributes('disabled')).toBeUndefined());
+      await until(() => expect(wrapper.findAll('button').some((item) => item.text().includes('다시 맞추기 요청'))).toBe(true));
+      await until(() => expect(buttonByText(wrapper, '다시 맞추기 요청').attributes('disabled')).toBeUndefined());
     },
     hold: { method: 'POST', path: '/replan-proposals:request' },
     act: async (wrapper) => {
-      await buttonByText(wrapper, '재계획 요청').trigger('click');
+      await buttonByText(wrapper, '다시 맞추기 요청').trigger('click');
     },
   },
   {

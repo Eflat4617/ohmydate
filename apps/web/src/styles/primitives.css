@@ -14,26 +14,35 @@
    menus and popovers, dialogs and sheets, toasts, the phone's nav, segmented
    controls. Every one of them carries `.glass`; nothing else blurs.
 
-   - `.glass`: what is behind shows through, blurred, saturated and brought
-     toward the scheme's ground (dimmed in the dark scheme, lifted in the
-     light one), under a fill that is the scrim text sits on. A hairline, an
+   - `.glass`: glass that floats over content — a menu, a dialog, a toast,
+     the canvas's detail, the bar the page scrolls under. Text can be behind
+     it, so its fill (`--glass-fill-over`) is nearly opaque and does the work
+     alone; what is behind is also blurred, saturated and brought toward the
+     scheme's ground (dimmed in the dark scheme, lifted in the light one),
+     but nothing depends on that: an engine may not paint it. A hairline, an
      inner highlight on the upper edge and a faint sheen say "glass".
-   - `.glass--still`: the same body without a backdrop filter, for glass that
-     only ever has the ambient light or a card behind it (the sidebar, a
-     segmented control). It costs nothing to paint.
+   - `.glass--chrome`: the airy body (`--glass-fill`), with the filter, for
+     glass that only ever has the ambient light or a card behind it (the
+     sign-in card, a panel set on a card).
+   - `.glass--still`: the airy body without a backdrop filter, for the same
+     kind of place (the sidebar, a segmented control, a to-do on the canvas).
+     It costs nothing to paint. With `.glass--over` it floats over content:
+     the overlay's scrim, still without a filter (the canvas's foot bar).
    - `.glass--host`: the material sits on a layer behind the content, so the
      surface can hold other glass (the top bar holds its menus). A backdrop
      filter on the element itself would cut its popovers off from the page
      behind them in Chromium.
    - Glass inside (non-host) glass is solid: one refraction at a time.
 
-   Guarantees: text on glass is AA in both schemes whatever is behind
-   (test/holo-material.spec.ts computes it from tokens.css); without
-   `backdrop-filter`, under `prefers-reduced-transparency: reduce` and under
+   Guarantees: text on glass is AA in both schemes whatever is behind, with
+   or without the filter painted, and what is behind glass that floats over
+   content comes through at no more than 1.2:1 (test/holo-material.spec.ts
+   computes both from tokens.css); without `backdrop-filter`, under
+   `prefers-reduced-transparency: reduce` and under
    `:root[data-transparency='reduce']` the material is the opaque raised surface;
    the pointer's light does not move under reduced motion (theme/glassLight). */
 .glass {
-  --glass-body: var(--glass-fill);
+  --glass-body: var(--glass-fill-over);
   --glass-backdrop: var(--glass-filter);
 
   border: var(--rule-hair) solid var(--glass-edge);
@@ -46,9 +55,20 @@
   backdrop-filter: var(--glass-backdrop);
 }
 
+/* Only the ambient light or a card is ever behind it: it may stay airy. */
+.glass--chrome {
+  --glass-body: var(--glass-fill);
+}
+
 .glass--still {
   --glass-body: var(--glass-fill-still);
   --glass-backdrop: none;
+}
+
+/* Still glass that floats over content. `:where()` keeps this as light as the
+   rules above, so the three opaque fallbacks below still win. */
+.glass--still:where(.glass--over) {
+  --glass-body: var(--glass-fill-over);
 }
 
 /* Close to the page (the sidebar, the bars): a short shadow. */

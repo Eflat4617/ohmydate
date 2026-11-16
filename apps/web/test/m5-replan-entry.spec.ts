@@ -83,7 +83,7 @@ describe('Pending replan entry points (M5-03)', () => {
     wrapper.unmount();
   });
 
-  it('offers “재계획 요청” on Today only once the server named a plan in a proposal (negative first)', async () => {
+  it('offers “다시 맞추기 요청” on Today only once the server named a plan in a proposal (negative first)', async () => {
     const first = await mountView(TodayView, { path: '/overview' });
     await waitForText(first.wrapper, TODAY_TASK_ONE_TITLE);
     expect(first.wrapper.find('[data-replan-request]').exists()).toBe(false);
@@ -110,7 +110,7 @@ describe('Pending replan entry points (M5-03)', () => {
     const link = document.querySelector('[data-open-proposal]') as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe(`/replan/${REPLAN_PENDING_ID}`);
     expect(link.textContent?.trim()).toBe('제안 보기');
-    expect(link.getAttribute('aria-label')).toBe('재계획 제안 보기: 다시 짠 계획 제안이 준비됐어요');
+    expect(link.getAttribute('aria-label')).toBe('제안 보기: 다시 맞춘 일정안이 준비됐어요');
     link.click();
     await vi.waitFor(() => expect(router.currentRoute.value.path).toBe(`/replan/${REPLAN_PENDING_ID}`));
     expect(wrapper.emitted('close')).toHaveLength(1);
@@ -153,7 +153,7 @@ describe('Pending replan entry points (M5-03)', () => {
     expect(rows.map((item) => item.get('a').attributes('href'))).toEqual(
       [REPLAN_PENDING_ID, REPLAN_APPROVED_ID, REPLAN_REJECTED_ID, REPLAN_EXPIRED_ID].map((id) => `/replan/${id}`),
     );
-    expect(wrapper.text()).toContain('재계획 제안은 하루 최대 2번이고, 거절한 이유는 24시간 동안 다시 제안하지 않아요.');
+    expect(wrapper.text()).toContain('제안은 하루 최대 2번이고, 거절한 이유는 24시간 동안 다시 제안하지 않아요.');
     expect(wrapper.text()).not.toMatch(/deadline_risk|user_request|early_completion/);
 
     // `/replan` shows the newest proposal that waits — and marks it in the list.
@@ -203,7 +203,7 @@ describe('Pending replan entry points (M5-03)', () => {
     expect(wrapper.get('[data-replan-trigger]').text()).toBe('마감 위험');
     expect(wrapper.find('[data-replan-approve]').exists()).toBe(false);
     expect(wrapper.find('[data-replan-reject]').exists()).toBe(false);
-    expect(wrapper.get('[data-replan-again] [data-replan-request]').text()).toContain('재계획 요청');
+    expect(wrapper.get('[data-replan-again] [data-replan-request]').text()).toContain('다시 맞추기 요청');
     expect(wrapper.get(`[data-proposal-id="${REPLAN_REJECTED_ID}"] a`).attributes('aria-current')).toBe('true');
     expect(wrapper.get(`[data-proposal-id="${REPLAN_PENDING_ID}"] a`).attributes('aria-current')).toBeUndefined();
     wrapper.unmount();
@@ -216,7 +216,7 @@ describe('Pending replan entry points (M5-03)', () => {
     await waitForText(wrapper, '지금은 계획대로예요');
     const none = wrapper.get('[data-replan-none]');
     expect(none.text()).toContain('일정이 밀리거나 약속이 새로 생기면 여기에서 새 일정을 제안해요.');
-    expect(none.get('[data-replan-request]').text()).toContain('재계획 요청');
+    expect(none.get('[data-replan-request]').text()).toContain('다시 맞추기 요청');
     // The expired proposal stays in the history, and is not put on show as if it waited.
     expect(wrapper.findAll('.replan-item')).toHaveLength(1);
     expect(wrapper.find('[data-replan-trigger]').exists()).toBe(false);

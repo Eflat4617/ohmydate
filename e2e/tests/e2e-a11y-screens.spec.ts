@@ -26,7 +26,7 @@ import { readState } from '../helpers/state';
 // AI settings, at desktop width (nav rail) and phone width (bottom nav). It
 // also completes and reviews a session with Calm mode on at both widths and
 // checks that "Back to Today" and the navigation come back (UI-POLISHR-1).
-// HOLO-03A (was M5-03): 재계획 with nothing waiting and AI 분석 at both widths
+// HOLO-03A (was M5-03): 다시 맞추기 with nothing waiting and AI 분석 at both widths
 // (a proposal, its reject dialog and the suppressed state are scanned by
 // E2E-5R), and the first two stages of 계획 세우기 at both widths.
 // CAL-01 adds the month page (한달) at both widths: today is picked at first
@@ -518,14 +518,14 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
       });
     }
 
-    // HOLO-03A: 재계획 with nothing waiting, AI 분석 (learned from the two reviews and
+    // HOLO-03A: 다시 맞추기 with nothing waiting, AI 분석 (learned from the two reviews and
     // sessions above), and where a plan starts — at both widths.
     for (const viewport of [DESKTOP, PHONE]) {
       const size = `${viewport.width}x${viewport.height}`;
-      await test.step(`재계획 + AI 분석 + 계획 세우기 (${size})`, async () => {
+      await test.step(`다시 맞추기 + AI 분석 + 계획 세우기 (${size})`, async () => {
         await page.setViewportSize(viewport);
         await page.goto(`${state.webUrl}/replan`);
-        await expect(page.getByRole('heading', { name: '재계획', level: 1 })).toBeVisible();
+        await expect(page.getByRole('heading', { name: '다시 맞추기', level: 1 })).toBeVisible();
         await expect(page.locator('[data-replan-none]')).toContainText('지금은 계획대로예요');
         await expect(page.locator('[data-replan-list]')).toBeVisible();
         // An empty state never carries the filled button.

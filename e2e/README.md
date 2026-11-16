@@ -195,13 +195,13 @@ tick skipped by a contended advisory lock is tolerated), and checks:
 - exactly one `commitment_conflict` proposal and one `replan_proposal`
   notification; 오늘 (on 개요) shows one replan card (a link, never the filled button)
   and the notification links to the proposal;
-- 재계획 (one screen since HOLO-03A) lists only the overlapped block as moved
+- 다시 맞추기 (one screen since HOLO-03A) lists only the overlapped block as moved
   and the locked block as unchanged, shows 전 → 후 as numbers and on the week
   grid (a ghost where the block stood, a proposal where it goes), and has one
   filled button, 승인; approval sends `If-Match: W/"availability:<n>"` + a
   UUIDv7 key, moves only that block, the locked block keeps its row and times,
   and the filled button becomes 오늘 보기;
-- *재계획 요청* → reject (24 h explanation) → asking again is
+- *다시 맞추기 요청* → reject (24 h explanation) → asking again is
   `409 replan_suppressed` with `Retry-After` ≈ 24 h, shown as a wait;
 - the list beside the proposal holds the history, and `/replan` with nothing
   waiting says the plan is on track.
@@ -212,6 +212,34 @@ The spec, the a11y additions (`/replan`, `/insights` — AI 분석, reached thro
 the old `/patterns` address — and the first two stages of 계획 세우기) and the
 axe scans of the proposal, reject dialog and suppressed state all require 0
 critical/serious.
+
+## E2E-9 folders (HOLO-06)
+
+`tests/e2e-9-folders.spec.ts` walks a folder's whole life on the real stack,
+through the 할 일 canvas, with the main owner. A folder is a project, and
+폴더 없애기 is the one place in the canvas that moves to-dos in bulk: every
+to-do in the folder goes to the inbox, and only an empty folder is archived.
+The live backend differs from the mock once a project is archived — it leaves
+the project list, every write to a to-do inside it is refused (503
+`provider_unavailable`) and those to-dos leave the unfiltered task list — so
+each step is checked through the planner API (`listProjects`, `listTasks`,
+`getTask` in `helpers/planner.ts`) and in Vikunja itself (`is_archived`, the
+to-do's `project_id`):
+
+- 폴더 만들기 → two to-dos picked (Ctrl-click) and filed with 폴더로 옮기기,
+  a third from its own detail, which is then finished inside the folder →
+  이름 바꾸기 in place → reload: the name, the two open to-dos and the count hold;
+- **negative:** the question is asked while online and answered after the
+  line dropped — no write leaves the page, the folder and its three to-dos are
+  as they were, and the menu does not offer 폴더 없애기 or 이름 바꾸기 offline;
+- 폴더 없애기: the three moves are answered (200, `projectId` = the inbox)
+  before the archive is, nothing is deleted, the finished one stays finished,
+  the folder is gone from the canvas and from `GET /projects`, and archived in
+  Vikunja;
+- 되돌리기 on the toast (it stays ten seconds, so the checks before it run
+  together): `archived: false` first, then the three moves back;
+- removed again, reload: it stays gone, all three are in the inbox (the
+  planner's and Vikunja's) and one of them is finished from there.
 
 ## E2E-6 notes (M6-03)
 
@@ -250,7 +278,7 @@ Flow, all in the UI unless noted:
    lists one succeeded call with the same section hash.
 5. Create and approve a plan for the goal (API helpers). Starting a focus
    session from 오늘 (on 개요) switches to the focus layout, where RelatedNotes
-   lists the note (*이 프로젝트*, titles only). The toast's *되돌리기* restores
+   lists the note (*이 폴더*, titles only). The toast's *되돌리기* restores
    개요.
 
 A second test scans every notes screen with axe at 1280×860 and 390×844

@@ -638,6 +638,13 @@ const selection = ref<Selection>(NO_SELECTION);
 const activeId = ref<string | null>(null);
 const focusInside = ref(false);
 const status = ref('');
+/**
+ * The to-do the one floating detail is open on. Declared here, with the rest
+ * of what `refreshStill` reads: the `selected` watcher below runs once while
+ * this component is being set up, and a canvas that comes back with to-dos
+ * already picked (목록 → 캔버스) reaches `refreshStill` on that first run.
+ */
+const openId = ref<string | null>(null);
 
 function announce(text: string): void {
   status.value = text;
@@ -690,8 +697,7 @@ function onFieldFocusOut(event: FocusEvent): void {
   wake();
 }
 
-// ── The floating detail ─────────────────────────────────────────────────
-const openId = ref<string | null>(null);
+// ── The floating detail (`openId` is declared with the selection, above) ─
 const detailEl = ref<HTMLElement | null>(null);
 const detailStyle = ref<Record<string, string>>({ visibility: 'hidden' });
 const detailSide = ref<'right' | 'left' | 'below' | 'above'>('right');
@@ -1694,7 +1700,7 @@ onBeforeUnmount(() => {
 
     <!-- What stays in reach while the surface scrolls: the selection, and the rest of a long list. -->
     <div class="pond-foot" data-pond-ignore>
-      <div v-if="selection.ids.size > 0" class="pond-selection glass glass--still glass--low" role="group" :aria-label="t('canvas.selection.label')" data-canvas-selection>
+      <div v-if="selection.ids.size > 0" class="pond-selection glass glass--still glass--over glass--low" role="group" :aria-label="t('canvas.selection.label')" data-canvas-selection>
         <p class="pond-selection-count tabular" data-canvas-selection-count>{{ tp('canvas.selection.count', selection.ids.size) }}</p>
         <UiButton size="sm" icon="projects" :disabled="disabled" data-canvas-selection-move @click="openPicker(ordered(selection, orderIds()), null)">
           {{ t('canvas.selection.move') }}
@@ -1704,11 +1710,11 @@ onBeforeUnmount(() => {
         </UiButton>
         <UiButton size="sm" variant="ghost" data-canvas-selection-clear @click="setSelection(NO_SELECTION)">{{ t('canvas.selection.clear') }}</UiButton>
       </div>
-      <p v-else-if="plan.hidden > 0" class="pond-more glass glass--still glass--low" data-canvas-more>
+      <p v-else-if="plan.hidden > 0" class="pond-more glass glass--still glass--over glass--low" data-canvas-more>
         <span class="pond-more-note">{{ t('canvas.moreHelp') }}</span>
         <UiButton size="sm" data-canvas-more-button @click="expanded = true">{{ tp('canvas.more', plan.hidden) }}</UiButton>
       </p>
-      <p v-else-if="expanded" class="pond-more glass glass--still glass--low" data-canvas-less>
+      <p v-else-if="expanded" class="pond-more glass glass--still glass--over glass--low" data-canvas-less>
         <UiButton size="sm" variant="ghost" data-canvas-less-button @click="expanded = false">{{ t('canvas.less') }}</UiButton>
       </p>
     </div>

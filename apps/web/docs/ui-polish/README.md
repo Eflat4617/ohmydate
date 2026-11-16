@@ -35,9 +35,9 @@ old addresses still work: they redirect, keeping their query.
 
 HOLO-03A (2026-11-16) rebuilt the planning side instead of restyling it:
 계획 세우기 is one flow (`/plan`, `/plan/:sessionId`, `/plan/schedule`,
-`/plan/schedule/:id`), 재계획 is one screen (`/replan`, `/replan/:id`), and
+`/plan/schedule/:id`), 다시 맞추기 (재계획 until HOLO-06) is one screen (`/replan`, `/replan/:id`), and
 내 패턴 became AI 분석 (`/insights`). `DESIGN.md` describes them (Plan Flow,
-재계획, AI 분석). The sections below on the planning wizard, the plan
+다시 맞추기, AI 분석). The sections below on the planning wizard, the plan
 comparison, the replan list and detail, and 내 패턴 describe the screens they
 replaced: what they say about data rules still holds (approval only by the
 owner, `If-Match`, idempotent replay, the before snapshot as the only source of
@@ -253,8 +253,8 @@ The UI is Korean (`<html lang="ko">`). All copy lives in one bundled catalog,
 - **Glossary.** 오늘 · 인박스 · 작업 · 프로젝트 · 알림 · 약속 (commitment) · 가용 시간 ·
   집중 / 집중 세션 · 몰입 모드 (calm mode) · 계획 세우기 / 계획 마법사 · 일정안 / 후보 ·
   블록 · 여유 (slack) · 위험도 · 축소 / 재배치 · 제안 · 확정 (plan) / 승인 (draft,
-  proposal) · 회고 (session review) · 직접 작성 모드 (manual mode) · 재계획 (replan) ·
-  재계획 요청 (user-requested replan) · 고정된 블록 (locked block) · 내 패턴
+  proposal) · 회고 (session review) · 직접 작성 모드 (manual mode) · 다시 맞추기 (replan) ·
+  다시 맞추기 요청 (user-requested replan) · 고정된 블록 (locked block) · 내 패턴
   (personal estimation profile) · 기록 (estimation feedback item). Messages use
   polite 해요체; buttons and labels stay short.
 - **Formatting** (`src/i18n/format.ts`, `Intl` in the user's or plan's IANA

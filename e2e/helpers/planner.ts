@@ -644,6 +644,51 @@ export async function getTaskConstraints(
   };
 }
 
+/** A folder (a project) as the planner API lists it (HOLO-06). */
+export interface ProjectDto {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: 'inbox' | 'normal';
+  readonly archived: boolean;
+  readonly version: number;
+}
+
+/** A to-do as the planner API answers it: where it is, and whether it is finished or deleted. */
+export interface TaskDto {
+  readonly id: string;
+  readonly title: string;
+  readonly status: 'todo' | 'in_progress' | 'done';
+  readonly projectId: string;
+  readonly version: number;
+  readonly deletedAt?: string;
+  readonly external?: readonly { readonly provider: string; readonly externalId: string }[];
+}
+
+/** Every project the API lists for the signed-in owner (the live API leaves archived ones out). */
+export async function listProjects(page: Page, state: E2EState): Promise<ProjectDto[]> {
+  return listPaged<ProjectDto>(page, state, '/projects', { limit: '100' }, 'GET /projects');
+}
+
+/** The owner's to-dos — all of them, or those of one project. */
+export async function listTasks(
+  page: Page,
+  state: E2EState,
+  projectId?: string,
+): Promise<TaskDto[]> {
+  return listPaged<TaskDto>(
+    page,
+    state,
+    '/tasks',
+    { limit: '100', ...(projectId === undefined ? {} : { projectId }) },
+    'GET /tasks',
+  );
+}
+
+export async function getTask(page: Page, state: E2EState, taskId: string): Promise<TaskDto> {
+  const response = await apiFetch(page, state, `/tasks/${taskId}`);
+  return (await expectOk(response, 'GET /tasks/{id}')) as TaskDto;
+}
+
 async function listPaged<T>(
   page: Page,
   state: E2EState,

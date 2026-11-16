@@ -43,12 +43,12 @@ async function mountPending(id = REPLAN_PENDING_ID): Promise<Mounted> {
 }
 
 /**
- * 재계획 (HOLO-03A; M5-03): one proposal on show — why, 전 → 후 as numbers, on
+ * 다시 맞추기 (HOLO-03A; M5-03): one proposal on show — why, 전 → 후 as numbers, on
  * the week grid and in words, and the decision. The same view serves `/replan`
  * (the newest that waits) and `/replan/:id`; the list beside it is covered in
  * m5-replan-entry.spec.ts.
  */
-describe('재계획 — one proposal (M5-03)', () => {
+describe('다시 맞추기 — one proposal (M5-03)', () => {
   beforeEach(() => {
     localStorage.clear();
     seedReplanScenario(mockDb);
@@ -319,9 +319,9 @@ describe('재계획 — one proposal (M5-03)', () => {
     await vi.waitFor(() => expect(bodyText()).toContain('이 제안을 거절할까요?'));
     const dialog = document.querySelector('.replan-reject-dialog') as HTMLElement;
     expect(dialog.getAttribute('role')).toBe('dialog');
-    expect(dialog.textContent).toContain('같은 이유(약속과 겹침)의 재계획 제안은 24시간 동안');
+    expect(dialog.textContent).toContain('같은 이유(약속과 겹침)의 제안은 24시간 동안');
     expect(dialog.textContent).toMatch(/\d{1,2}월 \d{1,2}일 \([월화수목금토일]\) 오[전후] \d{1,2}:\d{2}까지/);
-    expect(dialog.textContent).toContain('[재계획 요청]으로 직접 다시 계산할 수는 있어요');
+    expect(dialog.textContent).toContain('[다시 맞추기 요청]으로 직접 다시 계산할 수는 있어요');
     expect(requests.some((request) => request.path.endsWith(':reject'))).toBe(false);
 
     (Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent?.includes('거절하기')) as HTMLButtonElement).click();
@@ -383,7 +383,7 @@ describe('재계획 — one proposal (M5-03)', () => {
   });
 });
 
-describe('재계획 요청 (user_request)', () => {
+describe('다시 맞추기 요청 (user_request)', () => {
   beforeEach(() => {
     localStorage.clear();
   });
@@ -391,7 +391,7 @@ describe('재계획 요청 (user_request)', () => {
   it('creates a pending proposal and opens it', async () => {
     const { wrapper, router } = await mountView(ReplanRequestButton, { path: '/overview', props: { planId: MOCK_PLAN_ID } });
     const request = vi.spyOn(plannerClient, 'requestReplanProposal');
-    await buttonWith(wrapper, '재계획 요청').trigger('click');
+    await buttonWith(wrapper, '다시 맞추기 요청').trigger('click');
     await vi.waitFor(() => expect(router.currentRoute.value.path).toMatch(/^\/replan\/[0-9a-f-]{36}$/));
     expect(request).toHaveBeenCalledWith({ planId: MOCK_PLAN_ID }, expect.any(String), expect.any(AbortSignal));
     const created = [...mockDb.replanProposals.values()].find((item) => item.trigger.kind === 'user_request');
@@ -403,15 +403,15 @@ describe('재계획 요청 (user_request)', () => {
     mockDb.replanSuppressions.set('user_request', Date.now() + 24 * 60 * 60 * 1000);
     const { wrapper } = await mountView(ReplanRequestButton, { path: '/overview', props: { planId: MOCK_PLAN_ID } });
     const request = vi.spyOn(plannerClient, 'requestReplanProposal');
-    await buttonWith(wrapper, '재계획 요청').trigger('click');
-    await waitForText(wrapper, '지금은 재계획을 더 요청할 수 없어요.');
+    await buttonWith(wrapper, '다시 맞추기 요청').trigger('click');
+    await waitForText(wrapper, '지금은 다시 맞추기를 더 요청할 수 없어요.');
     const status = wrapper.get('[role="status"]');
     expect(status.attributes('aria-live')).toBe('polite');
-    expect(status.text()).toMatch(/(1일|23시간 59분|24시간) 뒤\(\d{1,2}월 \d{1,2}일 \([월화수목금토일]\) 오[전후] \d{1,2}:\d{2}\)에 다시 요청할 수 있어요/);
+    expect(status.text()).toMatch(/(1일|23시간 59분|24시간) 뒤\(\d{1,2}월 \d{1,2}일 \([월화수목금토일]\) 오[전후] \d{1,2}:\d{2}\)에 요청할 수 있어요/);
     expect(status.text()).toContain('거절한 이유는 24시간 동안 다시 제안하지 않고, 제안은 하루 2번까지예요.');
     expect(status.text()).not.toMatch(/\d{4,}\s*초/);
 
-    await buttonWith(wrapper, '재계획 요청').trigger('click');
+    await buttonWith(wrapper, '다시 맞추기 요청').trigger('click');
     await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
     const keys = request.mock.calls.map((call) => call[1]);
     expect(keys[0]).not.toBe(keys[1]);
@@ -433,8 +433,8 @@ describe('재계획 요청 (user_request)', () => {
       trigger: { ...base.trigger, reason: 'deadline_slack_negative', kind: 'deadline_risk' },
     });
     const { wrapper } = await mountView(ReplanRequestButton, { path: '/overview', props: { planId: MOCK_PLAN_ID } });
-    await buttonWith(wrapper, '재계획 요청').trigger('click');
-    await waitForText(wrapper, '에 다시 요청할 수 있어요');
+    await buttonWith(wrapper, '다시 맞추기 요청').trigger('click');
+    await waitForText(wrapper, '에 요청할 수 있어요');
     expect([...mockDb.replanProposals.values()].filter((item) => item.trigger.kind === 'user_request')).toHaveLength(0);
     wrapper.unmount();
   });
@@ -442,7 +442,7 @@ describe('재계획 요청 (user_request)', () => {
   it('explains a plan the server no longer knows and keeps nothing on the device (negative)', async () => {
     const missing = '01900000-0000-7000-8000-00000000ffff';
     const { wrapper } = await mountView(ReplanRequestButton, { path: '/overview', props: { planId: missing } });
-    await buttonWith(wrapper, '재계획 요청').trigger('click');
+    await buttonWith(wrapper, '다시 맞추기 요청').trigger('click');
     await waitForText(wrapper, '이 계획을 찾을 수 없어요');
     expect(localStorage.length).toBe(0);
     wrapper.unmount();
