@@ -86,6 +86,12 @@ impl Zone {
     }
 }
 
+/// True when the bundled tz database has a zone of this name.
+#[must_use]
+pub fn knows_time_zone(name: &str) -> bool {
+    Zone::named(name).is_some()
+}
+
 /// An instant as `Temporal.Instant.prototype.toString` prints it: seconds
 /// always, a fraction only when it is not zero and without trailing zeros
 /// (`2026-11-11T09:00:00Z`, `2026-11-11T09:00:00.5Z`). `None` outside what
@@ -194,6 +200,9 @@ mod tests {
         assert!(Zone::named("").is_none());
         assert!(Zone::named("Etc/Unknown").is_none());
         assert!(Zone::named("Asia/Seoul").is_some());
+        assert!(knows_time_zone("Europe/Berlin"));
+        assert!(!knows_time_zone("Europe/Atlantis"));
+        assert!(!knows_time_zone("FREQ=DAILY"));
     }
 
     #[test]

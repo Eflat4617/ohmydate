@@ -31,6 +31,7 @@ print_stderr = "warn"
 
 [workspace.dependencies]
 ohmydate-domain = { path = "crates/domain" }
+ohmydate-recurrence = { path = "crates/recurrence" }
 ohmydate-store = { path = "crates/store" }
 ohmydate-app = { path = "crates/app" }
 

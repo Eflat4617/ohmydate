@@ -81,7 +81,8 @@ impl TestApp {
             .read(|connection| {
                 connection.query_row(
                     "SELECT (SELECT count(*) FROM owner) + (SELECT count(*) FROM project) \
-                          + (SELECT count(*) FROM task)",
+                          + (SELECT count(*) FROM task) \
+                          + (SELECT count(*) FROM commitment_event)",
                     [],
                     |row| row.get(0),
                 )

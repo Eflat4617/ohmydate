@@ -28,3 +28,4 @@ mod zone;
 pub use civil::Date;
 pub use expand::{ExpandError, MAX_LOOKBACK_MS, MAX_RANGE_MS, Occurrence, Series, clip, expand};
 pub use rule::{Frequency, MAX_OCCURRENCES, Rule, RuleError, Until};
+pub use zone::knows_time_zone;

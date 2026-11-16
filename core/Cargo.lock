@@ -731,6 +731,7 @@ name = "ohmydate-app"
 version = "0.1.0"
 dependencies = [
  "ohmydate-domain",
+ "ohmydate-recurrence",
  "ohmydate-store",
  "serde_json",
 ]

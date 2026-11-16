@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-use crate::instant::days_in_month;
+use crate::instant::{days_from_civil, days_in_month};
 use crate::{DomainError, ValidationIssue, Version};
 
 /// A wall-clock time of day in whole minutes, `00:00` to `24:00`.
@@ -110,6 +110,17 @@ impl CalendarDate {
     #[must_use]
     pub fn day(self) -> u8 {
         self.day
+    }
+
+    /// Days since 1970-01-01 (negative before it): the difference of two
+    /// dates is the difference of these.
+    #[must_use]
+    pub fn days_since_epoch(self) -> i64 {
+        days_from_civil(
+            i64::from(self.year),
+            i64::from(self.month),
+            i64::from(self.day),
+        )
     }
 }
 
@@ -465,6 +476,17 @@ mod tests {
         assert_eq!(date("0001-01-01").to_string(), "0001-01-01");
         assert!(date("2024-02-29") < date("2024-03-01"));
         assert!(date("2025-12-31") < date("2026-01-01"));
+        assert_eq!(date("1970-01-01").days_since_epoch(), 0);
+        assert_eq!(date("1969-12-31").days_since_epoch(), -1);
+        assert_eq!(
+            date("2027-01-01").days_since_epoch() - date("2026-01-01").days_since_epoch(),
+            365
+        );
+        assert_eq!(
+            date("2024-03-01").days_since_epoch() - date("2024-02-28").days_since_epoch(),
+            2,
+            "a leap day lies between"
+        );
     }
 
     #[test]

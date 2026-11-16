@@ -31,6 +31,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "availability",
         sql: include_str!("../migrations/0003_availability.sql"),
     },
+    Migration {
+        version: 4,
+        name: "commitments",
+        sql: include_str!("../migrations/0004_commitments.sql"),
+    },
 ];
 
 /// What happened at open.

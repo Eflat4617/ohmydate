@@ -145,6 +145,62 @@ export function sampleHours(): Record<string, unknown> {
 
 const AVAILABILITY_TAG = /^W\/"availability:[1-9][0-9]*"$/;
 
+const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * 05:00 UTC, `days` after the Monday of the current week (UTC). Fixtures
+ * hang on it instead of on a written date: an appointment may start at most
+ * ten years before now, so a fixed date would stop being valid one day.
+ */
+export function weekInstant(days: number, hours = 0): string {
+  const now = new Date();
+  const monday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) -
+    ((now.getUTCDay() + 6) % 7) * DAY_MS;
+  return new Date(monday + days * DAY_MS + (5 + hours) * HOUR_MS).toISOString();
+}
+
+/** A valid `CommitmentCreate`: two hours every Tuesday, from next week. */
+export function sampleCommitment(): Record<string, unknown> {
+  return {
+    title: 'Weekly seminar',
+    startAt: weekInstant(8),
+    endAt: weekInstant(8, 2),
+    timeZone: 'Asia/Seoul',
+    rrule: 'FREQ=WEEKLY;BYDAY=TU',
+  };
+}
+
+/** `from=…&to=…` for the three weeks from this week's Monday, 00:00 UTC. */
+export function sampleWindow(): string {
+  return `from=${weekInstant(0, -5)}&to=${weekInstant(21, -5)}`;
+}
+
+interface CommitmentDto {
+  readonly id: string;
+  readonly version: number;
+}
+
+/** Creates an appointment through the API and returns it. */
+export async function createCommitment(
+  core: Core,
+  body: unknown = sampleCommitment(),
+): Promise<CommitmentDto> {
+  const response = await core.request('POST', `${API_PREFIX}/commitments`, {
+    headers: { 'idempotency-key': newIdempotencyKey() },
+    body,
+  });
+  if (response.status !== 201) {
+    throw new Error(`could not create an appointment: ${response.status} ${JSON.stringify(response.body)}`);
+  }
+  return response.body as CommitmentDto;
+}
+
+async function oneCommitment(core: Core): Promise<Prepared> {
+  const commitment = await createCommitment(core);
+  return { params: { id: commitment.id }, version: commitment.version };
+}
+
 /**
  * Operations served by the Rust core, in the order they were ported.
  * The suite fails when the core serves an operation that is missing here.
@@ -277,6 +333,48 @@ export const portedRoutes: readonly RouteEntry[] = [
     prepare: async (core) => ({ version: (await readAvailability(core)).version }),
     body: () => sampleHours(),
     otherBody: () => ({ ...sampleHours(), rules: [] }),
+  },
+  // RC-20 — appointments. Their own rules: `commitments.test.ts`.
+  {
+    operationId: 'listCommitments',
+    successStatus: 200,
+    etag: 'content',
+    prepare: async (core) => {
+      await createCommitment(core);
+      return {};
+    },
+    query: () => `${sampleWindow()}&limit=100`,
+    // `to` is required.
+    invalidQuery: `from=${weekInstant(0)}`,
+  },
+  {
+    operationId: 'createCommitment',
+    successStatus: 201,
+    etag: 'version',
+    body: () => sampleCommitment(),
+    otherBody: () => ({ ...sampleCommitment(), title: 'Another appointment' }),
+  },
+  {
+    operationId: 'updateCommitment',
+    successStatus: 200,
+    etag: 'version',
+    prepare: oneCommitment,
+    body: () => ({ title: 'Renamed seminar', rrule: null }),
+    otherBody: () => ({ title: 'Renamed differently' }),
+  },
+  {
+    operationId: 'deleteCommitment',
+    successStatus: 204,
+    etag: 'none',
+    prepare: oneCommitment,
+  },
+  // RC-20 — all-day events of a connected calendar: empty until RC-90.
+  {
+    operationId: 'listCalendarDayEvents',
+    successStatus: 200,
+    etag: 'content',
+    query: () => 'from=2026-11-01&to=2026-11-30',
+    invalidQuery: 'from=2026-11-01',
   },
 ];
 

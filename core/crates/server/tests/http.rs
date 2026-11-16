@@ -26,6 +26,9 @@ const UNKNOWN_ID: &str = "0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55";
 
 struct TestServer {
     state: Arc<ServerState>,
+    /// The application behind `state`, for the few tests that prepare data
+    /// no request can create.
+    app: Arc<App>,
     directory: PathBuf,
     keys: AtomicU32,
 }
@@ -82,8 +85,10 @@ impl TestServer {
         )
         .unwrap();
         let guard = Guard::new(TOKEN.to_owned(), 4310, &[]);
+        let app = Arc::new(app);
         Self {
-            state: Arc::new(ServerState::new(Arc::new(app), guard)),
+            state: Arc::new(ServerState::new(app.clone(), guard)),
+            app,
             directory,
             keys: AtomicU32::new(0),
         }
@@ -1655,4 +1660,452 @@ async fn the_hours_are_refused_by_the_tag_the_contract_and_the_window_rules() {
     let read = server.get("/api/v1/availability").await;
     assert_eq!(read.body["version"], 1);
     assert_eq!(read.body["rules"], json!([]));
+}
+
+fn seminar_body() -> Value {
+    json!({
+        "title": "Weekly seminar",
+        "startAt": "2026-11-17T05:00:00Z",
+        "endAt": "2026-11-17T07:00:00Z",
+        "timeZone": "Asia/Seoul",
+        "rrule": "FREQ=WEEKLY;BYDAY=TU",
+    })
+}
+
+impl TestServer {
+    async fn create_commitment(&self, body: Value) -> Answer {
+        self.call(
+            "POST",
+            "/api/v1/commitments",
+            &[("idempotency-key", &self.key())],
+            Some(body),
+        )
+        .await
+    }
+
+    async fn availability_version(&self) -> u64 {
+        self.get("/api/v1/availability").await.body["version"]
+            .as_u64()
+            .unwrap()
+    }
+
+    /// Stores an appointment as the calendar sync will: no request can give
+    /// an appointment the source `google`.
+    fn import_commitment(&self, title: &str) -> String {
+        use ohmydate_domain::{
+            Commitment, CommitmentSource, ExternalEvent, IdGenerator, Instant, Version,
+        };
+        let ids = UuidV7Generator::new(SystemClock, OsRandom);
+        let at = |text: &str| Instant::parse_rfc3339(text).unwrap();
+        let commitment = Commitment {
+            id: ids.next_id(),
+            title: title.to_owned(),
+            start_at: at("2026-11-18T01:00:00Z"),
+            end_at: at("2026-11-18T02:00:00Z"),
+            time_zone: "Asia/Seoul".into(),
+            rrule: None,
+            source: CommitmentSource::Google,
+            external: Some(ExternalEvent {
+                calendar_id: "primary".into(),
+                event_id: "event-1".into(),
+                etag: None,
+            }),
+            version: Version::INITIAL,
+            created_at: at("2026-11-16T00:00:00Z"),
+            updated_at: at("2026-11-16T00:00:00Z"),
+        };
+        self.app
+            .store()
+            .write(|transaction| ohmydate_store::commitments::insert(transaction, &commitment))
+            .unwrap();
+        commitment.id.as_str().to_owned()
+    }
+}
+
+#[tokio::test]
+async fn an_appointment_goes_through_its_whole_life() {
+    let server = TestServer::new();
+    assert_eq!(server.availability_version().await, 1);
+
+    let created = server.create_commitment(seminar_body()).await;
+    assert_eq!(created.status, 201, "{}", created.body);
+    assert_eq!(created.header("etag"), Some("W/\"1\""));
+    let id = created.body["id"].as_str().unwrap().to_owned();
+    let owner = server.get("/api/v1/me").await.body["id"].clone();
+    assert_eq!(
+        created.body,
+        json!({
+            "id": id,
+            "ownerId": owner,
+            "title": "Weekly seminar",
+            "startAt": "2026-11-17T05:00:00.000Z",
+            "endAt": "2026-11-17T07:00:00.000Z",
+            "timeZone": "Asia/Seoul",
+            "rrule": "FREQ=WEEKLY;BYDAY=TU",
+            "source": "manual",
+            "version": 1,
+            "createdAt": created.body["createdAt"],
+            "updatedAt": created.body["updatedAt"],
+        })
+    );
+    // An appointment changes what time a plan may use.
+    assert_eq!(server.availability_version().await, 2);
+
+    let window = "/api/v1/commitments?from=2026-11-11T00:00:00Z&to=2026-11-25T00:00:00Z";
+    let list = server.get(window).await;
+    assert_eq!(list.status, 200, "{}", list.body);
+    assert_eq!(list.body["nextCursor"], Value::Null);
+    let mut expected = created.body.clone();
+    // Instants a rule gave are printed without a zero fraction, as the
+    // reference prints them.
+    expected["occurrences"] = json!([
+        {"commitmentId": id, "startAt": "2026-11-17T05:00:00Z", "endAt": "2026-11-17T07:00:00Z"},
+        {"commitmentId": id, "startAt": "2026-11-24T05:00:00Z", "endAt": "2026-11-24T07:00:00Z"},
+    ]);
+    assert_eq!(list.body["items"], json!([expected]));
+    let etag = list.header("etag").unwrap().to_owned();
+    let cached = server
+        .call("GET", window, &[("if-none-match", &etag)], None)
+        .await;
+    assert_eq!(cached.status, 304);
+
+    let path = format!("/api/v1/commitments/{id}");
+    let patched = server
+        .mutate(
+            "PATCH",
+            &path,
+            1,
+            Some(json!({"title": "Renamed seminar", "rrule": null})),
+        )
+        .await;
+    assert_eq!(patched.status, 200, "{}", patched.body);
+    assert_eq!(patched.header("etag"), Some("W/\"2\""));
+    assert_eq!(patched.body["title"], "Renamed seminar");
+    assert_eq!(patched.body["version"], 2);
+    assert!(patched.body.get("rrule").is_none(), "{}", patched.body);
+    assert!(patched.body.get("occurrences").is_none());
+    assert_eq!(server.availability_version().await, 3);
+    // Without its rule it happens once, and its own instants are printed as
+    // they are stored.
+    let list = server.get(window).await;
+    assert_ne!(list.header("etag"), Some(etag.as_str()));
+    assert_eq!(
+        list.body["items"][0]["occurrences"],
+        json!([{
+            "commitmentId": id,
+            "startAt": "2026-11-17T05:00:00.000Z",
+            "endAt": "2026-11-17T07:00:00.000Z",
+        }])
+    );
+
+    let stale = server.mutate("DELETE", &path, 1, None).await;
+    assert_problem(&stale, 412, "version_conflict");
+    let deleted = server.mutate("DELETE", &path, 2, None).await;
+    assert_eq!((deleted.status, deleted.body.clone()), (204, Value::Null));
+    assert_eq!(deleted.header("etag"), None);
+    assert_eq!(server.availability_version().await, 4);
+    assert_eq!(server.get(window).await.body["items"], json!([]));
+    assert_problem(
+        &server.mutate("DELETE", &path, 3, None).await,
+        404,
+        "not_found",
+    );
+    assert_problem(
+        &server.mutate("PATCH", &path, 3, Some(json!({}))).await,
+        404,
+        "not_found",
+    );
+    assert_eq!(server.availability_version().await, 4);
+}
+
+#[tokio::test]
+async fn appointments_are_refused_by_the_contract_and_by_their_rules() {
+    let server = TestServer::new();
+    // The contract (400).
+    for (pointer, value) in [
+        ("/title", json!("")),
+        ("/startAt", json!("tomorrow")),
+        ("/timeZone", json!("Mars/Olympus_Mons")),
+        ("/rrule", json!("COUNT=3;FREQ=DAILY")),
+        ("/rrule", json!("FREQ")),
+        ("/source", json!("google")),
+    ] {
+        let mut body = seminar_body();
+        body[pointer.trim_start_matches('/')] = value;
+        assert_problem(
+            &server.create_commitment(body).await,
+            400,
+            "validation_failed",
+        );
+    }
+    // The rules (422), each under the pointer of its field.
+    for (pointer, value, path) in [
+        ("/rrule", json!("FREQ=HOURLY"), "/rrule"),
+        ("/rrule", json!("FREQ=DAILY;COUNT=1001"), "/rrule"),
+        ("/endAt", json!("2026-11-17T05:00:00Z"), "/endAt"),
+        ("/startAt", json!("2001-01-01T00:00:00Z"), "/startAt"),
+        ("/startAt", json!("2026-11-17T23:59:60Z"), "/startAt"),
+        ("/title", json!("a\u{0}b"), "/title"),
+    ] {
+        let mut body = seminar_body();
+        body[pointer.trim_start_matches('/')] = value;
+        let answer = server.create_commitment(body).await;
+        assert_problem(&answer, 422, "validation_failed");
+        assert_eq!(answer.body["errors"][0]["path"], path);
+    }
+    // A refused rule is named by its fault, never repeated.
+    let mut body = seminar_body();
+    body["rrule"] = json!("FREQ=DAILY;SECRETPART=hunter2");
+    let answer = server.create_commitment(body).await;
+    assert_eq!(
+        answer.body["errors"],
+        json!([{"path": "/rrule", "message": "Unsupported RRULE part"}])
+    );
+    assert!(!answer.body.to_string().contains("hunter2"));
+    assert_eq!(
+        server.availability_version().await,
+        1,
+        "nothing was accepted"
+    );
+
+    // The window of a list.
+    for (query, status) in [
+        ("from=2026-11-11T00:00:00Z", 400),
+        ("from=2026-11-11T00:00:00Z&to=later", 400),
+        (
+            "from=2026-11-11T00:00:00Z&to=2026-11-25T00:00:00Z&limit=0",
+            400,
+        ),
+        (
+            "from=2026-11-11T00:00:00Z&to=2026-11-25T00:00:00Z&limit=101",
+            400,
+        ),
+        (
+            "from=2026-11-11T00:00:00Z&to=2026-11-25T00:00:00Z&order=desc",
+            400,
+        ),
+        ("from=2026-11-11T00:00:30Z&to=2026-11-25T00:00:00Z", 422),
+        ("from=2026-01-01T00:00:00Z&to=2027-02-01T00:00:00Z", 422),
+        (
+            "from=2026-11-11T00:00:00Z&to=2026-11-25T00:00:00Z&cursor=nonsense",
+            422,
+        ),
+    ] {
+        let answer = server.get(&format!("/api/v1/commitments?{query}")).await;
+        assert_problem(&answer, status, "validation_failed");
+    }
+}
+
+#[tokio::test]
+async fn an_imported_appointment_is_listed_and_can_be_neither_changed_nor_deleted() {
+    let server = TestServer::new();
+    let id = server.import_commitment("Dentist");
+    let window = "/api/v1/commitments?from=2026-11-18T00:00:00Z&to=2026-11-19T00:00:00Z";
+    let list = server.get(window).await;
+    assert_eq!(list.body["items"][0]["id"], id.as_str());
+    assert_eq!(list.body["items"][0]["source"], "google");
+    assert_eq!(
+        list.body["items"][0]["occurrences"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    // The event it mirrors is not part of the contract.
+    assert!(!list.body.to_string().contains("event-1"));
+
+    let path = format!("/api/v1/commitments/{id}");
+    let key = server.key();
+    let headers = [("if-match", "W/\"1\""), ("idempotency-key", key.as_str())];
+    let patch = server
+        .call("PATCH", &path, &headers, Some(json!({"title": "Moved"})))
+        .await;
+    assert_problem(&patch, 409, "illegal_transition");
+    assert!(
+        patch.body["detail"]
+            .as_str()
+            .unwrap()
+            .contains("imported from Google Calendar"),
+        "{}",
+        patch.body
+    );
+    // A 409 is a domain result: stored for its key and replayed.
+    let replay = server
+        .call("PATCH", &path, &headers, Some(json!({"title": "Moved"})))
+        .await;
+    assert_eq!((replay.status, &replay.body), (409, &patch.body));
+    // With a stale version too: it is edited in Google, whatever the tag.
+    assert_problem(
+        &server
+            .mutate("PATCH", &path, 7, Some(json!({"title": "Moved"})))
+            .await,
+        409,
+        "illegal_transition",
+    );
+    assert_problem(
+        &server.mutate("DELETE", &path, 1, None).await,
+        409,
+        "illegal_transition",
+    );
+    assert_problem(
+        &server.mutate("DELETE", &path, 7, None).await,
+        409,
+        "illegal_transition",
+    );
+    // Nothing changed, the availability version included.
+    let after = server.get(window).await;
+    assert_eq!(after.body, list.body);
+    assert_eq!(server.availability_version().await, 1);
+}
+
+#[tokio::test]
+async fn day_events_are_an_empty_list_with_the_final_range_rules() {
+    let server = TestServer::new();
+    let path = "/api/v1/calendar-day-events?from=2026-11-01&to=2026-11-30";
+    let list = server.get(path).await;
+    assert_eq!(list.status, 200, "{}", list.body);
+    assert_eq!(list.body, json!({"items": []}));
+    let etag = list.header("etag").unwrap().to_owned();
+    let cached = server
+        .call("GET", path, &[("if-none-match", &etag)], None)
+        .await;
+    assert_eq!(cached.status, 304);
+    // One day is a range; 92 days between the ends is the longest.
+    for query in [
+        "from=2026-11-16&to=2026-11-16",
+        "from=2026-01-01&to=2026-04-03",
+    ] {
+        let answer = server
+            .get(&format!("/api/v1/calendar-day-events?{query}"))
+            .await;
+        assert_eq!(answer.status, 200, "{query}: {}", answer.body);
+    }
+    for (query, status) in [
+        ("from=2026-11-02&to=2026-11-01", 422),
+        ("from=2026-01-01&to=2026-04-04", 422),
+        ("from=2026-11-01", 400),
+        ("from=2026-02-30&to=2026-03-01", 400),
+        ("from=2026-11-01T00:00:00Z&to=2026-11-30", 400),
+        ("from=2026-11-01&to=2026-11-30&calendar=all", 400),
+    ] {
+        let answer = server
+            .get(&format!("/api/v1/calendar-day-events?{query}"))
+            .await;
+        assert_problem(&answer, status, "validation_failed");
+    }
+    let backwards = server
+        .get("/api/v1/calendar-day-events?from=2026-11-02&to=2026-11-01")
+        .await;
+    assert_eq!(
+        backwards.body["errors"],
+        json!([{"path": "/to", "message": "to must not be before from"}])
+    );
+}
+
+#[tokio::test]
+async fn appointment_and_hours_requests_leave_no_user_text_in_the_log() {
+    let server = TestServer::new();
+    // Accepted: a title and a rule the owner wrote.
+    let created = server
+        .create_commitment(json!({
+            "title": "SECRET-APPOINTMENT-5d1c",
+            "startAt": "2026-11-17T05:00:00Z",
+            "endAt": "2026-11-17T07:00:00Z",
+            "timeZone": "Pacific/Kiritimati",
+            "rrule": "FREQ=WEEKLY;BYDAY=TU;COUNT=77",
+        }))
+        .await;
+    assert_eq!(created.status, 201, "{}", created.body);
+    let path = format!(
+        "/api/v1/commitments/{}",
+        created.body["id"].as_str().unwrap()
+    );
+    // Refused by a rule, and refused by the contract.
+    let refused = server
+        .mutate(
+            "PATCH",
+            &path,
+            1,
+            Some(json!({"title": "SECRET-RENAMED-0b6f", "rrule": "FREQ=DAILY;SECRET-PART=1"})),
+        )
+        .await;
+    assert_eq!(refused.status, 422);
+    assert!(
+        !refused.body.to_string().contains("SECRET"),
+        "{}",
+        refused.body
+    );
+    let malformed = server
+        .create_commitment(json!({"title": "SECRET-APPOINTMENT-malformed", "rrule": "SECRET-RULE"}))
+        .await;
+    assert_eq!(malformed.status, 400);
+    assert!(
+        !malformed.body.to_string().contains("SECRET"),
+        "{}",
+        malformed.body
+    );
+    let renamed = server
+        .mutate(
+            "PATCH",
+            &path,
+            1,
+            Some(json!({"title": "SECRET-RENAMED-0b6f"})),
+        )
+        .await;
+    assert_eq!(renamed.status, 200);
+    server
+        .get("/api/v1/commitments?from=2026-11-11T00:00:00Z&to=2026-11-25T00:00:00Z&cursor=SECRET-CURSOR-91")
+        .await;
+    assert_eq!(server.mutate("DELETE", &path, 2, None).await.status, 204);
+    // The hours: a zone is the only text in them.
+    let mut hours = hours_body();
+    hours["timeZone"] = json!("Antarctica/Troll");
+    let put = server
+        .call(
+            "PUT",
+            "/api/v1/availability",
+            &[
+                ("if-match", "W/\"availability:4\""),
+                ("idempotency-key", &server.key()),
+            ],
+            Some(hours),
+        )
+        .await;
+    assert_eq!(put.status, 200, "{}", put.body);
+    server
+        .get("/api/v1/calendar-day-events?from=2026-11-01&to=SECRET-DATE-3a")
+        .await;
+
+    let logs = String::from_utf8(captured_logs().0.lock().unwrap().clone()).unwrap();
+    for (operation, status) in [
+        ("createCommitment", 201),
+        ("createCommitment", 400),
+        ("updateCommitment", 422),
+        ("updateCommitment", 200),
+        ("listCommitments", 422),
+        ("deleteCommitment", 204),
+        ("putAvailability", 200),
+        ("listCalendarDayEvents", 400),
+    ] {
+        assert!(
+            logs.lines().any(|line| {
+                line.contains(&format!("\"operation\":\"{operation}\""))
+                    && line.contains(&format!("\"status\":{status}"))
+            }),
+            "no request line for {operation} {status}"
+        );
+    }
+    for secret in [
+        "SECRET-APPOINTMENT",
+        "SECRET-RENAMED",
+        "SECRET-PART",
+        "SECRET-RULE",
+        "SECRET-CURSOR",
+        "SECRET-DATE",
+        "COUNT=77",
+        "Pacific/Kiritimati",
+        "Antarctica/Troll",
+    ] {
+        assert!(!logs.contains(secret), "{secret} reached the log");
+    }
 }

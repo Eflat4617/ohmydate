@@ -4,7 +4,10 @@
 //! the TypeScript core's `toTaskDto` / `toProjectDto` / `toUserDto` do.
 
 use ohmydate_app::Page;
-use ohmydate_domain::{Availability, Id, MicroUsd, Owner, Project, Task};
+use ohmydate_app::commitments::CommitmentPage;
+use ohmydate_domain::{
+    Availability, CalendarDayEvent, Commitment, Id, MicroUsd, Owner, Project, Task,
+};
 use serde_json::{Map, Value, json};
 
 /// `Task` of the contract. `external` is always empty: it listed Vikunja
@@ -151,6 +154,92 @@ pub fn availability(hours: &Availability) -> Value {
             "riskLevel": hours.prefs.risk_level.as_str(),
         },
     })
+}
+
+fn commitment_fields(commitment: &Commitment, owner_id: &Id) -> Map<String, Value> {
+    let mut body = Map::new();
+    body.insert("id".into(), json!(commitment.id.as_str()));
+    body.insert("ownerId".into(), json!(owner_id.as_str()));
+    body.insert("title".into(), json!(commitment.title));
+    body.insert("startAt".into(), json!(commitment.start_at.to_rfc3339()));
+    body.insert("endAt".into(), json!(commitment.end_at.to_rfc3339()));
+    body.insert("timeZone".into(), json!(commitment.time_zone));
+    if let Some(rrule) = &commitment.rrule {
+        body.insert("rrule".into(), json!(rrule));
+    }
+    body.insert("source".into(), json!(commitment.source.as_str()));
+    body.insert("version".into(), json!(commitment.version.get()));
+    body.insert(
+        "createdAt".into(),
+        json!(commitment.created_at.to_rfc3339()),
+    );
+    body.insert(
+        "updatedAt".into(),
+        json!(commitment.updated_at.to_rfc3339()),
+    );
+    body
+}
+
+/// `Commitment` of the contract, as create and update answer it: without
+/// `occurrences`. The event an imported appointment mirrors is not part of
+/// the contract.
+#[must_use]
+pub fn commitment(commitment: &Commitment, owner_id: &Id) -> Value {
+    Value::Object(commitment_fields(commitment, owner_id))
+}
+
+/// `CommitmentPage` of the contract: every appointment with its occurrences
+/// inside the window of the request.
+///
+/// An occurrence's instants are printed as the reference prints them — the
+/// stored text of an appointment that happens once
+/// (`2026-11-19T01:00:00.000Z`), the shortest form of an instant a rule gave
+/// (`2026-11-17T05:00:00Z`). `Occurrence` knows which.
+#[must_use]
+pub fn commitment_page(page: &CommitmentPage, owner_id: &Id) -> Value {
+    let items: Vec<Value> = page
+        .items
+        .iter()
+        .map(|item| {
+            let mut body = commitment_fields(&item.commitment, owner_id);
+            let occurrences: Vec<Value> = item
+                .occurrences
+                .iter()
+                .map(|occurrence| {
+                    json!({
+                        "commitmentId": item.commitment.id.as_str(),
+                        "startAt": occurrence.start_at(),
+                        "endAt": occurrence.end_at(),
+                    })
+                })
+                .collect();
+            body.insert("occurrences".into(), Value::Array(occurrences));
+            Value::Object(body)
+        })
+        .collect();
+    json!({
+        "items": items,
+        "nextCursor": page.next_cursor.as_ref().map(Id::as_str),
+    })
+}
+
+/// `CalendarDayEventPage` of the contract.
+#[must_use]
+pub fn day_event_page(events: &[CalendarDayEvent]) -> Value {
+    let items: Vec<Value> = events
+        .iter()
+        .map(|event| {
+            json!({
+                "id": event.id.as_str(),
+                "title": event.title,
+                "startDate": event.start_date.to_string(),
+                "endDate": event.end_date.to_string(),
+                "source": "google",
+                "calendarName": event.calendar_name,
+            })
+        })
+        .collect();
+    json!({ "items": items })
 }
 
 /// `{items, nextCursor}` (08 §1).

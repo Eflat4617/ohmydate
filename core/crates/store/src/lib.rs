@@ -10,6 +10,8 @@
 //! formats or business rules.
 
 pub mod availability;
+pub mod commitments;
+pub mod day_events;
 mod error;
 pub mod idempotency;
 mod migrate;
