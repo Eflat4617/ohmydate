@@ -33,10 +33,10 @@ TypeScript 코어의 테스트 파일마다 한 줄. Rust 코어가 그 테스�
 | `packages/provider-vikunja/test` | 15 | 0 | 1 | 14 | 0 |
 | `packages/contracts/test` | 19 | 0 | 0 | 19 | 0 |
 | `packages/testkit/test` | 2 | 0 | 0 | 2 | 0 |
-| `e2e/tests` | 13 | 0 | 0 | 2 | 11 |
-| 합계 | 212 | 30 | 15 | 77 | 90 |
+| `e2e/tests` | 14 | 0 | 0 | 2 | 12 |
+| 합계 | 213 | 30 | 15 | 77 | 91 |
 
-"아직"을 맡은 Task별 파일 수: RC-10B 2 · RC-20 1 · RC-40 8 · RC-50 10 · RC-60 9 · RC-70a 16 · RC-70b 29 · RC-80 6 · RC-90 9
+"아직"을 맡은 Task별 파일 수: RC-10B 3 · RC-20 1 · RC-40 8 · RC-50 10 · RC-60 9 · RC-70a 16 · RC-70b 29 · RC-80 6 · RC-90 9
 <!-- totals:end -->
 
 ## services/api/test
@@ -298,6 +298,7 @@ E2E는 옮기지 않는다: 같은 spec을 대상만 Rust 코어로 바꿔 돌�
 | `e2e-6-notes.spec.ts` | 아직 | RC-80 |
 | `e2e-7-nl-commitments.spec.ts` | 아직 | RC-70b |
 | `e2e-8-nl-tasks.spec.ts` | 아직 | RC-70b |
+| `e2e-9-folders.spec.ts` | 아직 | RC-10B — 폴더의 한살이(만들기·넣기·이름 바꾸기·없애기·되돌리기). 작업·프로젝트 operation만 쓴다. Vikunja 보관 상태 확인 부분은 해당 없음 |
 | `e2e-a11y-screens.spec.ts` | 아직 | RC-10B(할 일 화면부터. 나머지 화면은 그 화면의 Task에서) |
 | `e2e-ai-wait.spec.ts` | 아직 | RC-70b |
 | `plan-edit-helpers.spec.ts` | 해당 없음 | 서버를 쓰지 않는 헬퍼의 단위 테스트 — 대상이 무엇이든 그대로 돈다 |
