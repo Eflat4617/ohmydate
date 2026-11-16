@@ -25,7 +25,7 @@ RC-00에서 측정한 것:
 | advisory lock 호출 | 11곳 → 0 (프로세스 하나, 쓰기 트랜잭션 하나) |
 | EXCLUDE 제약 위반 처리(`23P01`) | 3곳(승인·Today·재계획) → 트랜잭션 안 코드 검사 |
 | Rust 테스트 (RC-00) | 178개: domain 37, store 27, app 26, scheduler 19 + 오라클 8, server 43 + bin 4 + HTTP 14 |
-| 패리티 하네스 | operation 12개, 테스트 150개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개), 시계 테스트(141개), 원장 검사 `ledger.test.ts`와 기준 테스트의 두 경우(150개)를 더했다 |
+| 패리티 하네스 | operation 12개, 테스트 156개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개), 시계 테스트(141개), 원장 검사 `ledger.test.ts`와 기준 테스트의 두 경우(150개), 판정 대조 `schema.test.ts`(156개)를 더했다 |
 | 오라클 팩 `sample.json` | 27건(golden 15, 생성 9, 재계획 1, 잘못된 입력 2), 211 KiB, 기준 tzdata 2026c vs jiff 2026e — 불일치 0 |
 | 서드파티 크레이트 | 126개(리눅스 그래프). MIT/Apache-2.0/BSD 밖은 4건(§9.4) |
 
@@ -296,11 +296,45 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 ② 깨진 JSON, `application/json`이 아닌 본문, 1 MiB를 넘는 본문은 400 `validation_failed`다. TypeScript 코어는 이 셋을 500으로 답한다(Fastify 오류가 일반 분기로 떨어진다) — 기준 구현의 결함으로 보고 따라가지 않는다.
 ③ 본문 스키마가 없는 operation에 온 본문은 읽지 않는다(요청 해시에도 넣지 않는다). TypeScript는 파싱해서 해시에 넣는다. 웹 클라이언트는 그런 요청을 보내지 않는다.
 ④ 400의 `errors[].message` 문구는 Ajv가 아니라 `jsonschema` 문구다. `path`(JSON 포인터, 최상위는 `/`)와 `code`·`status`는 같다. 클라이언트는 문구에 기대지 않는다.
-⑤ `format: date-time`: Ajv가 받아 주고 도메인이 422로 거부하던 일부 표기(구분자 공백, 소문자 `t`/`z`, `+0900`)는 400이 된다. 둘 다 클라이언트 오류이고 웹은 `toISOString()`만 보낸다.
+⑤ `format: date-time`: Ajv가 받아 주고 도메인이 422로 거부하던 표기 셋(구분자 공백, `+0900`, `+09`)은 400이 된다. 둘 다 클라이언트 오류이고 웹은 `toISOString()`만 보낸다. 소문자 `t`/`z`는 두 검증기가 모두 받고 양쪽 도메인이 모두 422로 거부한다 — RC-00 때는 이것도 400이 된다고 적었는데 대조 도구(§2.4)로 보니 아니었다.
 ⑥ 쿼리 스키마가 있는 operation은 모르는 파라미터를 400으로 거부하고, 없는 operation은 쿼리를 보지 않는다 — TypeScript와 같다.
 ⑦ 문제 `detail`은 리소스 종류와 id만 담는다(제목 없음) — 같다.
-⑧ `iana-time-zone` 형식: 번들 tzdb에 있는 이름을 **적힌 그대로** 받는다(`asia/seoul`은 400 — RC-10A에서 기준 구현에 맞췄다. 그 전에는 대소문자를 가리지 않았다). TypeScript는 실행 환경의 `Intl.supportedValuesOf('timeZone')`에 `UTC`·`Etc/UTC`를 더한 목록만 받으므로 링크 이름(`Asia/Calcutta`)은 Rust에서만 통과한다. 목록을 한 실행 환경의 ICU가 아니라 tzdb에서 가져오는 이유: 데스크톱에서 시간대 목록을 보여 주는 쪽은 웹뷰의 ICU이고 시스템 시간대가 링크 이름일 수도 있어, 코어는 그 어느 쪽이 내놓는 이름도 받아야 한다.
+⑧ `iana-time-zone` 형식: 번들 tzdb에 있는 이름을 **적힌 그대로** 받는다(`asia/seoul`은 400 — RC-10A에서 기준 구현에 맞췄다. 그 전에는 대소문자를 가리지 않았다). `Factory`는 받지 않는다. TypeScript는 실행 환경의 `Intl.supportedValuesOf('timeZone')`에 `UTC`·`Etc/UTC`를 더한 목록만 받는다. 그 목록은 ICU의 대표 표기라서(Node 24.21 / ICU 78.3에서 418개: `Asia/Calcutta`, `Europe/Kiev`, `America/Buenos_Aires`) tzdb가 지금 쓰는 이름(`Asia/Kolkata`, `Europe/Kyiv`, `America/Argentina/Buenos_Aires`)과 `Etc/GMT+9` 같은 이름, 옛 링크(`US/Pacific`)는 TypeScript에서 400이고 Rust에서만 통과한다. 거꾸로 TypeScript가 받는 이름은 Rust도 전부 받는다(§2.4 S3 — 테스트가 그 방향을 확인한다). RC-00 때 이 항목은 방향을 거꾸로 적었다("별칭 `Asia/Calcutta`는 Rust에서만"): 그 이름은 양쪽 다 받는다. 목록을 한 실행 환경의 ICU가 아니라 tzdb에서 가져오는 이유: 데스크톱에서 시간대 목록을 보여 주는 쪽은 웹뷰의 ICU이고 시스템 시간대가 어느 표기일지 알 수 없어, 코어는 그 어느 쪽이 내놓는 이름도 받아야 한다.
 ⑨ 응답의 `ownerId`는 언제나 하나뿐인 owner의 id다. 다른 owner의 리소스라는 경우가 없으므로 "남의 것 404" 테스트는 "없는 것 404"와 같아진다.
+
+### 2.4 두 검증기의 판정 대조 (R13)
+
+계약의 JSON 스키마를 TypeScript 코어는 Ajv로, Rust 코어는 `jsonschema` 크레이트로 검사한다. 판정이 갈리는 값이 있으면 같은 요청이 한쪽에서는 지나가고 다른 쪽에서는 400이 된다. `corepack pnpm run core:schema-diff`(`tests-core/schema.test.ts` — `core:parity`에도 들어 있다, 1.5초)가 그런 값을 찾는다. **있음**(RC-10A).
+
+- 무엇을 비교하나: 계약의 모든 요청 스키마 — 본문 37개, 쿼리 14개, 경로 파라미터 45개, 그리고 헤더 `If-Match`·`Idempotency-Key`·`If-None-Match`. 스키마마다 통과하는 기준 값 하나를 만들고 한 군데씩 바꾼 표본을 만든다(`tests-core/support/samples.ts`): 다른 형의 값, 길이의 경계(이모지처럼 UTF-16으로는 둘인 글자, 결합 문자), 정수·수의 경계와 표기(`1.0`, `1e0`, `-0`, `1e400`, 2^53+1), 형식 `date-time`·`date`·`uuid`·`email`·`iana-time-zone`·`uri`마다 수십 가지 표기, 계약에 있는 `pattern` 10개의 근처 값, 여러 가지 공백·NUL·짝 없는 서러게이트, 빠진·더해진·두 번 나온 프로퍼티, `__proto__` 같은 이름, 배열의 개수와 중복.
+- 어떻게: 기준 쪽은 `packages/contracts/test/ajv.ts`의 `compile`(계약 패키지가 Ajv를 설정하는 그대로)을 라우트의 TypeBox 스키마에 쓴다. 코어 쪽은 `schema-verdict` 바이너리가 디스패처가 부르는 바로 그 함수를 부른다(`core/crates/server/src/verdict.rs`). 표본은 값이 아니라 JSON 글자로 오간다 — 자바스크립트 값으로는 `1.0`과 `1`, 짝 없는 서러게이트를 구별해 보낼 수 없다.
+- 낡지 않게: 생성기가 모르는 키워드·형식·패턴이 계약에 생기면 실패한다(비교하지 않은 채 지나가지 않는다). 목록에 없는 차이가 생겨도, 목록에 있는 차이가 사라져도 실패한다. 스키마가 컴파일되지 않으면 코어는 그 부분을 검사하지 않게 되므로, 모든 요청 스키마가 컴파일된다는 것을 Rust 테스트가 따로 고정한다(`every_request_schema_of_the_contract_compiles`).
+- 결과(2026-11-16; Node 24.21 / ICU 78.3, `jsonschema` 0.61.2): 표본 14,747개, 570가지. 처음에는 41가지(552개)에서 판정이 갈렸다. 7가지는 코어를 고쳤고, 남은 34가지(390개)는 아래처럼 정했다. 보고서 전문(판정이 갈린 표본 전부와 570가지의 판정)은 실행할 때마다 `core/target/schema-diff/report.md`에 쓴다.
+
+코어를 고친 것(계약의 뜻이 분명한 곳):
+
+| 차이 | 전 | 후 |
+|---|---|---|
+| `If-Match`의 수가 버전의 범위(u32)를 넘는다: `W/"4294967296"` | 400(형식 오류) | 계약의 패턴 `[1-9][0-9]*`에는 자릿수 한도가 없다. 잘 만들어진 태그이고 현재 버전이 아니므로 412 `version_conflict` |
+| 빈 `If-None-Match` | 무시하고 200 | 계약이 `minLength: 1`이다. 그 헤더를 선언한 읽기에서 400 `validation_failed` |
+| 시간대 `Factory` | 통과 | tzdb에 있지만 "설정하지 않은 기계"의 자리 이름이다. 400 |
+| 시간대 이름의 대소문자(`asia/seoul`) — 첫 슬라이스에서 | 통과 | 적힌 그대로 비교한다. 400 |
+
+정한 것(목록: `tests-core/support/schema-differences.ts`):
+
+| id | 값 | 기준(Ajv) | 코어 | 결정 |
+|---|---|---|---|---|
+| S1 | `date-time`의 `+0900`, `+09`, 날짜와 시각 사이의 공백 (3가지, 69개) | 스키마 통과 → 도메인이 422 | 400 | 그대로 둔다. RFC 3339에 없는 표기이고 양쪽 다 거부한다 — 상태 코드만 다르다(§2.3 ⑤). 웹은 `toISOString()`만 보낸다 |
+| S2 | `Idempotency-Key: urn:uuid:<uuid>` (2가지, 114개) | 통과 | 400 | 그대로 둔다. UUID의 글자 표현은 36자이고 `urn:uuid:`는 ajv-formats가 덤으로 받는 URN이다. 웹은 맨 UUID만 보낸다. 본문과 경로의 id는 v7 패턴이 있어 양쪽 다 거부한다 |
+| S3 | tzdb에는 있고 기준 실행 환경의 ICU 목록에는 없는 시간대 이름 (지금 19가지, 114개): `Asia/Kolkata`·`Europe/Kyiv`·`Asia/Ho_Chi_Minh`·`America/Nuuk`·`Pacific/Kanton`·`America/Argentina/Buenos_Aires`, `Etc/GMT`·`Etc/GMT+9`·`Etc/Zulu`, `US/Pacific`·`Japan`·`ROK`·`GMT`·`UCT`·`Zulu`·`Universal`, `EST`·`EST5EDT`·`CET` | 400 | 통과 | 그대로 둔다(§2.3 ⑧). 정하는 것은 방향이다: 코어는 기준이 받는 이름을 전부 받는다(테스트가 따로 확인한다). 어느 이름이 갈리는지는 Node의 ICU와 번들 tzdb의 버전에 달려 있어서 목록으로 고정하지 않는다. 따라오는 것 하나: 코어가 그런 이름을 저장하면 `User.timeZone`이 기준 검증기의 형식 검사를 통과하지 못한다(응답 쪽). 웹은 응답을 검증하지 않지만, 받은 `timeZone`이 자기 `Intl.supportedValuesOf` 목록에 있다고 가정하면 안 된다 — 새로 만든 데이터 파일의 시간대는 시스템 시간대이고 그 표기는 tzdb의 것이다. 거부하는 쪽으로 정했다면 그런 시스템에서 첫 실행이 조용히 UTC가 됐을 것이다 |
+| S4 | 짝 없는 서러게이트가 든 문자열(`"\ud800"`) (4가지, 87개) | 통과 | 400(읽을 수 없는 JSON) | 그대로 둔다. 유니코드 글이 아니다. §2.3 ②와 같은 종류다 |
+| — | `email` 형식 6가지(따옴표 친 local, IP 리터럴, TLD 없는 호스트, 64자를 넘는 마디 등) | 갈림 | 갈림 | 정하지 않는다. `email`은 `login`의 본문에만 있고 그 operation은 제외라, 코어는 검증하기 전에 404로 답한다. 보고서에는 남는다 |
+
+갈릴 법한데 같았던 것(같다는 것도 결과다): 소문자 `t`·`z`(둘 다 스키마 통과), 윤초 `23:59:60`(둘 다 통과)와 `09:30:60`(둘 다 거부), `0000`년(통과), `24:00:00`(거부). `maxLength`는 둘 다 코드 포인트로 센다 — 이모지 200개는 통과, 201개는 거부. `\S` 패턴의 공백 집합이 같다 — U+FEFF·U+00A0·U+3000은 공백, U+0085·U+200B·U+180E는 공백이 아니다(자바스크립트의 정의). 정수 자리의 `1.0`·`1e0`은 둘 다 통과, `1e400`·`NaN`·앞자리 0은 둘 다 거부. 같은 키가 두 번 나오면 둘 다 뒤의 것으로 판정한다. 닫힌 객체의 `__proto__`·`constructor` 프로퍼티는 둘 다 거부. 전각·아라비아 숫자는 어느 쪽도 숫자로 치지 않는다.
+
+이 비교가 보지 않는 것: 쿼리 문자열을 객체로 만드는 단계(정수 변환 `^-?\d+$`는 양쪽이 같은 규칙을 따로 구현했다), HTTP 계층이 지우는 헤더 앞뒤의 공백, 그리고 TypeScript API가 실제로 쓰는 Fastify 안의 Ajv 인스턴스(옵션이 계약 패키지의 설정과 같다는 것은 이 도구가 증명하지 않는다).
+
+곁에서 나온 결함 하나: 두 검증기 모두 U+0000을 글자로 받는다(스키마로는 맞다). SQLite의 글자 함수는 NUL에서 멈추므로, 제목이 NUL 하나인 요청은 스키마의 CHECK에 걸려 500이 됐다(RC-00부터 있던 결함). 도메인 규칙으로 막았다: 제목·설명·로캘에 NUL이 있으면 422 `validation_failed`.
 
 ## 3. 데이터 모델
 
@@ -882,7 +916,7 @@ RC-00 ─┬─► RC-10 ─► RC-20 ──────────┬─► RC
 | R10 | 연결 하나로는 긴 읽기(내보내기, 검색)가 쓰기를 막는다 | RC-50에서 작업 1만 개 파일로 실측, 필요하면 읽기 연결 추가 |
 | R11 | 동결 중에 계약이 바뀐다(웹 작업은 계속된다) | RC-10부터 계약 변경은 `packages/contracts` + Rust에만 구현한다. TypeScript API에 없는 operation은 원장에 "Rust 전용"으로 적는다. 스케줄러 입력을 바꾸는 변경은 전환 전까지 받지 않는다. **예외(조정자 결정, 2026-11-16):** FOLD-01의 `updateProject`(`PATCH /projects/{id}`)는 계약·TypeScript API·Rust 코어 모두에 구현한다 — 어댑터(`ProjectRepository.update`)에 그 동작이 이미 있었고, 웹이 지금 필요로 하며, 전환 전 몇 주 동안 실제 앱은 TypeScript API로 돌기 때문이다 |
 | R12 | 노트북 메모리(15 GB)에서 cargo 빌드와 워커 2명 | `CARGO_BUILD_JOBS=4`, 워커 Task에서 release 빌드 금지, Tauri 빌드는 다른 워커가 없을 때 |
-| R13 | `jsonschema`와 Ajv의 판정이 형식 경계에서 다르다 | RC-10의 대조 도구: 계약 스키마마다 생성한 표본에 두 검증기를 돌려 판정 차이를 목록으로 만든다 |
+| R13 | `jsonschema`와 Ajv의 판정이 형식 경계에서 다르다 | RC-10의 대조 도구: 계약 스키마마다 생성한 표본에 두 검증기를 돌려 판정 차이를 목록으로 만든다. **RC-10A 뒤:** 도구가 있고 `core:parity`에서 돈다(§2.4). 표본 14,747개에서 41가지가 갈렸고, 7가지는 코어를 고치고 34가지는 결정을 적었다. 남은 위험은 계약이 바뀔 때다 — 새 차이는 테스트가 실패로 알린다 |
 
 사용자에게 물어야 하는 것(사용자만 정할 수 있는 것):
 

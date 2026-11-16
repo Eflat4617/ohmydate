@@ -4,7 +4,7 @@
  * `services/api/test/llm-settings.test.ts` and `auth.test.ts` pin the same
  * answers for the TypeScript API (consent record, additive budget, unknown
  * zone 400, header rules). Where the core differs on purpose the test says
- * so and blueprint 15 §2.2 / §2.3 ⑧ records it.
+ * so and blueprint 15 §2.2 / §2.4 records it.
  */
 import type { User } from '@ohmydate/contracts';
 import { API_PREFIX, expectProblem, expectSuccess, routeById } from './support/contract.js';
@@ -91,11 +91,27 @@ describe('updateMySettings: time zone and locale', () => {
     expect((await me()).version).toBe(1);
   });
 
-  test('a link name of the tz database is a zone here (15 §2.3 ⑧: not in the TypeScript API)', async () => {
-    const response = await patch(1, { timeZone: 'Asia/Calcutta' });
-    expectSuccess(route, response, 200);
-    // Stored and answered as it was sent: the core does not rename zones.
-    expect((await me()).timeZone).toBe('Asia/Calcutta');
+  test('every name of the tz database is a zone here, old spelling or new (15 §2.4 S3)', async () => {
+    // The reference takes its list from its runtime's ICU, which spells this
+    // zone `Asia/Calcutta` and refuses the name the tz database now uses.
+    // The core takes both, and stores what it was sent: it does not rename.
+    const referenceKnows = new Set([...Intl.supportedValuesOf('timeZone'), 'UTC', 'Etc/UTC']);
+    let version = 1;
+    for (const timeZone of ['Asia/Calcutta', 'Asia/Kolkata', 'Europe/Kyiv', 'Etc/GMT+9', 'US/Pacific']) {
+      const response = await patch(version, { timeZone });
+      expect(response.status, timeZone).toBe(200);
+      expect((response.body as User).timeZone).toBe(timeZone);
+      const read = await core.request('GET', `${API_PREFIX}/me`);
+      expect((read.body as User).timeZone).toBe(timeZone);
+      // The other side of the decision: a `User` carrying a name this
+      // runtime's ICU does not list fails the reference's own format check,
+      // so the body is checked against the contract only for names it knows.
+      if (referenceKnows.has(timeZone)) expectSuccess(route, response, 200);
+      version += 1;
+    }
+    expect(referenceKnows.has('Asia/Calcutta')).toBe(true);
+    // In the database, and nobody's time zone.
+    expectProblem(route, await patch(version, { timeZone: 'Factory' }), 400, 'validation_failed');
   });
 
   test('a locale outside 2..35 characters is 400', async () => {

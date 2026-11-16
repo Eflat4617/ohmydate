@@ -706,6 +706,103 @@ async fn mutations_follow_the_header_table() {
 }
 
 #[tokio::test]
+async fn a_nul_character_in_text_is_a_domain_refusal_not_a_storage_failure() {
+    // The schemas accept U+0000 (in both validators). SQLite's text
+    // functions stop at it, so before this rule a title of one NUL ended
+    // as a failed CHECK: 500.
+    let server = TestServer::new();
+    for title in ["\u{0}", "a\u{0}b"] {
+        let task = server.create_task(json!({"title": title})).await;
+        assert_problem(&task, 422, "validation_failed");
+        assert_eq!(
+            task.body["errors"],
+            json!([{"path": "title", "message": "title must not contain the NUL character"}])
+        );
+        let project = server
+            .call(
+                "POST",
+                "/api/v1/projects",
+                &[("idempotency-key", &server.key())],
+                Some(json!({"title": title})),
+            )
+            .await;
+        assert_problem(&project, 422, "validation_failed");
+    }
+    let described = server
+        .create_task(json!({"title": "x", "description": "a\u{0}b"}))
+        .await;
+    assert_problem(&described, 422, "validation_failed");
+    let locale = server
+        .mutate(
+            "PATCH",
+            "/api/v1/me/settings",
+            1,
+            Some(json!({"locale": "\u{0}\u{0}"})),
+        )
+        .await;
+    assert_problem(&locale, 422, "validation_failed");
+    assert_eq!(locale.body["errors"][0]["path"], "locale");
+
+    // Nothing was stored, and the data file still answers.
+    assert_eq!(server.get("/api/v1/tasks").await.body["items"], json!([]));
+    assert_eq!(server.get("/api/v1/me").await.body["version"], 1);
+    let fine = server.create_task(json!({"title": "tab\there"})).await;
+    assert_eq!(fine.status, 201);
+}
+
+#[tokio::test]
+async fn header_edges_the_schema_comparison_found_follow_the_contract() {
+    let server = TestServer::new();
+    let task = server.create_task(json!({"title": "edge"})).await;
+    let path = format!("/api/v1/tasks/{}", task.body["id"].as_str().unwrap());
+
+    // A version tag with more digits than a version can have is well formed
+    // (the contract's pattern has no limit): stale, 412 — not malformed, 400.
+    for tag in ["W/\"4294967296\"", "W/\"99999999999999999999\""] {
+        let stale = server
+            .call(
+                "PATCH",
+                &path,
+                &[("if-match", tag), ("idempotency-key", &server.key())],
+                Some(json!({"title": "never applied"})),
+            )
+            .await;
+        assert_problem(&stale, 412, "version_conflict");
+    }
+    assert_eq!(server.get(&path).await.body["title"], "edge");
+
+    // An If-None-Match that is sent names a tag (minLength 1): empty is 400
+    // on every read that declares the header.
+    for read in [
+        path.as_str(),
+        "/api/v1/tasks",
+        "/api/v1/projects",
+        "/api/v1/me",
+    ] {
+        for empty in ["", "  "] {
+            let refused = server
+                .call("GET", read, &[("if-none-match", empty)], None)
+                .await;
+            assert_problem(&refused, 400, "validation_failed");
+        }
+        let unknown_tag = server
+            .call("GET", read, &[("if-none-match", "W/\"no-such-tag\"")], None)
+            .await;
+        assert_eq!(unknown_tag.status, 200, "{read}");
+    }
+    // A write does not declare the header and does not read it.
+    let created = server
+        .call(
+            "POST",
+            "/api/v1/tasks",
+            &[("idempotency-key", &server.key()), ("if-none-match", "")],
+            Some(json!({"title": "unconditional"})),
+        )
+        .await;
+    assert_eq!(created.status, 201);
+}
+
+#[tokio::test]
 async fn requests_are_validated_against_the_contract() {
     let server = TestServer::new();
     let unexpected = server

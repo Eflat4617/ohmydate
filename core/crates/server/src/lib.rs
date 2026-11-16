@@ -20,6 +20,7 @@ mod headers;
 pub mod problem;
 pub mod security;
 pub mod system;
+pub mod verdict;
 pub mod web;
 
 use std::collections::HashMap;
@@ -272,6 +273,10 @@ async fn respond(
     let query = operation
         .validate_query(parts.uri.query())
         .map_err(malformed)?;
+    let if_none_match = header_text(&parts.headers, "if-none-match");
+    if operation.if_none_match {
+        headers::check_if_none_match(if_none_match)?;
+    }
 
     let call = Call {
         trace_id: trace_id.to_owned(),
@@ -282,7 +287,7 @@ async fn respond(
         query,
         body,
         if_match,
-        if_none_match: header_text(&parts.headers, "if-none-match").map(str::to_owned),
+        if_none_match: if_none_match.map(str::to_owned),
         idempotency_key,
     };
     let app = state.app.clone();

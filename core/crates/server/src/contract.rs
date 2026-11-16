@@ -141,6 +141,9 @@ pub struct Operation {
     template: PathTemplate,
     pub if_match: IfMatchRule,
     pub idempotency_key: bool,
+    /// The contract declares an optional `If-None-Match` for this operation
+    /// (reads that answer an `ETag`).
+    pub if_none_match: bool,
     /// Status codes the contract declares for this operation.
     pub declared_statuses: Vec<u16>,
     /// Query parameters declared as integers: their text is converted
@@ -175,6 +178,38 @@ impl Operation {
             query: self.query_schema.as_ref().and_then(compile),
             body: self.body_schema.as_ref().and_then(compile),
         })
+    }
+
+    /// Whether the body schema accepts `instance`; `None` when the contract
+    /// declares no body for this operation. For the schema comparison
+    /// ([`crate::verdict`]): the same validator [`Self::validate_body`] runs.
+    #[must_use]
+    pub fn body_accepts(&self, instance: &Value) -> Option<bool> {
+        self.validators()
+            .body
+            .as_ref()
+            .map(|validator| validator.is_valid(instance))
+    }
+
+    /// Whether the query schema accepts `instance`, an object as
+    /// [`Self::validate_query`] builds it from the query string; `None` when
+    /// the operation declares no query parameters.
+    #[must_use]
+    pub fn query_accepts(&self, instance: &Value) -> Option<bool> {
+        self.validators()
+            .query
+            .as_ref()
+            .map(|validator| validator.is_valid(instance))
+    }
+
+    /// Whether the schema of the path parameters accepts `instance`; `None`
+    /// when the path has no parameters.
+    #[must_use]
+    pub fn params_accept(&self, instance: &Value) -> Option<bool> {
+        self.validators()
+            .params
+            .as_ref()
+            .map(|validator| validator.is_valid(instance))
     }
 
     /// Checks path parameters against the contract.
@@ -246,12 +281,20 @@ fn compile(schema: &Value) -> Option<Validator> {
 /// (`Intl.supportedValuesOf('timeZone')`, plus `UTC` and `Etc/UTC`), compared
 /// as written. The core keeps "compared as written" — `asia/seoul` is not a
 /// zone name, and a stored name must be one every client can echo — and
-/// takes the list from the tz database instead of from one runtime's ICU, so
-/// link names such as `Asia/Calcutta` are zones here (blueprint 15 §2.3 ⑧).
+/// takes the list from the tz database instead of from one runtime's ICU.
+/// ICU lists its own canonical spellings (`Asia/Calcutta`, `Europe/Kiev`),
+/// so the reference refuses the names the database now uses
+/// (`Asia/Kolkata`, `Europe/Kyiv`), every `Etc/…` zone but one and the old
+/// link names (`US/Pacific`); all of those are zones here. Everything the
+/// reference accepts, the core accepts (blueprint 15 §2.4 S3; the schema
+/// comparison checks that direction).
 #[must_use]
 pub fn is_iana_time_zone(name: &str) -> bool {
-    // The lookup itself ignores case; the zone it finds knows its spelling.
-    jiff::tz::TimeZone::get(name).is_ok_and(|zone| zone.iana_name() == Some(name))
+    // `Factory` is in the database as the zone of a machine nobody has
+    // configured; it is nobody's time zone.
+    name != "Factory"
+        // The lookup itself ignores case; the zone it finds knows its spelling.
+        && jiff::tz::TimeZone::get(name).is_ok_and(|zone| zone.iana_name() == Some(name))
 }
 
 fn errors(validator: Option<&Validator>, instance: &Value) -> Vec<FieldError> {
@@ -457,6 +500,7 @@ fn parse_operation(
     let mut integer_query_params = Vec::new();
     let mut if_match = IfMatchRule::None;
     let mut idempotency_key = false;
+    let mut if_none_match = false;
 
     let parameters = operation.get("parameters").and_then(Value::as_array);
     for parameter in parameters.into_iter().flatten() {
@@ -493,6 +537,7 @@ fn parse_operation(
                 };
             }
             "header" if required && name == "Idempotency-Key" => idempotency_key = true,
+            "header" if name == "If-None-Match" => if_none_match = true,
             _ => {}
         }
     }
@@ -527,6 +572,7 @@ fn parse_operation(
         template: PathTemplate::parse(path),
         if_match,
         idempotency_key,
+        if_none_match,
         declared_statuses,
         integer_query_params,
         params_schema: (!path_properties.is_empty())
@@ -567,6 +613,36 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), 85, "operation ids are unique");
+    }
+
+    #[test]
+    fn every_request_schema_of_the_contract_compiles() {
+        // `compile` answers `None` for a schema it cannot build, and a part
+        // without a validator is not checked: a schema that stopped
+        // compiling would silently accept everything.
+        let mut bodies = 0;
+        let mut queries = 0;
+        let mut with_params = 0;
+        for operation in Contract::embedded().operations() {
+            let validators = operation.validators();
+            for (name, schema, validator) in [
+                ("params", &operation.params_schema, &validators.params),
+                ("query", &operation.query_schema, &validators.query),
+                ("body", &operation.body_schema, &validators.body),
+            ] {
+                assert_eq!(
+                    schema.is_some(),
+                    validator.is_some(),
+                    "{} {name}: the schema did not compile",
+                    operation.id
+                );
+            }
+            bodies += usize::from(validators.body.is_some());
+            queries += usize::from(validators.query.is_some());
+            with_params += usize::from(validators.params.is_some());
+        }
+        assert_eq!((bodies, queries, with_params), (37, 14, 45));
+        assert!(compile(&json!({"type": "no-such-type"})).is_none());
     }
 
     #[test]
@@ -666,6 +742,10 @@ mod tests {
         );
         assert_eq!(rule("login"), (IfMatchRule::None, false));
         assert!(contract.operation("noSuchOperation").is_none());
+        // Reads that answer an ETag declare If-None-Match; writes do not.
+        let conditional = |id: &str| contract.operation(id).unwrap().if_none_match;
+        assert!(conditional("getMe") && conditional("getTask") && conditional("listTasks"));
+        assert!(!conditional("createTask") && !conditional("updateTask") && !conditional("login"));
     }
 
     #[test]
@@ -750,13 +830,22 @@ mod tests {
             "Etc/UTC",
             "America/Argentina/Buenos_Aires",
             "America/Port-au-Prince",
-            // A link name: a zone of the database, though not of every ICU.
+            // Both spellings of a renamed zone: the reference's ICU knows
+            // only the first, the database both.
             "Asia/Calcutta",
+            "Asia/Kolkata",
+            "Europe/Kyiv",
+            "Etc/GMT+9",
+            "US/Pacific",
         ] {
             assert!(is_iana_time_zone(name), "{name}");
         }
         for name in [
             "Mars/Olympus",
+            // In the database, and nobody's zone.
+            "Factory",
+            "localtime",
+            "posix/Asia/Seoul",
             "",
             " ",
             "Asia/Seoul ",

@@ -73,6 +73,18 @@ without a ledger line fails this test. `corepack pnpm run core:ledger` runs
 it alone (with `docs.test.ts`, no core process, under a second);
 `LEDGER_WRITE_TOTALS=1` rewrites the totals block.
 
+`schema.test.ts` is the schema verdict comparison (blueprint 15 §2.4, R13):
+for every request schema of the contract it builds a valid instance and
+thousands of one-change variants (`support/samples.ts`), asks Ajv — set up as
+`packages/contracts` sets it up — and the core (the `schema-verdict` binary,
+which calls what the dispatcher calls), and lists every sample the two judge
+differently. A difference is fixed in the core or decided and listed in
+`support/schema-differences.ts`; an unlisted difference fails the test, and
+so does a listed one that is gone, a keyword / format / pattern the generator
+does not know, or a zone name the reference accepts and the core does not.
+The full report goes to `core/target/schema-diff/report.md`.
+`corepack pnpm run core:schema-diff` runs it alone.
+
 `lifecycle.test.ts` covers the process: ready file (0600, removed on exit),
 single instance (exit 3), usage errors (exit 2), restart durability including
 stored idempotent responses, a fresh launch token per start, and the movable

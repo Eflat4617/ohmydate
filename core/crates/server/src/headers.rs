@@ -32,11 +32,32 @@ pub fn if_none_match(header: Option<&str>, etag: &str) -> bool {
         .any(|candidate| candidate == "*" || candidate == etag || candidate == strong)
 }
 
+/// The number of a version tag: digits without a leading zero, as the
+/// contract's pattern says (`[1-9][0-9]*`).
+///
+/// A number too large for a version is still a well-formed tag — the
+/// contract puts no limit on the digits — so it is not refused here (400).
+/// It is read as the largest version, which no entity has, and the handler
+/// answers what it answers for any tag that is not current: 412. (An entity
+/// would need four billion changes to reach that version.)
 fn positive_integer(text: &str) -> Option<u32> {
     let valid = !text.is_empty()
         && !text.starts_with('0')
         && text.bytes().all(|byte| byte.is_ascii_digit());
-    if valid { text.parse().ok() } else { None }
+    valid.then(|| text.parse().unwrap_or(u32::MAX))
+}
+
+/// Checks an `If-None-Match` header the contract declares: when it is sent
+/// it names at least one tag (`minLength: 1`). An empty one is 400, as in
+/// the reference; one that names no current tag is simply not a match.
+pub fn check_if_none_match(header: Option<&str>) -> Result<(), Problem> {
+    match header {
+        Some(value) if value.trim().is_empty() => Err(Problem::malformed(
+            "If-None-Match must name an entity tag",
+            Vec::new(),
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// Reads the required `If-Match` of an existing-resource mutation.
@@ -116,6 +137,51 @@ mod tests {
             Some(7)
         );
         assert_eq!(require_if_match(None, IfMatchRule::None).unwrap(), None);
+    }
+
+    #[test]
+    fn a_tag_with_more_digits_than_a_version_has_is_well_formed_and_never_current() {
+        // The contract's pattern allows any number of digits. Such a tag is
+        // not malformed (400): it names a version nothing has (412).
+        for tag in [
+            "W/\"4294967295\"",
+            "W/\"4294967296\"",
+            "W/\"99999999999999999999\"",
+            "W/\"340282366920938463463374607431768211456\"",
+        ] {
+            assert_eq!(
+                require_if_match(Some(tag), IfMatchRule::Version).unwrap(),
+                Some(u32::MAX),
+                "{tag}"
+            );
+        }
+        assert_eq!(
+            require_if_match(
+                Some("W/\"availability:4294967296\""),
+                IfMatchRule::Availability
+            )
+            .unwrap(),
+            Some(u32::MAX)
+        );
+        // Digits only: a long number does not excuse anything else.
+        for malformed in ["W/\"99999999999999999999x\"", "W/\"099999999999999999999\""] {
+            assert!(require_if_match(Some(malformed), IfMatchRule::Version).is_err());
+        }
+    }
+
+    #[test]
+    fn an_if_none_match_that_is_sent_names_a_tag() {
+        assert!(check_if_none_match(None).is_ok());
+        assert!(check_if_none_match(Some("W/\"3\"")).is_ok());
+        assert!(check_if_none_match(Some("*")).is_ok());
+        assert!(check_if_none_match(Some("anything-at-all")).is_ok());
+        for empty in ["", " ", "\t"] {
+            let problem = check_if_none_match(Some(empty)).unwrap_err();
+            assert_eq!(
+                (problem.status, problem.code.as_str()),
+                (400, "validation_failed")
+            );
+        }
     }
 
     #[test]

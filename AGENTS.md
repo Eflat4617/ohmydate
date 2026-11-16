@@ -38,6 +38,7 @@ DB가 필요한 테스트는 `DATABASE_URL`(planner_test)과 `VIKUNJA_URL`이 �
   - `crates/store`: SQL과 엔터티만. HTTP·업무 규칙 금지. 스키마 변경은 새 마이그레이션 파일(배포된 파일 수정 금지).
   - `crates/app`: 유스케이스. 규칙 검사와 쓰기는 같은 트랜잭션(`App::read` / `App::mutate_idempotent`).
   - `crates/server`: HTTP만. 경로·헤더 규칙·요청 검증은 `packages/contracts/openapi.json`에서 온다. operation은 `handlers::table()`에 등록하고 `tests-core/support/routes.ts`에 한 줄을 추가한다. 계약에 없는 경로를 만들지 않는다.
+- **글자:** 사용자 글을 저장하는 필드는 `domain::ensure_no_nul`을 지난다. 스키마는 U+0000을 글자로 받지만 SQLite의 글자 함수는 거기서 멈춘다 — 막지 않으면 CHECK 실패(500)가 된다.
 - **오류:** 라이브러리 코드에서 `unwrap`/`expect`/`todo!`/`dbg!` 금지(clippy가 막는다; 테스트는 허용). `panic!`은 빌드 결함처럼 계속할 수 없는 경우에만 쓰고 `# Panics`에 적는다. 도메인 실패는 `DomainError`, 저장 실패는 `StoreError`, HTTP에서는 `Problem`. 문제 응답과 오류 메시지에 사용자 글을 넣지 않는다.
 - **unsafe 금지:** 워크스페이스 lint `unsafe_code = "forbid"`. 예외 없음.
 - **시간·id:** `SystemTime::now()`·난수를 직접 부르지 않는다 — `Clock`·`RandomSource`·`IdGenerator`를 받는다(어댑터는 `server::system`뿐). id는 UUIDv7(`domain::Id`), 시각은 UTC 밀리초(`domain::Instant`), 시간대는 IANA 이름 + `jiff`(tzdb는 바이너리에 포함). SQL에 시간 기본값을 두지 않는다.
@@ -53,6 +54,7 @@ DB가 필요한 테스트는 `DATABASE_URL`(planner_test)과 `VIKUNJA_URL`이 �
   - `corepack pnpm run core:build` = 테스트용 바이너리 빌드(`cargo build -p ohmydate-server --features test-clock`). 하네스와 E2E가 쓰는 바이너리다.
   - `corepack pnpm run core:parity` = `core:build` + `tests-core/`(블랙박스 계약 패리티, 웹 서빙·`/__boot`·수명 주기, 계획 문서 표 검사).
   - `corepack pnpm run core:ledger` = 패리티 원장 `core/PARITY.md`와 계획 문서 표 검사(코어 프로세스 없이 1초 안). TypeScript 테스트 파일(`services/api/test`, `packages/*/test`, `e2e/tests`)을 더하면 원장에 한 줄을 더한다. RC Task를 끝내면 원장에서 그 Task를 "끝난 Task"로 옮기고 자기 `아직` 줄을 전부 `옮김`·`대체`·`해당 없음`으로 바꾼다. 합계 표는 `LEDGER_WRITE_TOTALS=1 corepack pnpm run core:ledger`가 다시 쓴다.
+  - `corepack pnpm run core:schema-diff` = 두 검증기(Ajv ↔ 코어의 `jsonschema`)의 판정 대조(15 §2.4). 계약의 요청 스키마마다 표본을 만들어 양쪽에 묻고, 판정이 갈리는데 결정이 없는 것이 있으면 실패한다. 계약(`packages/contracts`)을 바꿨으면 이것을 돌린다. 새 차이는 코어를 고치거나, `tests-core/support/schema-differences.ts`와 15 §2.4에 결정을 적는다. 계약에 새 `format`·`pattern`·키워드가 생기면 `tests-core/support/samples.ts`에 그 표본을 더한다. 보고서: `core/target/schema-diff/report.md`.
   - `corepack pnpm run core:oracle -- --count N` = TypeScript 스케줄러로 오라클 팩 다시 만들기(인자 없이 = 커밋하는 `sample.json`).
   - `corepack pnpm run core:diff` = 기준 테스트의 입력을 모으고(`core:harvest`) 시드 2,000건과 함께 팩을 `core/target/oracle/`에 만들어(커밋하지 않는다) Rust 스케줄러와 층별로 대조. `ORACLE_COUNT`·`ORACLE_SEED`로 개수·시드를 바꾼다. 불일치 허용 0. 스케줄러(`packages/scheduler/src` 또는 `core/crates/scheduler`)를 건드린 Task는 이것을 돌린다. 생성기 코드를 일부러 틀리게 해도 이것과 테스트가 통과하면, 그 코드가 결과를 가르는 입력을 내보내기의 `pathCases()`에 더하고 `core:oracle`로 `sample.json`을 다시 만들어 함께 커밋한다(15 §5.3).
   - `corepack pnpm run core:shrink -- --pack <팩> --case <건 id>` = 불일치 건의 입력을 최소로 줄여 `core/crates/scheduler/tests/oracle/regressions/`에 건 하나짜리 팩으로 쓴다(15 §5.3). 스케줄러 불일치를 고칠 때는 그 팩을 함께 커밋한다.

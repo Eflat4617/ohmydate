@@ -41,10 +41,28 @@ pub struct NormalizedTaskPatch {
     pub depends_on: Option<Vec<Id>>,
 }
 
+/// Refuses text that holds U+0000.
+///
+/// The contract's schemas let the character through (it is a character, and
+/// not a blank one), but it is not text a data file keeps faithfully:
+/// SQLite's text functions stop at it, so a title of one NUL has length 0
+/// to the schema's own checks. Without this rule such a request ended as a
+/// storage error (500). `path` names the field in the answer.
+pub fn ensure_no_nul(path: &str, text: &str) -> Result<(), DomainError> {
+    if text.contains('\0') {
+        return Err(DomainError::invalid(
+            path,
+            &format!("{path} must not contain the NUL character"),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_title(title: &str) -> Result<(), DomainError> {
     if is_blank_js(title) {
         return Err(DomainError::invalid("title", "title must not be empty"));
     }
+    ensure_no_nul("title", title)?;
     if utf16_len(title) > MAX_TITLE_LENGTH {
         return Err(DomainError::invalid(
             "title",
@@ -60,6 +78,7 @@ pub fn validate_project_title(title: &str) -> Result<(), DomainError> {
 }
 
 fn validate_description(description: &str) -> Result<(), DomainError> {
+    ensure_no_nul("description", description)?;
     if utf16_len(description) > MAX_DESCRIPTION_LENGTH {
         return Err(DomainError::invalid(
             "description",
@@ -228,6 +247,50 @@ mod tests {
         let emoji = validate_project_title(&"😀".repeat(101));
         assert_eq!(issue(emoji.unwrap_err()).path, "title");
         assert!(validate_project_title(&"가".repeat(200)).is_ok());
+    }
+
+    #[test]
+    fn text_with_a_nul_character_is_rejected_wherever_it_is() {
+        for title in ["\0", "a\0b", "\0title", "title\0"] {
+            let create = TaskCreate {
+                title: title.into(),
+                ..TaskCreate::default()
+            };
+            assert_eq!(
+                issue(validate_task_create(&create).unwrap_err()),
+                ValidationIssue::new("title", "title must not contain the NUL character"),
+                "{title:?}"
+            );
+            assert!(validate_project_title(title).is_err(), "{title:?}");
+            let patch = TaskPatch {
+                title: Some(title.into()),
+                ..TaskPatch::default()
+            };
+            assert!(validate_task_patch(&patch).is_err(), "{title:?}");
+        }
+        let described = TaskCreate {
+            title: "x".into(),
+            description: Some("first line\0second".into()),
+            ..TaskCreate::default()
+        };
+        assert_eq!(
+            issue(validate_task_create(&described).unwrap_err()),
+            ValidationIssue::new(
+                "description",
+                "description must not contain the NUL character"
+            )
+        );
+        let patch = TaskPatch {
+            description: Some(Some("\0".into())),
+            ..TaskPatch::default()
+        };
+        assert!(validate_task_patch(&patch).is_err());
+
+        // Other control characters and every other character are text.
+        for title in ["a\tb", "a\u{1}b", "a\u{7f}b", "\u{feff}x", "논문 🙂"] {
+            assert!(validate_project_title(title).is_ok(), "{title:?}");
+        }
+        assert!(ensure_no_nul("locale", "ko-KR").is_ok());
     }
 
     #[test]

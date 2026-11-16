@@ -2,6 +2,7 @@
 
 use ohmydate_domain::{
     DomainError, LlmBudget, LlmConsent, LlmSettings, MicroUsd, Owner, ValidationIssue, Version,
+    ensure_no_nul,
 };
 use ohmydate_store::owner;
 
@@ -106,6 +107,12 @@ pub fn update(
             actual: Some(current.version),
         }
         .into());
+    }
+    // The contract checks a locale's length only; a NUL in it is not text
+    // the data file keeps (see `ensure_no_nul`). A time zone is a name of
+    // the tz database and cannot hold one.
+    if let Some(locale) = &patch.locale {
+        ensure_no_nul("locale", locale)?;
     }
     let now = unit.clock.now();
     let mut llm = current.llm.clone();
@@ -401,6 +408,35 @@ mod tests {
             Err(AppError::Domain(DomainError::ValidationFailed(_)))
         ));
         assert_eq!(current(&test), before, "the locale was not changed either");
+    }
+
+    #[test]
+    fn a_locale_with_a_nul_character_is_refused_not_stored() {
+        let test = TestApp::new();
+        let before = current(&test);
+        for locale in ["\0\0", "ko\0KR", "ko-KR\0"] {
+            let patch = SettingsPatch {
+                locale: Some(locale.into()),
+                time_zone: Some("Europe/Berlin".into()),
+                llm: None,
+            };
+            let error = run(&test, |unit| update(unit, &patch, v(1))).unwrap_err();
+            let AppError::Domain(DomainError::ValidationFailed(issues)) = error else {
+                panic!("expected a validation failure, got {error:?}");
+            };
+            assert_eq!(
+                issues,
+                vec![ValidationIssue::new(
+                    "locale",
+                    "locale must not contain the NUL character"
+                )]
+            );
+        }
+        assert_eq!(
+            current(&test),
+            before,
+            "the time zone was not changed either"
+        );
     }
 
     #[test]

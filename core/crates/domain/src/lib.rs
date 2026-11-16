@@ -29,6 +29,6 @@ pub use problem::ProblemCode;
 pub use text::{is_blank_js, utf16_len};
 pub use validation::{
     MAX_DESCRIPTION_LENGTH, MAX_TITLE_LENGTH, NormalizedTaskCreate, NormalizedTaskPatch,
-    validate_project_title, validate_task_create, validate_task_patch,
+    ensure_no_nul, validate_project_title, validate_task_create, validate_task_patch,
 };
 pub use version::Version;
