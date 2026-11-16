@@ -12,6 +12,13 @@ pub fn etag_for_version(version: Version) -> String {
     format!("W/\"{version}\"")
 }
 
+/// `W/"availability:<n>"`: the tag of the available hours, and what a plan
+/// approval names in `If-Match` (08 §2.4a).
+#[must_use]
+pub fn etag_for_availability(version: Version) -> String {
+    format!("W/\"availability:{version}\"")
+}
+
 /// `W/"<16 hex>"` over the canonical JSON of a list body.
 #[must_use]
 pub fn etag_for_body(body: &serde_json::Value) -> String {

@@ -27,6 +27,13 @@ export interface RouteEntry {
    * (`pattern`), or no tag at all.
    */
   readonly etag: 'version' | 'content' | 'none' | { readonly pattern: RegExp };
+  /**
+   * What the required `If-Match` names. Default: the version of the
+   * resource (`W/"<n>"`, stale 412 `version_conflict`). `availability`: the
+   * owner-wide availability version (`W/"availability:<n>"`, stale 412
+   * `availability_changed`).
+   */
+  readonly ifMatch?: 'version' | 'availability';
   /** Creates the resources a single request needs. */
   readonly prepare?: (core: Core) => Promise<Prepared>;
   /** Query string of a valid request, without `?`. */
@@ -94,6 +101,104 @@ export async function readMe(core: Core): Promise<{ readonly id: string; readonl
     throw new Error(`could not read the owner: ${response.status} ${JSON.stringify(response.body)}`);
   }
   return response.body as { id: string; version: number };
+}
+
+interface AvailabilityDto {
+  readonly version: number;
+  readonly timeZone: string;
+  readonly rules: readonly unknown[];
+  readonly exceptions: readonly unknown[];
+  readonly prefs: Readonly<Record<string, unknown>>;
+}
+
+/** The available hours as `GET /availability` answers them. */
+export async function readAvailability(core: Core): Promise<AvailabilityDto> {
+  const response = await core.request('GET', `${API_PREFIX}/availability`);
+  if (response.status !== 200) {
+    throw new Error(`could not read the hours: ${response.status} ${JSON.stringify(response.body)}`);
+  }
+  return response.body as AvailabilityDto;
+}
+
+/** A valid `AvailabilityPut`: two weekly windows, a day off, an extra day. */
+export function sampleHours(): Record<string, unknown> {
+  return {
+    timeZone: 'Europe/Berlin',
+    rules: [
+      { weekday: 3, startLocal: '13:00', endLocal: '18:00', kind: 'work' },
+      { weekday: 1, startLocal: '09:00', endLocal: '12:00', kind: 'focus' },
+    ],
+    exceptions: [
+      { date: '2026-12-25', kind: 'off' },
+      { date: '2026-11-21', kind: 'extra', startLocal: '10:00', endLocal: '14:00' },
+    ],
+    prefs: {
+      maxDailyFocusMin: 300,
+      breakAfterMin: 50,
+      breakMin: 10,
+      dayStartLocal: '07:00',
+      dayEndLocal: '22:00',
+      riskLevel: 'p90',
+    },
+  };
+}
+
+const AVAILABILITY_TAG = /^W\/"availability:[1-9][0-9]*"$/;
+
+const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
+
+/**
+ * 05:00 UTC, `days` after the Monday of the current week (UTC). Fixtures
+ * hang on it instead of on a written date: an appointment may start at most
+ * ten years before now, so a fixed date would stop being valid one day.
+ */
+export function weekInstant(days: number, hours = 0): string {
+  const now = new Date();
+  const monday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) -
+    ((now.getUTCDay() + 6) % 7) * DAY_MS;
+  return new Date(monday + days * DAY_MS + (5 + hours) * HOUR_MS).toISOString();
+}
+
+/** A valid `CommitmentCreate`: two hours every Tuesday, from next week. */
+export function sampleCommitment(): Record<string, unknown> {
+  return {
+    title: 'Weekly seminar',
+    startAt: weekInstant(8),
+    endAt: weekInstant(8, 2),
+    timeZone: 'Asia/Seoul',
+    rrule: 'FREQ=WEEKLY;BYDAY=TU',
+  };
+}
+
+/** `from=…&to=…` for the three weeks from this week's Monday, 00:00 UTC. */
+export function sampleWindow(): string {
+  return `from=${weekInstant(0, -5)}&to=${weekInstant(21, -5)}`;
+}
+
+interface CommitmentDto {
+  readonly id: string;
+  readonly version: number;
+}
+
+/** Creates an appointment through the API and returns it. */
+export async function createCommitment(
+  core: Core,
+  body: unknown = sampleCommitment(),
+): Promise<CommitmentDto> {
+  const response = await core.request('POST', `${API_PREFIX}/commitments`, {
+    headers: { 'idempotency-key': newIdempotencyKey() },
+    body,
+  });
+  if (response.status !== 201) {
+    throw new Error(`could not create an appointment: ${response.status} ${JSON.stringify(response.body)}`);
+  }
+  return response.body as CommitmentDto;
+}
+
+async function oneCommitment(core: Core): Promise<Prepared> {
+  const commitment = await createCommitment(core);
+  return { params: { id: commitment.id }, version: commitment.version };
 }
 
 /**
@@ -210,6 +315,66 @@ export const portedRoutes: readonly RouteEntry[] = [
     prepare: async (core) => ({ version: (await readMe(core)).version }),
     body: () => ({ timeZone: 'Asia/Seoul', locale: 'ko-KR' }),
     otherBody: () => ({ locale: 'en-GB' }),
+  },
+  // RC-20 — available hours. Their own rules: `availability.test.ts`.
+  {
+    operationId: 'getAvailability',
+    successStatus: 200,
+    etag: { pattern: AVAILABILITY_TAG },
+  },
+  {
+    operationId: 'putAvailability',
+    successStatus: 200,
+    etag: { pattern: AVAILABILITY_TAG },
+    ifMatch: 'availability',
+    // One availability version for the whole suite: it moves with every
+    // accepted PUT (and with every change of an appointment), so each check
+    // reads it first.
+    prepare: async (core) => ({ version: (await readAvailability(core)).version }),
+    body: () => sampleHours(),
+    otherBody: () => ({ ...sampleHours(), rules: [] }),
+  },
+  // RC-20 — appointments. Their own rules: `commitments.test.ts`.
+  {
+    operationId: 'listCommitments',
+    successStatus: 200,
+    etag: 'content',
+    prepare: async (core) => {
+      await createCommitment(core);
+      return {};
+    },
+    query: () => `${sampleWindow()}&limit=100`,
+    // `to` is required.
+    invalidQuery: `from=${weekInstant(0)}`,
+  },
+  {
+    operationId: 'createCommitment',
+    successStatus: 201,
+    etag: 'version',
+    body: () => sampleCommitment(),
+    otherBody: () => ({ ...sampleCommitment(), title: 'Another appointment' }),
+  },
+  {
+    operationId: 'updateCommitment',
+    successStatus: 200,
+    etag: 'version',
+    prepare: oneCommitment,
+    body: () => ({ title: 'Renamed seminar', rrule: null }),
+    otherBody: () => ({ title: 'Renamed differently' }),
+  },
+  {
+    operationId: 'deleteCommitment',
+    successStatus: 204,
+    etag: 'none',
+    prepare: oneCommitment,
+  },
+  // RC-20 — all-day events of a connected calendar: empty until RC-90.
+  {
+    operationId: 'listCalendarDayEvents',
+    successStatus: 200,
+    etag: 'content',
+    query: () => 'from=2026-11-01&to=2026-11-30',
+    invalidQuery: 'from=2026-11-01',
   },
 ];
 

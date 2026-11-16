@@ -9,6 +9,9 @@
 //! This crate knows SQL and domain entities. It does not know HTTP, JSON wire
 //! formats or business rules.
 
+pub mod availability;
+pub mod commitments;
+pub mod day_events;
 mod error;
 pub mod idempotency;
 mod migrate;

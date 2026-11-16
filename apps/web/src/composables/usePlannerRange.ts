@@ -61,10 +61,29 @@ export function readTasks(binding: OwnerBinding) {
   });
 }
 
+/**
+ * The approved blocks of `range` — or none where blocks are not served yet.
+ *
+ * The desktop core is ported one area at a time (blueprint 15 §10): 약속 and
+ * tasks are there before the plans are, and until then `GET /schedule-blocks`
+ * answers 501. Where no plan can be made no block is approved, so "not
+ * ready" is an empty list here, and the planner shows the 약속 it can read.
+ * Only that answer, and only in a desktop bundle (`isNotReady`): any other
+ * failure fails the range as before.
+ */
+async function readBlocksIfServed(binding: OwnerBinding, range: InstantRange) {
+  try {
+    return await readScheduleBlocks(binding, range);
+  } catch (cause) {
+    if (isNotReady(cause)) return { items: [] as ScheduleBlock[], found: null, truncated: false };
+    throw cause;
+  }
+}
+
 /** All three lists of `range`, every page, under one binding. */
 export async function readPlannerRange(binding: OwnerBinding, range: InstantRange): Promise<PlannerRange> {
   const [blocks, commitments, tasks] = await Promise.all([
-    readScheduleBlocks(binding, range),
+    readBlocksIfServed(binding, range),
     readCommitments(binding, range),
     readTasks(binding),
   ]);

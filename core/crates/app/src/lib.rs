@@ -10,6 +10,9 @@
 //! thread pool.
 
 mod app;
+pub mod availability;
+pub mod calendar;
+pub mod commitments;
 mod cursor;
 mod error;
 pub mod projects;
@@ -21,4 +24,6 @@ mod testing;
 pub use app::{App, IDEMPOTENCY_TTL_MS, Idempotent, IdempotentRequest, OwnerDefaults, Unit};
 pub use cursor::{DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, Page, PageQuery};
 pub use error::AppError;
+/// One occurrence of an appointment, as the expansion returns it.
+pub use ohmydate_recurrence::Occurrence;
 pub use ohmydate_store::idempotency::StoredResponse;

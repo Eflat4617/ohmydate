@@ -36,6 +36,9 @@ pub enum DomainError {
         expected: Version,
         actual: Option<Version>,
     },
+    /// `If-Match` named an availability version that is not current: the
+    /// hours or an appointment changed since. 412 `availability_changed`.
+    AvailabilityChanged { expected: Version, actual: Version },
     /// The request is well-formed but breaks a domain rule. 422
     /// `validation_failed`.
     ValidationFailed(Vec<ValidationIssue>),
@@ -68,6 +71,7 @@ impl DomainError {
         match self {
             DomainError::NotFound { .. } => ProblemCode::NotFound,
             DomainError::VersionConflict { .. } => ProblemCode::VersionConflict,
+            DomainError::AvailabilityChanged { .. } => ProblemCode::AvailabilityChanged,
             DomainError::ValidationFailed(_) => ProblemCode::ValidationFailed,
             DomainError::DependencyCycle(_) => ProblemCode::DependencyCycle,
             DomainError::IdempotencyMismatch => ProblemCode::IdempotencyMismatch,
@@ -99,6 +103,12 @@ impl fmt::Display for DomainError {
                 actual: None,
             } => {
                 write!(formatter, "expected version {expected}")
+            }
+            DomainError::AvailabilityChanged { expected, actual } => {
+                write!(
+                    formatter,
+                    "availability changed: expected {expected}, found {actual}"
+                )
             }
             DomainError::ValidationFailed(issues) => {
                 let paths: Vec<&str> = issues.iter().map(|issue| issue.path.as_str()).collect();
@@ -141,6 +151,14 @@ mod tests {
             "expected version 1 but found 3"
         );
         assert_eq!(
+            DomainError::AvailabilityChanged {
+                expected: Version::INITIAL,
+                actual: Version::INITIAL.next().next()
+            }
+            .to_string(),
+            "availability changed: expected 1, found 3"
+        );
+        assert_eq!(
             DomainError::DependencyCycle(vec![id('5'), id('6'), id('5')]).to_string(),
             "dependency cycle detected: 0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55 -> \
              0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c56 -> 0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55"
@@ -168,6 +186,20 @@ mod tests {
         assert_ne!(
             DomainError::invalid("title", "x").code(),
             DomainError::IllegalTransition("x".into()).code()
+        );
+        // A stale availability tag is its own code, not a version conflict.
+        let stale = DomainError::AvailabilityChanged {
+            expected: Version::INITIAL,
+            actual: Version::INITIAL.next(),
+        };
+        assert_eq!(stale.code(), ProblemCode::AvailabilityChanged);
+        assert_ne!(
+            stale.code(),
+            DomainError::VersionConflict {
+                expected: Version::INITIAL,
+                actual: None
+            }
+            .code()
         );
     }
 }

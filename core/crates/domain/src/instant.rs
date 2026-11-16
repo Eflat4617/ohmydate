@@ -196,7 +196,7 @@ fn is_leap_year(year: i64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
-fn days_in_month(year: i64, month: i64) -> i64 {
+pub(crate) fn days_in_month(year: i64, month: i64) -> i64 {
     match month {
         4 | 6 | 9 | 11 => 30,
         2 if is_leap_year(year) => 29,
@@ -206,7 +206,7 @@ fn days_in_month(year: i64, month: i64) -> i64 {
 }
 
 /// Days since 1970-01-01 of a proleptic Gregorian date (Hinnant's algorithm).
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+pub(crate) fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let shifted_year = if month <= 2 { year - 1 } else { year };
     let era = shifted_year.div_euclid(400);
     let year_of_era = shifted_year.rem_euclid(400);

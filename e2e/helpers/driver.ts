@@ -43,8 +43,11 @@ export type Area =
   | 'ai'
   | 'google';
 
-/** What the Rust core serves today: owner, projects and tasks (RC-00, RC-10A). */
-const CORE_SERVES: ReadonlySet<Area> = new Set<Area>(['tasks']);
+/**
+ * What the Rust core serves today: owner, projects and tasks (RC-00, RC-10A),
+ * available hours and appointments (RC-20).
+ */
+const CORE_SERVES: ReadonlySet<Area> = new Set<Area>(['tasks', 'availability', 'commitments']);
 
 export interface Credentials {
   readonly email: string;

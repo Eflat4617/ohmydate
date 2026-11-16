@@ -2,7 +2,7 @@
 
 > 작성 2026-11-13 · Task RC-00 · 결정 근거는 `13-ADR.md` ADR-025.
 > 이 문서는 RC 프로그램(M7)의 기준 계획이다. 표의 수치와 분류는 코드에서 뽑았고, 표 두 개(§2.2, §3.3)는 `tests-core/docs.test.ts`가 계약·마이그레이션과 맞는지 검사한다.
-> "지금 있음"은 구현해 시험까지 마친 것(RC-00, RC-30~33, FOLD-01, RC-10A, RC-10B — 2026-11-16 기준), 나머지는 계획이다.
+> "지금 있음"은 구현해 시험까지 마친 것(RC-00, RC-30~33, FOLD-01, RC-10A, RC-10B, RC-20 — 2026-11-16 기준), 나머지는 계획이다.
 
 ## 0. 한눈에 보기
 
@@ -15,6 +15,7 @@
 - FOLD-01에서 더한 것(2026-11-16): `updateProject`(`PATCH /projects/{id}`) — 폴더(프로젝트)의 이름 바꾸기와 보관. 계약·TypeScript API·Rust 코어에 함께 넣었다(§11 R11의 예외). 코어가 서빙하는 operation은 이제 11개다.
 - RC-10A에서 더한 것(2026-11-16) — 코어가 웹을 실을 수 있게 됐다: `updateMySettings`(`PATCH /me/settings`: 시간대·로캘·AI 동의·예산; 코어가 서빙하는 operation은 12개), `--web-dir`로 빌드된 웹 앱을 같은 출처에서 서빙하기와 `/__boot`의 실행 쿠키(§1.3), 테스트 빌드의 움직이는 시계(`--clock-offset-ms`, §7.3), 패리티 원장 `core/PARITY.md`와 그것을 지키는 검사(§7.5), 두 검증기의 판정 대조(§2.4), `ci:core`(§7.6). 웹과 E2E 쪽 절반은 RC-10B다(§7.3 끝의 목록).
 - RC-10B에서 더한 것(2026-11-16) — 화면이 처음으로 Rust 코어 위에서 돈다: 웹의 데스크톱 번들(`vite build --mode desktop`: 로그인 없음, 실행 쿠키가 곧 로그인, 아직 서빙하지 않는 곳은 "준비 중"), 개발 실행 `corepack pnpm run core:dev`(코어 + Vite, 브라우저에서 바로 쓴다), E2E의 `core` 대상(`corepack pnpm run e2e:core`)과 헬퍼의 드라이버. `e2e-1`·`e2e-9-folders`와 a11y spec의 담기·할 일·설정 › 화면이 코어 위에서 Chromium과 WebKit 둘 다 통과한다. 코어는 바꾸지 않았다(§7.3의 "RC-10B에서 만든 것").
+- RC-20에서 더한 것(2026-11-16) — 가용 시간과 약속: operation 7개(`getAvailability`·`putAvailability`, 약속의 목록·만들기·고치기·삭제, `listCalendarDayEvents`; 코어가 서빙하는 operation은 19개), 반복 전개를 맡는 새 순수 크레이트 `ohmydate-recurrence`(`rrule.ts` 포팅 — 기준 구현이 쓴 팩과 건별 대조, 불일치 0: §6.1), availability version(약속을 쓸 때마다 같은 트랜잭션에서 +1), 마이그레이션 0003·0004. 화면: 시작 안내의 첫 두 걸음, 설정 › 가용 시간, 플래너 › 목록의 약속과 그 대화상자가 `core` 대상에서 Chromium·WebKit 둘 다 통과한다(§7.3의 "RC-20에서 더한 것").
 
 RC-00에서 측정한 것:
 
@@ -25,8 +26,8 @@ RC-00에서 측정한 것:
 | 코드가 한 번도 읽지 않는 테이블 | `outbox_event`(쓰기 6곳, 읽기 0), `audit_event`(2/0), `estimate_evidence`(1/0), `job`·`inbox_event`·`task_dependency`·`external_provider_mapping`(0/0) |
 | advisory lock 호출 | 11곳 → 0 (프로세스 하나, 쓰기 트랜잭션 하나) |
 | EXCLUDE 제약 위반 처리(`23P01`) | 3곳(승인·Today·재계획) → 트랜잭션 안 코드 검사 |
-| Rust 테스트 | RC-00: 178개(domain 37, store 27, app 26, scheduler 19 + 오라클 8, server 43 + bin 4 + HTTP 14). RC-10A 뒤: 526개(domain 42, store 34, app 42, scheduler 309, server 99 = 단위 62 + bin 5 + `tests/http.rs` 20 + `tests/web.rs` 12). 서버 크레이트는 테스트 빌드(`test-clock`)로 한 번 더 돈다: 101개 |
-| 패리티 하네스 | operation 12개, 테스트 157개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개), 시계 테스트(141개), 원장 검사 `ledger.test.ts`와 기준 테스트의 두 경우(150개), 판정 대조 `schema.test.ts`(156개)를 더했다. RC-10B가 원장의 E2E 검사 — `core` 대상에서 도는 spec의 목록과 원장의 표가 같은가 — 를 더했다(157개) |
+| Rust 테스트 | RC-00: 178개(domain 37, store 27, app 26, scheduler 19 + 오라클 8, server 43 + bin 4 + HTTP 14). RC-10A 뒤: 526개(domain 42, store 34, app 42, scheduler 309, server 99 = 단위 62 + bin 5 + `tests/http.rs` 20 + `tests/web.rs` 12). 서버 크레이트는 테스트 빌드(`test-clock`)로 한 번 더 돈다: 101개. RC-20 뒤: 660개(domain 58, store 52, app 72, recurrence 56 = 단위 35 + `tests/rrule.rs` 15 + `tests/oracle.rs` 6, scheduler 309, server 113 = 단위 69 + bin 5 + `tests/http.rs` 27 + `tests/web.rs` 12), 서버의 테스트 빌드 115개 |
+| 패리티 하네스 | operation 12개, 테스트 157개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개), 시계 테스트(141개), 원장 검사 `ledger.test.ts`와 기준 테스트의 두 경우(150개), 판정 대조 `schema.test.ts`(156개)를 더했다. RC-10B가 원장의 E2E 검사 — `core` 대상에서 도는 spec의 목록과 원장의 표가 같은가 — 를 더했다(157개). RC-20 뒤: operation 19개, 테스트 283개 통과(해당 없는 조합 89개는 건너뜀) — 일곱 줄과 `availability.test.ts`(30), `commitments.test.ts`(56), 반복 팩이 지금의 기준 구현과 같은지 보는 `recurrence.test.ts`(4) |
 | 오라클 팩 `sample.json` | 27건(golden 15, 생성 9, 재계획 1, 잘못된 입력 2), 211 KiB, 기준 tzdata 2026c vs jiff 2026e — 불일치 0 |
 | 서드파티 크레이트 | 126개(리눅스 그래프). MIT/Apache-2.0/BSD 밖은 4건(§9.4) |
 
@@ -56,17 +57,18 @@ RC-00에서 측정한 것:
 |---|---|---|---|
 | `ohmydate-domain` | id·시각·버전·문제 코드, 엔터티, 입력 규칙, DAG 검사 | 표준 라이브러리만 (I/O·serde 없음) | 있음 |
 | `ohmydate-scheduler` | 스케줄러 포팅. 순수 함수, 시드 고정 | `jiff`, `sha2`, `ryu-js`, `serde_json` — 우리 크레이트에는 의존하지 않는다(TS 패키지와 같음) | 바닥 층 있음 |
+| `ohmydate-recurrence` | 반복 약속: `RRULE` 부분집합 읽기, 창 안의 전개, 상한(§6.1). 순수 함수 | `jiff` — 우리 크레이트에는 의존하지 않는다 | 있음(RC-20) |
 | `ohmydate-llm` (RC-70) | 프롬프트·스키마 등록, 마스킹, 예산 규칙, 구조화 호출. HTTP는 포트 trait | `domain`, `jsonschema`, `serde_json` | 계획 |
 | `ohmydate-store` | SQLite: 연결, 마이그레이션, 형이 있는 쿼리 | `domain`, `rusqlite` | 있음 |
-| `ohmydate-app` | 유스케이스. 트랜잭션 경계를 가진다 | `domain`, `store`, (뒤에) `scheduler`, `llm` | 있음 |
+| `ohmydate-app` | 유스케이스. 트랜잭션 경계를 가진다 | `domain`, `store`, `recurrence`, (뒤에) `scheduler`, `llm` | 있음 |
 | `ohmydate-integrations` (RC-70/90) | LLM HTTP 클라이언트, Google HTTP, 키링 | `app`의 포트 trait, HTTP·키링 크레이트 | 계획 |
 | `ohmydate-server` | HTTP: 계약 로드, 라우팅, 헤더 규칙, 검증, DTO, 보안 게이트. 바이너리 `ohmydate-core` | `app`, `domain`, `store`(열기만), `axum`, `jsonschema` | 있음 |
 | `apps/desktop` (RC-100) | Tauri 셸 | `server` | 계획 |
 
 규칙(TypeScript 쪽 경계 규칙과 같은 뜻):
 
-1. `domain`과 `scheduler`는 I/O를 하지 않는다. 시계·난수·id는 `Clock`·`RandomSource`·`IdGenerator`로 받는다.
-2. 방향은 한쪽이다: `server → app → {store, scheduler, llm} → domain`. 아래 크레이트는 위를 모른다. Cargo가 강제한다(의존하지 않은 크레이트는 import할 수 없다).
+1. `domain`, `scheduler`, `recurrence`는 I/O를 하지 않는다. 시계·난수·id는 `Clock`·`RandomSource`·`IdGenerator`로 받는다.
+2. 방향은 한쪽이다: `server → app → {store, scheduler, recurrence, llm} → domain`. 아래 크레이트는 위를 모른다. Cargo가 강제한다(의존하지 않은 크레이트는 import할 수 없다).
 3. `store`는 SQL과 엔터티만 안다. HTTP·JSON 전송 형식·업무 규칙이 없다. 업무 규칙(프로젝트 존재, 순환, 버전)은 `app`이 같은 트랜잭션에서 검사한다.
 4. `server`의 핸들러는 JSON ↔ 유스케이스 변환만 한다. 경로·헤더 규칙·요청 형태는 계약에서 읽는다(아래 1.4).
 5. 저장소 trait(Repository 포트)은 두지 않는다. 저장소는 SQLite 하나이고 테스트도 임시 파일의 진짜 SQLite로 한다(빠르다: 스토어 테스트 27개가 0.03초). 포트 trait은 바꿔 끼울 일이 실제로 있는 곳에만 둔다: 시계, 난수, LLM, Google HTTP, 키링, 알림.
@@ -220,13 +222,13 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | `logout` | POST `/auth/logout` | 제외 | — | 위와 같음 |
 | `createPushSubscription` | POST `/push-subscriptions` | 제외 | — | Web Push 대신 OS 알림(§4.2). 404 |
 | `deletePushSubscription` | DELETE `/push-subscriptions/{id}` | 제외 | — | 위와 같음 |
-| `getAvailability` | GET `/availability` | 유지 | RC-20 | `ETag: W/"availability:<n>"` |
-| `putAvailability` | PUT `/availability` | 유지 | RC-20 | `If-Match: W/"availability:<n>"` |
-| `listCommitments` | GET `/commitments` | 유지 | RC-20 | 반복 전개는 `rrule.ts`(452줄) 포팅. 상한 366일·2,000건 유지 |
-| `createCommitment` | POST `/commitments` | 유지 | RC-20 | `availability_version` +1 |
-| `updateCommitment` | PATCH `/commitments/{id}` | 유지 | RC-20 | source `google`은 409 `illegal_transition` |
-| `deleteCommitment` | DELETE `/commitments/{id}` | 유지 | RC-20 |  |
-| `listCalendarDayEvents` | GET `/calendar-day-events` | 유지(차이) | RC-20 | RC-20에서는 항상 빈 목록(달력 화면이 호출한다), 내용은 RC-90부터 |
+| `getAvailability` | GET `/availability` | 유지 | RC-20 | RC-20에서 구현. `ETag: W/"availability:<n>"`. 아무것도 정하기 전에는 version 1 · owner의 시간대 · 기본 한도(기준 구현과 같다). 주간 창은 요일·시작 순, 예외는 날짜 순 — 같은 자리의 것들은 PUT이 적은 순서(기준 구현은 그 순서를 정하지 않는다) |
+| `putAvailability` | PUT `/availability` | 유지(차이) | RC-20 | RC-20에서 구현. `If-Match: W/"availability:<n>"`, 낡으면 412 `availability_changed`(저장하지 않는다). 첫 PUT은 version 1을 가리킨다. 답은 요청을 적힌 순서 그대로 되돌려 준다(기준 구현과 같다). 차이 하나: 값 **사이**의 규칙 — 창은 시작보다 뒤에 끝난다, `extra`인 날은 창이 있다 — 을 어기면 422 `validation_failed`(`/rules/<i>/endLocal` 등). 기준 구현은 이것을 DB의 CHECK에 맡겨서 500이 된다 |
+| `listCommitments` | GET `/commitments` | 유지(차이) | RC-20 | RC-20에서 구현. 반복 전개는 `rrule.ts`(452줄) 포팅(`ohmydate-recurrence`, §6.1). 상한 366일·2,000건, 분 단위 `from`·`to`, id 순, 꽉 찬 쪽은 마지막 id가 `nextCursor` — 전부 기준 구현과 같다. 규칙이 있는 약속은 창에 발생이 없어도 `occurrences: []`로 항상 나온다(같다). 발생의 시각 표기도 같다: 한 번뿐인 약속은 저장된 그대로(`…T05:00:00.000Z`), 규칙이 준 것은 소수부 없이(`…T05:00:00Z`). 차이 하나: `cursor`가 id가 아니면 422(기준 구현은 uuid 변환 실패로 500) |
+| `createCommitment` | POST `/commitments` | 유지(차이) | RC-20 | RC-20에서 구현. 검사 순서는 기준 구현과 같다: 시작(시각인가, 지금보다 10년 넘게 앞서지 않는가) → 끝이 시작 뒤 → 규칙(부분집합, `COUNT` ≤ 1000) — 각각 422, 그 필드의 포인터로. availability version +1(같은 트랜잭션). 차이 하나: 제목이나 규칙에 NUL이 있으면 422(기준 구현의 DB는 그 글자를 받지 못해 500). 422의 `message`는 어긴 규칙만 말하고 사용자가 쓴 글을 되풀이하지 않는다(기준 구현은 규칙의 조각을 되풀이한다) |
+| `updateCommitment` | PATCH `/commitments/{id}` | 유지(차이) | RC-20 | RC-20에서 구현. 답의 순서는 기준 구현과 같다: 패치 자체의 결함(규칙, 시작, 함께 온 시작·끝) 422 → 없는 id 404 → source `google`은 409 `illegal_transition`(낡은 버전이어도) → 낡은 버전 412 → 합친 구간 422. 받아들인 패치는 빈 것이어도 새 버전이고 availability version +1. 차이는 `createCommitment`와 같다(NUL, 문구) |
+| `deleteCommitment` | DELETE `/commitments/{id}` | 유지 | RC-20 | RC-20에서 구현. 404 → `google` 409 → 412. soft delete, availability version +1 |
+| `listCalendarDayEvents` | GET `/calendar-day-events` | 유지(차이) | RC-20 | RC-20에서 구현: 범위 규칙은 이미 최종(끝이 시작보다 앞이면 422, 92일 초과 422), 테이블도 있다. 쓰는 쪽(캘린더 동기화)이 없어 항상 빈 목록 — 내용과 `calendarName`은 RC-90부터 |
 | `createPlan` | POST `/plans` | 유지 | RC-40 | 스케줄러(RC-30~32) 필요 |
 | `getPlan` | GET `/plans/{id}` | 유지 | RC-40 |  |
 | `previewPlanCandidateEdit` | POST `/plans/{id}/candidates/{cid}:preview-edit` | 유지 | RC-40 | validator(RC-31) 필요 |
@@ -362,17 +364,17 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | `text[]` (`reason_chips`, `granted_scopes`, `section_hashes`, `tags`) | JSON 배열 TEXT. 원소 검사(`<@`, 정규식)는 코드 + 테스트 | 해당 슬라이스 |
 | `tsvector` + GIN, `to_tsquery`, `ts_rank` (노트 검색) | FTS5 가상 테이블(unicode61), 토큰을 `"토큰"*`로 AND. 순위는 bm25(제목 가중) | FTS5가 번들 SQLite에 있고 한글 접두 일치가 됨을 확인(스토어 테스트) |
 | `EXCLUDE USING gist` (`schedule_block_no_overlap`) | 쓰기 트랜잭션 안에서 겹침 조회 후 삽입. 쓰기 트랜잭션이 하나뿐이라 경합이 없다. 위반은 지금처럼 422 `constraint_violation` / `h1_active_block_overlap` | RC-40: 무작위 삽입 property 테스트 + 저장된 데이터의 불변식 검사 함수(`store::invariants`, 테스트와 백업 검증에서 실행) |
-| gist 인덱스 `tstzrange` | `(start_at)` 인덱스 + `start_at < :to AND end_at > :from` | RC-20 |
+| gist 인덱스 `tstzrange` | `(start_at)` 인덱스 + `start_at < :to AND end_at > :from` | 있음(RC-20, `store::commitments::list_for_window`) |
 | 부분 유니크 인덱스 | SQLite가 지원한다. 그대로 옮긴다(inbox 1개, 활성 세션 1개, 현재 추정 1개, 사유별 pending 제안 1개, google 참조, 승격 노트) | inbox는 있음 |
 | advisory lock 11곳(작업 리더, 인테이크 승인, owner별 직렬화) | 필요 없음: 프로세스 하나 + 쓰기 트랜잭션 하나. Google 동기화 직렬화는 프로세스 안 뮤텍스 | — |
 | `FOR UPDATE`, `SKIP LOCKED` | `BEGIN IMMEDIATE` | 있음 |
 | 복합 FK `(id, owner_id)` | 단순 FK(owner가 하나) | 있음 |
 | `DEFERRABLE INITIALLY DEFERRED` FK (`plan.current_version_id`) | SQLite가 지원한다 | RC-40 |
-| 트리거(availability version 단조 증가) | SQLite 트리거 `RAISE(ABORT)` | RC-20 |
+| 트리거(availability version 단조 증가) | SQLite 트리거 `RAISE(ABORT)` | 있음(RC-20): 같은 값·낮은 값으로의 UPDATE를 스토어 테스트가 시도해 거부되는 것을 본다 |
 | `numeric`(USD) | INTEGER 마이크로달러(`domain::MicroUsd`, 0 ~ 10억 달러). 계약의 `dailyUsd: number`와는 경계에서 변환: 들어올 때 가장 가까운 마이크로달러로 반올림, 나갈 때는 달러 수(정수 달러는 `20`처럼 소수점 없이) | owner 예산은 있음(RC-10A), 지출 원장은 RC-70 |
 | `real` | REAL | — |
 | `bytea` | 암호문 컬럼은 키링으로 이동, 내보내기 산출물은 파일 | RC-90/110 |
-| `date` | TEXT `YYYY-MM-DD` + GLOB CHECK | RC-20 |
+| `date` | TEXT `YYYY-MM-DD` + GLOB CHECK | 있음(RC-20): 모양은 GLOB, 값은 `domain::CalendarDate`(2월 30일 같은 날짜는 읽을 때 `Corrupt`) |
 | 정규식 CHECK(`~`) | GLOB CHECK 또는 코드 검증 | 해당 슬라이스 |
 | 생성 컬럼 `body_tsv` | FTS5 + 트리거 | RC-80 |
 | `btree_gist`, `uuidv7()` | 필요 없음 | — |
@@ -410,10 +412,10 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | `agent_proposal` | 0005 | 유지 | `agent_proposal` | RC-70 | `id` ~~`owner_id`~~ `run_id` `kind` `payload` `schema_ok` `policy_ok` `constraint_ok` `decision` `created_at` `updated_at` `version` | `payload` → JSON TEXT |
 | `intake_approval` | 0006 | 제외 | — | — | ~~`session_id`~~ ~~`owner_id`~~ ~~`draft_version`~~ ~~`state`~~ ~~`lease_expires_at`~~ ~~`idempotency_key`~~ ~~`holder_token`~~ ~~`last_call_started_at`~~ ~~`created_at`~~ ~~`updated_at`~~ | Vikunja에 작업을 여러 요청으로 만들 때 이어 하기 위한 장치(ADR-020). 네이티브에서는 초안 승인이 한 트랜잭션이라 필요 없다. 승인 멱등은 `idempotency_record` |
 | `intake_approval_step` | 0006 | 제외 | — | — | ~~`session_id`~~ ~~`step_key`~~ ~~`planned_task_id`~~ ~~`state`~~ ~~`task_id`~~ ~~`dependency_state`~~ | 위와 같음 |
-| `commitment_event` | 0007 | 유지 | `commitment_event` | RC-20 | `id` ~~`owner_id`~~ `title` `start_at` `end_at` `rrule` `time_zone` `source` `created_at` `updated_at` `version` `deleted_at` `external_calendar_id` `external_event_id` `external_etag` | gist(tstzrange) 인덱스 → `(start_at)` 인덱스 + `start_at < :to AND end_at > :from`. google 참조 부분 유니크 유지. 외부 참조 CHECK 유지 |
-| `availability_rule` | 0007 | 유지 | `availability_rule` | RC-20 | `id` ~~`owner_id`~~ `weekday` `start_local` `end_local` `time_zone` `kind` `created_at` `updated_at` `version` | `HH:MM` 정규식 CHECK → GLOB CHECK + 코드 검증 |
-| `availability_exception` | 0007 | 유지 | `availability_exception` | RC-20 | `id` ~~`owner_id`~~ `date` `kind` `start_local` `end_local` `created_at` `updated_at` `version` | `date` → TEXT `YYYY-MM-DD` |
-| `user_availability_version` | 0007 | 변형 | `availability_state` | RC-20 | ~~`owner_id`~~ `version` `updated_at` `time_zone` `prefs` | 행 1개. `version` 단조 증가 트리거는 SQLite 트리거(`RAISE(ABORT)`)로 유지. `prefs` → JSON TEXT |
+| `commitment_event` | 0007 | 유지 | `commitment_event` | RC-20 | `id` ~~`owner_id`~~ `title` `start_at` `end_at` `rrule` `time_zone` `source` `created_at` `updated_at` `version` `deleted_at` `external_calendar_id` `external_event_id` `external_etag` | **있음**(RC-20, 마이그레이션 0004). gist(tstzrange) 인덱스 → `(start_at)` 인덱스 + `start_at < :to AND end_at > :from`, 그리고 규칙이 있는 약속의 부분 인덱스(창이 어디든 전부 읽는다). google 참조 부분 유니크 유지. 외부 참조 CHECK 유지(가져온 약속은 자기 규칙을 갖지 않는다). `source`에 SQL 기본값을 두지 않는다 — 앱이 정한다 |
+| `availability_rule` | 0007 | 변형 | `availability_rule` | RC-20 | ~~`id`~~ ~~`owner_id`~~ `weekday` `start_local` `end_local` ~~`time_zone`~~ `kind` ~~`created_at`~~ ~~`updated_at`~~ ~~`version`~~ | **있음**(RC-20, 마이그레이션 0003). PUT이 전부 갈아 끼우는 값이라 행에 자기 정체가 없다: 새 컬럼 `position`(PUT이 적은 순서, PK)만 둔다. `id`·`created_at`·`updated_at`·`version`은 기준 구현에서도 읽는 곳이 없고, `time_zone`은 쓰기만 했다(시간대는 `availability_state`의 것). `HH:MM` 정규식 CHECK → GLOB CHECK + 코드 검증(`domain::LocalTime`). `kind`는 계약의 두 값(`work`·`focus`)만 — 기준 테이블의 `rest`는 API가 쓴 적이 없다. 창의 순서 CHECK 유지 |
+| `availability_exception` | 0007 | 변형 | `availability_exception` | RC-20 | ~~`id`~~ ~~`owner_id`~~ `date` `kind` `start_local` `end_local` ~~`created_at`~~ ~~`updated_at`~~ ~~`version`~~ | **있음**(RC-20, 마이그레이션 0003). 위와 같은 이유로 `position`만 둔다. `date` → TEXT `YYYY-MM-DD`(GLOB + `domain::CalendarDate`). `extra`는 창이 있어야 한다·창의 순서 CHECK 유지 |
+| `user_availability_version` | 0007 | 변형 | `availability_state` | RC-20 | ~~`owner_id`~~ `version` `updated_at` `time_zone` `prefs`→`max_daily_focus_min`+`break_after_min`+`break_min`+`day_start_local`+`day_end_local`+`risk_level` | **있음**(RC-20, 마이그레이션 0003). 행 1개(`singleton` PK) — 가용 시간이나 약속이 처음 바뀔 때 생긴다. 그 전의 답은 version 1 · owner의 시간대 · 기본 한도이고, 첫 변경이 그때의 owner 시간대를 굳힌다(기준 구현과 같다). `version` 단조 증가 트리거는 SQLite 트리거(`RAISE(ABORT)`)로 유지. `prefs` jsonb에 든 것은 한도 여섯 값뿐이라 검사할 수 있는 컬럼으로 풀었다(owner의 `settings`와 같은 이유) |
 | `plan` | 0007 | 유지 | `plan` | RC-40 | `id` ~~`owner_id`~~ `scope` `status` `current_version_id` `availability_version` `horizon_start` `horizon_end` `time_zone` `created_at` `updated_at` `version` `deleted_at` | `scope` → JSON TEXT. `current_version_id` 지연 FK는 SQLite `DEFERRABLE INITIALLY DEFERRED` |
 | `plan_candidate` | 0007 | 유지 | `plan_candidate` | RC-40 | `id` ~~`owner_id`~~ `plan_id` `policy` `blocks` `metrics` `explanation` `diversity_note` `feasible` `deficit_min` `input_hash` `generator_version` `created_at` `updated_at` `version` | `blocks`·`metrics`·`explanation` → JSON TEXT |
 | `plan_version` | 0007 | 유지 | `plan_version` | RC-40 | `id` ~~`owner_id`~~ `plan_id` `seq` `candidate_id` `reason` `created_by` `availability_version` `created_at` `updated_at` `version` | `(plan_id, seq)` 유니크 유지 |
@@ -435,7 +437,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | `auth_session` | 0015 | 제외 | — | — | ~~`id_hash`~~ ~~`user_id`~~ ~~`csrf_token_hash`~~ ~~`created_at`~~ ~~`last_seen_at`~~ ~~`expires_at`~~ | 로그인·세션·CSRF 없음(결정 5). 실행마다 새로 만드는 토큰이 대신한다(§1.3) |
 | `google_calendar_connection` | 0016 | 변형 | `google_calendar_connection` | RC-90 | `id` ~~`owner_id`~~ `status` ~~`refresh_token_ciphertext`~~ ~~`token_key_id`~~ `granted_scopes` `export_calendar_id` `settings` `last_sync_at` `last_error` `created_at` `updated_at` `version` | refresh token은 OS 키링으로(결정 6). 토큰⇔상태 CHECK는 코드로. `granted_scopes` text[] → JSON 배열 |
 | `google_calendar` | 0016 | 유지 | `google_calendar` | RC-90 | `id` ~~`owner_id`~~ `connection_id` `google_calendar_id` `name` `access_role` `is_primary` `selected` `time_zone` `created_at` `updated_at` `version` |  |
-| `calendar_day_event` | 0016 | 유지 | `calendar_day_event` | RC-20 | `id` ~~`owner_id`~~ `title` `start_date` `end_date` `source` `external_calendar_id` `external_event_id` `external_etag` `created_at` `updated_at` `version` `deleted_at` | 테이블은 RC-20(빈 목록을 돌려주기 위해), 내용은 RC-90. 날짜 → TEXT |
+| `calendar_day_event` | 0016 | 유지 | `calendar_day_event` | RC-20 | `id` ~~`owner_id`~~ `title` `start_date` `end_date` `source` `external_calendar_id` `external_event_id` `external_etag` `created_at` `updated_at` `version` `deleted_at` | **테이블 있음**(RC-20, 마이그레이션 0004)과 읽기(`store::day_events::list`: 양 끝 포함, 시작 날짜 순, 2,000건). 쓰는 쪽과 `calendarName`(연결의 캘린더 이름)은 RC-90. 날짜 → TEXT |
 | `google_export_mapping` | 0016 | 유지 | `google_export_mapping` | RC-90 | `id` ~~`owner_id`~~ `local_kind` `local_key` `google_calendar_id` `google_event_id` `fingerprint` `ends_at` `created_at` `updated_at` `version` |  |
 <!-- data-model:end -->
 
@@ -649,6 +651,17 @@ TypeScript 테스트 파일 → Rust 테스트(스케줄러 크레이트의 원�
 - 필요한 것: 반복 약속 전개(`rrule.ts`를 그대로 포팅 — 외부 RRULE 크레이트를 쓰면 전개 결과가 달라질 수 있다), `assembleScheduleInput`(저장된 데이터 → `ScheduleInput`), `schedulingSessionBounds`(FU-96 자동 분할), 승인 트랜잭션.
 - 쉬워지는 것: 승인 원자성(08 §2.4의 6단계)이 `BEGIN IMMEDIATE` 하나다. `SELECT … FOR UPDATE`, EXCLUDE 위반 잡기(`23P01`), 동시 승인 경합 처리가 없다. 겹침 검사는 같은 트랜잭션의 조회다.
 
+**반복 전개(있음, RC-20)** — `core/crates/recurrence`(`ohmydate-recurrence`): `Rule::parse`, `expand`, `clip`. `jiff`에만 의존하는 순수 크레이트다(스케줄러와 같은 자리: `app`이 부른다).
+
+- 그대로 옮긴 것: 검사의 순서(결함이 여럿인 규칙은 기준 구현과 같은 결함을 말한다), 두 가지 걷기(`COUNT`가 있으면 시작부터 주기 단위로 세고, 없으면 하루씩 — 시작이 창보다 10년 넘게 앞서면 창 하루 전으로 건너뛴다), 상한(창 366일, 발생 2,000건, 하루 걷기 40,000걸음, 주기 걷기 200,000걸음), 자바스크립트 문자열 함수의 모서리(`split('=', 2)`는 두 번째 `=` 뒤를 버린다, `toUpperCase`는 유니코드를 안다 — `ı`→`I`, `ſ`→`S`, `Number.parseInt`는 앞의 공백을 넘기고 숫자가 아닌 글자에서 멈춘다), `UNTIL`의 날짜-시각 꼴은 Temporal이 **맞춰 넣는다**(13월 → 12월, 2월 31일 → 말일, 24시 → 23시; 0월·0일만 거부).
+- 시각의 표기 두 가지도 결과의 일부다: 한 번뿐인 약속의 발생은 저장된 글자 그대로(`Date.toISOString`: `.000Z`), 규칙이 준 발생은 `Temporal.Instant.toString`(0인 소수부 없음). `Occurrence::start_at`·`end_at`이 어느 쪽인지 안다.
+- 오류: `RuleError`(15가지)·`ExpandError`는 닫힌 enum이고 문구에 사용자 글이 없다. 기준 구현의 문구는 규칙의 조각을 되풀이하므로 대조는 문구가 아니라 종류로 한다.
+- 대조(스케줄러의 오라클과 같은 방식): `tests-core/support/recurrence-oracle.ts`가 기준 함수에 입력을 넣어 팩을 쓴다(한 줄에 한 건, ASCII). 커밋하는 것은 `core/crates/recurrence/tests/oracle/sample.jsonl`(시드 20261116: 규칙 645개 — 손으로 쓴 165개 + 고친 480개 — , 전개 449건 — `rrule.test.ts`의 12건, 손으로 쓴 모서리 41건, 10개 시간대의 2026–2027 시계 변경 39번 × 주기 4가지 = 156건, 시드 240건 — , `clip` 40건; 발생 4,356개 중 건너뛴 벽시계 위 78, 되풀이된 벽시계 위 84). `cargo test`가 건별로 대조한다: **불일치 0**. 큰 팩은 필요할 때 만든다(`corepack pnpm run core:rrule-diff`, 커밋하지 않는다): 시드 20261116·20,000건(규칙 40,165개, 전개 22,609건, 발생 174,533개)과 시드 7·30,000건(60,165 / 32,609 / 250,700) 모두 불일치 0. 포팅하는 동안 실제 불일치는 한 번도 나오지 않았다.
+- 팩이 낡지 않게: `tests-core/recurrence.test.ts`(`core:parity`에 포함)가 같은 시드로 팩을 다시 만들어 커밋된 파일과 줄 단위로 비교한다. 기준 구현이나 Node의 tzdata가 바뀌면 여기서 먼저 실패한다.
+- 변이 확인: 포팅을 21군데 일부러 틀리게 했다(`compatible` 대신 `later`/`earlier`, `UNTIL` 배타, 주 번호를 시작 요일부터, 짧은 달로 당기기, `COUNT`를 창 안에서만 세기, 표기, `BYDAY` 정렬·중복, 닿기만 한 발생 포함, 건너뛰기의 하루 여유 등). 결과를 바꿀 수 있는 19가지는 전부 커밋된 팩이 잡는다 — 처음에는 둘을 놓쳤고(창이 발생의 끝에서 시작할 때, 건너뛰기의 하루 여유) 그 둘을 가르는 건을 팩에 더했다. 나머지 둘(`>=`를 `>`로 한 창 끝, 10년을 9년으로)은 결과를 바꿀 수 없다.
+- 기준 구현과 다르게 **답하지 않고 거부하는** 입력 둘(`ExpandError`): tzdb에 없는 시간대(기준은 내부 오류), `jiff`의 날짜 범위(±9999년) 밖으로 나가는 걷기(기준은 ±275760년까지 계산). 앱이 저장하는 값에서는 생기지 않는다.
+- 쓰기의 규칙(`app::commitments`, 기준 `plan-service.ts`): 새 규칙의 `COUNT`는 1000까지(저장된 것은 2000까지 읽는다), 새 시작은 지금보다 10년(366일 × 10) 넘게 앞설 수 없다.
+
 ### 6.2 Today·세션·알림 — RC-50
 
 - 대상: `today-service`(831) + `pg-today-store`(712), `session-service`(321) + `pg-work-session-store`(307), 알림(약 250).
@@ -708,13 +721,13 @@ TypeScript: 키 예약(pending) 커밋 → 유스케이스 실행 → 완료 기
 | 층 | 도구 | 무엇을 | 명령 | 상태 |
 |---|---|---|---|---|
 | 정적 | `cargo fmt --check`, `clippy -D warnings`, `#![forbid(unsafe_code)]`(워크스페이스 lint) | 전체 | `core:check` | 있음 |
-| 단위 | `cargo test`. 동작마다 네거티브 1개 이상. 서버 크레이트는 기본 빌드와 테스트 빌드(`test-clock`) 두 번 | 크레이트별 | `core:check` | 있음(526) |
+| 단위 | `cargo test`. 동작마다 네거티브 1개 이상. 서버 크레이트는 기본 빌드와 테스트 빌드(`test-clock`) 두 번 | 크레이트별 | `core:check` | 있음(660) |
 | 속성 | `proptest` | 스케줄러 하드 제약, DAG, 블록 겹침 불변식, 시간 | `core:check`(1,000) / 관문(10,000) | 스케줄러 있음(RC-31~33) |
-| 차분 | 오라클 팩 | 스케줄러(RC-30~33), 마스킹(RC-70a) | `core:oracle`, `core:diff` | 스케줄러 있음 |
-| 계약 패리티 | `tests-core/`(vitest + ajv + `@ohmydate/contracts`), 진짜 바이너리(테스트 빌드) | operation마다 상태 코드·스키마·헤더 행렬·오류; 웹 서빙과 `/__boot`; 수명 주기와 시계 | `core:parity` | 있음(12 operation, 157개) |
+| 차분 | 오라클 팩 | 스케줄러(RC-30~33), 반복 전개(RC-20, §6.1), 마스킹(RC-70a) | `core:oracle`·`core:diff`, `core:rrule-oracle`·`core:rrule-diff` | 스케줄러·반복 전개 있음 |
+| 계약 패리티 | `tests-core/`(vitest + ajv + `@ohmydate/contracts`), 진짜 바이너리(테스트 빌드) | operation마다 상태 코드·스키마·헤더 행렬·오류; 웹 서빙과 `/__boot`; 수명 주기와 시계 | `core:parity` | 있음(19 operation, 283개) |
 | 판정 대조 | `tests-core/schema.test.ts` + `schema-verdict` 바이너리 | 계약의 요청 스키마마다 Ajv와 코어의 판정(§2.4) | `core:schema-diff`(`core:parity`에 포함) | 있음(표본 14,747개) |
 | 원장 | `tests-core/ledger.test.ts`, `docs.test.ts` | `core/PARITY.md`와 이 문서의 표가 코드와 맞는지(§7.5) | `core:ledger`(`core:parity`에 포함) | 있음 |
-| E2E | 지금의 Playwright, 대상만 Rust 코어(`E2E_TARGET=core`) | 사용자 흐름. 코어가 서빙하는 데스크톱 번들을 CSP 아래서, Chromium과 WebKit으로 | `e2e:core` | 있음(spec 3개 + 대상 자체의 spec; 영역이 포팅될 때마다 는다) |
+| E2E | 지금의 Playwright, 대상만 Rust 코어(`E2E_TARGET=core`) | 사용자 흐름. 코어가 서빙하는 데스크톱 번들을 CSP 아래서, Chromium과 WebKit으로 | `e2e:core` | 있음(spec 4개 + 대상 자체의 spec; 영역이 포팅될 때마다 는다) |
 | 가져오기 | 내보내기 → 가져오기 → 내보내기 | 전환 | RC-110 | 계획 |
 
 ### 7.2 계약 패리티 하네스 (지금 있음)
@@ -723,7 +736,7 @@ TypeScript: 키 예약(pending) 커밋 → 유스케이스 실행 → 완료 기
 
 `coverage` 테스트가 계약의 85개 operation을 전부 찔러 보고, 코어가 서빙하는데 표에 없는 operation이 있으면 실패한다. `lifecycle.test.ts`는 ready 파일(0600), 단일 인스턴스(종료 코드 3), 재시작 뒤 데이터·멱등 재생, 실행마다 다른 토큰을 본다.
 
-operation마다의 규칙은 그 옆의 파일에 둔다: `projects.test.ts`(`updateProject`), `settings.test.ts`(`updateMySettings`). 계약 표 밖의 것: `web.test.ts`(웹 서빙과 `/__boot` — 소켓으로, `fetch`가 `..`를 정리해 버리므로 `node:http`로 적힌 그대로 보낸다), `lifecycle.test.ts`의 시계 테스트, `ledger.test.ts`(§7.5), `schema.test.ts`(§2.4). 하네스는 테스트 빌드의 바이너리를 쓴다(`core:build`).
+operation마다의 규칙은 그 옆의 파일에 둔다: `projects.test.ts`(`updateProject`), `settings.test.ts`(`updateMySettings`), `availability.test.ts`(가용 시간 둘), `commitments.test.ts`(약속 넷과 `listCalendarDayEvents`). `If-Match`가 availability 태그인 operation은 표의 줄에 `ifMatch: 'availability'`를 적는다 — 일반 검사가 그 태그로 요청을 만들고, 낡은 태그의 답을 `availability_changed`로 기대하고, 두 종류의 태그가 서로를 대신하지 못하는 것(400)을 본다. 가져온 약속의 409는 HTTP로는 만들 수 없어(만들 요청이 없다) Rust 쪽에서 시험한다(`app::commitments`, `server/tests/http.rs`). 계약 표 밖의 것: `web.test.ts`(웹 서빙과 `/__boot` — 소켓으로, `fetch`가 `..`를 정리해 버리므로 `node:http`로 적힌 그대로 보낸다), `lifecycle.test.ts`의 시계 테스트, `ledger.test.ts`(§7.5), `schema.test.ts`(§2.4). 하네스는 테스트 빌드의 바이너리를 쓴다(`core:build`).
 
 ### 7.3 E2E를 Rust 코어로
 
@@ -809,6 +822,28 @@ WebKit에서 나온 것:
 4. 그 밖에 WebKit에서만 다른 동작은 이 spec들에서 없었다: 쿠키 저장, `localStorage`·`sessionStorage`의 owner 이름공간, 오프라인 전환, `backdrop-filter`(투명 효과 줄이기), 캔버스의 클릭·키보드 조작, axe가 같았다. (이 spec들이 걷지 않는 것 — 캔버스의 끌기, IndexedDB에 쌓이는 집중 기록 — 은 여기서 본 것이 아니다.)
 
 코어에 없어서 막힌 것은 없었다. 코어는 한 줄도 바꾸지 않았다.
+
+**RC-20에서 더한 것**(2026-11-16, **있음**) — 가용 시간과 약속의 화면:
+
+- 드라이버의 `CORE_SERVES`에 `availability`·`commitments`.
+- 새 spec `e2e-10-hours-appointments.spec.ts`(두 대상에서 같은 파일): ① 시작 안내의 첫 두 걸음 — "언제 일할 수 있나요?"에서 평일 저녁을 골라 저장(PUT), "고정된 일정이 있나요?"에서 약속을 손으로 넣고(POST) 다음으로. 가용 시간이 있는 owner에게는 어느 기기에서도 다시 뜨지 않는다. ② 설정 › 가용 시간 — 안내가 저장한 것이 보이고, 규칙 하나를 더해 저장하면 버전이 하나 오르고 다시 불러도 남아 있고, 그 사이 다른 곳에서 바뀌었으면 412 `availability_changed`와 함께 두 쪽을 다 보여 준다(덮어쓰지 않는다). ③ 플래너 › 목록 — 매주 되풀이하는 약속을 손으로 넣으면 **규칙이 주는 주마다** 목록에 나오고(서버의 전개를 화면으로 본다), 자기 대화상자에서 이름을 바꾸고 삭제한다; availability version은 세 번 오른다. 새로 걷는 면마다 axe.
+- a11y spec: 씨앗 데이터를 영역별로 나눠 심는다(가용 시간 / 계획 / 약속). 그래서 설정 › 가용 시간과 플래너 › 목록(약속의 줄과 그 대화상자)이 `core` 대상에서 돈다. 한달과 플래너의 주·일 보기는 블록(RC-40)을 기다린다.
+- 대상 자체의 spec: 가용 시간을 읽을 수 있게 되어 `core` 대상에서도 새 owner에게 시작 안내가 뜬다 — "한 번만 묻는다" 검사가 캘린더 상태를 읽는 셋째 자리로 그것을 센다.
+- 웹의 변경 하나(`apps/web/src/composables/usePlannerRange.ts`): 플래너는 블록·약속·작업 세 목록을 함께 읽는데, 코어는 약속을 블록보다 먼저 서빙한다. 블록이 "준비 중"(501, 데스크톱 번들에서만)이면 블록 없이 약속과 작업을 보인다 — 계획을 만들 수 없는 곳에는 승인된 블록도 없다. 그 밖의 실패, 다른 두 목록의 501, 서버 번들의 501은 지금까지처럼 실패다(각각 네거티브 테스트). RC-40이 블록을 서빙하면 이 가지는 지나지 않게 된다.
+
+결과(2026-11-16, 이 기계):
+
+| spec | Chromium | WebKit | 비고 |
+|---|---|---|---|
+| `targets/core.spec.ts` | 7/7 | 7/7 | |
+| `e2e-1` | 4/4 | 4/4 | |
+| `e2e-10-hours-appointments`(시작 안내 / 설정 › 가용 시간 / 플래너 › 목록) | 3/3 | 3/3 | RC-20 |
+| `e2e-9-folders` | 1/1 | 1/1 | |
+| `e2e-a11y-screens` | 1/1 | 1/1 | 이제 설정 › 가용 시간과 플래너 › 목록도 돈다 |
+
+CSP 지켜보기: 두 엔진 모두 위반 0, 잡히지 않은 오류 0. 기본 대상: 새 spec과 a11y spec 4/4. WebKit에서만 다른 웹 동작은 이 화면들에서 없었다(`datetime-local` 입력 채우기, 체크박스 칩, 중첩된 대화상자, 412 대화상자의 초점).
+
+도구에서 나온 것 하나: 적어 둔 명령 `corepack pnpm run e2e:core -- --browser=webkit`이 pnpm 12에서는 WebKit을 돌리지 않았다. pnpm이 `--`를 그대로 넘겨서 Playwright가 `--browser=webkit`을 파일 고르는 말로 읽고 Chromium으로 돌았다(출력의 `[webkit]` 표시가 없는 것으로 알았다). `e2e:core` 스크립트가 맨 앞의 `--`를 떼도록 고쳤다 — 이제 적어 둔 명령 그대로 `[webkit]`으로 돈다. WebKit 결과를 읽을 때는 그 표시를 본다.
 
 ### 7.4 가져오기 왕복 — §8.4
 
@@ -953,7 +988,7 @@ AGENTS.md 규칙(MIT / Apache-2.0 / BSD / ISC는 검토 없이)에 비춘 현재
 
 ```text
 RC-00 ─┬─► RC-10A ─┬─► RC-20 ───────┬─► RC-40 ─► RC-50 ─┬─► RC-60 ─────────► RC-90 ─┐
- (완료) │   (완료)   │   (A)          │    (A)      (A)   │    (A)              (A)   │
+ (완료) │   (완료)   │   (완료)       │    (A)      (A)   │    (A)              (A)   │
         │           └─► RC-10B (웹·E2E; 완료)                                         ├─► RC-110b ─► 전환
         ├─► RC-30 ─► RC-31 ─► RC-32 ─┘─► RC-33 ──────────┘                           │
         │   (완료)   (완료)   (완료)     (완료)                                      │
@@ -968,7 +1003,7 @@ RC-00 ─┬─► RC-10A ─┬─► RC-20 ───────┬─► RC-4
 | RC-05 | B | 지금 E2E를 Playwright의 WebKit 엔진으로 TypeScript 스택에 돌려 본다(코드 변경 없음, 보고서만) | — | 실패 목록 보고서 | — | WebKit에서 깨지는 웹 기능을 일찍 안다(R1) |
 | RC-10A | A | RC-10의 코어 쪽 절반: `updateMySettings`, 웹 정적 파일 서빙(`--web-dir`) + `/__boot`, `--clock-offset-ms`(테스트 빌드), `core/PARITY.md`, Ajv ↔ `jsonschema` 스키마 판정 대조 도구, `ci:core`. **끝**(2026-11-16) | RC-00 | 패리티 12 operation, `core:check`·`core:parity`·`core:schema-diff`·`ci:core`, 원장 초판 | `ohmydate-core --web-dir <빌드된 웹>`을 띄우고 브라우저에서 `/__boot?token=…`으로 들어가기(쓸 수 있는 화면은 RC-10B 뒤) | CSP가 웹을 막는다 → 진짜 빌드로 확인했다(§1.3) |
 | RC-10B | A | RC-10의 웹·E2E 쪽 절반: 웹의 데스크톱 번들(로그인 화면 없이, 501은 "준비 중"), 개발 실행 `core:dev`(코어 + Vite 프록시), E2E `core` 대상과 드라이버. 코어는 건드리지 않았다(§7.3의 "RC-10B에서 만든 것"). **끝**(2026-11-16) | RC-10A | `e2e-1`·`e2e-9-folders`·a11y의 담기·할 일·설정 › 화면이 `core` 대상에서 Chromium·WebKit 통과; 기본 대상 8/8 그대로 | `corepack pnpm run core:dev` 뒤 브라우저에서 Rust 코어로 할 일 쓰기(로그인 없음) | E2E 헬퍼 개조 범위(R7) → 드라이버 하나로 끝났다 |
-| RC-20 | A | 가용 시간·약속·`rrule` 포팅·availability version·`listCalendarDayEvents`(빈 목록) | RC-10A | 패리티 +7, `rrule.test.ts` 옮김, 약속 화면 E2E 부분 | 약속·가용 시간 화면 | 반복 전개의 DST 경계 |
+| RC-20 | A | 가용 시간·약속·`rrule` 포팅·availability version·`listCalendarDayEvents`(빈 목록). **끝**(2026-11-16): operation 7개, 새 순수 크레이트 `ohmydate-recurrence`와 그 차분 대조(불일치 0, §6.1), 마이그레이션 0003·0004, 화면의 E2E(§7.3의 "RC-20에서 더한 것") | RC-10A | 패리티 19 operation·283개, `rrule.test.ts` 옮김 + 기준 구현의 팩과 건별 대조, `e2e-10`·a11y의 가용 시간·약속 화면이 `core` 대상에서 Chromium·WebKit 통과 | `corepack pnpm run core:dev` 뒤 설정 › 가용 시간, 플래너 › 목록에서 약속 넣기(반복 포함) | 반복 전개의 DST 경계 → 10개 시간대의 시계 변경마다 대조했고 어긋난 곳이 없었다(§11 R14) |
 | RC-30 | B | 스케줄러 `types`·`time` 나머지·`slots`·`sessions`·`requirements`, 큰 팩 읽기, `sort_unstable`·`HashMap` 순회 금지 lint | RC-00 | 2,000건에서 `slots` 불일치 0, `slots.test`·`transitions.test` 옮김 | — | tzdata 차이(R3) |
 | RC-31 | B | `codes`·`validate`·`validateInput`·`explain`, `sched-diff` CLI, `shrink-oracle.mts` | RC-30 | 2,000건에서 `inputIssues`·`validation` 불일치 0, validator ↔ 분 단위 오라클 속성 | — | validator 1,407줄의 독립 구현 유지 |
 | RC-32 | B | `policies`·`generate`·지표·설명 문장·다양성. (실제로는 생성기 전체를 여기서 옮겼다 — §5.1) | RC-31 | 재계획 아닌 건 `resultHash` 불일치 0(2,000), golden 통과, 속성(H1–H8) 1,000회, 성능 실측 | — | 실수·정렬 순서의 정확한 재현(R2) |
@@ -991,7 +1026,7 @@ RC-00 ─┬─► RC-10A ─┬─► RC-20 ───────┬─► RC-4
 |---|---|---|
 | R1 | 웹 앱이 WebKitGTK에서 다르게 동작한다(웹은 Chromium으로만 시험했다: `navigator.locks`, IndexedDB, `AbortSignal.any`, CSS) | RC-05: 지금 E2E를 Playwright WebKit으로 돌린다(Rust와 무관, 바로 가능). RC-100a: 진짜 WebKitGTK 창에서 스모크. **이미 드러난 차이 하나(2026-11-16):** WebKit은 `http://127.0.0.1`에서 `Secure` 쿠키를 저장하지 않는다 — TypeScript 스택의 로그인이 WebKit에서 붙지 않는 이유다. 코어의 실행 쿠키는 `Secure` 없이 내고 테스트로 고정했다(§1.3). **RC-10A에서 본 것:** 진짜 웹 빌드가 코어의 정적 서빙·CSP 아래서 Playwright WebKit으로 부팅하고(쿠키 저장, 위반 0) three.js 청크와 WebGL 2가 동작한다. Playwright의 WebKit은 WebKitGTK와 같은 엔진이지만 같은 빌드는 아니므로 RC-100a의 창 스모크는 그대로 필요하다. **RC-10B에서 본 것:** 데이터가 있는 화면을 걷는 E2E 세 개(할 일 캔버스·상세·폴더·412 충돌·담기·오프라인·설정 › 화면, axe 포함)가 코어 위에서 WebKit으로 전부 통과했고 Chromium과 다르게 동작한 웹 기능은 없었다(§7.3의 결과 표). 다른 것은 도구 쪽 둘이었다: 스크린샷이 넣는 `<style>`에 WebKit이 CSP를 적용한다, 테스트가 리다이렉트로 답할 수 없다. 창에서 눈여겨볼 것 하나가 여기서 나온다: 정책이 `<style>` 요소를 막으므로, 셸이나 그 도구가 페이지에 스타일을 끼워 넣으면 조용히 적용되지 않는다 |
 | R2 | `generate.ts` 3,992줄을 바이트 단위로 재현하지 못한다 | 바닥 층은 이미 일치(RC-00). 층별 대조 + 최소화 도구를 생성기보다 먼저 만든다(RC-31). 불일치가 TypeScript 쪽 결함이면 TypeScript를 고치고(버그 수정은 동결 예외) 팩을 다시 만든다. **RC-33 뒤:** 4,020건에서 불일치 0, 포팅 중에 실제 불일치는 한 번도 나오지 않았고 TypeScript 동작 결함도 없었다. 남은 위험은 팩이 지나지 않는 경로다 — 변이 확인으로 찾아 경로 건을 더한다(§5.3) |
-| R3 | Node의 tzdata와 `jiff-tzdb`가 어긋난다(오늘 2026c vs 2026e) | 팩의 분할 결과가 먼저 잡는다. 생성 시나리오의 날짜는 2026–2027로 묶는다. 어긋나면 그 시간대를 보고하고 팩에서 뺀 뒤 원인을 적는다. **RC-33 뒤:** 2026c와 2026e 사이에서 팩의 시간대 7종(+ 속성 테스트의 6종)은 어긋나지 않았다 |
+| R3 | Node의 tzdata와 `jiff-tzdb`가 어긋난다(오늘 2026c vs 2026e) | 팩의 분할 결과가 먼저 잡는다. 생성 시나리오의 날짜는 2026–2027로 묶는다. 어긋나면 그 시간대를 보고하고 팩에서 뺀 뒤 원인을 적는다. **RC-33 뒤:** 2026c와 2026e 사이에서 팩의 시간대 7종(+ 속성 테스트의 6종)은 어긋나지 않았다. **RC-20 뒤:** 반복 전개의 팩 14개 시간대(R14)도 어긋나지 않았다. 커밋한 팩이 지금 Node의 답과 같은지는 `tests-core/recurrence.test.ts`가 매번 본다 — Node의 tzdata가 바뀌어 답이 달라지면 거기서 먼저 실패한다 |
 | R4 | 마스킹 포팅에서 재현율이 떨어진다 | 구현 전에 오라클 팩과 관문부터(RC-70a 첫 단계). lookbehind 없는 `regex`로 안 되는 패턴 목록을 첫날 확정 |
 | R5 | HTTPS에 필요한 TLS 라이브러리의 라이선스가 허용 목록 밖이다 | RC-70a 시작 때 후보별 라이선스 표를 사용자에게 올린다(Q4). 시스템 OpenSSL 사용이 대안 |
 | R6 | Secret Service가 없거나 잠겨 있다 | 파일 대체(0600)와 상태 표시. RC-70b 첫 단계에서 이 기계로 확인 |
@@ -1002,6 +1037,7 @@ RC-00 ─┬─► RC-10A ─┬─► RC-20 ───────┬─► RC-4
 | R11 | 동결 중에 계약이 바뀐다(웹 작업은 계속된다) | RC-10부터 계약 변경은 `packages/contracts` + Rust에만 구현한다. TypeScript API에 없는 operation은 원장에 "Rust 전용"으로 적는다. 스케줄러 입력을 바꾸는 변경은 전환 전까지 받지 않는다. **예외(조정자 결정, 2026-11-16):** FOLD-01의 `updateProject`(`PATCH /projects/{id}`)는 계약·TypeScript API·Rust 코어 모두에 구현한다 — 어댑터(`ProjectRepository.update`)에 그 동작이 이미 있었고, 웹이 지금 필요로 하며, 전환 전 몇 주 동안 실제 앱은 TypeScript API로 돌기 때문이다 |
 | R12 | 노트북 메모리(15 GB)에서 cargo 빌드와 워커 2명 | `CARGO_BUILD_JOBS=4`, 워커 Task에서 release 빌드 금지, Tauri 빌드는 다른 워커가 없을 때 |
 | R13 | `jsonschema`와 Ajv의 판정이 형식 경계에서 다르다 | RC-10의 대조 도구: 계약 스키마마다 생성한 표본에 두 검증기를 돌려 판정 차이를 목록으로 만든다. **RC-10A 뒤:** 도구가 있고 `core:parity`에서 돈다(§2.4). 표본 14,747개에서 41가지가 갈렸고, 7가지는 코어를 고치고 34가지는 결정을 적었다. 남은 위험은 계약이 바뀔 때다 — 새 차이는 테스트가 실패로 알린다 |
+| R14 | 반복 약속의 전개가 시계 변경(DST) 경계에서 기준 구현과 달라진다 | 전개를 화면보다 먼저, 순수 크레이트로 옮기고 기준 구현이 쓴 팩과 건별로 대조했다(§6.1). **RC-20에서 본 것:** ① `jiff`의 `compatible`과 Temporal의 `compatible`은 본 모든 전환에서 같은 시각을 낸다 — 뉴욕·베를린·런던(북반구), 시드니·오클랜드·산티아고(남반구), 30분만 움직이는 Lord Howe, :45 오프셋의 Chatham, 자정에 바뀌는 아바나·산티아고, 라마단 앞뒤로 거꾸로 움직이는 카사블랑카, 2019년에 DST를 없앤 상파울루; 2020–2030년의 전환마다 주기 4가지로(건너뛴 벽시계 위의 발생 1,300여 건, 되풀이된 벽시계 위 1,300여 건) 불일치 0. ② 건너뛴 시각(봄)은 **그날만** 뒤로 밀리고 다음 날부터 벽시계가 돌아온다 — UTC로는 전환 당일까지 같은 시각, 그 뒤로 한 시간 이르다. 되풀이되는 시각(가을)은 첫 번째 것이다. ③ 발생의 길이는 벽시계가 아니라 **흐른 시간**이다: 01:30–03:30 약속은 시계가 물러나는 밤에 벽시계로 02:30에 끝난다. ④ `UNTIL`의 날짜 꼴은 약속의 시간대에서 그날 23:59:59.999이고, 그 시각이 전환에 걸려도 같은 규칙으로 풀린다. ⑤ **기준 구현의 모서리 하나(그대로 옮겼다, 보고함):** 시간대가 하루를 통째로 건너뛴 날(사모아, 2011-12-30)의 발생은 24시간 밀려 다음 날의 발생과 **같은 시각**이 된다 — 같은 발생이 두 번 나오고 `COUNT`도 둘을 쓴다. 최소 입력: 시작 `2011-12-27T20:00:00Z`, `Pacific/Apia`, `FREQ=DAILY`, 창 2011-12-29~2012-01-02 → `2011-12-30T20:00:00Z`가 두 번. 실제 달력에서 다시 생길 일은 드물지만(날짜선을 넘는 시간대 변경), 고친다면 기준 구현과 팩을 함께 고친다. ⑥ 월말·윤일은 당기지 않고 건너뛴다(31일 규칙은 30일인 달을 지나친다; 2월 29일의 연간 규칙은 윤년에만). ⑦ `jiff`의 날짜 범위(±9999년) 끝에서는 답하지 않고 거부한다(§6.1) |
 
 사용자에게 물어야 하는 것(사용자만 정할 수 있는 것):
 

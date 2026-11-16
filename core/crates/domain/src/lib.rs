@@ -5,6 +5,8 @@
 //! crate, storage in the store crate. Time and randomness are injected through
 //! the [`Clock`] and [`RandomSource`] ports.
 
+mod availability;
+mod commitment;
 mod dag;
 mod entities;
 mod error;
@@ -16,6 +18,15 @@ mod text;
 mod validation;
 mod version;
 
+pub use availability::{
+    Availability, AvailabilityException, AvailabilityKind, AvailabilityPrefs, AvailabilityPut,
+    AvailabilityRule, CalendarDate, ExceptionKind, LocalTime, MAX_AVAILABILITY_EXCEPTIONS,
+    MAX_AVAILABILITY_RULES, MAX_PREFERENCE_MINUTES, RiskLevel, validate_availability_put,
+};
+pub use commitment::{
+    CalendarDayEvent, Commitment, CommitmentSource, ExternalEvent, MAX_COMMITMENT_TITLE_LENGTH,
+    validate_commitment_title,
+};
 pub use dag::{DependencyEdge, assert_acyclic};
 pub use entities::{
     LlmBudget, LlmConsent, LlmSettings, MicroUsd, Owner, Project, ProjectKind, SessionWindow, Task,
