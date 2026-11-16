@@ -72,7 +72,20 @@ impl Guard {
         constant_time_eq(candidate.as_bytes(), self.token.as_bytes())
     }
 
-    /// The `Set-Cookie` value that hands the token to the webview.
+    /// The `Set-Cookie` value that hands the token to the webview
+    /// (blueprint 15 §1.3).
+    ///
+    /// * `HttpOnly`: scripts of the page cannot read the token.
+    /// * `SameSite=Strict`: a request another site starts never carries it.
+    /// * `Path=/`: the API and the page are both below it.
+    /// * No `Max-Age`: the cookie ends with the webview session, and the
+    ///   token with the process.
+    /// * **Never `Secure`.** The core is plain HTTP on 127.0.0.1, and the
+    ///   desktop webview is WebKit, which does not store a `Secure` cookie
+    ///   from such a page (measured 2026-11-16 with Playwright's WebKit:
+    ///   Chromium keeps it, WebKit drops it). With `Secure` the app would
+    ///   boot and then be signed out on its first request. The same holds
+    ///   for any cookie the core ever sets.
     #[must_use]
     pub fn launch_cookie(&self) -> String {
         format!(
@@ -185,6 +198,32 @@ mod tests {
             guard.launch_cookie().contains("HttpOnly")
                 && guard.launch_cookie().contains("SameSite=Strict")
         );
+    }
+
+    #[test]
+    fn the_launch_cookie_has_exactly_the_attributes_the_webview_accepts() {
+        let cookie = guard().launch_cookie();
+        let mut parts = cookie.split("; ");
+        assert_eq!(
+            parts.next(),
+            Some(format!("{LAUNCH_COOKIE}={TOKEN}").as_str())
+        );
+        let attributes: Vec<&str> = parts.collect();
+        assert_eq!(attributes, ["Path=/", "HttpOnly", "SameSite=Strict"]);
+        // WebKit does not keep a Secure cookie set by http://127.0.0.1, and
+        // the desktop webview is WebKit: with this attribute the launch
+        // cookie would be dropped and every request after boot would be 401.
+        assert!(
+            !cookie.to_ascii_lowercase().contains("secure"),
+            "the launch cookie must never be Secure: {attributes:?}"
+        );
+        // A session cookie: nothing keeps it beyond the webview session.
+        for lifetime in ["max-age", "expires", "domain"] {
+            assert!(
+                !cookie.to_ascii_lowercase().contains(lifetime),
+                "{lifetime}"
+            );
+        }
     }
 
     #[test]

@@ -13,7 +13,7 @@
 - RC-00에서 끝낸 것: 이 계획, 워크스페이스 5개 크레이트, owner·프로젝트·작업 API 10개, 스케줄러 포팅의 바닥 층(PRNG·정규 JSON·시간 분할·inputHash)과 TypeScript 오라클 대조, 블랙박스 패리티 하네스.
 - RC-30~33에서 끝낸 것(2026-11-16): 스케줄러 전체(`core/crates/scheduler`). 4,020건에서 TypeScript와 모든 층이 바이트 단위로 같고(불일치 0), 기준 테스트 21개 파일을 원장대로 옮겼다(§5.5). TypeScript 쪽 동작 결함은 나오지 않았다.
 - FOLD-01에서 더한 것(2026-11-16): `updateProject`(`PATCH /projects/{id}`) — 폴더(프로젝트)의 이름 바꾸기와 보관. 계약·TypeScript API·Rust 코어에 함께 넣었다(§11 R11의 예외). 코어가 서빙하는 operation은 이제 11개다.
-- RC-10A에서 더한 것(2026-11-16): `updateMySettings`(`PATCH /me/settings`) — 시간대·로캘·AI 동의·예산. 코어가 서빙하는 operation은 이제 12개다.
+- RC-10A에서 더한 것(2026-11-16): `updateMySettings`(`PATCH /me/settings`) — 시간대·로캘·AI 동의·예산. 코어가 서빙하는 operation은 이제 12개다. 그리고 웹을 싣는 쪽: `--web-dir`로 빌드된 웹 앱을 같은 출처에서 서빙하고(§1.3), `/__boot`가 실행 쿠키를 넘긴다.
 
 RC-00에서 측정한 것:
 
@@ -25,7 +25,7 @@ RC-00에서 측정한 것:
 | advisory lock 호출 | 11곳 → 0 (프로세스 하나, 쓰기 트랜잭션 하나) |
 | EXCLUDE 제약 위반 처리(`23P01`) | 3곳(승인·Today·재계획) → 트랜잭션 안 코드 검사 |
 | Rust 테스트 (RC-00) | 178개: domain 37, store 27, app 26, scheduler 19 + 오라클 8, server 43 + bin 4 + HTTP 14 |
-| 패리티 하네스 | operation 12개, 테스트 125개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`를 더했다 |
+| 패리티 하네스 | operation 12개, 테스트 136개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개)를 더했다 |
 | 오라클 팩 `sample.json` | 27건(golden 15, 생성 9, 재계획 1, 잘못된 입력 2), 211 KiB, 기준 tzdata 2026c vs jiff 2026e — 불일치 0 |
 | 서드파티 크레이트 | 126개(리눅스 그래프). MIT/Apache-2.0/BSD 밖은 4건(§9.4) |
 
@@ -89,7 +89,33 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | Host | `127.0.0.1:<포트>` 또는 `localhost:<포트>`여야 한다(DNS rebinding 차단) | 403 `forbidden` |
 | Origin | 변경 요청에 브라우저가 붙인 `Origin`이 자기 출처가 아니면 거부. 개발용 출처는 `--allow-origin`으로만 추가 | 403 `forbidden` |
 
-웹뷰에 토큰을 넘기는 방법: 셸이 첫 주소로 `http://127.0.0.1:<포트>/__boot?token=<토큰>`을 연다 → 코어가 `Set-Cookie: omd_launch=…; HttpOnly; SameSite=Strict`와 303 `/`로 답한다. 그 뒤로는 전부 같은 출처 요청이다. 토큰은 디스크에 쓰지 않는다(창 없는 바이너리만 `--ready-file`에 0600으로 쓴다). 로그에 남기지 않는다(테스트로 확인).
+웹뷰에 토큰을 넘기는 방법(**있음**, RC-10A): 셸이 첫 주소로 `http://127.0.0.1:<포트>/__boot?token=<토큰>`을 연다 → 코어가 `Set-Cookie: omd_launch=<토큰>; Path=/; HttpOnly; SameSite=Strict`와 303 `/`로 답한다(`Cache-Control: no-store`, `Referrer-Policy: no-referrer` — 주소에 토큰이 들어 있으므로 남기지도 넘기지도 않는다). 그 뒤로는 전부 같은 출처 요청이다. 토큰은 디스크에 쓰지 않는다(창 없는 바이너리만 `--ready-file`에 0600으로 쓴다). 로그에 남기지 않는다: 요청 로그에는 경로도 쿼리도 없다(Rust 통합 테스트와 진짜 바이너리의 stderr 양쪽에서 확인).
+
+- 틀리거나 없는 토큰은 쿠키 없이 401 `unauthenticated`다. 토큰 없는 API 요청이 받는 답과 글자까지 같아서(`traceId` 제외), 토큰이 없었는지 틀렸는지 얼마나 가까웠는지 알 수 없다. 쿠키는 GET에만, 자기 Host 이름으로 온 요청에만 준다.
+- **쿠키에 `Secure`를 붙이지 않는다.** 코어는 127.0.0.1의 평문 HTTP이고 데스크톱 웹뷰는 WebKit인데, WebKit은 `http://127.0.0.1` 페이지가 준 `Secure` 쿠키를 저장하지 않는다(2026-11-16, 이 기계의 Playwright WebKit으로 TypeScript 스택에서 측정: Chromium은 저장하고 WebKit은 버려서 로그인이 붙지 않았다). `Secure`가 붙으면 앱은 부팅한 뒤 첫 요청에서 401이 된다. 코어가 앞으로 내는 어떤 쿠키에도 같은 규칙이다. `Set-Cookie`를 글자 그대로 고정하고 `Secure`가 보이면 실패하는 테스트가 세 곳에 있다(`security.rs`, `tests/web.rs`, `tests-core/web.test.ts`). `Max-Age`도 없다: 쿠키는 웹뷰 세션과, 토큰은 프로세스와 함께 끝난다.
+- 확인(RC-10A): 진짜 `apps/web` 빌드를 코어가 서빙하게 하고 Playwright의 Chromium과 WebKit으로 `/__boot`를 열었다. 두 엔진 모두 쿠키를 저장했고(HttpOnly, Secure 아님, SameSite=Strict, 세션 쿠키 — 스크립트의 `document.cookie`에는 보이지 않는다) `/overview`에 도착했다.
+
+웹 정적 파일(**있음**, RC-10A, `core/crates/server/src/web.rs`): `--web-dir <디렉터리>`를 주면 코어가 빌드된 웹 앱(`vite build` 결과)을 API와 같은 출처로 서빙한다. 주지 않으면 API 밖의 경로는 지금까지처럼 전부 404다.
+
+| 경로 | 답 |
+|---|---|
+| 디렉터리 안의 파일 | 그 파일. 형식은 확장자로 정하고(모르는 확장자는 `application/octet-stream`) `X-Content-Type-Options: nosniff`를 붙인다 |
+| `/`, 그리고 파일 이름이 아닌 경로(`/tasks/<id>`, `/settings/display`, `/tasks/`) | `index.html`. 웹은 history 라우팅을 쓰는 단일 페이지 앱이라 어느 화면 주소로 들어와도 문서를 받아야 한다 |
+| 없는 파일의 이름 — `assets/` 아래 전부, 마지막 마디에 점이 있는 경로(`/favicon.ico`) | 404. 문서로 대신하지 않는다: 낡은 청크 요청에 HTML로 답하면 읽을 수 없는 방식으로 깨진다 |
+| 예약 경로 `/api…`, `/healthz…`, `/readyz…`, `/__…` | 404(코어의 것이다. `/api/v1`은 계약 라우터로 간다) |
+| 디렉터리 안의 평범한 이름이 아닌 경로: `..`·`.`, 빈 마디(`//`), 점으로 시작하는 이름, 이름 안의 `%2f`(인코딩된 `/`)·역슬래시·`:`·제어 문자·NUL, 깨진 `%` 이스케이프, UTF-8이 아닌 바이트 | 404. 디스크를 보지 않는다. 인코딩은 마디로 나눈 **뒤에** 푼다(`%2f`가 구분자가 되지 않는다) |
+| 디렉터리 밖을 가리키는 심볼릭 링크 | 404(실제 경로가 루트 아래인지 확인한다). 디렉터리는 파일이 아니므로 목록을 보여 주는 일이 없다 |
+| GET·HEAD가 아닌 메서드 | 404 |
+
+- 캐시: `assets/` 아래에서 이름이 `<이름>-<8자>.<확장자>` 꼴인 파일(빌드가 내용 해시를 넣은 것)만 `public, max-age=31536000, immutable`. `index.html`은 `no-store`(문서가 지금의 해시 파일 이름을 가리킨다), 나머지는 `no-cache`. 8자가 전부 소문자면 해시로 보지 않는다(`app-settings.js` 같은 손으로 지은 이름을 1년 붙잡지 않도록).
+- 파일은 실행 토큰 없이 받는다. 앱의 코드이지 owner의 데이터가 아니고, 쿠키를 받기 전에 문서가 먼저 떠야 한다. Host 검사는 그대로 적용된다.
+- 보안 헤더(모든 정적 응답): `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Resource-Policy: same-origin`. API 응답의 헤더는 바꾸지 않았다.
+- CSP: `default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`.
+  - `script-src 'self'`가 핵심이다. 페이지는 실행 쿠키로 API를 부르므로 끼어든 스크립트는 owner의 데이터를 전부 갖는다. 인라인 스크립트도 `eval`도 없다 — 빌드에 둘 다 없다(Vue 템플릿은 빌드 때 컴파일되고, three.js의 셰이더는 스크립트가 아니다).
+  - 스타일시트는 빌드의 파일이라 `<style>` 요소는 막고(`style-src 'self'`), `style="…"` 속성만 허용한다(`style-src-attr 'unsafe-inline'`): Vue는 대부분의 스타일을 DOM으로 쓰지만(CSP가 막지 않는다) 큰 정적 블록은 마크업으로 넣기 때문에, 그런 블록의 속성이 패키징된 앱에서만 조용히 사라지는 일을 막는다. `style-src-attr`를 모르는 엔진은 `style-src 'self'`로 떨어지는데 지금 빌드는 그 아래서도 돈다.
+  - `img-src`의 `data:`는 빌드 도구가 4 KiB 밑의 이미지를 스스로 `data:` 주소로 바꾸기 때문이다. 다른 호스트의 주소는 없다: 노트가 원격 이미지를 불러오게 만들 수 없다.
+  - `connect-src 'self'`: 페이지는 API 말고 어디에도 닿지 않는다(LLM·Google은 코어가 부른다).
+- 확인(RC-10A, 테스트로 커밋하지 않은 한 번의 실측): 진짜 빌드(`index-*.js` 1.1 MB, 지연 로드되는 three.js 청크 `glassScene-*.js` 529 kB, Pretendard woff2 2 MB)를 이 정책 아래서 Chromium과 WebKit으로 열어 화면 여덟 곳을 돌았다 — 위반 0, 글꼴·스타일시트·라우트 청크 적용, three.js 청크 import와 WebGL 2 컨텍스트·셰이더 컴파일 성공. 같은 페이지에서 `new Function`, 인라인 `<script>`, 다른 출처의 이미지와 `fetch`는 막혔다. 빌드 산출물에 `createElement("style")`·`eval`·`new Function`·`blob:`·Worker·`data:` 주소가 없는 것도 확인했다. 계약에 없는 operation이 501이라 화면은 대부분 빈 상태·오류 상태였다 — 데이터가 찬 화면의 확인은 RC-10B의 E2E `core` 대상이 한다(웹을 코어가 서빙하게 해야 이 정책 아래서 돈다).
 
 이 방식이 로그인·세션·CSRF·로그인 rate limit을 대신한다. 위협 모델은 "다른 로컬 사용자와 웹 페이지"까지다. 같은 사용자로 도는 악성 프로그램은 데이터 파일을 직접 읽을 수 있으므로 범위 밖이다.
 
@@ -108,7 +134,8 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 요청 한 건이 지나는 순서(TypeScript 코어의 `preValidation` → 검증 → 핸들러 순서와 같다):
 
 ```text
-/healthz·/readyz → Host → 라우트 찾기(없으면 404) → 실행 토큰(401) → Origin(403) → 핸들러 유무(501)
+/healthz·/readyz → Host(403) → /__boot → /api/v1 밖이면: 웹 파일(--web-dir가 있을 때) 또는 404
+→ 라우트 찾기(없으면 404) → 실행 토큰(401) → Origin(403) → 핸들러 유무(501)
 → If-Match(428 없음 / 400 형식) → Idempotency-Key(400) → 경로 파라미터 → 본문 → 쿼리(각 400)
 → 핸들러(blocking 스레드): 멱등 조회 + 유스케이스 + 응답 저장이 한 트랜잭션
 ```
@@ -832,7 +859,7 @@ RC-00 ─┬─► RC-10 ─► RC-20 ──────────┬─► RC
 
 | # | 위험 / 모르는 것 | 일찍 없애는 방법 |
 |---|---|---|
-| R1 | 웹 앱이 WebKitGTK에서 다르게 동작한다(웹은 Chromium으로만 시험했다: `navigator.locks`, IndexedDB, `AbortSignal.any`, CSS) | RC-05: 지금 E2E를 Playwright WebKit으로 돌린다(Rust와 무관, 바로 가능). RC-100a: 진짜 WebKitGTK 창에서 스모크 |
+| R1 | 웹 앱이 WebKitGTK에서 다르게 동작한다(웹은 Chromium으로만 시험했다: `navigator.locks`, IndexedDB, `AbortSignal.any`, CSS) | RC-05: 지금 E2E를 Playwright WebKit으로 돌린다(Rust와 무관, 바로 가능). RC-100a: 진짜 WebKitGTK 창에서 스모크. **이미 드러난 차이 하나(2026-11-16):** WebKit은 `http://127.0.0.1`에서 `Secure` 쿠키를 저장하지 않는다 — TypeScript 스택의 로그인이 WebKit에서 붙지 않는 이유다. 코어의 실행 쿠키는 `Secure` 없이 내고 테스트로 고정했다(§1.3). **RC-10A에서 본 것:** 진짜 웹 빌드가 코어의 정적 서빙·CSP 아래서 Playwright WebKit으로 부팅하고(쿠키 저장, 위반 0) three.js 청크와 WebGL 2가 동작한다. Playwright의 WebKit은 WebKitGTK와 같은 엔진이지만 같은 빌드는 아니므로 RC-100a의 창 스모크는 그대로 필요하다 |
 | R2 | `generate.ts` 3,992줄을 바이트 단위로 재현하지 못한다 | 바닥 층은 이미 일치(RC-00). 층별 대조 + 최소화 도구를 생성기보다 먼저 만든다(RC-31). 불일치가 TypeScript 쪽 결함이면 TypeScript를 고치고(버그 수정은 동결 예외) 팩을 다시 만든다. **RC-33 뒤:** 4,020건에서 불일치 0, 포팅 중에 실제 불일치는 한 번도 나오지 않았고 TypeScript 동작 결함도 없었다. 남은 위험은 팩이 지나지 않는 경로다 — 변이 확인으로 찾아 경로 건을 더한다(§5.3) |
 | R3 | Node의 tzdata와 `jiff-tzdb`가 어긋난다(오늘 2026c vs 2026e) | 팩의 분할 결과가 먼저 잡는다. 생성 시나리오의 날짜는 2026–2027로 묶는다. 어긋나면 그 시간대를 보고하고 팩에서 뺀 뒤 원인을 적는다. **RC-33 뒤:** 2026c와 2026e 사이에서 팩의 시간대 7종(+ 속성 테스트의 6종)은 어긋나지 않았다 |
 | R4 | 마스킹 포팅에서 재현율이 떨어진다 | 구현 전에 오라클 팩과 관문부터(RC-70a 첫 단계). lookbehind 없는 `regex`로 안 되는 패턴 목록을 첫날 확정 |

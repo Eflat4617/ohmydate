@@ -18,6 +18,7 @@ use ohmydate_app::{App, OwnerDefaults};
 use ohmydate_domain::UuidV7Generator;
 use ohmydate_server::security::Guard;
 use ohmydate_server::system::{self, OsRandom, SystemClock};
+use ohmydate_server::web::WebRoot;
 use ohmydate_server::{ServerState, contract};
 use ohmydate_store::Store;
 
@@ -35,11 +36,14 @@ OPTIONS:
     --locale <TAG>         Owner locale for a new data file [default: from LANG]
     --allow-origin <URL>   Extra browser origin allowed to send mutations (repeatable;
                            development servers only)
+    --web-dir <DIR>        Also serve the built web app in DIR (it must hold an
+                           index.html) from the same origin as the API
     --version              Print the version
     --help                 Print this help
 
 The server binds 127.0.0.1 only. Every /api/v1 request must carry the launch
-token from the ready file as `Authorization: Bearer <token>`.";
+token from the ready file, as `Authorization: Bearer <token>` or as the cookie
+a browser gets by opening /__boot?token=<token> once.";
 
 /// How long requests in flight may run after a shutdown signal.
 const DRAIN_DEADLINE: Duration = Duration::from_secs(12);
@@ -56,6 +60,7 @@ struct Options {
     time_zone: Option<String>,
     locale: Option<String>,
     allow_origins: Vec<String>,
+    web_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -95,6 +100,7 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Command, String>
                 options.locale = Some(locale);
             }
             "--allow-origin" => options.allow_origins.push(value()?),
+            "--web-dir" => options.web_dir = Some(PathBuf::from(value()?)),
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -180,6 +186,17 @@ async fn shutdown_signal() {
 }
 
 async fn run(options: Options) -> Result<(), u8> {
+    // Before anything is created or locked: a web directory that cannot be
+    // served is a mistake in the command line.
+    let web = options
+        .web_dir
+        .as_deref()
+        .map(WebRoot::open)
+        .transpose()
+        .map_err(|error| {
+            tracing::error!(target: "ohmydate::core", reason = %error, "cannot serve --web-dir");
+            EXIT_USAGE
+        })?;
     let data_dir = options
         .data_dir
         .or_else(|| {
@@ -238,10 +255,15 @@ async fn run(options: Options) -> Result<(), u8> {
         .map(|address| address.port())
         .map_err(|_| EXIT_FAILURE)?;
     let token = system::new_launch_token(&OsRandom);
-    let state = Arc::new(ServerState::new(
+    let state = ServerState::new(
         Arc::new(app),
         Guard::new(token.clone(), port, &options.allow_origins),
-    ));
+    );
+    let serves_web = web.is_some();
+    let state = Arc::new(match web {
+        Some(web) => state.with_web(web),
+        None => state,
+    });
 
     if let Some(ready_file) = &options.ready_file {
         write_ready_file(ready_file, port, &token).map_err(|error| {
@@ -254,6 +276,7 @@ async fn run(options: Options) -> Result<(), u8> {
         port,
         migrations_applied = report.applied.len(),
         operations = state.ported_operations().len(),
+        web = serves_web,
         "listening on 127.0.0.1"
     );
 
@@ -340,6 +363,8 @@ mod tests {
             "http://127.0.0.1:5173",
             "--allow-origin",
             "http://localhost:5173",
+            "--web-dir",
+            "/opt/ohmydate/web",
         ]));
         assert_eq!(
             parsed,
@@ -353,6 +378,7 @@ mod tests {
                     "http://127.0.0.1:5173".into(),
                     "http://localhost:5173".into()
                 ],
+                web_dir: Some(PathBuf::from("/opt/ohmydate/web")),
             }))
         );
         assert_eq!(parse_args(args(&[])), Ok(Command::Run(Options::default())));
@@ -368,6 +394,7 @@ mod tests {
             vec!["--port", "abc"],
             vec!["--time-zone", "Mars/Olympus"],
             vec!["--locale", "ko_KR.UTF-8"],
+            vec!["--web-dir"],
             vec!["--frobnicate"],
             vec!["positional"],
         ] {

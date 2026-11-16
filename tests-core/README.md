@@ -48,6 +48,16 @@ time and provider; a budget patch fills the limit it does not name; amounts
 are kept to the micro-dollar. `services/api/test/llm-settings.test.ts` and
 `auth.test.ts` pin the reference's side.
 
+`web.test.ts` covers the web app the core serves with `--web-dir` and the
+boot hand-off (blueprint 15 §1.3), over a real socket: the document for the
+root and for routes of the app, types and cache rules of files, HEAD,
+404 for missing files, reserved and hostile paths (sent as written — `fetch`
+would tidy `..` away, so the client's `raw()` uses `node:http`), the exact
+launch cookie (never `Secure`), one answer for every wrong token, and that
+the token never reaches the process log. The directory is the fixture of the
+server crate (`core/crates/server/tests/fixtures/web`); the real web app is
+not built in tests.
+
 `lifecycle.test.ts` covers the process: ready file (0600, removed on exit),
 single instance (exit 3), usage errors (exit 2), restart durability including
 stored idempotent responses, and a fresh launch token per start.

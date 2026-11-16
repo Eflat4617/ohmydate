@@ -1289,7 +1289,31 @@ async fn request_logs_hold_ids_and_codes_but_no_user_text_or_secrets() {
         bad_zone.body
     );
 
+    // RC-10A: the boot hand-off carries the launch token in its address.
+    // Accepted or refused, what was sent stays out of the log.
+    for (query, status) in [
+        (format!("token={TOKEN}"), 303),
+        ("token=SECRET-BOOT-GUESS-4e1f".to_owned(), 401),
+        (format!("token={}", &TOKEN[..40]), 401),
+    ] {
+        let boot = Request::builder()
+            .uri(format!("/__boot?{query}"))
+            .header("host", HOST)
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(server.send(boot).await.status, status, "{query}");
+    }
+
     let logs = String::from_utf8(captured_logs().0.lock().unwrap().clone()).unwrap();
+    for status in [303, 401] {
+        assert!(
+            logs.lines().any(|line| {
+                line.contains("\"operation\":\"boot\"")
+                    && line.contains(&format!("\"status\":{status}"))
+            }),
+            "no boot line with status {status} in: {logs}"
+        );
+    }
     assert!(
         logs.lines().any(|line| {
             line.contains("\"operation\":\"updateMySettings\"") && line.contains("\"status\":200")
@@ -1337,6 +1361,12 @@ async fn request_logs_hold_ids_and_codes_but_no_user_text_or_secrets() {
         "SECRET-LOCALE",
         "SECRET-ZONE",
         "Pacific/Chatham",
+        "SECRET-BOOT",
+        "token=",
+        "__boot",
+        // Not even the first part of it.
+        &TOKEN[..40],
+        &TOKEN[..16],
         TOKEN,
     ] {
         assert!(
