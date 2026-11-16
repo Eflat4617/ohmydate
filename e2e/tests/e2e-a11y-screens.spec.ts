@@ -180,8 +180,12 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
     await login(page, state, account);
     const apiNowMs = clock.nowMs();
 
-    await screen('seed a plan with blocks today and one commitment', ['availability', 'planning', 'commitments'], async () => {
+    // Seeded part by part, so a target that serves only some of them still
+    // has what the screens of those parts show.
+    await screen('seed hours: every hour of every day', ['availability'], async () => {
       await setContinuousWeeklyAvailability(page, state);
+    });
+    await screen('seed a plan with blocks today', ['availability', 'planning', 'commitments'], async () => {
       const goal = await createApprovedGoalWithSingleStep(page, state, title, {
         nowMs: apiNowMs,
       });
@@ -202,6 +206,8 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         blocksAroundBusy(plan, busy, simulatedDayMs),
       );
       expect(approved.blocks.length).toBeGreaterThan(0);
+    });
+    await screen('seed one commitment', ['commitments'], async () => {
       // A finished half hour at the start of the simulated day (UTC):
       // inside the Commitments page's default week range, clear of the new
       // blocks (the plan starts at 09:05 local).

@@ -1,5 +1,6 @@
 [
   "e2e-1.spec.ts",
+  "e2e-10-hours-appointments.spec.ts",
   "e2e-9-folders.spec.ts",
   "e2e-a11y-screens.spec.ts"
 ]

@@ -248,6 +248,8 @@ test.describe('the core target — getting in, and the page watch', () => {
     await expect(page.locator('[data-overview] [data-widget][data-state="not-ready"]')).toHaveCount(5);
     await expect(page.locator('[data-overview] [role="alert"]')).toHaveCount(0);
     await expect(page.locator('[data-overview] [data-retry]')).toHaveCount(0);
+    // The owner's hours can be read (RC-20), so a new owner was met by the
+    // start guide; `login()` put it away, and it does not come back by itself.
     await expect(page.locator('.app-shell')).toHaveAttribute('data-first-run-state', 'idle');
     await expect(page.locator('[data-first-run]')).toHaveCount(0);
 
@@ -259,8 +261,8 @@ test.describe('the core target — getting in, and the page watch', () => {
     await page.waitForTimeout(6_500);
     expect([...notServed.entries()].filter(([key, count]) => count !== settled.get(key)), 'asked again after the page had settled').toEqual([]);
     // While it loaded, a place was asked once per part of the page that reads it
-    // (the shell and 개요 both read the calendar's status) — never retried.
-    expect([...notServed.entries()].filter(([, count]) => count > 2), 'asked more than once per reader').toEqual([]);
+    // (the shell, 개요 and the start guide each read the calendar's status) — never retried.
+    expect([...notServed.entries()].filter(([, count]) => count > 3), 'asked more than once per reader').toEqual([]);
 
     // The bell says the same, calmly.
     await page.locator('.app-topbar').getByRole('button', { name: '알림' }).click();

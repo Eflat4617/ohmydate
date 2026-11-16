@@ -16,8 +16,8 @@ TypeScript 코어의 테스트 파일마다 한 줄. Rust 코어가 그 테스�
 **이 파일은 검사된다.** `tests-core/ledger.test.ts`(`corepack pnpm run core:ledger`, `core:parity`에도 들어 있다)가 다음에서 실패한다: 아래 디렉터리에 있는 `*.test.ts`·`*.spec.ts` 파일이 원장에 없을 때, 원장의 파일이 사라졌을 때, 같은 파일이 두 번 나올 때, 상태가 넷 중 하나가 아닐 때, `옮김`·`대체`가 가리키는 파일이나 테스트 이름이 없을 때, `아직`이 남은 Task를 가리키지 않을 때(끝난 Task를 가리키면 그 줄을 고쳐야 한다), 합계 표가 줄들과 다를 때, Task 목록이 계획 §10과 다를 때, `core` 대상에서 도는 E2E spec의 목록(`e2e/targets/core-specs.json`)이 아래 `e2e/tests` 표와 어긋날 때. TypeScript 테스트 파일을 더한 사람은 여기에 한 줄을 더한다. Task를 끝낸 사람은 그 Task를 "끝난 Task"로 옮기고 자기 `아직` 줄을 전부 바꾼다.
 
 <!-- tasks:start -->
-- 끝난 Task: RC-00, RC-10A, RC-10B, RC-30, RC-31, RC-32, RC-33
-- 남은 Task: RC-05, RC-20, RC-40, RC-50, RC-60, RC-70a, RC-70b, RC-80, RC-90, RC-100a, RC-100b, RC-110a, RC-110b
+- 끝난 Task: RC-00, RC-10A, RC-10B, RC-20, RC-30, RC-31, RC-32, RC-33
+- 남은 Task: RC-05, RC-40, RC-50, RC-60, RC-70a, RC-70b, RC-80, RC-90, RC-100a, RC-100b, RC-110a, RC-110b
 <!-- tasks:end -->
 
 ## 합계
@@ -25,7 +25,7 @@ TypeScript 코어의 테스트 파일마다 한 줄. Rust 코어가 그 테스�
 <!-- totals:start -->
 | 위치 | 파일 | 옮김 | 대체 | 해당 없음 | 아직 |
 |---|---|---|---|---|---|
-| `services/api/test` | 107 | 6 | 10 | 34 | 57 |
+| `services/api/test` | 107 | 7 | 10 | 34 | 56 |
 | `packages/scheduler/test` | 21 | 19 | 1 | 1 | 0 |
 | `packages/llm/test` | 20 | 0 | 0 | 3 | 17 |
 | `packages/domain/test` | 11 | 5 | 0 | 1 | 5 |
@@ -33,10 +33,10 @@ TypeScript 코어의 테스트 파일마다 한 줄. Rust 코어가 그 테스�
 | `packages/provider-vikunja/test` | 15 | 0 | 1 | 14 | 0 |
 | `packages/contracts/test` | 19 | 0 | 0 | 19 | 0 |
 | `packages/testkit/test` | 2 | 0 | 0 | 2 | 0 |
-| `e2e/tests` | 14 | 2 | 0 | 2 | 10 |
-| 합계 | 213 | 32 | 15 | 77 | 89 |
+| `e2e/tests` | 15 | 3 | 0 | 2 | 10 |
+| 합계 | 214 | 34 | 15 | 77 | 88 |
 
-"아직"을 맡은 Task별 파일 수: RC-20 2 · RC-40 8 · RC-50 10 · RC-60 9 · RC-70a 16 · RC-70b 29 · RC-80 6 · RC-90 9
+"아직"을 맡은 Task별 파일 수: RC-40 9 · RC-50 10 · RC-60 9 · RC-70a 16 · RC-70b 29 · RC-80 6 · RC-90 9
 <!-- totals:end -->
 
 ## services/api/test
@@ -66,7 +66,7 @@ TypeScript 코어의 테스트 파일마다 한 줄. Rust 코어가 그 테스�
 | `db/jsonb.test.ts` | 해당 없음 | Kysely + node-pg의 JSONB 쓰기 규약 |
 | `db/migrate.test.ts` | 대체 | → `core/crates/store/src/migrate.rs` — 러너가 다르다: 전진 전용, 체크섬, 새 스키마의 파일 거부, 올리기 전 사본 |
 | `db/notes-schema.test.ts` | 아직 | RC-80 |
-| `db/planning-schema.test.ts` | 아직 | RC-40 |
+| `db/planning-schema.test.ts` | 아직 | RC-40 — 계획·후보·블록·승인 테이블. RC-20에서 이미 옮긴 부분: 약속·가용 규칙·예외·availability version의 제약(`core/crates/store/src/commitments.rs`, `core/crates/store/src/availability.rs`: 창의 순서, extra의 창, 가져온 약속의 외부 참조, version 단조 증가 트리거) |
 | `db/replanning-schema.test.ts` | 아직 | RC-60 |
 | `db/today-sessions-schema.test.ts` | 아직 | RC-50 |
 | `db/types.test.ts` | 해당 없음 | Kysely 타입 ↔ `information_schema` |
@@ -115,7 +115,7 @@ TypeScript 코어의 테스트 파일마다 한 줄. Rust 코어가 그 테스�
 | `outbox.test.ts` | 해당 없음 | outbox 제외 — 읽는 쪽이 없었다(15 §4.1) |
 | `pg-session-store.test.ts` | 해당 없음 | 로그인 세션 저장소 |
 | `plan-diversity-note.test.ts` | 아직 | RC-40 |
-| `planning.test.ts` | 아직 | RC-40 |
+| `planning.test.ts` | 아직 | RC-40 — 계획 만들기·고치기·승인. RC-20에서 이미 옮긴 2건: 같은 버전에서 낸 두 PUT 중 하나만 이긴다(`tests-core/availability.test.ts`), 약속의 CRUD가 반복을 전개하고 availability version을 올린다(`tests-core/commitments.test.ts`) |
 | `pool-connection-drop.test.ts` | 해당 없음 | pg 풀 |
 | `pool-timeout-disposal.test.ts` | 해당 없음 | pg 풀 |
 | `production-timeouts.test.ts` | 해당 없음 | 프록시 뒤 서버의 HTTP 타임아웃 |
@@ -126,7 +126,7 @@ TypeScript 코어의 테스트 파일마다 한 줄. Rust 코어가 그 테스�
 | `replan-detection.test.ts` | 아직 | RC-60 |
 | `replanning-locks-races.test.ts` | 아직 | RC-60 |
 | `replanning.test.ts` | 아직 | RC-60 |
-| `rrule.test.ts` | 아직 | RC-20 |
+| `rrule.test.ts` | 옮김 | → `core/crates/recurrence/tests/rrule.rs` — 12건을 같은 순서, 같은 입력, 같은 기대값으로(RC-20). 더한 것: 시계 변경 3건(통째로 건너뛴 날, 자정의 전환과 30분 전환, 길이는 흐른 시간). 전개 전체는 기준 구현이 쓴 팩과 건별로 대조한다: `core/crates/recurrence/tests/oracle.rs::the_committed_sample_matches_the_reference`(규칙 645개, 전개 449건, 불일치 0), 그 팩이 지금의 기준 구현과 같은지는 `tests-core/recurrence.test.ts` |
 | `scripted-fake-llm.test.ts` | 아직 | RC-70b |
 | `sessions.test.ts` | 아직 | RC-50 |
 | `session-store-contract.test.ts` | 해당 없음 | 로그인 세션 저장소 계약 |
@@ -295,6 +295,7 @@ E2E는 옮기지 않는다: 같은 spec을 대상만 Rust 코어로 바꿔 돌�
 | TypeScript 테스트 | 상태 | 대응 · 사유 |
 |---|---|---|
 | `e2e-1.spec.ts` | 옮김 | → `E2E_TARGET=core`에서 4건 모두 통과(RC-10B, Chromium·WebKit). 기록 확인은 Vikunja 대신 코어를 실행 토큰으로 직접 읽는다(`e2e/helpers/driver.ts`의 `record`). 해당 없음: 로그인 폼을 Tab·Enter로 지나기(부팅 인계가 대신한다), 로그인 화면의 axe(그 자리에서 "앱에서 다시 열어 주세요" 화면을 검사한다) |
+| `e2e-10-hours-appointments.spec.ts` | 옮김 | → `E2E_TARGET=core`에서 3건 모두 통과(RC-20, Chromium·WebKit) — 시작 안내의 첫 두 걸음(가용 시간 빠른 선택, 약속 손으로 넣기), 설정 › 가용 시간(저장, 다시 불러오기, 다른 곳에서 바뀐 뒤의 412 `availability_changed`), 플래너 › 목록(주간 약속 손으로 넣기 → 규칙이 주는 주마다 보임 → 자기 대화상자에서 이름 바꾸기 → 삭제). RC-20에서 쓴 spec이고 두 대상에서 같은 파일이 돈다 |
 | `e2e-2-wizard.spec.ts` | 아직 | RC-70b |
 | `e2e-3-plan.spec.ts` | 아직 | RC-40 |
 | `e2e-4-today.spec.ts` | 아직 | RC-50 |
@@ -305,6 +306,6 @@ E2E는 옮기지 않는다: 같은 spec을 대상만 Rust 코어로 바꿔 돌�
 | `e2e-7-nl-commitments.spec.ts` | 아직 | RC-70b |
 | `e2e-8-nl-tasks.spec.ts` | 아직 | RC-70b |
 | `e2e-9-folders.spec.ts` | 옮김 | → `E2E_TARGET=core`에서 통과(RC-10B, Chromium·WebKit) — 폴더의 한살이(만들기·넣기·이름 바꾸기·없애기·되돌리기). 해당 없음: Vikunja의 보관 상태 확인 — 대신 코어의 목록을 본다: 보관한 프로젝트가 `archived: true`로 남는다(15 §2.2의 차이, `driver.listsAsLive`) |
-| `e2e-a11y-screens.spec.ts` | 아직 | RC-20 — 화면마다 필요한 영역을 적어 두었고(`screen(name, needs, …)`) 그 영역이 포팅되면 그 화면이 `core` 대상에서 돈다. RC-10B에서 도는 것(Chromium·WebKit): 담기, 할 일(캔버스·상세·목록·폴더 화면), 설정 › 화면. 남은 것: 가용 시간 RC-20 · 약속 목록·한달·플래너 RC-20/RC-40 · 개요·집중·알림·회고 RC-50 · 다시 맞추기·분석 RC-60 · 계획 세우기 RC-40/RC-70b · AI 설정 RC-70b · 캘린더 연동 RC-90 |
+| `e2e-a11y-screens.spec.ts` | 아직 | RC-40 — 화면마다 필요한 영역을 적어 두었고(`screen(name, needs, …)`) 그 영역이 포팅되면 그 화면이 `core` 대상에서 돈다. 지금 도는 것(Chromium·WebKit): 담기, 할 일(캔버스·상세·목록·폴더 화면), 설정 › 화면(RC-10B), 설정 › 가용 시간, 플래너 › 목록의 약속과 그 대화상자(RC-20 — 씨앗 데이터도 영역별로 나눠 심는다). 남은 것: 한달·플래너 주/일 RC-40(블록) · 개요·집중·알림·회고 RC-50 · 다시 맞추기·분석 RC-60 · 계획 세우기 RC-40/RC-70b · AI 설정 RC-70b · 캘린더 연동 RC-90 |
 | `e2e-ai-wait.spec.ts` | 아직 | RC-70b |
 | `plan-edit-helpers.spec.ts` | 해당 없음 | 서버를 쓰지 않는 헬퍼의 단위 테스트 — 대상이 무엇이든 그대로 돈다 |
