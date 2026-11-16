@@ -57,10 +57,17 @@ What a spec author needs to know:
   `<style>` element to the page, and WebKit holds it to the page's CSP — a
   violation that is the tool's, not the web's. A failing test leaves its trace.
 - **The launch token is a secret.** It lives in the core's ready file (0600)
-  and in memory. The helpers never put it in a message, a title, the state
-  file or a recorded address: the hand-off sends the page to an address
-  without it, which the driver answers by sending the page on. Do not print
-  `page.url()` during a hand-off, and do not log request headers.
+  and in memory. The helpers never put it in a message, a title or the state
+  file: the hand-off sends the page to an address without it, which the driver
+  answers by sending the page on. Do not print `page.url()` during a hand-off,
+  and do not log request headers.
+- **A trace kept from a failed `core` run holds that run's token** (RC-10BR):
+  Playwright records request headers, the cookie and the hand-off's network
+  log in the trace, and the HTML report copies it. The token dies with the
+  run's core (a fresh data directory, stopped at teardown) and
+  `test-results/` and `playwright-report/` are ignored by git — but do not
+  share a trace or a report of the `core` target while that core is still
+  running, and never commit one.
 
 ## The default target
 
