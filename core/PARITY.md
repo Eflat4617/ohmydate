@@ -13,11 +13,11 @@ TypeScript 코어의 테스트 파일마다 한 줄. Rust 코어가 그 테스�
 
 한 파일에 성격이 다른 건이 섞여 있으면 가장 큰 쪽으로 분류하고 나머지를 같은 줄에 적는다.
 
-**이 파일은 검사된다.** `tests-core/ledger.test.ts`(`corepack pnpm run core:ledger`, `core:parity`에도 들어 있다)가 다음에서 실패한다: 아래 디렉터리에 있는 `*.test.ts`·`*.spec.ts` 파일이 원장에 없을 때, 원장의 파일이 사라졌을 때, 같은 파일이 두 번 나올 때, 상태가 넷 중 하나가 아닐 때, `옮김`·`대체`가 가리키는 파일이나 테스트 이름이 없을 때, `아직`이 남은 Task를 가리키지 않을 때(끝난 Task를 가리키면 그 줄을 고쳐야 한다), 합계 표가 줄들과 다를 때, Task 목록이 계획 §10과 다를 때. TypeScript 테스트 파일을 더한 사람은 여기에 한 줄을 더한다. Task를 끝낸 사람은 그 Task를 "끝난 Task"로 옮기고 자기 `아직` 줄을 전부 바꾼다.
+**이 파일은 검사된다.** `tests-core/ledger.test.ts`(`corepack pnpm run core:ledger`, `core:parity`에도 들어 있다)가 다음에서 실패한다: 아래 디렉터리에 있는 `*.test.ts`·`*.spec.ts` 파일이 원장에 없을 때, 원장의 파일이 사라졌을 때, 같은 파일이 두 번 나올 때, 상태가 넷 중 하나가 아닐 때, `옮김`·`대체`가 가리키는 파일이나 테스트 이름이 없을 때, `아직`이 남은 Task를 가리키지 않을 때(끝난 Task를 가리키면 그 줄을 고쳐야 한다), 합계 표가 줄들과 다를 때, Task 목록이 계획 §10과 다를 때, `core` 대상에서 도는 E2E spec의 목록(`e2e/targets/core-specs.json`)이 아래 `e2e/tests` 표와 어긋날 때. TypeScript 테스트 파일을 더한 사람은 여기에 한 줄을 더한다. Task를 끝낸 사람은 그 Task를 "끝난 Task"로 옮기고 자기 `아직` 줄을 전부 바꾼다.
 
 <!-- tasks:start -->
-- 끝난 Task: RC-00, RC-10A, RC-30, RC-31, RC-32, RC-33
-- 남은 Task: RC-05, RC-10B, RC-20, RC-40, RC-50, RC-60, RC-70a, RC-70b, RC-80, RC-90, RC-100a, RC-100b, RC-110a, RC-110b
+- 끝난 Task: RC-00, RC-10A, RC-10B, RC-30, RC-31, RC-32, RC-33
+- 남은 Task: RC-05, RC-20, RC-40, RC-50, RC-60, RC-70a, RC-70b, RC-80, RC-90, RC-100a, RC-100b, RC-110a, RC-110b
 <!-- tasks:end -->
 
 ## 합계
@@ -33,10 +33,10 @@ TypeScript 코어의 테스트 파일마다 한 줄. Rust 코어가 그 테스�
 | `packages/provider-vikunja/test` | 15 | 0 | 1 | 14 | 0 |
 | `packages/contracts/test` | 19 | 0 | 0 | 19 | 0 |
 | `packages/testkit/test` | 2 | 0 | 0 | 2 | 0 |
-| `e2e/tests` | 14 | 0 | 0 | 2 | 12 |
-| 합계 | 213 | 30 | 15 | 77 | 91 |
+| `e2e/tests` | 14 | 2 | 0 | 2 | 10 |
+| 합계 | 213 | 32 | 15 | 77 | 89 |
 
-"아직"을 맡은 Task별 파일 수: RC-10B 3 · RC-20 1 · RC-40 8 · RC-50 10 · RC-60 9 · RC-70a 16 · RC-70b 29 · RC-80 6 · RC-90 9
+"아직"을 맡은 Task별 파일 수: RC-20 2 · RC-40 8 · RC-50 10 · RC-60 9 · RC-70a 16 · RC-70b 29 · RC-80 6 · RC-90 9
 <!-- totals:end -->
 
 ## services/api/test
@@ -284,11 +284,17 @@ TypeScript 코어의 테스트 파일마다 한 줄. Rust 코어가 그 테스�
 
 ## e2e/tests
 
-E2E는 옮기지 않는다: 같은 spec을 대상만 Rust 코어로 바꿔 돌린다(15 §7.3). "아직"은 그 spec이 `core` 대상에서 통과해야 하는 Task다.
+E2E는 옮기지 않는다: 같은 spec을 대상만 Rust 코어로 바꿔 돌린다(15 §7.3, `corepack pnpm run e2e:core`). 여기서 상태의 뜻은 이렇다.
+
+- `옮김`: 그 spec이 `core` 대상에서 통과한다 — Chromium과 WebKit 둘 다. `e2e/targets/core-specs.json`에 이름이 있어야 하고, 줄에는 `→` 뒤에 `E2E_TARGET=core`와 그 대상에 없는 부분(해당 없음)을 적는다.
+- `아직`: 맡을 Task에서 통과시킨다. 한 spec의 일부 화면만 먼저 `core` 대상에서 도는 경우(여러 영역을 걷는 a11y spec)도 `아직`이고, 그 spec은 목록에 들어 있다 — 도는 화면과 남은 화면을 줄에 적는다.
+- `해당 없음`인 spec은 목록에 없다.
+
+`tests-core/ledger.test.ts`가 목록과 이 표가 어긋나면 실패한다.
 
 | TypeScript 테스트 | 상태 | 대응 · 사유 |
 |---|---|---|
-| `e2e-1.spec.ts` | 아직 | RC-10B — 로그인·Vikunja 확인 부분은 해당 없음 |
+| `e2e-1.spec.ts` | 옮김 | → `E2E_TARGET=core`에서 4건 모두 통과(RC-10B, Chromium·WebKit). 기록 확인은 Vikunja 대신 코어를 실행 토큰으로 직접 읽는다(`e2e/helpers/driver.ts`의 `record`). 해당 없음: 로그인 폼을 Tab·Enter로 지나기(부팅 인계가 대신한다), 로그인 화면의 axe(그 자리에서 "앱에서 다시 열어 주세요" 화면을 검사한다) |
 | `e2e-2-wizard.spec.ts` | 아직 | RC-70b |
 | `e2e-3-plan.spec.ts` | 아직 | RC-40 |
 | `e2e-4-today.spec.ts` | 아직 | RC-50 |
@@ -298,7 +304,7 @@ E2E는 옮기지 않는다: 같은 spec을 대상만 Rust 코어로 바꿔 돌�
 | `e2e-6-notes.spec.ts` | 아직 | RC-80 |
 | `e2e-7-nl-commitments.spec.ts` | 아직 | RC-70b |
 | `e2e-8-nl-tasks.spec.ts` | 아직 | RC-70b |
-| `e2e-9-folders.spec.ts` | 아직 | RC-10B — 폴더의 한살이(만들기·넣기·이름 바꾸기·없애기·되돌리기). 작업·프로젝트 operation만 쓴다. Vikunja 보관 상태 확인 부분은 해당 없음 |
-| `e2e-a11y-screens.spec.ts` | 아직 | RC-10B(할 일 화면부터. 나머지 화면은 그 화면의 Task에서) |
+| `e2e-9-folders.spec.ts` | 옮김 | → `E2E_TARGET=core`에서 통과(RC-10B, Chromium·WebKit) — 폴더의 한살이(만들기·넣기·이름 바꾸기·없애기·되돌리기). 해당 없음: Vikunja의 보관 상태 확인 — 대신 코어의 목록을 본다: 보관한 프로젝트가 `archived: true`로 남는다(15 §2.2의 차이, `driver.listsAsLive`) |
+| `e2e-a11y-screens.spec.ts` | 아직 | RC-20 — 화면마다 필요한 영역을 적어 두었고(`screen(name, needs, …)`) 그 영역이 포팅되면 그 화면이 `core` 대상에서 돈다. RC-10B에서 도는 것(Chromium·WebKit): 담기, 할 일(캔버스·상세·목록·폴더 화면), 설정 › 화면. 남은 것: 가용 시간 RC-20 · 약속 목록·한달·플래너 RC-20/RC-40 · 개요·집중·알림·회고 RC-50 · 다시 맞추기·분석 RC-60 · 계획 세우기 RC-40/RC-70b · AI 설정 RC-70b · 캘린더 연동 RC-90 |
 | `e2e-ai-wait.spec.ts` | 아직 | RC-70b |
 | `plan-edit-helpers.spec.ts` | 해당 없음 | 서버를 쓰지 않는 헬퍼의 단위 테스트 — 대상이 무엇이든 그대로 돈다 |
