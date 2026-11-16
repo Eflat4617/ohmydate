@@ -187,7 +187,10 @@
 .avail-grid {
   --avail-time-col: 3rem;
   --avail-day-min: 2.4rem;
-  --avail-row-height: 1.25rem;
+  /* Half an hour is 24px tall under every pointer: the least a target may be
+     (WCAG 2.5.8). At 20px the cell in the tab order failed that wherever
+     something else stood within reach of it (HOLO-07: 1024px on WebKit). */
+  --avail-row-height: 1.5rem;
 
   min-width: calc(var(--avail-time-col) + 7 * var(--avail-day-min));
   user-select: none;
@@ -197,12 +200,6 @@
   .avail-grid {
     --avail-time-col: 3.25rem;
     --avail-day-min: 3.25rem;
-  }
-}
-
-@media (pointer: coarse) {
-  .avail-grid {
-    --avail-row-height: 1.5rem;
   }
 }
 

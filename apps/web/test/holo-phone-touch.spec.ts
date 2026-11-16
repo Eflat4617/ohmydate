@@ -178,6 +178,23 @@ describe('what floats, on a phone', () => {
   });
 });
 
+describe('설정 › 가용 시간: a cell is a target under every pointer', () => {
+  const availability = sheet('screens/08-availability.css');
+  const heights = [...availability.matchAll(/--avail-row-height:\s*([\d.]+)rem/g)].map((match) => Number(match[1]));
+
+  it('half an hour is 24px tall (1.5rem), the least a target may be', () => {
+    expect(heights).toEqual([1.5]);
+    expect(availability).toMatch(/\.avail-cell \{[^}]*height: var\(--avail-row-height\)/);
+  });
+
+  it('no pointer and no width makes it shorter again (negative)', () => {
+    // One declaration, outside any media query: nothing can undo it for a mouse at 1024px.
+    const inMedia = [...availability.matchAll(/@media[^{]*\{((?:[^{}]*\{[^{}]*\})*)\s*\}/g)].map((match) => match[1] ?? '').join('\n');
+    expect(inMedia).not.toContain('--avail-row-height');
+    expect(Math.min(...heights) * 16).toBeGreaterThanOrEqual(24);
+  });
+});
+
 describe('the phone’s nav and the keyboard', () => {
   const shell = sheet('shell.css');
 
