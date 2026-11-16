@@ -24,6 +24,7 @@
     "local:status": "node scripts/local/status.mjs",
     "test:local": "OHMYDATE_LOCAL_SMOKE=1 vitest run --config scripts/local/vitest.config.mjs",
     "ci": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run check:api-client && pnpm run check:boundaries && node scripts/ci/build-smoke.mjs --required",
+    "ci:core": "pnpm run core:check && pnpm run core:parity",
     "core:check": "cd core && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo clippy -p ohmydate-server --all-targets --features test-clock -- -D warnings && cargo test && cargo test -p ohmydate-server --features test-clock",
     "core:build": "cd core && cargo build -p ohmydate-server --features test-clock",
     "core:parity": "pnpm run core:build && tsc --noEmit -p tests-core && vitest run --config tests-core/vitest.config.ts",

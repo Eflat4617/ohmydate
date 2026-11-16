@@ -21,9 +21,10 @@
 //! Nothing is listed: a directory is never a file. A link that leaves the
 //! directory is not followed.
 //!
-//! The files are public: they are the app's code, not the owner's data, and
-//! the document must load before the launch cookie can be read back. The
-//! host check still applies to them (see [`crate::security`]).
+//! The files are public — no launch token is asked for: they are the app's
+//! code, not the owner's data, and the page must be able to load and say
+//! "open me from the app" when the cookie is missing. The host check still
+//! applies to them (see [`crate::security`]).
 
 use std::fs;
 use std::io;
