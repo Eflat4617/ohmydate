@@ -73,6 +73,9 @@ describe('message catalog (ko)', () => {
       'format.dateTime',
       'format.timeRange',
       'format.dateRange',
+      // HOLO-06: the shapes of a time of day; its words (오전, 오후, 시) are `format.am`, `format.pm`, `format.hour`.
+      'format.clock',
+      'format.time',
       'notifications.meta',
       'llm.disclosure.providerValue',
       'commitments.hiddenTitle',

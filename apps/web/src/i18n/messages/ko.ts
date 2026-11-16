@@ -2923,6 +2923,13 @@ export const ko = {
   format: {
     dateWithWeekday: '{date} ({weekday})',
     dateTime: '{date} {time}',
+    // A time of day. The words and their order are ours, not the engine's:
+    // its locale data may lack the Korean day periods (i18n/format.ts, HOLO-06).
+    am: '오전',
+    pm: '오후',
+    clock: '{hour}:{minute}',
+    time: '{period} {clock}',
+    hour: '{period} {hour}시',
     timeRange: '{start}~{end}',
     dateRange: '{start} ~ {end}',
   },

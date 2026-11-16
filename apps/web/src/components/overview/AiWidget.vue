@@ -78,7 +78,7 @@ const state = computed(() => {
       <GlassOrb :size="168" />
     </div>
 
-    <div v-if="consent.needed" class="ai-panel glass glass--flat ai-consent" data-ai-consent>
+    <div v-if="consent.needed" class="ai-panel glass glass--chrome glass--flat ai-consent" data-ai-consent>
       <p class="ai-consent-title">{{ t('overview.ai.consentTitle') }}</p>
       <p class="ai-consent-body">{{ t('overview.ai.consentBody') }}</p>
       <!-- Asked for where it is needed (FLOW §1): the consent dialog opens here, not in 설정. -->
@@ -88,7 +88,7 @@ const state = computed(() => {
     </div>
 
     <template v-else>
-      <div class="ai-panel glass glass--flat ai-estimate" :data-estimate="estimate ? 'ready' : 'cold'">
+      <div class="ai-panel glass glass--chrome glass--flat ai-estimate" :data-estimate="estimate ? 'ready' : 'cold'">
         <template v-if="estimate">
           <p class="numeral ai-ratio" data-ratio>
             {{ ratioValue }}<span class="numeral-unit">{{ t('overview.ai.ratioUnit') }}</span>

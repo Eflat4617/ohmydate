@@ -179,3 +179,81 @@ describe('numbers, money and the timer', () => {
     expect(minutesBetween('2026-11-14T11:00:00.000Z', '2026-11-14T10:00:00.000Z')).toBe(0);
   });
 });
+
+describe('a time of day says 오전/오후 itself, whatever the engine knows (HOLO-06)', () => {
+  // The desktop shell runs on a WebKit engine whose locale data has the Korean
+  // months and weekdays but not the day periods: asked for a Korean time it
+  // answers "PM 7:00". The engine below does the same. The formatters are
+  // imported fresh under it, so nothing they cached with the real one helps.
+  const RealDateTimeFormat = Intl.DateTimeFormat;
+
+  class NoKoreanDayPeriods extends RealDateTimeFormat {
+    override formatToParts(date?: Date | number): Intl.DateTimeFormatPart[] {
+      return super
+        .formatToParts(date)
+        .map((part) => (part.type === 'dayPeriod' ? { ...part, value: part.value === '오전' ? 'AM' : 'PM' } : part));
+    }
+
+    override format(date?: Date | number): string {
+      return this.formatToParts(date)
+        .map((part) => part.value)
+        .join('');
+    }
+  }
+
+  async function underThatEngine(run: (format: typeof import('../src/i18n/format')) => void): Promise<void> {
+    Intl.DateTimeFormat = NoKoreanDayPeriods as typeof Intl.DateTimeFormat;
+    vi.resetModules();
+    try {
+      run(await import('../src/i18n/format'));
+    } finally {
+      Intl.DateTimeFormat = RealDateTimeFormat;
+      vi.resetModules();
+    }
+  }
+
+  afterEach(() => {
+    Intl.DateTimeFormat = RealDateTimeFormat;
+  });
+
+  it('the engine in this test really answers "PM 7:00" (or the checks below would prove nothing)', () => {
+    const asked = { hour: 'numeric', minute: '2-digit', timeZone: SEOUL } as const;
+    const instant = new Date('2026-11-14T10:00:00.000Z');
+    expect(new RealDateTimeFormat('ko-KR', asked).format(instant)).toBe('오후 7:00');
+    expect(new NoKoreanDayPeriods('ko-KR', asked).format(instant)).toBe('PM 7:00');
+    expect(new NoKoreanDayPeriods('ko-KR', { hour: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 5, 9)))).toBe('AM 9시');
+  });
+
+  it('a time, a date with a time, an hour label and a range never read "PM 7:00"', async () => {
+    await underThatEngine((format) => {
+      expect(format.formatTime('2026-11-14T10:00:00.000Z', SEOUL)).toBe('오후 7:00');
+      expect(format.formatTime('2026-11-14T00:05:00.000Z', SEOUL)).toBe('오전 9:05');
+      expect(format.formatDateTime('2026-11-06T09:00:00.000Z', SEOUL)).toBe('11월 6일 (금) 오후 6:00');
+      expect(format.formatHour(9)).toBe('오전 9시');
+      expect(format.formatHour(19)).toBe('오후 7시');
+      expect(format.formatTimeRange('2026-11-14T10:00:00.000Z', '2026-11-14T11:30:00.000Z', SEOUL)).toBe('오후 7:00~8:30');
+      expect(format.formatTimeRange('2026-11-14T01:30:00.000Z', '2026-11-14T04:30:00.000Z', SEOUL)).toBe('오전 10:30~오후 1:30');
+      expect(format.formatDateTimeRange('2026-11-14T10:00:00.000Z', '2026-11-14T11:30:00.000Z', SEOUL)).toBe(
+        '11월 14일 (토) 오후 7:00~8:30',
+      );
+      // The other zone's wall clock, not the machine's.
+      expect(format.formatTime('2026-11-14T10:00:00.000Z', NEW_YORK)).toBe('오전 5:00');
+      expect(format.formatClock('2026-11-14T10:00:00.000Z', SEOUL)).toBe('19:00');
+    });
+  });
+
+  it('noon and midnight keep their Korean reading: there is no 0시 and no 24시 (negative)', async () => {
+    await underThatEngine((format) => {
+      expect(format.formatTime('2026-11-13T15:00:00.000Z', SEOUL)).toBe('오전 12:00');
+      expect(format.formatTime('2026-11-14T03:00:00.000Z', SEOUL)).toBe('오후 12:00');
+      expect(format.formatHour(0)).toBe('오전 12시');
+      expect(format.formatHour(12)).toBe('오후 12시');
+      expect(format.formatHour(24)).toBe('오전 12시');
+      expect(format.formatClock('2026-11-13T15:00:00.000Z', SEOUL)).toBe('00:00');
+    });
+    // The real engine reads the same, so nothing on screen changed where the data is there.
+    expect(formatTime('2026-11-13T15:00:00.000Z', SEOUL)).toBe('오전 12:00');
+    expect(formatHour(12)).toBe('오후 12시');
+    expect(formatHour(24)).toBe('오전 12시');
+  });
+});

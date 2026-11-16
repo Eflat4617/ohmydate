@@ -120,10 +120,18 @@
   --shadow-float: 0 18px 48px oklch(4% 0.01 150 / 55%);
 
   /* ── Glass: the floating layer (FLOW.md §6, `.glass` in primitives.css).
-        The fill is the scrim text sits on: with the filter it keeps every
-        text token at 4.5:1 or more whatever is behind (test/holo-material).
-        `--glass-fill-still` is for glass whose backdrop is only the ambient
-        light; `--glass-solid` is the material without transparency. ───── */
+        The fill is the scrim text sits on. Two tiers (HOLO-06):
+        - `--glass-fill-over` is glass that floats over content — anything
+          that can have text behind it. It is nearly opaque by itself: an
+          engine can claim `backdrop-filter` and still not paint it, so the
+          scrim alone keeps every text token at 4.5:1 or more whatever is
+          behind, and lets what is behind through at no more than 1.2:1.
+          The blur is a bonus on top (test/holo-material).
+        - `--glass-fill` and `--glass-fill-still` are airy: for glass that
+          only ever has the ambient light or a card behind it (chrome), with
+          and without a filter.
+        `--glass-solid` is the material without transparency. ─────────── */
+  --glass-fill-over: oklch(20% 0.012 150 / 94%);
   --glass-fill: oklch(20% 0.012 150 / 72%);
   --glass-fill-still: oklch(21% 0.012 150 / 62%);
   --glass-solid: var(--color-raised);
@@ -352,6 +360,7 @@
   --card-sheen: none;
   --shadow-float: 0 16px 40px oklch(21% 0.015 150 / 16%);
 
+  --glass-fill-over: oklch(100% 0 0 / 94%);
   --glass-fill: oklch(100% 0 0 / 76%);
   --glass-fill-still: oklch(100% 0 0 / 66%);
   --glass-filter: blur(var(--glass-blur)) saturate(1.8) contrast(0.5) brightness(1.5); /* a dark backdrop is lifted */

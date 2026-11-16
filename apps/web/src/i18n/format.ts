@@ -3,10 +3,14 @@ import { intlLocale, t, tp } from './index';
 /**
  * Locale-aware formatting for everything the UI shows (UI-I18N).
  *
- * Dates and times go through `Intl.DateTimeFormat` in the user's IANA zone:
+ * Dates go through `Intl.DateTimeFormat` in the user's IANA zone:
  *   date        11월 14일 (토)          time        오후 7:00
  *   time range  오후 7:00~8:30 · 오전 10:30~오후 1:30
  *   date range  11월 16일 (월) ~ 11월 22일 (일)
+ * A time of day asks the engine for digits only (the hour and the minute in
+ * the zone); 오전/오후 and where they go are the catalog's (`format.*`). An
+ * engine's locale data may lack the Korean day periods — the WebKit the
+ * desktop shell runs on answers "PM 7:00" (HOLO-06).
  * Durations are minutes rendered as at most two units:
  *   1시간 30분 · 35분 · 0분 · 11일 10시간 (≥ 1 day rounds to the hour)
  *   signed: +11일 10시간 · −35분 (U+2212) · 0분 (no sign) · −1분 미만
@@ -57,7 +61,6 @@ export function browserTimeZone(): string {
   }
 }
 
-const TIME_OPTIONS: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
 const MONTH_DAY: Intl.DateTimeFormatOptions = { month: 'long', day: 'numeric' };
 const YEAR_MONTH_DAY: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
 const WEEKDAY: Intl.DateTimeFormatOptions = { weekday: 'short' };
@@ -123,22 +126,73 @@ export function formatCivilYearMonth(month: string): string {
   return dateTimeFormatter('UTC', { year: 'numeric', month: 'long' }).format(noon);
 }
 
+// ── A time of day: digits from the engine, words from the catalog ────────
+interface WallClock {
+  /** 0–23 */
+  readonly hour: number;
+  readonly minute: number;
+}
+
+const wallClockFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** The hour and minute of an instant in `timeZone`. Digits only: no locale words are asked for. */
+function wallClock(date: Date, timeZone: string): WallClock {
+  let formatter = wallClockFormatters.get(timeZone);
+  if (formatter === undefined) {
+    formatter = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone });
+    wallClockFormatters.set(timeZone, formatter);
+  }
+  let hour = 0;
+  let minute = 0;
+  for (const part of formatter.formatToParts(date)) {
+    if (part.type === 'hour') hour = Number(part.value) % 24;
+    else if (part.type === 'minute') minute = Number(part.value);
+  }
+  return { hour, minute };
+}
+
+const pad2 = (value: number): string => String(value).padStart(2, '0');
+
+function periodOf(clock: WallClock): 'am' | 'pm' {
+  return clock.hour < 12 ? 'am' : 'pm';
+}
+
+function periodText(clock: WallClock): string {
+  return periodOf(clock) === 'am' ? t('format.am') : t('format.pm');
+}
+
+/** Midnight and noon are 12, as Korean reads them: 오전 12:30, 오후 12:05. */
+function hour12(clock: WallClock): number {
+  return clock.hour % 12 || 12;
+}
+
+/** `7:00`: the clock without its day period. */
+function clockText(clock: WallClock): string {
+  return t('format.clock', { hour: hour12(clock), minute: pad2(clock.minute) });
+}
+
+function timeText(clock: WallClock): string {
+  return t('format.time', { period: periodText(clock), clock: clockText(clock) });
+}
+
 /**
  * `19:05`: a 24-hour clock for dense time grids (the month page's day
  * cells), where `오후 7:05` does not fit. Running text keeps `formatTime`.
  */
 export function formatClock(instant: string | number | Date, timeZone: string): string {
-  return dateTimeFormatter(timeZone, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(toDate(instant));
+  const clock = wallClock(toDate(instant), timeZone);
+  return t('format.clock', { hour: pad2(clock.hour), minute: pad2(clock.minute) });
 }
 
 /** `오후 7:00` for an instant, in `timeZone`. */
 export function formatTime(instant: string | number | Date, timeZone: string): string {
-  return dateTimeFormatter(timeZone, TIME_OPTIONS).format(toDate(instant));
+  return timeText(wallClock(toDate(instant), timeZone));
 }
 
-/** `오전 9시` for an hour of a local day (calendar rail labels). */
+/** `오전 9시` for an hour of a local day (calendar rail labels). 24 is the next midnight: 오전 12시. */
 export function formatHour(hour: number): string {
-  return dateTimeFormatter('UTC', { hour: 'numeric' }).format(new Date(Date.UTC(2026, 0, 5, hour)));
+  const clock: WallClock = { hour: ((Math.trunc(hour) % 24) + 24) % 24, minute: 0 };
+  return t('format.hour', { period: periodText(clock), hour: hour12(clock) });
 }
 
 /** `11월 14일 (토) 오후 7:00`. */
@@ -155,25 +209,6 @@ export function formatDateTime(
 
 function localDateKey(date: Date, timeZone: string): string {
   return dateTimeFormatter(timeZone, LOCAL_DATE).format(date);
-}
-
-function timeWithoutDayPeriod(date: Date, timeZone: string): string {
-  const parts = dateTimeFormatter(timeZone, TIME_OPTIONS).formatToParts(date);
-  const index = parts.findIndex((part) => part.type === 'dayPeriod');
-  if (index === -1) return parts.map((part) => part.value).join('');
-  const kept = parts.filter((_, position) => {
-    if (position === index) return false;
-    // Drop the separator that belonged to the day period ("오후 " → "").
-    const neighbour = index === 0 ? position === 1 : position === index - 1;
-    return !(neighbour && parts[position]?.type === 'literal');
-  });
-  return kept.map((part) => part.value).join('').trim();
-}
-
-function dayPeriod(date: Date, timeZone: string): string | undefined {
-  return dateTimeFormatter(timeZone, TIME_OPTIONS)
-    .formatToParts(date)
-    .find((part) => part.type === 'dayPeriod')?.value;
 }
 
 /**
@@ -194,12 +229,11 @@ export function formatTimeRange(
       end: formatDateTime(to, timeZone),
     });
   }
-  const startPeriod = dayPeriod(from, timeZone);
-  const endText =
-    startPeriod !== undefined && startPeriod === dayPeriod(to, timeZone)
-      ? timeWithoutDayPeriod(to, timeZone)
-      : formatTime(to, timeZone);
-  return t('format.timeRange', { start: formatTime(from, timeZone), end: endText });
+  const startClock = wallClock(from, timeZone);
+  const endClock = wallClock(to, timeZone);
+  // The day period is said once when both ends share it.
+  const endText = periodOf(startClock) === periodOf(endClock) ? clockText(endClock) : timeText(endClock);
+  return t('format.timeRange', { start: timeText(startClock), end: endText });
 }
 
 /** `11월 14일 (토) 오후 7:00~8:30`, or both full ends across days. */

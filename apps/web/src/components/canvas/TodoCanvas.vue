@@ -1700,7 +1700,7 @@ onBeforeUnmount(() => {
 
     <!-- What stays in reach while the surface scrolls: the selection, and the rest of a long list. -->
     <div class="pond-foot" data-pond-ignore>
-      <div v-if="selection.ids.size > 0" class="pond-selection glass glass--still glass--low" role="group" :aria-label="t('canvas.selection.label')" data-canvas-selection>
+      <div v-if="selection.ids.size > 0" class="pond-selection glass glass--still glass--over glass--low" role="group" :aria-label="t('canvas.selection.label')" data-canvas-selection>
         <p class="pond-selection-count tabular" data-canvas-selection-count>{{ tp('canvas.selection.count', selection.ids.size) }}</p>
         <UiButton size="sm" icon="projects" :disabled="disabled" data-canvas-selection-move @click="openPicker(ordered(selection, orderIds()), null)">
           {{ t('canvas.selection.move') }}
@@ -1710,11 +1710,11 @@ onBeforeUnmount(() => {
         </UiButton>
         <UiButton size="sm" variant="ghost" data-canvas-selection-clear @click="setSelection(NO_SELECTION)">{{ t('canvas.selection.clear') }}</UiButton>
       </div>
-      <p v-else-if="plan.hidden > 0" class="pond-more glass glass--still glass--low" data-canvas-more>
+      <p v-else-if="plan.hidden > 0" class="pond-more glass glass--still glass--over glass--low" data-canvas-more>
         <span class="pond-more-note">{{ t('canvas.moreHelp') }}</span>
         <UiButton size="sm" data-canvas-more-button @click="expanded = true">{{ tp('canvas.more', plan.hidden) }}</UiButton>
       </p>
-      <p v-else-if="expanded" class="pond-more glass glass--still glass--low" data-canvas-less>
+      <p v-else-if="expanded" class="pond-more glass glass--still glass--over glass--low" data-canvas-less>
         <UiButton size="sm" variant="ghost" data-canvas-less-button @click="expanded = false">{{ t('canvas.less') }}</UiButton>
       </p>
     </div>
