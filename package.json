@@ -14,6 +14,7 @@
     "check:api-client": "pnpm --filter @ohmydate/web gen:api && git diff --exit-code apps/web/src/api/schema.d.ts",
     "check:boundaries": "node scripts/check-boundaries.mjs",
     "e2e": "playwright test -c e2e/playwright.config.ts",
+    "e2e:core": "pnpm run core:build && E2E_TARGET=core playwright test -c e2e/playwright.config.ts",
     "smoke:build": "node scripts/ci/build-smoke.mjs",
     "local:secrets": "node scripts/local/secrets.mjs init",
     "local:stack": "node scripts/local/compose.mjs",

@@ -1,10 +1,74 @@
-# E2E-1 (Playwright)
+# E2E (Playwright)
 
-Vertical slice: web -> planner API -> Vikunja. This suite needs the dev
+One suite, two targets. The same specs drive either backend; what differs is
+behind a small driver (`helpers/driver.ts`).
+
+| | `ts` (default) | `core` |
+|---|---|---|
+| What runs | planner API on PostgreSQL, Vikunja behind it, the web on the Vite dev server | the Rust core alone, serving the web's desktop bundle itself (`--web-dir`, under its CSP) |
+| Needs | the dev infrastructure from `AGENTS.md` (PostgreSQL `127.0.0.1:55432`, Vikunja `127.0.0.1:3456`) | a Rust toolchain; nothing else |
+| Command | `corepack pnpm run e2e` | `corepack pnpm run e2e:core` |
+| Getting in | the login form | the boot hand-off (`/__boot`, the launch cookie) |
+| Specs | all of `tests/` | `targets/core.spec.ts` + the specs listed in `targets/core-specs.json` |
+
+Neither is part of `pnpm run ci`.
+
+## The `core` target
+
+```sh
+corepack pnpm run e2e:core                        # Chromium
+corepack pnpm run e2e:core -- --browser=webkit    # WebKit, the desktop window's engine
+```
+
+`e2e:core` builds the core's test binary (`core:build`) and sets
+`E2E_TARGET=core`. `targets/core-setup.ts` then builds the web's desktop
+bundle (`vite build --mode desktop` → `apps/web/desktop/dist`), starts the core
+on a fresh data directory in a private temporary directory — `--web-dir`,
+`--time-zone UTC --locale en` (what the default target's owners have), and
+`--clock-offset-ms` when `E2E_FAKE_NOW` is set — and writes the run state.
+`targets/core-teardown.ts` stops the core with SIGTERM and removes that
+directory. No PostgreSQL, no Vikunja, no accounts: one process, one owner, and
+a new run is a new data directory.
+
+What a spec author needs to know:
+
+- **The driver** (`helpers/driver.ts`). `login()` and `apiFetch()` go through
+  it, so most specs need nothing new. Where a spec checked Vikunja it asks
+  `record` — the system of record behind the planner API: Vikunja on `ts`, the
+  core's own store on `core` (read with the launch token, not the page's
+  session). `driver.signInByKeyboard()`, `driver.openSignedOutPage()` and
+  `driver.listsAsLive()` cover the places where the two products really differ
+  (a login form; "open it from the app"; where an archived folder goes).
+- **A spec runs on `core` when it is in `targets/core-specs.json`.** Add yours
+  when the area it walks is ported and it passes there, in Chromium and in
+  WebKit; `core/PARITY.md` has a line for it and `tests-core/ledger.test.ts`
+  fails when the list and the ledger disagree.
+- **A screen of a shared walk** that needs an area the core does not serve yet
+  says so with `driver.serves(area)` (see `screen()` in
+  `tests/e2e-a11y-screens.spec.ts`): it is left out on `core`, named in the
+  report with what it waits for, and runs as always on `ts`. When a task ports
+  an area it adds it to `CORE_SERVES` in the driver.
+- **The page watch** (`helpers/test.ts`, `core` only). The core serves the web
+  under its Content-Security-Policy and answers 501 for what is not ported, so
+  every page a test opens is watched: a test fails if its page reported a CSP
+  violation or threw an error nobody caught. `targets/core.spec.ts` proves the
+  watch notices both.
+- **No automatic screenshots on `core`.** To take one Playwright adds a
+  `<style>` element to the page, and WebKit holds it to the page's CSP — a
+  violation that is the tool's, not the web's. A failing test leaves its trace.
+- **The launch token is a secret.** It lives in the core's ready file (0600)
+  and in memory. The helpers never put it in a message, a title, the state
+  file or a recorded address: the hand-off sends the page to an address
+  without it, which the driver answers by sending the page on. Do not print
+  `page.url()` during a hand-off, and do not log request headers.
+
+## The default target
+
+Vertical slice: web -> planner API -> Vikunja. It needs the dev
 infrastructure from `AGENTS.md` (PostgreSQL on `127.0.0.1:55432`, Vikunja on
-`127.0.0.1:3456`) and is intentionally **not** part of `pnpm run ci`.
+`127.0.0.1:3456`).
 
-## Run
+### Run
 
 ```sh
 pnpm exec playwright install chromium
@@ -26,8 +90,9 @@ Artifacts:
 - Traces/screenshots: `test-results/`
 - Server logs and run state: `test-results/e2e/`
 
-The suite covers the E2E-1 flow (create -> Vikunja check -> edit -> second
-context edit -> 412 conflict dialog -> overwrite -> complete -> Vikunja check),
+The suite covers the E2E-1 flow (create -> record check -> edit -> second
+context edit -> 412 conflict dialog -> overwrite -> complete -> record check;
+the record is Vikunja here),
 offline mutation gating, a keyboard-only sign-in and capture (Tab/Enter to sign
 in, `n` to the capture bar, Enter to add, Enter again for the hand-off to 계획),
 and `@axe-core/playwright` scans of login, 개요 and the inbox (zero
@@ -149,7 +214,8 @@ simulated morning in a dedicated spec instead.
 `POST /auth/login` is limited per `IP:email` for 60 s. `global-setup.ts` starts
 the E2E API with the fake-only `E2E_RESET_LOGIN_RATE_LIMIT=1` knob (rejected
 when `NODE_ENV=production` or the provider is not `fake`), and
-`helpers/test.ts` automatically calls its reset route before every test. Each
+`helpers/test.ts` automatically calls its reset route before every test (the
+default target's `beforeEachTest` in `helpers/driver.ts`). Each
 Playwright test therefore starts with a clean window and cannot inherit a 429
 from an earlier spec; the production limiter is unchanged.
 

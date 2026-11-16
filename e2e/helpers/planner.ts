@@ -1,4 +1,5 @@
 import { expect, type APIResponse, type Page } from '@playwright/test';
+import { driver } from './driver';
 import type { E2EState } from './state';
 
 export interface AvailabilityDto {
@@ -80,13 +81,11 @@ export interface IntervalDto {
   readonly endAt: string;
 }
 
-async function csrfToken(page: Page): Promise<string> {
-  const cookies = await page.context().cookies();
-  const cookie = cookies.find((candidate) => candidate.name === 'csrf');
-  if (cookie === undefined) throw new Error('csrf cookie is missing');
-  return cookie.value;
-}
-
+/**
+ * One planner API request. With whose credentials is the target's
+ * (helpers/driver.ts): the page's session and its CSRF token on the default
+ * target, the launch token on `core`.
+ */
 export async function apiFetch(
   page: Page,
   state: E2EState,
@@ -97,17 +96,8 @@ export async function apiFetch(
     readonly headers?: Record<string, string>;
   } = {},
 ): Promise<APIResponse> {
-  const method = options.method ?? 'GET';
-  const headers: Record<string, string> = { accept: 'application/json', ...options.headers };
-  if (method !== 'GET') {
-    headers['X-CSRF-Token'] = await csrfToken(page);
-    if (options.body !== undefined) headers['content-type'] = 'application/json';
-  }
-  return page.request.fetch(`${state.apiUrl}/api/v1${path}`, {
-    method,
-    headers,
-    ...(options.body === undefined ? {} : { data: options.body }),
-  });
+  void state;
+  return driver.request(page, path, options);
 }
 
 export function idempotencyKey(): string {

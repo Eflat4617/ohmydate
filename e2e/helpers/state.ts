@@ -1,7 +1,28 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+/** The Rust core a `core` run drives (targets/core-setup.ts). */
+export interface CoreRun {
+  readonly pid: number;
+  /** A private directory (0700) of this run: the data directory and the ready file. */
+  readonly runDir: string;
+  /**
+   * The core's ready file (0600). The launch token is read from it when it
+   * is needed and is kept nowhere else — not in this state file, a log, a
+   * test title or a message.
+   */
+  readonly readyFile: string;
+}
+
+/**
+ * What global setup leaves for the tests. On the `core` target only `target`,
+ * `webUrl`, `apiUrl` (the same origin), `core` and the clock offset are set:
+ * there are no accounts, no database and no Vikunja to describe.
+ */
 export interface E2EState {
+  /** Absent in a state file written by the default (`ts`) setup. */
+  readonly target?: 'ts' | 'core';
+  readonly core?: CoreRun;
   readonly webUrl: string;
   readonly apiUrl: string;
   readonly vikunjaUrl: string;

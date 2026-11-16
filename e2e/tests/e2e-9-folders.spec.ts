@@ -3,13 +3,13 @@ import { expect, test } from '../helpers/test';
 import {
   STILL_CANVAS,
   canvasTodo,
-  expectVikunjaDone,
-  externalIdOf,
-  fetchVikunjaTask,
+  driver,
+  expectStoredTask,
   login,
   openInbox,
   openTodoDetail,
   putDownTodo,
+  record,
   waitForPlannerTask,
 } from '../helpers/app';
 import { getTask, listProjects, listTasks, type ProjectDto, type TaskDto } from '../helpers/planner';
@@ -17,7 +17,8 @@ import { readState } from '../helpers/state';
 
 /**
  * E2E-9 (HOLO-06) — a folder's whole life on the real stack: web → planner
- * API → Vikunja. A folder is a project, and removing one is the only place in
+ * API → the system of record (`record`: Vikunja on the default target, the
+ * Rust core's own store on `core` — helpers/driver.ts). A folder is a project, and removing one is the only place in
  * the 할 일 canvas that moves the owner's to-dos in bulk: every to-do in it
  * goes to the inbox first, and only an empty folder is archived
  * (`apps/web/src/composables/useFolderActions.ts`).
@@ -26,7 +27,8 @@ import { readState } from '../helpers/state';
  * project list, every write to a to-do inside it is refused, and those to-dos
  * leave the unfiltered task list. So this spec is driven through the canvas as
  * a person would, and every step is checked through the planner API and in
- * Vikunja itself:
+ * the system of record itself. (Where an archived project goes differs by
+ * target — out of the list, or kept in it and marked: `driver.listsAsLive`.)
  *
  *   make a folder → file three to-dos, finish one of them → rename → reload
  *   → (offline: nothing is moved, nothing is archived) → 폴더 없애기 → 되돌리기
@@ -57,24 +59,6 @@ function recordMutations(page: Page): Mutation[] {
     seen.push({ method: request.method(), path: url.pathname.replace('/api/v1', ''), status: response.status(), body });
   });
   return seen;
-}
-
-interface VikunjaProjectBody {
-  readonly id: number;
-  readonly title: string;
-  readonly is_archived?: boolean;
-}
-
-/** The folder as Vikunja holds it, found by its (unique) title — archived ones included. */
-async function vikunjaProject(title: string): Promise<VikunjaProjectBody | undefined> {
-  const query = new URLSearchParams({ q: title, per_page: '50', is_archived: 'true' });
-  const response = await fetch(`${state.vikunjaUrl}/api/v2/projects?${query.toString()}`, {
-    headers: { authorization: `Bearer ${state.vikunjaToken}` },
-  });
-  expect(response.ok, `Vikunja GET /projects -> ${response.status}`).toBeTruthy();
-  const body = (await response.json()) as { items?: VikunjaProjectBody[] } | VikunjaProjectBody[];
-  const items = Array.isArray(body) ? body : (body.items ?? []);
-  return items.find((project) => project.title === title);
 }
 
 function dish(page: Page, folderId: string) {
@@ -157,7 +141,7 @@ test.describe('E2E-9 — a folder’s life on the real stack (HOLO-06)', () => {
       ids.push(task.id);
     }
     const [openOneId, openTwoId, finishedId] = ids as [string, string, string];
-    const finishedExternalId = externalIdOf(await waitForPlannerTask(page, state, finished));
+    const finishedTask = await waitForPlannerTask(page, state, finished);
 
     // ── 폴더 만들기 ─────────────────────────────────────────────────────────
     await page.getByRole('button', { name: '폴더 만들기' }).click();
@@ -179,7 +163,7 @@ test.describe('E2E-9 — a folder’s life on the real stack (HOLO-06)', () => {
       title: firstName,
       archived: false,
     });
-    expect(await vikunjaProject(firstName)).toMatchObject({ title: firstName, is_archived: false });
+    expect(await record.folder(page, firstName)).toMatchObject({ title: firstName, archived: false });
 
     // ── Filing: two picked and sent with 폴더로 옮기기, one from its own detail. ──
     await canvasTodo(page, openOne).click({ modifiers: ['ControlOrMeta'] });
@@ -207,7 +191,7 @@ test.describe('E2E-9 — a folder’s life on the real stack (HOLO-06)', () => {
     const finishing = await openTodoDetail(page, finished);
     await finishing.getByRole('button', { name: `${finished} 완료로 표시` }).click();
     await expect(canvasTodo(page, finished)).toHaveCount(0);
-    await expectVikunjaDone(state, finishedExternalId);
+    await expectStoredTask(page, finishedTask, { done: true });
     await expect(dishCount(page, folder.id)).toHaveText('2');
     expect(await getTask(page, state, finishedId)).toMatchObject({ status: 'done', projectId: folder.id });
 
@@ -226,8 +210,8 @@ test.describe('E2E-9 — a folder’s life on the real stack (HOLO-06)', () => {
     expect(renamed).toMatchObject({ id: folder.id, title: folderName, archived: false });
     expect(renamed.version).toBeGreaterThan(folder.version);
     await expect(page.locator(`[data-folder-name="${folder.id}"]`)).toHaveText(folderName);
-    expect(await vikunjaProject(folderName)).toMatchObject({ title: folderName, is_archived: false });
-    expect(await vikunjaProject(firstName)).toBeUndefined();
+    expect(await record.folder(page, folderName)).toMatchObject({ title: folderName, archived: false });
+    expect(await record.folder(page, firstName)).toBeUndefined();
 
     // ── Reload: the name, what is in it and the count hold. ─────────────────
     await page.reload();
@@ -268,7 +252,7 @@ test.describe('E2E-9 — a folder’s life on the real stack (HOLO-06)', () => {
       archived: false,
     });
     expect((await placesOf(page, ids)).map((task) => task.projectId)).toEqual([folder.id, folder.id, folder.id]);
-    expect(await vikunjaProject(folderName)).toMatchObject({ is_archived: false });
+    expect(await record.folder(page, folderName)).toMatchObject({ archived: false });
 
     // ── 폴더 없애기: everything out to the inbox first, then the archive. ───
     const removeDialog = await askToRemove(page, folder.id, folderName);
@@ -294,16 +278,16 @@ test.describe('E2E-9 — a folder’s life on the real stack (HOLO-06)', () => {
       placesOf(page, ids),
       listProjects(page, state),
       listTasks(page, state, folder.id),
-      vikunjaProject(folderName),
+      record.folder(page, folderName),
     ]);
     expect(afterRemove.map((task) => [task.title, task.status, task.projectId, task.deletedAt])).toEqual([
       [openOne, 'todo', inboxId, undefined],
       [openTwo, 'todo', inboxId, undefined],
       [finished, 'done', inboxId, undefined],
     ]);
-    expect(projectsAfterRemove.some((project) => project.id === folder.id)).toBe(false);
+    expect(driver.listsAsLive(projectsAfterRemove, folder.id)).toBe(false);
     expect(tasksLeftInside).toEqual([]);
-    expect(remoteAfterRemove).toMatchObject({ title: folderName, is_archived: true });
+    expect(remoteAfterRemove).toMatchObject({ title: folderName, archived: true });
     await expect(canvasTodo(page, openOne)).toHaveAttribute('data-folder', 'inbox');
     await expect(canvasTodo(page, openTwo)).toHaveAttribute('data-folder', 'inbox');
 
@@ -325,7 +309,7 @@ test.describe('E2E-9 — a folder’s life on the real stack (HOLO-06)', () => {
     const [afterUndo, projectsAfterUndo, remoteAfterUndo] = await Promise.all([
       placesOf(page, ids),
       listProjects(page, state),
-      vikunjaProject(folderName),
+      record.folder(page, folderName),
     ]);
     expect(afterUndo.map((task) => [task.title, task.status, task.projectId, task.deletedAt])).toEqual([
       [openOne, 'todo', folder.id, undefined],
@@ -333,7 +317,7 @@ test.describe('E2E-9 — a folder’s life on the real stack (HOLO-06)', () => {
       [finished, 'done', folder.id, undefined],
     ]);
     expect(projectsAfterUndo.find((project) => project.id === folder.id)).toMatchObject({ title: folderName, archived: false });
-    expect(remoteAfterUndo).toMatchObject({ is_archived: false });
+    expect(remoteAfterUndo).toMatchObject({ archived: false });
 
     // ── Removed again, and left removed: a reload does not bring it back. ───
     const againDialog = await askToRemove(page, folder.id, folderName);
@@ -351,8 +335,8 @@ test.describe('E2E-9 — a folder’s life on the real stack (HOLO-06)', () => {
     await expect(canvasTodo(page, openTwo)).toHaveAttribute('data-folder', 'inbox');
     await expect(dish(page, folder.id)).toHaveCount(0);
     await expect(page.locator('[data-folder-dish]').filter({ hasText: folderName })).toHaveCount(0);
-    expect((await listProjects(page, state)).some((project) => project.id === folder.id)).toBe(false);
-    expect(await vikunjaProject(folderName)).toMatchObject({ is_archived: true });
+    expect(driver.listsAsLive(await listProjects(page, state), folder.id)).toBe(false);
+    expect(await record.folder(page, folderName)).toMatchObject({ archived: true });
     const settled = await placesOf(page, ids);
     expect(settled.map((task) => [task.title, task.status, task.projectId, task.deletedAt])).toEqual([
       [openOne, 'todo', inboxId, undefined],
@@ -363,8 +347,7 @@ test.describe('E2E-9 — a folder’s life on the real stack (HOLO-06)', () => {
     const everything = await listTasks(page, state);
     expect(ids.every((id) => everything.some((task) => task.id === id))).toBe(true);
     for (const task of settled) {
-      const remote = await fetchVikunjaTask(state, externalIdOf(task));
-      expect(String(remote.project_id), `${task.title} is in the Vikunja inbox`).toBe(state.inboxExternalId);
+      expect((await record.task(page, task)).inInbox, `${task.title} is in the record's inbox`).toBe(true);
     }
 
     // The list view shows the finished one too, as a finished row of the inbox.
@@ -380,7 +363,7 @@ test.describe('E2E-9 — a folder’s life on the real stack (HOLO-06)', () => {
     await expect
       .poll(async () => (await getTask(page, state, openOneId)).status, { message: 'the to-do is finished on the server' })
       .toBe('done');
-    await expectVikunjaDone(state, externalIdOf(await getTask(page, state, openOneId)));
+    await expectStoredTask(page, await getTask(page, state, openOneId), { done: true });
     expect(await getTask(page, state, openTwoId)).toMatchObject({ status: 'todo', projectId: inboxId });
 
     await context.close();
