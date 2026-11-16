@@ -56,6 +56,19 @@ impl TestServer {
             COUNTER.fetch_add(1, Ordering::SeqCst)
         ));
         std::fs::create_dir_all(&directory).unwrap();
+        Self::open(directory)
+    }
+
+    /// Closes the data file and serves it again, as an app restart does.
+    fn reopen(mut self) -> Self {
+        let directory = std::mem::take(&mut self.directory);
+        // Dropping the old server closes its connection; with an empty path
+        // its `Drop` removes nothing.
+        drop(self);
+        Self::open(directory)
+    }
+
+    fn open(directory: PathBuf) -> Self {
         let store = Store::open(&directory.join("ohmydate.db")).unwrap();
         let app = App::open(
             store,
@@ -157,7 +170,9 @@ impl TestServer {
 
 impl Drop for TestServer {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.directory);
+        if !self.directory.as_os_str().is_empty() {
+            let _ = std::fs::remove_dir_all(&self.directory);
+        }
     }
 }
 
@@ -358,6 +373,203 @@ async fn me_is_the_local_owner_with_a_conditional_etag() {
         )
         .await;
     assert_eq!(stale.status, 200);
+}
+
+#[tokio::test]
+async fn settings_change_the_owner_and_every_change_is_a_new_version() {
+    let server = TestServer::new();
+    let path = "/api/v1/me/settings";
+    let me = server.get("/api/v1/me").await;
+    let id = me.body["id"].as_str().unwrap().to_owned();
+
+    let moved = server
+        .mutate(
+            "PATCH",
+            path,
+            1,
+            Some(json!({"timeZone": "Europe/Berlin", "locale": "de-DE"})),
+        )
+        .await;
+    assert_eq!(moved.status, 200, "{}", moved.body);
+    assert_eq!(moved.body["timeZone"], "Europe/Berlin");
+    assert_eq!(moved.body["locale"], "de-DE");
+    assert_eq!(moved.body["version"], 2);
+    assert_eq!(moved.body["createdAt"], me.body["createdAt"]);
+    // The answer is tagged with the version the next If-Match names.
+    assert_eq!(moved.header("etag"), Some("W/\"2\""));
+    assert!(moved.body.get("llm").is_none() && moved.body.get("llmProvider").is_none());
+
+    // GET /me reads the same owner: nothing is cached across the change.
+    let after = server.get("/api/v1/me").await;
+    assert_eq!(after.body, moved.body);
+    assert_eq!(after.header("etag"), Some(format!("W/\"{id}:2\"").as_str()));
+    let old_tag = me.header("etag").unwrap();
+    let revalidated = server
+        .call("GET", "/api/v1/me", &[("if-none-match", old_tag)], None)
+        .await;
+    assert_eq!(revalidated.status, 200, "the old tag no longer matches");
+
+    // Consent, then a budget, then a refusal: the reference's sequence.
+    let granted = server
+        .mutate(
+            "PATCH",
+            path,
+            2,
+            Some(json!({"llm": {"consent": {"granted": true}}})),
+        )
+        .await;
+    assert_eq!(granted.status, 200, "{}", granted.body);
+    let consent = &granted.body["llm"]["consent"];
+    assert_eq!(consent["granted"], true);
+    assert_eq!(consent["provider"], "deepseek");
+    assert_eq!(consent["at"], granted.body["updatedAt"]);
+    assert!(granted.body["llm"].get("budget").is_none());
+
+    let budgeted = server
+        .mutate(
+            "PATCH",
+            path,
+            3,
+            Some(json!({"llm": {"budget": {"dailyUsd": 1.5, "monthlyUsd": 20}}})),
+        )
+        .await;
+    assert_eq!(
+        budgeted.body["llm"]["budget"],
+        json!({"dailyUsd": 1.5, "monthlyUsd": 20})
+    );
+    assert_eq!(budgeted.body["llm"]["consent"], *consent);
+
+    let revoked = server
+        .mutate(
+            "PATCH",
+            path,
+            4,
+            Some(json!({"llm": {"consent": {"granted": false}}})),
+        )
+        .await;
+    assert_eq!(revoked.body["llm"]["consent"]["granted"], false);
+    assert_eq!(
+        revoked.body["llm"]["budget"],
+        budgeted.body["llm"]["budget"]
+    );
+    assert_eq!(revoked.body["version"], 5);
+
+    // An empty patch is accepted and is a version too (reference behaviour).
+    let empty = server.mutate("PATCH", path, 5, Some(json!({}))).await;
+    assert_eq!((empty.status, &empty.body["version"]), (200, &json!(6)));
+    assert_eq!(empty.body["llm"], revoked.body["llm"]);
+    assert_eq!(server.get("/api/v1/me").await.body, empty.body);
+}
+
+#[tokio::test]
+async fn settings_are_refused_by_the_contract_the_version_and_the_amount_rule() {
+    let server = TestServer::new();
+    let path = "/api/v1/me/settings";
+    let before = server.get("/api/v1/me").await.body;
+
+    // The contract: a zone the tz database does not spell this way, a locale
+    // outside 2..35 characters, fields that are not settings.
+    for body in [
+        json!({"timeZone": "Mars/Olympus_Mons"}),
+        json!({"timeZone": "asia/seoul"}),
+        json!({"timeZone": ""}),
+        json!({"timeZone": 9}),
+        json!({"locale": "k"}),
+        json!({"locale": "x".repeat(36)}),
+        json!({"email": "someone@example.com"}),
+        json!({"llm": {"consent": {}}}),
+        json!({"llm": {"consent": {"granted": "yes"}}}),
+        json!({"llm": {"consent": {"granted": true, "provider": "other"}}}),
+        json!({"llm": {"budget": {"dailyUsd": -0.01}}}),
+        json!({"llm": {"budget": {"dailyUsd": "1"}}}),
+        json!({"llm": {"budget": {"weeklyUsd": 1}}}),
+        json!({"llm": {"provider": "other"}}),
+    ] {
+        let refused = server.mutate("PATCH", path, 1, Some(body.clone())).await;
+        assert_problem(&refused, 400, "validation_failed");
+        assert!(
+            !refused.body["errors"].as_array().unwrap().is_empty(),
+            "{body}"
+        );
+    }
+    let no_body = server.mutate("PATCH", path, 1, None).await;
+    assert_problem(&no_body, 400, "validation_failed");
+
+    // The header table.
+    let key = server.key();
+    let body = Some(json!({"locale": "en-GB"}));
+    let missing = server
+        .call("PATCH", path, &[("idempotency-key", &key)], body.clone())
+        .await;
+    assert_problem(&missing, 428, "version_conflict");
+    let stale = server.mutate("PATCH", path, 7, body.clone()).await;
+    assert_problem(&stale, 412, "version_conflict");
+    let no_key = server
+        .call("PATCH", path, &[("if-match", "W/\"1\"")], body.clone())
+        .await;
+    assert_problem(&no_key, 400, "validation_failed");
+
+    // The core's amount rule is a domain result: 422, stored for its key.
+    let headers = [("if-match", "W/\"1\""), ("idempotency-key", key.as_str())];
+    let huge = Some(json!({"locale": "en-GB", "llm": {"budget": {"dailyUsd": 1e300}}}));
+    let refused = server.call("PATCH", path, &headers, huge.clone()).await;
+    assert_problem(&refused, 422, "validation_failed");
+    assert_eq!(
+        refused.body["errors"],
+        json!([{
+            "path": "llm.budget.dailyUsd",
+            "message": "llm.budget.dailyUsd must be between 0 and 1000000000",
+        }])
+    );
+    let replayed = server.call("PATCH", path, &headers, huge).await;
+    assert_eq!((replayed.status, &replayed.body), (422, &refused.body));
+
+    assert_eq!(
+        server.get("/api/v1/me").await.body,
+        before,
+        "no refused request changed the owner"
+    );
+
+    // Without the launch token there is no owner to change.
+    let anonymous = Request::builder()
+        .method("PATCH")
+        .uri(path)
+        .header("host", HOST)
+        .header("if-match", "W/\"1\"")
+        .header("idempotency-key", server.key())
+        .header("content-type", "application/json")
+        .body(Body::from(json!({"locale": "en-GB"}).to_string()))
+        .unwrap();
+    assert_problem(&server.send(anonymous).await, 401, "unauthenticated");
+}
+
+#[tokio::test]
+async fn a_settings_change_is_replayed_for_its_key_and_survives_a_reopen() {
+    let server = TestServer::new();
+    let path = "/api/v1/me/settings";
+    let key = server.key();
+    let headers = [("if-match", "W/\"1\""), ("idempotency-key", key.as_str())];
+    let body = Some(json!({"timeZone": "America/New_York", "llm": {"budget": {"dailyUsd": 0.5}}}));
+    let first = server.call("PATCH", path, &headers, body.clone()).await;
+    assert_eq!(first.status, 200, "{}", first.body);
+    assert_eq!(
+        first.body["llm"]["budget"],
+        json!({"dailyUsd": 0.5, "monthlyUsd": 5}),
+        "the limit that was not named takes the default"
+    );
+    // The replay carries the old If-Match and still answers the first result.
+    let replay = server.call("PATCH", path, &headers, body).await;
+    assert_eq!((replay.status, &replay.body), (200, &first.body));
+    assert_eq!(replay.header("etag"), first.header("etag"));
+    assert_eq!(server.get("/api/v1/me").await.body["version"], 2);
+    let other = server
+        .call("PATCH", path, &headers, Some(json!({"locale": "en-GB"})))
+        .await;
+    assert_problem(&other, 422, "idempotency_mismatch");
+
+    // The same file, opened again: what was answered is what is stored.
+    let reopened = server.reopen();
+    assert_eq!(reopened.get("/api/v1/me").await.body, first.body);
 }
 
 #[tokio::test]
@@ -1052,7 +1264,38 @@ async fn request_logs_hold_ids_and_codes_but_no_user_text_or_secrets() {
         refused.body
     );
 
+    // RC-10A: what is typed into settings — accepted or refused.
+    let settings = server
+        .mutate(
+            "PATCH",
+            "/api/v1/me/settings",
+            1,
+            Some(json!({"locale": "SECRET-LOCALE-3d9a", "timeZone": "Pacific/Chatham"})),
+        )
+        .await;
+    assert_eq!(settings.status, 200, "{}", settings.body);
+    let bad_zone = server
+        .mutate(
+            "PATCH",
+            "/api/v1/me/settings",
+            2,
+            Some(json!({"timeZone": "SECRET-ZONE-71e0"})),
+        )
+        .await;
+    assert_eq!(bad_zone.status, 400);
+    assert!(
+        !bad_zone.body.to_string().contains("SECRET-ZONE"),
+        "{}",
+        bad_zone.body
+    );
+
     let logs = String::from_utf8(captured_logs().0.lock().unwrap().clone()).unwrap();
+    assert!(
+        logs.lines().any(|line| {
+            line.contains("\"operation\":\"updateMySettings\"") && line.contains("\"status\":200")
+        }),
+        "{logs}"
+    );
     let line = logs
         .lines()
         .find(|line| {
@@ -1091,6 +1334,9 @@ async fn request_logs_hold_ids_and_codes_but_no_user_text_or_secrets() {
         "SECRET-QUERY",
         "SECRET-PATH",
         "SECRET-FOLDER",
+        "SECRET-LOCALE",
+        "SECRET-ZONE",
+        "Pacific/Chatham",
         TOKEN,
     ] {
         assert!(

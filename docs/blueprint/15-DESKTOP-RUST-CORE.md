@@ -13,6 +13,7 @@
 - RC-00에서 끝낸 것: 이 계획, 워크스페이스 5개 크레이트, owner·프로젝트·작업 API 10개, 스케줄러 포팅의 바닥 층(PRNG·정규 JSON·시간 분할·inputHash)과 TypeScript 오라클 대조, 블랙박스 패리티 하네스.
 - RC-30~33에서 끝낸 것(2026-11-16): 스케줄러 전체(`core/crates/scheduler`). 4,020건에서 TypeScript와 모든 층이 바이트 단위로 같고(불일치 0), 기준 테스트 21개 파일을 원장대로 옮겼다(§5.5). TypeScript 쪽 동작 결함은 나오지 않았다.
 - FOLD-01에서 더한 것(2026-11-16): `updateProject`(`PATCH /projects/{id}`) — 폴더(프로젝트)의 이름 바꾸기와 보관. 계약·TypeScript API·Rust 코어에 함께 넣었다(§11 R11의 예외). 코어가 서빙하는 operation은 이제 11개다.
+- RC-10A에서 더한 것(2026-11-16): `updateMySettings`(`PATCH /me/settings`) — 시간대·로캘·AI 동의·예산. 코어가 서빙하는 operation은 이제 12개다.
 
 RC-00에서 측정한 것:
 
@@ -24,7 +25,7 @@ RC-00에서 측정한 것:
 | advisory lock 호출 | 11곳 → 0 (프로세스 하나, 쓰기 트랜잭션 하나) |
 | EXCLUDE 제약 위반 처리(`23P01`) | 3곳(승인·Today·재계획) → 트랜잭션 안 코드 검사 |
 | Rust 테스트 (RC-00) | 178개: domain 37, store 27, app 26, scheduler 19 + 오라클 8, server 43 + bin 4 + HTTP 14 |
-| 패리티 하네스 | operation 11개, 테스트 103개 통과(해당 없는 조합 51개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를 더했다 |
+| 패리티 하네스 | operation 12개, 테스트 125개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`를 더했다 |
 | 오라클 팩 `sample.json` | 27건(golden 15, 생성 9, 재계획 1, 잘못된 입력 2), 211 KiB, 기준 tzdata 2026c vs jiff 2026e — 불일치 0 |
 | 서드파티 크레이트 | 126개(리눅스 그래프). MIT/Apache-2.0/BSD 밖은 4건(§9.4) |
 
@@ -173,7 +174,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 <!-- route-matrix:start -->
 | operationId | 메서드·경로 | 판정 | 단계 | 차이·이유 |
 |---|---|---|---|---|
-| `getMe` | GET `/me` | 유지(차이) | RC-00 | 하나뿐인 로컬 owner. 쿠키·세션 없음. `email`은 표시용 값. `llm`·`llmProvider`(선택 필드)는 RC-70에서 채운다 |
+| `getMe` | GET `/me` | 유지(차이) | RC-00 | 하나뿐인 로컬 owner. 쿠키·세션 없음. `email`은 표시용 값. `llm`은 owner가 정한 것이 있을 때만 나온다(RC-10A). `llmProvider`(선택 필드)는 RC-70에서 채운다 — 그때까지 웹은 그것이 없는 것을 "AI 없음"으로 읽어 동의를 묻지 않는다 |
 | `listProjects` | GET `/projects` | 유지 | RC-00 | Inbox는 데이터 파일을 만들 때 함께 만든다(읽기에서 쓰지 않음) |
 | `createProject` | POST `/projects` | 유지 | RC-00 |  |
 | `updateProject` | PATCH `/projects/{id}` | 유지(차이) | RC-00 | FOLD-01(2026-11-16)에서 계약·TypeScript API·Rust에 함께 추가(§11 R11의 예외). 규칙은 같다: 없는 id 404, 낡은 `If-Match` 412, Inbox는 보관할 수 없고(422) 이름은 바꿀 수 있다, 보관된 프로젝트의 이름은 되살리는 패치(`archived: false`)로만 바뀐다(422), 빈 패치는 그대로 200(버전 불변), 작업은 건드리지 않는다. 차이는 보관한 뒤에 보인다: 여기서는 보관한 프로젝트가 `listProjects`에 `archived: true`로 계속 나오고 그 안의 작업도 계속 읽고 쓴다. 지금 운영 중인 Vikunja 경로에서는 보관한 프로젝트가 목록에서 빠지고, 그 안의 작업은 범위 없는 `listTasks`에서 빠지며 쓰기가 503으로 거부된다(되살리면 돌아온다) |
@@ -184,7 +185,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | `completeTask` | POST `/tasks/{id}:complete` | 유지(차이) | RC-00 | 503 없음. 이미 완료된 작업은 그대로 200(버전 불변) — 기준 구현과 같음 |
 | `deleteTask` | DELETE `/tasks/{id}` | 유지(차이) | RC-00 | 503 없음. 지운 작업을 기다리던 작업의 `dependsOn`에서 그 id를 같은 트랜잭션에서 뺀다(그 작업 version +1). 지금 운영 중인 Vikunja 경로의 동작(FU-81)과 같고, InMemory 기준 구현과는 다르다 |
 | `createTaskDependency` | POST `/tasks/{id}/dependencies` | 유지(차이) | RC-00 | 503 없음 |
-| `updateMySettings` | PATCH `/me/settings` | 유지(차이) | RC-10 | `timeZone`·`locale`은 RC-10, `llm`(동의·예산)은 값은 저장하되 효과는 RC-70. IANA 별칭 이름도 받는다(§2.3 ⑧) |
+| `updateMySettings` | PATCH `/me/settings` | 유지(차이) | RC-10 | RC-10A에서 구현. 규칙은 기준 구현과 같다: 낡은 `If-Match` 412, 받아들인 패치는 빈 패치여도 버전 +1, 동의 답은 지금 시각과 제공자(`deepseek`)를 적은 기록이 되고, 예산 패치는 적지 않은 한도를 기존 값(없으면 기본 0.2 / 5달러)으로 채운다. 응답의 `ETag`는 `W/"<version>"`(`getMe`는 `W/"<id>:<version>"`). 차이 셋: ① `timeZone`은 번들 tzdb의 이름을 적힌 그대로 비교한다 — 링크 이름도 받는다(§2.3 ⑧). ② 금액은 마이크로달러 정수로 보관한다(§3.2): 소수 여섯 자리 밑은 반올림하고, 10억 달러를 넘으면 422 `validation_failed`(기준 구현은 어떤 수든 받는다). ③ `llm`의 효과(동의·예산 관문)는 RC-70 |
 | `login` | POST `/auth/login` | 제외 | — | 계정이 없다(결정 5). 404 `not_found` |
 | `logout` | POST `/auth/logout` | 제외 | — | 위와 같음 |
 | `createPushSubscription` | POST `/push-subscriptions` | 제외 | — | Web Push 대신 OS 알림(§4.2). 404 |
@@ -271,7 +272,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 ⑤ `format: date-time`: Ajv가 받아 주고 도메인이 422로 거부하던 일부 표기(구분자 공백, 소문자 `t`/`z`, `+0900`)는 400이 된다. 둘 다 클라이언트 오류이고 웹은 `toISOString()`만 보낸다.
 ⑥ 쿼리 스키마가 있는 operation은 모르는 파라미터를 400으로 거부하고, 없는 operation은 쿼리를 보지 않는다 — TypeScript와 같다.
 ⑦ 문제 `detail`은 리소스 종류와 id만 담는다(제목 없음) — 같다.
-⑧ `iana-time-zone` 형식: 번들 tzdb가 아는 이름이면 받는다. TypeScript는 `Intl.supportedValuesOf('timeZone')`의 대표 이름만 받으므로 별칭(`Asia/Calcutta`)은 Rust에서만 통과한다.
+⑧ `iana-time-zone` 형식: 번들 tzdb에 있는 이름을 **적힌 그대로** 받는다(`asia/seoul`은 400 — RC-10A에서 기준 구현에 맞췄다. 그 전에는 대소문자를 가리지 않았다). TypeScript는 실행 환경의 `Intl.supportedValuesOf('timeZone')`에 `UTC`·`Etc/UTC`를 더한 목록만 받으므로 링크 이름(`Asia/Calcutta`)은 Rust에서만 통과한다. 목록을 한 실행 환경의 ICU가 아니라 tzdb에서 가져오는 이유: 데스크톱에서 시간대 목록을 보여 주는 쪽은 웹뷰의 ICU이고 시스템 시간대가 링크 이름일 수도 있어, 코어는 그 어느 쪽이 내놓는 이름도 받아야 한다.
 ⑨ 응답의 `ownerId`는 언제나 하나뿐인 owner의 id다. 다른 owner의 리소스라는 경우가 없으므로 "남의 것 404" 테스트는 "없는 것 404"와 같아진다.
 
 ## 3. 데이터 모델
@@ -284,7 +285,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 - 모든 테이블 `STRICT`. boolean은 INTEGER 0/1, enum은 TEXT + CHECK, JSON은 TEXT + `CHECK (json_valid(x))`.
 - 낙관적 잠금 `version INTEGER`(1부터), soft delete `deleted_at`.
 - SQL에 시간 기본값(`now()`)을 두지 않는다. 시각은 항상 `Clock`이 준다(테스트에서 시간을 고정할 수 있다).
-- 마이그레이션: `core/crates/store/migrations/NNNN_name.sql`, 전진 전용, 바이너리에 포함. 적용 기록에 SHA-256을 남겨, 이미 적용한 파일이 바뀌었으면 열기를 거부한다. 파일이 이 빌드보다 새 스키마면 열기를 거부한다(다운그레이드 방지). 데이터가 있는 파일을 올리기 전에는 사본을 뜬다. **모두 있음**(`migrate.rs`, 테스트 6개).
+- 마이그레이션: `core/crates/store/migrations/NNNN_name.sql`, 전진 전용, 바이너리에 포함. 적용 기록에 SHA-256을 남겨, 이미 적용한 파일이 바뀌었으면 열기를 거부한다. 파일이 이 빌드보다 새 스키마면 열기를 거부한다(다운그레이드 방지). 데이터가 있는 파일을 올리기 전에는 사본을 뜬다. **모두 있음**(`migrate.rs`, 테스트 7개 — 첫 스키마의 파일이 0002를 지나며 owner 행을 지키는지 포함).
 - 연결: 쓰기·읽기 연결 하나를 뮤텍스로 직렬화, 모든 쓰기는 `BEGIN IMMEDIATE`. 사용자 한 명 규모에 맞고 쓰기 충돌 재시도가 없다. 읽기 지연이 문제가 되면 WAL이라 읽기 전용 연결을 더하면 된다(호출자 변경 없음).
 
 ### 3.2 PostgreSQL 전용 기능의 대체
@@ -304,7 +305,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 | 복합 FK `(id, owner_id)` | 단순 FK(owner가 하나) | 있음 |
 | `DEFERRABLE INITIALLY DEFERRED` FK (`plan.current_version_id`) | SQLite가 지원한다 | RC-40 |
 | 트리거(availability version 단조 증가) | SQLite 트리거 `RAISE(ABORT)` | RC-20 |
-| `numeric`(USD) | INTEGER 마이크로달러. 계약의 `dailyUsd: number`와는 경계에서 변환 | RC-70 |
+| `numeric`(USD) | INTEGER 마이크로달러(`domain::MicroUsd`, 0 ~ 10억 달러). 계약의 `dailyUsd: number`와는 경계에서 변환: 들어올 때 가장 가까운 마이크로달러로 반올림, 나갈 때는 달러 수(정수 달러는 `20`처럼 소수점 없이) | owner 예산은 있음(RC-10A), 지출 원장은 RC-70 |
 | `real` | REAL | — |
 | `bytea` | 암호문 컬럼은 키링으로 이동, 내보내기 산출물은 파일 | RC-90/110 |
 | `date` | TEXT `YYYY-MM-DD` + GLOB CHECK | RC-20 |
@@ -319,7 +320,7 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
 <!-- data-model:start -->
 | PostgreSQL 테이블 | 마이그레이션 | 판정 | SQLite 테이블 | 단계 | 컬럼 | 비고 |
 |---|---|---|---|---|---|---|
-| `user` | 0001 | 변형 | `owner` | RC-00 | `id` `email` ~~`password_hash`~~ `time_zone` `locale` `settings` ~~`llm_consent`~~ `created_at` `updated_at` `version` | 행 1개(`singleton` UNIQUE). `password_hash`: 로그인 없음. `llm_consent`: 코드에서 읽고 쓰는 곳 없음(동의는 `settings.llm.consent`). `email`은 계약의 `User.email` 표시용으로만 남는다. `settings` jsonb → JSON TEXT |
+| `user` | 0001 | 변형 | `owner` | RC-00 | `id` `email` ~~`password_hash`~~ `time_zone` `locale` `settings`→`llm_consent_granted`+`llm_consent_at`+`llm_consent_provider`+`llm_budget_daily_micro_usd`+`llm_budget_monthly_micro_usd` ~~`llm_consent`~~ `created_at` `updated_at` `version` | 행 1개(`singleton` UNIQUE). `password_hash`: 로그인 없음. `llm_consent`: 코드에서 읽고 쓰는 곳 없음(동의는 `settings.llm.consent`). `email`은 계약의 `User.email` 표시용으로만 남는다. `settings` jsonb에 든 것은 `llm.consent`(`granted`·`at`·`provider`)와 `llm.budget`(`dailyUsd`·`monthlyUsd`)뿐이라 검사할 수 있는 컬럼 다섯으로 풀었다(RC-10A, 마이그레이션 0002: 동의 기록과 예산은 통째로 있거나 없다 — CHECK). 금액은 마이크로달러 INTEGER(§3.2). RC-00의 0001이 만든 JSON `settings` 컬럼은 쓰인 적이 없어 0002가 지운다 |
 | `project` | 0001 | 유지 | `project` | RC-00 | `id` ~~`owner_id`~~ `title` `archived` `created_at` `updated_at` `version` `deleted_at` `kind` | inbox 1개 부분 유니크 인덱스 유지(SQLite 지원) |
 | `task` | 0001 | 변형 | `task` | RC-00 | `id` ~~`owner_id`~~ `project_id` `title_cache`→`title` `status_cache`→`status` `due_at` `splittable` `min_session_min` `max_session_min` `priority` ~~`earliest_start_at`~~ ~~`provider_etag`~~ `created_at` `updated_at` `version` `deleted_at` | 작업의 원본이 된다. 새 컬럼 `description`(Vikunja가 갖고 있던 것). `earliest_start_at`·`provider_etag`: 코드에서 읽고 쓰는 곳 없음 |
 | `task_dependency` | 0001 | 변형 | `task_dependency` | RC-00 | `task_id` `depends_on_task_id` ~~`owner_id`~~ ~~`kind`~~ ~~`created_at`~~ ~~`updated_at`~~ ~~`version`~~ | 새 컬럼 `position`(`dependsOn` 배열 순서). `kind`는 값이 하나뿐(`finish_to_start`). 지금까지 이 테이블은 한 번도 쓰이지 않았다(의존 관계는 Vikunja relation + `vikunja_planner_fields`). 순환 검사는 코드(`domain::assert_acyclic`), 같은 트랜잭션 |
@@ -646,7 +647,7 @@ TypeScript: 키 예약(pending) 커밋 → 유스케이스 실행 → 완료 기
 | 단위 | `cargo test`. 동작마다 네거티브 1개 이상 | 크레이트별 | `core:check` | 있음(178) |
 | 속성 | `proptest` | 스케줄러 하드 제약, DAG, 블록 겹침 불변식, 시간 | `core:check`(1,000) / 관문(10,000) | RC-30~ |
 | 차분 | 오라클 팩 | 스케줄러(RC-30~33), 마스킹(RC-70a) | `core:oracle` + `cargo test` | 바닥 층 있음 |
-| 계약 패리티 | `tests-core/`(vitest + ajv + `@ohmydate/contracts`), 진짜 바이너리 | operation마다 상태 코드·스키마·헤더 행렬·오류 | `core:parity` | 있음(11 operation) |
+| 계약 패리티 | `tests-core/`(vitest + ajv + `@ohmydate/contracts`), 진짜 바이너리 | operation마다 상태 코드·스키마·헤더 행렬·오류 | `core:parity` | 있음(12 operation) |
 | E2E | 지금의 Playwright, 대상만 Rust 코어 | 사용자 흐름 | `e2e`(대상 선택) | RC-10~ |
 | 가져오기 | 내보내기 → 가져오기 → 내보내기 | 전환 | RC-110 | 계획 |
 

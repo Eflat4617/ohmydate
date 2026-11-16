@@ -18,8 +18,8 @@ mod version;
 
 pub use dag::{DependencyEdge, assert_acyclic};
 pub use entities::{
-    Owner, Project, ProjectKind, SessionWindow, Task, TaskCreate, TaskPatch, TaskPriority,
-    TaskStatus,
+    LlmBudget, LlmConsent, LlmSettings, MicroUsd, Owner, Project, ProjectKind, SessionWindow, Task,
+    TaskCreate, TaskPatch, TaskPriority, TaskStatus,
 };
 pub use error::{DomainError, ValidationIssue};
 pub use id::{Id, UuidV7Generator};

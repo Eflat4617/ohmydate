@@ -4,7 +4,7 @@
 //! the TypeScript core's `toTaskDto` / `toProjectDto` / `toUserDto` do.
 
 use ohmydate_app::Page;
-use ohmydate_domain::{Id, Owner, Project, Task};
+use ohmydate_domain::{Id, MicroUsd, Owner, Project, Task};
 use serde_json::{Map, Value, json};
 
 /// `Task` of the contract. `external` is always empty: it listed Vikunja
@@ -58,19 +58,51 @@ pub fn project(project: &Project, owner_id: &Id) -> Value {
     })
 }
 
-/// `User` of the contract, for the single local owner. `llm` and
-/// `llmProvider` are optional in the contract and arrive with the LLM slice.
+/// A dollar amount as a JSON number: whole dollars print without a fraction
+/// (`20`, not `20.0`), as JavaScript prints them.
+fn usd(amount: MicroUsd) -> Value {
+    amount
+        .whole_usd()
+        .map_or_else(|| json!(amount.usd()), |whole| json!(whole))
+}
+
+/// `User` of the contract, for the single local owner.
+///
+/// `llm` is what the owner decided (absent until they decide something).
+/// `llmProvider` is absent: it tells the client which AI provider answers,
+/// and no provider is wired in before the LLM slice (RC-70). The web reads
+/// its absence as "no AI here" and asks for no consent.
 #[must_use]
 pub fn user(owner: &Owner) -> Value {
-    json!({
-        "id": owner.id.as_str(),
-        "email": owner.email,
-        "timeZone": owner.time_zone,
-        "locale": owner.locale,
-        "version": owner.version.get(),
-        "createdAt": owner.created_at.to_rfc3339(),
-        "updatedAt": owner.updated_at.to_rfc3339(),
-    })
+    let mut body = Map::new();
+    body.insert("id".into(), json!(owner.id.as_str()));
+    body.insert("email".into(), json!(owner.email));
+    body.insert("timeZone".into(), json!(owner.time_zone));
+    body.insert("locale".into(), json!(owner.locale));
+    if !owner.llm.is_empty() {
+        let mut llm = Map::new();
+        if let Some(consent) = &owner.llm.consent {
+            llm.insert(
+                "consent".into(),
+                json!({
+                    "granted": consent.granted,
+                    "at": consent.at.to_rfc3339(),
+                    "provider": consent.provider,
+                }),
+            );
+        }
+        if let Some(budget) = owner.llm.budget {
+            llm.insert(
+                "budget".into(),
+                json!({"dailyUsd": usd(budget.daily), "monthlyUsd": usd(budget.monthly)}),
+            );
+        }
+        body.insert("llm".into(), Value::Object(llm));
+    }
+    body.insert("version".into(), json!(owner.version.get()));
+    body.insert("createdAt".into(), json!(owner.created_at.to_rfc3339()));
+    body.insert("updatedAt".into(), json!(owner.updated_at.to_rfc3339()));
+    Value::Object(body)
 }
 
 /// `{items, nextCursor}` (08 §1).
@@ -84,7 +116,10 @@ pub fn page<T>(page: &Page<T>, item: impl Fn(&T) -> Value) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use ohmydate_domain::{Instant, ProjectKind, SessionWindow, TaskPriority, TaskStatus, Version};
+    use ohmydate_domain::{
+        Instant, LlmBudget, LlmConsent, LlmSettings, ProjectKind, SessionWindow, TaskPriority,
+        TaskStatus, Version,
+    };
 
     use super::*;
 
@@ -182,11 +217,66 @@ mod tests {
             email: "owner@ohmydate.local".into(),
             time_zone: "Asia/Seoul".into(),
             locale: "ko-KR".into(),
+            llm: LlmSettings::default(),
             version: Version::INITIAL,
             created_at: at("2026-11-13T12:00:00Z"),
             updated_at: at("2026-11-13T12:00:00Z"),
         };
-        assert_eq!(user(&owner)["timeZone"], "Asia/Seoul");
+        assert_eq!(
+            user(&owner),
+            json!({
+                "id": "0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c50",
+                "email": "owner@ohmydate.local",
+                "timeZone": "Asia/Seoul",
+                "locale": "ko-KR",
+                "version": 1,
+                "createdAt": "2026-11-13T12:00:00.000Z",
+                "updatedAt": "2026-11-13T12:00:00.000Z",
+            }),
+            "no llm before the owner decides, and no llmProvider before RC-70"
+        );
+
+        let decided = Owner {
+            llm: LlmSettings {
+                consent: Some(LlmConsent {
+                    granted: true,
+                    at: at("2026-11-16T09:30:00.250Z"),
+                    provider: "deepseek".into(),
+                }),
+                budget: Some(LlmBudget {
+                    daily: MicroUsd::from_usd(1.5).unwrap(),
+                    monthly: MicroUsd::from_usd(20.0).unwrap(),
+                }),
+            },
+            ..owner.clone()
+        };
+        let body = user(&decided);
+        assert_eq!(
+            body["llm"],
+            json!({
+                "consent": {
+                    "granted": true,
+                    "at": "2026-11-16T09:30:00.250Z",
+                    "provider": "deepseek",
+                },
+                "budget": {"dailyUsd": 1.5, "monthlyUsd": 20},
+            })
+        );
+        // Whole dollars are written as JavaScript writes them.
+        assert!(body.to_string().contains("\"monthlyUsd\":20}"), "{body}");
+        assert!(body.get("llmProvider").is_none());
+
+        let budget_only = Owner {
+            llm: LlmSettings {
+                consent: None,
+                budget: decided.llm.budget,
+            },
+            ..owner.clone()
+        };
+        assert_eq!(
+            user(&budget_only)["llm"],
+            json!({"budget": {"dailyUsd": 1.5, "monthlyUsd": 20}})
+        );
 
         let last = Page {
             items: vec![inbox],

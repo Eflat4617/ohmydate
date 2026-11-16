@@ -15,11 +15,18 @@ pub struct Migration {
 }
 
 /// Every migration, in order. Versions are consecutive from 1.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "core",
-    sql: include_str!("../migrations/0001_core.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "core",
+        sql: include_str!("../migrations/0001_core.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "owner_llm",
+        sql: include_str!("../migrations/0002_owner_llm.sql"),
+    },
+];
 
 /// What happened at open.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -168,6 +175,41 @@ mod tests {
             assert_eq!(migration.version, i64::try_from(index).unwrap() + 1);
             assert!(!migration.name.is_empty());
         }
+    }
+
+    #[test]
+    fn a_data_file_of_the_first_schema_keeps_its_owner_through_the_upgrade() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run_list(&mut connection, None, &MIGRATIONS[..1]).unwrap();
+        connection
+            .execute(
+                "INSERT INTO owner (id, email, time_zone, locale, created_at, updated_at, version) \
+                 VALUES ('0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c55', 'owner@ohmydate.local', \
+                         'Asia/Seoul', 'ko-KR', 1800000000000, 1800000000001, 3)",
+                [],
+            )
+            .unwrap();
+
+        let upgraded = run_list(&mut connection, None, MIGRATIONS).unwrap();
+        assert_eq!(upgraded.applied.first(), Some(&2));
+        let owner = crate::owner::get(&connection).unwrap().unwrap();
+        assert_eq!(owner.time_zone, "Asia/Seoul");
+        assert_eq!(owner.version.get(), 3);
+        assert_eq!(owner.updated_at.epoch_ms(), 1_800_000_000_001);
+        assert!(owner.llm.is_empty());
+        // The JSON column of the first schema is gone.
+        let columns: Vec<String> = connection
+            .prepare("SELECT name FROM pragma_table_info('owner')")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(
+            !columns.iter().any(|name| name == "settings"),
+            "{columns:?}"
+        );
+        assert!(columns.iter().any(|name| name == "llm_consent_granted"));
     }
 
     #[test]

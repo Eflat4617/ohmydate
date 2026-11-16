@@ -41,6 +41,13 @@ archived project is renamed only together with bringing it back, archiving
 leaves the tasks alone. `services/api/test/project-update.test.ts` pins the
 same answers for the TypeScript API.
 
+`settings.test.ts` holds what is specific to `updateMySettings` (RC-10A):
+time zone names are those of the tz database, compared as written; every
+accepted patch is a new version; a consent answer becomes a record with its
+time and provider; a budget patch fills the limit it does not name; amounts
+are kept to the micro-dollar. `services/api/test/llm-settings.test.ts` and
+`auth.test.ts` pin the reference's side.
+
 `lifecycle.test.ts` covers the process: ready file (0600, removed on exit),
 single instance (exit 3), usage errors (exit 2), restart durability including
 stored idempotent responses, and a fresh launch token per start.

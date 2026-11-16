@@ -239,11 +239,19 @@ fn compile(schema: &Value) -> Option<Validator> {
         .ok()
 }
 
-/// The contract's custom `iana-time-zone` format: a zone the bundled tz
-/// database knows.
+/// The contract's custom `iana-time-zone` format: a name of the bundled tz
+/// database, spelled exactly as the database spells it.
+///
+/// The reference accepts the names its JavaScript runtime lists
+/// (`Intl.supportedValuesOf('timeZone')`, plus `UTC` and `Etc/UTC`), compared
+/// as written. The core keeps "compared as written" — `asia/seoul` is not a
+/// zone name, and a stored name must be one every client can echo — and
+/// takes the list from the tz database instead of from one runtime's ICU, so
+/// link names such as `Asia/Calcutta` are zones here (blueprint 15 §2.3 ⑧).
 #[must_use]
 pub fn is_iana_time_zone(name: &str) -> bool {
-    !name.is_empty() && jiff::tz::TimeZone::get(name).is_ok()
+    // The lookup itself ignores case; the zone it finds knows its spelling.
+    jiff::tz::TimeZone::get(name).is_ok_and(|zone| zone.iana_name() == Some(name))
 }
 
 fn errors(validator: Option<&Validator>, instance: &Value) -> Vec<FieldError> {
@@ -736,10 +744,56 @@ mod tests {
 
     #[test]
     fn the_time_zone_format_knows_iana_names_only() {
-        assert!(is_iana_time_zone("Asia/Seoul"));
-        assert!(is_iana_time_zone("UTC"));
-        assert!(!is_iana_time_zone("Mars/Olympus"));
-        assert!(!is_iana_time_zone(""));
+        for name in [
+            "Asia/Seoul",
+            "UTC",
+            "Etc/UTC",
+            "America/Argentina/Buenos_Aires",
+            "America/Port-au-Prince",
+            // A link name: a zone of the database, though not of every ICU.
+            "Asia/Calcutta",
+        ] {
+            assert!(is_iana_time_zone(name), "{name}");
+        }
+        for name in [
+            "Mars/Olympus",
+            "",
+            " ",
+            "Asia/Seoul ",
+            " Asia/Seoul",
+            "Asia/Seoul\n",
+            "Asia",
+            "Asia/",
+            "+09:00",
+            "UTC+9",
+            "../etc/passwd",
+            "Asia/Seoul/../Tokyo",
+        ] {
+            assert!(!is_iana_time_zone(name), "{name:?}");
+        }
+    }
+
+    #[test]
+    fn a_time_zone_name_is_compared_as_written() {
+        for name in [
+            "asia/seoul",
+            "ASIA/SEOUL",
+            "Asia/seoul",
+            "utc",
+            "Utc",
+            "etc/utc",
+        ] {
+            assert!(!is_iana_time_zone(name), "{name}");
+        }
+        let operation = Contract::embedded().operation("updateMySettings").unwrap();
+        assert!(
+            operation
+                .validate_body(Some(&json!({"timeZone": "Europe/Berlin"})))
+                .is_empty()
+        );
+        let found = operation.validate_body(Some(&json!({"timeZone": "europe/berlin"})));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].path, "/timeZone");
     }
 
     #[test]

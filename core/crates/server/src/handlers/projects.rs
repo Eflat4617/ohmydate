@@ -10,7 +10,7 @@ use crate::problem::Problem;
 /// `GET /projects`.
 pub(super) fn list_projects(app: &App, call: &Call) -> Result<Reply, Problem> {
     let page = call.read(app, |unit| projects::list(unit, &call.page_query()))?;
-    let owner_id = &app.owner().id;
+    let owner_id = app.owner_id();
     let body = dto::page(&page, |project| dto::project(project, owner_id));
     Ok(Reply::conditional(call, &etag_for_body(&body), &body))
 }
@@ -22,7 +22,7 @@ pub(super) fn create_project(app: &App, call: &Call) -> Result<Reply, Problem> {
         .get("title")
         .and_then(Value::as_str)
         .ok_or_else(Problem::internal)?;
-    let owner_id = &app.owner().id;
+    let owner_id = app.owner_id();
     call.mutate(app, |unit| {
         let project = projects::create(unit, title)?;
         Ok(Reply::json(201, &dto::project(&project, owner_id))
@@ -47,7 +47,7 @@ pub(super) fn update_project(app: &App, call: &Call) -> Result<Reply, Problem> {
     let id = call.id()?;
     let expected = call.expected_version()?;
     let patch = project_patch(call.body_object()?);
-    let owner_id = &app.owner().id;
+    let owner_id = app.owner_id();
     call.mutate(app, |unit| {
         let project = projects::update(unit, &id, &patch, expected)?;
         Ok(Reply::json(200, &dto::project(&project, owner_id))

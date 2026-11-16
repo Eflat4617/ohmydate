@@ -84,6 +84,91 @@ impl ProjectKind {
     }
 }
 
+/// An amount of money in millionths of a US dollar.
+///
+/// Budgets and spend are compared as whole numbers; the contract's `number`
+/// of dollars is converted here, at the edge of the domain, and nowhere else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MicroUsd(i64);
+
+impl MicroUsd {
+    /// Largest amount: one billion dollars. Far above any budget, and small
+    /// enough that every amount converts to a JSON number and back exactly.
+    pub const MAX: MicroUsd = MicroUsd(1_000_000_000_000_000);
+
+    /// The amount for a stored count of micro-dollars, or `None` outside
+    /// `0..=MAX`.
+    #[must_use]
+    pub fn from_micros(micros: i64) -> Option<Self> {
+        (0..=Self::MAX.0).contains(&micros).then_some(Self(micros))
+    }
+
+    /// The amount for a number of dollars, rounded to the nearest
+    /// micro-dollar. `None` for a negative, non-finite or too large number.
+    #[must_use]
+    pub fn from_usd(usd: f64) -> Option<Self> {
+        if !usd.is_finite() || usd < 0.0 {
+            return None;
+        }
+        let micros = (usd * 1_000_000.0).round();
+        // Checked against the limit first, so the conversion cannot overflow;
+        // every whole number up to the limit is an exact `f64`.
+        (micros <= Self::MAX.0 as f64).then_some(Self(micros as i64))
+    }
+
+    #[must_use]
+    pub fn micros(self) -> i64 {
+        self.0
+    }
+
+    /// Whole dollars when the amount has no fraction.
+    #[must_use]
+    pub fn whole_usd(self) -> Option<i64> {
+        (self.0 % 1_000_000 == 0).then_some(self.0 / 1_000_000)
+    }
+
+    /// The amount as a number of dollars. Exact for every amount up to
+    /// [`MicroUsd::MAX`] that has at most six decimals — that is, all of them.
+    #[must_use]
+    pub fn usd(self) -> f64 {
+        self.0 as f64 / 1_000_000.0
+    }
+}
+
+/// The owner's answer to "may my text be sent to this AI provider?"
+/// (05 §12, ADR-022). A record names the provider it was given for: consent
+/// to one provider is not consent to another.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LlmConsent {
+    pub granted: bool,
+    /// When the owner answered.
+    pub at: Instant,
+    pub provider: String,
+}
+
+/// Spending limits the owner set for AI calls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LlmBudget {
+    pub daily: MicroUsd,
+    pub monthly: MicroUsd,
+}
+
+/// What the owner decided about AI: nothing yet, a consent record, a budget,
+/// or both.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LlmSettings {
+    pub consent: Option<LlmConsent>,
+    pub budget: Option<LlmBudget>,
+}
+
+impl LlmSettings {
+    /// True when the owner has decided nothing.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.consent.is_none() && self.budget.is_none()
+    }
+}
+
 /// The single local owner of the data file. The desktop core has no accounts:
 /// this row replaces the server's `user` table.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +180,7 @@ pub struct Owner {
     /// IANA time zone the owner's dates and wall-clock times are read in.
     pub time_zone: String,
     pub locale: String,
+    pub llm: LlmSettings,
     pub version: Version,
     pub created_at: Instant,
     pub updated_at: Instant,
@@ -176,6 +262,63 @@ mod tests {
         for kind in [ProjectKind::Inbox, ProjectKind::Normal] {
             assert_eq!(ProjectKind::parse(kind.as_str()), Some(kind));
         }
+    }
+
+    #[test]
+    fn dollars_become_micro_dollars_and_come_back_exactly() {
+        for (usd, micros) in [
+            (0.0, 0),
+            (0.2, 200_000),
+            (1.5, 1_500_000),
+            (5.0, 5_000_000),
+            (20.0, 20_000_000),
+            (0.000_001, 1),
+            (1_000_000_000.0, 1_000_000_000_000_000),
+        ] {
+            let amount = MicroUsd::from_usd(usd).unwrap();
+            assert_eq!(amount.micros(), micros, "{usd}");
+            assert_eq!(amount.usd().to_bits(), usd.to_bits(), "{usd}");
+            assert_eq!(MicroUsd::from_micros(micros), Some(amount));
+        }
+        // Finer than a micro-dollar: rounded to the nearest one.
+        assert_eq!(MicroUsd::from_usd(0.123_456_7).unwrap().micros(), 123_457);
+        assert_eq!(MicroUsd::from_usd(0.000_000_4).unwrap().micros(), 0);
+        assert_eq!(MicroUsd::from_usd(5.0).unwrap().whole_usd(), Some(5));
+        assert_eq!(MicroUsd::from_usd(1.5).unwrap().whole_usd(), None);
+    }
+
+    #[test]
+    fn amounts_that_are_not_a_budget_are_refused() {
+        for usd in [
+            -0.000_001,
+            -1.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            1_000_000_000.01,
+            1e300,
+        ] {
+            assert_eq!(MicroUsd::from_usd(usd), None, "{usd}");
+        }
+        assert_eq!(MicroUsd::from_micros(-1), None);
+        assert_eq!(MicroUsd::from_micros(MicroUsd::MAX.micros() + 1), None);
+        assert_eq!(MicroUsd::from_micros(i64::MAX), None);
+    }
+
+    #[test]
+    fn llm_settings_are_empty_until_something_is_decided() {
+        assert!(LlmSettings::default().is_empty());
+        let budget = LlmBudget {
+            daily: MicroUsd::from_usd(0.2).unwrap(),
+            monthly: MicroUsd::from_usd(5.0).unwrap(),
+        };
+        assert!(
+            !LlmSettings {
+                consent: None,
+                budget: Some(budget)
+            }
+            .is_empty()
+        );
     }
 
     #[test]

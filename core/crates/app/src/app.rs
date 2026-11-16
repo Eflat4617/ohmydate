@@ -2,7 +2,7 @@ use std::fmt;
 use std::sync::Arc;
 
 use ohmydate_domain::{
-    Clock, DomainError, IdGenerator, Instant, Owner, Project, ProjectKind, Version,
+    Clock, DomainError, Id, IdGenerator, Instant, LlmSettings, Owner, Project, ProjectKind, Version,
 };
 use ohmydate_store::idempotency::{self, Record, Reservation, StoredResponse};
 use ohmydate_store::{Store, StoreError, owner, projects};
@@ -59,14 +59,17 @@ pub struct App {
     store: Store,
     clock: Arc<dyn Clock>,
     ids: Arc<dyn IdGenerator>,
-    owner: Owner,
+    /// The owner row never changes its id. Everything else about the owner
+    /// can change, so it is read from the file when needed
+    /// ([`crate::settings::owner`]), never kept here.
+    owner_id: Id,
 }
 
 impl fmt::Debug for App {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("App")
-            .field("owner", &self.owner.id)
+            .field("owner", &self.owner_id)
             .finish_non_exhaustive()
     }
 }
@@ -95,6 +98,7 @@ impl App {
                         email: defaults.email.clone(),
                         time_zone: defaults.time_zone.clone(),
                         locale: defaults.locale.clone(),
+                        llm: LlmSettings::default(),
                         version: Version::INITIAL,
                         created_at: now,
                         updated_at: now,
@@ -125,14 +129,14 @@ impl App {
             store,
             clock,
             ids,
-            owner,
+            owner_id: owner.id,
         })
     }
 
-    /// The single local owner.
+    /// Id of the single local owner: the `ownerId` of every resource.
     #[must_use]
-    pub fn owner(&self) -> &Owner {
-        &self.owner
+    pub fn owner_id(&self) -> &Id {
+        &self.owner_id
     }
 
     /// True when the data file answers queries.
@@ -252,7 +256,7 @@ mod tests {
 
     use super::*;
     use crate::testing::{TestApp, id};
-    use crate::{PageQuery, projects as project_cases};
+    use crate::{PageQuery, projects as project_cases, settings};
 
     const KEY: &str = "0193a8f2-6c1e-7b41-9a2e-1f1d6a0b3c01";
     const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -301,9 +305,11 @@ mod tests {
     #[test]
     fn a_new_data_file_gets_one_owner_and_an_inbox() {
         let test = TestApp::new();
-        let owner = test.app.owner().clone();
+        let owner = test.app.read(settings::owner).unwrap();
+        assert_eq!(&owner.id, test.app.owner_id());
         assert_eq!(owner.time_zone, "Asia/Seoul");
         assert_eq!(owner.version, Version::INITIAL);
+        assert!(owner.llm.is_empty());
         let page = test
             .app
             .read(|unit| project_cases::list(unit, &PageQuery::default()))
@@ -316,13 +322,14 @@ mod tests {
     #[test]
     fn reopening_keeps_the_owner_and_ignores_new_defaults() {
         let test = TestApp::new();
-        let first = test.app.owner().clone();
+        let first = test.app.read(settings::owner).unwrap();
         let reopened = test.reopen(&OwnerDefaults {
             email: "someone-else@example.com".into(),
             time_zone: "UTC".into(),
             locale: "en".into(),
         });
-        assert_eq!(reopened.app.owner(), &first);
+        assert_eq!(reopened.app.read(settings::owner).unwrap(), first);
+        assert_eq!(reopened.app.owner_id(), &first.id);
         assert_eq!(
             project_count(&reopened),
             1,
