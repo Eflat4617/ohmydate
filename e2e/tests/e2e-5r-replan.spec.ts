@@ -29,10 +29,10 @@ import { readState } from '../helpers/state';
  * 2. The leader-only detection sweep (05 §11, every 5 min) creates exactly one
  *    commitment_conflict proposal; 오늘 (the replan card) and the notifications
  *    surface it.
- * 3. 재계획 shows 전 → 후 in words and on the week grid; approving it moves
+ * 3. 다시 맞추기 shows 전 → 후 in words and on the week grid; approving it moves
  *    only the overlapped block; the locked block keeps its row and times, the
  *    others keep their times; the hand-off leads to 오늘.
- * 4. "재계획 요청" → reject (24 h same-reason suppression explained) → asking
+ * 4. "다시 맞추기 요청" → reject (24 h same-reason suppression explained) → asking
  *    again is 409 replan_suppressed, shown with a human-readable wait.
  */
 
@@ -380,8 +380,8 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
     });
 
     // ── 3. The diff shows only the moved block; approval applies only it ──
-    await test.step('재계획 shows only the changed block, in words and on the grid, and the locked block as unchanged', async () => {
-      await expect(page.getByRole('heading', { name: '재계획', level: 1 })).toBeVisible();
+    await test.step('다시 맞추기 shows only the changed block, in words and on the grid, and the locked block as unchanged', async () => {
+      await expect(page.getByRole('heading', { name: '다시 맞추기', level: 1 })).toBeVisible();
       await expect(page.locator('[data-replan-trigger]')).toHaveText('약속과 겹침');
       await expect(page.locator('[data-proposal-state]')).toHaveText('승인 대기');
       const changes = page.locator('.replan-change');
@@ -455,7 +455,7 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
 
     // ── 4. User request → reject → same reason suppressed ─────────────────
     let requestedId = '';
-    await test.step('“재계획 요청” creates a user_request proposal that is rejected with the 24 h explanation', async () => {
+    await test.step('“다시 맞추기 요청” creates a user_request proposal that is rejected with the 24 h explanation', async () => {
       await page.goto(`${state.webUrl}/overview`);
       await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
       await expect(page.locator('[data-replan-card]')).toHaveCount(0);
@@ -469,8 +469,8 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       await page.locator('[data-replan-reject]').click();
       const dialog = page.getByRole('dialog', { name: '이 제안을 거절할까요?' });
       await expect(dialog).toBeVisible();
-      await expect(dialog).toContainText('같은 이유(직접 요청)의 재계획 제안은 24시간 동안');
-      await expect(dialog).toContainText('직접 요청하는 재계획도 그동안은 다시 요청할 수 없어요.');
+      await expect(dialog).toContainText('같은 이유(직접 요청)의 제안은 24시간 동안');
+      await expect(dialog).toContainText('그동안은 다시 맞추기를 직접 요청할 수도 없어요.');
       expect(await blockingAxeViolations(page)).toEqual([]);
       await dialog.getByRole('button', { name: '거절하기' }).click();
       await expect(dialog).toBeHidden();
@@ -491,8 +491,8 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       expect(retryAfter).toBeGreaterThan(23 * 3600);
       expect(retryAfter).toBeLessThanOrEqual(24 * 3600);
       const status = page.locator('.replan-request-status');
-      await expect(status).toContainText('지금은 재계획을 더 요청할 수 없어요.');
-      await expect(status).toContainText(/(1일|23시간 \d+분|2[34]시간) 뒤\(\d{1,2}월 \d{1,2}일 \([월화수목금토일]\) 오[전후] \d{1,2}:\d{2}\)에 다시 요청할 수 있어요/);
+      await expect(status).toContainText('지금은 다시 맞추기를 더 요청할 수 없어요.');
+      await expect(status).toContainText(/(1일|23시간 \d+분|2[34]시간) 뒤\(\d{1,2}월 \d{1,2}일 \([월화수목금토일]\) 오[전후] \d{1,2}:\d{2}\)에 요청할 수 있어요/);
       await expect(status).toContainText('거절한 이유는 24시간 동안 다시 제안하지 않고, 제안은 하루 2번까지예요.');
       expect(await blockingAxeViolations(page)).toEqual([]);
 
@@ -506,7 +506,7 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
       expect(await listProposals(page, 'pending')).toHaveLength(0);
     });
 
-    await test.step('the list beside the proposal shows the history; with nothing waiting 재계획 says so', async () => {
+    await test.step('the list beside the proposal shows the history; with nothing waiting 다시 맞추기 says so', async () => {
       const list = page.locator('[data-replan-list]');
       await expect(list.locator('.replan-item')).toHaveCount(2);
       await expect(list.locator(`[data-proposal-id="${proposalId}"]`)).toContainText('승인됨');
@@ -522,7 +522,7 @@ test.describe('E2E-5R — replan proposal flow (real API)', () => {
 
       // `/replan` with nothing waiting: the plan is on track, and the history is still there.
       await page.goto(`${state.webUrl}/replan`);
-      await expect(page.getByRole('heading', { name: '재계획', level: 1 })).toBeVisible();
+      await expect(page.getByRole('heading', { name: '다시 맞추기', level: 1 })).toBeVisible();
       await expect(page.locator('[data-replan-none]')).toContainText('지금은 계획대로예요');
       await expect(page.locator('[data-replan-list] .replan-item')).toHaveCount(2);
       expect(await blockingAxeViolations(page)).toEqual([]);

@@ -10,7 +10,8 @@ import { plural } from '../types';
  *   블록 (time block) · 여유 (slack) · 위험도 (risk) · 축소 / 재배치
  *   제안 (proposal) · 확정 (approve a plan) · 승인 (approve a draft/proposal)
  *   회고 (session review) · 추정 (estimate) · 직접 작성 모드 (manual mode)
- *   재계획 (replan) · 재계획 요청 (user-requested replan) · 고정된 블록 (locked block)
+ *   다시 맞추기 (replan, stage ⑥; its proposal is 다시 맞춘 일정안 — 제안 on its own screen)
+ *   다시 맞추기 요청 (user-requested replan) · 고정된 블록 (locked block)
  *   AI 분석 (what the app learned: the personal estimation profile) · 기록 (estimation feedback item)
  * Messages use polite 해요체; labels and buttons stay short nouns/verbs.
  * Particles never follow a `{number}` placeholder (Korean particles depend on
@@ -61,7 +62,7 @@ export const ko = {
     crumbTask: '작업',
     crumbProject: '프로젝트',
     crumbTimer: '타이머',
-    crumbReplan: '재계획',
+    crumbReplan: '다시 맞추기',
     crumb: '현재 위치: {place}',
     crumbNested: '현재 위치: {place} · {page}',
     collapseSidebar: '사이드바 접기',
@@ -352,7 +353,7 @@ export const ko = {
     },
     ai: {
       title: 'AI 도우미',
-      open: '재계획 제안 열기',
+      open: '다시 맞춘 일정안 열기',
       ratioUnit: '배',
       ratioCaption: '실제 시간이 예상의 {value}배예요',
       samples: plural({ other: '회고 기록 {count}건으로 계산했어요' }),
@@ -360,14 +361,14 @@ export const ko = {
       notEnoughBody: plural({ other: '집중을 마치고 회고를 {count}번 남기면 내 속도를 알려 드려요.' }),
       trendSummary: plural({ other: '최근 기록 {count}건의 실제 시간 대 예상 시간 비율이에요.' }),
       insightsLink: 'AI 분석에서 보기',
-      replanPending: plural({ other: '재계획 제안 {count}건이 기다려요' }),
-      replanNone: '기다리는 재계획 제안이 없어요',
-      replanOffline: '오프라인이라 재계획 제안을 확인하지 못했어요',
+      replanPending: plural({ other: '다시 맞춘 일정안 {count}건이 기다려요' }),
+      replanNone: '기다리는 제안이 없어요',
+      replanOffline: '오프라인이라 다시 맞춘 일정안을 확인하지 못했어요',
       replanLink: '제안 보기',
       risk: '오늘 계획 위험도 {level}',
       riskUnknown: '오늘 계획 위험도를 아직 몰라요',
       consentTitle: 'AI 계획 도움이 꺼져 있어요',
-      consentBody: '동의하면 재계획 제안과 계획 도움을 받을 수 있어요. 무엇이 나가는지 먼저 보여 드려요.',
+      consentBody: '동의하면 다시 맞춘 일정안과 계획 도움을 받을 수 있어요. 무엇이 나가는지 먼저 보여 드려요.',
       consentLink: '여기서 AI 켜기',
     },
     log: {
@@ -757,8 +758,8 @@ export const ko = {
     // the state, the row's task title and time are the description.
     toggle: '블록 고정',
     locked: '고정됨',
-    lockedToast: '블록을 고정했어요. 재계획해도 이 블록은 옮기지 않아요.',
-    unlockedToast: '고정을 풀었어요. 다음 재계획에서 이 블록을 옮길 수 있어요.',
+    lockedToast: '블록을 고정했어요. 일정을 다시 맞춰도 이 블록은 옮기지 않아요.',
+    unlockedToast: '고정을 풀었어요. 다음에 다시 맞출 때 이 블록을 옮길 수 있어요.',
     stale: '이 블록이 다른 곳에서 바뀌었어요. 최신 일정을 다시 불러왔어요.',
     notLockable: '이미 시작했거나 끝난 블록은 고정을 바꿀 수 없어요. 최신 일정을 다시 불러왔어요.',
     error: '블록 고정을 바꾸지 못했어요.',
@@ -767,7 +768,7 @@ export const ko = {
 
   replan: {
     // HOLO-03A: one place — what triggered it, before → after, approve / reject / ask again, and the history.
-    title: '재계획',
+    title: '다시 맞추기',
     lede: '일정이 어긋나면 최소한만 고친 새 일정을 제안해요. 승인하기 전에는 아무것도 바뀌지 않아요.',
     none: {
       title: '지금은 계획대로예요',
@@ -802,10 +803,10 @@ export const ko = {
       open: '전 → 후 보기',
       openAll: '제안 모두 보기',
     },
-    policy: '재계획 제안은 하루 최대 2번이고, 거절한 이유는 24시간 동안 다시 제안하지 않아요.',
-    loading: '재계획 제안을 불러오는 중…',
-    loadError: '재계획 제안을 불러오지 못했어요.',
-    detailLoadError: '이 재계획 제안을 불러오지 못했어요.',
+    policy: '제안은 하루 최대 2번이고, 거절한 이유는 24시간 동안 다시 제안하지 않아요.',
+    loading: '다시 맞춘 일정안을 불러오는 중…',
+    loadError: '다시 맞춘 일정안을 불러오지 못했어요.',
+    detailLoadError: '이 제안을 불러오지 못했어요.',
     createdAt: '{time}에 만들었어요',
     expiresAt: '{time}까지 승인할 수 있어요',
     changedCount: plural({ other: '바뀌는 블록 {count}개' }),
@@ -820,14 +821,14 @@ export const ko = {
       deadline_risk: '지금 일정대로라면 마감 전에 끝내기 빠듯해 보여요.',
       commitment_conflict: '새로 생긴 약속이 계획된 블록과 겹쳐요.',
       early_completion: '일찍 끝낸 작업이 있어서 남는 시간이 생겼어요.',
-      user_request: '직접 재계획을 요청했어요.',
+      user_request: '직접 다시 맞추기를 요청했어요.',
     },
     reason: {
       deadline_slack_negative: '마감 여유가 모자라요',
       commitment_overlap: '약속과 겹치는 블록이 있어요',
       early_completion_capacity: '남는 시간을 돌려받을 수 있어요',
       dependency_change: '선행 관계가 바뀌었어요',
-      user_request: '직접 요청한 재계획이에요',
+      user_request: '직접 요청한 다시 맞추기예요',
     },
     reasonShort: {
       deadline_slack_negative: '마감 여유 부족',
@@ -899,9 +900,9 @@ export const ko = {
     rejectError: '제안을 거절하지 못했어요.',
     violations: '일정 규칙에 맞지 않는 부분',
     rejectTitle: '이 제안을 거절할까요?',
-    rejectBody: '거절하면 같은 이유({reason})의 재계획 제안은 24시간 동안, {until}까지 다시 만들지 않아요.',
-    rejectBodyUser: '직접 요청하는 재계획도 그동안은 다시 요청할 수 없어요.',
-    rejectBodyOther: '그동안에도 [재계획 요청]으로 직접 다시 계산할 수는 있어요.',
+    rejectBody: '거절하면 같은 이유({reason})의 제안은 24시간 동안, {until}까지 다시 만들지 않아요.',
+    rejectBodyUser: '그동안은 다시 맞추기를 직접 요청할 수도 없어요.',
+    rejectBodyOther: '그동안에도 [다시 맞추기 요청]으로 직접 다시 계산할 수는 있어요.',
     rejectReason: '거절 이유 (선택, 나만 볼 수 있어요)',
     rejectConfirm: '거절하기',
     conflictTitle: '그사이 가용 시간이나 약속이 바뀌었어요',
@@ -909,16 +910,16 @@ export const ko = {
     conflictHelp: '새로 고쳐서 최신 상태를 확인하거나, 지금 상태로 다시 계산해 달라고 요청해 주세요.',
     conflictRefresh: '새로 고침',
     conflictRecompute: '지금 상태로 다시 계산',
-    request: '재계획 요청',
+    request: '다시 맞추기 요청',
     requesting: '요청하는 중…',
     requestHelp: '지금 일정을 최소한만 고친 제안을 만들어요. 승인하기 전에는 아무것도 바뀌지 않아요.',
-    requested: '재계획 제안을 만들었어요. 승인하기 전에는 아무것도 바뀌지 않아요.',
-    suppressed: '지금은 재계획을 더 요청할 수 없어요. {wait} 뒤({at})에 다시 요청할 수 있어요.',
+    requested: '다시 맞춘 일정안을 만들었어요. 승인하기 전에는 아무것도 바뀌지 않아요.',
+    suppressed: '지금은 다시 맞추기를 더 요청할 수 없어요. {wait} 뒤({at})에 요청할 수 있어요.',
     suppressedWhy: '거절한 이유는 24시간 동안 다시 제안하지 않고, 제안은 하루 2번까지예요.',
-    suppressedNoWait: '지금은 재계획을 더 요청할 수 없어요. 잠시 뒤에 다시 시도해 주세요.',
-    noActivePlan: '확정된 일정이 있는 계획만 다시 짤 수 있어요.',
+    suppressedNoWait: '지금은 다시 맞추기를 더 요청할 수 없어요. 잠시 뒤에 다시 시도해 주세요.',
+    noActivePlan: '확정된 일정이 있는 계획만 다시 맞출 수 있어요.',
     planMissing: '이 계획을 찾을 수 없어요. 일정안을 다시 만들어 주세요.',
-    requestError: '재계획을 요청하지 못했어요.',
+    requestError: '다시 맞추기를 요청하지 못했어요.',
   },
 
   // HOLO-03A: AI 분석 (was 내 패턴). Every number is counted from the owner's own
@@ -1279,9 +1280,9 @@ export const ko = {
     },
     risk: {
       title: '마감 위험이 있어요',
-      lede: '이대로면 마감을 넘길 수 있어요. 재계획 제안을 보거나, 확인만 하고 넘어갈 수 있어요.',
+      lede: '이대로면 마감을 넘길 수 있어요. 다시 맞춘 일정안을 보거나, 확인만 하고 넘어갈 수 있어요.',
       reasons: '마감 위험 이유',
-      openReplan: '재계획 제안 보기',
+      openReplan: '다시 맞춘 일정안 보기',
       acknowledge: '확인했어요',
       acknowledged: '오늘의 마감 위험을 확인했어요.',
       none: '지금은 마감 위험이 없어요.',
@@ -1618,7 +1619,7 @@ export const ko = {
     dismissing: '지우는 중…',
     dismissAria: '알림 지우기: {label}',
     openProposal: '제안 보기',
-    openProposalAria: '재계획 제안 보기: {label}',
+    openProposalAria: '제안 보기: {label}',
     meta: '{state} · {time} · {channel}',
     kind: {
       due_soon: '곧 마감되는 작업이 있어요',
@@ -1626,7 +1627,7 @@ export const ko = {
       schedule_conflict: '일정이 겹쳐요',
       session_reminder: '집중 세션 시간이에요',
       daily_summary: '오늘의 요약이 준비됐어요',
-      replan_proposal: '다시 짠 계획 제안이 준비됐어요',
+      replan_proposal: '다시 맞춘 일정안이 준비됐어요',
     },
     state: {
       scheduled: '예약됨',
@@ -2891,8 +2892,8 @@ export const ko = {
     approval_in_progress: '승인을 처리하고 있어요. 잠시 뒤에 다시 시도해 주세요.',
     active_session_exists: '이미 진행 중인 집중 세션이 있어요.',
     session_state_conflict: '세션 상태가 바뀌어서 이 작업을 할 수 없어요.',
-    replan_suppressed: '지금은 재계획 제안을 더 만들 수 없어요. 잠시 뒤에 다시 시도해 주세요.',
-    proposal_state_conflict: '이 재계획 제안은 이미 처리됐거나 만료됐어요. 새로고침해 주세요.',
+    replan_suppressed: '지금은 다시 맞춘 일정안을 더 만들 수 없어요. 잠시 뒤에 다시 시도해 주세요.',
+    proposal_state_conflict: '이 제안은 이미 처리됐거나 만료됐어요. 새로고침해 주세요.',
     not_found: '찾을 수 없어요. 이미 삭제됐을 수 있어요.',
     forbidden: '이 작업을 할 권한이 없어요.',
     rate_limited: '요청이 너무 많아요. 잠시 뒤에 다시 시도해 주세요.',

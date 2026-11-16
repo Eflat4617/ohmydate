@@ -62,7 +62,7 @@ import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 
 /**
- * 재계획 (HOLO-03A; M5-03, 05 §11, 06 §7, 08 §2.6): the one place where the
+ * 다시 맞추기 (HOLO-03A; M5-03, 05 §11, 06 §7, 08 §2.6): the one place where the
  * app's proposals to re-plan are looked at.
  *
  *   `/replan`       the newest proposal that waits — or, when none does, that
@@ -112,7 +112,7 @@ const items = computed(() =>
     return right.createdAt.localeCompare(left.createdAt);
   }),
 );
-/** "재계획 요청" needs a plan: the one the newest proposal names (FU-70). Nothing is remembered on the device. */
+/** "다시 맞추기 요청" needs a plan: the one the newest proposal names (FU-70). Nothing is remembered on the device. */
 const latestPlanId = computed(() => {
   const newest = [...(listQuery.data.value?.items ?? [])].sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
   return newest?.planId ?? null;

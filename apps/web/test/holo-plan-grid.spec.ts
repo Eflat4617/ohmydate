@@ -97,7 +97,7 @@ describe('week grid: proposals and ghosts', () => {
     ]);
   });
 
-  it('draws where a block stood as a ghost with what the 재계획 does to it', () => {
+  it('draws where a block stood as a ghost with what the 다시 맞추기 does to it', () => {
     const result = grid({
       ghosts: [{ key: 'old', taskId: TASK, startAt: seoul('2026-11-11', '19:00'), endAt: seoul('2026-11-11', '20:00'), change: 'moved' }],
       proposals: [{ index: 0, taskId: TASK, startAt: seoul('2026-11-12', '19:00'), endAt: seoul('2026-11-12', '20:00'), change: 'moved' }],

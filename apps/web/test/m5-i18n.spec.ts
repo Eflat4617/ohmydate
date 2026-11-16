@@ -95,13 +95,13 @@ describe('M5-03 catalog coverage of replan and estimation enums', () => {
     expect(ratioText(1)).toBe('1배');
     const now = Date.parse('2026-11-14T09:40:00Z');
     expect(suppressedText(86_400, now, 'Asia/Seoul')).toBe(
-      '지금은 재계획을 더 요청할 수 없어요. 1일 뒤(11월 15일 (일) 오후 6:40)에 다시 요청할 수 있어요.',
+      '지금은 다시 맞추기를 더 요청할 수 없어요. 1일 뒤(11월 15일 (일) 오후 6:40)에 요청할 수 있어요.',
     );
     expect(suppressedText(5_400, now, 'Asia/Seoul')).toBe(
-      '지금은 재계획을 더 요청할 수 없어요. 1시간 30분 뒤(11월 14일 (토) 오후 8:10)에 다시 요청할 수 있어요.',
+      '지금은 다시 맞추기를 더 요청할 수 없어요. 1시간 30분 뒤(11월 14일 (토) 오후 8:10)에 요청할 수 있어요.',
     );
     // Without a usable header the generic copy is used (negative).
-    expect(suppressedText(undefined, now, 'Asia/Seoul')).toBe('지금은 재계획을 더 요청할 수 없어요. 잠시 뒤에 다시 시도해 주세요.');
-    expect(suppressedText(0, now, 'Asia/Seoul')).toBe('지금은 재계획을 더 요청할 수 없어요. 잠시 뒤에 다시 시도해 주세요.');
+    expect(suppressedText(undefined, now, 'Asia/Seoul')).toBe('지금은 다시 맞추기를 더 요청할 수 없어요. 잠시 뒤에 다시 시도해 주세요.');
+    expect(suppressedText(0, now, 'Asia/Seoul')).toBe('지금은 다시 맞추기를 더 요청할 수 없어요. 잠시 뒤에 다시 시도해 주세요.');
   });
 });

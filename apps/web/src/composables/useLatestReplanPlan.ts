@@ -6,7 +6,7 @@ import { useOfflineStore } from '../stores/offline';
 import { useSessionStore } from '../stores/session';
 
 /**
- * Plan id for "재계획 요청" on screens that have no plan of their own (Today,
+ * Plan id for "다시 맞추기 요청" on screens that have no plan of their own (Today,
  * the replan list): the `planId` the server put on the owner's newest replan
  * proposal (FU-70). Nothing is remembered on the device; without any proposal
  * the request stays on the plan page, which knows its own id.

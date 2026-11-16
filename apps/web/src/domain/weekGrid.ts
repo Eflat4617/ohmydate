@@ -7,7 +7,7 @@
  *
  * The planning screens draw two more kinds on the same grid: a `proposal` (a
  * block of a schedule that is not approved yet — a candidate of 계획 세우기,
- * the "after" of a 재계획) and a `ghost` (where a block stood before a 재계획
+ * the "after" of a 다시 맞추기) and a `ghost` (where a block stood before a 다시 맞추기
  * moved it). Behind the items a day can carry `bands`: the owner's available
  * hours, focus windows and 쉼.
  *
@@ -22,7 +22,7 @@ import { addDaysToDate, localParts, weekdayOfDate } from './time';
 
 export type WeekItemKind = 'block' | 'commitment' | 'deadline' | 'proposal' | 'ghost';
 
-/** What a 재계획 does to a block (domain/replan.ts `BlockChangeKind`). */
+/** What a 다시 맞추기 does to a block (domain/replan.ts `BlockChangeKind`). */
 export type WeekItemChange = 'moved' | 'shrunk' | 'extended' | 'added' | 'removed';
 
 /** The page starts at 06:00 unless something starts earlier, or the earlier hours are asked for. */
@@ -68,11 +68,11 @@ export interface WeekProposalInput {
   readonly endAt: string;
   /** The server refused this block as it stands. */
   readonly invalid?: boolean;
-  /** 재계획: what approving does to the block that was here before. */
+  /** 다시 맞추기: what approving does to the block that was here before. */
   readonly change?: WeekItemChange;
 }
 
-/** Where a block stood before a 재계획 moved, shortened or dropped it. */
+/** Where a block stood before a 다시 맞추기 moved, shortened or dropped it. */
 export interface WeekGhostInput {
   readonly key: string;
   readonly taskId: string;
@@ -152,7 +152,7 @@ export interface WeekItem {
   readonly proposalIndex: number | null;
   /** A proposal the server refused as it stands. */
   readonly invalid: boolean;
-  /** 재계획: what approving does here (a proposal or a ghost); null otherwise. */
+  /** 다시 맞추기: what approving does here (a proposal or a ghost); null otherwise. */
   readonly change: WeekItemChange | null;
   /** Side by side: this item's column among `lanes`, and how many columns it may take. */
   readonly lane: number;
@@ -209,7 +209,7 @@ export interface WeekGridInput {
   readonly showEarly?: boolean;
   /** Blocks of a schedule that is not approved yet. */
   readonly proposals?: readonly WeekProposalInput[];
-  /** Where blocks stood before a 재계획. */
+  /** Where blocks stood before a 다시 맞추기. */
   readonly ghosts?: readonly WeekGhostInput[];
   /** Drawn behind the items as bands; without it a day has none. */
   readonly availability?: WeekAvailabilityInput | null;

@@ -541,7 +541,7 @@ OhMyDate's own: the brand mark in the round — an open ring of glass (the O, a 
 
 - **Marks of what is not real yet** (HOLO-03A): the same grid draws a schedule that is only proposed, so there is one calendar in the app.
   - A **proposal** (`.wg-item--proposal`) is a dashed lime outline on the faintest lime, never a fill: dashed means "not confirmed". One the server refused (`--invalid`) takes the red edge and `aria-invalid`.
-  - A **ghost** (`.wg-item--ghost`) is a dotted outline with struck-through words: where a block stood before a 재계획.
+  - A **ghost** (`.wg-item--ghost`) is a dotted outline with struck-through words: where a block stood before a 다시 맞추기.
   - A **locked** block (`.wg-item--locked`) carries a small lock.
   - **Available hours** are bands behind the items (`[data-band]`): work hours the faintest fill, focus windows a violet tint, a 쉼 day hatched. They are drawn only where a schedule is being chosen.
   - With `editable`, a proposal moves by drag or Alt+Arrow (5 minutes) and resizes by its lower edge or Alt+Shift+Arrow. Nothing else on the grid can be edited. Its accessible name says `일정안 블록, …`; a ghost's says `옮기기 전 자리, …`.
@@ -564,7 +564,7 @@ The three kinds are a shape each, wherever they are listed: a bar (block), a dot
 - **하던 계획** (`PlanResumeList`): a plan left unfinished is offered again on 계획 세우기 and on 개요. The device remembers ids only, per owner.
 - **AI wait** (`AiWaitPanel`, `.ai-wait`): a calm strip with what is happening, how long it usually takes, and 취소. It appears only after a moment, so a fast answer never flashes it.
 
-### 재계획 (HOLO-03A, `views/ReplanView.vue`)
+### 다시 맞추기 (HOLO-03A, `views/ReplanView.vue`; called 재계획 until HOLO-06)
 One screen for `/replan` and `/replan/:id`: the proposal on show at the left, every proposal (waiting first, then the history) in a card at the right, under it on a narrow page.
 
 - **Order:** why it came (the trigger as the title, one sentence, when it was made and until when it can be approved) → 전 → 후 as three small cards → 전 → 후 on the week grid → the decision → the account in words (each change with its old time struck through and its new time, the locked blocks, the reasons).

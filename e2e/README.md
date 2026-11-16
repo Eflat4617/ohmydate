@@ -195,13 +195,13 @@ tick skipped by a contended advisory lock is tolerated), and checks:
 - exactly one `commitment_conflict` proposal and one `replan_proposal`
   notification; 오늘 (on 개요) shows one replan card (a link, never the filled button)
   and the notification links to the proposal;
-- 재계획 (one screen since HOLO-03A) lists only the overlapped block as moved
+- 다시 맞추기 (one screen since HOLO-03A) lists only the overlapped block as moved
   and the locked block as unchanged, shows 전 → 후 as numbers and on the week
   grid (a ghost where the block stood, a proposal where it goes), and has one
   filled button, 승인; approval sends `If-Match: W/"availability:<n>"` + a
   UUIDv7 key, moves only that block, the locked block keeps its row and times,
   and the filled button becomes 오늘 보기;
-- *재계획 요청* → reject (24 h explanation) → asking again is
+- *다시 맞추기 요청* → reject (24 h explanation) → asking again is
   `409 replan_suppressed` with `Retry-After` ≈ 24 h, shown as a wait;
 - the list beside the proposal holds the history, and `/replan` with nothing
   waiting says the plan is on track.

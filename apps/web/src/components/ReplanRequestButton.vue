@@ -12,7 +12,7 @@ import UiBanner from './ui/UiBanner.vue';
 import UiButton from './ui/UiButton.vue';
 
 /**
- * "재계획 요청" (trigger kind user_request). On success it opens the new
+ * "다시 맞추기 요청" (trigger kind user_request). On success it opens the new
  * proposal; a suppressed request explains when the next one is allowed.
  */
 const props = withDefaults(

@@ -196,7 +196,7 @@ describe('Today: lock a block', () => {
     expect(mockDb.todayBlockLocks.get(TODAY_BLOCK_ONE_ID)).toEqual({ locked: true, version: 2 });
     expect(mockDb.today.version).toBe(versionBefore + 1);
     expect(useToastStore().toasts.map((toast) => toast.message)).toContain(
-      '블록을 고정했어요. 재계획해도 이 블록은 옮기지 않아요.',
+      '블록을 고정했어요. 일정을 다시 맞춰도 이 블록은 옮기지 않아요.',
     );
     // A locked block can be neither shrunk nor moved; the other card still can.
     const lockedActions = card(wrapper, TODAY_BLOCK_ONE_ID).findAll('button');
