@@ -27,7 +27,7 @@ import { dirname, join, resolve } from 'node:path';
 import { clearTimeout, setTimeout } from 'node:timers';
 import { fileURLToPath } from 'node:url';
 import AxeBuilder from '@axe-core/playwright';
-import { chromium } from '@playwright/test';
+import { chromium, webkit } from '@playwright/test';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const webRoot = resolve(here, '..');
@@ -517,7 +517,8 @@ async function main() {
     vite = await startVite();
     baseUrl = `http://127.0.0.1:${port}`;
   }
-  const browser = await chromium.launch();
+  // --browser webkit: the engine family the desktop shell uses (blueprint 15, R1).
+  const browser = await (arg('browser', 'chromium') === 'webkit' ? webkit : chromium).launch();
   try {
     for (const scheme of SCHEMES) {
       for (const viewport of VIEWPORTS) {
