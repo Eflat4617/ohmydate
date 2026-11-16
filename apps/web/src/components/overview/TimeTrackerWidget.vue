@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { anyNotReady } from '../../platform/notReady';
 import { computed } from 'vue';
 import type { WorkSession } from '../../api';
 import UiButton from '../ui/UiButton.vue';
@@ -81,6 +82,7 @@ const recent = computed(() =>
 
 const state = computed(() => {
   if (!props.ready || sessionsQuery.isLoading.value || directory.isLoading.value) return 'loading' as const;
+  if (anyNotReady(sessionsQuery.error.value, directory.error.value)) return 'not-ready' as const;
   if (sessionsQuery.isError.value || directory.isError.value) return 'error' as const;
   return 'ready' as const;
 });

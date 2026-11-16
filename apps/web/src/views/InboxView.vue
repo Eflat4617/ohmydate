@@ -9,6 +9,7 @@ import QuickAddForm from '../components/QuickAddForm.vue';
 import TaskList from '../components/TaskList.vue';
 import TaskParseSection from '../components/TaskParseSection.vue';
 import { browserTimeZone } from '../i18n/format';
+import { aiAvailable } from '../platform/mode';
 import { useAuthStore } from '../stores/auth';
 import UiBadge from '../components/ui/UiBadge.vue';
 import UiBanner from '../components/ui/UiBanner.vue';
@@ -21,6 +22,8 @@ const offline = useOfflineStore();
 const auth = useAuthStore();
 const queryClient = useQueryClient();
 const quickAdd = ref<InstanceType<typeof QuickAddForm> | null>(null);
+// Desktop, before its AI slice: a to-do is typed as the title it is; 말로 적기 is not offered.
+const aiHere = computed(() => aiAvailable(auth.user));
 const {
   create,
   busy: createBusy,
@@ -124,7 +127,7 @@ async function refresh(): Promise<void> {
         @filled-change="quickAddFilled = $event"
       />
       <UiBanner v-if="createError" tone="error" role="alert">{{ createError }}</UiBanner>
-      <details class="inbox-fold" data-task-parse-fold>
+      <details v-if="aiHere" class="inbox-fold" data-task-parse-fold>
         <summary class="inbox-fold-summary">
           <UiIcon name="chevron-down" :size="16" class="inbox-fold-icon" />
           {{ t('inbox.parseFold') }}

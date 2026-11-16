@@ -6,6 +6,7 @@ import { useUiStore } from '../stores/ui';
 import UiDialog from './ui/UiDialog.vue';
 import UiIcon from './ui/UiIcon.vue';
 import { BOTTOM_BAR_PLACES, isNavItemCurrent, MORE_LINKS } from '../layout/navigation';
+import { isDesktop } from '../platform/mode';
 import { t } from '../i18n';
 
 /**
@@ -17,6 +18,8 @@ const ui = useUiStore();
 const auth = useAuthStore();
 const route = useRoute();
 const moreOpen = ref(false);
+// Desktop: one owner and no account — nothing to sign out of.
+const desktop = isDesktop();
 
 const [first, second, third] = BOTTOM_BAR_PLACES;
 const before = [first, second].filter((item) => item !== undefined);
@@ -138,8 +141,8 @@ function signOut(): void {
           <span class="nav-link-label">{{ t('nav.help') }}</span>
         </button>
       </li>
-      <li>
-        <button type="button" class="nav-link nav-link--quiet" @click="signOut">
+      <li v-if="!desktop">
+        <button type="button" class="nav-link nav-link--quiet" data-more-sign-out @click="signOut">
           <UiIcon name="logout" class="nav-link-icon" />
           <span class="nav-link-label">{{ t('nav.signOut') }}</span>
         </button>

@@ -17,6 +17,7 @@ import {
   flowPlaces,
   folderAt,
   footprintOf,
+  footBarBox,
   fractionOf,
   freeSpot,
   layoutFolders,
@@ -416,7 +417,11 @@ function sync(): void {
   } else {
     for (const item of fresh) {
       const place = saved.get(item.id);
-      const at = place !== undefined ? pointOf(place, regionBox(next, item.region)) : freeSpot([...keep.values()], next, item, options);
+      // Never under the foot bar: there it could not be pointed at while anything is picked.
+      const at =
+        place !== undefined
+          ? pointOf(place, regionBox(next, item.region))
+          : freeSpot([...keep.values()], next, item, { ...options, keepClear: [footBarBox(next)] });
       keep.set(item.id, createBody(item.id, item, at, item.region));
       if (!known.has(item.id)) markArriving(item.id);
       seeded = true;

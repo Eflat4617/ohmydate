@@ -26,6 +26,7 @@ import { addDaysToDate, localParts, startOfWeek, todayInZone } from '../domain/t
 import { t } from '../i18n';
 import { formatCivilDateRange, formatTime } from '../i18n/format';
 import { useLayoutNow } from '../layout/now';
+import { ownerEmail } from '../platform/mode';
 import { useTodaySnapshot } from '../layout/useTodaySnapshot';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
@@ -98,7 +99,7 @@ const runningTitle = computed(() => {
   );
 });
 
-const name = computed(() => displayNameOf(auth.user?.email));
+const name = computed(() => displayNameOf(ownerEmail(auth.user)));
 const period = computed(() => greetingPeriod(localParts(new Date(now.value).toISOString(), timeZone.value).hour));
 const greeting = computed(() =>
   name.value.length > 0
@@ -117,6 +118,7 @@ const nextSentence = computed(() => {
     return title === null ? t('overview.next.runningUntitled') : t('overview.next.running', { title });
   }
   if (snapshot.isLoading.value) return t('overview.next.loading');
+  if (snapshot.notReady.value) return t('desktop.notReady.next');
   if (snapshot.isError.value || plan.value === null) return t('overview.next.error');
   const block = nextBlock.value;
   if (block !== null) {
@@ -252,6 +254,7 @@ const canStart = computed(() => focus.canStart.value && running.value === null);
           :plan="plan"
           :plan-loading="snapshot.isLoading.value"
           :plan-error="snapshot.isError.value"
+          :plan-not-ready="snapshot.notReady.value"
           :today="today"
           :time-zone="timeZone"
           :ready="ready"

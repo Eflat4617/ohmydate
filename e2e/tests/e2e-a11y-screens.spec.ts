@@ -1,7 +1,8 @@
 import AxeBuilder from '@axe-core/playwright';
 import { type Page } from '@playwright/test';
 import { expect, test } from '../helpers/test';
-import { login } from '../helpers/app';
+import { driver, login } from '../helpers/app';
+import type { Area } from '../helpers/driver';
 import { installBrowserClockAt, testClock } from '../helpers/clock';
 import { nextLocalMorningMs } from '../helpers/day-clock';
 import {
@@ -11,6 +12,7 @@ import {
   createOverlappingCommitment,
   createPlanFromGoal,
   expectOk,
+  idempotencyKey,
   listCommitmentIntervals,
   listScheduleBlockIntervals,
   setContinuousWeeklyAvailability,
@@ -49,6 +51,12 @@ import { readState } from '../helpers/state';
 // sections. It adds the capture bar (the top bar's field, or the nav's sheet on
 // a phone) and 설정 › 화면's 투명 효과 줄이기, which turns the glass opaque.
 
+// RC-10B: the same walk on either target. Each screen names the parts of the
+// product it reads (`screen(name, needs, …)`); the default target serves all
+// of them, so every screen runs there as before. On the `core` target the
+// Rust core serves them area by area, so a screen runs once its parts are
+// ported — today 담기, 할 일 and 설정 › 화면 — and the report lists the rest.
+
 const state = readState();
 const account = { email: state.plansEmail, password: state.plansPassword };
 /** FU-79: simulate a local morning with room for the plan and a commitment. */
@@ -58,6 +66,24 @@ const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 const PHONE = { width: 390, height: 844 };
 const DESKTOP = { width: 1280, height: 800 };
 const GRID_MS = 5 * 60_000;
+
+/**
+ * One screen of the walk. `needs` are the parts of the product it reads. On a
+ * target that does not serve one of them yet the screen is left for the task
+ * that ports it, and the test's report says which and why — it is never
+ * quietly passed. (`driver.serves` is always true on the default target.)
+ */
+async function screen(name: string, needs: readonly Area[], body: () => Promise<void>): Promise<void> {
+  const missing = needs.filter((area) => !driver.serves(area));
+  if (missing.length > 0) {
+    test.info().annotations.push({
+      type: `not on the ${driver.target} target yet`,
+      description: `${name} — needs ${missing.join(', ')}`,
+    });
+    return;
+  }
+  await test.step(name, body);
+}
 
 async function blockingAxeViolations(page: Page) {
   const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
@@ -154,7 +180,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
     await login(page, state, account);
     const apiNowMs = clock.nowMs();
 
-    await test.step('seed a plan with blocks today and one commitment', async () => {
+    await screen('seed a plan with blocks today and one commitment', ['availability', 'planning', 'commitments'], async () => {
       await setContinuousWeeklyAvailability(page, state);
       const goal = await createApprovedGoalWithSingleStep(page, state, title, {
         nowMs: apiNowMs,
@@ -189,12 +215,25 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         commitmentTitle,
       );
     });
+    if (!driver.serves('planning')) {
+      // No plan to make the to-dos of: 할 일 still needs some to float.
+      await test.step('seed two to-dos (no planning on this target yet)', async () => {
+        for (const todo of [`${title} prep`, `${title} work`]) {
+          const created = await apiFetch(page, state, '/tasks', {
+            method: 'POST',
+            body: { title: todo },
+            headers: { 'Idempotency-Key': idempotencyKey() },
+          });
+          await expectOk(created, 'POST /tasks');
+        }
+      });
+    }
 
     for (const viewport of [DESKTOP, PHONE]) {
       const size = `${viewport.width}x${viewport.height}`;
       await page.setViewportSize(viewport);
 
-      await test.step(`overview (${size})`, async () => {
+      await screen(`overview (${size})`, ['today', 'planning', 'focus', 'insights'], async () => {
         await page.goto(`${state.webUrl}/overview`);
         await expect(
           page.getByRole('heading', { level: 1, name: /좋은 (아침|오후|저녁)(이에요|예요)$/ }),
@@ -220,7 +259,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expectAccessible(page, `overview ${size}`);
       });
 
-      await test.step(`담기: the capture bar (${size})`, async () => {
+      await screen(`담기: the capture bar (${size})`, [], async () => {
         // A wide window has the field in the top bar; below that the nav's 담기 opens it as a sheet.
         if (viewport === PHONE) await page.locator('[data-nav-capture]').click();
         else await page.locator('.app-topbar [data-capture-input]').click();
@@ -232,7 +271,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expect(panel).toHaveCount(0);
       });
 
-      await test.step(`할 일: canvas, detail, list + folder page (${size})`, async () => {
+      await screen(`할 일: canvas, detail, list + folder page (${size})`, ['tasks'], async () => {
         // HOLO-05: 할 일 opens on its canvas — every open to-do a named option of one listbox.
         await page.goto(`${state.webUrl}/tasks`);
         await expect(page.locator('[data-tasks-place]')).toHaveAttribute('data-tasks-view', 'canvas');
@@ -286,7 +325,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expectAccessible(page, `project detail ${size}`);
       });
 
-      await test.step(`availability (${size})`, async () => {
+      await screen(`availability (${size})`, ['availability'], async () => {
         await page.goto(`${state.webUrl}/settings/availability`);
         await expect(page.getByRole('heading', { name: '설정', level: 1 })).toBeVisible();
         await expect(page.getByRole('heading', { name: '가용 시간', level: 2 })).toBeVisible();
@@ -309,7 +348,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expectAccessible(page, `availability ${size}`);
       });
 
-      await test.step(`약속: the planner's list (${size})`, async () => {
+      await screen(`약속: the planner's list (${size})`, ['commitments'], async () => {
         // The old address leads to the planner's 목록, which shows this week's 약속.
         await page.goto(`${state.webUrl}/commitments`);
         await page.waitForURL(/\/planner\?view=list/);
@@ -329,7 +368,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expect(row).toHaveCount(1);
       });
 
-      await test.step(`month (${size})`, async () => {
+      await screen(`month (${size})`, ['commitments', 'planning'], async () => {
         await page.goto(`${state.webUrl}/month`);
         await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^\d{4}년 \d{1,2}월$/);
         const grid = page.getByRole('grid', { name: /달력$/ });
@@ -344,7 +383,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expectAccessible(page, `month ${size}`);
       });
 
-      await test.step(`planner week + day (${size})`, async () => {
+      await screen(`planner week + day (${size})`, ['commitments', 'planning'], async () => {
         await page.goto(`${state.webUrl}/planner`);
         await expect(page.getByRole('heading', { level: 1 })).toHaveText(
           /^(\d{4}년 )?\d{1,2}월 \d{1,2}일 ~ \d{1,2}월 \d{1,2}일$/,
@@ -371,7 +410,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expectAccessible(page, `planner day ${size}`);
       });
 
-      await test.step(`집중: the timer and its record (${size})`, async () => {
+      await screen(`집중: the timer and its record (${size})`, ['focus'], async () => {
         // The old address leads to the place.
         await page.goto(`${state.webUrl}/tracker`);
         await page.waitForURL(/\/focus$/);
@@ -402,13 +441,13 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         }
       });
 
-      await test.step(`AI settings (${size})`, async () => {
+      await screen(`AI settings (${size})`, ['ai'], async () => {
         await page.goto(`${state.webUrl}/settings/ai`);
         await expect(page.getByRole('heading', { name: 'AI 설정', level: 2 })).toBeVisible();
         await expectAccessible(page, `AI settings ${size}`);
       });
 
-      await test.step(`calendar settings (${size})`, async () => {
+      await screen(`calendar settings (${size})`, ['google'], async () => {
         await page.goto(`${state.webUrl}/settings/calendar`);
         await expect(page.getByRole('heading', { name: '캘린더 연동', level: 2 })).toBeVisible();
         const status = page.locator('[data-google-status]');
@@ -421,7 +460,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expectAccessible(page, `calendar settings ${size}`);
       });
 
-      await test.step(`설정 › 화면: 투명 효과 줄이기 turns the glass opaque (${size})`, async () => {
+      await screen(`설정 › 화면: 투명 효과 줄이기 turns the glass opaque (${size})`, [], async () => {
         // The old address of the layout settings leads here.
         await page.goto(`${state.webUrl}/settings/layout`);
         await page.waitForURL(/\/settings\/display$/);
@@ -444,7 +483,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
         await expect(page.locator('html')).not.toHaveAttribute('data-transparency', 'reduce');
       });
 
-      await test.step(`notifications panel (${size})`, async () => {
+      await screen(`notifications panel (${size})`, ['today', 'notifications'], async () => {
         await page.goto(`${state.webUrl}/overview`);
         await expect(page.getByRole('heading', { name: '오늘', exact: true })).toBeVisible();
         if (viewport === PHONE) {
@@ -474,7 +513,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
     ];
     for (const run of calmRuns) {
       const size = `${run.viewport.width}x${run.viewport.height}`;
-      await test.step(`focus, calm mode, complete and review while calm (${size})`, async () => {
+      await screen(`focus, calm mode, complete and review while calm (${size})`, ['today', 'planning', 'focus'], async () => {
         await page.setViewportSize(run.viewport);
         await page.goto(`${state.webUrl}/overview`);
         const card = page.locator('.today-card', { hasText: run.block });
@@ -522,7 +561,7 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
     // sessions above), and where a plan starts — at both widths.
     for (const viewport of [DESKTOP, PHONE]) {
       const size = `${viewport.width}x${viewport.height}`;
-      await test.step(`다시 맞추기 + AI 분석 + 계획 세우기 (${size})`, async () => {
+      await screen(`다시 맞추기 + AI 분석 + 계획 세우기 (${size})`, ['replan', 'insights', 'planning'], async () => {
         await page.setViewportSize(viewport);
         await page.goto(`${state.webUrl}/replan`);
         await expect(page.getByRole('heading', { name: '다시 맞추기', level: 1 })).toBeVisible();

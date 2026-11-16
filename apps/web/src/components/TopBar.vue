@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router';
 import { displayNameOf, initialOf } from '../domain/displayName';
 import { t, tp } from '../i18n';
 import { crumbFor, NAV_SETTINGS } from '../layout/navigation';
+import { isDesktop, ownerEmail } from '../platform/mode';
 import { useAuthStore } from '../stores/auth';
 import { useUiStore } from '../stores/ui';
 import BrandMark from './BrandMark.vue';
@@ -35,7 +36,10 @@ const crumbText = computed(() => {
     : t('nav.crumbNested', { place: t(value.place), page: t(value.page) });
 });
 
-const name = computed(() => displayNameOf(auth.user?.email));
+// Desktop: one owner and no account — nothing to sign out of, and no address to show.
+const desktop = isDesktop();
+const email = computed(() => ownerEmail(auth.user));
+const name = computed(() => displayNameOf(email.value));
 const initial = computed(() => initialOf(name.value));
 const bellLabel = computed(() =>
   props.unread > 0 ? tp('nav.notificationsUnread', props.unread) : t('nav.notifications'),
@@ -157,13 +161,13 @@ function signOut(): void {
           <UiIcon name="chevron-down" :size="16" class="topbar-user-caret" />
         </button>
         <div v-if="userOpen" id="topbar-user-menu" class="menu glass topbar-user-menu">
-          <p v-if="auth.user" class="menu-note">{{ auth.user.email }}</p>
+          <p v-if="email" class="menu-note">{{ email }}</p>
           <ThemeSwitch class="topbar-theme" />
           <RouterLink :to="NAV_SETTINGS.to" class="btn btn--ghost menu-item" data-user-settings>
             <UiIcon :name="NAV_SETTINGS.icon" :size="18" />
             {{ t(NAV_SETTINGS.label) }}
           </RouterLink>
-          <button type="button" class="btn btn--ghost menu-item" data-user-sign-out @click="signOut">
+          <button v-if="!desktop" type="button" class="btn btn--ghost menu-item" data-user-sign-out @click="signOut">
             <UiIcon name="logout" :size="18" />
             {{ t('nav.signOut') }}
           </button>

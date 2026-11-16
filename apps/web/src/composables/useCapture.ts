@@ -18,7 +18,9 @@ import {
 import { localInputValue } from '../domain/time';
 import { t, tp } from '../i18n';
 import { layoutClock } from '../layout/clock';
+import { aiAvailable } from '../platform/mode';
 import { captureOwnerBinding, isOwnerBindingCurrent, ownerState } from '../session/ownerEpoch';
+import { useAuthStore } from '../stores/auth';
 import { useLlmConsentStore } from '../stores/llmConsent';
 import { useNlDraftRead, type NlDraftRow } from './useNlDraftRead';
 
@@ -33,8 +35,9 @@ import { useNlDraftRead, type NlDraftRow } from './useNlDraftRead';
  * - **No reading when none is needed:** one thing with no day or time in it
  *   is its own title and is added at once.
  * - **When the AI cannot be used** — no consent, the budget is spent, the
- *   provider is down, the read failed — the line becomes a to-do's title at
- *   once. Capture never asks for consent and never ends on an error.
+ *   provider is down, the read failed, or (desktop) there is no AI yet — the
+ *   line becomes a to-do's title at once. Capture never asks for consent and
+ *   never ends on an error.
  * - Reading, 취소, one idempotency key per draft, the refresh and the owner
  *   rules are the shared flow of composables/useNlDraftRead.ts: every request
  *   runs in an owner-bound task, drafts are added only for the owner who made
@@ -63,6 +66,7 @@ function fieldsOf(draft: CaptureDraft, timeZone: string): CaptureFields {
 
 export function useCapture(options: { readonly timeZone: Ref<string> }) {
   const llmConsent = useLlmConsentStore();
+  const auth = useAuthStore();
   /**
    * What has been added since the bar was opened (the hand-off reads it). It
    * grows line after line, so "계획에 넣기" carries everything just put down;
@@ -161,8 +165,9 @@ export function useCapture(options: { readonly timeZone: Ref<string> }) {
       await nl.addAll();
       return;
     }
-    if (llmConsent.needed) {
-      // No consent: capture does not ask for it. The line is its own title.
+    if (llmConsent.needed || !aiAvailable(auth.user)) {
+      // No consent — or, in the desktop bundle, no AI yet: capture does not ask
+      // for it and sends nothing to be read. The line is its own title.
       notice.value = 'no-ai';
       seedTitle(text);
       await nl.addAll();

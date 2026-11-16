@@ -9,7 +9,9 @@
  * - a line points at a Rust or harness test that does not exist;
  * - a "not yet" line points at a task that is finished or unknown;
  * - the totals no longer match the lines, or the task lists no longer match
- *   the plan.
+ *   the plan;
+ * - the E2E specs that run on the core target (`e2e/targets/core-specs.json`)
+ *   are not the ones the ledger says pass there.
  *
  * No core process is needed. `LEDGER_WRITE_TOTALS=1 corepack pnpm run
  * core:ledger` rewrites the totals block from the lines.
@@ -35,6 +37,30 @@ const DIRECTORIES = [
 ] as const;
 
 const STATES = ['옮김', '대체', '해당 없음', '아직'] as const;
+
+/** E2E specs are not ported; they are pointed at the core (blueprint 15 §7.3). */
+const E2E_DIRECTORY = 'e2e/tests';
+const coreSpecsPath = join(repoRoot, 'e2e/targets/core-specs.json');
+
+/** What disagrees between the specs the core target runs and the ledger's E2E lines. */
+function coreSpecProblems(coreSpecs: readonly string[], e2eLines: readonly Line[]): string[] {
+  const problems: string[] = [];
+  const byFile = new Map(e2eLines.map((line) => [line.file, line]));
+  for (const spec of coreSpecs) {
+    const line = byFile.get(spec);
+    if (line === undefined) problems.push(`${spec} runs on the core target but is not a spec the ledger names`);
+    else if (line.state !== '옮김' && line.state !== '아직') {
+      problems.push(`${spec} runs on the core target but the ledger says "${line.state}"`);
+    }
+  }
+  for (const line of e2eLines) {
+    if (line.state === '옮김' && !coreSpecs.includes(line.file)) {
+      problems.push(`${line.file} is "옮김" in the ledger but the core target does not run it`);
+    }
+  }
+  if (new Set(coreSpecs).size !== coreSpecs.length) problems.push('a spec is listed twice');
+  return problems;
+}
 type State = (typeof STATES)[number];
 
 interface Line {
@@ -174,7 +200,10 @@ describe('parity ledger (15 §7.5)', () => {
       if (line.state === '옮김' || line.state === '대체') {
         expect(line.note, `${where}: say where it went, after "→"`).toMatch(/^→ /);
       }
-      if (line.state === '옮김') {
+      if (line.state === '옮김' && line.directory === E2E_DIRECTORY) {
+        // An E2E spec is not rewritten: the same file runs on the core target.
+        expect(line.note, `${where}: say that it passes with E2E_TARGET=core`).toContain('`E2E_TARGET=core`');
+      } else if (line.state === '옮김') {
         expect(line.note, `${where}: name the Rust or harness test file`).toMatch(/`(?:core|tests-core)\/[^`]+`/);
       }
       if (line.state === '아직') {
@@ -228,6 +257,16 @@ describe('parity ledger (15 §7.5)', () => {
     expect(lines.length).toBe(DIRECTORIES.reduce((sum, directory) => sum + testFiles(directory).length, 0));
   });
 
+  test('the E2E specs the core target runs are the ones the ledger says pass there', () => {
+    const coreSpecs = JSON.parse(readFileSync(coreSpecsPath, 'utf8')) as string[];
+    const e2eLines = lines.filter((line) => line.directory === E2E_DIRECTORY);
+    expect(coreSpecs.length).toBeGreaterThan(0);
+    expect(
+      coreSpecProblems(coreSpecs, e2eLines),
+      'e2e/targets/core-specs.json and the e2e/tests table of core/PARITY.md disagree',
+    ).toEqual([]);
+  });
+
   test('the checks themselves notice what they are for (negative)', () => {
     const sample = [
       '## services/api/test',
@@ -246,6 +285,14 @@ describe('parity ledger (15 §7.5)', () => {
     expect(totalsBlock(parsed)).toContain('RC-40 1');
     expect(() => between('no markers here', 'totals')).toThrow();
     expect(() => taskList('<!-- tasks:start -->\n- 끝난 Task: RC-00\n<!-- tasks:end -->', '남은 Task')).toThrow();
+    // The core target's list and the ledger: each way of disagreeing is noticed.
+    const e2e = (file: string, state: string): Line => ({ directory: E2E_DIRECTORY, file, state, note: 'x' });
+    const table = [e2e('a.spec.ts', '옮김'), e2e('b.spec.ts', '아직'), e2e('c.spec.ts', '해당 없음'), e2e('d.spec.ts', '아직')];
+    expect(coreSpecProblems(['a.spec.ts', 'b.spec.ts'], table)).toEqual([]);
+    expect(coreSpecProblems(['b.spec.ts'], table)).toEqual(['a.spec.ts is "옮김" in the ledger but the core target does not run it']);
+    expect(coreSpecProblems(['a.spec.ts', 'c.spec.ts'], table)).toEqual(['c.spec.ts runs on the core target but the ledger says "해당 없음"']);
+    expect(coreSpecProblems(['a.spec.ts', 'zz.spec.ts'], table)).toEqual(['zz.spec.ts runs on the core target but is not a spec the ledger names']);
+    expect(coreSpecProblems(['a.spec.ts', 'a.spec.ts'], table)).toEqual(['a spec is listed twice']);
     // The walker finds nested files and ignores everything that is not a test.
     expect(testFiles('services/api/test')).toContain('db/migrate.test.ts');
     expect(testFiles('services/api/test')).not.toContain('support/test-context.ts');

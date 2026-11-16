@@ -34,6 +34,7 @@ import { formatCivilDate, formatDuration, formatTime, formatTimeRange, minutesBe
 import { errorMessage } from '../../i18n/problem';
 import { riskReasonText } from '../../i18n/server';
 import { localDateAt, useLayoutNow } from '../../layout/now';
+import { isNotReady } from '../../platform/notReady';
 import { useLayoutStore } from '../../stores/layout';
 import { useOfflineStore } from '../../stores/offline';
 import { useSessionStore } from '../../stores/session';
@@ -304,6 +305,8 @@ const isLoading = computed(
   () => todayQuery.isLoading.value || (today.value !== null && scheduleQuery.isLoading.value),
 );
 const isError = computed(() => todayQuery.isError.value);
+// Desktop: the core does not serve today's plan yet — said calmly, with the way to what does work.
+const notReady = computed(() => isNotReady(todayQuery.error.value));
 const readOnly = computed(() => !offline.mutationsEnabled);
 
 // FU-71: a lock moves the plan revision (Today.version), so both reads refresh.
@@ -640,6 +643,12 @@ function resumeActive(): void {
         <UiSkeleton variant="lines" :lines="2" />
         <UiSkeleton variant="card" :count="2" :lines="2" />
       </div>
+      <UiBanner v-else-if="notReady" tone="info" inline role="status" data-not-ready>
+        <span>{{ t('desktop.notReady.today') }}</span>
+        <template #actions>
+          <RouterLink class="btn btn--secondary btn--sm" to="/tasks">{{ t('desktop.notReady.openTasks') }}</RouterLink>
+        </template>
+      </UiBanner>
       <UiBanner v-else-if="isError" tone="error" class="error-panel">
         <p class="error-text" role="alert">{{ t('today.loadError') }}</p>
         <template #actions>

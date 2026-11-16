@@ -14,6 +14,7 @@ import TaskDetailView from './views/TaskDetailView.vue';
 import TasksView from './views/TasksView.vue';
 import TrackerView from './views/TrackerView.vue';
 import { SETTINGS_SECTIONS } from './domain/settings';
+import { appMode, type AppMode } from './platform/mode';
 import { currentOwnerId, isPageSealed } from './session/ownerEpoch';
 
 const NotesView = () => import('./views/NotesView.vue');
@@ -24,13 +25,14 @@ function movedTo(name: string, query: Record<string, string> = {}, params: Recor
 }
 
 /**
- * The app's route table (exported so tests can mount it on a memory history).
+ * The app's route table (`routes`, below, is exported so tests can mount it on
+ * a memory history).
  *
  * HOLO-04 (FLOW.md §4): the places are the loop — 개요, 할 일, 계획, 플래너,
  * 집중, 분석, 노트 — and 설정. Every address an earlier version had still
  * opens: it redirects to where that screen lives now.
  */
-export const routes: RouteRecordRaw[] = [
+const ALL_ROUTES: RouteRecordRaw[] = [
   { path: '/', redirect: '/overview' },
   { path: '/login', name: 'login', component: LoginView, meta: { layout: 'blank' } },
 
@@ -95,6 +97,16 @@ export const routes: RouteRecordRaw[] = [
   // An address the app does not know opens the dashboard.
   { path: '/:pathMatch(.*)*', redirect: '/overview' },
 ];
+
+/**
+ * The routes of a bundle. The desktop bundle has no login (blueprint 15 §7.3):
+ * `/login` is then an address the app does not know, and opens 개요.
+ */
+export function routesFor(mode: AppMode): RouteRecordRaw[] {
+  return mode === 'desktop' ? ALL_ROUTES.filter((route) => route.name !== 'login') : ALL_ROUTES;
+}
+
+export const routes: RouteRecordRaw[] = routesFor(appMode());
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),

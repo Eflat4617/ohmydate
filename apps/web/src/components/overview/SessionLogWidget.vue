@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { anyNotReady } from '../../platform/notReady';
 import { computed } from 'vue';
 import type { WorkSession } from '../../api';
 import UiBadge from '../ui/UiBadge.vue';
@@ -68,6 +69,7 @@ const rows = computed(() =>
 
 const state = computed(() => {
   if (!props.ready || sessions.isLoading.value || directory.isLoading.value) return 'loading' as const;
+  if (anyNotReady(sessions.error.value, directory.error.value)) return 'not-ready' as const;
   if (sessions.isError.value || directory.isError.value) return 'error' as const;
   return 'ready' as const;
 });

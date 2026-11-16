@@ -4,18 +4,21 @@ import { expect, test } from '../helpers/test';
 import {
   STILL_CANVAS,
   canvasTodo,
-  expectVikunjaDone,
-  expectVikunjaTitle,
-  externalIdOf,
-  fetchVikunjaTask,
+  driver,
+  expectStoredTask,
   login,
   openInbox,
   openTodoDetail,
   putDownTodo,
+  record,
   waitForPlannerTask,
 } from '../helpers/app';
 import { readState } from '../helpers/state';
 
+// The same slice on either target (helpers/driver.ts). `record` is the system
+// of record behind the planner API: Vikunja on the default target, the Rust
+// core's own store on `core`. Getting in and the signed-out page are the
+// target's too: a login form, or the boot hand-off and "open it from the app".
 const state = readState();
 
 /** HOLO-05: a to-do is put down with the capture bar and floats up on the canvas. */
@@ -34,7 +37,7 @@ async function editTask(page: Page, currentTitle: string, nextTitle: string): Pr
   await expect(card).toBeHidden();
 }
 
-test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
+test.describe('E2E-1 — web -> API -> the system of record, a vertical slice', () => {
   test.describe.configure({ mode: 'serial' });
 
   test('creates, edits, resolves a 412 conflict and completes a task', async ({ browser }) => {
@@ -51,20 +54,19 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
 
     await quickAdd(pageA, createdTitle);
     const created = await waitForPlannerTask(pageA, state, createdTitle);
-    const externalId = externalIdOf(created);
-    const vikunjaTask = await fetchVikunjaTask(state, externalId);
-    expect(vikunjaTask.title).toBe(createdTitle);
-    expect(String(vikunjaTask.project_id)).toBe(state.inboxExternalId);
+    const stored = await record.task(pageA, created);
+    expect(stored.title).toBe(createdTitle);
+    expect(stored.inInbox).toBe(true);
 
     await editTask(pageA, createdTitle, firstEdit);
-    await expectVikunjaTitle(state, externalId, firstEdit);
+    await expectStoredTask(pageA, created, { title: firstEdit });
 
     const contextB = await browser.newContext(STILL_CANVAS);
     const pageB = await contextB.newPage();
     await login(pageB, state);
     await openInbox(pageB);
     await editTask(pageB, firstEdit, secondEdit);
-    await expectVikunjaTitle(state, externalId, secondEdit);
+    await expectStoredTask(pageB, created, { title: secondEdit });
 
     // Context A still shows the first edit: its rename now meets a newer version.
     const cardA = await openTodoDetail(pageA, firstEdit);
@@ -88,13 +90,13 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     await dialog.getByRole('button', { name: '내 수정으로 덮어쓰기' }).click();
     await expect(dialog).toBeHidden();
     await expect(canvasTodo(pageA, conflictEdit)).toBeVisible();
-    await expectVikunjaTitle(state, externalId, conflictEdit);
+    await expectStoredTask(pageA, created, { title: conflictEdit });
 
     // 완료, from the detail: the to-do is finished and leaves the surface…
     const finishing = await openTodoDetail(pageA, conflictEdit);
     await finishing.getByRole('button', { name: `${conflictEdit} 완료로 표시` }).click();
     await expect(canvasTodo(pageA, conflictEdit)).toHaveCount(0);
-    await expectVikunjaDone(state, externalId);
+    await expectStoredTask(pageA, created, { done: true });
     // …and the list view still has it, as a finished row.
     await pageA.locator('[data-tasks-view-link="list"]').click();
     await expect(
@@ -110,16 +112,8 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    await page.goto(`${state.webUrl}/login`);
-    await page.keyboard.press('Tab');
-    await expect(page.getByLabel('이메일')).toBeFocused();
-    await page.keyboard.type(state.email);
-
-    await page.keyboard.press('Tab');
-    await expect(page.getByLabel('비밀번호')).toBeFocused();
-    await page.keyboard.type(state.password);
-
-    await page.keyboard.press('Enter');
+    // Tab and Enter through the login form — where there is one (the `core` target has none to walk).
+    await driver.signInByKeyboard(page, state);
     // HOLO-04: the app opens on 개요, and a new owner is met by the start guide.
     await expect(page.locator('[data-overview]')).toBeVisible();
     const shell = page.locator('.app-shell[data-first-run-state]');
@@ -142,7 +136,7 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     await expect(done).toContainText(title);
 
     const task = await waitForPlannerTask(page, state, title);
-    expect((await fetchVikunjaTask(state, externalIdOf(task))).title).toBe(title);
+    expect((await record.task(page, task)).title).toBe(title);
 
     // The hand-off is the next Enter on the empty line: 계획에 넣기, with this task picked.
     await expect(input).toBeFocused();
@@ -198,8 +192,8 @@ test.describe('E2E-1 — web -> API -> Vikunja vertical slice', () => {
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    await page.goto(`${state.webUrl}/login`);
-    await expect(page.getByRole('heading', { name: 'OhMyDate에 로그인' })).toBeVisible();
+    // What a visitor who is not signed in sees: the login form, or on `core` "open it from the app".
+    await driver.openSignedOutPage(page);
     const loginResults = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
       .analyze();

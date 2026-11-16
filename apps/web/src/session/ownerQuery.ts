@@ -1,4 +1,5 @@
 import { QueryClient, type QueryClientConfig } from '@tanstack/vue-query';
+import { isNotReady } from '../platform/notReady';
 import { OwnerChangedError } from './ownerBound';
 import { isPageSealed, onActiveOwnerChange } from './ownerEpoch';
 
@@ -12,7 +13,9 @@ import { isPageSealed, onActiveOwnerChange } from './ownerEpoch';
  *   shown to the next one, whatever a screen's cache keys look like;
  * - once the page is sealed (a hard reset is under way) the cache takes no
  *   more data: `setQueryData` from a late continuation is ignored;
- * - a lookup that failed because its owner changed is never retried.
+ * - a lookup that failed because its owner changed is never retried;
+ * - nor is one the desktop core does not serve yet (501, platform/notReady.ts):
+ *   asking again cannot help.
  */
 const DEFAULT_RETRIES = 3;
 
@@ -61,7 +64,7 @@ export function createOwnerQueryClient(config: QueryClientConfig = {}): QueryCli
       ...config.defaultOptions,
       queries: {
         retry: (failureCount: number, cause: unknown) =>
-          !(cause instanceof OwnerChangedError) && failureCount < DEFAULT_RETRIES,
+          !(cause instanceof OwnerChangedError) && !isNotReady(cause) && failureCount < DEFAULT_RETRIES,
         ...config.defaultOptions?.queries,
       },
     },

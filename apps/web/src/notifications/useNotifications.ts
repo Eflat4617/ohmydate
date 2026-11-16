@@ -7,6 +7,7 @@ import {
 } from '../api';
 import { t } from '../i18n';
 import { errorMessage } from '../i18n/problem';
+import { isNotReady } from '../platform/notReady';
 import { runOwnerBound } from '../session/ownerBound';
 import { onActiveOwnerChange } from '../session/ownerEpoch';
 import { useOfflineStore } from '../stores/offline';
@@ -32,6 +33,8 @@ export function useNotifications(options: NotificationsOptions = {}) {
   const items = ref<Notification[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
+  /** Desktop: the core does not serve notifications yet. Nothing is listed and nothing is asked again. */
+  const notReady = ref(false);
   const seen = new Set<string>();
   let timer: ReturnType<typeof setTimeout> | null = null;
   let delay = baseDelay;
@@ -75,6 +78,11 @@ export function useNotifications(options: NotificationsOptions = {}) {
           }
           delay = baseDelay;
         } catch (cause) {
+          if (isNotReady(cause)) {
+            // Not a failure and not something a later poll can change: stop asking.
+            notReady.value = true;
+            return;
+          }
           error.value = errorMessage(cause, t('notifications.loadFailed'));
           delay = Math.min(delay * 2, maxDelay);
         }
@@ -82,7 +90,7 @@ export function useNotifications(options: NotificationsOptions = {}) {
       {
         onSettled: () => {
           loading.value = false;
-          schedule(delay);
+          if (!notReady.value) schedule(delay);
         },
       },
     );
@@ -121,6 +129,7 @@ export function useNotifications(options: NotificationsOptions = {}) {
     items.value = [];
     seen.clear();
     error.value = null;
+    notReady.value = false;
     loading.value = false;
     delay = baseDelay;
     if (!stopped) schedule(baseDelay);
@@ -144,5 +153,5 @@ export function useNotifications(options: NotificationsOptions = {}) {
     stopWatchingOwner();
   });
 
-  return { items, visibleItems, loading, error, start, stop, refresh, poll, dismiss };
+  return { items, visibleItems, loading, error, notReady, start, stop, refresh, poll, dismiss };
 }

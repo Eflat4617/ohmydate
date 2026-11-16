@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { anyNotReady } from '../../platform/notReady';
 import { computed } from 'vue';
 import type { Today } from '../../api';
 import TrendChart from '../charts/TrendChart.vue';
@@ -53,6 +54,7 @@ const riskReason = computed(() => {
 const state = computed(() => {
   if (consent.needed) return 'ready' as const;
   if (profile.isLoading.value) return 'loading' as const;
+  if (anyNotReady(profile.error.value)) return 'not-ready' as const;
   if (profile.isError.value) return 'error' as const;
   return 'ready' as const;
 });

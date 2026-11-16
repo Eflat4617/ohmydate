@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { anyNotReady } from '../../platform/notReady';
 import { computed } from 'vue';
 import BarWeekChart from '../charts/BarWeekChart.vue';
 import UiEmptyState from '../ui/UiEmptyState.vue';
@@ -74,6 +75,7 @@ const chip = computed(() => {
 
 const state = computed(() => {
   if (!props.ready || query.isLoading.value) return 'loading' as const;
+  if (anyNotReady(query.error.value)) return 'not-ready' as const;
   if (query.isError.value) return 'error' as const;
   return 'ready' as const;
 });

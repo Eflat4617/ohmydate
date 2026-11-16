@@ -2,7 +2,7 @@
 
 > 작성 2026-11-13 · Task RC-00 · 결정 근거는 `13-ADR.md` ADR-025.
 > 이 문서는 RC 프로그램(M7)의 기준 계획이다. 표의 수치와 분류는 코드에서 뽑았고, 표 두 개(§2.2, §3.3)는 `tests-core/docs.test.ts`가 계약·마이그레이션과 맞는지 검사한다.
-> "지금 있음"은 구현해 시험까지 마친 것(RC-00, RC-30~33, FOLD-01, RC-10A — 2026-11-16 기준), 나머지는 계획이다.
+> "지금 있음"은 구현해 시험까지 마친 것(RC-00, RC-30~33, FOLD-01, RC-10A, RC-10B — 2026-11-16 기준), 나머지는 계획이다.
 
 ## 0. 한눈에 보기
 
@@ -14,6 +14,7 @@
 - RC-30~33에서 끝낸 것(2026-11-16): 스케줄러 전체(`core/crates/scheduler`). 4,020건에서 TypeScript와 모든 층이 바이트 단위로 같고(불일치 0), 기준 테스트 21개 파일을 원장대로 옮겼다(§5.5). TypeScript 쪽 동작 결함은 나오지 않았다.
 - FOLD-01에서 더한 것(2026-11-16): `updateProject`(`PATCH /projects/{id}`) — 폴더(프로젝트)의 이름 바꾸기와 보관. 계약·TypeScript API·Rust 코어에 함께 넣었다(§11 R11의 예외). 코어가 서빙하는 operation은 이제 11개다.
 - RC-10A에서 더한 것(2026-11-16) — 코어가 웹을 실을 수 있게 됐다: `updateMySettings`(`PATCH /me/settings`: 시간대·로캘·AI 동의·예산; 코어가 서빙하는 operation은 12개), `--web-dir`로 빌드된 웹 앱을 같은 출처에서 서빙하기와 `/__boot`의 실행 쿠키(§1.3), 테스트 빌드의 움직이는 시계(`--clock-offset-ms`, §7.3), 패리티 원장 `core/PARITY.md`와 그것을 지키는 검사(§7.5), 두 검증기의 판정 대조(§2.4), `ci:core`(§7.6). 웹과 E2E 쪽 절반은 RC-10B다(§7.3 끝의 목록).
+- RC-10B에서 더한 것(2026-11-16) — 화면이 처음으로 Rust 코어 위에서 돈다: 웹의 데스크톱 번들(`vite build --mode desktop`: 로그인 없음, 실행 쿠키가 곧 로그인, 아직 서빙하지 않는 곳은 "준비 중"), 개발 실행 `corepack pnpm run core:dev`(코어 + Vite, 브라우저에서 바로 쓴다), E2E의 `core` 대상(`corepack pnpm run e2e:core`)과 헬퍼의 드라이버. `e2e-1`·`e2e-9-folders`와 a11y spec의 담기·할 일·설정 › 화면이 코어 위에서 Chromium과 WebKit 둘 다 통과한다. 코어는 바꾸지 않았다(§7.3의 "RC-10B에서 만든 것").
 
 RC-00에서 측정한 것:
 
@@ -25,7 +26,7 @@ RC-00에서 측정한 것:
 | advisory lock 호출 | 11곳 → 0 (프로세스 하나, 쓰기 트랜잭션 하나) |
 | EXCLUDE 제약 위반 처리(`23P01`) | 3곳(승인·Today·재계획) → 트랜잭션 안 코드 검사 |
 | Rust 테스트 | RC-00: 178개(domain 37, store 27, app 26, scheduler 19 + 오라클 8, server 43 + bin 4 + HTTP 14). RC-10A 뒤: 526개(domain 42, store 34, app 42, scheduler 309, server 99 = 단위 62 + bin 5 + `tests/http.rs` 20 + `tests/web.rs` 12). 서버 크레이트는 테스트 빌드(`test-clock`)로 한 번 더 돈다: 101개 |
-| 패리티 하네스 | operation 12개, 테스트 156개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개), 시계 테스트(141개), 원장 검사 `ledger.test.ts`와 기준 테스트의 두 경우(150개), 판정 대조 `schema.test.ts`(156개)를 더했다 |
+| 패리티 하네스 | operation 12개, 테스트 157개 통과(해당 없는 조합 54개는 건너뜀). RC-00 때는 10개 / 85개 / 49개였고, FOLD-01이 `updateProject` 한 줄과 `projects.test.ts`를(11개 / 103개 / 51개), RC-10A가 `updateMySettings` 한 줄과 `settings.test.ts`(125개), `web.test.ts`(136개), 시계 테스트(141개), 원장 검사 `ledger.test.ts`와 기준 테스트의 두 경우(150개), 판정 대조 `schema.test.ts`(156개)를 더했다. RC-10B가 원장의 E2E 검사 — `core` 대상에서 도는 spec의 목록과 원장의 표가 같은가 — 를 더했다(157개) |
 | 오라클 팩 `sample.json` | 27건(golden 15, 생성 9, 재계획 1, 잘못된 입력 2), 211 KiB, 기준 tzdata 2026c vs jiff 2026e — 불일치 0 |
 | 서드파티 크레이트 | 126개(리눅스 그래프). MIT/Apache-2.0/BSD 밖은 4건(§9.4) |
 
@@ -115,6 +116,8 @@ loopback은 같은 기계의 다른 사용자와, 이 기계의 브라우저에 
   - 스타일시트는 빌드의 파일이라 `<style>` 요소는 막고(`style-src 'self'`), `style="…"` 속성만 허용한다(`style-src-attr 'unsafe-inline'`): Vue는 대부분의 스타일을 DOM으로 쓰지만(CSP가 막지 않는다) 큰 정적 블록은 마크업으로 넣기 때문에, 그런 블록의 속성이 패키징된 앱에서만 조용히 사라지는 일을 막는다. `style-src-attr`를 모르는 엔진은 `style-src 'self'`로 떨어지는데 지금 빌드는 그 아래서도 돈다.
   - `img-src`의 `data:`는 빌드 도구가 4 KiB 밑의 이미지를 스스로 `data:` 주소로 바꾸기 때문이다. 다른 호스트의 주소는 없다: 노트가 원격 이미지를 불러오게 만들 수 없다.
   - `connect-src 'self'`: 페이지는 API 말고 어디에도 닿지 않는다(LLM·Google은 코어가 부른다).
+- 확인(RC-10B, 이제 테스트다): E2E의 `core` 대상은 코어가 서빙하는 데스크톱 번들을 이 정책 아래서 돌리고, 테스트가 여는 모든 페이지를 지켜본다(`securitypolicyviolation` 이벤트와 콘솔; `e2e/helpers/test.ts`). 데이터가 있는 화면 — 할 일 캔버스(three.js 청크 포함), 상세, 폴더 만들기·옮기기·없애기·되돌리기, 412 충돌 대화상자, 담기, 목록, 폴더 화면, 설정 › 화면, 오프라인 — 을 걷는 spec 세 개에서 위반은 Chromium 0, WebKit 0이다. 그 지켜보기가 비어 있지 않다는 것도 테스트한다(`e2e/targets/core.spec.ts`): 인라인 스크립트, 페이지 자신의 `new Function`, 다른 출처로의 `fetch`, 끼워 넣은 `<style>`이 각각 막히고 각각 보고된다. 정책은 넓히지 않았다.
+  - 한 가지는 웹이 아니라 도구의 것이었다: Playwright는 스크린샷을 찍을 때 페이지에 `<style>` 요소를 넣는데(캐럿 숨기기) WebKit은 그 요소에 페이지의 정책을 적용한다 — 스크린샷마다 `style-src-elem` 보고 1건(Chromium은 0). 그래서 `core` 대상은 자동 스크린샷을 끈다(실패한 테스트는 trace를 남긴다). 정책이 `<style>`을 막는다는 사실 자체는 맞다 — 데스크톱 창에서 무언가 `<style>`을 끼워 넣으면 조용히 적용되지 않는다(RC-100a에서 창의 도구가 그러는지 본다).
 - 확인(RC-10A, 테스트로 커밋하지 않은 한 번의 실측): 진짜 빌드(`index-*.js` 1.1 MB, 지연 로드되는 three.js 청크 `glassScene-*.js` 529 kB, Pretendard woff2 2 MB)를 이 정책 아래서 Chromium과 WebKit으로 열어 화면 여덟 곳을 돌았다 — 위반 0, 글꼴·스타일시트·라우트 청크 적용, three.js 청크 import와 WebGL 2 컨텍스트·셰이더 컴파일 성공. 같은 페이지에서 `new Function`, 인라인 `<script>`, 다른 출처의 이미지와 `fetch`는 막혔다. 빌드 산출물에 `createElement("style")`·`eval`·`new Function`·`blob:`·Worker·`data:` 주소가 없는 것도 확인했다. 계약에 없는 operation이 501이라 화면은 대부분 빈 상태·오류 상태였다 — 데이터가 찬 화면의 확인은 RC-10B의 E2E `core` 대상이 한다(웹을 코어가 서빙하게 해야 이 정책 아래서 돈다).
 
 이 방식이 로그인·세션·CSRF·로그인 rate limit을 대신한다. 위협 모델은 "다른 로컬 사용자와 웹 페이지"까지다. 같은 사용자로 도는 악성 프로그램은 데이터 파일을 직접 읽을 수 있으므로 범위 밖이다.
@@ -469,7 +472,7 @@ TypeScript에 그대로 남는 것: `apps/web`, `packages/contracts`(계약의 �
 | 백업·복원 | 코어 | `VACUUM INTO`로 일관된 사본(**함수 있음**: `Store::backup_to`). 하루 1개·7개 보존, 메뉴에서 "지금 백업"·"백업에서 복원"(복원은 앱 재시작) | RC-100 |
 | 키링 | integrations | Secret Service + 파일 대체 | RC-70 |
 | 업데이트 | 셸 | 처음에는 새 패키지를 내려받아 설치(수동). 자동 업데이트는 서명 키와 배포 위치가 정해져야 한다 — 사용자 결정(§11 Q3) | RC-100 이후 |
-| 웹의 데스크톱 모드 | `apps/web` (작은 변경) | 로그인·로그아웃·푸시 구독 UI 숨김, 서비스 워커 등록 안 함, Google 연결 안내 문구 | RC-100 |
+| 웹의 데스크톱 모드 | `apps/web` (작은 변경) | 로그인·로그아웃·푸시 구독 UI 없음, 서비스 워커 등록 안 함, 아직 서빙하지 않는 곳은 "준비 중"(**있음**, RC-10B — §7.3). Google 연결 안내 문구는 RC-90 | RC-10B / RC-90 |
 
 ## 5. 스케줄러 포팅
 
@@ -708,10 +711,10 @@ TypeScript: 키 예약(pending) 커밋 → 유스케이스 실행 → 완료 기
 | 단위 | `cargo test`. 동작마다 네거티브 1개 이상. 서버 크레이트는 기본 빌드와 테스트 빌드(`test-clock`) 두 번 | 크레이트별 | `core:check` | 있음(526) |
 | 속성 | `proptest` | 스케줄러 하드 제약, DAG, 블록 겹침 불변식, 시간 | `core:check`(1,000) / 관문(10,000) | 스케줄러 있음(RC-31~33) |
 | 차분 | 오라클 팩 | 스케줄러(RC-30~33), 마스킹(RC-70a) | `core:oracle`, `core:diff` | 스케줄러 있음 |
-| 계약 패리티 | `tests-core/`(vitest + ajv + `@ohmydate/contracts`), 진짜 바이너리(테스트 빌드) | operation마다 상태 코드·스키마·헤더 행렬·오류; 웹 서빙과 `/__boot`; 수명 주기와 시계 | `core:parity` | 있음(12 operation, 156개) |
+| 계약 패리티 | `tests-core/`(vitest + ajv + `@ohmydate/contracts`), 진짜 바이너리(테스트 빌드) | operation마다 상태 코드·스키마·헤더 행렬·오류; 웹 서빙과 `/__boot`; 수명 주기와 시계 | `core:parity` | 있음(12 operation, 157개) |
 | 판정 대조 | `tests-core/schema.test.ts` + `schema-verdict` 바이너리 | 계약의 요청 스키마마다 Ajv와 코어의 판정(§2.4) | `core:schema-diff`(`core:parity`에 포함) | 있음(표본 14,747개) |
 | 원장 | `tests-core/ledger.test.ts`, `docs.test.ts` | `core/PARITY.md`와 이 문서의 표가 코드와 맞는지(§7.5) | `core:ledger`(`core:parity`에 포함) | 있음 |
-| E2E | 지금의 Playwright, 대상만 Rust 코어 | 사용자 흐름 | `e2e`(대상 선택) | RC-10B~ |
+| E2E | 지금의 Playwright, 대상만 Rust 코어(`E2E_TARGET=core`) | 사용자 흐름. 코어가 서빙하는 데스크톱 번들을 CSP 아래서, Chromium과 WebKit으로 | `e2e:core` | 있음(spec 3개 + 대상 자체의 spec; 영역이 포팅될 때마다 는다) |
 | 가져오기 | 내보내기 → 가져오기 → 내보내기 | 전환 | RC-110 | 계획 |
 
 ### 7.2 계약 패리티 하네스 (지금 있음)
@@ -745,18 +748,67 @@ operation마다의 규칙은 그 옆의 파일에 둔다: `projects.test.ts`(`up
 6. 빌드는 Vite 기본값을 지킨다: `base: '/'`, 해시가 든 파일은 `assets/` 아래. 코어의 캐시 규칙과 "없는 파일은 404" 규칙이 그 모양에 기대고 있다(§1.3).
 7. CSP 아래서 돌아야 한다(§1.3): 인라인 `<script>`·`eval`·`new Function` 없음, 실행 중에 `<style>` 요소를 끼워 넣지 않음(`style` 속성은 된다), 이미지는 같은 출처나 `data:`, `fetch`는 같은 출처만. 더 필요해지면 코어의 정책을 이유와 함께 넓힌다(AGENTS.md) — 그것은 코어 변경이다.
 
-개발 실행 `core:dev`:
+개발 실행 `core:dev`(**있음**, RC-10B — `corepack pnpm run core:dev`, `scripts/core/dev.mjs`):
 
 8. `corepack pnpm run core:build` 뒤 `core/target/debug/ohmydate-core --data-dir <디렉터리> --ready-file <파일> --allow-origin http://127.0.0.1:5173 --allow-origin http://localhost:5173`. ready 파일(0600)의 `{port, token, pid}`를 읽는다.
 9. Vite의 `/api` 프록시가 대상(`http://127.0.0.1:<port>`)으로 `Authorization: Bearer <token>`을 붙여 보낸다. `changeOrigin: true`는 그대로 둔다(Host가 코어의 주소여야 403이 아니다). 브라우저가 붙이는 `Origin`(Vite 출처)은 `--allow-origin`이 받는다.
 
+만든 모양: 명령 하나가 코어를 빌드하고(`core:build`와 같은 feature라 테스트와 사이에 다시 빌드하지 않는다), 0700 임시 디렉터리에 ready 파일을 두고 코어를 띄운 뒤, Vite를 `--mode desktop --strictPort`로 띄운다(포트가 곧 허용된 출처라 다른 포트로 밀려나면 안 된다). 데이터는 `--data-dir <디렉터리>`를 주면 남고, 주지 않으면 그 임시 디렉터리 안에 있다가 끝날 때 지워진다. Ctrl-C·SIGTERM, 또는 둘 중 하나가 죽으면 다른 쪽도 끝낸다(코어는 SIGTERM으로 — ready 파일을 지우고 0으로 끝난다).
+
+토큰이 지나는 길은 하나다: 코어 → ready 파일(0600) → Vite 프로세스의 프록시(`apps/web/config/coreProxy.ts`) → 코어로 가는 요청의 헤더. 런처는 ready 파일에서 포트만 꺼내고 Vite에는 파일의 **경로**만 넘긴다(`OHMYDATE_CORE_READY_FILE` — `VITE_`로 시작하지 않으므로 번들에 들어가지 않는다). 프록시는 토큰을 옵션 객체가 아니라 클로저에 두어서 Vite가 설정을 찍어도(`DEBUG=vite:config`) 보이지 않고, 페이지가 보낸 `Authorization`은 덮어쓴다. ready 파일이 0600이 아니면 프록시를 만들지 않는다. 실측(2026-11-16): 프록시를 지난 `GET /me` 200, 코어에 직접은 401, Vite 출처의 `POST /tasks` 201, 다른 출처는 403; 토큰은 런처 출력·세 프로세스의 인자와 환경·Vite가 서빙한 모듈 어디에도 없었다.
+
+개발 전용이다. Vite 포트에 닿는 누구에게나 프록시가 토큰을 붙여 주므로(다른 출처의 변경은 코어의 Origin 검사가 막는다) 운영 경로가 아니다 — 운영 경로는 코어가 웹을 직접 서빙하는 ①이다.
+
 E2E(`e2e/`):
 
-10. global-setup의 `core` 대상: 웹을 빌드하고(`vite build`), 임시 데이터 디렉터리로 테스트 빌드의 코어를 띄운다 — `--data-dir`, `--ready-file`, `--web-dir apps/web/dist`, `--time-zone`, `--locale`, 필요하면 `--clock-offset-ms <n>`(지금의 `E2E_FAKE_NOW`가 계산하는 그 값). ready 파일이 생기면 `baseURL = http://127.0.0.1:<port>`.
+10. global-setup의 `core` 대상: 웹을 데스크톱 모드로 빌드하고(`vite build --mode desktop`), 임시 데이터 디렉터리로 테스트 빌드의 코어를 띄운다 — `--data-dir`, `--ready-file`, `--web-dir apps/web/desktop/dist`, `--time-zone`, `--locale`, 필요하면 `--clock-offset-ms <n>`(지금의 `E2E_FAKE_NOW`가 계산하는 그 값). ready 파일이 생기면 `baseURL = http://127.0.0.1:<port>`.
 11. 로그인 대신 `page.goto('/__boot?token=<token>')`(→ 303 `/`). 쿠키를 직접 심으려면 `omd_launch`, `httpOnly`, `sameSite: 'Strict'`, **`secure` 없이**.
 12. 헬퍼의 "드라이버": 확인과 준비는 API로 한다 — `Authorization: Bearer <token>`, 변경에는 `Idempotency-Key`(UUID)와 `If-Match`. DB 직접 조회(`helpers/db.ts`), Vikunja 확인, 사용자 만들기는 `core` 대상에 없다.
 13. 테스트 사이의 초기화는 새 데이터 디렉터리 + 새 프로세스다. 같은 디렉터리에 두 번째 프로세스는 뜨지 않는다(종료 코드 3). 끝낼 때는 SIGTERM(종료 코드 0, ready 파일 삭제).
 14. 통과시킬 것: `e2e-1`(로그인·Vikunja 부분 제외)과 a11y의 할 일 화면. 끝나면 `core/PARITY.md`에서 그 두 줄을 고치고 RC-10B를 "끝난 Task"로 옮긴다(원장 검사가 요구한다).
+
+**RC-10B에서 만든 것**(2026-11-16, **있음**. 위 목록은 그때의 할 일이고, 아래가 지금의 모양이다):
+
+데스크톱 번들 — `apps/web/src/platform/mode.ts`:
+
+- 스위치는 빌드 때의 값이고 Vite의 모드다: `vite build --mode desktop`(개발 서버는 `vite --mode desktop`). 결과물은 `apps/web/desktop/dist`에 쓴다 — 서버 번들의 `apps/web/dist`와 디렉터리를 나누지 않으면 `local:start`가 서빙하는 `dist`에 로그인 없는 번들이 남을 수 있다.
+- 서버 번들로 새지 않는 이유: Vite는 `import.meta.env.MODE`를 모든 빌드에서 문자열 상수로 바꿔 넣는다. 서버 번들에서 `appMode()`는 `return "server"`로 접혀 있다(빌드 산출물에서 확인). 주소·저장소·응답·헤더·`VITE_` 변수 어느 것도 실행 중에 그것을 바꾸지 못한다. 테스트가 고정한다: 서버 번들에서 `/me`가 401이면 로그인 화면으로 간다 — 그러지 않으면 실패하는 가드 테스트(`apps/web/test/rc-10b-desktop-mode.spec.ts`), 그리고 기본 대상의 E2E(`e2e-1`, `e2e-5-owner-reset`)가 그대로 통과한다.
+- 데스크톱 번들에서 응답별로 하는 일:
+  - `/me` **401**(실행 쿠키가 없다 — 주소로 직접 열었거나 앱이 다시 시작됐다), 그리고 **403**(Host·Origin 거부): "앱에서 다시 열어 주세요" 한 장. 폼도 단추도 링크도 없고 어디로도 이동하지 않는다. 쓰던 중에 401이 되어도 같은 화면으로 바뀐다. `/login`이라는 라우트가 없다(모르는 주소처럼 개요로 간다).
+  - **404**: 서버 번들과 같다(없는 작업·프로젝트 = "찾지 못했어요"). 코어가 영영 서빙하지 않는 넷 — `login`·`logout`·푸시 구독 2개 — 은 부르는 UI가 없다: 로그아웃 단추, 계정 메뉴의 주소(코어가 지어낸 `owner@ohmydate.local`은 사람 이름이 아니다), 푸시 켜기가 번들에서 빠진다. 서비스 워커는 등록하지 않는다(모의 API의 것도; 그 파일은 번들에 넣지도 않는다).
+  - **501**(아직 포팅되지 않은 operation): "이곳은 아직 준비 중" — `platform/notReady.ts`. 다시 묻지 않는다(재시도 규칙 세 개 — 기본 QueryClient, `retryTransient`, `retryFenced` — 모두 0회). 알림 목록은 한 번 묻고 폴링을 멈춘다. 오류가 아니라 조용한 한 줄로 말한다: 개요의 카드 다섯 장은 네 번째 몸("아직 준비 중이에요", 경고도 재시도 단추도 없음), 오늘 자리는 할 일로 가는 길과 함께. 그 밖의 화면(플래너, 집중, 분석, 노트, 계획, 설정의 가용 시간·AI·캘린더)은 지금의 오류 자리 그대로다 — 문구를 응답에서 만드는 곳은 "이 부분은 아직 준비 중이에요", 고정 문구를 쓰는 곳은 "불러오지 못했어요"와 재시도 단추(누르면 한 번 더 물을 뿐, 스스로 다시 묻지 않는다). 그 화면들은 자기 영역이 포팅되면 살아나므로 따로 꾸미지 않았다. 던지지 않는다(E2E가 잡히지 않은 오류 0건을 확인한다). 시작 안내는 읽을 수 없는 가용 시간을 "모름"으로 보고 열리지 않는다. 한 가지 남는 것: 화면의 서로 다른 부분이 같은 곳을 읽으면 부분마다 한 번씩 묻는다(셸과 개요가 캘린더 상태를 각각 한 번) — 재시도가 아니고, 화면이 자리 잡은 뒤에는 0건이다(6.5초 동안 501 0건을 E2E가 확인).
+  - 서버 번들에서 501은 지금까지처럼 5xx다(재시도하고 오류로 말한다) — 규칙마다 그 네거티브 테스트가 있다.
+- 단일 owner도 owner다: 기기 상태는 `/me`가 준 id 아래에 두고, 다른 id가 오면 지금처럼 하드 리셋한다.
+- `user.llmProvider`가 없으면(RC-70까지) 담기는 줄을 읽으러 보내지 않고 제목 그대로 담고("AI 없이 제목 그대로 담았어요"), 할 일 목록은 "말로 적기"를 내놓지 않는다.
+- 시간대 칸은 엔진의 목록에 없는 시간대라도 지금 값이면 선택지에 둔다(5번; 두 번들 모두).
+- CSP(7번): 번들에 인라인 스크립트·`eval`·`new Function`·`<style>` 끼워 넣기가 없고 three.js는 자기 청크(`glassScene-*.js`)다 — 빌드 산출물과 E2E 양쪽에서 확인.
+
+E2E `core` 대상 — `corepack pnpm run e2e:core`(WebKit은 `-- --browser=webkit`):
+
+- `e2e/playwright.config.ts`가 대상에 따라 setup·teardown을 고른다. 기본 대상의 파일은 건드리지 않았다. `e2e/targets/core-setup.ts`가 데스크톱 번들을 빌드하고 코어를 띄운다(0700 임시 디렉터리 안의 새 데이터 디렉터리, `--web-dir`, `--time-zone UTC --locale en` — 기본 대상의 owner와 같다, `E2E_FAKE_NOW`가 있으면 `--clock-offset-ms`). 끝날 때 SIGTERM으로 끝내고 그 디렉터리를 지운다.
+- 드라이버(`e2e/helpers/driver.ts`): 들어가기(로그인 폼 / 부팅 인계), API 요청(세션 + CSRF / 실행 토큰), 기록(`record`: Vikunja / 실행 토큰으로 직접 읽은 코어), 두 제품이 실제로 다른 곳(키보드 로그인, 로그인하지 않은 화면, 보관한 폴더가 목록에서 빠지는가 표시되어 남는가), 그리고 `serves(area)`(코어가 포팅한 영역 — 지금은 작업).
+- 부팅 인계와 토큰: 페이지를 토큰이 없는 주소로 보내고, 드라이버가 그 주소에 "`/__boot?token=…`으로 가라"는 한 줄짜리 문서로 답한다. 브라우저는 진짜 요청을 보내고 진짜 `Set-Cookie`를 받지만, Playwright가 기록하는 단계·보고서·오류 문구에는 토큰이 든 주소가 없다. (리다이렉트로 답하지 않는 이유: WebKit은 테스트가 리다이렉트로 답하는 것을 허용하지 않는다.) 토큰은 ready 파일에서 필요할 때 읽고 실행 상태 파일에 넣지 않는다.
+- `core` 대상에서 도는 spec은 `e2e/targets/core-specs.json`의 것과 대상 자체의 spec(`e2e/targets/core.spec.ts`)이다. 원장과 그 목록이 어긋나면 `tests-core/ledger.test.ts`가 실패한다.
+
+결과(2026-11-16, 이 기계):
+
+| spec | Chromium | WebKit | 비고 |
+|---|---|---|---|
+| `targets/core.spec.ts`(대상 자체: 설정, 인계 없이 연 화면, 인계와 쿠키, 지켜보기의 네거티브, 501) | 7/7 | 7/7 | |
+| `e2e-1`(만들기·고치기·412 충돌·완료 / 키보드 담기 / 오프라인 / axe) | 4/4 | 4/4 | 로그인 폼 걷기와 로그인 화면 axe는 해당 없음 — 인계, 그리고 "앱에서 다시 열어 주세요" 화면의 axe가 대신한다 |
+| `e2e-9-folders`(폴더의 한살이) | 1/1 | 1/1 | 보관 확인은 코어의 목록으로 |
+| `e2e-a11y-screens` | 1/1 | 1/1 | 담기·할 일·설정 › 화면이 두 너비에서 돈다. 나머지 화면은 필요한 영역과 함께 보고서에 적힌다 |
+
+기본 대상은 그대로다: `e2e-1`·`e2e-5-owner-reset`·`e2e-9-folders`·`e2e-a11y-screens` 8/8.
+
+WebKit에서 나온 것:
+
+1. Playwright의 스크린샷이 정책 위반으로 보고된다 — 도구의 것(§1.3). `core` 대상의 자동 스크린샷을 껐다.
+2. 테스트가 리다이렉트로 답할 수 없다 — 인계를 문서로 바꿨다(위).
+3. 웹의 결함 하나, 엔진과는 무관했다: 방금 담은 할 일은 id에서 뽑은 자리에 놓이는데 그 자리가 캔버스 아래의 떠 있는 줄(고른 것의 동작) 밑일 수 있었다. 그러면 무언가 골라져 있는 동안 — 그 줄이 떠 있는 바로 그때 — 그 할 일을 가리킬 수 없다. 폴더 spec이 두 번째 할 일을 고르지 못해 실패했다(어느 엔진·어느 대상에서나 열 번에 한 번쯤). 고쳤다: 새로 놓이는 할 일은 그 줄 자리를 피한다(`freeSpot`의 `keepClear`, `footBarBox`).
+4. 그 밖에 WebKit에서만 다른 동작은 이 spec들에서 없었다: 쿠키 저장, `localStorage`·`sessionStorage`의 owner 이름공간, 오프라인 전환, `backdrop-filter`(투명 효과 줄이기), 캔버스의 클릭·키보드 조작, axe가 같았다. (이 spec들이 걷지 않는 것 — 캔버스의 끌기, IndexedDB에 쌓이는 집중 기록 — 은 여기서 본 것이 아니다.)
+
+코어에 없어서 막힌 것은 없었다. 코어는 한 줄도 바꾸지 않았다.
 
 ### 7.4 가져오기 왕복 — §8.4
 
@@ -764,7 +816,7 @@ E2E(`e2e/`):
 
 `core/PARITY.md`(**있음**, 초판 RC-10A): TypeScript 테스트 파일마다 한 줄 — `옮김(→ Rust 테스트 경로)` / `대체(→ 무엇)` / `해당 없음(사유)` / `아직(맡을 Task)`. 한 파일에 성격이 다른 건이 섞여 있으면 큰 쪽으로 분류하고 나머지를 같은 줄에 적는다.
 
-원장은 스스로 낡지 못한다. `tests-core/ledger.test.ts`(`corepack pnpm run core:ledger`, `core:parity`에도 들어 있다)가 다음에서 실패한다: 원장에 없는 `*.test.ts`·`*.spec.ts`가 생겼을 때, 원장의 파일이 사라졌을 때, 줄이 가리키는 Rust·하네스 테스트 파일이나 테스트 이름이 없을 때, `아직` 줄이 끝난 Task를 가리킬 때, 합계 표가 줄과 다를 때, 원장의 Task 목록이 §10의 표와 다를 때. 그래서 Task를 끝내는 사람은 자기 Task를 "끝난 Task"로 옮기는 순간 자기 `아직` 줄을 전부 고쳐야 한다. (확인: 줄 하나를 지우고, 경로 하나와 테스트 이름 하나를 틀리게 하고, `아직`을 끝난 Task로 바꿨을 때 각각 실패했다.)
+원장은 스스로 낡지 못한다. `tests-core/ledger.test.ts`(`corepack pnpm run core:ledger`, `core:parity`에도 들어 있다)가 다음에서 실패한다: 원장에 없는 `*.test.ts`·`*.spec.ts`가 생겼을 때, 원장의 파일이 사라졌을 때, 줄이 가리키는 Rust·하네스 테스트 파일이나 테스트 이름이 없을 때, `아직` 줄이 끝난 Task를 가리킬 때, 합계 표가 줄과 다를 때, 원장의 Task 목록이 §10의 표와 다를 때, 그리고(RC-10B) E2E의 `core` 대상에서 도는 spec의 목록(`e2e/targets/core-specs.json`)이 원장의 `e2e/tests` 표와 어긋날 때 — `옮김`인 spec은 목록에 있어야 하고, 목록의 spec은 `옮김`이거나 일부 화면만 먼저 도는 `아직`이어야 한다. 그래서 Task를 끝내는 사람은 자기 Task를 "끝난 Task"로 옮기는 순간 자기 `아직` 줄을 전부 고쳐야 한다. (확인: 줄 하나를 지우고, 경로 하나와 테스트 이름 하나를 틀리게 하고, `아직`을 끝난 Task로 바꿨을 때 각각 실패했다.)
 
 초판의 수(2026-11-16, 파일 212개):
 
@@ -902,7 +954,7 @@ AGENTS.md 규칙(MIT / Apache-2.0 / BSD / ISC는 검토 없이)에 비춘 현재
 ```text
 RC-00 ─┬─► RC-10A ─┬─► RC-20 ───────┬─► RC-40 ─► RC-50 ─┬─► RC-60 ─────────► RC-90 ─┐
  (완료) │   (완료)   │   (A)          │    (A)      (A)   │    (A)              (A)   │
-        │           └─► RC-10B (웹·E2E; RC-20과 나란히 갈 수 있다)                    ├─► RC-110b ─► 전환
+        │           └─► RC-10B (웹·E2E; 완료)                                         ├─► RC-110b ─► 전환
         ├─► RC-30 ─► RC-31 ─► RC-32 ─┘─► RC-33 ──────────┘                           │
         │   (완료)   (완료)   (완료)     (완료)                                      │
         ├─► RC-05 (B, 짧음)   RC-70a (B, RC-33 뒤) ─► RC-70b (A, RC-40 뒤) ─► RC-80 ─┤
@@ -915,7 +967,7 @@ RC-00 ─┬─► RC-10A ─┬─► RC-20 ───────┬─► RC-4
 | RC-00 | — | 이 문서, ADR-025, 골격(owner·프로젝트·작업 10 operation), 패리티 하네스, 오라클 내보내기 | — | `core:check`, `core:parity` | `ohmydate-core`를 띄워 curl로 작업 만들기 | — (완료) |
 | RC-05 | B | 지금 E2E를 Playwright의 WebKit 엔진으로 TypeScript 스택에 돌려 본다(코드 변경 없음, 보고서만) | — | 실패 목록 보고서 | — | WebKit에서 깨지는 웹 기능을 일찍 안다(R1) |
 | RC-10A | A | RC-10의 코어 쪽 절반: `updateMySettings`, 웹 정적 파일 서빙(`--web-dir`) + `/__boot`, `--clock-offset-ms`(테스트 빌드), `core/PARITY.md`, Ajv ↔ `jsonschema` 스키마 판정 대조 도구, `ci:core`. **끝**(2026-11-16) | RC-00 | 패리티 12 operation, `core:check`·`core:parity`·`core:schema-diff`·`ci:core`, 원장 초판 | `ohmydate-core --web-dir <빌드된 웹>`을 띄우고 브라우저에서 `/__boot?token=…`으로 들어가기(쓸 수 있는 화면은 RC-10B 뒤) | CSP가 웹을 막는다 → 진짜 빌드로 확인했다(§1.3) |
-| RC-10B | A | RC-10의 웹·E2E 쪽 절반: 웹의 데스크톱 부팅(로그인 화면 없이), 개발 실행 `core:dev`(코어 + Vite 프록시), E2E `core` 대상과 드라이버. 코어는 건드리지 않는다(§7.3의 "RC-10B가 할 일") | RC-10A | `e2e-1`(로그인 부분 제외)·a11y 할 일 화면이 `core` 대상 통과 | 브라우저에서 Rust 코어로 인박스 쓰기 | E2E 헬퍼 개조 범위(R7) |
+| RC-10B | A | RC-10의 웹·E2E 쪽 절반: 웹의 데스크톱 번들(로그인 화면 없이, 501은 "준비 중"), 개발 실행 `core:dev`(코어 + Vite 프록시), E2E `core` 대상과 드라이버. 코어는 건드리지 않았다(§7.3의 "RC-10B에서 만든 것"). **끝**(2026-11-16) | RC-10A | `e2e-1`·`e2e-9-folders`·a11y의 담기·할 일·설정 › 화면이 `core` 대상에서 Chromium·WebKit 통과; 기본 대상 8/8 그대로 | `corepack pnpm run core:dev` 뒤 브라우저에서 Rust 코어로 할 일 쓰기(로그인 없음) | E2E 헬퍼 개조 범위(R7) → 드라이버 하나로 끝났다 |
 | RC-20 | A | 가용 시간·약속·`rrule` 포팅·availability version·`listCalendarDayEvents`(빈 목록) | RC-10A | 패리티 +7, `rrule.test.ts` 옮김, 약속 화면 E2E 부분 | 약속·가용 시간 화면 | 반복 전개의 DST 경계 |
 | RC-30 | B | 스케줄러 `types`·`time` 나머지·`slots`·`sessions`·`requirements`, 큰 팩 읽기, `sort_unstable`·`HashMap` 순회 금지 lint | RC-00 | 2,000건에서 `slots` 불일치 0, `slots.test`·`transitions.test` 옮김 | — | tzdata 차이(R3) |
 | RC-31 | B | `codes`·`validate`·`validateInput`·`explain`, `sched-diff` CLI, `shrink-oracle.mts` | RC-30 | 2,000건에서 `inputIssues`·`validation` 불일치 0, validator ↔ 분 단위 오라클 속성 | — | validator 1,407줄의 독립 구현 유지 |
@@ -937,13 +989,13 @@ RC-00 ─┬─► RC-10A ─┬─► RC-20 ───────┬─► RC-4
 
 | # | 위험 / 모르는 것 | 일찍 없애는 방법 |
 |---|---|---|
-| R1 | 웹 앱이 WebKitGTK에서 다르게 동작한다(웹은 Chromium으로만 시험했다: `navigator.locks`, IndexedDB, `AbortSignal.any`, CSS) | RC-05: 지금 E2E를 Playwright WebKit으로 돌린다(Rust와 무관, 바로 가능). RC-100a: 진짜 WebKitGTK 창에서 스모크. **이미 드러난 차이 하나(2026-11-16):** WebKit은 `http://127.0.0.1`에서 `Secure` 쿠키를 저장하지 않는다 — TypeScript 스택의 로그인이 WebKit에서 붙지 않는 이유다. 코어의 실행 쿠키는 `Secure` 없이 내고 테스트로 고정했다(§1.3). **RC-10A에서 본 것:** 진짜 웹 빌드가 코어의 정적 서빙·CSP 아래서 Playwright WebKit으로 부팅하고(쿠키 저장, 위반 0) three.js 청크와 WebGL 2가 동작한다. Playwright의 WebKit은 WebKitGTK와 같은 엔진이지만 같은 빌드는 아니므로 RC-100a의 창 스모크는 그대로 필요하다 |
+| R1 | 웹 앱이 WebKitGTK에서 다르게 동작한다(웹은 Chromium으로만 시험했다: `navigator.locks`, IndexedDB, `AbortSignal.any`, CSS) | RC-05: 지금 E2E를 Playwright WebKit으로 돌린다(Rust와 무관, 바로 가능). RC-100a: 진짜 WebKitGTK 창에서 스모크. **이미 드러난 차이 하나(2026-11-16):** WebKit은 `http://127.0.0.1`에서 `Secure` 쿠키를 저장하지 않는다 — TypeScript 스택의 로그인이 WebKit에서 붙지 않는 이유다. 코어의 실행 쿠키는 `Secure` 없이 내고 테스트로 고정했다(§1.3). **RC-10A에서 본 것:** 진짜 웹 빌드가 코어의 정적 서빙·CSP 아래서 Playwright WebKit으로 부팅하고(쿠키 저장, 위반 0) three.js 청크와 WebGL 2가 동작한다. Playwright의 WebKit은 WebKitGTK와 같은 엔진이지만 같은 빌드는 아니므로 RC-100a의 창 스모크는 그대로 필요하다. **RC-10B에서 본 것:** 데이터가 있는 화면을 걷는 E2E 세 개(할 일 캔버스·상세·폴더·412 충돌·담기·오프라인·설정 › 화면, axe 포함)가 코어 위에서 WebKit으로 전부 통과했고 Chromium과 다르게 동작한 웹 기능은 없었다(§7.3의 결과 표). 다른 것은 도구 쪽 둘이었다: 스크린샷이 넣는 `<style>`에 WebKit이 CSP를 적용한다, 테스트가 리다이렉트로 답할 수 없다. 창에서 눈여겨볼 것 하나가 여기서 나온다: 정책이 `<style>` 요소를 막으므로, 셸이나 그 도구가 페이지에 스타일을 끼워 넣으면 조용히 적용되지 않는다 |
 | R2 | `generate.ts` 3,992줄을 바이트 단위로 재현하지 못한다 | 바닥 층은 이미 일치(RC-00). 층별 대조 + 최소화 도구를 생성기보다 먼저 만든다(RC-31). 불일치가 TypeScript 쪽 결함이면 TypeScript를 고치고(버그 수정은 동결 예외) 팩을 다시 만든다. **RC-33 뒤:** 4,020건에서 불일치 0, 포팅 중에 실제 불일치는 한 번도 나오지 않았고 TypeScript 동작 결함도 없었다. 남은 위험은 팩이 지나지 않는 경로다 — 변이 확인으로 찾아 경로 건을 더한다(§5.3) |
 | R3 | Node의 tzdata와 `jiff-tzdb`가 어긋난다(오늘 2026c vs 2026e) | 팩의 분할 결과가 먼저 잡는다. 생성 시나리오의 날짜는 2026–2027로 묶는다. 어긋나면 그 시간대를 보고하고 팩에서 뺀 뒤 원인을 적는다. **RC-33 뒤:** 2026c와 2026e 사이에서 팩의 시간대 7종(+ 속성 테스트의 6종)은 어긋나지 않았다 |
 | R4 | 마스킹 포팅에서 재현율이 떨어진다 | 구현 전에 오라클 팩과 관문부터(RC-70a 첫 단계). lookbehind 없는 `regex`로 안 되는 패턴 목록을 첫날 확정 |
 | R5 | HTTPS에 필요한 TLS 라이브러리의 라이선스가 허용 목록 밖이다 | RC-70a 시작 때 후보별 라이선스 표를 사용자에게 올린다(Q4). 시스템 OpenSSL 사용이 대안 |
 | R6 | Secret Service가 없거나 잠겨 있다 | 파일 대체(0600)와 상태 표시. RC-70b 첫 단계에서 이 기계로 확인 |
-| R7 | E2E 헬퍼가 PostgreSQL·Vikunja·로그인에 깊이 묶여 있다 | RC-10에서 `e2e-1` 하나로 드라이버 구조를 먼저 증명 |
+| R7 | E2E 헬퍼가 PostgreSQL·Vikunja·로그인에 깊이 묶여 있다 | RC-10에서 `e2e-1` 하나로 드라이버 구조를 먼저 증명. **RC-10B 뒤:** 묶인 곳은 넷이었다 — 로그인, CSRF가 붙는 API 요청, Vikunja 확인, 테스트마다의 rate limit 초기화. 드라이버 하나(`e2e/helpers/driver.ts`)가 넷을 갈랐고 spec 세 개는 Vikunja와 로그인 폼을 이름으로 부르던 줄만 바뀌었다. 남은 위험은 DB를 직접 읽는 헬퍼(`helpers/db.ts`, `e2e-ai-wait`가 쓴다 — RC-70b)와 owner를 여럿 쓰는 spec이다: 코어는 프로세스 하나에 owner 하나라, 서로 격리가 필요한 spec은 자기 코어를 띄우게 된다(§7.3 13번) |
 | R8 | Google OAuth 클라이언트를 바꿔야 하고 다시 동의해야 한다 | Q2로 미리 묻는다. 테스트 상태 동의 화면의 7일 만료는 그대로 남는다(ADR-024) |
 | R9 | 가져오기에서 데이터가 빠진다(설명 HTML, Vikunja 전용 정보) | RC-110a를 RC-40 직후로 당겨 실제 데이터 드라이런을 일찍 돌린다 |
 | R10 | 연결 하나로는 긴 읽기(내보내기, 검색)가 쓰기를 막는다 | RC-50에서 작업 1만 개 파일로 실측, 필요하면 읽기 연결 추가 |

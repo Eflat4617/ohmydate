@@ -6,13 +6,15 @@ import { router } from './router';
 import { DEFAULT_LOCALE, setLocale } from './i18n';
 import { installPageSeal } from './session/ownerEpoch';
 import { createOwnerQueryClient } from './session/ownerQuery';
+import { mockApiWanted } from './platform/mode';
 import { installGlassLight } from './theme/glassLight';
 import { bootTheme } from './theme/theme';
 import { bootTransparency } from './theme/transparency';
 import './styles.css';
 
 async function bootstrap(): Promise<void> {
-  if (import.meta.env.VITE_MOCK === '1') {
+  // The desktop bundle registers no service worker, the mock's included (15 §4.2).
+  if (mockApiWanted()) {
     const { worker } = await import('./mocks/browser');
     await worker.start({ onUnhandledFrame: 'bypass' });
   }

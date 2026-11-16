@@ -10,13 +10,17 @@ import { t } from '../../i18n';
  * icon-link to the screen that owns the detail, and three bodies — a skeleton
  * in the card's own shape while it loads, an error with a retry that leaves
  * the rest of the page alone, or the widget.
+ *
+ * A desktop bundle has a fourth, `not-ready`: the core does not serve what the
+ * card reads yet (platform/notReady.ts). One calm line, no alert and no retry
+ * — asking again cannot help.
  */
 withDefaults(
   defineProps<{
     widget: string;
     title: string;
     icon: IconName;
-    state?: 'loading' | 'error' | 'ready';
+    state?: 'loading' | 'error' | 'not-ready' | 'ready';
     /** Where the "open" corner goes; without it the card has no corner link. */
     to?: RouteLocationRaw | null;
     openLabel?: string | null;
@@ -53,6 +57,9 @@ defineEmits<{ retry: [] }>();
       <p>{{ t('overview.cardError') }}</p>
       <UiButton size="sm" icon="sync" data-retry @click="$emit('retry')">{{ t('common.retry') }}</UiButton>
     </div>
+    <p v-else-if="state === 'not-ready'" class="overview-card-not-ready muted" data-not-ready>
+      {{ t('desktop.notReady.card') }}
+    </p>
     <div v-else class="overview-card-body">
       <slot />
     </div>
