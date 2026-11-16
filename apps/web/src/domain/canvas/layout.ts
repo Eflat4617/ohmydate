@@ -487,13 +487,18 @@ export interface PlaceOptions {
    * window, so the most urgent to-dos are what is seen first. Default: the middle.
    */
   readonly focusY?: number;
+  /**
+   * Parts of the open water an arrival is not placed under (`freeSpot`): what
+   * floats over the surface and would cover it — the foot bar (`footBarBox`).
+   */
+  readonly keepClear?: readonly Box[];
 }
 
 /** A field of fewer to-dos than this gathers nearer its middle instead of spreading to the edges. */
 const FULL_FIELD = 14;
 
 /** The simulation's distances for a density: the open water's, and a folder's inside. */
-export function bodySpacing(density: Density): Required<Omit<PlaceOptions, 'focusY'>> {
+export function bodySpacing(density: Density): Required<Omit<PlaceOptions, 'focusY' | 'keepClear'>> {
   return { gap: BODY_GAP[density], pad: BODY_PAD, insideGap: INSIDE_GAP, insidePad: INSIDE_PAD };
 }
 
@@ -561,10 +566,36 @@ export function placeBodies(
   return bodies;
 }
 
+/** The room the surface's floating foot bar takes: the selection's actions, or "더 보기". */
+export const FOOT_BAR = { width: 440, height: 96 } as const;
+
+/**
+ * Where the foot bar stands over the open water: centred on its lower edge.
+ * A to-do under it cannot be pointed at while the bar is up — and the bar is
+ * up exactly when to-dos are being picked. So an arrival is never put there
+ * (`PlaceOptions.keepClear`). On a surface longer than the window the bar
+ * follows the scroll; this is where it stands when the surface fits, and the
+ * end of the surface when it does not.
+ */
+export function footBarBox(world: World): Box {
+  const water = openWater(world);
+  const width = Math.min(water.width, FOOT_BAR.width);
+  const height = Math.min(water.height, FOOT_BAR.height);
+  return { left: water.left + (water.width - width) / 2, top: water.top + water.height - height, width, height };
+}
+
+function covers(box: Box, point: Point, item: { readonly w: number; readonly h: number }): boolean {
+  return (
+    Math.abs(box.left + box.width / 2 - point.x) < (box.width + item.w) / 2 &&
+    Math.abs(box.top + box.height / 2 - point.y) < (box.height + item.h) / 2
+  );
+}
+
 /**
  * A place for one more body among `bodies`: of a handful of candidates drawn
  * from its id, the one with the most room around it. (A to-do that has just
- * been put down arrives here.)
+ * been put down arrives here.) A candidate under something that must be kept
+ * clear (`options.keepClear`, the open water only) is not one.
  */
 export function freeSpot(
   bodies: readonly Body[],
@@ -582,6 +613,7 @@ export function freeSpot(
   let bestRoom = -Infinity;
   for (let index = 0; index < candidates; index += 1) {
     const point = { x: box.left + pad + item.w / 2 + next() * spanX, y: box.top + pad + item.h / 2 + next() * spanY };
+    if (item.region === null && (options.keepClear ?? []).some((clear) => covers(clear, point, item))) continue;
     let room = Infinity;
     for (const body of bodies) {
       if (body.region !== item.region) continue;

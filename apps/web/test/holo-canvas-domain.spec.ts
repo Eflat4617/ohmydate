@@ -22,6 +22,8 @@ import {
   flowRows,
   folderAt,
   fractionOf,
+  FOOT_BAR,
+  footBarBox,
   freeSpot,
   layoutFolders,
   openWater,
@@ -385,6 +387,62 @@ describe('layout seeding', () => {
     expect(spot.x - arrival.w / 2).toBeGreaterThanOrEqual(PAD);
     expect(spot.x + arrival.w / 2).toBeLessThanOrEqual(SURFACE.width - PAD);
     expect(bodyAt(spot, bodies)).toBeNull();
+  });
+
+  // RC-10B: found by the folders E2E — a to-do put down could land under the
+  // floating selection bar, where it cannot be pointed at while anything is picked.
+  describe('an arrival and the foot bar', () => {
+    const arrivals: SeedItem[] = Array.from({ length: 400 }, (_, index) => ({ id: `arrival-${index}`, w: 170, h: 40, region: null }));
+    const under = (spot: { x: number; y: number }, item: SeedItem, bar: { left: number; top: number; width: number; height: number }): boolean =>
+      spot.x + item.w / 2 > bar.left && spot.x - item.w / 2 < bar.left + bar.width && spot.y + item.h / 2 > bar.top && spot.y - item.h / 2 < bar.top + bar.height;
+
+    it('the bar stands centred on the lower edge of the open water — beside the dishes, not over them', () => {
+      expect(footBarBox(OPEN)).toEqual({
+        left: (SURFACE.width - FOOT_BAR.width) / 2,
+        top: SURFACE.height - FOOT_BAR.height,
+        width: FOOT_BAR.width,
+        height: FOOT_BAR.height,
+      });
+      const folders = layoutFolders([{ id: 'f1', count: 5, collapsed: false, labelLength: 4 }], SURFACE);
+      const world = worldOf(SURFACE, folders);
+      const water = openWater(world);
+      const bar = footBarBox(world);
+      expect(bar.left + bar.width / 2).toBeCloseTo(water.left + water.width / 2);
+      expect(bar.left + bar.width).toBeLessThanOrEqual(water.left + water.width);
+      // A surface smaller than the bar: the bar is all of it, never more.
+      const tiny: World = { width: 300, height: 60, regions: [], obstacles: [] };
+      expect(footBarBox(tiny)).toEqual({ left: 0, top: 0, width: 300, height: 60 });
+    });
+
+    it('an arrival is never placed under it, on an empty surface or a full one', () => {
+      const bar = footBarBox(OPEN);
+      const crowd = placeBodies(items(20), OPEN, new Map(), { gap: GAP, pad: PAD });
+      for (const bodies of [[], crowd]) {
+        for (const arrival of arrivals) {
+          const spot = freeSpot(bodies, OPEN, arrival, { gap: GAP, pad: PAD, keepClear: [bar] });
+          expect(under(spot, arrival, bar), arrival.id).toBe(false);
+          expect(spot.y + arrival.h / 2).toBeLessThanOrEqual(SURFACE.height - PAD);
+        }
+      }
+    });
+
+    it('without that rule some arrivals do land there (negative: the rule is what keeps them out)', () => {
+      const bar = footBarBox(OPEN);
+      const landed = arrivals.filter((arrival) => under(freeSpot([], OPEN, arrival, { gap: GAP, pad: PAD }), arrival, bar));
+      expect(landed.length).toBeGreaterThan(10);
+      // Elsewhere the rule changes nothing: an arrival that was clear of the bar keeps its place.
+      for (const arrival of arrivals.filter((item) => !landed.includes(item)).slice(0, 50)) {
+        expect(freeSpot([], OPEN, arrival, { gap: GAP, pad: PAD, keepClear: [bar] })).toEqual(freeSpot([], OPEN, arrival, { gap: GAP, pad: PAD }));
+      }
+    });
+
+    it('a folder’s own to-dos are not moved by it: the bar is over the open water only', () => {
+      const folders = layoutFolders([{ id: 'f1', count: 5, collapsed: false, labelLength: 4 }], SURFACE);
+      const world = worldOf(SURFACE, folders);
+      const filed: SeedItem = { id: 'filed-arrival', w: 120, h: 32, region: 'f1' };
+      const everywhere = [{ left: 0, top: 0, width: SURFACE.width, height: SURFACE.height }];
+      expect(freeSpot([], world, filed, { gap: GAP, pad: PAD, keepClear: everywhere })).toEqual(freeSpot([], world, filed, { gap: GAP, pad: PAD }));
+    });
   });
 });
 
