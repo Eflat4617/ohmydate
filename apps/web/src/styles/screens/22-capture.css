@@ -93,6 +93,31 @@
   padding-top: var(--space-3);
 }
 
+/* On the phone's sheet the way on stays in reach (HOLO-07). With the keyboard
+   up the sheet is a few rows tall and the drafts scroll inside it: the button
+   that puts them down rides the sheet's foot instead of waiting under them.
+   It is solid (glass in glass), out to the sheet's edges, and covers the
+   sheet's own bottom padding so no row shows under it. */
+.capture--sheet .capture-actions {
+  --capture-foot: calc(var(--space-6) + var(--safe-bottom));
+
+  position: sticky;
+  /* The sheet's padding is outside what a sticky box sticks to: 0 is just above it. */
+  bottom: 0;
+  z-index: 1;
+  margin-inline: calc(-1 * var(--space-5));
+  padding: var(--space-3) var(--space-5) 0;
+  background: var(--glass-solid);
+}
+
+.capture--sheet .capture-actions::after {
+  content: '';
+  position: absolute;
+  inset: 100% 0 auto;
+  height: var(--capture-foot);
+  background: var(--glass-solid);
+}
+
 .capture-panel-head {
   display: flex;
   align-items: center;

@@ -953,10 +953,21 @@ const detailActions = computed<CanvasActions>(() => ({
 }));
 
 // ── The pointer: press, drag, lasso, a dish in the hand ─────────────────
+//
+// Under a finger (HOLO-07) the same surface, read differently:
+//   - a swipe that starts on a to-do scrolls the page (the finger moved before the hold);
+//   - a tap opens the detail — or, while something is picked, picks and unpicks;
+//   - a long press that goes nowhere picks: the touch way to pick several;
+//   - a long press and then a drag moves the to-do (and what is picked with it).
+//
+// `start` is where the press is on the surface (what a drag moves from);
+// `down` is where it is in the window. Whether the pointer has moved is read
+// in the window: the surface can be laid out again under a resting finger (the
+// list was refreshed), and that is not the finger moving.
 type Gesture =
-  | { kind: 'press' | 'drag'; pointerId: number; id: string; start: Point; ids: string[]; grab: Map<string, Point>; armed: boolean; modifier: boolean }
-  | { kind: 'lasso'; pointerId: number; start: Point; add: boolean; moved: boolean }
-  | { kind: 'dish'; pointerId: number; id: string; start: Point; grab: Point; armed: boolean; moved: boolean };
+  | { kind: 'press' | 'drag'; pointerId: number; id: string; start: Point; down: Point; ids: string[]; grab: Map<string, Point>; armed: boolean; modifier: boolean; touch: boolean; moved: boolean }
+  | { kind: 'lasso'; pointerId: number; start: Point; down: Point; add: boolean; moved: boolean }
+  | { kind: 'dish'; pointerId: number; id: string; start: Point; down: Point; grab: Point; armed: boolean; moved: boolean; touch: boolean };
 
 let gesture: Gesture | null = null;
 let holdTimer: ReturnType<typeof setTimeout> | null = null;
@@ -965,7 +976,17 @@ const lassoBox = ref<{ left: number; top: number; width: number; height: number 
 const dropFolder = ref<string | null | undefined>(undefined);
 const heldIds = reactive(new Set<string>());
 const DRAG_SLOP = 5;
+/** A resting finger is never as still as a mouse: what it may wander and still be "held in place". */
+const TOUCH_SLOP = 10;
 const HOLD_MS = 280;
+/**
+ * A touch the surface has answered (a tap, a long press) is followed by the
+ * browser's own mouse events and a click, at the same spot. By then the
+ * detail may stand there: the click would press whatever of it is under the
+ * finger, and the mouse-down moves the focus off the card, which closes it.
+ * The `touchend` of an answered touch is cancelled, so none of that follows.
+ */
+let answeredTouch = false;
 
 function stagePoint(event: { clientX: number; clientY: number }): Point {
   const rect = stage.value?.getBoundingClientRect();
@@ -986,11 +1007,15 @@ function capture(event: PointerEvent): void {
 }
 
 function onPointerDown(event: PointerEvent): void {
+  // A new press: whatever the last touch was answered with is over. Before anything else —
+  // a press on the selection bar leaves this handler early, and its tap must still click.
+  answeredTouch = false;
   if (event.button !== 0 || gesture !== null) return;
   const target = event.target;
   if (!(target instanceof Element)) return;
   if (target.closest('[data-pond-ignore]') !== null) return;
   const point = stagePoint(event);
+  const down = { x: event.clientX, y: event.clientY };
   const touch = event.pointerType === 'touch';
 
   const todoEl = target.closest<HTMLElement>('[data-todo]');
@@ -1002,10 +1027,13 @@ function onPointerDown(event: PointerEvent): void {
       pointerId: event.pointerId,
       id,
       start: point,
+      down,
       ids: [],
       grab: new Map(),
       armed: !touch,
       modifier: event.shiftKey || event.ctrlKey || event.metaKey,
+      touch,
+      moved: false,
     };
     // A finger scrolls the page unless it rests on the to-do first.
     if (touch) holdTimer = setTimeout(() => armPress(id), HOLD_MS);
@@ -1024,9 +1052,11 @@ function onPointerDown(event: PointerEvent): void {
       pointerId: event.pointerId,
       id,
       start: point,
+      down,
       grab: { x: point.x - (box.left + box.width / 2), y: point.y - (box.top + box.height / 2) },
       armed: !touch,
       moved: false,
+      touch,
     };
     if (touch) holdTimer = setTimeout(() => armPress(id), HOLD_MS);
     else capture(event);
@@ -1040,7 +1070,7 @@ function onPointerDown(event: PointerEvent): void {
     if (selection.value.ids.size > 0) setSelection(NO_SELECTION);
     return;
   }
-  gesture = { kind: 'lasso', pointerId: event.pointerId, start: point, add: event.shiftKey, moved: false };
+  gesture = { kind: 'lasso', pointerId: event.pointerId, start: point, down, add: event.shiftKey, moved: false };
   capture(event);
 }
 
@@ -1049,7 +1079,17 @@ function armPress(id: string): void {
   if (gesture === null || gesture.kind === 'lasso' || gesture.id !== id) return;
   gesture.armed = true;
   holdScroll(true);
+  holdTick();
   if (gesture.kind === 'press') startDrag(gesture, gesture.start);
+}
+
+/** The hold took: a short tick where the device has one (a finger cannot see itself lift the to-do). */
+function holdTick(): void {
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') navigator.vibrate(8);
+  } catch {
+    // No vibration, or not allowed yet: the lifted to-do says it.
+  }
 }
 
 function startDrag(press: Extract<Gesture, { kind: 'press' | 'drag' }>, point: Point): void {
@@ -1078,7 +1118,8 @@ function onPointerMove(event: PointerEvent): void {
   }
   const current = gesture;
   if (current === null || current.pointerId !== event.pointerId) return;
-  const far = Math.hypot(point.x - current.start.x, point.y - current.start.y) > DRAG_SLOP;
+  const slop = current.kind !== 'lasso' && current.touch ? TOUCH_SLOP : DRAG_SLOP;
+  const far = Math.hypot(event.clientX - current.down.x, event.clientY - current.down.y) > slop;
 
   if (current.kind === 'press') {
     if (!far) return;
@@ -1091,6 +1132,9 @@ function onPointerMove(event: PointerEvent): void {
     startDrag(current, current.start);
   }
   if (current.kind === 'drag') {
+    // A held to-do that has not left its place yet is not moved by the finger's wander.
+    if (!far && !current.moved) return;
+    current.moved = true;
     for (const id of current.ids) {
       const body = bodies.get(id);
       const grab = current.grab.get(id);
@@ -1146,8 +1190,10 @@ function onPointerUp(event: PointerEvent): void {
   const point = stagePoint(event);
 
   if (current.kind === 'press') {
+    answeredTouch = current.touch;
     // A click. With Shift, Ctrl or ⌘ it picks; plain, it opens the one detail.
-    if (current.modifier) {
+    // A tap does the same — and while something is picked, a tap picks: a finger has no Shift.
+    if (current.modifier || (current.touch && selection.value.ids.size > 0)) {
       activeId.value = current.id;
       setSelection(toggle(selection.value, current.id));
     } else if (openId.value === current.id) closeDetail({ restoreFocus: true });
@@ -1155,6 +1201,14 @@ function onPointerUp(event: PointerEvent): void {
     return;
   }
   if (current.kind === 'drag') {
+    answeredTouch = current.touch;
+    if (current.touch && !current.moved) {
+      // A long press that went nowhere: put down where it was, and picked.
+      endDrag(current, current.start, true);
+      activeId.value = current.id;
+      setSelection(toggle(selection.value, current.id));
+      return;
+    }
     endDrag(current, point, false);
     return;
   }
@@ -1215,6 +1269,18 @@ function onTouchMove(event: TouchEvent): void {
 function holdScroll(on: boolean): void {
   if (on) stage.value?.addEventListener('touchmove', onTouchMove, { passive: false });
   else stage.value?.removeEventListener('touchmove', onTouchMove);
+}
+
+/** The end of a touch the surface answered: no mouse events and no click follow it (see `answeredTouch`). */
+function onTouchEnd(event: TouchEvent): void {
+  if (!answeredTouch) return;
+  answeredTouch = false;
+  if (event.cancelable) event.preventDefault();
+}
+
+/** A long press is the surface's own gesture: the browser's menu for it does not open over a held to-do. */
+function onContextMenu(event: MouseEvent): void {
+  if (gesture !== null && gesture.kind !== 'lasso' && gesture.touch) event.preventDefault();
 }
 
 // ── The keyboard: a list ────────────────────────────────────────────────
@@ -1509,6 +1575,8 @@ onBeforeUnmount(() => {
     @pointerup="onPointerUp"
     @pointercancel="onPointerCancel"
     @pointerleave="onPointerLeave"
+    @touchend="onTouchEnd"
+    @contextmenu="onContextMenu"
   >
     <p class="visually-hidden" role="status" aria-live="polite" data-canvas-status>{{ status }}</p>
 

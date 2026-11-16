@@ -19,7 +19,7 @@ import { useFirstRun } from '../composables/firstRun';
 import { focusContextFor, rememberFocusBlocks } from '../composables/focusContext';
 import { useFocusStart, useRunningSession, useSecondTick, useTaskDirectory } from '../composables/useOverview';
 import { useOwnerTimeZone } from '../composables/usePlannerRange';
-import { displayNameOf } from '../domain/displayName';
+import { displayNameFor } from '../domain/displayName';
 import { greetingPeriod, nextBlockOf, plannedMinutes } from '../domain/overview';
 import { dayIsOver } from '../domain/recap';
 import { addDaysToDate, localParts, startOfWeek, todayInZone } from '../domain/time';
@@ -27,6 +27,7 @@ import { t } from '../i18n';
 import { formatCivilDateRange, formatTime } from '../i18n/format';
 import { useLayoutNow } from '../layout/now';
 import { ownerEmail } from '../platform/mode';
+import { useChosenName } from '../session/chosenName';
 import { useTodaySnapshot } from '../layout/useTodaySnapshot';
 import { useAuthStore } from '../stores/auth';
 import { useOfflineStore } from '../stores/offline';
@@ -99,7 +100,9 @@ const runningTitle = computed(() => {
   );
 });
 
-const name = computed(() => displayNameOf(ownerEmail(auth.user)));
+// The name the owner chose on this device, else the e-mail's own part (HOLO-07).
+const chosenName = useChosenName();
+const name = computed(() => displayNameFor(chosenName.name.value, ownerEmail(auth.user)));
 const period = computed(() => greetingPeriod(localParts(new Date(now.value).toISOString(), timeZone.value).hour));
 const greeting = computed(() =>
   name.value.length > 0

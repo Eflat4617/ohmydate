@@ -2,6 +2,7 @@ import { computed, readonly, ref, type ComputedRef, type Ref } from 'vue';
 import { readActiveOwnerId } from '../session/owner';
 import { captureOwnerBinding, onActiveOwnerChange, type OwnerBinding } from '../session/ownerEpoch';
 import { ownerSlot } from '../session/ownerStorage';
+import { applyThemeColor } from './themeColor';
 
 /**
  * The colour theme (HOLO-01). The user picks 다크, 라이트 or 시스템 in the top
@@ -77,6 +78,8 @@ function apply(): void {
   root.dataset['scheme'] = scheme.value;
   // Form controls, scrollbars and the canvas behind the page follow along.
   document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', scheme.value);
+  // A phone's browser bar, and an installed app's status bar, take the ground (HOLO-07).
+  applyThemeColor(scheme.value);
 }
 
 function watchSystem(): void {

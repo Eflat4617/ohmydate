@@ -652,6 +652,21 @@ export const OWNER_SWITCH_CASES: OwnerSwitchCase[] = [
     },
   },
   {
+    // HOLO-07: 설정 › 화면 › 이름. One synchronous slot write at the submit, under the binding
+    // captured there; on the old screen of a page that has changed owner it stores nothing.
+    name: 'display: choose what the app calls the owner (saved after the switch)',
+    covers: ['src/session/chosenName.ts', 'src/components/settings/DisplaySettings.vue'],
+    path: '/settings/display',
+    ready: async (wrapper) => {
+      await until(() => expect(wrapper.find('[data-display-name-input]').exists()).toBe(true));
+    },
+    act: async (wrapper) => {
+      // A made-up name.
+      await wrapper.get('[data-display-name-input]').setValue('가람');
+      await wrapper.get('[data-display-name] form').trigger('submit');
+    },
+  },
+  {
     name: 'layout: skip the review prompt (clicked after the switch)',
     covers: ['src/components/layout/ReviewPromptPanel.vue', 'src/layout/localSignals.ts', 'src/stores/layout.ts'],
     path: '/overview',

@@ -1,0 +1,107 @@
+{
+  "browser": "webkit",
+  "gestures": "tap real; long press, drag and swipe as pointer events",
+  "steps": 144,
+  "failing": 0,
+  "findings": [],
+  "under44": [
+    {
+      "screen": "plan-block-card",
+      "target": "button.wg-item.wg-item--block[data-item]",
+      "width": 40,
+      "height": 76,
+      "under": false
+    },
+    {
+      "screen": "plan-block-card",
+      "target": "button.wg-item.wg-item--deadline.wg-item--short[data-item]",
+      "width": 40,
+      "height": 24,
+      "under": false
+    },
+    {
+      "screen": "plan-options",
+      "target": "button.wg-item.wg-item--block[data-item]",
+      "width": 40,
+      "height": 76,
+      "under": false
+    },
+    {
+      "screen": "plan-options",
+      "target": "button.wg-item.wg-item--deadline.wg-item--short[data-item]",
+      "width": 40,
+      "height": 24,
+      "under": false
+    },
+    {
+      "screen": "planner-item-card",
+      "target": "button.wg-item.wg-item--block.wg-item--short[data-item]",
+      "width": 40,
+      "height": 33,
+      "under": false
+    },
+    {
+      "screen": "planner-item-card",
+      "target": "button.wg-item.wg-item--commitment.wg-item--short[data-item]",
+      "width": 81,
+      "height": 24,
+      "under": false
+    },
+    {
+      "screen": "planner-item-card",
+      "target": "button.wg-item.wg-item--deadline.wg-item--short[data-item]",
+      "width": 40,
+      "height": 24,
+      "under": false
+    },
+    {
+      "screen": "planner-week",
+      "target": "button.wg-item.wg-item--block.wg-item--short[data-item]",
+      "width": 40,
+      "height": 33,
+      "under": false
+    },
+    {
+      "screen": "planner-week",
+      "target": "button.wg-item.wg-item--commitment.wg-item--short[data-item]",
+      "width": 81,
+      "height": 33,
+      "under": false
+    },
+    {
+      "screen": "planner-week",
+      "target": "button.wg-item.wg-item--deadline.wg-item--short[data-item]",
+      "width": 40,
+      "height": 24,
+      "under": false
+    },
+    {
+      "screen": "settings-availability",
+      "target": "div.avail-cell.avail-cell--empty[data-day]",
+      "width": 38,
+      "height": 24,
+      "under": false
+    },
+    {
+      "screen": "settings-availability",
+      "target": "div.avail-cell.avail-cell--work[data-day]",
+      "width": 38,
+      "height": 24,
+      "under": false
+    },
+    {
+      "screen": "settings-hours",
+      "target": "div.avail-cell.avail-cell--empty[data-day]",
+      "width": 38,
+      "height": 24,
+      "under": false
+    },
+    {
+      "screen": "settings-hours",
+      "target": "div.avail-cell.avail-cell--work[data-day]",
+      "width": 38,
+      "height": 24,
+      "under": false
+    }
+  ]
+}

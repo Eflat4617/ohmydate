@@ -13,11 +13,17 @@ import SettingsView from './views/SettingsView.vue';
 import TaskDetailView from './views/TaskDetailView.vue';
 import TasksView from './views/TasksView.vue';
 import TrackerView from './views/TrackerView.vue';
+import { PLANNER_PHONE_QUERY, plannerPhoneEntry } from './domain/plannerRoute';
 import { SETTINGS_SECTIONS } from './domain/settings';
 import { appMode, type AppMode } from './platform/mode';
 import { currentOwnerId, isPageSealed } from './session/ownerEpoch';
 
 const NotesView = () => import('./views/NotesView.vue');
+
+/** Whether the window is a phone's width right now (false where there is no window to ask). */
+function isPhoneWidth(): boolean {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(PLANNER_PHONE_QUERY).matches;
+}
 
 /** An old address goes to its new home with whatever it carried in the query. */
 function movedTo(name: string, query: Record<string, string> = {}, params: Record<string, string> = {}) {
@@ -65,7 +71,13 @@ const ALL_ROUTES: RouteRecordRaw[] = [
 
   // 플래너: 일 · 주 · 월 · 약속 (`?view=day|week|month|list`, 주 by default; the
   // day, week or month is in the query too). `/month` is its 월 view (CAL-01).
-  { path: '/planner', name: 'planner', component: PlannerView },
+  // A phone arriving at the bare address opens the day (HOLO-07, `plannerPhoneEntry`).
+  {
+    path: '/planner',
+    name: 'planner',
+    component: PlannerView,
+    beforeEnter: (to, from) => plannerPhoneEntry(to, from, isPhoneWidth()) ?? true,
+  },
   { path: '/month', name: 'month', component: PlannerView },
   { path: '/commitments', redirect: movedTo('planner', { view: 'list' }) },
 

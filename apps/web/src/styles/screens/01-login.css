@@ -7,7 +7,8 @@
   grid-template-rows: 1fr auto auto 2fr;
   justify-items: center;
   min-height: 100dvh;
-  padding: var(--space-6) var(--space-4);
+  padding: calc(var(--space-6) + var(--safe-top)) calc(var(--space-4) + var(--safe-right))
+    calc(var(--space-6) + var(--safe-bottom)) calc(var(--space-4) + var(--safe-left));
 }
 
 .auth-visual {

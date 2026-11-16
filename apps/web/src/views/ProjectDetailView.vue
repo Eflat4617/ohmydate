@@ -35,6 +35,19 @@ const project = computed<Project | undefined>(() =>
 );
 const tasks = computed<Task[]>(() => tasksQuery.data.value?.items ?? []);
 
+/**
+ * HOLO-07: the list has answered and this address is none of its folders — one
+ * that was removed (a removed folder is an archived project, which the mock
+ * and the Rust core still list) or one that never was. Then there is no
+ * folder to show a name, tabs or an empty list for: the page says so and
+ * leads back to 할 일. While the list is still loading, or could not be read,
+ * nothing is known and the page stays as it was.
+ */
+const missing = computed(() => {
+  if (projectsQuery.data.value === undefined) return false;
+  return project.value === undefined || project.value.archived;
+});
+
 const heading = computed(() => {
   const current = project.value;
   if (current === undefined) return t('projects.fallbackTitle');
@@ -81,7 +94,20 @@ const notes = computed(() => notesQuery.data.value?.items ?? []);
 </script>
 
 <template>
-  <section class="page project-page" data-project-page>
+  <section v-if="missing" class="page project-page" data-project-page data-project-missing>
+    <header class="page-header">
+      <div class="page-heading">
+        <h1>{{ t('projects.missing.title') }}</h1>
+        <p class="page-lede">{{ t('projects.missing.body') }}</p>
+      </div>
+    </header>
+    <div class="form-actions">
+      <RouterLink to="/tasks" class="btn btn--primary" data-project-missing-back>
+        <UiIcon name="arrow-left" :size="18" class="btn-icon" />{{ t('projects.missing.back') }}
+      </RouterLink>
+    </div>
+  </section>
+  <section v-else class="page project-page" data-project-page>
     <header class="page-header">
       <div class="page-heading">
         <p class="breadcrumb">

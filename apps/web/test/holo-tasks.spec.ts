@@ -10,6 +10,7 @@ import TaskItem from '../src/components/TaskItem.vue';
 import { clearFocusContexts, focusTaskTitle } from '../src/composables/focusContext';
 import { setLayoutClock } from '../src/layout/clock';
 import {
+  INBOX_PROJECT_ID,
   MONTH_TASK_ENGLISH_ID,
   MONTH_TASK_SUMMARY_ID,
   MONTH_TASK_THESIS_ID,
@@ -231,6 +232,55 @@ describe('폴더 페이지 (프로젝트 상세) — its two views are the syste
     await tabs.get('[data-project-tab="notes"]').trigger('keydown', { key: 'ArrowLeft' });
     await vi.waitFor(() => expect(router.currentRoute.value.query['tab']).toBeUndefined());
     await vi.waitFor(() => expect(wrapper.find('#project-panel-tasks').exists()).toBe(true));
+  });
+});
+
+describe('폴더 페이지 — an address that is no folder says so (HOLO-07)', () => {
+  const NO_SUCH_FOLDER = '01900000-0000-7000-8000-00000000dead';
+
+  it('a folder that never was: 이 폴더는 없어요, and the way back to 할 일 — no name, no tabs, no empty list', async () => {
+    const { wrapper } = await mountView(ProjectDetailView, `/projects/${NO_SUCH_FOLDER}`, { id: NO_SUCH_FOLDER });
+    await vi.waitFor(() => expect(wrapper.find('[data-project-missing]').exists()).toBe(true));
+    expect(wrapper.get('h1').text()).toBe('이 폴더는 없어요');
+    const back = wrapper.get('[data-project-missing-back]');
+    expect(back.text()).toBe('할 일로 돌아가기');
+    expect(back.attributes('href')).toBe('/tasks');
+    // The page's one filled button is the way back.
+    expect(wrapper.findAll('.btn--primary')).toHaveLength(1);
+    expect(wrapper.find('[data-project-tabs]').exists()).toBe(false);
+    expect(wrapper.find('#project-panel-tasks').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('이 폴더에는 아직 작업이 없어요.');
+    // Not the nameless folder it used to be.
+    expect(wrapper.findAll('h1').map((heading) => heading.text())).not.toContain('폴더');
+    // The address is not repeated to the reader.
+    expect(wrapper.text()).not.toContain(NO_SUCH_FOLDER);
+  });
+
+  it('a folder that was removed (archived) is no folder either', async () => {
+    const folder = mockDb.projects.get(SAMPLE_PROJECT_ID);
+    if (folder === undefined) throw new Error('sample folder missing');
+    mockDb.projects.set(SAMPLE_PROJECT_ID, { ...folder, archived: true });
+    const { wrapper } = await mountView(ProjectDetailView, `/projects/${SAMPLE_PROJECT_ID}`, { id: SAMPLE_PROJECT_ID });
+    await vi.waitFor(() => expect(wrapper.find('[data-project-missing]').exists()).toBe(true));
+    expect(wrapper.text()).not.toContain(folder.title);
+  });
+
+  it('a folder that is there is shown as before, and so is the inbox’s own page (negative)', async () => {
+    const { wrapper } = await mountView(ProjectDetailView, `/projects/${SAMPLE_PROJECT_ID}`, { id: SAMPLE_PROJECT_ID });
+    await vi.waitFor(() => expect(wrapper.findAll('.task-item').length).toBe(2));
+    expect(wrapper.find('[data-project-missing]').exists()).toBe(false);
+    expect(wrapper.find('[data-project-tabs]').exists()).toBe(true);
+    const inbox = await mountView(ProjectDetailView, `/projects/${INBOX_PROJECT_ID}`, { id: INBOX_PROJECT_ID });
+    await vi.waitFor(() => expect(inbox.wrapper.get('h1').text()).toBe('인박스'));
+    expect(inbox.wrapper.find('[data-project-missing]').exists()).toBe(false);
+  });
+
+  it('while the folder list cannot be read nothing is called missing (negative)', async () => {
+    server.use(http.get('*/api/v1/projects', () => HttpResponse.json({ type: 'about:blank', title: 'x', status: 503, code: 'unavailable' }, { status: 503 })));
+    const { wrapper } = await mountView(ProjectDetailView, `/projects/${NO_SUCH_FOLDER}`, { id: NO_SUCH_FOLDER });
+    await flushPromises();
+    expect(wrapper.find('[data-project-missing]').exists()).toBe(false);
+    expect(wrapper.find('[data-project-tabs]').exists()).toBe(true);
   });
 });
 

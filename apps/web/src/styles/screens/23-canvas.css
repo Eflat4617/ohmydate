@@ -699,7 +699,7 @@
 /* ── What stays in reach while the surface scrolls ─────────────────── */
 .pond-foot {
   position: sticky;
-  bottom: calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + env(safe-area-inset-bottom) + var(--space-3));
+  bottom: calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + var(--safe-bottom) + var(--space-3));
   z-index: 4;
   display: flex;
   align-self: flex-start;
@@ -827,10 +827,27 @@
   }
 }
 
+/* The finger's gestures, in a line over the surface (HOLO-07). */
+.pond-touch-hint {
+  display: none;
+  margin-bottom: calc(-1 * var(--space-2));
+  color: var(--color-text-3);
+  font-size: var(--text-xs);
+}
+
 @media (pointer: coarse) {
   .pond-capsule,
   .pond-todo[data-depth='0'] .pond-capsule,
   .pond-todo[data-depth='2'] .pond-capsule {
     min-height: var(--hit-target);
+  }
+
+  .pond-touch-hint {
+    display: block;
+  }
+
+  /* A held to-do is the surface's: no callout, no selection handles over it. */
+  .pond {
+    -webkit-touch-callout: none;
   }
 }

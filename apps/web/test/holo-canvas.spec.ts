@@ -784,6 +784,281 @@ describe('selection: pick several, and act on them', () => {
   });
 });
 
+describe('under a finger (HOLO-07): scroll, tap, long press, hold and drag', () => {
+  const TOUCH = { pointerType: 'touch', pointerId: 7 } as const;
+  /** The canvas arms a held to-do after 280ms; a little more, so the timer has fired. */
+  const HOLD = 320;
+
+  function fingerDown(wrapper: VueWrapper, id: string): { x: number; y: number } {
+    const at = placeOf(wrapper, id);
+    const point = { x: at.x + 8, y: at.y + 8 };
+    pointer(todo(wrapper, id).element, 'pointerdown', point, TOUCH);
+    return point;
+  }
+
+  async function fingerUp(wrapper: VueWrapper, at: { x: number; y: number }): Promise<TouchEvent> {
+    const stage = wrapper.get('[data-todo-canvas]').element;
+    pointer(stage, 'pointerup', at, TOUCH);
+    // What a browser sends next, and what it reads to decide whether mouse events and a click follow.
+    const end = new Event('touchend', { bubbles: true, cancelable: true }) as TouchEvent;
+    stage.dispatchEvent(end);
+    await flushPromises();
+    await nextTick();
+    return end;
+  }
+
+  async function tap(wrapper: VueWrapper, id: string): Promise<TouchEvent> {
+    return fingerUp(wrapper, fingerDown(wrapper, id));
+  }
+
+  async function longPress(wrapper: VueWrapper, id: string): Promise<TouchEvent> {
+    const at = fingerDown(wrapper, id);
+    await vi.advanceTimersByTimeAsync(HOLD);
+    return fingerUp(wrapper, at);
+  }
+
+  function picked(wrapper: VueWrapper): string[] {
+    return wrapper.findAll('[aria-selected="true"]').map((item) => item.attributes('data-todo') as string);
+  }
+
+  it('a tap opens the detail, and no mouse event or click follows it onto the card', async () => {
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const end = await tap(wrapper, id);
+    expect(card()).not.toBeNull();
+    expect(todo(wrapper, id).attributes('data-open')).toBe('true');
+    // Cancelled: the browser sends no mouse-down (which would take the focus off the card and close it)
+    // and no click (which would press whatever of the card stands under the finger).
+    expect(end.defaultPrevented).toBe(true);
+    expect(picked(wrapper)).toEqual([]);
+  });
+
+  it('a tap is not a long press (negative): let go before the hold, nothing is picked and nothing is lifted', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const before = placeOf(wrapper, id);
+    const at = fingerDown(wrapper, id);
+    await vi.advanceTimersByTimeAsync(120);
+    await fingerUp(wrapper, at);
+    // Long after: the hold that was let go of never fires.
+    await vi.advanceTimersByTimeAsync(HOLD * 2);
+    expect(picked(wrapper)).toEqual([]);
+    expect(card()).not.toBeNull();
+    expect(todo(wrapper, id).attributes('data-state')).not.toBe('held');
+    expect(placeOf(wrapper, id).text).toBe(before.text);
+  });
+
+  it('a scroll is not a drag (negative): the finger moved before the hold, so nothing moves, opens, is picked or stored', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const stage = wrapper.get('[data-todo-canvas]').element;
+    // Whatever the surface writes by itself on opening is written by now.
+    await vi.advanceTimersByTimeAsync(3000);
+    const stored = localStorage.getItem(canvasMemoryKey(mockDb.user.id));
+    const before = placeOf(wrapper, id);
+    const at = fingerDown(wrapper, id);
+    await vi.advanceTimersByTimeAsync(60);
+    pointer(stage, 'pointermove', { x: at.x, y: at.y - 40 }, TOUCH);
+    // The hold's time passes while the finger is already scrolling: it must not arm.
+    await vi.advanceTimersByTimeAsync(HOLD);
+    pointer(stage, 'pointermove', { x: at.x, y: at.y - 160 }, TOUCH);
+    // The browser took the touch for its scroll.
+    pointer(stage, 'pointercancel', { x: at.x, y: at.y - 160 }, TOUCH);
+    const end = new Event('touchend', { bubbles: true, cancelable: true });
+    stage.dispatchEvent(end);
+    await flushPromises();
+    expect(placeOf(wrapper, id).text).toBe(before.text);
+    expect(card()).toBeNull();
+    expect(picked(wrapper)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(localStorage.getItem(canvasMemoryKey(mockDb.user.id))).toBe(stored);
+    // The surface did not answer this touch, so it leaves the browser's own handling alone.
+    expect(end.defaultPrevented).toBe(false);
+    expect(seen).toEqual([]);
+  });
+
+  it('a long press that goes nowhere picks the to-do: the touch way to pick several', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const before = placeOf(wrapper, id);
+    const end = await longPress(wrapper, id);
+    expect(picked(wrapper)).toEqual([id]);
+    expect(card()).toBeNull();
+    expect(wrapper.find('[data-canvas-selection]').exists()).toBe(true);
+    expect(wrapper.get('[data-tasks-to-plan]').text()).toBe('고른 1개 계획에 넣기');
+    // Put down where it was: a pick is not a move.
+    const after = placeOf(wrapper, id);
+    expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeLessThanOrEqual(3);
+    expect(end.defaultPrevented).toBe(true);
+    expect(seen).toEqual([]);
+  });
+
+  it('while something is picked a tap picks and unpicks; with nothing picked a tap opens again (negative)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { wrapper } = await mountCanvas();
+    const first = seedTaskId();
+    await longPress(wrapper, first);
+    await tap(wrapper, MONTH_TASK_ENGLISH_ID);
+    expect(picked(wrapper).sort()).toEqual([first, MONTH_TASK_ENGLISH_ID].sort());
+    expect(card()).toBeNull();
+    expect(wrapper.get('[data-tasks-to-plan]').text()).toBe('고른 2개 계획에 넣기');
+    await tap(wrapper, MONTH_TASK_ENGLISH_ID);
+    await tap(wrapper, first);
+    expect(picked(wrapper)).toEqual([]);
+    // Nothing is picked any more: a tap is a tap again.
+    await tap(wrapper, first);
+    expect(card()).not.toBeNull();
+    expect(picked(wrapper)).toEqual([]);
+  });
+
+  it('hold, then drag: the to-do moves, the place is remembered, and it is not picked', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const stage = wrapper.get('[data-todo-canvas]').element;
+    const before = placeOf(wrapper, id);
+    const at = fingerDown(wrapper, id);
+    await vi.advanceTimersByTimeAsync(HOLD);
+    await nextTick();
+    expect(todo(wrapper, id).attributes('data-state')).toBe('held');
+    const target = { x: 140, y: 560 };
+    pointer(stage, 'pointermove', { x: (at.x + target.x) / 2, y: (at.y + target.y) / 2 }, TOUCH);
+    pointer(stage, 'pointermove', target, TOUCH);
+    await fingerUp(wrapper, target);
+    const after = placeOf(wrapper, id);
+    expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(40);
+    expect(Math.abs(after.x + 8 - target.x)).toBeLessThan(40);
+    expect(Math.abs(after.y + 8 - target.y)).toBeLessThan(40);
+    expect(picked(wrapper)).toEqual([]);
+    expect(card()).toBeNull();
+    await vi.advanceTimersByTimeAsync(3000);
+    const place = storedMemory().places[id];
+    expect(place?.u).toBeLessThan(0.3);
+    expect(place?.v).toBeGreaterThan(0.6);
+  });
+
+  it('a held finger that only wanders does not move the to-do (negative)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const stage = wrapper.get('[data-todo-canvas]').element;
+    const before = placeOf(wrapper, id);
+    const at = fingerDown(wrapper, id);
+    await vi.advanceTimersByTimeAsync(HOLD);
+    // Seven pixels: more than a mouse's wobble, less than a finger's.
+    pointer(stage, 'pointermove', { x: at.x + 5, y: at.y + 5 }, TOUCH);
+    expect(placeOf(wrapper, id).text).toBe(before.text);
+    await fingerUp(wrapper, { x: at.x + 5, y: at.y + 5 });
+    // It went nowhere, so it was a long press: picked, not moved.
+    expect(picked(wrapper)).toEqual([id]);
+  });
+
+  it('the surface laid out again under a resting finger is not the finger moving: still a long press', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const stage = wrapper.get('[data-todo-canvas]').element as HTMLElement;
+    const at = fingerDown(wrapper, id);
+    await vi.advanceTimersByTimeAsync(HOLD);
+    // The list was refreshed and everything above the surface grew by 60px: the surface is lower in the window now.
+    const shifted = { x: 0, y: 60, left: 0, top: 60, right: 1100, bottom: 760, width: 1100, height: 700, toJSON: () => ({}) };
+    stage.getBoundingClientRect = () => shifted as DOMRect;
+    // The finger has not moved in the window.
+    pointer(stage, 'pointermove', at, TOUCH);
+    await fingerUp(wrapper, at);
+    expect(picked(wrapper)).toEqual([id]);
+    expect(card()).toBeNull();
+  });
+
+  it('only the answered touch is ended that way: the next tap, on the selection bar, still clicks (negative)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const stage = wrapper.get('[data-todo-canvas]').element;
+    // A long press whose own touchend never reached the surface (the finger slid off the window).
+    const at = fingerDown(wrapper, id);
+    await vi.advanceTimersByTimeAsync(HOLD);
+    pointer(stage, 'pointerup', at, TOUCH);
+    await flushPromises();
+    await nextTick();
+    expect(picked(wrapper)).toEqual([id]);
+    // The next touch: 폴더로 옮기기 in the selection bar, which the surface's own handler leaves alone.
+    const move = wrapper.get('[data-canvas-selection-move]').element;
+    pointer(move, 'pointerdown', { x: 200, y: 600 }, TOUCH);
+    pointer(move, 'pointerup', { x: 200, y: 600 }, TOUCH);
+    const end = new Event('touchend', { bubbles: true, cancelable: true });
+    move.dispatchEvent(end);
+    // Not cancelled: the browser goes on to click the button.
+    expect(end.defaultPrevented).toBe(false);
+    move.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await nextTick();
+    expect(document.body.querySelector('[data-folder-picker]')).not.toBeNull();
+  });
+
+  it('the hold ticks where the device can, and a tap does not (negative)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const vibrate = vi.fn(() => true);
+    Object.defineProperty(navigator, 'vibrate', { value: vibrate, configurable: true });
+    try {
+      const { wrapper } = await mountCanvas();
+      await tap(wrapper, seedTaskId());
+      expect(vibrate).not.toHaveBeenCalled();
+      await tap(wrapper, seedTaskId());
+      await longPress(wrapper, MONTH_TASK_ENGLISH_ID);
+      expect(vibrate).toHaveBeenCalledTimes(1);
+    } finally {
+      Reflect.deleteProperty(navigator, 'vibrate');
+    }
+  });
+
+  it('the browser’s long-press menu does not open over a held to-do; elsewhere it is the browser’s (negative)', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const stage = wrapper.get('[data-todo-canvas]').element;
+    const menu = (): MouseEvent => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      todo(wrapper, id).element.dispatchEvent(event);
+      return event;
+    };
+    // A mouse's right click, no finger down: left alone.
+    expect(menu().defaultPrevented).toBe(false);
+    const at = fingerDown(wrapper, id);
+    await vi.advanceTimersByTimeAsync(HOLD);
+    expect(menu().defaultPrevented).toBe(true);
+    pointer(stage, 'pointerup', at, TOUCH);
+    expect(menu().defaultPrevented).toBe(false);
+  });
+
+  it('a mouse still clicks, drags at once and picks with Shift: nothing of the finger’s rules reaches it (negative)', async () => {
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    const stage = wrapper.get('[data-todo-canvas]').element;
+    // A click opens, even while something is picked.
+    await click(wrapper, MONTH_TASK_ENGLISH_ID, { shiftKey: true });
+    await click(wrapper, id);
+    expect(card()).not.toBeNull();
+    expect(picked(wrapper)).toEqual([MONTH_TASK_ENGLISH_ID]);
+    // And a mouse's touchend-less click cancels nothing.
+    const end = new Event('touchend', { bubbles: true, cancelable: true });
+    stage.dispatchEvent(end);
+    expect(end.defaultPrevented).toBe(false);
+    // No hold: the drag starts with the first real move.
+    const before = placeOf(wrapper, id);
+    await drag(wrapper, id, { x: 140, y: 560 });
+    const after = placeOf(wrapper, id);
+    expect(Math.hypot(after.x - before.x, after.y - before.y)).toBeGreaterThan(40);
+  });
+
+  it('says the gestures in words over the surface, for a coarse pointer', async () => {
+    const { wrapper } = await mountCanvas();
+    expect(wrapper.get('[data-canvas-touch-hint]').text()).toBe('눌러서 열고, 길게 눌러 고르고, 길게 누른 채 끌어 옮겨요.');
+  });
+});
+
 describe('without a pointer: the canvas is a list to the keyboard', () => {
   it('the arrow keys go to a to-do that way and carry the one tab stop with them', async () => {
     const { wrapper } = await mountCanvas();
@@ -988,6 +1263,67 @@ describe('folders: dishes on the surface, and real projects', () => {
     expect(task(id).projectId).toBe(created?.id);
     expect(mutations()).toEqual(['POST /projects', `PATCH /tasks/${id}`]);
     await vi.waitFor(() => expect(todo(wrapper, id).attributes('data-folder')).toBe(created?.id));
+  });
+
+  it('폴더 만들기 while to-dos are picked: the button says so, the new folder takes them, and the selection ends (HOLO-07)', async () => {
+    const { wrapper } = await mountCanvas();
+    const first = seedTaskId();
+    await click(wrapper, first, { shiftKey: true });
+    await click(wrapper, MONTH_TASK_ENGLISH_ID, { shiftKey: true });
+    const button = wrapper.get('[data-new-folder]');
+    expect(button.text()).toBe('고른 2개로 폴더 만들기');
+    await button.trigger('click');
+    const form = dialog('[data-new-folder-dialog]');
+    expect(form.querySelector('[data-new-folder-help]')?.textContent?.trim()).toBe('이름을 정하면 고른 할 일 2개가 이 폴더로 들어가요.');
+    await setInput(form.querySelector('[data-new-folder-name]'), '이번 주');
+    form.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(task(first).projectId).not.toBe(INBOX_PROJECT_ID));
+    const created = [...mockDb.projects.values()].find((item) => item.title === '이번 주');
+    await vi.waitFor(() => expect(task(MONTH_TASK_ENGLISH_ID).projectId).toBe(created?.id));
+    expect(task(first).projectId).toBe(created?.id);
+    expect(mutations().sort()).toEqual(['POST /projects', `PATCH /tasks/${first}`, `PATCH /tasks/${MONTH_TASK_ENGLISH_ID}`].sort());
+    // The selection ended with what it was for.
+    await vi.waitFor(() => expect(wrapper.findAll('[aria-selected="true"]')).toHaveLength(0));
+    expect(wrapper.find('[data-canvas-selection]').exists()).toBe(false);
+    expect(wrapper.get('[data-new-folder]').text()).toBe('폴더 만들기');
+    expect(wrapper.get('[data-tasks-to-plan]').text()).toBe('계획에 넣기');
+    await vi.waitFor(() => expect(todo(wrapper, first).attributes('data-folder')).toBe(created?.id));
+  });
+
+  it('with nothing picked 폴더 만들기 is plain and the new folder takes nothing; so it is in the list view (negative)', async () => {
+    const { wrapper } = await mountCanvas();
+    expect(wrapper.get('[data-new-folder]').text()).toBe('폴더 만들기');
+    await wrapper.get('[data-new-folder]').trigger('click');
+    const form = dialog('[data-new-folder-dialog]');
+    expect(form.querySelector('[data-new-folder-help]')?.textContent?.trim()).toBe('이름을 정하면 수면에 폴더가 놓여요. 할 일을 끌어다 넣어 정리해요.');
+    await setInput(form.querySelector('[data-new-folder-name]'), '빈 폴더');
+    form.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect([...mockDb.projects.values()].some((item) => item.title === '빈 폴더')).toBe(true));
+    await flushPromises();
+    expect(mutations()).toEqual(['POST /projects']);
+
+    // Picked on the canvas, then a look at the list: the picks are not on show there, and the button does not speak for them.
+    await click(wrapper, seedTaskId(), { shiftKey: true });
+    expect(wrapper.get('[data-new-folder]').text()).toBe('고른 1개로 폴더 만들기');
+    await wrapper.get('[data-tasks-view-link="list"]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-tasks-list]').exists()).toBe(true));
+    expect(wrapper.get('[data-new-folder]').text()).toBe('폴더 만들기');
+  });
+
+  it('a to-do the new folder could not take stays picked (negative)', async () => {
+    const { wrapper } = await mountCanvas();
+    const id = seedTaskId();
+    await click(wrapper, id, { shiftKey: true });
+    server.use(http.patch(`*/api/v1/tasks/${id}`, () => HttpResponse.json({ type: 'about:blank', title: 'x', status: 503, code: 'unavailable' }, { status: 503 })));
+    await wrapper.get('[data-new-folder]').trigger('click');
+    const form = dialog('[data-new-folder-dialog]');
+    await setInput(form.querySelector('[data-new-folder-name]'), '안 되는 폴더');
+    form.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect([...mockDb.projects.values()].some((item) => item.title === '안 되는 폴더')).toBe(true));
+    await vi.waitFor(() => expect(document.body.querySelector('[data-new-folder-dialog]')).toBeNull());
+    await flushPromises();
+    expect(task(id).projectId).toBe(INBOX_PROJECT_ID);
+    expect(todo(wrapper, id).attributes('aria-selected')).toBe('true');
   });
 
   it('renames in place on the folder’s label', async () => {

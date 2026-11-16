@@ -970,7 +970,10 @@ const firstOwn = computed(() => {
           <li><span class="planner-swatch planner-swatch--off" aria-hidden="true"></span>{{ t('planSchedule.legendOff') }}</li>
         </ul>
         <p v-if="!confirmed" class="plan-week-hint">
-          <UiIcon name="info" :size="16" /><span>{{ t('planSchedule.hint') }}</span>
+          <UiIcon name="info" :size="16" />
+          <!-- A finger does not drag a block (WeekGrid): the phone is told the way that works there. -->
+          <span class="plan-hint-fine">{{ t('planSchedule.hint') }}</span>
+          <span class="plan-hint-coarse" data-plan-hint-touch>{{ t('planSchedule.hintTouch') }}</span>
         </p>
       </section>
 

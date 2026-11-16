@@ -9,7 +9,10 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-height: 100dvh;
-  padding-bottom: calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + env(safe-area-inset-bottom));
+  /* Clear of the device's edges: a notch at the top or (turned) at a side,
+     and at the foot the floating nav with the gesture bar under it. */
+  padding: var(--safe-top) var(--safe-right)
+    calc(var(--bottom-nav-height) + 2 * var(--shell-gap) + var(--safe-bottom)) var(--safe-left);
 }
 
 .app-shell--nav-collapsed {
@@ -166,6 +169,11 @@
   flex: 1;
   gap: var(--space-1-5);
   padding-inline: var(--space-2);
+}
+
+/* In a narrow menu the words win the room: the mark keeps its size. */
+.theme-switch-item > .icon {
+  flex: none;
 }
 
 .topbar-bell {
@@ -349,7 +357,8 @@
 /* ── Bottom navigation (phones & tablets) ──────────────────────────── */
 .bottom-nav {
   position: fixed;
-  inset: auto var(--shell-gap) calc(var(--shell-gap) + env(safe-area-inset-bottom)) var(--shell-gap);
+  inset: auto calc(var(--shell-gap) + var(--safe-right)) calc(var(--shell-gap) + var(--safe-bottom))
+    calc(var(--shell-gap) + var(--safe-left));
   z-index: var(--z-nav);
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -433,6 +442,18 @@
 
 .app-shell--calm {
   padding-bottom: 0;
+}
+
+/* Writing on a phone (HOLO-07): the on-screen keyboard takes its space from
+   the page (index.html, `interactive-widget`), which would leave the nav
+   standing right on the keyboard's top row — under a typing thumb. While a
+   field has the caret and the window is as short as a keyboard makes it, the
+   nav steps away; it is back when the keyboard goes or the field is left. */
+@media (pointer: coarse) and (min-aspect-ratio: 3/5) {
+  .app-shell:has(:is(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file'], [type='button'], [type='submit']), textarea, [contenteditable='true']):focus)
+    .bottom-nav {
+    display: none;
+  }
 }
 
 /* ── Page frame ────────────────────────────────────────────────────── */
@@ -537,7 +558,7 @@
     --page-pad: var(--space-8);
 
     grid-template-columns: var(--nav-current-width) minmax(0, 1fr);
-    padding-bottom: 0;
+    padding-bottom: var(--safe-bottom);
   }
 
   .app-shell--calm {

@@ -1497,8 +1497,12 @@
   z-index: var(--z-dialog);
   display: grid;
   place-items: center;
-  padding: var(--space-4);
+  padding: calc(var(--space-4) + var(--safe-top)) calc(var(--space-4) + var(--safe-right))
+    calc(var(--space-4) + var(--safe-bottom)) calc(var(--space-4) + var(--safe-left));
   overflow-y: auto;
+  /* A finger that reaches the end of the dialog's scroll does not go on to
+     drag the page behind it. */
+  overscroll-behavior: contain;
   background: var(--color-overlay);
   animation: backdrop-in var(--duration-base) var(--ease-standard);
 }
@@ -1510,8 +1514,9 @@
   flex-direction: column;
   gap: var(--space-5);
   width: min(34rem, 100%);
-  max-height: calc(100dvh - 2 * var(--space-4));
+  max-height: calc(100dvh - 2 * var(--space-4) - var(--safe-top) - var(--safe-bottom));
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: var(--space-6);
   border-radius: var(--radius-xl);
   color: var(--color-text-2);
@@ -1628,8 +1633,9 @@
 
 .dialog--sheet {
   width: 100%;
-  max-height: min(88dvh, 44rem);
-  padding: var(--space-5) var(--space-5) calc(var(--space-6) + env(safe-area-inset-bottom));
+  max-height: min(88dvh, 44rem, 100dvh - var(--safe-top) - var(--space-2));
+  padding: var(--space-5) calc(var(--space-5) + var(--safe-right)) calc(var(--space-6) + var(--safe-bottom))
+    calc(var(--space-5) + var(--safe-left));
   border-width: var(--rule-hair) 0 0;
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   animation-name: sheet-up;
@@ -1684,8 +1690,8 @@
 /* ── Toast: a small piece of glass (`toast glass`) ─────────────────── */
 .toast-region {
   position: fixed;
-  inset: auto var(--space-3) calc(var(--bottom-nav-height) + var(--space-3) + env(safe-area-inset-bottom))
-    var(--space-3);
+  inset: auto calc(var(--space-3) + var(--safe-right)) calc(var(--bottom-nav-height) + var(--space-3) + var(--safe-bottom))
+    calc(var(--space-3) + var(--safe-left));
   z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
@@ -1759,16 +1765,21 @@
 
 @media (min-width: 1024px) {
   .toast-region {
-    inset: auto var(--space-6) var(--space-6) auto;
+    inset: auto var(--space-6) calc(var(--space-6) + var(--safe-bottom)) auto;
     align-items: flex-end;
   }
 }
 
 /* While a sheet is open the toasts step out of its way: to the top edge on
    a phone (the sheet rises from the bottom), to the left on a wide screen
-   (the sheet stands at the right). */
-:root:has(.dialog-backdrop--sheet) .toast-region {
-  inset: var(--space-3) var(--space-3) auto var(--space-3);
+   (the sheet stands at the right). On a phone a dialog does the same
+   (HOLO-07): a tall one ends in its buttons, right where a toast would lie —
+   and a toast's own button under a thumb that was going for 저장. */
+@media (max-width: 1023.98px) {
+  :root:has(.dialog-backdrop) .toast-region {
+    inset: calc(var(--space-3) + var(--safe-top)) calc(var(--space-3) + var(--safe-right)) auto
+      calc(var(--space-3) + var(--safe-left));
+  }
 }
 
 @media (min-width: 1024px) {

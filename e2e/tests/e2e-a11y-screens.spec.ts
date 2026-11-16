@@ -391,6 +391,14 @@ test.describe('UI-POLISH — axe on every remaining screen (real API)', () => {
 
       await screen(`planner week + day (${size})`, ['commitments', 'planning'], async () => {
         await page.goto(`${state.webUrl}/planner`);
+        if (viewport === PHONE) {
+          // HOLO-07: a phone that arrives at the bare address gets the day, one
+          // column a thumb can read; 주 in the view switch is still the week.
+          await expect(page).toHaveURL(/\/planner\?view=day/);
+          await expect(page.locator('[data-planner="day"]')).toBeVisible();
+          await page.getByRole('button', { name: '주', exact: true }).click();
+          await expect(page).toHaveURL(/\/planner$/);
+        }
         await expect(page.getByRole('heading', { level: 1 })).toHaveText(
           /^(\d{4}년 )?\d{1,2}월 \d{1,2}일 ~ \d{1,2}월 \d{1,2}일$/,
         );

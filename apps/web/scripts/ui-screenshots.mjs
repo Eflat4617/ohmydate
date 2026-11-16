@@ -224,7 +224,8 @@ async function flowPlaces(browser, run) {
     await page.locator('[data-plan-scope], .plan-scope, .page').first().waitFor();
     await checkpoint(page, '26-plan-scope', run);
 
-    await go(page, '/planner');
+    // A phone that arrives at the bare address gets the day (HOLO-07): the week is asked for by name.
+    await go(page, '/planner?view=week');
     await page.locator('[data-planner="week"]').waitFor();
     await checkpoint(page, '30-planner-week', run);
     await go(page, '/planner?view=day');
@@ -302,7 +303,7 @@ async function flowShell(browser, run) {
 // ── ① 담기: the capture bar, from a line to the hand-off; and the search ─────
 async function flowCapture(browser, run) {
   await withPage(browser, run, undefined, async (page) => {
-    await go(page, '/planner');
+    await go(page, '/planner?view=week');
     await page.locator('[data-planner="week"]').waitFor();
     await openCapture(page, run);
     await captureInput(page).fill('금요일까지 보고서 초안, 내일 장보기');

@@ -5,7 +5,7 @@ import { createPinia, type Pinia } from 'pinia';
 import { defineComponent, h, nextTick } from 'vue';
 import { createMemoryHistory, createRouter, type Router } from 'vue-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApiError } from '../src/api';
+import { ApiError, plannerClient } from '../src/api';
 import AppShell from '../src/components/AppShell.vue';
 import CaptureBar from '../src/components/capture/CaptureBar.vue';
 import OverviewCard from '../src/components/overview/OverviewCard.vue';
@@ -32,8 +32,9 @@ import TasksView from '../src/views/TasksView.vue';
 
 /**
  * RC-10B: "this place is not ready" (src/platform/notReady.ts; blueprint 15
- * §1.4, §7.3). The Rust core serves twelve operations today and answers 501
- * for the rest. In the desktop bundle a 501 is not retried, the place that
+ * §1.4, §7.3). The Rust core serves nineteen operations today (RC-20 added
+ * available hours, appointments and a day's events to the first twelve) and
+ * answers 501 for the rest. In the desktop bundle a 501 is not retried, the place that
  * asked says so calmly, the start guide stays away, 개요 keeps its frame and
  * 할 일 works in full. In a server bundle a 501 is what it always was — every
  * rule has that negative beside it.
@@ -56,16 +57,53 @@ function problem(status: number, code: string, title = 'x'): Response {
   );
 }
 
-/** What the core serves today (`handlers::table()`): method + path, without `/api/v1`. */
+/**
+ * What the core serves today (`handlers::table()` in core/crates/server, and
+ * `CORE_SERVES` in e2e/helpers/driver.ts): method + path, without `/api/v1`.
+ * Nineteen operations — the owner, projects and tasks (RC-00, RC-10A: twelve),
+ * then available hours, appointments and a day's calendar events (RC-20: seven).
+ */
 const SERVED: readonly RegExp[] = [
+  // getMe, updateMySettings
   /^GET \/me$/,
   /^PATCH \/me\/settings$/,
+  // listProjects, createProject, updateProject
   /^(GET|POST) \/projects$/,
   /^PATCH \/projects\/[^/:]+$/,
+  // listTasks, createTask, getTask, updateTask, deleteTask, completeTask, createTaskDependency
   /^(GET|POST) \/tasks$/,
   /^(GET|PATCH|DELETE) \/tasks\/[^/:]+$/,
   /^POST \/tasks\/[^/:]+:complete$/,
   /^POST \/tasks\/[^/:]+\/dependencies$/,
+  // getAvailability, putAvailability
+  /^(GET|PUT) \/availability$/,
+  // listCommitments, createCommitment, updateCommitment, deleteCommitment
+  /^(GET|POST) \/commitments$/,
+  /^(PATCH|DELETE) \/commitments\/[^/:]+$/,
+  // listCalendarDayEvents
+  /^GET \/calendar-day-events$/,
+];
+/** One call of each served operation: the model above holds exactly these, and nothing of what is still to come. */
+const SERVED_OPERATIONS: readonly string[] = [
+  'GET /me',
+  'PATCH /me/settings',
+  'GET /projects',
+  'POST /projects',
+  'PATCH /projects/p1',
+  'GET /tasks',
+  'POST /tasks',
+  'GET /tasks/t1',
+  'PATCH /tasks/t1',
+  'DELETE /tasks/t1',
+  'POST /tasks/t1:complete',
+  'POST /tasks/t1/dependencies',
+  'GET /availability',
+  'PUT /availability',
+  'GET /commitments',
+  'POST /commitments',
+  'PATCH /commitments/c1',
+  'DELETE /commitments/c1',
+  'GET /calendar-day-events',
 ];
 /** Operations the desktop core will never serve: unknown routes (404). */
 const DROPPED: readonly RegExp[] = [/^POST \/auth\/(login|logout)$/, /^(POST|DELETE) \/push-subscriptions/];
@@ -78,12 +116,20 @@ interface Seen {
   readonly status: number;
 }
 
+/** The hours lookup, for a test of a place whose operation is not served yet (as hours were before RC-20). */
+const HOURS_LOOKUP = /^GET \/availability$/;
+
 /**
  * The mock answers as the Rust core does today: the served operations as
  * always, everything else 501 `internal_error` "Not implemented", and `/me`
  * without `llmProvider`. Returns every request it saw, with its answer.
+ *
+ * `notYet` takes operations back out, to stand a served one in for "not
+ * ready": the rules for a 501 hold for whichever operation answers it, and
+ * the hours lookup — the one the start guide waits for — is served now.
  */
-function likeTheCore(): Seen[] {
+function likeTheCore(options: { readonly notYet?: readonly RegExp[] } = {}): Seen[] {
+  const notYet = options.notYet ?? [];
   const seen: Seen[] = [];
   const { llmProvider: _none, ...owner } = mockDb.user;
   void _none;
@@ -93,7 +139,7 @@ function likeTheCore(): Seen[] {
       const url = new URL(request.url);
       const path = url.pathname.replace(/^.*\/api\/v1/, '');
       const call = `${request.method} ${path}`;
-      if (SERVED.some((pattern) => pattern.test(call))) {
+      if (SERVED.some((pattern) => pattern.test(call)) && !notYet.some((pattern) => pattern.test(call))) {
         seen.push({ method: request.method, path, query: url.search, status: 200 });
         return undefined;
       }
@@ -309,6 +355,56 @@ describe('the notification list', () => {
 
 // ── The shell and the start guide ───────────────────────────────────────────
 
+describe('the model of the core: what it serves today', () => {
+  const answer = (call: string): number =>
+    SERVED.some((pattern) => pattern.test(call)) ? 200 : DROPPED.some((pattern) => pattern.test(call)) ? 404 : 501;
+
+  it('serves nineteen operations: the owner, projects and tasks, and since RC-20 hours, appointments and a day’s events', () => {
+    expect(SERVED_OPERATIONS).toHaveLength(19);
+    expect(new Set(SERVED_OPERATIONS).size).toBe(19);
+    for (const call of SERVED_OPERATIONS) expect(answer(call), call).toBe(200);
+    // The seven RC-20 brought.
+    expect(SERVED_OPERATIONS.filter((call) => /\/(availability|commitments|calendar-day-events)/.test(call))).toHaveLength(7);
+  });
+
+  it('answers 501 for what is still to come, and 404 for what it will never serve (negative)', () => {
+    for (const call of [
+      'GET /today',
+      'GET /notifications',
+      'GET /plans',
+      'POST /plans',
+      'GET /focus-sessions',
+      'POST /focus-sessions',
+      'GET /insights',
+      'GET /notes',
+      'GET /replan-proposals',
+      'GET /integrations/google',
+      // Close to a served one, and not it.
+      'DELETE /availability',
+      'PUT /commitments',
+      'GET /commitments/c1',
+      'POST /calendar-day-events',
+      'DELETE /projects/p1',
+    ]) {
+      expect(answer(call), call).toBe(501);
+    }
+    for (const call of ['POST /auth/login', 'POST /auth/logout', 'POST /push-subscriptions', 'DELETE /push-subscriptions/s1']) {
+      expect(answer(call), call).toBe(404);
+    }
+  });
+
+  it('the mock answers that way: a served lookup is read, one taken back out is a 501', async () => {
+    desktopBundle();
+    const seen = likeTheCore({ notYet: [HOURS_LOOKUP] });
+    await plannerClient.listCommitments({ from: '2026-11-09T00:00:00.000Z', to: '2026-11-16T00:00:00.000Z' });
+    await expect(plannerClient.getAvailability()).rejects.toMatchObject({ status: 501 });
+    expect(seen.map((entry) => [entry.method, entry.path, entry.status])).toEqual([
+      ['GET', '/commitments', 200],
+      ['GET', '/availability', 501],
+    ]);
+  });
+});
+
 describe('the shell on the core as it is today', () => {
   async function mountShell(): Promise<VueWrapper> {
     const router = stubRouter();
@@ -329,9 +425,31 @@ describe('the shell on the core as it is today', () => {
 
   const guideState = (wrapper: VueWrapper) => wrapper.get('.app-shell').attributes('data-first-run-state');
 
-  it('desktop: the start guide does not wait for hours nobody can read, and stays away', async () => {
+  it('desktop: on today’s core the hours are read, once, and an owner who has some is not met by the guide', async () => {
     desktopBundle();
     const seen = likeTheCore();
+    const wrapper = await mountShell();
+    await vi.waitFor(() => expect(guideState(wrapper)).toBe('idle'));
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await flushPromises();
+    expect(guideState(wrapper)).toBe('idle');
+    expect(document.querySelector('[data-first-run]')).toBeNull();
+    // Served since RC-20: the lookup is answered, not refused.
+    expect(seen.filter((entry) => entry.method === 'GET' && entry.path === '/availability').map((entry) => entry.status)).toEqual([200]);
+    // What is still to come is asked once.
+    expect(countOf(seen, 'GET', '/notifications')).toBe(1);
+    expect(notServed(seen).length).toBeGreaterThan(0);
+    for (const entry of notServed(seen)) {
+      expect(sameRequest(seen, entry), `${entry.method} ${entry.path}${entry.query}`).toBe(1);
+    }
+    expect(unhandled).toEqual([]);
+    expect(consoleError).not.toHaveBeenCalled();
+  });
+
+  it('desktop: the start guide does not wait for hours nobody can read, and stays away', async () => {
+    desktopBundle();
+    // A place that is not ready, standing in for any that will be: the hours lookup answers 501.
+    const seen = likeTheCore({ notYet: [HOURS_LOOKUP] });
     const wrapper = await mountShell();
     await vi.waitFor(() => expect(guideState(wrapper)).toBe('idle'));
     await new Promise((resolve) => setTimeout(resolve, 60));
@@ -364,7 +482,7 @@ describe('the shell on the core as it is today', () => {
   });
 
   it('server: hours that fail are asked again before the guide gives up (negative)', async () => {
-    const seen = likeTheCore();
+    const seen = likeTheCore({ notYet: [HOURS_LOOKUP] });
     const wrapper = await mountShell();
     await vi.waitFor(() => expect(guideState(wrapper)).toBe('idle'));
     expect(countOf(seen, 'GET', '/availability')).toBeGreaterThan(1);
