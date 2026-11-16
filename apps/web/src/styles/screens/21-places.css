@@ -103,6 +103,19 @@
   letter-spacing: 0;
 }
 
+/* 이름: one field and its save, the field no wider than a name needs. */
+.settings-name {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 24rem;
+}
+
+/* "Saved" stands level with the button it answers. */
+.settings-name .status-note {
+  align-self: center;
+}
+
 .settings-card-lede {
   max-width: 40rem;
   color: var(--color-text-3);

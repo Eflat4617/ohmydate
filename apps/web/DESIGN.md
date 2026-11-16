@@ -517,7 +517,9 @@ The product is one loop — 담기 → 계획 → 오늘 → 집중 → 돌아�
 - **Empty states lead back a stage:** 오늘 without a plan offers 계획 세우기, 계획 without to-dos the capture bar, 분석 without sessions 집중.
 
 ### Settings (HOLO-04, `views/SettingsView.vue`, `components/settings`)
-One 설정 with four sections on a segmented control: 가용 시간, 캘린더 연동, AI, 화면. A section is a title, one line, and cards (`.settings-card`) on the dashboard grid; long forms keep one sticky save bar of glass. 화면 holds the theme, 투명 효과 줄이기 (glass turns opaque) and the adaptive layout. 설정 is for changing things later: nothing in the loop starts there.
+One 설정 with four sections on a segmented control: 가용 시간, 캘린더 연동, AI, 화면. A section is a title, one line, and cards (`.settings-card`) on the dashboard grid; long forms keep one sticky save bar of glass. 화면 holds 이름 (what the app calls the owner, HOLO-07), the theme, 투명 효과 줄이기 (glass turns opaque) and the adaptive layout.
+
+**이름** (`session/chosenName.ts`, rules in `domain/displayName.ts`): the account has no name field, so the app called the owner by the part of their e-mail address before the `@`. The owner can choose a name instead — one field, 앱이 나를 부르는 이름, saved with its own button. It is trimmed, its inner white space collapsed, cut at 30 characters (code points), and plain text. It is kept per owner on the device (owner slot `chosenName`: the name only), written for the owner the screen was made for and dropped if that changed, and read reactively: 개요's greeting, the account chip and the avatar's initial change at once. Empty is the e-mail's part again (the desktop bundle, which has no address, then names nobody). It never goes to the server, a log or anything the AI reads. 설정 is for changing things later: nothing in the loop starts there.
 
 ### Banner, Dialog, Toast
 - **Banner:** a tinted line with its hue on the edge and the icon; text stays the page's text. Info is sky, success green, warning and conflict amber, accent lime, error red with a red title. Offline is neutral and dashed.

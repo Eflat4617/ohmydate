@@ -4,6 +4,7 @@ import { VueQueryPlugin } from '@tanstack/vue-query';
 import App from './App.vue';
 import { router } from './router';
 import { DEFAULT_LOCALE, setLocale } from './i18n';
+import { bootChosenName } from './session/chosenName';
 import { installPageSeal } from './session/ownerEpoch';
 import { createOwnerQueryClient } from './session/ownerQuery';
 import { mockApiWanted } from './platform/mode';
@@ -35,5 +36,7 @@ async function bootstrap(): Promise<void> {
 // awaited (index.html holds the first paint until this module has run).
 bootTheme();
 bootTransparency();
+// What the owner asked to be called on this device (HOLO-07): read before the first screen.
+bootChosenName();
 
 void bootstrap();

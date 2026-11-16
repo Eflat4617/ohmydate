@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
-import { displayNameOf, initialOf } from '../domain/displayName';
+import { displayNameFor, initialOf } from '../domain/displayName';
 import { t, tp } from '../i18n';
 import { crumbFor, NAV_SETTINGS } from '../layout/navigation';
 import { isDesktop, ownerEmail } from '../platform/mode';
+import { useChosenName } from '../session/chosenName';
 import { useAuthStore } from '../stores/auth';
 import { useUiStore } from '../stores/ui';
 import BrandMark from './BrandMark.vue';
@@ -39,7 +40,9 @@ const crumbText = computed(() => {
 // Desktop: one owner and no account — nothing to sign out of, and no address to show.
 const desktop = isDesktop();
 const email = computed(() => ownerEmail(auth.user));
-const name = computed(() => displayNameOf(email.value));
+// The name the owner chose on this device, else the e-mail's own part (HOLO-07).
+const chosenName = useChosenName();
+const name = computed(() => displayNameFor(chosenName.name.value, email.value));
 const initial = computed(() => initialOf(name.value));
 const bellLabel = computed(() =>
   props.unread > 0 ? tp('nav.notificationsUnread', props.unread) : t('nav.notifications'),

@@ -104,6 +104,13 @@ const OWNER_SLOTS = {
     onOwnerChange: 'preserve',
     why: 'That the owner asked for opaque surfaces instead of glass (설정 › 화면), per owner on this device. One word, no user content.',
   },
+  chosenName: {
+    area: 'local',
+    prefix: 'ohmydate.owner.name',
+    staleWrites: 'drop',
+    onOwnerChange: 'preserve',
+    why: 'What the owner asked the app to call them (설정 › 화면), per owner on this device: one short line they typed (at most 30 characters), shown back to them in the greeting and the account chip. The name only. It is never sent to the server, written to a log or put into anything the AI reads.',
+  },
   shellNav: {
     area: 'local',
     prefix: 'ohmydate.shell.nav',
