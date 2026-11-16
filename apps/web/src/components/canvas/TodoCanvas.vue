@@ -638,6 +638,13 @@ const selection = ref<Selection>(NO_SELECTION);
 const activeId = ref<string | null>(null);
 const focusInside = ref(false);
 const status = ref('');
+/**
+ * The to-do the one floating detail is open on. Declared here, with the rest
+ * of what `refreshStill` reads: the `selected` watcher below runs once while
+ * this component is being set up, and a canvas that comes back with to-dos
+ * already picked (목록 → 캔버스) reaches `refreshStill` on that first run.
+ */
+const openId = ref<string | null>(null);
 
 function announce(text: string): void {
   status.value = text;
@@ -690,8 +697,7 @@ function onFieldFocusOut(event: FocusEvent): void {
   wake();
 }
 
-// ── The floating detail ─────────────────────────────────────────────────
-const openId = ref<string | null>(null);
+// ── The floating detail (`openId` is declared with the selection, above) ─
 const detailEl = ref<HTMLElement | null>(null);
 const detailStyle = ref<Record<string, string>>({ visibility: 'hidden' });
 const detailSide = ref<'right' | 'left' | 'below' | 'above'>('right');

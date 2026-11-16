@@ -726,6 +726,49 @@ describe('selection: pick several, and act on them', () => {
     expect(wrapper.find('[data-canvas-selection]').exists()).toBe(false);
   });
 
+  it('what is picked stays picked across a look at the list: the canvas comes back, with the same selection (HOLO-06)', async () => {
+    // The place keeps the selection while the canvas is away. A canvas that
+    // was handed a selection as it mounted used to throw in its setup (the
+    // first run of the `selected` watcher read `openId` before it existed),
+    // and 할 일 came back empty.
+    const { wrapper } = await mountCanvas();
+    await click(wrapper, MONTH_TASK_ENGLISH_ID, { shiftKey: true });
+    await click(wrapper, seedTaskId(), { shiftKey: true });
+    expect(wrapper.get('[data-tasks-to-plan]').text()).toBe('고른 2개 계획에 넣기');
+
+    await wrapper.get('[data-tasks-view-link="list"]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-tasks-list]').exists()).toBe(true));
+    expect(wrapper.find('[data-todo-canvas]').exists()).toBe(false);
+    await wrapper.get('[data-tasks-view-link="canvas"]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-todo-canvas]').exists()).toBe(true));
+    await flushPromises();
+    await nextTick();
+
+    expect(wrapper.findAll('[data-todo]')).toHaveLength(8);
+    expect(wrapper.findAll('[aria-selected="true"]').map((option) => option.attributes('data-todo')).sort()).toEqual(
+      [MONTH_TASK_ENGLISH_ID, seedTaskId()].sort(),
+    );
+    expect(wrapper.get('[data-canvas-selection-count]').text()).toBe('2개 고름');
+    expect(wrapper.get('[data-tasks-to-plan]').text()).toBe('고른 2개 계획에 넣기');
+    // Coming back is not a new pick: nothing is announced, and no detail opens.
+    expect(wrapper.get('[data-canvas-status]').text()).toBe('');
+    expect(card()).toBeNull();
+  });
+
+  it('with nothing picked the canvas comes back with nothing picked (negative)', async () => {
+    const { wrapper } = await mountCanvas();
+    await wrapper.get('[data-tasks-view-link="list"]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-tasks-list]').exists()).toBe(true));
+    await wrapper.get('[data-tasks-view-link="canvas"]').trigger('click');
+    await vi.waitFor(() => expect(wrapper.find('[data-todo-canvas]').exists()).toBe(true));
+    await flushPromises();
+    await nextTick();
+    expect(wrapper.findAll('[data-todo]')).toHaveLength(8);
+    expect(wrapper.findAll('[aria-selected="true"]')).toHaveLength(0);
+    expect(wrapper.find('[data-canvas-selection]').exists()).toBe(false);
+    expect(wrapper.get('[data-tasks-to-plan]').text()).toBe('계획에 넣기');
+  });
+
   it('a to-do that left the surface is no longer picked (negative)', async () => {
     const { wrapper, queryClient } = await mountCanvas();
     const id = seedTaskId();
