@@ -115,7 +115,12 @@ export async function login(
       await page.waitForTimeout(61_000);
       continue;
     }
-    await expect(page.locator('[data-overview]')).toBeVisible();
+    // The app opens on 개요 — unless a focus session is already running, in
+    // which case the adaptive layout takes the owner straight to the timer
+    // (sometimes before 개요 has painted). Either one is "signed in and open".
+    await expect(
+      page.locator('[data-overview], .adaptive-frame[data-layout-mode="focus"]').first(),
+    ).toBeVisible();
     await settleStartGuide(page);
     return;
   }
