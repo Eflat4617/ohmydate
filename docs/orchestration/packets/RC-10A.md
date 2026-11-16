@@ -1,0 +1,35 @@
+# TASK PACKET: RC-10A — the Rust core can carry the web: settings, static files, `/__boot`, a movable clock, the parity ledger and `ci:core` (A lane, core side only)
+Role: worker (Fable 5.2 xhigh; MODEL_BINDINGS §13). Base: torgal/ohmydate HEAD. RC-00, RC-30..33 (scheduler) and FOLD-01 (`updateProject`) are merged. Read `docs/blueprint/15-DESKTOP-RUST-CORE.md` first (§1.3 how the web reaches the core, §1.4 the contract is the router, §1.5 life cycle, §2 route parity, §7 tests incl. §7.3, §7.5, §7.6, §10 row RC-10, §11 R7, R11, R13) and ADR-025, then `AGENTS.md` "Rust 코어".
+
+WHY THIS IS HALF OF RC-10: the plan's RC-10 also changes the web (a desktop boot without login) and the E2E harness (a `core` target). A web worker is active in `apps/web/**` and `e2e/**`, and the weekly model allowance is limited, so RC-10 is split: THIS task does everything that lives in `core/**` and `tests-core/**`; RC-10B (later) does the web's desktop mode, `core:dev` and the E2E `core` target on top of what you leave. Design your side so RC-10B needs no change in the core: say in the report exactly what the web must do to boot against the core.
+
+MANDATE (the user, 2026-11-16): "모든걸 다 뜯어고쳐도 좋아. 이 저장소는 너꺼야." Inside `core/` the design is yours; what does not bend: the HTTP contract is `packages/contracts/openapi.json`, and the security checks of §1.3.
+
+You are a supervised Orca worker on project OhMyDate. Your Task ID and Dispatch ID are in the Orca preamble.
+RULES
+1. Edit ONLY the "allowed paths". Anything else: `orca orchestration ask` and end your turn.
+2. Never: sudo, global installs, docker, git push, git rebase of shared branches, starting sub-workers, reading/writing outside your worktree, printing or storing secrets, calling paid external APIs other than your own model. Rust is at `~/.cargo/bin` (`export PATH="$HOME/.cargo/bin:$PATH"`). New crates must be MIT / Apache-2.0 / BSD / ISC or already in the licence table (`docs/blueprint/10-LICENSE-AND-MIGRATION.md` §9): update the table; list anything else in the report and do not add it.
+3. New behaviour gets a unit test and at least one negative case each; no `#[ignore]`, no deleted or weakened tests. Do not change `packages/**`, `services/**`, `apps/**` or `e2e/**`.
+4. Commit IN SLICES with Conventional Commits, "Task: RC-10A" in the body, in the order of "WHAT TO BUILD"; each commit green.
+5. Run every command in "Exact tests", paste real exit codes. Heartbeat if the preamble asks.
+6. Finish with EXACTLY ONE:
+   orca orchestration send --type worker_done --subject "<taskId> done" --task-id <taskId> --dispatch-id <dispatchId> \
+     --outcome succeeded|failed --files-modified "<csv>" --body "<report>" --json
+REPORT: commits; each piece and how it is proven; the parity numbers (operations served, harness passed / not applicable); what the schema comparison found (R13); the ledger's totals; changes to the plan document; and "what RC-10B must do in the web and the E2E harness" as a short list.
+
+MEMORY RULE: 15 GB laptop shared with a worker running web tests. `CARGO_BUILD_JOBS=2`; one build or test command at a time; no `--release` builds. Never type `pnpm ci`. Use `corepack pnpm …`.
+BUDGET NOTE: the weekly model allowance is finite. Commit each slice the moment it is green; the coordinator may stop you at any time and whatever is committed must stand on its own.
+
+ALLOWED PATHS: `core/**`, `tests-core/**`, `docs/blueprint/15-DESKTOP-RUST-CORE.md` (keep it true), `docs/blueprint/10-LICENSE-AND-MIGRATION.md` (crate table), root `package.json` (scripts only), `AGENTS.md` (`core/` section only).
+
+WHAT TO BUILD (slices, in order)
+1) `updateMySettings` (PATCH /me/settings as the contract declares it): store, use-case, handler, one line in `tests-core/support/routes.ts`, the operation-specific parity cases the generic suite cannot know. Time zone validation as the contract's format says.
+2) Static files and the boot hand-off (§1.3): `--web-dir <dir>` serves a built web app from the same origin as the API — `index.html` for the root and for any path that is not a file and not under the API or the reserved paths (the web is a single-page app with history routing), correct content types, long-lived caching only for content-hashed assets and none for `index.html`, no directory listing, no path traversal (prove it with hostile paths), security headers that fit a local app (a content security policy that still lets the web run: it loads its own scripts, styles, fonts, images, a lazy three.js chunk and uses WebGL; say what you chose and why). `GET /__boot?token=…` sets the launch cookie exactly as §1.3 describes and redirects to `/`; a wrong or missing token gets no cookie and tells nothing. The token never reaches a log (test). Without `--web-dir` the core behaves as today. Test with a small fixture directory under `core/` (do not build the real web in tests).
+3) A movable clock for tests: `--clock-offset-ms <n>` (and only when a test-only flag or build setting allows it — decide how to make it impossible to turn on by accident in a packaged app, and say so) shifts the `Clock` adapter; lifecycle test proves created rows carry the shifted time.
+4) The parity ledger `core/PARITY.md` (§7.5), first edition: one line per TypeScript test file under `services/api/test`, `packages/{scheduler,llm,domain,provider-native,provider-vikunja,contracts,testkit}/test` and `e2e/tests` — `옮김 (→ Rust test path)` / `대체 (→ what)` / `해당 없음 (reason)` / `아직 (which RC task)` — generated or checked by a script so it cannot silently go stale (a test in `tests-core` that fails when a TypeScript test file exists that the ledger does not name). The scheduler rows are already true (RC-30..33): take them from the plan's §5.5.
+5) R13 — the schema verdict comparison: a tool that, for every request schema in the contract, generates sample values (valid, and invalid at the edges: formats `date-time` / `uuid` / `email` / `iana-time-zone`, lengths, integer bounds, additional properties, unicode) and runs both validators — Ajv as `packages/contracts` configures it, and the core's `jsonschema` setup — and lists every sample where the verdicts differ. Wire it as a script (`core:schema-diff`); fix differences on the Rust side where the contract's intent is clear, and list the rest in the plan document with a decision for each.
+6) `ci:core` = `core:check` + `core:parity` (+ the ledger and schema checks if they are fast) as a root script; `ci` itself stays as it is (§7.6). Update the plan document (§0 "지금 있음", §2.2 rows, §7, §10: RC-10 becomes RC-10A done / RC-10B open with its scope) and `AGENTS.md`'s core section (new flags, new scripts).
+
+Exact tests, one at a time:
+export PATH="$HOME/.cargo/bin:$PATH" ; CARGO_BUILD_JOBS=2 corepack pnpm run core:check ; CARGO_BUILD_JOBS=2 corepack pnpm run core:parity ; corepack pnpm run core:schema-diff ; CARGO_BUILD_JOBS=2 corepack pnpm run ci:core ; corepack pnpm run typecheck ; corepack pnpm run lint ; corepack pnpm run check:boundaries.
+Clean git status (no `target/`), worker_done. Retry limit 2. Rollback: delete branch.
