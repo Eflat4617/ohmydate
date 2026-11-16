@@ -745,10 +745,16 @@ operation마다의 규칙은 그 옆의 파일에 둔다: `projects.test.ts`(`up
 6. 빌드는 Vite 기본값을 지킨다: `base: '/'`, 해시가 든 파일은 `assets/` 아래. 코어의 캐시 규칙과 "없는 파일은 404" 규칙이 그 모양에 기대고 있다(§1.3).
 7. CSP 아래서 돌아야 한다(§1.3): 인라인 `<script>`·`eval`·`new Function` 없음, 실행 중에 `<style>` 요소를 끼워 넣지 않음(`style` 속성은 된다), 이미지는 같은 출처나 `data:`, `fetch`는 같은 출처만. 더 필요해지면 코어의 정책을 이유와 함께 넓힌다(AGENTS.md) — 그것은 코어 변경이다.
 
-개발 실행 `core:dev`:
+개발 실행 `core:dev`(**있음**, RC-10B — `corepack pnpm run core:dev`, `scripts/core/dev.mjs`):
 
 8. `corepack pnpm run core:build` 뒤 `core/target/debug/ohmydate-core --data-dir <디렉터리> --ready-file <파일> --allow-origin http://127.0.0.1:5173 --allow-origin http://localhost:5173`. ready 파일(0600)의 `{port, token, pid}`를 읽는다.
 9. Vite의 `/api` 프록시가 대상(`http://127.0.0.1:<port>`)으로 `Authorization: Bearer <token>`을 붙여 보낸다. `changeOrigin: true`는 그대로 둔다(Host가 코어의 주소여야 403이 아니다). 브라우저가 붙이는 `Origin`(Vite 출처)은 `--allow-origin`이 받는다.
+
+만든 모양: 명령 하나가 코어를 빌드하고(`core:build`와 같은 feature라 테스트와 사이에 다시 빌드하지 않는다), 0700 임시 디렉터리에 ready 파일을 두고 코어를 띄운 뒤, Vite를 `--mode desktop --strictPort`로 띄운다(포트가 곧 허용된 출처라 다른 포트로 밀려나면 안 된다). 데이터는 `--data-dir <디렉터리>`를 주면 남고, 주지 않으면 그 임시 디렉터리 안에 있다가 끝날 때 지워진다. Ctrl-C·SIGTERM, 또는 둘 중 하나가 죽으면 다른 쪽도 끝낸다(코어는 SIGTERM으로 — ready 파일을 지우고 0으로 끝난다).
+
+토큰이 지나는 길은 하나다: 코어 → ready 파일(0600) → Vite 프로세스의 프록시(`apps/web/config/coreProxy.ts`) → 코어로 가는 요청의 헤더. 런처는 ready 파일에서 포트만 꺼내고 Vite에는 파일의 **경로**만 넘긴다(`OHMYDATE_CORE_READY_FILE` — `VITE_`로 시작하지 않으므로 번들에 들어가지 않는다). 프록시는 토큰을 옵션 객체가 아니라 클로저에 두어서 Vite가 설정을 찍어도(`DEBUG=vite:config`) 보이지 않고, 페이지가 보낸 `Authorization`은 덮어쓴다. ready 파일이 0600이 아니면 프록시를 만들지 않는다. 실측(2026-11-16): 프록시를 지난 `GET /me` 200, 코어에 직접은 401, Vite 출처의 `POST /tasks` 201, 다른 출처는 403; 토큰은 런처 출력·세 프로세스의 인자와 환경·Vite가 서빙한 모듈 어디에도 없었다.
+
+개발 전용이다. Vite 포트에 닿는 누구에게나 프록시가 토큰을 붙여 주므로(다른 출처의 변경은 코어의 Origin 검사가 막는다) 운영 경로가 아니다 — 운영 경로는 코어가 웹을 직접 서빙하는 ①이다.
 
 E2E(`e2e/`):
 

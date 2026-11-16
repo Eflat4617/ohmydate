@@ -27,6 +27,7 @@
     "ci:core": "pnpm run core:check && pnpm run core:parity",
     "core:check": "cd core && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo clippy -p ohmydate-server --all-targets --features test-clock -- -D warnings && cargo test && cargo test -p ohmydate-server --features test-clock",
     "core:build": "cd core && cargo build -p ohmydate-server --features test-clock",
+    "core:dev": "node scripts/core/dev.mjs",
     "core:parity": "pnpm run core:build && tsc --noEmit -p tests-core && vitest run --config tests-core/vitest.config.ts",
     "core:ledger": "vitest run --config tests-core/vitest.config.ts tests-core/ledger.test.ts tests-core/docs.test.ts",
     "core:schema-diff": "pnpm run core:build && vitest run --config tests-core/vitest.config.ts tests-core/schema.test.ts",
